@@ -2294,6 +2294,114 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// The neural upscaler's training-shot plan (docs/neural-upscaler.md). Written
+// ONLY when something has been authored: a default plan is what the trainer has
+// always done, so an untouched project's .tyra keeps its exact previous shape
+// and every fold table published against it stays reproducible.
+//
+// The automatic moves are written as a NAME list rather than a bool array, so
+// the order in the enum is free to grow without a file written today meaning
+// something else tomorrow - the same reason `inputCodes()` is append-only and
+// the menu display modes are stored explicitly.
+static void writeBlssShotsSection(std::ostream& json, const Project& p) {
+    const BlssShotPlan& pl = p.blssShots;
+    if (pl.isDefault()) return;
+    json << "\"blssShots\": { \"takes\": " << (pl.authoredTakes ? "true" : "false")
+         << ", \"auto\": [";
+    bool first = true;
+    for (int i = 0; i < kBlssAutoMoveCount; ++i) {
+        if (!pl.autoMove[i]) continue;
+        json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\"";
+        first = false;
+    }
+    json << "]";
+    // Per-move frame counts, only for the moves that ask for one.
+    bool anyFrames = false;
+    for (int i = 0; i < kBlssAutoMoveCount; ++i) anyFrames = anyFrames || pl.autoFrames[i] > 0;
+    if (anyFrames) {
+        json << ", \"autoFrames\": {";
+        first = true;
+        for (int i = 0; i < kBlssAutoMoveCount; ++i) {
+            if (pl.autoFrames[i] <= 0) continue;
+            json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\": " << pl.autoFrames[i];
+            first = false;
+        }
+        json << "}";
+    }
+    if (!pl.shots.empty()) {
+        json << ", \"shots\": [";
+        for (size_t i = 0; i < pl.shots.size(); ++i) {
+            const BlssShot& s = pl.shots[i];
+            json << (i ? ",\n      " : "\n      ") << "{ \"name\": \"" << jsonEscape(s.name)
+                 << "\", \"scene\": \"" << jsonEscape(s.scene) << "\"";
+            if (!s.camera.empty()) json << ", \"camera\": \"" << jsonEscape(s.camera) << "\"";
+            if (!s.cameraTo.empty())
+                json << ", \"cameraTo\": \"" << jsonEscape(s.cameraTo) << "\"";
+            json << ", \"eye\": [" << fmtFloat(s.eye[0]) << ", " << fmtFloat(s.eye[1]) << ", "
+                 << fmtFloat(s.eye[2]) << "], \"look\": [" << fmtFloat(s.look[0]) << ", "
+                 << fmtFloat(s.look[1]) << ", " << fmtFloat(s.look[2]) << "]";
+            if (s.move)
+                json << ", \"move\": true, \"eye2\": [" << fmtFloat(s.eye2[0]) << ", "
+                     << fmtFloat(s.eye2[1]) << ", " << fmtFloat(s.eye2[2]) << "], \"look2\": ["
+                     << fmtFloat(s.look2[0]) << ", " << fmtFloat(s.look2[1]) << ", "
+                     << fmtFloat(s.look2[2]) << "]";
+            if (s.fovDeg != 60.0f) json << ", \"fov\": " << fmtFloat(s.fovDeg);
+            if (s.frames > 0) json << ", \"frames\": " << s.frames;
+            if (!s.enabled) json << ", \"off\": true";
+            json << " }";
+        }
+        json << "\n    ]";
+    }
+    json << " }";
+}
+
+static void readBlssShotsSection(const json::Value& root, Project& out) {
+    out.blssShots = BlssShotPlan();
+    const json::Value* v = root.find("blssShots");
+    if (!v || v->type != json::Value::Type::Object) return;
+    if (const json::Value* t = v->find("takes")) out.blssShots.authoredTakes = t->boolOr(true);
+    // An absent "auto" key would mean "every move", but the key is always
+    // written when the section is - and an EMPTY list is a legitimate choice
+    // (shoot only what I authored), so the two must not be confused.
+    if (const json::Value* a = v->find("auto"); a && a->type == json::Value::Type::Array) {
+        for (int i = 0; i < kBlssAutoMoveCount; ++i) out.blssShots.autoMove[i] = false;
+        for (const json::Value& e : a->arr) {
+            const std::string name = e.stringOr("");
+            for (int i = 0; i < kBlssAutoMoveCount; ++i)
+                if (name == blssAutoMoveName(i)) out.blssShots.autoMove[i] = true;
+        }
+    }
+    if (const json::Value* f = v->find("autoFrames"); f && f->type == json::Value::Type::Object)
+        for (int i = 0; i < kBlssAutoMoveCount; ++i)
+            if (const json::Value* n = f->find(blssAutoMoveName(i)))
+                out.blssShots.autoFrames[i] = std::max(0, (int)n->numberOr(0.0));
+    const json::Value* arr = v->find("shots");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        BlssShot s;
+        if (const json::Value* x = e.find("name")) s.name = x->stringOr("");
+        if (const json::Value* x = e.find("scene")) s.scene = x->stringOr("");
+        if (const json::Value* x = e.find("camera")) s.camera = x->stringOr("");
+        if (const json::Value* x = e.find("cameraTo")) s.cameraTo = x->stringOr("");
+        const auto vec3 = [&](const char* key, float dst[3]) {
+            const json::Value* x = e.find(key);
+            if (!x || x->type != json::Value::Type::Array) return;
+            for (size_t k = 0; k < x->arr.size() && k < 3; ++k)
+                dst[k] = (float)x->arr[k].numberOr(0.0);
+        };
+        vec3("eye", s.eye);
+        vec3("look", s.look);
+        if (const json::Value* x = e.find("move")) s.move = x->boolOr(false);
+        vec3("eye2", s.eye2);
+        vec3("look2", s.look2);
+        if (const json::Value* x = e.find("fov")) s.fovDeg = (float)x->numberOr(60.0);
+        if (s.fovDeg < 5.0f || s.fovDeg > 175.0f) s.fovDeg = 60.0f;
+        if (const json::Value* x = e.find("frames")) s.frames = std::max(0, (int)x->numberOr(0.0));
+        if (const json::Value* x = e.find("off")) s.enabled = !x->boolOr(false);
+        out.blssShots.shots.push_back(std::move(s));
+    }
+}
+
 static void readVuSection(const json::Value& root, Project& out) {
     out.vu = VuSettings();
     const json::Value* v = root.find("vu");
@@ -2380,6 +2488,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
+        case Section::BlssShots: writeBlssShotsSection(ss, p); break;
         case Section::Count: break;  // not a section
     }
     return ss.str();
@@ -2405,6 +2514,7 @@ const char* sectionName(Section s) {
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
         case Section::VuPrograms: return "vu";
+        case Section::BlssShots: return "blssShots";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -2532,6 +2642,128 @@ const char* inputRoleName(int role) {
         case InputAction::RoleMoveRight: return "move-right";
         default: return "";
     }
+}
+
+// --- the neural upscaler's training-shot plan --------------------------------
+
+const char* blssAutoMoveName(int move) {
+    switch ((BlssAutoMove)move) {
+        case BlssAutoMove::Walk: return "walk";
+        case BlssAutoMove::Pan: return "pan";
+        case BlssAutoMove::Orbit: return "orbit";
+        case BlssAutoMove::Whip: return "whip";
+        case BlssAutoMove::Pitch: return "pitch";
+        case BlssAutoMove::Strafe: return "strafe";
+        default: return "";
+    }
+}
+
+// The twin of the `s.move = "..."` literals in blssscene.cpp's autoShots(). It
+// is here rather than there because the window has to LABEL a move the same way
+// the tool's own per-shot table does, and a second spelling would make the two
+// tables un-joinable by eye.
+const char* blssAutoMoveKind(int move) {
+    switch ((BlssAutoMove)move) {
+        case BlssAutoMove::Walk: return "dolly-forward";
+        case BlssAutoMove::Pan: return "pan";
+        case BlssAutoMove::Orbit: return "orbit";
+        case BlssAutoMove::Whip: return "whip";
+        case BlssAutoMove::Pitch: return "pitch-up";
+        case BlssAutoMove::Strafe: return "dolly-lateral";
+        default: return "";
+    }
+}
+
+const char* blssAutoMoveWhy(int move) {
+    switch ((BlssAutoMove)move) {
+        case BlssAutoMove::Walk:
+            return "What the player sees for most of the running time - forward from the "
+                   "player start.";
+        case BlssAutoMove::Pan:
+            return "A yaw sweep from one standpoint: the same content at every reprojection "
+                   "offset a stick can produce.";
+        case BlssAutoMove::Orbit:
+            return "The only move that sweeps silhouettes across the whole tile grid.";
+        case BlssAutoMove::Whip:
+            return "Eased, so the angular velocity peaks mid-shot: history that is fine, "
+                   "history that is useless, and both transitions.";
+        case BlssAutoMove::Pitch:
+            return "Sweeps coverage from 1 to nearly 0, which is what makes the empty-tile "
+                   "case a moving target rather than a corner.";
+        case BlssAutoMove::Strafe:
+            return "Real parallax - near geometry sliding across far, which a tile's single "
+                   "representative depth cannot reproject.";
+        default: return "";
+    }
+}
+
+int blssShotScene(const Project& p, const BlssShot& s) {
+    if (p.scenes.empty()) return -1;
+    if (s.scene.empty()) return 0;
+    for (size_t i = 0; i < p.scenes.size(); ++i)
+        if (p.scenes[i].name == s.scene) return (int)i;
+    return -1;
+}
+
+std::string blssShotLabel(const Project& p, const BlssShot& s, int index) {
+    if (!s.name.empty()) return s.name;
+    const int si = blssShotScene(p, s);
+    const std::string scene = si >= 0 ? p.scenes[(size_t)si].name : std::string("?");
+    return scene + " shot " + std::to_string(index + 1);
+}
+
+bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
+                     float eyeB[3], float lookB[3], float* fovDeg) {
+    if (!s.enabled) return false;
+    const int si = blssShotScene(p, s);
+    if (si < 0) return false;
+    const SceneData& sc = p.scenes[(size_t)si];
+    float fov = s.fovDeg;
+    // A Camera object gives both the standpoint and the aim, which is the whole
+    // reason the field exists: the author has already placed the camera where
+    // the player stands, and re-typing its numbers into this shot would be a
+    // second copy that goes stale the moment the camera is nudged.
+    const auto fromCamera = [&](const std::string& name, float eye[3], float look[3]) {
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Camera || o.name != name) continue;
+            float fwd[3];
+            seqCameraForward(o.rotation, fwd);
+            for (int k = 0; k < 3; ++k) {
+                eye[k] = o.position[k];
+                look[k] = eye[k] + fwd[k];
+            }
+            fov = o.cameraFov;
+            return true;
+        }
+        return false;
+    };
+    if (!s.camera.empty()) {
+        if (!fromCamera(s.camera, eyeA, lookA)) return false;
+    } else {
+        for (int k = 0; k < 3; ++k) eyeA[k] = s.eye[k], lookA[k] = s.look[k];
+    }
+    // The second key. A `cameraTo` that names nothing is the same class of
+    // mistake as a `camera` that does - drop the shot rather than shoot half
+    // of it, because a move that silently became a still is a corpus that
+    // silently stopped covering the motion the author asked for.
+    if (s.move) {
+        if (!s.cameraTo.empty()) {
+            if (!fromCamera(s.cameraTo, eyeB, lookB)) return false;
+        } else {
+            for (int k = 0; k < 3; ++k) eyeB[k] = s.eye2[k], lookB[k] = s.look2[k];
+        }
+    } else {
+        for (int k = 0; k < 3; ++k) eyeB[k] = eyeA[k], lookB[k] = lookA[k];
+    }
+    // A key whose eye and look-at coincide has no direction at all, and the
+    // corpus would normalise a zero vector.
+    const auto degenerate = [](const float e[3], const float l[3]) {
+        const float d[3] = {l[0] - e[0], l[1] - e[1], l[2] - e[2]};
+        return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 1e-8f;
+    };
+    if (degenerate(eyeA, lookA) || degenerate(eyeB, lookB)) return false;
+    if (fovDeg) *fovDeg = fov;
+    return true;
 }
 
 void ensureTextIcons(Project& p) {
@@ -5270,6 +5502,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
         case Section::VuPrograms: readVuSection(root, p); break;
+        case Section::BlssShots: readBlssShotsSection(root, p); break;
         case Section::Count: return false;  // not a section
     }
     return true;
@@ -5434,6 +5667,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readPrefabsSection(root, out);
     readVuSection(root, out);
+    readBlssShotsSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them

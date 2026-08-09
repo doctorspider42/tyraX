@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 
 #include "blss.hpp"  // kFeatureNames - read-only, never edited here
@@ -908,6 +909,365 @@ FeatureTable parseFeatures(const std::string& text) {
         out.shots.clear();
         for (size_t i = 0; i < out.perShot.front().means.size(); ++i)
             out.shots.push_back("shot" + std::to_string(i));
+    }
+    return out;
+}
+
+// ----------------------------------------------------------- parse: probe ---
+
+namespace {
+bool isFeatureName(const std::string& n) {
+    for (int c = 0; c < blss::kFeatures; ++c)
+        if (n == blss::kFeatureNames[c]) return true;
+    return false;
+}
+
+// "0.000/0.412/1.000" and "0.000..1.000" - the two composite cells of the probe
+// table. Split rather than tokenized, because the tool prints them as ONE
+// whitespace-free field on purpose (a slash-separated triple is what fits the
+// column) and splitting on the separator is the only reading that stays right
+// when a value is negative or four digits wide.
+bool split3(const std::string& s, char sep, double& a, double& b, double& c) {
+    const size_t i = s.find(sep);
+    if (i == std::string::npos) return false;
+    const size_t j = s.find(sep, i + 1);
+    if (j == std::string::npos) return false;
+    return asNumber(s.substr(0, i), a) && asNumber(s.substr(i + 1, j - i - 1), b) &&
+           asNumber(s.substr(j + 1), c);
+}
+bool split2(const std::string& s, const char* sep, double& a, double& b) {
+    const size_t i = s.find(sep);
+    if (i == std::string::npos) return false;
+    return asNumber(s.substr(0, i), a) && asNumber(s.substr(i + std::strlen(sep)), b);
+}
+}  // namespace
+
+ProbeTable parseProbe(const std::string& text) {
+    ProbeTable out;
+    bool inSection = false;
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        if (line.empty()) continue;
+        // The tool's own banner. Anchoring on it rather than on "a line whose
+        // first token is a channel name" is what keeps the channel table above
+        // (which starts identically) out of this one.
+        if (line.rfind("A MEASURED CONSOLE VECTOR", 0) == 0) {
+            inSection = true;
+            out.rows.clear();
+            continue;
+        }
+        if (!inSection) continue;
+        const std::vector<std::string> tok = tokenize(line);
+        if (tok.empty() || !isFeatureName(tok[0])) continue;
+        ProbeRow r;
+        r.name = tok[0];
+        if (tok.size() < 8 || isDash(tok[1])) {
+            r.given = false;
+            r.verdict = "not in the probe";
+            ++out.missing;
+            out.rows.push_back(r);
+            continue;
+        }
+        if (!split3(tok[1], '/', r.lo, r.mid, r.hi)) continue;
+        if (!asNumber(tok[2], r.spread)) continue;
+        if (!split2(tok[3], "..", r.corpusLo, r.corpusHi)) continue;
+        if (!asPercent(tok[4], r.pct) || !asPercent(tok[5], r.supp) ||
+            !asPercent(tok[6], r.band))
+            continue;
+        r.given = true;
+        r.verdict = join(tok, 7, tok.size());
+        // THE TOOL OWNS THE THRESHOLDS. A second copy of "under 1% support is
+        // extrapolation" here would be a second answer to the question this
+        // whole table exists to settle, and the two would drift the first time
+        // either moved - so the flags are read off the words it printed.
+        r.outOfRange = r.verdict.find("OUT OF RANGE") != std::string::npos;
+        r.noSupport = r.verdict.find("no support") != std::string::npos;
+        r.constant = r.verdict.find("CONSTANT") != std::string::npos;
+        out.outOfRange += r.outOfRange ? 1 : 0;
+        out.tails += r.noSupport ? 1 : 0;
+        out.constants += r.constant ? 1 : 0;
+        out.rows.push_back(r);
+    }
+    return out;
+}
+
+ProbeVerdict probeVerdict(const ProbeTable& t) {
+    ProbeVerdict v;
+    if (!t.ok()) {
+        v.headline = "No console vector has been placed yet.";
+        v.why = "Run the game with debug view 2 on, then read its log back here.";
+        return v;
+    }
+    char b[512];
+    if (t.outOfRange > 0) {
+        v.level = ProbeVerdict::Level::Mismatch;
+        std::snprintf(b, sizeof(b),
+                      "THE CONSOLE IS FEEDING THIS NETWORK INPUTS IT NEVER SAW: %d channel(s) "
+                      "outside the corpus' range.",
+                      t.outOfRange);
+        v.headline = b;
+        v.why = "A value outside the range the corpus covered is not interpolation, it is "
+                "extrapolation from a 12-unit hidden layer - the network's answer there is "
+                "whatever its weights happen to extend to. This is the exact shape of the "
+                "-0.40 dB result: fitted on one distribution, run on another. Add shots that "
+                "cover the content the console is drawing, and re-train.";
+        return v;
+    }
+    if (t.tails > 0 || t.constants > 0 || t.missing > 0) {
+        v.level = ProbeVerdict::Level::Thin;
+        // Only the categories that actually fired. "0 channel(s) with under 1%
+        // of the corpus behind them" is a sentence that makes a reader hunt for
+        // a problem that is not there, in a verdict whose whole job is to say
+        // which problem IS there.
+        std::string parts;
+        const auto add = [&](int n, const char* what) {
+            if (n <= 0) return;
+            char one[160];
+            std::snprintf(one, sizeof(one), "%d channel(s) %s", n, what);
+            parts += (parts.empty() ? "" : ", ");
+            parts += one;
+        };
+        add(t.tails, "with under 1% of the corpus behind them");
+        add(t.constants, "constant across the whole frame");
+        add(t.missing, "absent from the line");
+        std::snprintf(b, sizeof(b), "IN RANGE, BUT THINLY TAUGHT: %s.", parts.c_str());
+        v.headline = b;
+        v.why.clear();
+        if (t.tails > 0)
+            v.why += "1% of the tiles is 1% of the gradient, so a value with no support was "
+                     "barely taught even though it is representable. ";
+        if (t.constants > 0)
+            v.why += "A channel that is CONSTANT across the console's whole frame is a "
+                     "different problem: the network is making no per-tile decision from it at "
+                     "all there, whatever the corpus taught. ";
+        if (t.missing > 0)
+            v.why += "A channel absent from the line was not measured - check the BLSSFEAT line "
+                     "is complete, or that the build is not older than the channel. ";
+        return v;
+    }
+    v.level = ProbeVerdict::Level::Matches;
+    v.headline = "Every channel the console produced is inside what this corpus taught.";
+    v.why = "That is the strongest statement this instrument can make, and it is about ONE "
+            "frame - the one the game last logged. Probe the parts of the game that look "
+            "different from each other, not just the first screen.";
+    return v;
+}
+
+std::string lastFeatLine(const std::string& logText) {
+    std::string best;
+    for (const std::string& raw : splitLines(logText)) {
+        if (raw.find("BLSSFEAT") == std::string::npos) continue;
+        const std::string line = trimmed(raw);
+        if (!line.empty()) best = line;
+    }
+    return best;
+}
+
+// --------------------------------------------------- is the corpus any good ---
+
+const char* channelPurpose(const std::string& name) {
+    if (name == "motion")
+        return "how far a tile moved since the last frame - whether the history is usable at "
+               "all";
+    if (name == "depth") return "how near the tile's surface is";
+    if (name == "depthGrad")
+        return "how sharply depth changes across the tile - where silhouettes are";
+    if (name == "edgeDens")
+        return "how much geometric edge runs through the tile - where the aliasing is";
+    if (name == "texDetail")
+        return "how hard the texture is being minified - the channel that predicts TEXTURE "
+               "aliasing";
+    if (name == "coverage") return "how much of the tile any geometry covered at all";
+    return "";
+}
+
+namespace {
+// A channel that does not MOVE is a channel the network's weights cannot use,
+// whatever else is true of it. 0.02 is the same number the Inputs tab has
+// always coloured its sd column at.
+constexpr double kFlatSd = 0.02;
+// ...and one whose sd is essentially zero is not merely flat, it is a constant:
+// the net has one fewer input than the topology says.
+constexpr double kDeadSd = 0.005;
+// Against its clamp on half the corpus. Measured precedent: the shot the
+// bestiary net has always lost on is the one where depth spends the whole shot
+// pinned at 1.0, and 58.6% of ALL bestiary tiles read it there.
+constexpr double kPinnedPct = 50.0;
+// NO CHANNEL PREDICTS ANYTHING. The correlations are importance-weighted
+// against the oracle's own answer, so when every one of them is inside the
+// noise the oracle is asking for the SAME weights everywhere - which means
+// there is nothing per-tile to learn, whatever the channels look like.
+// Measured: examples/showcase peaks at 0.021 over all 18 (channel, output)
+// pairs, examples/upscaler-lab at 0.253.
+constexpr double kDeadCorr = 0.05;
+}  // namespace
+
+CorpusHealth corpusHealth(const FeatureTable& t) {
+    CorpusHealth h;
+    if (!t.ok()) {
+        // THE REFUSAL. An unmeasured corpus must never render as a healthy one,
+        // which is the same standard the speed verdict's "TOO CLOSE TO CALL"
+        // holds itself to.
+        h.headline = "Not measured - so this cannot tell you whether the corpus is any good.";
+        h.why = "Report the input channels and it will say, in one line, whether a network "
+                "fitted to these frames can learn anything.";
+        return h;
+    }
+    h.ok = true;
+    h.shots = (int)t.shots.size();
+    double peakCorr = 0.0;
+    for (const FeatureRow& r : t.rows) {
+        const std::string why = channelPurpose(r.name);
+        peakCorr = std::max({peakCorr, std::fabs(r.rPoint), std::fabs(r.rTemporal),
+                             std::fabs(r.rSharpen)});
+        CorpusFinding f;
+        f.channel = r.name;
+        if (r.sd < kDeadSd && r.at0 >= 99.0) {
+            f.level = CorpusFinding::Level::Fatal;
+            f.what = r.name + " is 0 on every tile of this corpus (" + why +
+                     "). The network cannot learn a channel that never varies - it has one "
+                     "fewer input than its topology says.";
+            f.fix = r.name == "texDetail"
+                        ? "Your corpus has no textured surfaces. Put textured geometry in the "
+                          "shots, or expect this net to generalise badly to anything textured."
+                        : "Add shots over content where this varies, or accept that the net is "
+                          "deciding from five inputs.";
+            ++h.dead;
+        } else if (r.sd < kDeadSd && r.at1 >= 99.0) {
+            f.level = CorpusFinding::Level::Fatal;
+            f.what = r.name + " is pinned at its clamp on every tile (" + why +
+                     "), so it is a constant and the network cannot use it.";
+            f.fix = "Add shots where this is not saturated - for depth that means content "
+                    "further away than a few units, for coverage it means frames with sky or "
+                    "empty tiles in them.";
+            ++h.dead;
+        } else if (r.at1 >= kPinnedPct) {
+            f.level = CorpusFinding::Level::Warn;
+            char b[64];
+            std::snprintf(b, sizeof(b), "%.0f%%", r.at1);
+            f.what = r.name + " sits against its clamp on " + b + " of the corpus' tiles (" +
+                     why + "), so on most of the corpus it carries no information.";
+            f.fix = "A saturated feature is a feature the network does not have. Aim some shots "
+                    "at content that does not saturate it.";
+            ++h.pinned;
+        } else if (r.sd < kFlatSd) {
+            f.level = CorpusFinding::Level::Warn;
+            char b[64];
+            std::snprintf(b, sizeof(b), "%.3f", r.sd);
+            f.what = r.name + " barely moves across the whole corpus (sd " + b + "; " + why +
+                     ").";
+            f.fix = "Add shots whose content differs in this respect, or the net will decide "
+                    "as if the channel were a bias.";
+            ++h.flat;
+        } else {
+            continue;
+        }
+        h.findings.push_back(std::move(f));
+    }
+    // A channel that is the same number in every camera move cannot tell the
+    // shots apart, which is the one thing it exists to do.
+    for (const FeatureShotRow& r : t.perShot) {
+        if (r.spread >= kFlatSd || r.means.size() < 2) continue;
+        bool alreadyNamed = false;
+        for (const CorpusFinding& f : h.findings) alreadyNamed |= (f.channel == r.name);
+        if (alreadyNamed) continue;
+        CorpusFinding f;
+        f.level = CorpusFinding::Level::Note;
+        f.channel = r.name;
+        char b[64];
+        std::snprintf(b, sizeof(b), "%.3f", r.spread);
+        f.what = r.name + " reads almost the same in every camera move (spread " + b +
+                 "), so it cannot tell your shots apart.";
+        f.fix = "Not fatal - it still varies WITHIN a shot - but a shot that differs in this "
+                "channel would teach the net more than another angle on the same content.";
+        h.findings.push_back(std::move(f));
+        ++h.blind;
+    }
+    if (h.shots > 0 && h.shots < 4) {
+        CorpusFinding f;
+        f.level = CorpusFinding::Level::Warn;
+        f.what = "Only " + std::to_string(h.shots) +
+                 " camera move(s) in the whole corpus. Neighbouring frames of one move are near "
+                 "duplicates, so this is a much smaller sample than the frame count suggests.";
+        f.fix = "Add training shots, or turn more of the six automatic moves back on.";
+        h.findings.push_back(std::move(f));
+        ++h.pinned;
+    }
+
+    char b[512];
+    // ORDER MATTERS: "nothing correlates" outranks every per-channel finding,
+    // because a corpus whose oracle asks for the same answer everywhere has
+    // nothing to teach no matter how healthy its inputs look.
+    if (peakCorr < kDeadCorr) {
+        h.verdict = CorpusHealth::Verdict::Unusable;
+        h.headline = "THERE IS NOTHING HERE TO LEARN. Do not fit a network to this corpus.";
+        std::snprintf(b, sizeof(b),
+                      "No input channel correlates with what the oracle asked for above "
+                      "%.3f (the strongest of all %d channel-output pairs). The oracle wants "
+                      "essentially the SAME weights in every tile of every frame, so a "
+                      "per-tile network has no decision to make - it can only add fill. Check "
+                      "the headroom verdict above: a corpus that looks like this normally "
+                      "belongs to a scene whose oracle ceiling is near zero.",
+                      peakCorr, (int)t.rows.size() * 3);
+        h.why = b;
+        return h;
+    }
+    if (h.dead > 0) {
+        h.verdict = CorpusHealth::Verdict::Unusable;
+        std::snprintf(b, sizeof(b),
+                      "DO NOT SHIP A NET FITTED TO THIS CORPUS: %d of the %d input channels are "
+                      "constant.",
+                      h.dead, (int)t.rows.size());
+        h.headline = b;
+        h.why = "A constant channel is a channel the network does not have, and the console "
+                "will feed it a value the corpus never contained. That is exactly how a net "
+                "measured -0.40 dB - worse than leaving the upscaler off - on a real project.";
+        return h;
+    }
+    if (h.pinned > 0 || h.flat > 0) {
+        h.verdict = CorpusHealth::Verdict::Thin;
+        std::snprintf(b, sizeof(b),
+                      "TRAINABLE, BUT THIN: %d channel(s) saturated and %d that barely move.",
+                      h.pinned, h.flat);
+        h.headline = b;
+        h.why = "The net will fit, and it will decide from fewer inputs than it has. Probe a "
+                "real console frame against this corpus before shipping it - a channel that is "
+                "pinned here and not pinned on the console is the mismatch that costs decibels.";
+        return h;
+    }
+    h.verdict = CorpusHealth::Verdict::Good;
+    std::snprintf(b, sizeof(b), "Every input channel varies and none is saturated, over %d "
+                                "camera move(s).",
+                  h.shots);
+    h.headline = b;
+    h.why = "That is a statement about the CORPUS, not about the scene: it says the network "
+            "has something to learn from, not that there is headroom to win. The headroom "
+            "verdict above answers the second question.";
+    return h;
+}
+
+// ------------------------------------------ did the plan reach the tool ---
+
+std::vector<CorpusScene> parseCorpusScenes(const std::string& text) {
+    std::vector<CorpusScene> out;
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        // "[blss]   scene 'vale': 50 mesh(es) + 5 animated part(s), 7724 triangle(s), 6 shot(s)"
+        if (line.rfind("[blss]", 0) != 0) continue;
+        const size_t at = line.find("scene '");
+        if (at == std::string::npos) continue;
+        const size_t close = line.find('\'', at + 7);
+        if (close == std::string::npos) continue;
+        CorpusScene s;
+        s.name = line.substr(at + 7, close - at - 7);
+        const std::vector<std::string> tok = tokenize(line.substr(close));
+        for (size_t i = 1; i < tok.size(); ++i) {
+            double v = 0;
+            if (tok[i].rfind("shot(s)", 0) == 0 && asNumber(tok[i - 1], v)) s.shots = (int)v;
+            if (tok[i].rfind("triangle(s)", 0) == 0 && asNumber(tok[i - 1], v))
+                s.triangles = (size_t)v;
+        }
+        if (s.shots > 0) out.push_back(std::move(s));
     }
     return out;
 }

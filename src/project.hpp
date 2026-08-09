@@ -2320,6 +2320,96 @@ inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
            a.trimEnd == b.trimEnd && a.loop == b.loop;
 }
 
+// ---------------------------------------------------------------------------
+// WHAT THE NEURAL UPSCALER'S TRAINING CORPUS IS ALLOWED TO SEE
+// (Tools > Neural Upscaler (BLSS) > Training shots, docs/neural-upscaler.md).
+//
+// WHY THIS EXISTS. The corpus shoots a project from six camera moves derived
+// from the scene's bounds and the player start, plus any authored Cutscene
+// Director track, and until now the user had no say in any of it. That matters
+// because the failure this feature keeps producing is a DISTRIBUTION MISMATCH:
+// a net fitted to frames the game does not draw scored -0.40 dB on a real
+// project - worse than leaving the feature off - and the diagnosis was that
+// its most predictive channels were out of range on the content the console
+// runs. A corpus is only as good as its coverage of the content the PLAYER
+// will look at, and the person who knows where the player stands is the author.
+//
+// So: this is the author's statement of which frames get fitted. It is
+// PROJECT-WIDE (like sequences and prefabs) rather than per scene, because a
+// shot names the scene it belongs to and a plan spanning scenes is one thing to
+// read; it is persisted through save() but is NOT part of undo/redo, for the
+// same reason a prefab is not - it is a build input, not a scene edit.
+//
+// COMPATIBILITY: a default plan writes NOTHING to the .tyra, so an untouched
+// project is byte-identical and the trainer keeps doing exactly what it did.
+
+// The six automatic camera moves blssscene::autoShots derives, in the order it
+// derives them. The order is the serialized order - APPEND ONLY.
+enum class BlssAutoMove { Walk = 0, Pan, Orbit, Whip, Pitch, Strafe, Count };
+enum : int { kBlssAutoMoveCount = (int)BlssAutoMove::Count };
+// The three tables that name a move (label/.tyra key, the corpus' own `move`
+// string, and what the move is for) live in `namespace project` further down,
+// next to blssResolveShot - one home for everything that reads the plan.
+
+// One authored training vantage. Deliberately a two-key polyline and nothing
+// more: `SceneShot` is a polyline of (eye, look-at) keys and every move the
+// corpus already produces reduces to one, so an author who can place two
+// vantages can express a still standpoint, a walk, a strafe or a push-in
+// without a second parameterisation for anybody to keep in step.
+struct BlssShot {
+    std::string name;   // "" = named from its scene and its index
+    std::string scene;  // scene NAME; "" = the project's first scene
+    // A placed Camera object, by name, instead of raw numbers - "aim it where
+    // the player actually stands" is the whole point, and the editor already
+    // has a way to put a camera there. Non-empty WINS over eye/look, and a
+    // camera that is not in the shot's scene drops the shot rather than
+    // silently shooting the origin.
+    std::string camera, cameraTo;
+    float eye[3] = {0.0f, 2.0f, 0.0f};
+    float look[3] = {0.0f, 2.0f, 1.0f};
+    // A second key. Off = a still standpoint, which is a legitimate shot (the
+    // history is perfect and the net has to learn not to spend passes on it).
+    bool move = false;
+    float eye2[3] = {0.0f, 2.0f, 0.0f};
+    float look2[3] = {0.0f, 2.0f, 1.0f};
+    float fovDeg = 60.0f;
+    // How many corpus frames this shot gets. 0 = its equal share of --frames,
+    // which is what every shot has always had. A number here is how an author
+    // says "the corridor matters more than the skybox pan".
+    int frames = 0;
+    bool enabled = true;
+};
+
+inline bool operator==(const BlssShot& a, const BlssShot& b) {
+    for (int k = 0; k < 3; ++k)
+        if (a.eye[k] != b.eye[k] || a.look[k] != b.look[k] || a.eye2[k] != b.eye2[k] ||
+            a.look2[k] != b.look2[k])
+            return false;
+    return a.name == b.name && a.scene == b.scene && a.camera == b.camera &&
+           a.cameraTo == b.cameraTo && a.move == b.move && a.fovDeg == b.fovDeg &&
+           a.frames == b.frames && a.enabled == b.enabled;
+}
+
+struct BlssShotPlan {
+    // Which of the six automatic moves survive, per move, for every scene.
+    bool autoMove[kBlssAutoMoveCount] = {true, true, true, true, true, true};
+    // Per-move frame count; 0 = the equal share.
+    int autoFrames[kBlssAutoMoveCount] = {0, 0, 0, 0, 0, 0};
+    // Cutscene Director camera tracks. On by default and worth keeping on: a
+    // take is the author having already said which frame matters.
+    bool authoredTakes = true;
+    std::vector<BlssShot> shots;
+
+    // Nothing has been authored - the plan the trainer has always followed.
+    // writeBlssShotsSection emits nothing for this, so an untouched project's
+    // .tyra does not change shape.
+    bool isDefault() const {
+        for (int i = 0; i < kBlssAutoMoveCount; ++i)
+            if (!autoMove[i] || autoFrames[i] != 0) return false;
+        return authoredTakes && shots.empty();
+    }
+};
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -2633,6 +2723,12 @@ struct Project {
     // the running game and the editor disagree about what is installed.
     VuSettings vu;
 
+    // What the neural upscaler's training corpus is allowed to see
+    // (Tools > Neural Upscaler (BLSS) > Training shots). Project-wide like the
+    // collections above, persisted through save(), not part of undo/redo - it
+    // is a build input, not a scene edit. A default plan writes nothing.
+    BlssShotPlan blssShots;
+
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
     // file). Restores the editing session on reopen.
@@ -2779,6 +2875,45 @@ int saveMenuIndex(const Project& p);
 // RoleNone / out-of-range values.
 const char* inputRoleName(int role);
 
+// --- The neural upscaler's training-shot plan --------------------------------
+//
+// ONE RESOLUTION, READ BY BOTH SIDES. The editor previews an authored shot and
+// `blssscene::loadProject` shoots it, and if those two derived a camera
+// differently the window would be drawing a frame the corpus never renders -
+// which is precisely the class of bug (host describes one frame, console runs
+// another) that cost this feature eleven commits. So the arithmetic lives here,
+// in the module that owns the data, and both callers ask it.
+
+// The label the UI shows and the key the .tyra stores ("walk", "pan", ...).
+const char* blssAutoMoveName(int move);
+// The `SceneShot::move` string the corpus tags that move with
+// ("dolly-forward", "pan", "orbit", "whip", "pitch-up", "dolly-lateral") - the
+// twin of the literals in blssscene.cpp, so a rename cannot drift between the
+// window's per-shot table and the trainer's own output.
+const char* blssAutoMoveKind(int move);
+// One line saying what that move is FOR, in the terms the corpus was built in.
+const char* blssAutoMoveWhy(int move);
+
+// Which scene a shot belongs to, as an index into Project::scenes. Matches by
+// NAME (an index would rot the moment a scene is deleted); an empty
+// BlssShot::scene means the first scene, and a name matching nothing is -1,
+// which the corpus must read as "drop this shot" rather than as scene 0.
+int blssShotScene(const Project& p, const BlssShot& s);
+
+// Resolve one authored shot into the two (eye, look-at) keys a `SceneShot`
+// carries. `eyeB`/`lookB` are filled with a copy of the first key for a still
+// shot, so a caller can always emit two keys and let the corpus collapse them.
+// Returns false when the shot is disabled, names no scene this project has, or
+// names a Camera object that scene does not contain - all three of which are
+// "do not shoot this", never "shoot the origin".
+bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
+                     float eyeB[3], float lookB[3], float* fovDeg = nullptr);
+
+// The name a shot is shown and reported under - its own `name`, or one derived
+// from its scene and index the way the automatic moves are named. Never empty,
+// because a fold table row with no label is a measurement nobody can act on.
+std::string blssShotLabel(const Project& p, const BlssShot& s, int index);
+
 // Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
 // {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
 // missing entries - a renamed/repointed/deleted icon stays as the user left it.
@@ -2823,6 +2958,7 @@ enum class Section {
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
+    BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -2834,7 +2970,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 18,
+static_assert(kSectionCount == 19,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

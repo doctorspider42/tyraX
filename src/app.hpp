@@ -720,6 +720,32 @@ private:
     void drawBlssCvTab();
     void drawBlssImagesTab();
     void drawBlssFeaturesTab();
+    // WHAT THE CORPUS IS ALLOWED TO SEE (Project::blssShots). The six automatic
+    // moves are a guess derived from the scene's bounds; this is where the
+    // author says which of them survive and adds vantages of their own, aimed
+    // where the player will actually stand. The plan is .tyra data, so the
+    // trainer reads it out of the project rather than off a command line.
+    void drawBlssShotsTab();
+    // The shot list the corpus will shoot, as the window understands it -
+    // resolved through project::blssResolveShot, which is also what the corpus
+    // loader calls, so the preview cannot describe a different frame from the
+    // one that gets rendered.
+    void drawBlssShotPlanPreview();
+    // The DISTRIBUTION PROBE as a workflow instead of a chore: turn on debug
+    // view 2, run the game, and let the editor find the BLSSFEAT line in the
+    // project's own log rather than making somebody grep for it and paste it
+    // into a CLI. Under ps2link the game writes NO bin/log.txt at all
+    // (templates.cpp sets writeLogsToFile = !ps2link), so the runner's own
+    // [ps2] stream is the second source and the panel says which it used.
+    void drawBlssProbeTab();
+    // Fills blssProbeLine_ from the freshest source that has one. Returns the
+    // human description of where it came from, or "" when nothing was found.
+    std::string blssFindFeatLine();
+    void blssRunProbe();
+    // "Is this corpus good enough to train on" - the third verdict, next to
+    // "will the picture improve" and "will the frame get faster". `compact`
+    // drops the per-channel findings for the header block.
+    void drawBlssHealth(bool compact);
     // Picks up a finished run. Called every frame from drawUI, NOT from the
     // window body, so a training run that ends while the tab is shut still
     // lands - the giBakerPoll rule.
@@ -1642,6 +1668,36 @@ private:
     blssui::EvalSummary blssSummary_;
     blssui::CvTable blssCv_;
     blssui::FeatureTable blssFeat_;
+    // The third verdict - "is this corpus good enough to train on" - derived
+    // once from blssFeat_ when a report lands, not per frame, for the same
+    // reason blssSpeed_ is: a sentence a reader is going to quote must not
+    // shimmer between two roundings. Unknown until a report exists, and
+    // deliberately not reassuring while it is.
+    blssui::CorpusHealth blssHealth_;
+    // A CONSOLE frame placed in that corpus. Parsed from the same
+    // `--features` run (the tool prints the probe table under the channel
+    // table), so a run without --probe leaves it empty, which is correct.
+    blssui::ProbeTable blssProbe_;
+    blssui::ProbeVerdict blssProbeVerdict_;
+    // The BLSSFEAT line being probed, and where it came from - the project's
+    // bin/log.txt, the runner's [ps2] stream, or the user's own paste.
+    char blssProbeLine_[2048] = {};
+    std::string blssProbeSource_, blssProbeNote_;
+    // What the corpus loader SAID it found, per scene, out of the last run's
+    // output. It is how an author tells "the trainer honoured my shot plan"
+    // from "the trainer is still shooting its six defaults", which is otherwise
+    // invisible: a plan the tool ignores looks exactly like a plan it obeys.
+    std::vector<blssui::CorpusScene> blssScenes_;
+    // Training shots: which row of Project::blssShots is being edited.
+    int blssShotSel_ = -1;
+    // "Look through this shot" - the editor camera parked at a training
+    // vantage. Held as state rather than pushed once, because drawUI CLEARS the
+    // viewport's camera override on every frame nothing claims it (app.cpp,
+    // the look-through camera branch), so a one-shot push lasts one frame.
+    bool blssLookThrough_ = false;
+    float blssLookEye_[3] = {0.0f, 0.0f, 0.0f};
+    float blssLookAt_[3] = {0.0f, 0.0f, 1.0f};
+    float blssLookFov_ = 60.0f;
     // THE SPEED HALF. `blssCov_` is the UI's copy and is only ever written by
     // blssCoverageTick after the worker has finished (the version bump is the
     // handover, the Runner/giBaker idiom); `blssCovOut_` is the worker's own

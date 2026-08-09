@@ -2473,7 +2473,17 @@ void App::drawViewportWindow() {
         // track wins while it previews; reading the POSED objects means a
         // dollied camera entity is followed live. A stale name (deleted
         // entity) falls back to the free orbit camera.
-        if (!seqCameraPushed_ && !phoneCamPushed_) {
+        // "Look through this shot" (Tools > Neural Upscaler (BLSS) > Training
+        // shots): park the editor camera at an authored training vantage so the
+        // author can SEE the frame the corpus will render. It has to be pushed
+        // every frame like the others - the branch below CLEARS the override
+        // when nothing claims it, so a one-shot call would last exactly one
+        // frame. Below the cutscene and the phone, above the look-through
+        // camera: it is a deliberate, explicit act and it should win over a
+        // camera somebody left selected.
+        if (!seqCameraPushed_ && !phoneCamPushed_ && blssLookThrough_)
+            viewport_.setCameraOverride(blssLookEye_, blssLookAt_, blssLookFov_, 0.0f);
+        if (!seqCameraPushed_ && !phoneCamPushed_ && !blssLookThrough_) {
             const SceneObject* cam = nullptr;
             if (!lookThroughCam_.empty())
                 for (const SceneObject& o : renderObjects)
@@ -6154,6 +6164,14 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
             if (tr.target == from) tr.target = to;
         for (SeqCameraKey& k : q.cameraKeys)
             if (k.camera == from) k.camera = to;
+    }
+    // Neural-upscaler training shots that borrow a placed Camera object. Same
+    // rule as a cutscene shot's camera binding: a shot whose camera name went
+    // stale is silently dropped by blssResolveShot, so the corpus would quietly
+    // stop covering the vantage the author asked for.
+    for (BlssShot& b : project_.blssShots.shots) {
+        if (b.camera == from) b.camera = to;
+        if (b.cameraTo == from) b.cameraTo = to;
     }
     if (lookThroughCam_ == from) lookThroughCam_ = to;
     for (SceneObject& m : sc.objects) {

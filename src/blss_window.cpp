@@ -66,6 +66,24 @@ std::string discoverAssets() {
 // The comparison PNGs --blss-eval --dump writes, in the order they are worth
 // looking at. `blss-net-weights.png` is one pixel per TILE (16x14 at 512x448),
 // so it is magnified with nearest sampling rather than shown at size.
+// The tab order, named. `blssTabSelect_` is how a click on a thumbnail or on a
+// verdict button takes the reader to the tab that shows it, and it used to be
+// raw indices scattered over three call sites - which is a silent mis-navigation
+// waiting for the next tab to be inserted anywhere but the end.
+//
+// The order is the ORDER OF THE WORK: decide what to shoot, fit it, measure it,
+// look at it, then check the inputs against a real console frame.
+enum BlssTab {
+    kTabShots = 0,
+    kTabTrain,
+    kTabEval,
+    kTabCv,
+    kTabCompare,
+    kTabInputs,
+    kTabProbe,
+    kTabSettings
+};
+
 struct DumpImage {
     const char* file;
     const char* label;
@@ -96,6 +114,132 @@ const DumpImage kDumpImages[] = {
      "green = temporal, blue = sharpen. 16x14 at 512x448 output, so it is\n"
      "magnified with nearest sampling."},
 };
+
+// The plan as the corpus will execute it. ONE derivation, here, so the preview
+// and the totals cannot disagree with each other - and it deliberately mirrors
+// the rule blssscene::loadProject is asked to follow (see the report that goes
+// with this change), including the part that keeps every published fold table
+// reproducible: WITH A DEFAULT PLAN NOTHING CHANGES, budget cap included.
+struct PlannedShot {
+    std::string scene, name, kind;
+    int frames = 0;          // 0 = an equal share of what is left
+    bool authored = false;   // from Project::blssShots::shots
+    bool take = false;       // from a Cutscene Director track
+    std::string problem;     // non-empty = it will NOT be shot, and why
+};
+
+// The corpus' own per-scene shot budget (blssscene::kShotsPerScene). Restated
+// rather than included because blssscene.hpp is the other agent's file and this
+// window needs only the number; the preview says out loud when it binds.
+constexpr int kBlssShotsPerScene = 6;
+
+// How many Cutscene Director tracks a scene contributes. Approximate on
+// purpose and said so where it is drawn: blssscene drops a take whose camera
+// bindings do not resolve, and this cannot see that without repeating the
+// resolution - which would be a second answer to a question that module owns.
+int takeCountFor(const Project& p) {
+    int n = 0;
+    for (const Sequence& q : p.sequences)
+        if (q.cameraEnabled && q.cameraKeys.size() >= 2) ++n;
+    return n;
+}
+
+std::vector<PlannedShot> planShots(const Project& p) {
+    std::vector<PlannedShot> out;
+    const BlssShotPlan& pl = p.blssShots;
+    const bool custom = !pl.isDefault();
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
+        const std::string scene = sc.name.empty() ? std::string("scene") : sc.name;
+        const size_t before = out.size();
+        // 1 - authored cutscene tracks, capped at half the per-scene budget
+        //     exactly as blssscene caps them today.
+        if (pl.authoredTakes) {
+            const int takes = std::min(takeCountFor(p), kBlssShotsPerScene / 2);
+            for (int i = 0; i < takes; ++i) {
+                PlannedShot s;
+                s.scene = scene;
+                s.name = scene + " take";
+                s.kind = "take";
+                s.take = true;
+                out.push_back(std::move(s));
+            }
+        }
+        // 2 - the author's own vantages. NEVER capped: an explicit statement
+        //     that is silently dropped is the exact failure this tab exists to
+        //     stop, and a plan is only worth authoring if it is obeyed.
+        for (size_t i = 0; i < pl.shots.size(); ++i) {
+            const BlssShot& b = pl.shots[i];
+            if (project::blssShotScene(p, b) != (int)si) continue;
+            PlannedShot s;
+            s.scene = scene;
+            s.name = project::blssShotLabel(p, b, (int)i);
+            s.kind = b.move ? "authored move" : "authored still";
+            s.frames = b.frames;
+            s.authored = true;
+            if (!b.enabled) {
+                s.problem = "switched off";
+            } else {
+                float a[3], la[3], c[3], lc[3];
+                if (!project::blssResolveShot(p, b, a, la, c, lc))
+                    s.problem = (!b.camera.empty() || !b.cameraTo.empty())
+                                    ? "names a Camera object this scene does not have"
+                                    : "its eye and look-at are the same point";
+            }
+            out.push_back(std::move(s));
+        }
+        // 3 - the automatic moves. With a DEFAULT plan they fill to the old
+        //     per-scene budget, which is what makes an untouched project render
+        //     the identical corpus it always did.
+        for (int m = 0; m < kBlssAutoMoveCount; ++m) {
+            if (!pl.autoMove[m]) continue;
+            if (!custom && (int)(out.size() - before) >= kBlssShotsPerScene) break;
+            PlannedShot s;
+            s.scene = scene;
+            s.name = scene + " " + project::blssAutoMoveName(m);
+            s.kind = project::blssAutoMoveKind(m);
+            s.frames = pl.autoFrames[m];
+            out.push_back(std::move(s));
+        }
+    }
+    return out;
+}
+
+// How the frame budget lands. Shots that asked for a count get it; the rest
+// share what is left, which is what "0 = its equal share" has to mean for the
+// two kinds to coexist. Returns false when the explicit counts alone overrun
+// the budget - a state the panel must SAY rather than silently rescale, because
+// a rescaled "24 frames" is a number the author did not ask for.
+bool splitFrames(const std::vector<PlannedShot>& plan, int budget, std::vector<int>& out,
+                 int& shortfall) {
+    out.assign(plan.size(), 0);
+    shortfall = 0;
+    int fixed = 0, sharing = 0;
+    for (const PlannedShot& s : plan) {
+        if (!s.problem.empty()) continue;
+        if (s.frames > 0)
+            fixed += s.frames;
+        else
+            ++sharing;
+    }
+    const int left = budget - fixed;
+    if (left < sharing) {
+        shortfall = sharing - std::max(0, left);
+        return false;
+    }
+    const int each = sharing > 0 ? left / sharing : 0;
+    int spare = sharing > 0 ? left - each * sharing : 0;
+    for (size_t i = 0; i < plan.size(); ++i) {
+        if (!plan[i].problem.empty()) continue;
+        if (plan[i].frames > 0) {
+            out[i] = plan[i].frames;
+        } else {
+            out[i] = each + (spare > 0 ? 1 : 0);
+            if (spare > 0) --spare;
+        }
+    }
+    return true;
+}
 
 }  // namespace
 
@@ -739,15 +883,14 @@ void App::drawBlssCorpusChoice() {
         "drawable falls back to, and what the docs' 13-shot fold tables were\n"
         "measured on. It is not the net to ship.");
     if (blssCorpusProject_) {
+        // ONE LINE, not seven. What the walk covers now belongs on the Training
+        // shots tab, which is where a reader can act on it - and every line
+        // spent here is a line the tabs below do not get, on a window whose
+        // header had grown taller than its content.
         ImGui::TextDisabled("    %s", project_.dir.c_str());
         ImGui::TextDisabled(
-            "    Primitives, static .obj, the terrain and animated .glb/.fbx, walked /\n"
-            "    panned / orbited / whipped / pitched / strafed from the scene's bounds and\n"
-            "    the player start, plus any authored Cutscene Director camera track.\n"
-            "    An animated model is baked pose by pose, one bag per part - the console\n"
-            "    skins it on the EE/VU0 and draws it through the SAME static pipeline as the\n"
-            "    rest of the scene, so it submits a BLSS proxy like every other bag and the\n"
-            "    corpus has to describe it too.");
+            "    Primitives, static .obj, the terrain and animated .glb/.fbx. The Training "
+            "shots tab decides\n    which camera moves it sees - and lets you add your own.");
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
                            "    13 hand-written procedural shots. Measured at -0.40 dB - worse "
@@ -773,7 +916,14 @@ void App::drawBlssCorpusReminder() {
 // only the tool knows how many of those resolved.
 int App::blssExpectedShots() const {
     if (!blssCorpusProject_) return 13;  // the bestiary, docs/neural-upscaler.md
-    return std::max(1, 6 * (int)project_.scenes.size());
+    // THE SAME DERIVATION THE TRAINING SHOTS TAB DRAWS, not a second guess: the
+    // author can now switch moves off and add vantages, so "six per scene" is
+    // no longer even approximately right - and this number is what every cost
+    // estimate in the window divides by.
+    int live = 0;
+    for (const PlannedShot& s : planShots(project_))
+        if (s.problem.empty()) ++live;
+    return std::max(1, live);
 }
 
 void App::blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs) {
@@ -807,6 +957,15 @@ void App::blssPoll() {
         blssSummary_ = blssui::EvalSummary{};
         blssCv_ = blssui::CvTable{};
         blssFeat_ = blssui::FeatureTable{};
+        blssHealth_ = blssui::CorpusHealth{};
+        blssProbe_ = blssui::ProbeTable{};
+        blssProbeVerdict_ = blssui::ProbeVerdict{};
+        blssProbeLine_[0] = '\0';
+        blssProbeSource_.clear();
+        blssProbeNote_.clear();
+        blssScenes_.clear();
+        blssShotSel_ = -1;
+        blssLookThrough_ = false;
         blssCov_ = blss::CoverageReport{};
         blssSpeed_ = blssui::SpeedEstimate{};
         blssLastError_.clear();
@@ -817,6 +976,14 @@ void App::blssPoll() {
     blssJobSeen_ = blssJob_.version();
     const std::string text = blssJob_.log();
     const blssui::Kind k = blssJob_.kind();
+    // WHAT THE CORPUS LOADER SAID IT FOUND, from whichever verb just ran - all
+    // of them print it. It is the only way the Training shots tab can tell "the
+    // trainer honoured my plan" from "the trainer is still shooting its six
+    // defaults", which are otherwise indistinguishable from the outside.
+    {
+        const std::vector<blssui::CorpusScene> scenes = blssui::parseCorpusScenes(text);
+        if (!scenes.empty()) blssScenes_ = scenes;
+    }
     const std::vector<std::string> errs = blssui::parseErrors(text);
     blssLastError_.clear();
     for (const std::string& e : errs) blssLastError_ += (blssLastError_.empty() ? "" : "\n") + e;
@@ -846,7 +1013,18 @@ void App::blssPoll() {
             break;
         }
         case blssui::Kind::Cv: blssCv_ = blssui::parseCv(text); break;
-        case blssui::Kind::Features: blssFeat_ = blssui::parseFeatures(text); break;
+        case blssui::Kind::Features:
+            blssFeat_ = blssui::parseFeatures(text);
+            // THE THIRD VERDICT, derived once here for the same reason the
+            // speed one is: a sentence a reader will quote must not shimmer
+            // between two roundings. An empty table gives Unknown, which reads
+            // as unmeasured rather than as a pass.
+            blssHealth_ = blssui::corpusHealth(blssFeat_);
+            // The probe table only exists when the run carried --probe, so a
+            // plain Inputs run correctly clears it.
+            blssProbe_ = blssui::parseProbe(text);
+            blssProbeVerdict_ = blssui::probeVerdict(blssProbe_);
+            break;
         case blssui::Kind::Train:
             if (blssJob_.exitCode() == 0 && !blssPendingNet_.empty())
                 blssWriteNetSidecar(blssPendingNet_, blssJob_.command());
@@ -967,8 +1145,24 @@ void App::blssReloadImages() {
 // ---------------------------------------------------------------- the window ---
 
 void App::drawBlssWindow() {
-    if (!showBlss_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(1060.0f), scaled(820.0f)), ImGuiCond_FirstUseEver);
+    if (!showBlss_ || !hasProject_) {
+        // GIVE THE CAMERA BACK when the window goes away. "Look through this
+        // shot" parks the viewport at a training vantage and holds it there
+        // every frame; closing the window that explains why would otherwise
+        // leave a camera nobody can move and no visible reason for it.
+        blssLookThrough_ = false;
+        return;
+    }
+    // CLAMPED TO THE SCREEN, and that is not cosmetic: `scaled()` multiplies by
+    // the UI scale, so at the 250 % a 4K laptop runs this window's nominal
+    // 1060x820 asks for 2650x2050 and opens TALLER THAN THE FRAMEBUFFER. The
+    // bottom of it - the output pane every table in here is parsed out of, and
+    // now the shot plan - is then simply unreachable, and it is invisible from
+    // the code because the literals look modest.
+    const ImVec2 room = ImGui::GetMainViewport()->WorkSize;
+    ImGui::SetNextWindowSize(ImVec2(std::min(scaled(1060.0f), room.x * 0.95f),
+                                    std::min(scaled(820.0f), room.y * 0.95f)),
+                             ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Neural Upscaler (BLSS)", &showBlss_)) {
         ImGui::End();
         return;
@@ -999,27 +1193,35 @@ void App::drawBlssWindow() {
         const auto flag = [&](int i) {
             return want == i ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
         };
-        if (ImGui::BeginTabItem("Train", nullptr, flag(0))) {
+        if (ImGui::BeginTabItem("Training shots", nullptr, flag(kTabShots))) {
+            drawBlssShotsTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Train", nullptr, flag(kTabTrain))) {
             drawBlssTrainTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Evaluate", nullptr, flag(1))) {
+        if (ImGui::BeginTabItem("Evaluate", nullptr, flag(kTabEval))) {
             drawBlssEvalTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Cross-validate", nullptr, flag(2))) {
+        if (ImGui::BeginTabItem("Cross-validate", nullptr, flag(kTabCv))) {
             drawBlssCvTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Compare", nullptr, flag(3))) {
+        if (ImGui::BeginTabItem("Compare", nullptr, flag(kTabCompare))) {
             drawBlssImagesTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Inputs", nullptr, flag(4))) {
+        if (ImGui::BeginTabItem("Inputs", nullptr, flag(kTabInputs))) {
             drawBlssFeaturesTab();
             ImGui::EndTabItem();
         }
-        if (ImGui::BeginTabItem("Project settings", nullptr, flag(5))) {
+        if (ImGui::BeginTabItem("Console probe", nullptr, flag(kTabProbe))) {
+            drawBlssProbeTab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Project settings", nullptr, flag(kTabSettings))) {
             ImGui::Spacing();
             if (drawBlssSettings(project_.settings)) commitChange();
             ImGui::EndTabItem();
@@ -1372,9 +1574,6 @@ void App::drawBlssHappyPath() {
         blssStart(blssui::Kind::Headroom, a, 0);
     }
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s on this machine (%d cores). No network needed.",
-                        blssui::humanDuration(cost.total).c_str(), cores);
     prefHelp(
         "Runs `--blss-eval` on this corpus with NO network and reads the ORACLE\n"
         "row - the best any per-tile weighting can do under the exact GS\n"
@@ -1390,15 +1589,11 @@ void App::drawBlssHappyPath() {
         "It renders the whole corpus, which is most of the cost, so the estimate\n"
         "next to the button is the same corpus render the Train tab pays for.");
 
+    ImGui::SameLine();
     ImGui::BeginDisabled(blssCovRunning_.load());
     if (ImGui::Button("Will the frame get faster?", ImVec2(scaled(230.0f), scaled(30.0f))))
         blssStartCoverage();
     ImGui::EndDisabled();
-    ImGui::SameLine();
-    if (blssCovRunning_.load())
-        ImGui::TextDisabled("counting overdraw... %.0f s", blssCovSeconds_);
-    else
-        ImGui::TextDisabled("about a second. No network needed, and nothing is written.");
     prefHelp(
         "Counts how many times over this project's own scenes paint the screen,\n"
         "and puts that against the MEASURED break-even.\n"
@@ -1418,6 +1613,55 @@ void App::drawBlssHappyPath() {
         "\n"
         "IT IS A FLOOR, not a measurement. What it cannot see is listed under the\n"
         "answer; the console is the only thing that settles it.");
+
+    // THE THIRD QUESTION, and the one that catches what the other two cannot
+    // see. "Will the picture improve" reads the oracle and "will the frame get
+    // faster" counts overdraw; NEITHER of them notices that the corpus a net
+    // would be FITTED to is missing a channel entirely - which is how a net
+    // came to measure -0.40 dB on a project whose own ceiling was +0.77.
+    ImGui::SameLine();
+    ImGui::BeginDisabled(blssJob_.running());
+    if (ImGui::Button("Is the corpus good enough?", ImVec2(scaled(230.0f), scaled(30.0f)))) {
+        std::vector<std::string> a{"--blss-eval", "--features"};
+        for (const std::string& c : blssCommonArgs()) a.push_back(c);
+        a.push_back("--frames");
+        a.push_back(std::to_string(blssFeatFrames_));
+        a.push_back("--fill-weight");
+        a.push_back(numArg(blssTrainFill_));
+        blssStart(blssui::Kind::Features, a, 0);
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Reports the six input channels over this corpus and turns the numbers\n"
+        "into sentences: which channel is constant, which sits against its clamp,\n"
+        "and what that means for a network fitted to these frames.\n"
+        "\n"
+        "It is the question the other two buttons cannot answer. A channel that\n"
+        "is identically zero over the whole corpus is a channel the network does\n"
+        "NOT HAVE - and the console will still feed it a real value. That is the\n"
+        "mechanism behind the -0.40 dB result: texDetail was zero on all 16 128\n"
+        "tiles of an untextured project while being the bestiary's channel most\n"
+        "correlated with the temporal weight.\n"
+        "\n"
+        "The full per-channel table is on the Inputs tab; what a run says here is\n"
+        "the one-line verdict and the findings behind it.");
+    // ONE caption for the three, in their own order. Three stacked buttons with
+    // a sentence each cost four lines of a header that had already grown taller
+    // than the tabs under it - and the three sentences agreed on the half worth
+    // saying ("no network needed") and repeated it three times.
+    {
+        const blssui::Cost feat = blssui::estimate(blssui::Kind::Features, blssFeatFrames_, 0,
+                                                   cores, 1, 0, blssExpectedShots());
+        // humanDuration() already says "about", so the caption must not say it
+        // again - "About about 45 seconds" is what the first draft printed.
+        ImGui::TextDisabled(
+            "None of the three needs a trained network. In order: %s, about a second, %s "
+            "on this machine (%d cores).",
+            blssui::humanDuration(cost.total).c_str(), blssui::humanDuration(feat.total).c_str(),
+            cores);
+    }
+    if (blssCovRunning_.load())
+        ImGui::TextDisabled("    counting overdraw... %.0f s", blssCovSeconds_);
     ImGui::Spacing();
     drawBlssAnswer();
 }
@@ -1442,9 +1686,13 @@ void App::drawBlssAnswer() {
     ImGui::SeparatorText("The answer");
     if (!haveQ && !haveS) {
         ImGui::TextDisabled(
-            "    Press both. One says whether the picture has anything to gain, the other "
-            "whether the\n    frame gets shorter - and the honest answer for most scenes is "
-            "neither.");
+            "    Press them. The first says whether the picture has anything to gain, the "
+            "second whether\n    the frame gets shorter, the third whether a network fitted to "
+            "this corpus can learn\n    anything at all - and the honest answer for most scenes "
+            "is none of the three.");
+        // Still drawn, because "not measured" is the answer here and hiding it
+        // would let the block look complete when a third of it is missing.
+        drawBlssHealth(/*compact=*/true);
         return;
     }
     ImVec4 col = dim;
@@ -1459,6 +1707,12 @@ void App::drawBlssAnswer() {
     }
     ImGui::TextColored(col, "%s", rec.headline.c_str());
     ImGui::TextWrapped("%s", rec.why.c_str());
+    // THE THIRD HALF OF THE ANSWER, and it is deliberately part of the SAME
+    // block rather than a separate panel: "the picture has room and the frame
+    // gets shorter" is not a recommendation to act on if the corpus a net would
+    // be fitted to cannot teach it anything. Unknown until measured, and it
+    // says so rather than staying quiet.
+    drawBlssHealth(/*compact=*/true);
 
     // The speed half's own paragraph: the range, the assumption that produces
     // it, and the one hardware A/B that exists, so the reader can see how far
@@ -1513,7 +1767,7 @@ void App::drawBlssAnswer() {
         ImGui::BeginDisabled(blssJob_.running());
         if (ImGui::Button("Train a network for this scene", ImVec2(scaled(240.0f), 0))) {
             blssStartTraining();
-            blssTabSelect_ = 0;
+            blssTabSelect_ = kTabTrain;
         }
         ImGui::EndDisabled();
         ImGui::SameLine();
@@ -2153,7 +2407,7 @@ void App::drawBlssVerdictThumbs() {
             blssImgA_ = bil;
             blssImgB_ = net;
             blssImgMode_ = 0;
-            blssTabSelect_ = 3;  // Compare
+            blssTabSelect_ = kTabCompare;
         }
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\n\nClick to open the Compare tab.", tip);
         ImGui::TextDisabled("%s", caption);
@@ -2183,7 +2437,7 @@ void App::drawBlssVerdictThumbs() {
                 blssImgA_ = bil;
                 blssImgB_ = net;
                 blssImgMode_ = 4;  // Difference
-                blssTabSelect_ = 3;
+                blssTabSelect_ = kTabCompare;
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -2207,14 +2461,14 @@ void App::drawBlssVerdictThumbs() {
         blssImgA_ = bil;
         blssImgB_ = net;
         blssImgMode_ = 0;
-        blssTabSelect_ = 3;
+        blssTabSelect_ = kTabCompare;
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Open the difference view")) {
         blssImgA_ = bil;
         blssImgB_ = net;
         blssImgMode_ = 4;
-        blssTabSelect_ = 3;
+        blssTabSelect_ = kTabCompare;
     }
     ImGui::SameLine();
     ImGui::TextDisabled("- at size, with a wipe and a zoom.");
@@ -2689,6 +2943,13 @@ void App::drawBlssFeaturesTab() {
         ImGui::TextDisabled("No channel report yet. Run it, or look at the output pane below.");
         return;
     }
+    // THE DIAGNOSIS BEFORE THE TABLE. Nobody reading a column of standard
+    // deviations knows that "texDetail sd 0.000" means "your corpus has no
+    // textured surfaces, so the network cannot learn the channel that predicts
+    // texture aliasing" - and that sentence is the entire value of this tab.
+    ImGui::SeparatorText("Is this corpus good enough to train on?");
+    drawBlssHealth(/*compact=*/false);
+
     ImGui::SeparatorText("Distribution and correlation with the oracle");
     if (!blssFeat_.caption.empty()) ImGui::TextDisabled("%s", blssFeat_.caption.c_str());
     if (ImGui::BeginTable("blssfeat", 10,
@@ -2774,5 +3035,747 @@ void App::drawBlssFeaturesTab() {
             }
             ImGui::EndTable();
         }
+    }
+}
+
+// ========================================================================== //
+// Training shots - what the corpus is allowed to see
+// ========================================================================== //
+//
+// THE HOLE THIS FILLS. Everything else in this window MEASURES; this is the one
+// tab that lets a user change the answer. The corpus shoots a project from six
+// camera moves derived from its bounds and its player start, and the failure
+// this feature keeps producing is a distribution mismatch - a net fitted to
+// frames the console does not draw scored -0.40 dB on a real project, i.e.
+// worse than leaving the upscaler off. A corpus is only as good as its coverage
+// of the content the PLAYER will look at, and the person who knows where the
+// player stands is the author, not a heuristic over an AABB.
+//
+// The Inputs tab is the other half of the loop: it says which channel is dead
+// or pinned, and this is where that is fixed.
+
+void App::drawBlssShotsTab() {
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "WHAT THE CORPUS IS ALLOWED TO SEE. The network is fitted to these frames and the "
+        "console runs your game - so a shot list that misses the places a player stands is "
+        "the single most expensive mistake available here. Measured: a net fitted to frames "
+        "the console does not draw scored -0.40 dB, worse than leaving the upscaler off, "
+        "because the channels it leaned on were out of range on the real content.");
+    ImGui::Spacing();
+    if (!blssCorpusProject_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                           "The corpus is set to the PROCEDURAL BESTIARY, which has its own 13 "
+                           "hand-written shots.\nNothing on this tab reaches it - switch the "
+                           "corpus in the header to this project first.");
+        ImGui::Spacing();
+    }
+
+    BlssShotPlan& pl = project_.blssShots;
+    bool changed = false;
+
+    // --- the six automatic moves ---------------------------------------------
+    ImGui::SeparatorText("The automatic camera moves");
+    ImGui::TextDisabled(
+        "Derived per scene from its bounds and the player start, aimed at the area-weighted "
+        "centroid of\nits triangles. Turn one off when it shoots content your game never "
+        "shows - an empty sky pan is a\nsixth of the corpus spent on frames where bilinear IS "
+        "the ground truth.");
+    if (ImGui::BeginTable("blssautomoves", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("shoot it", ImGuiTableColumnFlags_WidthFixed, scaled(120.0f));
+        ImGui::TableSetupColumn("frames", ImGuiTableColumnFlags_WidthFixed, scaled(110.0f));
+        ImGui::TableSetupColumn("what it teaches");
+        ImGui::TableHeadersRow();
+        for (int m = 0; m < kBlssAutoMoveCount; ++m) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            // THE MOVE'S NAME IS THE CHECKBOX'S LABEL, not a column beside it,
+            // and that is the difference between a control a scripted run can
+            // assert and one it cannot: a label hidden behind `##` leaves the
+            // widget with nothing to name, so `expect-checked` can never see
+            // it. A label IS an id here, so this also gives the six rows six
+            // identities for free.
+            if (ImGui::Checkbox(project::blssAutoMoveName(m), &pl.autoMove[m])) changed = true;
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            char flbl[64];
+            std::snprintf(flbl, sizeof(flbl), "##frames-%s", project::blssAutoMoveName(m));
+            ImGui::BeginDisabled(!pl.autoMove[m]);
+            if (ImGui::DragInt(flbl, &pl.autoFrames[m], 0.2f, 0, 400,
+                               pl.autoFrames[m] > 0 ? "%d" : "share"))
+                changed = true;
+            ImGui::EndDisabled();
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%s", project::blssAutoMoveWhy(m));
+        }
+        ImGui::EndTable();
+    }
+    ImGui::Spacing();
+    if (ImGui::Checkbox("Also shoot the Cutscene Director's camera tracks", &pl.authoredTakes))
+        changed = true;
+    prefHelp(
+        "A camera track is already a polyline of (eye, look-at) keys - the exact\n"
+        "shape the corpus wants - and an author who framed a shot has told the\n"
+        "trainer which part of the scene matters, for the cost of a copy. Up to\n"
+        "half the per-scene budget, and a track whose camera bindings do not\n"
+        "resolve in that scene contributes nothing.");
+
+    // --- the author's own vantages -------------------------------------------
+    ImGui::SeparatorText("Your own vantages");
+    ImGui::TextDisabled(
+        "Aim these at the places a player actually stands: the corridor they walk down, the "
+        "arena they\nfight in, the doorway they come through. That is coverage of the content "
+        "the game will SHOW,\nwhich is the whole point of training on your own project.");
+
+    const bool haveScene = !project_.scenes.empty();
+    ImGui::BeginDisabled(!haveScene);
+    if (ImGui::Button("Add the viewport camera", ImVec2(scaled(200.0f), 0))) {
+        BlssShot s;
+        float eye[3], target[3];
+        viewport_.currentCamera(eye, target);
+        for (int k = 0; k < 3; ++k) {
+            s.eye[k] = s.eye2[k] = eye[k];
+            s.look[k] = s.look2[k] = target[k];
+        }
+        if (project_.activeScene >= 0 && project_.activeScene < (int)project_.scenes.size())
+            s.scene = project_.scenes[(size_t)project_.activeScene].name;
+        s.name = "shot " + std::to_string(pl.shots.size() + 1);
+        pl.shots.push_back(std::move(s));
+        blssShotSel_ = (int)pl.shots.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Takes the editor viewport's current eye and look-at. Frame the shot the\n"
+        "way you want the corpus to see it and press this - it is the fastest way\n"
+        "to say 'train on THIS', and it costs no arithmetic.");
+    ImGui::SameLine();
+    // A selected Camera object is the other natural source, and it keeps the
+    // shot LIVE: the vantage follows the object instead of freezing a copy of
+    // its numbers that goes stale the moment somebody nudges the camera.
+    const SceneObject* selCam = nullptr;
+    if (hasProject_ && selectedObject_ >= 0 &&
+        selectedObject_ < (int)project_.objects().size() &&
+        project_.objects()[(size_t)selectedObject_].type == PrimitiveType::Camera)
+        selCam = &project_.objects()[(size_t)selectedObject_];
+    ImGui::BeginDisabled(selCam == nullptr);
+    if (ImGui::Button("Add the selected Camera object", ImVec2(scaled(230.0f), 0)) && selCam) {
+        BlssShot s;
+        s.camera = selCam->name;
+        s.scene = project_.scenes[(size_t)project_.activeScene].name;
+        s.name = selCam->name;
+        pl.shots.push_back(std::move(s));
+        blssShotSel_ = (int)pl.shots.size() - 1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "The shot then FOLLOWS that object - move the camera and the corpus moves\n"
+        "with it, where the numbers above are a copy taken once. Renaming the\n"
+        "object retargets the shot like any other by-name reference.");
+    if (!selCam) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("select a Camera object to use it as a vantage");
+    }
+
+    if (pl.shots.empty()) {
+        ImGui::TextDisabled(
+            "    No authored shots. The automatic moves above are all the corpus will see.");
+    } else if (ImGui::BeginTable("blssshots", 6,
+                                 ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                     ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("on", ImGuiTableColumnFlags_WidthFixed, scaled(30.0f));
+        ImGui::TableSetupColumn("name");
+        ImGui::TableSetupColumn("scene");
+        ImGui::TableSetupColumn("vantage");
+        ImGui::TableSetupColumn("frames", ImGuiTableColumnFlags_WidthFixed, scaled(80.0f));
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, scaled(130.0f));
+        ImGui::TableHeadersRow();
+        int erase = -1;
+        for (size_t i = 0; i < pl.shots.size(); ++i) {
+            BlssShot& s = pl.shots[i];
+            ImGui::PushID((int)i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (ImGui::Checkbox("##on", &s.enabled)) changed = true;
+            ImGui::TableNextColumn();
+            char name[128];
+            std::snprintf(name, sizeof(name), "%s", s.name.c_str());
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputText("##name", name, sizeof(name))) s.name = name;
+            if (ImGui::IsItemDeactivatedAfterEdit()) changed = true;
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.scene.empty() ? "(first)" : s.scene.c_str());
+            ImGui::TableNextColumn();
+            if (!s.camera.empty())
+                ImGui::Text("Camera '%s'%s", s.camera.c_str(),
+                            s.move && !s.cameraTo.empty() ? " -> ..." : "");
+            else
+                ImGui::Text("%.1f %.1f %.1f%s", s.eye[0], s.eye[1], s.eye[2],
+                            s.move ? "  (moving)" : "");
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::DragInt("##frames", &s.frames, 0.2f, 0, 400,
+                               s.frames > 0 ? "%d" : "share"))
+                changed = true;
+            ImGui::TableNextColumn();
+            if (ImGui::SmallButton(blssShotSel_ == (int)i ? "Close" : "Edit"))
+                blssShotSel_ = blssShotSel_ == (int)i ? -1 : (int)i;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete")) erase = (int)i;
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+        if (erase >= 0) {
+            pl.shots.erase(pl.shots.begin() + erase);
+            if (blssShotSel_ >= (int)pl.shots.size()) blssShotSel_ = -1;
+            changed = true;
+        }
+    }
+
+    // --- the editor for one shot ---------------------------------------------
+    if (blssShotSel_ >= 0 && blssShotSel_ < (int)pl.shots.size()) {
+        BlssShot& s = pl.shots[(size_t)blssShotSel_];
+        ImGui::SeparatorText("Editing this shot");
+        ImGui::PushID("blssshotedit");
+        // Scene, BY NAME - a scene index rots the moment one is deleted, and a
+        // shot pointing at the wrong scene is worse than one pointing at none:
+        // the second is reported, the first is silently the wrong content.
+        {
+            int cur = 0;
+            std::vector<const char*> names;
+            names.push_back("(the first scene)");
+            for (size_t i = 0; i < project_.scenes.size(); ++i) {
+                names.push_back(project_.scenes[i].name.c_str());
+                if (project_.scenes[i].name == s.scene) cur = (int)i + 1;
+            }
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo("Scene", &cur, names.data(), (int)names.size())) {
+                s.scene = cur == 0 ? std::string() : project_.scenes[(size_t)cur - 1].name;
+                changed = true;
+            }
+        }
+        const int si = project::blssShotScene(project_, s);
+        // Camera pickers, one per key. Every entry gets an explicit id: a
+        // Selectable's LABEL is its id, so two identical names in one popup
+        // collide silently and no scripted run can catch it.
+        const auto cameraCombo = [&](const char* label, std::string& slot) {
+            std::vector<std::string> opts;
+            opts.push_back("(use the numbers below)");
+            if (si >= 0)
+                for (const SceneObject& o : project_.scenes[(size_t)si].objects)
+                    if (o.type == PrimitiveType::Camera) opts.push_back(o.name);
+            int cur = 0;
+            for (size_t i = 1; i < opts.size(); ++i)
+                if (opts[i] == slot) cur = (int)i;
+            std::vector<const char*> raw;
+            for (const std::string& o : opts) raw.push_back(o.c_str());
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo(label, &cur, raw.data(), (int)raw.size())) {
+                slot = cur == 0 ? std::string() : opts[(size_t)cur];
+                changed = true;
+            }
+            // A name that survived a scene change but matches nothing here is
+            // the one failure mode that silently removes a shot from the corpus.
+            if (!slot.empty() && cur == 0)
+                ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                                   "    '%s' is not a Camera object in this scene - this shot "
+                                   "will NOT be shot.",
+                                   slot.c_str());
+        };
+        cameraCombo("Camera object", s.camera);
+        if (s.camera.empty()) {
+            ImGui::SetNextItemWidth(scaled(260));
+            if (ImGui::DragFloat3("Eye", s.eye, 0.1f, 0.0f, 0.0f, "%.2f")) changed = true;
+            ImGui::SetNextItemWidth(scaled(260));
+            if (ImGui::DragFloat3("Looking at", s.look, 0.1f, 0.0f, 0.0f, "%.2f")) changed = true;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Grab the viewport")) {
+                viewport_.currentCamera(s.eye, s.look);
+                changed = true;
+            }
+        }
+        if (ImGui::Checkbox("It moves (a second key)", &s.move)) changed = true;
+        prefHelp(
+            "Off is a still standpoint, and that is a legitimate shot rather than a\n"
+            "degenerate one: with a frozen camera the history is perfect, and the\n"
+            "network has to learn NOT to spend passes there. On gives the shot a\n"
+            "second vantage and the corpus interpolates between the two.");
+        if (s.move) {
+            ImGui::Indent(scaled(16.0f));
+            cameraCombo("Camera object (end)", s.cameraTo);
+            if (s.cameraTo.empty()) {
+                ImGui::SetNextItemWidth(scaled(260));
+                if (ImGui::DragFloat3("Eye (end)", s.eye2, 0.1f, 0.0f, 0.0f, "%.2f"))
+                    changed = true;
+                ImGui::SetNextItemWidth(scaled(260));
+                if (ImGui::DragFloat3("Looking at (end)", s.look2, 0.1f, 0.0f, 0.0f, "%.2f"))
+                    changed = true;
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Grab the viewport (end)")) {
+                    viewport_.currentCamera(s.eye2, s.look2);
+                    changed = true;
+                }
+            }
+            ImGui::Unindent(scaled(16.0f));
+        }
+        ImGui::SetNextItemWidth(scaled(160));
+        if (ImGui::DragFloat("Field of view", &s.fovDeg, 0.5f, 20.0f, 140.0f, "%.0f deg"))
+            changed = true;
+        // The cheapest possible check that a vantage points where the author
+        // meant: put the editor's own camera there. Anything else is reading six
+        // numbers and imagining a frame.
+        if (ImGui::Button("Look through this shot", ImVec2(scaled(190.0f), 0))) {
+            float a[3], la[3], b[3], lb[3], fov = s.fovDeg;
+            if (project::blssResolveShot(project_, s, a, la, b, lb, &fov)) {
+                for (int k = 0; k < 3; ++k) blssLookEye_[k] = a[k], blssLookAt_[k] = la[k];
+                blssLookFov_ = fov;
+                blssLookThrough_ = true;
+                statusMessage_ =
+                    "BLSS: looking through " + project::blssShotLabel(project_, s, blssShotSel_);
+            } else {
+                statusMessage_ = "BLSS: that shot does not resolve - see the warning above";
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Give the camera back", ImVec2(scaled(170.0f), 0))) {
+            blssLookThrough_ = false;
+            viewport_.clearCameraOverride();
+        }
+        if (blssLookThrough_)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                               "    The viewport is parked at this shot's FIRST key - the orbit "
+                               "camera is on hold.");
+        ImGui::PopID();
+    }
+
+    drawBlssShotPlanPreview();
+    if (changed) commitChange();
+}
+
+// WHAT WILL ACTUALLY BE SHOT, resolved the way the corpus resolves it. A plan
+// is only worth authoring if the author can see its consequence, and the two
+// consequences that matter are which shots got dropped and how the frame budget
+// landed on the survivors.
+void App::drawBlssShotPlanPreview() {
+    ImGui::SeparatorText("The shot list this will produce");
+    const std::vector<PlannedShot> plan = planShots(project_);
+    std::vector<int> frames;
+    int shortfall = 0;
+    const bool fits = splitFrames(plan, blssTrainFrames_, frames, shortfall);
+    int live = 0;
+    for (const PlannedShot& s : plan)
+        if (s.problem.empty()) ++live;
+
+    if (live == 0) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                           "NOTHING WOULD BE SHOT. The trainer falls back to the procedural "
+                           "bestiary, which is the net\nmeasured at -0.40 dB on a real project. "
+                           "Turn a move back on or add a vantage.");
+    } else if (project_.blssShots.isDefault()) {
+        ImGui::TextDisabled(
+            "%d shot(s) - the default plan, so this project's corpus is byte-identical to what "
+            "it has\nalways been. Nothing above has been authored yet.",
+            live);
+    } else {
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                           "%d shot(s) over %zu scene(s), %d training frame(s) split between "
+                           "them.",
+                           live, project_.scenes.size(), blssTrainFrames_);
+    }
+    if (!fits)
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                           "    The explicit frame counts alone overrun the budget - %d shot(s) "
+                           "would get none at all.\n    Raise 'Frames' on the Train tab, or "
+                           "lower a count.",
+                           shortfall);
+
+    if (ImGui::BeginTable("blssplan", 5,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("#", ImGuiTableColumnFlags_WidthFixed, scaled(30.0f));
+        ImGui::TableSetupColumn("scene");
+        ImGui::TableSetupColumn("shot");
+        ImGui::TableSetupColumn("move");
+        ImGui::TableSetupColumn("frames", ImGuiTableColumnFlags_WidthFixed, scaled(160.0f));
+        ImGui::TableHeadersRow();
+        int n = 0;
+        for (size_t i = 0; i < plan.size(); ++i) {
+            const PlannedShot& s = plan[i];
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            if (s.problem.empty())
+                ImGui::Text("%d", n++);
+            else
+                ImGui::TextDisabled("-");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.scene.c_str());
+            ImGui::TableNextColumn();
+            if (!s.problem.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", s.name.c_str());
+            else if (s.authored)
+                ImGui::TextColored(ImVec4(0.55f, 0.80f, 1.0f, 1.0f), "%s", s.name.c_str());
+            else
+                ImGui::TextUnformatted(s.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(s.kind.c_str());
+            ImGui::TableNextColumn();
+            if (!s.problem.empty())
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "dropped: %s",
+                                   s.problem.c_str());
+            else if (s.frames > 0)
+                ImGui::Text("%d  (asked for)", frames[i]);
+            else
+                ImGui::TextDisabled("%d", frames[i]);
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled(
+        "A take row is an ESTIMATE: the trainer drops a Cutscene Director track whose camera\n"
+        "bindings do not resolve in its own scene, and this cannot see that without "
+        "re-deriving\nthem. Every other row is the corpus' own resolution, called from here.");
+
+    // DID THE TRAINER ACTUALLY DO THIS? A plan the tool ignores looks exactly
+    // like a plan it obeys, so the last run's own per-scene report is compared
+    // against what was asked for. It is the falsifiability rule this whole
+    // window is built on, applied to the one thing in it that is an INPUT.
+    if (!blssScenes_.empty()) {
+        int reported = 0;
+        for (const blssui::CorpusScene& s : blssScenes_) reported += s.shots;
+        ImGui::Spacing();
+        if (reported == live)
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                               "The last run reported %d shot(s) over %zu scene(s) - the plan "
+                               "above is what it shot.",
+                               reported, blssScenes_.size());
+        else
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                               "The last run reported %d shot(s); this plan asks for %d. Either "
+                               "the run predates the plan,\nor this build of the trainer does "
+                               "not read it yet - check the [blss] scene lines below.",
+                               reported, live);
+        for (const blssui::CorpusScene& s : blssScenes_)
+            ImGui::TextDisabled("    %s: %d shot(s), %zu triangle(s)", s.name.c_str(), s.shots,
+                                s.triangles);
+    }
+}
+
+// ========================================================================== //
+// Console probe - place a REAL frame in this corpus' distribution
+// ========================================================================== //
+//
+// This instrument already existed and was a chore: the engine writes a
+// `BLSSFEAT` line into the game's log once a second under debug view 2, and the
+// user had to find it, copy it, and paste it into a command line. It is the
+// only thing that can answer "is the network being fed what it was trained on",
+// and it is what found both host/console divergences this feature has had - so
+// the friction was on the one step nobody should skip.
+//
+// THE TRAP THIS PANEL EXISTS AROUND: bin/log.txt does NOT exist when the game
+// runs over ps2link. templates.cpp sets `writeLogsToFile = !ps2link`, because
+// under ps2link the EE console is better - printf goes over the network and the
+// editor shows it live in the Output panel. So there are two sources, the panel
+// tries both, and it SAYS which one it used rather than showing an empty box.
+
+void App::drawBlssProbeTab() {
+    ImGui::Spacing();
+    ImGui::TextWrapped(
+        "Takes a feature vector the CONSOLE measured and places it inside this corpus' own "
+        "distribution, per channel. It is the only way to know the network is being fed what "
+        "it was trained on - and a channel outside the corpus' range is not interpolation, it "
+        "is a 12-unit hidden layer extrapolating. That is the mechanism behind the -0.40 dB "
+        "result this whole window is arranged around.");
+    ImGui::Spacing();
+    drawBlssCorpusReminder();
+    ImGui::Spacing();
+
+    // --- step 1: the debug view ---------------------------------------------
+    ImGui::SeparatorText("1 - let the game log its own feature spread");
+    const int dv = std::clamp(project_.settings.blssDebugView, 0, 2);
+    if (dv == 2) {
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                           "Debug view 2 is ON: the game writes a BLSSFEAT line about once a "
+                           "second.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Turn it off again")) {
+            project_.settings.blssDebugView = 0;
+            commitChange();
+        }
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                           "Debug view 2 is OFF, so the game logs nothing to probe.");
+        if (ImGui::Button("Turn on debug view 2", ImVec2(scaled(200.0f), 0))) {
+            project_.settings.blssDebugView = 2;
+            commitChange();
+            statusMessage_ = "BLSS: debug view 2 on - rebuild and run the game";
+        }
+        prefHelp(
+            "Sets the project's own 'Debug view' to 2 (Project settings tab). It\n"
+            "does not tint the picture - it logs BLSSGRID / BLSSFEAT / BLSSOUT /\n"
+            "BLSSFILL / BLSSWORST once a second. It IS compiled into the build, so\n"
+            "set it back to Off before handing the game to anyone.");
+    }
+    ImGui::TextDisabled(
+        "    Then REBUILD and run the game (the debug view is compiled in - saving is not "
+        "enough), and\n    play the part of the game you care about. Come back here and press "
+        "the button below.");
+
+    // --- step 2: find the line ----------------------------------------------
+    ImGui::SeparatorText("2 - read the line out of the game's log");
+    if (ImGui::Button("Read the game's log", ImVec2(scaled(190.0f), 0))) {
+        const std::string where = blssFindFeatLine();
+        if (where.empty()) {
+            blssProbeSource_.clear();
+            blssProbeNote_ =
+                "No BLSSFEAT line found. Either the game has not run with debug view 2 since "
+                "the last build, or it ran over ps2link - see below.";
+        } else {
+            blssProbeSource_ = where;
+            blssProbeNote_.clear();
+        }
+    }
+    prefHelp(
+        "Looks in the project's own bin/log.txt first (that is where a PCSX2 run\n"
+        "writes it, through host: fs), then in this editor's Output panel, which\n"
+        "carries the [ps2] stream from a ps2link deploy. It takes the LAST\n"
+        "BLSSFEAT line, because that describes the frame the player was looking\n"
+        "at most recently.");
+    // GUARDED, because an unconditional SameLine() with nothing to put on it
+    // hands the line to whatever is submitted NEXT - which here is the
+    // multi-line ps2link explanation, and it came out beside the button.
+    if (!blssProbeSource_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("from %s", blssProbeSource_.c_str());
+    }
+
+    // The ps2link half, stated plainly instead of shown as an empty panel.
+    {
+        std::error_code ec;
+        const std::string logPath = (fs::path(project_.dir) / "bin" / "log.txt").string();
+        const bool haveLog = fs::is_regular_file(logPath, ec);
+        if (!haveLog)
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                "    There is no bin/log.txt in this project. That is EXPECTED for a game run "
+                "on real\n    hardware over ps2link: the engine sends its log over the network "
+                "instead of writing a\n    file, so the lines arrive in this editor's Output "
+                "panel while the session is live. Either\n    copy a BLSSFEAT line from there "
+                "into the box below, or run the game in PCSX2 once -\n    a PCSX2 run writes "
+                "the file through host: fs and this button finds it by itself.");
+        else
+            ImGui::TextDisabled("    %s", logPath.c_str());
+    }
+    if (!blssProbeNote_.empty())
+        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f), "    %s", blssProbeNote_.c_str());
+
+    // A REAL LABEL, not `##blssfeatline`. A label hidden behind `##` leaves the
+    // widget with nothing for a scripted run to name, and this is the one field
+    // in the window a test has to be able to fill.
+    ImGui::SetNextItemWidth(-scaled(150.0f));
+    ImGui::InputText("BLSSFEAT line", blssProbeLine_, sizeof(blssProbeLine_));
+    prefHelp(
+        "Editable, so a line copied from anywhere - the Output panel, a teammate's\n"
+        "log, a screenshot typed back in - can be probed. The parser ignores the\n"
+        "`BLSSFEAT` prefix and any punctuation between fields, so paste it whole.");
+
+    // --- step 3: run it ------------------------------------------------------
+    ImGui::SeparatorText("3 - place it in the corpus");
+    const bool haveLine = blssProbeLine_[0] != '\0';
+    ImGui::BeginDisabled(blssJob_.running() || !haveLine);
+    if (ImGui::Button("Place this frame in the corpus", ImVec2(scaled(250.0f), 0)))
+        blssRunProbe();
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    {
+        const int cores = std::max(1, (int)std::thread::hardware_concurrency());
+        const blssui::Cost cost =
+            blssui::estimate(blssui::Kind::Features, blssFeatFrames_, 0, cores, 1, 0,
+                             blssExpectedShots());
+        if (!haveLine)
+            ImGui::TextDisabled("no line yet - read the log, or paste one above.");
+        else
+            ImGui::TextDisabled("%s on this machine (%d cores) - it renders the corpus first.",
+                                blssui::humanDuration(cost.total).c_str(), cores);
+    }
+
+    if (!blssProbe_.ok()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "No probe table yet. The output pane below carries whatever the last run printed.");
+        return;
+    }
+
+    // --- the verdict + the table --------------------------------------------
+    const ImVec4 bad(1.0f, 0.45f, 0.35f, 1.0f), warn(1.0f, 0.75f, 0.35f, 1.0f),
+        good(0.45f, 0.85f, 0.45f, 1.0f);
+    ImGui::SeparatorText("The answer");
+    ImVec4 col = warn;
+    if (blssProbeVerdict_.level == blssui::ProbeVerdict::Level::Mismatch) col = bad;
+    if (blssProbeVerdict_.level == blssui::ProbeVerdict::Level::Matches) col = good;
+    ImGui::TextColored(col, "%s", blssProbeVerdict_.headline.c_str());
+    ImGui::TextWrapped("%s", blssProbeVerdict_.why.c_str());
+
+    if (ImGui::BeginTable("blssprobe", 8,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        const char* heads[] = {"channel",      "console min/mean/max", "spread", "corpus range",
+                               "percentile",   "support",              "band",   "verdict"};
+        for (const char* h : heads) ImGui::TableSetupColumn(h);
+        ImGui::TableHeadersRow();
+        for (const blssui::ProbeRow& r : blssProbe_.rows) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.name.c_str());
+            if (ImGui::IsItemHovered()) {
+                const char* why = blssui::channelPurpose(r.name);
+                if (why[0]) ImGui::SetTooltip("%s", why);
+            }
+            if (!r.given) {
+                for (int c = 0; c < 6; ++c) {
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("-");
+                }
+                ImGui::TableNextColumn();
+                ImGui::TextColored(warn, "not in the line");
+                continue;
+            }
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f / %.3f / %.3f", r.lo, r.mid, r.hi);
+            ImGui::TableNextColumn();
+            // No spread means the same number in every tile of the console's
+            // frame, i.e. a network making no per-tile decision from it at all.
+            if (r.spread <= 1e-4)
+                ImGui::TextColored(bad, "%.3f", r.spread);
+            else
+                ImGui::Text("%.3f", r.spread);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f..%.3f", r.corpusLo, r.corpusHi);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f%%", r.pct);
+            ImGui::TableNextColumn();
+            if (r.supp < 1.0)
+                ImGui::TextColored(bad, "%.1f%%", r.supp);
+            else
+                ImGui::Text("%.1f%%", r.supp);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f%%", r.band);
+            ImGui::TableNextColumn();
+            ImGui::TextColored(r.outOfRange ? bad : (r.noSupport || r.constant) ? warn : good,
+                               "%s", r.verdict.c_str());
+        }
+        ImGui::EndTable();
+    }
+    // `%%`, not `%`: ImGui::TextDisabled is printf-style, so a literal percent
+    // sign is a conversion. The first draft of this caption rendered as
+    // "134014523040f the tiles is 134014076620f the gradient" - which is what a
+    // format string reading past its (absent) arguments looks like, and it is
+    // one keystroke away in every explanatory line this window has.
+    ImGui::TextDisabled(
+        "'support' is how much of the corpus lies within +-0.05 of the console's MEAN, and it "
+        "is the\ncolumn that decides interpolation against extrapolation - 1%% of the tiles is "
+        "1%% of the\ngradient. 'band' is how much of the corpus falls inside the console's own "
+        "min..max, i.e. how\nmuch of what was taught this frame can even reach.");
+    ImGui::Spacing();
+    ImGui::TextDisabled(
+        "This is ONE frame. Probe the parts of your game that look different from each other -\n"
+        "an interior corridor and an open vista put wholly different numbers in the depth and\n"
+        "coverage channels, and a corpus can be right about one and wrong about the other.");
+}
+
+// The freshest BLSSFEAT line, from whichever source has one, and a description
+// of that source for the panel to print. bin/log.txt first - a PCSX2 run writes
+// it through host: fs and it is the whole log; then the editor's own Output
+// panel, which is where the [ps2] stream from a ps2link deploy lands, and the
+// ONLY source that exists for a game running on real hardware.
+std::string App::blssFindFeatLine() {
+    if (!hasProject_) return "";
+    std::error_code ec;
+    const std::string logPath = (fs::path(project_.dir) / "bin" / "log.txt").string();
+    if (fs::is_regular_file(logPath, ec)) {
+        // The tail is enough and bounded: the engine writes a block a second,
+        // so a long session is megabytes and only the end of it is current.
+        const std::string tail = readTextFileTail(logPath, 256 * 1024);
+        const std::string line = blssui::lastFeatLine(tail);
+        if (!line.empty()) {
+            std::snprintf(blssProbeLine_, sizeof(blssProbeLine_), "%s", line.c_str());
+            return "the project's bin/log.txt";
+        }
+    }
+    const std::string fromRunner = blssui::lastFeatLine(logOut_.text);
+    if (!fromRunner.empty()) {
+        std::snprintf(blssProbeLine_, sizeof(blssProbeLine_), "%s", fromRunner.c_str());
+        return "this editor's Output panel (the ps2link [ps2] stream)";
+    }
+    return "";
+}
+
+void App::blssRunProbe() {
+    std::vector<std::string> a{"--blss-eval", "--features"};
+    for (const std::string& c : blssCommonArgs()) a.push_back(c);
+    a.push_back("--frames");
+    a.push_back(std::to_string(blssFeatFrames_));
+    a.push_back("--fill-weight");
+    a.push_back(numArg(blssTrainFill_));
+    a.push_back("--probe");
+    a.push_back(blssProbeLine_);
+    blssStart(blssui::Kind::Features, a, 0);
+}
+
+// ========================================================================== //
+// "Is this corpus good enough to train on" - the third verdict
+// ========================================================================== //
+//
+// The window already answers "will the picture improve" and "will the frame get
+// faster". This is the third question, and it is the one that catches the
+// failure the other two cannot see: a corpus so thin that the net fitted to it
+// makes the game WORSE. The arithmetic is blssui::corpusHealth() - pure, so all
+// four verdicts are walkable from a harness; this chooses words and colours.
+//
+// It follows the speed verdict's standard: an UNMEASURED corpus reads as
+// unmeasured, never as fine.
+void App::drawBlssHealth(bool compact) {
+    const ImVec4 bad(1.0f, 0.45f, 0.35f, 1.0f), warn(1.0f, 0.75f, 0.35f, 1.0f),
+        good(0.45f, 0.85f, 0.45f, 1.0f);
+    ImVec4 col = warn;
+    switch (blssHealth_.verdict) {
+        case blssui::CorpusHealth::Verdict::Unusable: col = bad; break;
+        case blssui::CorpusHealth::Verdict::Good: col = good; break;
+        case blssui::CorpusHealth::Verdict::Thin: col = warn; break;
+        default: col = warn; break;
+    }
+    if (!blssHealth_.ok) {
+        // Deliberately TextDisabled and deliberately not green: nothing has
+        // been measured, and the one thing this must never do is look like a
+        // pass. The prose is stated HERE rather than read off the struct
+        // because the struct is also default-constructed before any run, and a
+        // "Corpus:" with nothing after it is the reassuring blank this whole
+        // verdict exists to avoid.
+        ImGui::TextDisabled(
+            "Corpus: not measured - so nothing here can tell you whether it is any good.");
+        if (!compact)
+            ImGui::TextWrapped(
+                "Press 'Is the corpus good enough?' above. It reports the six input channels "
+                "over these frames and says, in one line, whether a network fitted to them can "
+                "learn anything at all - which is a different question from whether the scene "
+                "has headroom, and the one that catches a corpus missing a channel outright.");
+        return;
+    }
+    ImGui::TextColored(col, "Corpus: %s", blssHealth_.headline.c_str());
+    ImGui::TextWrapped("%s", blssHealth_.why.c_str());
+    if (compact) {
+        if (!blssHealth_.findings.empty())
+            ImGui::TextDisabled("    %zu finding(s) named on the Inputs tab.",
+                                blssHealth_.findings.size());
+        return;
+    }
+    for (const blssui::CorpusFinding& f : blssHealth_.findings) {
+        const ImVec4 fc = f.level == blssui::CorpusFinding::Level::Fatal ? bad
+                          : f.level == blssui::CorpusFinding::Level::Warn ? warn
+                                                                          : ImVec4(0.65f, 0.65f,
+                                                                                   0.65f, 1.0f);
+        ImGui::TextColored(fc, "  - %s", f.what.c_str());
+        ImGui::TextDisabled("      %s", f.fix.c_str());
     }
 }

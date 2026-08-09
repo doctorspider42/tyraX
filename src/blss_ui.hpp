@@ -290,6 +290,111 @@ struct FeatureTable {
 
 FeatureTable parseFeatures(const std::string& text);
 
+// -------------------------------------------- --blss-eval --features --probe ---
+
+// One channel of a CONSOLE-measured feature vector placed inside the corpus'
+// own distribution - `--probe "<BLSSFEAT line>"`'s table, read back.
+//
+// This is the only instrument that can answer "is the network being fed what it
+// was trained on", and it found both host/console divergences this feature has
+// had (the whole-mesh bag proxy and the sky dome). It was also, until now, a
+// chore: the user had to find a line in a log by hand and paste it into a CLI.
+struct ProbeRow {
+    std::string name;
+    bool given = false;   // the BLSSFEAT line carried this channel at all
+    double lo = 0, mid = 0, hi = 0;      // the console's own min/mean/max
+    double spread = 0;                   // hi - lo, as the tool prints it
+    double corpusLo = 0, corpusHi = 0;   // what the corpus covers
+    double pct = 0;    // where the console's MEAN falls in the corpus, %
+    double supp = 0;   // % of the corpus within +-0.05 of it
+    double band = 0;   // % of the corpus inside the console's own min..max
+    std::string verdict;  // the tool's own words, verbatim
+    // Derived from `verdict` so the UI colours without re-deciding: the tool
+    // owns the thresholds (1% support, the min/max box) and a second set of
+    // them here would be a second answer to the same question.
+    bool outOfRange = false, noSupport = false, constant = false;
+};
+
+struct ProbeTable {
+    std::vector<ProbeRow> rows;
+    int outOfRange = 0, constants = 0, tails = 0, missing = 0;
+    bool ok() const { return !rows.empty(); }
+};
+
+ProbeTable parseProbe(const std::string& text);
+
+// The one-line answer over that table, with the same refusal-to-reassure rule
+// the speed verdict follows: a probe with a channel out of the corpus' range is
+// stated as a mismatch, not as a percentage.
+struct ProbeVerdict {
+    enum class Level { Unknown, Matches, Thin, Mismatch };
+    Level level = Level::Unknown;
+    std::string headline, why;
+};
+ProbeVerdict probeVerdict(const ProbeTable&);
+
+// The engine writes one `BLSSFEAT` line into the game's log about once a
+// second (debug view 2). This pulls the LAST one out of a log's text - the
+// last is the interesting one, because it describes the frame the player was
+// looking at most recently. Empty when the log carries none, which is the
+// honest answer for a game that was never built with the debug view on.
+std::string lastFeatLine(const std::string& logText);
+
+// ----------------------------------------------------- is the corpus any good ---
+
+// WHAT IS WRONG WITH THIS CORPUS, IN THE USER'S TERMS. `--features` has always
+// printed the numbers that say a channel is dead or pinned; nobody reading a
+// column of sds knows that "texDetail sd 0.000" means "your corpus has no
+// textured surfaces, so the network cannot learn the channel that predicts
+// texture aliasing". That sentence is what this produces.
+struct CorpusFinding {
+    enum class Level { Note, Warn, Fatal };
+    Level level = Level::Note;
+    std::string channel;  // "" for a finding about the corpus as a whole
+    std::string what;     // what the numbers say, in plain words
+    std::string fix;      // what to do about it
+};
+
+struct CorpusHealth {
+    bool ok = false;  // a --features report was actually read
+    enum class Verdict {
+        Unknown,   // nothing measured - and this must NEVER read as "fine"
+        Good,      // every channel moves and none is pinned
+        Thin,      // trainable, but something is not being taught
+        Unusable   // a channel is constant: the net cannot learn it at all
+    };
+    Verdict verdict = Verdict::Unknown;
+    std::string headline, why;
+    std::vector<CorpusFinding> findings;
+    int dead = 0, pinned = 0, flat = 0, blind = 0;
+    int shots = 0;
+};
+
+// `shots` comes from the table itself (the per-shot columns). Pure, so all four
+// verdicts are walkable from a harness - and they are checked against two real
+// corpora with known answers: examples/upscaler-lab has real headroom and
+// examples/showcase has +0.01 dB and a thin corpus, so a health report calling
+// showcase's corpus Good is wrong by construction.
+CorpusHealth corpusHealth(const FeatureTable&);
+
+// What a channel is FOR, in one clause, so a finding can name the consequence
+// rather than the symptom. Empty for a name that is not a channel.
+const char* channelPurpose(const std::string& name);
+
+// ------------------------------------------------ did the plan reach the tool ---
+
+// `[blss]   scene 'x': N mesh(es) + ..., M shot(s)` - what the corpus loader
+// says it found. The window compares it against the authored shot plan, which
+// is the only way an author can tell "the trainer honoured my plan" from "the
+// trainer is still shooting its six defaults". A parse that finds nothing
+// reports nothing.
+struct CorpusScene {
+    std::string name;
+    int shots = 0;
+    size_t triangles = 0;
+};
+std::vector<CorpusScene> parseCorpusScenes(const std::string& text);
+
 // -------------------------------------------------------------- will it be faster ---
 
 // THE MEASURED SPEED MODEL, in one place, with its provenance attached. Every
