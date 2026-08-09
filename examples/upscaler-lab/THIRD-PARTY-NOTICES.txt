@@ -1,24 +1,6 @@
 THIRD-PARTY NOTICES
 ===================
 
-  !! READ BEFORE PUBLISHING ANYTHING BUILT FROM THIS EXAMPLE !!
-
-  TWO OF THIS EXAMPLE'S ART ASSETS HAVE UNVERIFIED REDISTRIBUTION TERMS:
-  the "Cottage FREE" model (res/models/cottage/*) and the animated spider
-  (res/models/spider.fbx). Both were downloaded as free assets; neither
-  licence was checked when this example was written. See "Scene assets used
-  by this example" below for the detail.
-
-  They are fine to build, run and look at. Before you REDISTRIBUTE anything
-  containing them - a released game, a package, a store page - read each
-  asset's original licence and satisfy yourself that redistribution is
-  permitted, or replace the asset. Nothing in TyraX can answer this for you,
-  and this notice is not a substitute for reading them.
-
-  Everything else in this file has verified terms. The rest of the example -
-  the scene, the code, the generated textures - is unaffected.
-
-
 This game is built with TyraX and runs on the Tyra engine. You may release it
 commercially and you may keep your source code closed - nothing here is a
 copyleft license, and none of it requires you to publish anything you wrote.
@@ -26,6 +8,10 @@ copyleft license, and none of it requires you to publish anything you wrote.
 What IS required is attribution: ship this file with your game (next to the ELF,
 in the package, or reproduced in an in-game credits screen - any of those works)
 and keep the notices below intact. That is the whole obligation.
+
+Every art asset in this example is CC0 1.0 (public domain dedication), so this
+example carries no redistribution question at all: build it, ship it, sell it,
+modify it, with or without the credits below.
 
 
 Tyra engine - Apache License 2.0
@@ -61,30 +47,72 @@ license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
 section is a courtesy credit, and you may delete it.
 
 
-Scene assets used by this example
----------------------------------
-This example ships three third-party art assets. They are the example's content,
-not part of TyraX, and their terms are their authors'.
+Retro Urban Kit - Kenney - CC0 1.0
+----------------------------------
+Created and distributed by Kenney, www.kenney.nl
+Retro Urban Kit 2.0, released into the public domain under
+Creative Commons Zero 1.0 Universal:
+https://creativecommons.org/publicdomain/zero/1.0/
 
-  res/models/cottage/Cottage_FREE.obj
-  res/models/cottage/Cottage_FREE.mtl
-  res/models/cottage/Cottage_Clean_Base_Color512.png
-      "Cottage FREE", a free low-poly cottage distributed with its own licence
-      document (README.pdf in the original download). The .obj and .mtl are the
-      author's files; TyraX's only edit to the .mtl is the added map_Kd line and
-      Kd 1 1 1, both marked in the file itself. The PNG is the author's
-      Cottage_Clean base colour map downsampled to 512x512 for the PS2's texture
-      budget. REDISTRIBUTION TERMS NOT VERIFIED - the accompanying licence was
-      not machine-readable at the time this example was written. Before shipping
-      anything built from this example, read the original README.pdf and satisfy
-      yourself that redistribution is permitted, or replace the asset.
+Kenney's licence says crediting "Kenney" or "www.kenney.nl" is appreciated but
+NOT required. This example credits them anyway, and you may keep or drop this
+section as you like.
 
-  res/models/spider.fbx
-      A free rigged and animated spider (four clips: alert, default, stand,
-      walk). Same caveat: its terms were not verified here.
+  res/models/depot/block-west.obj   res/models/depot/block-west.mtl
+  res/models/depot/block-east.obj   res/models/depot/block-east.mtl
+  res/models/depot/trucks.obj       res/models/depot/trucks.mtl
+  res/models/depot/Textures/wall_lines.png    (64x64)
+  res/models/depot/Textures/metal_wall.png    (64x64)
+  res/models/depot/Textures/concrete.png      (64x64)
+  res/models/depot/Textures/windows.png       (64x64)
+  res/models/depot/Textures/metal.png         (64x64)
+  res/models/depot/Textures/roof.png          (64x64)
+  res/models/depot/Textures/roof_plates.png   (64x64)
+  res/models/depot/Textures/truck.png         (128x128)
+
+      Derivative works ("kit-bashes") assembled from the kit's own modules -
+      permitted without condition by CC0, and recorded here so the result is
+      reproducible rather than mysterious. The textures are Kenney's own files,
+      copied unchanged.
+
+      block-west.obj is built from the kit's `wall-a` family and block-east.obj
+      from its `wall-b` family - each module a 1x1x1 cell, placed on a grid at
+      one module per world 1.4 m:
+
+        block-west   wall-a, wall-a-window, wall-a-open, wall-a-roof
+        block-east   wall-b, wall-b-window, wall-b-roof
+
+      Three mesh operations were applied and nothing else. Kenney's OBJ export
+      writes every face TWICE, so the duplicate was dropped. A face with another
+      module on the far side of it was dropped as well - it is inside the mass
+      and can never be seen. And each window module was rotated so its front
+      looks at open air. The vertices, UVs and material assignments that remain
+      are the modules' own.
+
+      trucks.obj is three whole kit models placed at a transform and merged
+      into one file - `truck-grey` twice and `truck-grey-cargo` once - so the
+      parked lot costs the PS2 one draw call instead of three.
+
+      Every merge groups faces by material, which is what keeps each building to
+      one bag submit per texture on the console.
+
+
+Universal Base Characters (NOT used - recorded for the next person)
+-------------------------------------------------------------------
+Quaternius' Universal Base Characters [Standard] is CC0 1.0 and was evaluated
+for this example's animated model. Its free tier ships a rigged mesh - a skin
+and a 130-bone skeleton - but ZERO animation clips (the glTF has no `animations`
+array; the FBX has no AnimationStack and no AnimationCurve). The rigged, ANIMATED
+sources are in the paid SOURCE version. A rig with no clips renders as a statue,
+so it was not used. This is recorded so nobody re-derives it.
+
 
 Assets generated for this example
 ---------------------------------
+  res/models/wobbler.glb      the animated model (clips "Wiggle", "Twist")
+      Authored for TyraX and already shipped by five other examples. No
+      third-party terms apply.
+
   res/materials/gravel.png    256x256 cobblestone, generated procedurally
   res/materials/puff.png      128x128 soft haze billboard, generated procedurally
       Authored for this example (a deterministic Worley/value-noise generator),

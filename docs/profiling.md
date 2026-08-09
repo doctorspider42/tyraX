@@ -588,6 +588,17 @@ against an effect of 19.9. A **1.60x** speedup, in a scene a person can look at.
 > (2 048 pooled per arm); the four cross-pairings span **0.010 ms**. A **1.63x**
 > speedup, against **1.60x** with the jitter on.
 >
+> **The fixture's GEOMETRY changed on 2026-08-09, after this table was taken.**
+> `examples/upscaler-lab`'s art assets were replaced with CC0 ones (its cottage
+> and spider had unverified redistribution terms). The **fill** these numbers
+> measure is intact — the emitters were not touched and `--blss-coverage` reads
+> 72.23 against 72.63 — so every fit on this page still stands. The **EE** is
+> about 4 ms cheaper per frame (PCSX2-measured; 2 x 1092 animated vertices became
+> 2 x 123), which lowers both arms and should push the ratio above 1.63x. The
+> hardware re-run is **owed** and could not be taken: the console was unreachable
+> for that session. Treat the absolute milliseconds here as a measurement of the
+> previous geometry and the model fitted from them as current.
+>
 > So the prediction — "the timing holds, because the retrained net asks for the
 > same passes and the jitter moves *where* the raster samples rather than how
 > much of it there is" — is **confirmed, and slightly beaten**. The off arm is
@@ -627,7 +638,7 @@ Three things fall out, and the second one corrects this page.
    computed against a 2x factor and was therefore about 70 % too pessimistic.
 2. **The base scene costs 21.2 ms with BLSS off and 24.8 ms with it on.** That
    +3.6 ms is BLSS' EE bill *net of* the ~2.6 full-screen coverages of base fill
-   (terrain, sky, cottages, rain, campfires) that it also halves. It is the floor:
+   (terrain, sky, the buildings, rain, campfires) that it also halves. It is the floor:
    this scene cannot go above ~40 FPS with BLSS on however thin the haze gets,
    which is why the demo lands at 19 → 30 FPS and not at the 20 → 45 that was
    asked for. **Raising the off-arm frame rate shrinks the win**, because the
@@ -691,7 +702,7 @@ The old figure on this line was **22**, computed off the wrong resolution factor
 and the pre-table EE bill. `upscaler-lab` as first built rasterised on the order
 of *nine hundred* coverages, which is why it won by 3.4x and also why it was a
 broken demo; **re-tuned it rasterises 58.7 blended-pass equivalents by
-measurement and 72.63 by the estimator** (that discrepancy is the open question
+measurement and 72.63 by the estimator** (72.23 since the CC0 asset swap) (that discrepancy is the open question
 in "Calibrating the speed model against hardware" below) and still wins by
 **1.63x**. `blssrig` rasterises a handful,
 which is why it loses by 6.4 ms. **The break-even is a real line and generated
@@ -1013,7 +1024,7 @@ frame get faster?" button — same `blss::measureCoverage`, same
 `examples/upscaler-lab` it prints **72.63**, split **0.98 geometry + 71.65
 emitters**.
 
-> **RETRACTED: "the estimator over-reads because it counts terrain, cottages and
+> **RETRACTED: "the estimator over-reads because it counts terrain, buildings and
 > blended puffs alike in one unit."** That was this page's stated mechanism for
 > the over-read, and on this fixture it is **wrong**, by its own numbers.
 >

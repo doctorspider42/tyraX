@@ -2132,11 +2132,13 @@ void TerrainGame::init() {
   vuscript::install(stapip.core);
   // The neural upscaler (docs/neural-upscaler.md): project-wide and
   // baked - nothing at runtime turns it on or off. configure() sizes
-  // the low-res render target and the reconstruction knobs, setNet()
-  // hands over the MLP that picks the per-tile blend weights.
+  // the low-res render target and the reconstruction knobs; in PLAIN
+  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the
+  // reprojection, the feature grid and the MLP, leaving the reduced
+  // raster and one bilinear composite pass.
   engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, BLSS_SHARPEN,
                                        BLSS_TEMPORAL, BLSS_DEBUG_VIEW,
-                                       BLSS_JITTER);
+                                       BLSS_JITTER, BLSS_NETWORK);
   engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, BLSS_NET_W2,
                                     BLSS_NET_B2);
   TYRA_LOG("BLSS: network = this project's own blss.net (fitted on examples/upscaler-lab)");

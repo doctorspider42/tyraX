@@ -576,6 +576,18 @@ inline double eeCostMs(bool network) { return network ? kEeCostMs : kEeCostPlain
 //
 // The UI still calls the count an overdraw INDEX that over-states its scale by
 // about a quarter, which is what the headroom above the break-even absorbs.
+// THE ANCHOR IS A HARDWARE MEASUREMENT OF A FIXTURE THAT HAS SINCE CHANGED, and
+// that is deliberate rather than stale. examples/upscaler-lab's art assets were
+// replaced with CC0 ones on 2026-08-09 (its cottage and spider had unverified
+// redistribution terms). What the anchor prices is the FILL, and the fill did
+// not move - the emitters were untouched and --blss-coverage reads 72.23 against
+// the 72.63 it read when these milliseconds were taken - so kAnchorCoverages and
+// every constant fitted from that run are current. What DID move is the scene's
+// EE floor, about 4 ms a frame cheaper (PCSX2-measured, admissible for EE), so
+// kAnchorOffMs/kAnchorOnMs no longer reproduce on today's example: both arms
+// should land lower and the ratio above 1.63. They are left alone because a
+// number nobody measured must not be written here, and the hardware re-run is
+// owed - see examples/upscaler-lab/README.md, "What the asset swap moved".
 constexpr double kAnchorCoverages = 58.7;
 constexpr double kAnchorSpeedup = 1.63;
 constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;

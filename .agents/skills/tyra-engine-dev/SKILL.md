@@ -510,7 +510,7 @@ Eight things here that were paid for, and that any edit must keep:
   uniformly over the emitter's XZ rect. **The flat channel is the FIXTURE**:
   strip `upscaler-lab` to one small emitter and `coverage` reads 0.690 /
   67.8 % at 1.000 in all three arms, while `--blss-coverage` counts 71.65 of
-  72.63 coverages as emitters on the shipped one - "covered everywhere" is
+  72.23 coverages as emitters on the shipped one - "covered everywhere" is
   simply true there. The rule and its tables are in
   docs/blss-reconstruction.md section 2; the emitter half's open item is that
   the CORPUS DRAWS NO PARTICLES - `docs/backlog.md`.
@@ -643,7 +643,12 @@ Eight things here that were paid for, and that any edit must keep:
   to quote for the shipped demo, never the 3 072) it measures
   **52.95 ms off against 32.42 ms on** - d = +20.53 ms, 95 % CI [+20.46, +20.61],
   n = 1024 paired frames per pairing, **1.63x**, for **4.60 ms of EE** plus
-  0.50 ms of composite fill. That second table is the one to quote, and it is the
+  0.50 ms of composite fill. **Those milliseconds describe the fixture's PRE-CC0
+  geometry**: its art assets were swapped for CC0 ones on 2026-08-09 (the cottage
+  and spider had unverified redistribution terms), which left the fill alone
+  (--blss-coverage 72.63 -> 72.23, emitters untouched) but took ~4 ms of EE out of
+  both arms, almost all of it the animated model. The fill model fitted from these
+  runs is current; the absolute A/B is owed a re-run. That second table is the one to quote, and it is the
   configuration the fixture SHIPS (`blssJitter` off). The owed jitter-off re-run
   has **landed** (2026-08-09): the earlier 52.86 / 32.98 / **1.60x** was the
   jitter-ON timing, the off arm is unchanged and the BLSS arm came out 0.56 ms

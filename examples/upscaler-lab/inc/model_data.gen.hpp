@@ -3,27 +3,33 @@
 
 namespace Upscaler_lab {
 
-constexpr int MODEL_COUNT = 1;
+constexpr int MODEL_COUNT = 3;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "models/cottage/Cottage_FREE__ovrb564.tmdl",
+    "models/depot/block-west.tmdl",
+    "models/depot/block-east.tmdl",
+    "models/depot/trucks.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "models/cottage/Cottage_FREE.mtl",
+    "",
+    "",
+    "",
 };
 // The AUTHORED asset path each slot was baked from ("res/models/x.obj").
 // Nothing loads it - it is the key a runtime procedural volume
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "res/models/cottage/Cottage_FREE.obj",
+    "res/models/depot/block-west.obj",
+    "res/models/depot/block-east.obj",
+    "res/models/depot/trucks.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 1;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
-    "models/spider.tskl",
+    "models/wobbler.tskl",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)

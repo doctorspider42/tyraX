@@ -23,19 +23,20 @@ fill-bound at all.
 
 The editor will tell you where a scene sits on that line before you build
 anything: *Tools > Neural Upscaler (BLSS)* > **Will the frame get faster?**, or
-headlessly `tyrax-editor --blss-coverage <this folder>`. It reads **72.63
-coverages** here (p95 94.39) — **0.98 of geometry and 71.65 of haze**.
+headlessly `tyrax-editor --blss-coverage <this folder>`. It reads **72.23
+coverages** here (p95 93.32) — **0.96 of geometry and 71.27 of haze**.
 
 **Those two instruments do not agree, and the gap is now LOCATED rather than
 open.** Working back from the hardware fit, this scene's true fill is 34.46 ms =
 **58.7** blended-pass equivalents. Two explanations of the difference have been
-measured and both are dead. It is not the unit — geometry is 0.98 of the 72.63
+measured and both are dead. It is not the unit — geometry is ~1.0 of the ~72.5
 against a measured ceiling of ≤1.14, and re-weighting it moves the total by 0.49
 against a 13.93 gap. And it is not the **camera**: walked under this fixture's
 *own* parked gameplay camera (the standpoint the console A/B sampled, authored as
 a training vantage — eye `(0, 1.8, 27)` looking −Z) the estimator reads **78.99**,
-and under the Cutscene tour **85.64**, i.e. *above* the six-move mean of 72.63
-rather than near the 57.7 that theory predicted.
+and under the Cutscene tour **85.64**, i.e. *above* the six-move mean (72.63 on
+the geometry those readings were taken on) rather than near the 57.7 that theory
+predicted.
 
 What it is, is a constant scale error in the modelled emitter term. With the haze
 banks stepped 6 / 4 / 2 / 0 exactly as the hardware rig stepped them, the counter
@@ -56,22 +57,23 @@ two orders of magnitude: a count taken from geometry alone reads this scene as
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
 
-> **Before redistributing anything built from this example**, read
-> [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt): two of its art assets —
-> the cottage model and the animated spider — have **unverified redistribution
-> terms**. They are free to build, run and measure with; shipping them is a
-> question only their original licences can answer.
+> **Everything in this example is CC0 1.0** — see
+> [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt). Build it, ship it, sell it.
+> It was not always: until 2026-08-09 the buildings and the animated model were
+> free downloads whose **redistribution terms had never been verified**, and this
+> file carried a banner saying so. They are gone.
 
 ## What is in the scene
 
-A 96x96 cobbled yard between two cottages, under a haze bank thick enough to
-matter and thin enough to watch.
+A 96x96 cobbled service yard between two industrial blocks, under a haze bank
+thick enough to matter and thin enough to watch.
 
 | Piece | Count | Why |
 |---|---|---|
-| Cottage (`Cottage_FREE.obj`, 4 281 tris, 512² diffuse) | 2 | The textured static landmark, and **the content the BLSS corpus can actually see** — `blssscene` walks primitives, static `.obj` and terrain chunks, nothing else. Its diffuse is what makes the `texDetail` feature non-zero; that channel being identically zero is the documented mechanism behind the −0.40 dB disaster on `examples/procedural`. |
+| Depot block (`res/models/depot/block-{west,east}.obj`, 1 134 + 998 tris) | 2 | The textured static landmark, and **the content the BLSS corpus can actually see** — `blssscene` walks primitives, static `.obj` and terrain chunks, nothing else. Their `map_Kd`s are what make the `texDetail` feature non-zero; that channel being identically zero is the documented mechanism behind the −0.40 dB disaster on `examples/procedural`. Kit-bashed from Kenney's Retro Urban Kit (CC0) — see [How the buildings were made](#how-the-buildings-were-made). |
 | Static boxes (wall, fence posts + rails, crates, two slabs) | 26 | Cheap, static-batched (`26 objects in 4 batches`), textured. Edge density and proxy count for almost no EE. |
-| Spider (`spider.fbx`, clip `spider.walk`) | 2 | 1 092 vertices each, LOD tiers 480/180 — read off the baked `.tskl`, not guessed. ~2 ms of EE per 1 000-vertex instance on real hardware, so two is the whole animated budget. EE is the half BLSS does **not** reduce. |
+| Parked trucks (`res/models/depot/trucks.obj`, 108 tris) | 1 object, 3 vehicles | Three whole kit models merged into **one material**, so the lot is a single bag submit. Character for the price of one draw call. |
+| Wobbler (`wobbler.glb`, clips `Wiggle` / `Twist`) | 2 | **123 vertices each** — the animated pass, kept deliberately small. Skinning is EE work and EE is the half BLSS does **not** reduce, so the animated budget is there for realism, not for the measurement. It replaced two 1 092-vertex spiders and that is most of the 4 ms of EE this scene shed; see [What the asset swap moved](#what-the-asset-swap-moved). |
 | **Custom haze emitters** | **6 x 32** | **The fill.** `kind: "custom"`, `size 9.0`, `opacity 0.8`, `life 8`, `gravity -0.15` (buoyant), `grow 1.6`, spread over `[26, 1, 26]`, one shared 128² soft-puff material. Six banks at x −8…+9, z −18…+15, every centre above eye height. **Tuned against the console, not the emulator** — see [Measured](#measured). |
 | Campfire (`fire` 48 + `smoke` 40) | 2 | Two more emitter kinds, and something to look at. |
 | Rain (`kind rain`, 200, `followPlayer`) | 1 | The many-small-quads regime beside the few-huge-quads one. |
@@ -95,8 +97,13 @@ enormous GS fill. That is the lever, and the tuning below is what set the number
 
 `On Start` plays a 20-second Cutscene Director sequence with `cameraEnabled` and
 `skippable`: establishing shot of the yard, a push-in, **a four-second hold at
-the worst-case vantage inside the haze**, a lateral across both cottages, then a
-crane out. It does two jobs at once. It is a deterministic, pad-free A/B — the
+the worst-case vantage inside the haze**, a lateral past the west block, then a
+crane out. Its t = 16 s key sits at world `(-15, 3, -1)`, which is **2.6 m clear
+of the west block's north face** — the block is centred at `(-15, 0, -8.5)` and
+is 9.8 m deep, so growing it southward is fine and growing it northward puts the
+camera inside the building. That is a real constraint, not a note.
+
+The tour does two jobs at once. It is a deterministic, pad-free A/B — the
 same twenty seconds every boot — **and** it is a training shot:
 `blssscene::authoredShots` copies a sequence's camera track straight into the
 training corpus, so the net is fitted on exactly the frames the demo shows. It
@@ -116,7 +123,10 @@ software renderer, shipped configuration, one 20 640-frame boot.
 - **`bin/log.txt` is clean** — no assert, no `Max buffer size in VU1`, zero
   texture evictions and zero re-uploads, GS free VRAM flat at 1.19 MB the whole
   way. The only two lines are the pre-existing `DynamicMesh` notes for the
-  spiders, printed at load.
+  animated models, printed at load. (Re-checked after the CC0 asset swap on the
+  shipped build: still clean, still zero evictions, and free VRAM is now **1.27
+  MB** — the kit's 64² textures cost a fraction of the 512² diffuse they
+  replaced.)
 - **The frame splits exactly where this example says it does.** Away from the
   haze it holds `FRAME 20.00 ms` at 50 FPS; driven into the bank at the south end
   of the yard it runs **23.2–31.7 ms at 25 FPS** — and `PART`, the EE particle
@@ -167,6 +177,23 @@ in [Measured](#measured) — PCSX2 mis-prices GS fill by a large factor
 
 ## Measured
 
+> ### ⚠ The hardware table below describes this example's PREVIOUS geometry
+>
+> It was taken on 2026-08-09, before the art assets were replaced with CC0 ones
+> (see [What the asset swap moved](#what-the-asset-swap-moved)). **The GS fill it
+> measures is intact** — the emitters were not touched and `--blss-coverage` reads
+> 72.23 against the 72.63 it read then, a 0.6 % difference. **The EE is not**: the
+> swap took roughly **4 ms a frame** out of the EE budget, almost all of it the
+> animated model. So both arms should now land about 4 ms lower and the ratio
+> should come out *above* 1.63x — but that is arithmetic over a PCSX2 measurement,
+> not a hardware measurement, and this file does not print predictions as results.
+>
+> **The hardware re-run is OWED.** It could not be done here: the console at
+> 192.168.100.150 was unreachable for the whole session (`Destination host
+> unreachable` — not even ICMP), and PCSX2 is inadmissible for GS fill, which it
+> under-reports by 76x. Every number below is still a real measurement of a real
+> console; it just describes the scene as it was.
+
 **On a real PlayStation 2**, over ps2link, with the frame-timing rig
 (`docs/profiling.md`): `buildProfile debug`, PAL interlaced, Live Link / Live
 Debugger / Live Logic / Remote Pad / Time Machine **all off**, the 20 s tour
@@ -185,7 +212,65 @@ arms of the BLSS-on row:
 
 **d = +20.53 ms, 95 % CI [+20.46, +20.61], sd 1.12, n = 1024 paired frames** per
 pairing (2 048 pooled per arm); the four cross-pairings span **0.010 ms** against
-an effect of 20.5. **A 1.63x speedup, on a scene you can actually watch.**
+an effect of 20.5. **A 1.63x speedup, on a scene you can actually watch** — on
+the geometry of 2026-08-09, per the box above.
+
+## What the asset swap moved
+
+The example's buildings and its animated model were replaced with CC0 assets on
+2026-08-09. **The point of the swap was licensing; the point of measuring it was
+that the swap touches 100 % of what the network is fitted on while touching ~1.4 %
+of the frame.** The corpus renderer draws *no emitters at all* — it sees only
+geometry — so changing the buildings changes the entire training corpus, while the
+haze that is 98.7 % of the fill never moves. Both halves had to be checked, and
+neither could be assumed from the other.
+
+**GS fill — unchanged.** `--blss-coverage`, the same instrument on both scenes:
+
+| | geometry | emitters | total | p95 |
+|---|---|---|---|---|
+| cottages + spiders | 0.98 | 71.65 | **72.63** | 94.39 |
+| depot blocks + wobblers | 0.96 | 71.27 | **72.23** | 93.32 |
+
+The emitter term moves by 0.5 %, which is the haze being sampled against slightly
+different occluders, not the haze changing. The emitter setup — 6 banks x 32
+custom billboards at `size 9.0`, plus the campfires and rain — is byte-identical.
+
+**Reconstruction quality — slightly better.** `--blss-eval <this folder>
+--all-shots`, jitter off, 2x2:
+
+| | oracle ceiling | trained | fraction captured | strongest channel correlation |
+|---|---|---|---|---|
+| cottages + spiders | +1.058 dB | +0.51 dB | 48 % | 0.293 |
+| depot blocks + wobblers | **+1.108 dB** | +0.50 dB | 46 % | **0.358** |
+
+The ceiling did **not** collapse — it rose. Under leave-one-shot-out
+cross-validation the new corpus reads **+0.39 dB, sd 0.36, 0 of 6 folds below
+plain bilinear**. `--features` says why it survived: `texDetail` has mean 0.312
+with only 3.6 % of tiles pinned at 1, and it is now the channel most correlated
+with the temporal weight (+0.356) — Kenney's 64² `map_Kd`s carry the texture
+signal the outgoing 512² cottage diffuse used to.
+
+**EE — about 4 ms a frame cheaper, and this is the part that moves the headline.**
+PCSX2, software renderer, the shipped build, the same deterministic 20 s tour
+sampled once a second (`-Watch`), old build and new build. **PCSX2 is admissible
+for EE aggregate and counts and for nothing else here.**
+
+| | `SCENE` mean | `SCENE` peak | `PART` | `FRAME` |
+|---|---|---|---|---|
+| cottages + spiders | 11.53 ms | 16.82 ms | 0.46 ms | 19.8–40.0 (four frames at 25 FPS) |
+| depot blocks + wobblers | **7.53 ms** | **10.16 ms** | 0.46 ms | 19.6–20.5 (never drops) |
+
+`PART` — the EE particle phase — is **0.46 ms in every sample of both runs**,
+which is the emitter setup being genuinely untouched. The 4 ms is geometry and
+skinning: 11 650 → 4 960 triangles, and 2 x 1 092 animated vertices → 2 x 123.
+The animated model is the bulk of it at roughly 2 ms of EE per 1 000 vertices.
+
+The buildings cost *more* draw calls than the outgoing cottages did — 5 material parts
+each against 1, because Kenney's UVs tile and so the textures cannot be atlased
+(`textureAtlas` skips anything whose UVs leave [0,1]) — and the frame still came
+out ahead. That is the honest shape of the trade: submits are cheap here,
+skinning is not.
 
 > **The jitter-ON timing, kept because it is what this file quoted for a week.**
 > Same fixture, same protocol, same window, jitter on:
@@ -354,7 +439,7 @@ flipping one half of a twin silently invalidates every trained net.
 **1. ~~With BLSS on, every textured primitive and the textured terrain
 disappear.~~ FIXED — the z mask was never on** (see
 `docs/blss-reconstruction.md` §6). Re-checked on the re-tuned scene in PCSX2's
-software renderer, BLSS on, from the parked vantage: both cottages, their window
+software renderer, BLSS on, from the parked vantage: both blocks, their window
 and wall textures, the crates and the cobbled terrain all draw. The table below
 is kept because it is a good minimal control and because the *shape* of the
 symptom — texture resident, bound thousands of times per frame, nothing reaching
@@ -378,7 +463,7 @@ pass is submitted and its texture is bound and nothing reaches the low-res
 target — which is what a GS alpha test rejecting every fragment looks like
 (StaPip draws with the "pass only when alpha != 0" cutout rule). That is why the
 step-3 row above is not a result, and why the screenshots with BLSS on show two
-cottages floating over an empty sky.
+buildings floating over an empty sky.
 
 **2. The picture still bobs.** `docs/neural-upscaler.md` ("The oscillation")
 records this as open, and it is. Measured here on a **frozen camera** (a static
@@ -461,7 +546,7 @@ found to be missing from it — skinned `.glb`/`.fbx` posed per console frame. I
 does **not** walk emitters, and on the console the particle bags contribute **no
 BLSS proxy at all** (`stapip_core.cpp` gives a billboard bag no bbox, so the
 sphere fallback has radius 0 and is rejected). The net is therefore fitted on
-the cottages, the primitives, the terrain and the spiders, and then run on a
+the buildings, the primitives, the terrain and the animated models, and then run on a
 frame whose fill is overwhelmingly haze it has never seen. That is a real gap in
 the feature, not a property of this scene; it is filed in `docs/backlog.md`.
 
@@ -506,22 +591,61 @@ node are refused outright: `blssClashes()` emits `#error` into
 
 ## Assets
 
-Three third-party assets, attributed in `THIRD-PARTY-NOTICES.txt`; the two
-textures (`gravel.png`, `puff.png`) are generated. Total committed assets under
-`res/`: **1.7 MB**.
+Every art asset here is **CC0 1.0** and attributed in
+`THIRD-PARTY-NOTICES.txt`. Total committed assets under `res/`: **758 KB** (it
+was 1.7 MB before the swap), of which the buildings and trucks are **217 KB** of
+Wavefront text and **45 KB** of 64² and 128² textures, and the animated model is
+**14 KB**. Nothing here is over 512 px or non-power-of-two, so `texbake` resizes
+nothing on the way to the console.
 
-The **female NPC was dropped**, and deliberately: the only variant of
-`F:/Tyra-Projects/Assets/FemaleCharacter` that carries a skin at all is
-`Female.fbx` at **19.2 MB** (13 geometry nodes, 545 deformers, 30 embedded
-texture blobs). `Idle (1).fbx` (1.39 MB) and `Walking (1).fbx` (349 KB) are
-animation-only — zero geometry, zero deformers — so neither can stand in. The
-largest model committed anywhere in `examples/` is 151 KB, so shipping her would
-have grown the repo by more than every other example's assets put together. The
-spiders carry the animated pass instead.
+### How the buildings were made
 
-**`Cottage_FREE.obj`, not `Cottage_FREE.fbx`.** `.fbx` is *always* treated as an
-animated model (`project.hpp:797`, `isAnimatedModelPath`), and this cottage has
-0 animation stacks and 0 texture references — so the `.fbx` would go down the
-skeletal pipeline, pay per-frame EE pose work for a building, and be **invisible
-to the BLSS corpus**, which skips animated models by design. The `.obj` is the
-single most important asset decision in the example.
+`block-west.obj`, `block-east.obj` and `trucks.obj` are **kit-bashes of Kenney's
+Retro Urban Kit** (CC0 1.0, `www.kenney.nl`) — derivative works, which CC0 permits
+without condition. The recipe is written down in `THIRD-PARTY-NOTICES.txt` so the
+result is reproducible rather than mysterious, and three decisions in it are worth
+keeping if you re-cut them:
+
+- **Merged, not placed.** A model renders one bag submit *per material part* and
+  is never static-batched (`staticBatchEligible` takes primitives only), so
+  thirty kit modules dropped in as thirty scene objects would be thirty draw
+  calls. They are merged into one `.obj` per building instead, with faces grouped
+  by material — 5 parts each — and the three trucks into a single one-material
+  file.
+- **Kenney's OBJ export writes every face twice.** Dropping the duplicate halves
+  the triangle count for nothing.
+- **Interior faces are culled on the grid.** The modules are 1x1x1 cells, so a
+  face with another module behind it can never be seen and is dropped at author
+  time. That is what keeps a solid, articulated mass down to ~1 100 triangles.
+
+**Windows must be stamped onto cells that are actually exposed**, not authored by
+hand into the plan. A `wall-a-window` module's window quad has normal `(0, 0, -1)`
+— an axis direction — so the interior-face cull deletes it exactly like a wall
+face when the cell behind it is occupied. Hand-authored window rows landed inside
+the mass, the cull removed all of them, and the building came out blank with no
+error anywhere. The generator now finds the exposed cells itself and rotates each
+module's front toward open air.
+
+**Why the textures are not atlased.** `ProjectSettings::textureAtlas` would pack
+these 64² `map_Kd`s into shared pages and cut the part count, and it correctly
+refuses to: every model in the kit **tiles** its UVs (they run to u = −46), and an
+atlas page can only hold textures sampled inside [0, 1]. That is why a building
+costs 5 submits rather than 1, and it is a property of the source art, not a
+setting anyone can flip.
+
+### The animated model
+
+`wobbler.glb` — already shipped by five other examples, so it adds no new licence
+surface at all. **Quaternius' Universal Base Characters [Standard] was evaluated
+first and rejected on evidence**: its free tier ships a rigged mesh (a skin and a
+130-bone skeleton) but **zero animation clips** — the glTF has no `animations`
+array and the FBX has no `AnimationStack` and no `AnimationCurve`. The rigged,
+animated sources are in the paid SOURCE version. A rig with no clips renders as a
+statue, and faking one was not on the table. `THIRD-PARTY-NOTICES.txt` records
+this so nobody re-derives it.
+
+**Static geometry wants `.obj`, never `.fbx`.** `.fbx` is *always* treated as an
+animated model (`project.hpp:797`, `isAnimatedModelPath`), so a building shipped
+as one would go down the skeletal pipeline, pay per-frame EE pose work for
+something that never moves, and — until animated models were added to the corpus
+walk — be invisible to BLSS training. The buildings are `.obj` for that reason.

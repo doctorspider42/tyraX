@@ -1,1 +1,0 @@
-{ "id": "ulab-spider-1", "name": "spider-1", "type": "model", "position": [7, 0, -3], "rotation": [0, -110, 0], "scale": [3, 3, 3], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/spider.fbx", "anim": { "clip": "spider.walk", "autoplay": true, "loop": true, "speed": 1 } }

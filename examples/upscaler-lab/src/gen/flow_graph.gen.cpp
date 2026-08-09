@@ -86,11 +86,11 @@ void factProfileRestore(const FactSaveRow* rows, int count) {
 bool factProfileDirty() {
   return false;
 }
-class FlowGraphScript_0_42;
-FlowGraphScript_0_42* g_time_FlowGraphScript_0_42 = nullptr;
+class FlowGraphScript_0_43;
+FlowGraphScript_0_43* g_time_FlowGraphScript_0_43 = nullptr;
 
-// Scene "main": graph of "director" (object 42)
-class FlowGraphScript_0_42 : public Script {
+// Scene "main": graph of "director" (object 43)
+class FlowGraphScript_0_43 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -99,7 +99,7 @@ class FlowGraphScript_0_42 : public Script {
     if (livedbg::halted()) return;
     // Live Logic: while the editor has a patch for this graph, the
     // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 42)) return;
+    if (livelogic::patched(0, 43)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -123,7 +123,7 @@ class FlowGraphScript_0_42 : public Script {
  public:
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_42() { g_time_FlowGraphScript_0_42 = this; }
+  FlowGraphScript_0_43() { g_time_FlowGraphScript_0_43 = this; }
   static const unsigned int kTimeBytes = 5;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
@@ -139,11 +139,11 @@ class FlowGraphScript_0_42 : public Script {
   int frame = 0;
   bool started = false;
 };
-class FlowGraphScript_0_43;
-FlowGraphScript_0_43* g_time_FlowGraphScript_0_43 = nullptr;
+class FlowGraphScript_0_44;
+FlowGraphScript_0_44* g_time_FlowGraphScript_0_44 = nullptr;
 
-// Scene "main": graph of "ab-switch" (object 43)
-class FlowGraphScript_0_43 : public Script {
+// Scene "main": graph of "ab-switch" (object 44)
+class FlowGraphScript_0_44 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -152,7 +152,7 @@ class FlowGraphScript_0_43 : public Script {
     if (livedbg::halted()) return;
     // Live Logic: while the editor has a patch for this graph, the
     // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 43)) return;
+    if (livelogic::patched(0, 44)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
@@ -185,7 +185,7 @@ class FlowGraphScript_0_43 : public Script {
  public:
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_43() { g_time_FlowGraphScript_0_43 = this; }
+  FlowGraphScript_0_44() { g_time_FlowGraphScript_0_44 = this; }
   static const unsigned int kTimeBytes = 5;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
@@ -212,20 +212,20 @@ void flowDbgReadVar(int index, float* out3) {
 
 // Time machine (docs/time-machine.md): every graph's own state.
 unsigned int flowTimeScriptBytes() {
-  return FlowGraphScript_0_42::kTimeBytes +
-         FlowGraphScript_0_43::kTimeBytes;
+  return FlowGraphScript_0_43::kTimeBytes +
+         FlowGraphScript_0_44::kTimeBytes;
 }
 void flowTimeScriptCapture(unsigned char* p) {
-  if (g_time_FlowGraphScript_0_42) g_time_FlowGraphScript_0_42->timeCapture(p);
-  p += FlowGraphScript_0_42::kTimeBytes;
   if (g_time_FlowGraphScript_0_43) g_time_FlowGraphScript_0_43->timeCapture(p);
   p += FlowGraphScript_0_43::kTimeBytes;
+  if (g_time_FlowGraphScript_0_44) g_time_FlowGraphScript_0_44->timeCapture(p);
+  p += FlowGraphScript_0_44::kTimeBytes;
 }
 void flowTimeScriptRestore(const unsigned char* p) {
-  if (g_time_FlowGraphScript_0_42) g_time_FlowGraphScript_0_42->timeRestore(p);
-  p += FlowGraphScript_0_42::kTimeBytes;
   if (g_time_FlowGraphScript_0_43) g_time_FlowGraphScript_0_43->timeRestore(p);
   p += FlowGraphScript_0_43::kTimeBytes;
+  if (g_time_FlowGraphScript_0_44) g_time_FlowGraphScript_0_44->timeRestore(p);
+  p += FlowGraphScript_0_44::kTimeBytes;
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
@@ -264,5 +264,5 @@ void flowLiveGetVarPos(int index, float* out3) {
 
 }  // namespace Upscaler_lab
 
-TYRA_SCRIPT(Upscaler_lab::FlowGraphScript_0_42);
 TYRA_SCRIPT(Upscaler_lab::FlowGraphScript_0_43);
+TYRA_SCRIPT(Upscaler_lab::FlowGraphScript_0_44);
