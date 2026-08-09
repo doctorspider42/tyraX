@@ -231,6 +231,13 @@ struct FlowNodeType {
     // drag labelled "Seed" wanting to know what 0 and -1 mean). A trap about
     // one parameter belongs in its tip; a trap about the node stays in `desc`.
     const char* numTips[4] = {};
+    // A numeric parameter that is really a CHOICE: a '|'-separated list of
+    // option labels, in value order (index 0 = 0.0, 1 = 1.0, ...). When set,
+    // the editor draws a dropdown instead of a number field, which is the only
+    // way a reader can tell what "2" means without hovering. The stored value
+    // is still num[], so codegen, links and every existing project are
+    // untouched. Leave null for a genuine number.
+    const char* numChoices[4] = {};
     FlowParamKind numKind = FlowParamKind::None;  // Color = picker for num[0..2]
     bool idIn = false;    // accepts an object id from a data link (object-param nodes)
     bool idOut = false;   // exposes its resolved object as an id output
@@ -1265,6 +1272,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "overrides that - use it for a cutscene, where the camera "
                      "is doing the moving and a smoother picture is worth "
                      "letting the world run slower."},
+         .numChoices = {"Off|On (only when it pays)|On (always)"},
          .desc = "Turns frame extrapolation on or off while the game runs "
                  "(docs/frame-extrapolation.md). Needs the project's Frame "
                  "extrapolation preference on - that is what compiles the "

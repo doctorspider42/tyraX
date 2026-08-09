@@ -561,6 +561,16 @@ in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 script class per object graph; object references resolve to indices at codegen;
 bool logic folds into inline C++ expressions.
 
+**A numeric parameter that is really a CHOICE** declares `.numChoices[i]` - a
+`'|'`-separated list of option labels in value order - and the editor draws a
+dropdown instead of a number field. The stored value is still `num[]`, so
+codegen, links and existing projects are untouched; it is purely how the
+parameter READS. Prefer it to a bare number for any small enum: the drawing code
+in `flowgraph_ui.cpp` otherwise branches on the label STRING (`"Loop"`,
+`"Channel"`, `"Times"`...), which is a heuristic a new node has no way to join,
+and `0.000` in a node body tells a reader nothing. A declared choice wins over
+every one of those heuristics.
+
 **A value a graph computes** rides the **number plane** (`FlowLinkNum`,
 `numIn`/`numOut`): a wired number REPLACES the target's `num[0]`, one
 convention for every consumer, mirroring `posIn` over X/Y/Z. Codegen resolves
