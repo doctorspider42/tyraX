@@ -487,8 +487,13 @@ Everything above this heading was measured on `blssrig` — terrain plus slabs,
 a scene with almost no fill — and on that fixture BLSS is a pure loss. The
 question that mattered was whether *any* scene is GS-bound. It is.
 
-Fixture: `examples/upscaler-lab`, the haze demo (12 banks x 256 alpha-blended
-billboards at `size 9.0` = 3 072 large blended sprites), **BLSS off vs on**,
+Fixture: `examples/upscaler-lab` **as it stood on 2026-08-08, before the
+re-tune below** — the haze was 12 banks x 256 alpha-blended billboards at
+`size 9.0` = 3 072 large blended sprites, and the scene carried 5 more emitters
+(2 fire, 2 smoke, rain) for 3 448 billboards over 17 emitters in total. The
+haze is what these numbers are about; the rest is the "base scene" fill the fit
+below separates out. (**The project today is 11 emitters / 568 billboards** —
+quote that, not the 3 072, for anything about the shipped demo.) **BLSS off vs on**,
 particles on, static camera, PAL interlaced, debug profile, Live Link / Live
 Debugger / Live Logic / Remote Pad / Time Machine **all off**, deployed over
 ps2link to a real PS2. 262 paired per-frame samples from the static-camera
@@ -538,6 +543,14 @@ sprites down to **192**. Six banks instead of twelve keeps haze spread across th
 yard (x from −8 to +9, z from −18 to +15, all above eye height); cutting `count`
 rather than `size` keeps each puff's *look* identical and takes the EE cost of
 2 880 vertices off both arms.
+
+**That is the demo as it ships, and its whole-scene figure is the one to quote:
+11 emitters / 568 billboards** — the 6 haze banks (192) plus 2 fire (48 each),
+2 smoke (40 each) and the 200-streak rain that were always there and were never
+counted in the "3 072". Every emitter in it is enabled, which is why this
+project is also the fixture for the corpus' emitter caveat
+(`docs/neural-upscaler.md`); `--blss-coverage` splits its overdraw
+**0.98 geometry + 71.65 emitters**.
 
 Fixture and protocol otherwise unchanged from "THE ANSWER" above: `buildProfile
 debug`, PAL interlaced, Live Link / Live Debugger / Live Logic / Remote Pad /

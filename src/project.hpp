@@ -485,7 +485,11 @@ struct SceneObject {
                                   // and drift, heavy ones keep their velocity
     float emitterLife = 1.5f;     // particle lifetime, seconds (+-25% jitter)
     float emitterGrow = 1.0f;     // size multiplier reached at end of life
-    float emitterOpacity = 0.6f;  // base alpha 0..1 (fades out near death)
+    // Base alpha 0..1 (fades out near death). NOT custom-only despite sitting
+    // in this block: FOG reads it too (peak alpha = opacity x 60, vs custom's
+    // x 128), it is authored for both in the inspector, and save() writes it
+    // for both. The other four kinds have hardcoded peak alphas and ignore it.
+    float emitterOpacity = 0.6f;
     bool emitterDieOnGround = false;  // particle dies when it hits the terrain
                                       // (water soaking in instead of clipping)
 

@@ -79,6 +79,15 @@ than a resave would drop whatever it skipped.
    change, moved or restructured data. Purely additive fields with safe
    defaults need no step (the tolerant reader handles them) and old projects
    keep opening silently.
+   **A step can only transform data the file HAS.** The tempting case is a
+   bump that fixes a *dropped* field — v11 is the worked example: `save()`
+   never wrote a fog emitter's `opacity`, so authored values were destroyed at
+   save time and the file holds nothing to migrate. The reader's default (0.6)
+   is not a guess at the author's intent, it is precisely what that file has
+   always meant to codegen and to the viewport, so a step could only invent a
+   number and would make every affected project *change* on open. Additive,
+   no step. What the bump buys is the other half: an older editor now refuses
+   the file instead of dropping the new key on its own next save.
 4. Keep the loader tolerant: `project::load` keeps reading legacy keys
    forever (see the `"stickDeadzone"` → per-stick example). A migration step
    transforms the **loaded model** where the old data's *meaning* changed;
@@ -154,6 +163,12 @@ construction. To exercise them, register a throwaway step and bump
 path that needs no GUI dialog.
 
 ## Format history
+
+**The per-version record is the comment block above `kFormatVersion` in
+`src/version.hpp`** — one entry per landing, saying what the version added and
+why it did or did not need a step. Read it there; rule 5 above is why it is the
+record, and a second copy here would be the thing that goes stale. The table
+below is only the two versions that predate those entries.
 
 | Version | Editor | Change |
 |---|---|---|

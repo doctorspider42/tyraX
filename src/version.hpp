@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.10.3 (three things that were wrong, none of them a new capability): a FOG
+// emitter's Opacity survives a save (format v11 - it was written only inside
+// the custom block, so the one non-custom kind that reads the value reloaded
+// at the 0.6 default and the game was built with it); --blss-train and
+// --blss-emit print ABSOLUTE paths for the net, its .meta and the emitted
+// header; and an --blss-eval run on a project with enabled emitters ends in
+// NO VERDICT rather than a confident sentence about a frame the corpus does
+// not render. PATCH by this file's own rule, the 1.10.1 precedent: nothing new
+// appears in the editor, three wrong behaviours become right. A format bump
+// does not force MINOR - the two numbers are independent by design, and the
+// semver is informational.
+//
 // 1.10.2 (the corpus says what it does not draw): a project with enabled
 // emitters gets a warning from --blss-train / --blss-eval, because the corpus
 // renderer draws none of them and the PSNR table therefore describes a frame
@@ -41,7 +53,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 10
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -128,6 +140,19 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // is additive, so a project written at the old v6 opens at v10 unchanged and no
 // migration step is needed for the renumber either - a file claiming 6 now
 // means "collision-box overlay", which a BLSS-less project is.)
-inline constexpr int kFormatVersion = 10;
+// v11 (a fog emitter's Opacity is stored): save() wrote "opacity" only inside
+// the custom (kind 5) block, but FOG reads it too - peak alpha = opacity x 60 -
+// and the inspector offers it there, so an authored 0.3 came back 0.6 on the
+// next load and the game was built with 0.6. It is now written for fog as well;
+// the other four kinds have hardcoded peak alphas and still store nothing.
+// Additive, and NO migration step - deliberately, because there is nothing to
+// transform: the file never held the value, so 0.6 (the reader's default) is
+// not a guess at what the author meant, it is exactly what that file has always
+// meant to both codegen and the viewport. A step could only invent a number.
+// The author's 0.3 was destroyed by the save that dropped it and no migration
+// can bring it back; what the bump buys is that an older editor now refuses the
+// file instead of dropping the key on ITS next save, which is the whole job of
+// this number.
+inline constexpr int kFormatVersion = 11;
 
 }  // namespace version

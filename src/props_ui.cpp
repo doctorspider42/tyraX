@@ -2361,7 +2361,18 @@ void App::drawMultiProperties() {
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         multiCombo("Effect", &SceneObject::emitterKind, kinds, 6);
         multiDragF("Particle size", &SceneObject::emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
-        multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f, "%.2f");
+        // Opacity only exists for the kinds that read it - fog (peak alpha =
+        // Opacity x 60) and custom (x 128); fire/smoke/sparks/rain have fixed
+        // peak alphas, and the value is not even stored for them. Offering the
+        // slider there was an edit that went nowhere, which is the same bug the
+        // single-object inspector already avoids by asking the kind first.
+        bool allOpacityKind = true;
+        for (auto* p : objs)
+            allOpacityKind =
+                allOpacityKind && (p->emitterKind == 2 || p->emitterKind == 5);
+        if (allOpacityKind)
+            multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f,
+                       "%.2f");
         multiCheck("Enabled", &SceneObject::emitterEnabled);
         multiCheck("Follow player", &SceneObject::emitterFollowPlayer);
     }

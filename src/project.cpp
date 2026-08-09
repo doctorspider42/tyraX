@@ -692,6 +692,14 @@ std::string objectJson(const SceneObject& o) {
                 ", \"size\": " + fmtFloat(o.emitterSize) +
                 ", \"enabled\": " + (o.emitterEnabled ? "true" : "false") +
                 ", \"followPlayer\": " + (o.emitterFollowPlayer ? "true" : "false");
+        // Opacity is written for the kinds whose codegen READS it: fog
+        // (alpha = emitOpacity * 60) and custom (* 128). The other four have
+        // hardcoded peak alphas (fire 90, smoke 40, sparks 110, rain 70), so
+        // the field means nothing there and writing it would add a key to
+        // every emitter in every project for no effect. Fog used to have no
+        // line of its own here and fell past the custom-only block below, so
+        // the slider the inspector offers it was lost on every save.
+        if (k == 2) json += ", \"opacity\": " + fmtFloat(o.emitterOpacity);
         if (k == 5) {  // custom physics block only where it means something
             json += ", \"speed\": " + fmtFloat(o.emitterSpeed) +
                     ", \"spread\": " + fmtFloat(o.emitterSpread) +
@@ -4366,6 +4374,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = em->find("grow")) o.emitterGrow = (float)v->numberOr(1);
             if (const auto* v = em->find("opacity"))
                 o.emitterOpacity = (float)v->numberOr(0.6);
+            if (o.emitterOpacity < 0.0f) o.emitterOpacity = 0.0f;
+            if (o.emitterOpacity > 1.0f) o.emitterOpacity = 1.0f;
             if (const auto* v = em->find("dieOnGround"))
                 o.emitterDieOnGround = v->type == json::Value::Type::Bool && v->boolean;
         }
