@@ -2479,6 +2479,95 @@ the target was wrong: `cull_d vertexLoop` was named here as the immovable block 
 `cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
 programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
 
+### Differential testing against Sony's `vcl`, and three more bugs
+
+Four bugs had been found by four different instruments, each after the previous instrument had
+said the compiler was clean. Seventy hand-written programs is too small a sample to close that,
+so the next round built the test that had been missing: **randomised differential testing
+against Sony's `vcl` as the oracle**, comparing properties that must hold regardless of
+scheduling.
+
+The strongest of them is a **value oracle** - for every `sq`/`isw`/`xgkick`, the expression DAG
+that produced the stored value, normalised over register naming so two assemblers that allocate
+differently produce an identical tree. Then a second round made it **path-sensitive** with
+bounded loop unrolling, which is what finally brought the **real 70** into scope: the previous
+version had 1 of them, because every other program has loops.
+
+| corpus | openvcl | SCE (control) |
+|---|---|---|
+| the real 70, path-sensitive, 1019 traces | **0 divergent** | 2 divergent |
+| 919 generated straight-line programs | 0 | 0 |
+| 1362 checked for flag ordering | 0 CLIP, 0 ACC, 0 SWAP, 0 CHAIN | — |
+
+**The shipped microcode is value-for-value identical to its source on every one of the 70,
+along every trace, including across the batch loop's back edge.** That had never been
+established; it had been inferred from pixels and packet dumps, which is exactly what the four
+bugs walked past. SCE's own 2 findings are at the first and second vertex of a triangle, never
+the kicking third, so the GS never consults those ADC bits.
+
+**Building the oracle cost twenty-two corrections, every one of them the instrument's fault
+with SCE as the witness** - nine on the straight-line version, thirteen on the path-sensitive
+one. Rows of two `nop`s not counted (10 of 40 of Sony's programs "divergent"). The upper pipe's
+write visible to the lower in the same row (111 of 202). `move` lowered to `max d,s,s` not
+folded (120 of 202). Register arrays read as field selectors. Offsets and immediates that are
+sums (`sq vertex1, 956+0(vi00)` taken as offset 0 stored nine quadwords on top of each other).
+SCE's stall annotation charged to the wrong side of its row. The branch delay slot not executed
+at all. **Without SCE as the control, this work would have produced an instrument that declares
+Sony's compiler broken.**
+
+It also found a real defect **in the reference**: Sony's `vcl` reorders CLIP readers around a
+*second* `fcset`, so a `fcor` reads the literal instead of the vertex. openvcl is correct there.
+Not live for us - every engine source has exactly one `fcset`, at the top.
+
+And it found three more in openvcl, all fixed, **all with zero bytes moved in the shipped 70**:
+
+* **A branch delay slot filled from the NOT-TAKEN block.** `writesAreDeadFromTarget` decided
+  "is this register dead along the taken path?" by walking the token list *linearly* from the
+  target to the end - so a backward branch below the target re-enters rows the walk never
+  visits. A conditional instruction then executed unconditionally. Replaced by backward liveness
+  over the token list's own CFG, ANDed with the old walk so the answer can only get more
+  conservative. Fires on stock upstream with no flags.
+* **A loop-carried name whose first in-loop access is a PARTIAL write** lost the fields that
+  write did not cover, because live-in was classified per alias by first touch. The first
+  attempt at this fed the corrected set into the *range extension* as well and **31 of the 70
+  failed to allocate**; the shipped version feeds only the tie, which merges ranges rather than
+  lengthening them, and computes it per field.
+* **The CLIP window was padded against the file layout, not the path** - a reader four rows
+  below its push is one row below it along a taken branch. The obvious rule (three rows over the
+  CFG) closes 108 of 131 cases and **breaks an upstream test**, because openvcl's own ps2gl
+  steady state deliberately puts a full-window `fcand` directly under its `clipw`, sized against
+  SCE. So the shipped pass only closes the gap between the two measures instead of imposing a
+  floor: it pads where the CFG distance is shorter than what the emitter's backward walk
+  answered, which is exactly the readers a label above them made unknowable.
+
+**One limitation is worth more than the fixes.** The value oracle replays the *source's* branch
+decisions onto the emitted program, so a wrongly-unconditional delay-slot write whose only
+reader is a branch condition **normalises away**. That is structurally why four rounds of value
+oracles never found the delay-slot bug, and it is still true.
+
+### The regression suite
+
+The nine reproducers lived in a scratch directory and were checked by hand. They are now
+`test/regress/` in the fork, with `docker/openvcl-regress.sh` here to run them against whatever
+assembler an image carries - because a bump to `docker/openvcl-tyrax.patch` is a one-line diff
+no reviewer can read.
+
+31 reproducers, four kinds of assertion, and the kinds are the point: **each of the four shipped
+bugs needed a different one to be visible at all.** `COUNT` (an instruction the source contains
+must still be emitted) is the crudest and would have caught the two most expensive on the day
+they landed. `ORDER` replays the CLIP shift register and the ACC chains. `VALUE` compares stored
+expressions. `PATH` does the same path-sensitively - a separate kind because the straight-line
+oracle *cannot* see a loop-carried defect, and three cases passed under it on a build that had
+the bug.
+
+It discriminates: **26 pass / 0 fail on the current compiler, 12 fail on the pre-fix build.**
+
+Two traps found while building it, both instances of the same failure this whole section is
+about. The first run reported 8 regressions and every one was false - it used a toolchain image
+two fixes stale, which is the mixed-image trap documented above. And the python-based checks
+**silently passed when python was absent**, because a checker that prints nothing matches
+nothing; `run.sh` now refuses to start rather than report a pass with nothing run.
+
 ### The fourth: a full-window clip test that reads before the newest judgement lands
 
 The detector's remaining 23 findings were a different mechanism from the flush bug, and they
