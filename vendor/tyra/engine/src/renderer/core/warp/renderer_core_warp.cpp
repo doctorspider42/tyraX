@@ -140,9 +140,18 @@ qword_t* RendererCoreWarp::emitState(qword_t* q, int srcVram, int srcBufW) {
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
 
-  // NLOOP 9: TEXFLUSH, TEX0, TEX1, CLAMP, TEXA, COLCLAMP, FRAME, TEST, ZBUF.
-  // Count these - an undercounting NLOOP stalls the GIF forever.
-  PACK_GIFTAG(q, GIF_SET_TAG(9, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // NLOOP 7: TEXFLUSH, TEX0, TEX1, CLAMP, FRAME, TEST, ZBUF. Count these - a
+  // miscounted NLOOP stalls the GIF forever, in either direction.
+  //
+  // What is deliberately NOT here is as important as what is. This pass is an
+  // OPAQUE DECAL copy (PRIM.ABE = 0), so it has nothing to blend and nothing to
+  // clamp: writing TEXA or COLCLAMP would mean having to put them back, and
+  // "put them back" means ASSUMING what the engine runs with. Nothing else in
+  // the engine writes either register, so their value is the GS reset value -
+  // an assumption that was wrong enough to hue-shift a whole scene with bloom
+  // in it (docs/frame-extrapolation.md). Touch the fewest global registers
+  // that the copy actually needs.
+  PACK_GIFTAG(q, GIF_SET_TAG(7, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   // The source is the frame the GS finished presenting a moment ago, so the
   // texture cache must be invalidated before sampling it.
@@ -164,12 +173,6 @@ qword_t* RendererCoreWarp::emitState(qword_t* q, int srcVram, int srcBufW) {
   // two, and 448 rows of a 512-addressed buffer must not sample the 64 rows
   // that belong to whatever was allocated next.
   PACK_GIFTAG(q, GS_SET_CLAMP(2, 2, 0, outW - 1, 0, outH - 1), GS_REG_CLAMP_1);
-  q++;
-  // TCC = 0 takes alpha from TEXA, whose GS reset value is 0 - which with the
-  // drawing environment's NOTEQUAL-0 alpha test would discard the whole frame.
-  PACK_GIFTAG(q, GS_SET_TEXA(0x80, 0, 0x80), GS_REG_TEXA);
-  q++;
-  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
   q++;
   PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
               GS_REG_FRAME_1);
@@ -261,22 +264,16 @@ void RendererCoreWarp::draw(const WarpCamera& from, const WarpCamera& to) {
   q = emitState(q, srcVram, srcBufW);
   q = emitGrid(q);
 
-  // Put back the texture state only this pass touches. TEXA and COLCLAMP go
-  // back to the GS reset values, which is what the rest of the engine runs
-  // with (see the BLSS composite - it makes the same restore for the same
-  // reason).
-  // NLOOP 3: CLAMP, TEXA, COLCLAMP. TEX1 already holds the engine-wide
-  // bilinear value emitState set, and ALPHA is never touched here (the copy is
-  // opaque), so those two need no restore - but COUNT what follows this tag,
-  // because an overcount makes the GS read the next giftag as a register write
-  // and the GIF stream desyncs into a hang with no assert and a clean log.
-  PACK_GIFTAG(q, GIF_SET_TAG(3, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Put back the one texture register this pass moves.
+  // NLOOP 1: CLAMP. The region clamp is the only texture register this pass
+  // moves away from what the engine uses; TEX1 was written to the engine-wide
+  // bilinear value, and TEX0 is re-emitted per textured mesh by the pipeline
+  // (packet2_utils_gs_add_texbuff_clut), CLUT fields included. COUNT what
+  // follows this tag - an overcount makes the GS read the next giftag as a
+  // register write and the GIF stream desyncs into a hang with no assert.
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_TEXA(0, 0, 0), GS_REG_TEXA);
-  q++;
-  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_MASK), GS_REG_COLCLAMP);
   q++;
   // FRAME / SCISSOR / XYOFFSET / the drawing environment's tests, from the ONE
   // shared restore - so this bracket nests inside a BLSS redirect the way the

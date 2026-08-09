@@ -877,6 +877,20 @@ banner both, so a previously built ELF still reports.
   a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
   0.87 MB free and never evicts anything — if you are chasing a VRAM problem
   in a palettized project, measure before assuming there is one.
+- **"Restoring" a GS register nothing else writes is a GUESS, not a restore.**
+  `TEXA` and `COLCLAMP` are written by exactly one place in this engine (the
+  BLSS composite) - so a second pass that sets them has no previous value to put
+  back and can only assert what it believes the GS reset value to be. The frame
+  warp did that and got it wrong: every blend AFTER the pass inherited it, and
+  `examples/showcase` (bloom + film grain) came back with the whole picture
+  hue-shifted - orange sky olive, green grass orange, a cyan crate magenta -
+  while the geometry stayed perfect. It passed every earlier test because those
+  fixtures had **no post fx**, and with nothing blending a broken blend state is
+  invisible. The cure is not a better value: a pass that does not blend must not
+  write those registers at all. **Whenever a full-screen pass looks right on a
+  bare fixture and wrong in a real scene, diff the two on POST FX before
+  suspecting anything else** - and check what global state the pass leaves
+  behind, not just what it draws.
 - **Frame extrapolation: the IDENTITY warp is the test** (`renderer/core/warp/`,
   `docs/frame-extrapolation.md`). `RendererCoreWarp` re-draws the last finished
   frame under a newer camera as a textured grid, so a game can render its world

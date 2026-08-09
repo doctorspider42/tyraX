@@ -45,6 +45,14 @@ the verification, and any fact worth reusing belongs in the relevant
     to verify a synthesised frame** (see the doc - the compositor screencast
     cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
     objects and the HUD on top of a warped frame, and hardware.
+  - **Does the BLSS composite have the same TEXA/COLCLAMP bug?** The frame warp
+    shipped with a state block that WROTE those two registers and then
+    "restored" them to assumed GS reset values - which hue-shifted every scene
+    with post fx in it, because nothing else in the engine writes them and there
+    was no value to put back (docs/frame-extrapolation.md). The warp no longer
+    touches them. `RendererCoreBlss::composite` still does, and it has to (it
+    genuinely blends), so the open question is whether its restore VALUES are
+    right. Untested: check BLSS on a project with bloom and grain.
   - **The guard band, and the DISPFB pan it would unlock.** Both the warp's edge
     smear and the "free" 2D reprojection (`graph_set_framebuffer`'s last two
     arguments are the DISPFB in-buffer offset; the engine passes `0, 0`

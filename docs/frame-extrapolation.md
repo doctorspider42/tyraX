@@ -129,6 +129,35 @@ presents per loop each block on a free buffer, which is what paces the whole
 arrangement to one presented frame per field. It costs **no GS VRAM** — the
 source is the display buffer double buffering already keeps.
 
+## The bug this shipped with, and the rule it cost
+
+The first version wrote `TEXA` and `COLCLAMP` into its state block and then
+"restored" them afterwards. That is not a restore — **nothing else in the engine
+writes either register**, so there was no previous value to put back and the
+code was ASSERTING what the GS reset value is. The assertion was wrong, and
+every blend after the pass inherited it: on a scene with bloom and film grain
+(`examples/showcase`) the whole picture came back hue-shifted — orange sky
+rendered olive, green grass orange, a cyan crate magenta — while the geometry
+stayed perfect, which reads as a colour-space bug anywhere but where it was.
+
+It survived the original testing because the fixture had **no post fx**. With
+nothing blending, a wrong blend-state restore changes nothing at all.
+
+The fix is not a better restore value, it is not writing the registers: this
+pass is an opaque `DECAL` copy with `ABE = 0`, so it has nothing to blend and
+nothing to clamp. It now touches seven registers (`TEXFLUSH`, `TEX0`, `TEX1`,
+`CLAMP`, `FRAME`, `TEST`, `ZBUF`) and puts back exactly one (`CLAMP`) — `FRAME`,
+`TEST`, `XYOFFSET` and `ZBUF` come from the shared `emitRasterRestore`, `TEX1`
+is written to the engine-wide value, and `TEX0` is re-emitted per textured mesh
+by the pipeline anyway (`packet2_utils_gs_add_texbuff_clut`, CLUT fields
+included).
+
+**The rule: a full-screen pass may only write global GS state it genuinely
+needs, and "restoring" a register that nothing else writes is a guess wearing a
+restore's clothes.** `RendererCoreBlss::composite` does the same thing with the
+same two registers — it has to set them, since it really does blend — so
+whether ITS restore values are right is an open question, and untested.
+
 ## Limits
 
 - **Dynamic objects freeze** for the warped frame. They are pixels in the source
