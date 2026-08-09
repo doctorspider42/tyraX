@@ -323,8 +323,18 @@ void StaPipCore::render(StaPipBag* bag) {
         // has more. Merging by vertex range (not by space) can only ENLARGE a
         // box, never move it, so the worst case degrades toward the whole-bag
         // proxy instead of lying about where the geometry is.
+#if TYRA_BLSS_PROXY_BUDGET
+        // THE PROXY BUDGET (twin switch - see the BLSS header). The cap is the
+        // number of grid tiles this bag's whole box covers, so a bag the grid
+        // can only resolve into four tiles is described by four boxes instead
+        // of thirty-two. The main bbox is the one the frustum classification
+        // above already fetched.
+        const u32 cap = static_cast<u32>(rendererCore->blss.proxyBudget(
+            mvp, (*bbox->getMainBBox())[0], (*bbox->getMainBBox())[7]));
+#else
         const u32 cap =
             static_cast<u32>(RendererCoreBlss::kMaxProxiesPerBag);
+#endif
         const u32 group = partsCount <= cap ? 1u : (partsCount + cap - 1) / cap;
         for (u32 i = 0; i < partsCount; i += group) {
           const u32 end = i + group < partsCount ? i + group : partsCount;

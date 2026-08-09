@@ -58,6 +58,27 @@ static u8 lg2(int v) {
   return r;
 }
 
+/**
+ * `(int)floorf(v)` WITHOUT THE LIBRARY CALL, and it is bit-identical for every
+ * value this file feeds it.
+ *
+ * newlib's floorf is a real out-of-line function - 68 instructions plus the
+ * call sequence - and addBag() runs four of them on every proxy, emitGrid two
+ * on every grid corner of the reprojected pass. On a parked frame of
+ * examples/upscaler-lab that is 792 + 510 calls, and it is the same shape of
+ * finding as the tanhf/expf one that the activation table came out of: the
+ * arithmetic was never the cost, the libm round trip was.
+ *
+ * A cast to int truncates TOWARD ZERO, which is floor for v >= 0 and one too
+ * large for a negative non-integer; the compare fixes exactly that case, so
+ * the result equals floorf's for every finite v with |v| < 2^31. Both callers
+ * pass screen coordinates over the tile size, so the range is never in doubt.
+ */
+static inline int floorToInt(float v) {
+  const int t = static_cast<int>(v);
+  return static_cast<float>(t) > v ? t - 1 : t;
+}
+
 static inline float clamp01(float v) {
   return v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
 }
@@ -413,10 +434,10 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
 
   // Only the tile RANGE is clamped to the screen, never the bbox itself: a
   // clipped bbox would plant a spurious bbox EDGE on the screen border.
-  int tx0 = static_cast<int>(floorf(x0 / static_cast<float>(kTile)));
-  int tx1 = static_cast<int>(floorf((x1 - 0.001F) / static_cast<float>(kTile)));
-  int ty0 = static_cast<int>(floorf(y0 / static_cast<float>(kTile)));
-  int ty1 = static_cast<int>(floorf((y1 - 0.001F) / static_cast<float>(kTile)));
+  int tx0 = floorToInt(x0 / static_cast<float>(kTile));
+  int tx1 = floorToInt((x1 - 0.001F) / static_cast<float>(kTile));
+  int ty0 = floorToInt(y0 / static_cast<float>(kTile));
+  int ty1 = floorToInt((y1 - 0.001F) / static_cast<float>(kTile));
   if (tx0 < 0) tx0 = 0;
   if (ty0 < 0) ty0 = 0;
   if (tx1 > cols - 1) tx1 = cols - 1;
@@ -430,6 +451,7 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   // it. `wNear == the near plane` in that line means the box straddles the
   // eye, which is the shape that cannot carry a per-tile depth at all.
   const int span = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
+  proxyTiles += span;  // ...and how much WORK that description cost (header)
   if (span > worstTiles) {
     worstTiles = span;
     worstX0 = x0;
@@ -450,10 +472,16 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   // Same expressions, same order, same values - this is a hoist, not a
   // reformulation, and the accumulators come out bit-identical.
   //
-  // It is worth doing because a proxy is not a small thing: a package box of a
-  // terrain chunk covers a large part of the grid, and the measured cost of
-  // the whole proxy feed (2.17 ms over 118 proxies, PCSX2 blssrig fixture) is
-  // dominated by THIS loop rather than by the eight-corner projection above.
+  // THE CLAIM THAT USED TO BE HERE - "the cost of the feed is dominated by THIS
+  // loop rather than by the eight-corner projection above" - WAS WRONG, and the
+  // split counter FrameProfile::tBlssAccum is what caught it. A parked frame of
+  // examples/upscaler-lab projects 262 boxes, accepts 198, and those 198 touch
+  // 1 499 tiles between them: SEVEN AND A HALF TILES EACH. The projection half
+  // measures larger than the accumulation half, and both are dominated by their
+  // per-PROXY fixed costs rather than by per-tile work - which is why the four
+  // floorf calls above mattered and why interleaving the accumulators did not
+  // (docs/profiling.md, "Pricing the proxy feed"). The hoist below is still
+  // worth its lines; the reason written for it was not the real one.
   float oxCol[kMaxCols];
   bool vx0Col[kMaxCols], vx1Col[kMaxCols];
   for (int tx = tx0; tx <= tx1; tx++) {
@@ -544,18 +572,24 @@ void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
     if (texDetail > 1.0F) texDetail = 1.0F;
   }
 
+#if TYRA_FRAME_PROFILE
+  // Charged at the CALL SITE rather than inside addBag, so a build with the rig
+  // off carries not one extra instruction (addBag has early returns; bracketing
+  // it from the inside would mean either a wrapper call or a do/while).
+  const u32 fpA0 = FrameProfile::ticks();
   addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail);
+  FrameProfile::tBlssAccum += FrameProfile::ticks() - fpA0;
+#else
+  addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail);
+#endif
 }
 
 // --------------------------------------------------------------- section 2 ---
 // The twin of the corpus' bagOf() (src/blsscorpus.cpp): an object-space AABB
 // through `mvp`, near-clipped along its twelve edges, reduced to a screen bbox
 // and a w range. See the header for WHY this replaces the bounding sphere.
-void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
-                                 const Vec4& objMax, const float& texelArea) {
-  if (!enabled || !inScene) return;
-  if (core3D->isForeignViewActive()) return;
-
+bool RendererCoreBlss::projectBox(const M4x4& mvp, const Vec4& objMin,
+                                  const Vec4& objMax, float* out) const {
   // Clip space is AFFINE in the box's parametric coordinates, so one
   // matrix-vector product and three scaled columns give all eight corners.
   // M4x4 is column-major storage of a column-vector matrix: data[0..3] is
@@ -633,7 +667,7 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
       take(corner[c].x, corner[c].y, corner[c].w);
     }
   }
-  if (inMask == 0) return;  // wholly behind the eye
+  if (inMask == 0) return false;  // wholly behind the eye
   if (inMask != 0xFF) {
     // The twelve edges, but only where the near plane actually cuts one. The
     // intersection is what keeps a floor the camera stands on from projecting
@@ -653,7 +687,7 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
   }
   const float fOutW = static_cast<float>(outW);
   const float fOutH = static_cast<float>(outH);
-  if (x1 <= 0.0F || y1 <= 0.0F || x0 >= fOutW || y0 >= fOutH) return;
+  if (x1 <= 0.0F || y1 <= 0.0F || x0 >= fOutW || y0 >= fOutH) return false;
 
   // A BOX THAT STRADDLES THE EYE AND STILL FILLS THE FRAME DESCRIBES NOTHING,
   // and both twins drop it (blss::accumulate's producer, bagOf(), has the same
@@ -667,7 +701,7 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
   // usable near depth, which is the pathological shape and nothing else.
   const bool eyeInside = wn <= near * 1.0001F;
   const bool fillsFrame = x0 <= 0.0F && y0 <= 0.0F && x1 >= fOutW && y1 >= fOutH;
-  if (eyeInside && fillsFrame) return;
+  if (eyeInside && fillsFrame) return false;
 
   if (x0 < 0.0F) x0 = 0.0F;
   if (y0 < 0.0F) y0 = 0.0F;
@@ -676,18 +710,74 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
   if (wn < near) wn = near;
   if (wf < wn) wf = wn;
 
+  out[0] = x0;
+  out[1] = y0;
+  out[2] = x1;
+  out[3] = y1;
+  out[4] = wn;
+  out[5] = wf;
+  return true;
+}
+
+// --------------------------------------------------------------- section 2 ---
+void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
+                                 const Vec4& objMax, const float& texelArea) {
+  if (!enabled || !inScene) return;
+  if (core3D->isForeignViewActive()) return;
+  proxyCalls++;  // every box the frame projects, accepted or not
+
+  float b[6];
+  if (!projectBox(mvp, objMin, objMax, b)) return;
+
   // Section 2's minification ratio, off the CLAMPED bbox - the corpus does the
   // same, so a proxy running off the side of the screen reports the detail of
   // what is on screen.
   float texDetail = 0.0F;
   if (texelArea > 0.0F) {
-    float area = (x1 - x0) * (y1 - y0);
+    float area = (b[2] - b[0]) * (b[3] - b[1]);
     if (area < 1.0F) area = 1.0F;
     texDetail = sqrtf(texelArea / area) * 0.25F;
     if (texDetail > 1.0F) texDetail = 1.0F;
   }
 
-  addBag(x0, y0, x1, y1, wn, wf, texDetail);
+#if TYRA_FRAME_PROFILE
+  const u32 fpA0 = FrameProfile::ticks();
+  addBag(b[0], b[1], b[2], b[3], b[4], b[5], texDetail);
+  FrameProfile::tBlssAccum += FrameProfile::ticks() - fpA0;
+#else
+  addBag(b[0], b[1], b[2], b[3], b[4], b[5], texDetail);
+#endif
+}
+
+// --------------------------------------------------------------- section 2 ---
+// THE PROXY BUDGET - the twin rule stated in docs/blss-reconstruction.md
+// section 2. See the header for why the tile count is the right budget.
+int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,
+                                  const Vec4& objMax) const {
+  if (!enabled || !inScene) return kMaxProxiesPerBag;
+  float b[6];
+  // A bag whose WHOLE box describes nothing (behind the eye, off screen, or
+  // dropped by the straddle rule) keeps the full cap: the budget may only ever
+  // take description away from a bag the grid can already see, never add a new
+  // reason to drop one. Its parts are still projected and tested one by one,
+  // exactly as before.
+  if (!projectBox(mvp, objMin, objMax, b)) return kMaxProxiesPerBag;
+
+  // The SAME tile range addBag() derives, so the budget counts the tiles the
+  // parts can actually land in - including the -0.001F that keeps a bbox
+  // ending exactly on a tile boundary out of the next tile.
+  int tx0 = floorToInt(b[0] / static_cast<float>(kTile));
+  int tx1 = floorToInt((b[2] - 0.001F) / static_cast<float>(kTile));
+  int ty0 = floorToInt(b[1] / static_cast<float>(kTile));
+  int ty1 = floorToInt((b[3] - 0.001F) / static_cast<float>(kTile));
+  if (tx0 < 0) tx0 = 0;
+  if (ty0 < 0) ty0 = 0;
+  if (tx1 > cols - 1) tx1 = cols - 1;
+  if (ty1 > rows - 1) ty1 = rows - 1;
+  if (tx1 < tx0 || ty1 < ty0) return 1;
+
+  const int tiles = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
+  return tiles < kMaxProxiesPerBag ? tiles : kMaxProxiesPerBag;
 }
 
 // --------------------------------------------------------------- section 2 ---
@@ -1041,8 +1131,10 @@ void RendererCoreBlss::logFeatureSpread() {
 
   char line[512];
   snprintf(line, sizeof(line),
-           "BLSSGRID %dx%d tiles, %d covered, %d proxy(ies), scale %dx%d",
-           cols, rows, covered, proxies, scaleX, scaleY);
+           "BLSSGRID %dx%d tiles, %d covered, %d proxy(ies) of %d projected,"
+           " %d tile update(s), scale %dx%d",
+           cols, rows, covered, proxies, proxyCalls, proxyTiles, scaleX,
+           scaleY);
   TYRA_LOG(line);
   snprintf(line, sizeof(line),
            "BLSSWORST %d of %d tile(s), bbox %.0f,%.0f..%.0f,%.0f, w %.2f..%.2f"
@@ -1113,11 +1205,14 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
     dMax[i] = 0.0F;
   }
   proxies = 0;
+  proxyTiles = 0;
+  proxyCalls = 0;
   worstTiles = 0;
 #if TYRA_FRAME_PROFILE
   // StaPipCore accumulates into this across the whole scene; the frame's owner
   // is this bracket, so it is cleared here.
   FrameProfile::tBlssProxy = 0;
+  FrameProfile::tBlssAccum = 0;
 #endif
 
   capturePinhole();
@@ -1406,12 +1501,10 @@ qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
         // History: the previous full-resolution frame, sampled at the
         // reprojected pixel. Same shape as the low-res mapping with sx = 1 and
         // the reprojection offset playing the jitter's role.
-        u = static_cast<int>(
-            floorf((static_cast<float>(px) + 0.5F + cornerDu[c]) * 16.0F +
-                   0.5F));
-        v = static_cast<int>(
-            floorf((static_cast<float>(py) + 0.5F + cornerDv[c]) * 16.0F +
-                   0.5F));
+        u = floorToInt((static_cast<float>(px) + 0.5F + cornerDu[c]) * 16.0F +
+                       0.5F);
+        v = floorToInt((static_cast<float>(py) + 0.5F + cornerDv[c]) * 16.0F +
+                       0.5F);
       } else {
         // u(x) = (x + 0.5) / sx + jx, expressed as a constant +jx*16 on the
         // 12.4 UVs. The +0.5 is the GS' own texel-centre convention, so a

@@ -4475,7 +4475,7 @@ u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
 // The split of the two big EE terms. The first hardware A/B read the
 // composite's EE half off ONE counter and got "~3.9 ms of scene submission"
 // by SUBTRACTION, which is not a measurement; these make both attributable.
-u64 sPrx = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
+u64 sPrx = 0, sAcc = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
 int n = 0;
 u32 frame = 0;  // frames since boot - the alignment key between runs A and B
 u32 raw[kRaw];
@@ -4486,7 +4486,7 @@ u32 rawFirst = 0;
 // frame's. Holding the BLSS values back by one frame makes every record
 // coherent instead of skewed.
 u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
-u32 pPrx = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
+u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
 bool pValid = false;
 
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
@@ -4539,6 +4539,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
     sCmp += pCmp;
     sCmpEe += pCmpEe;
     sPrx += pPrx;
+    sAcc += pAcc;
     sRep += pRep;
     sFea += pFea;
     sNet += pNet;
@@ -4549,6 +4550,7 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   pCmp = FP::tBlssComposite;
   pCmpEe = FP::tBlssCompositeEe;
   pPrx = FP::tBlssProxy;
+  pAcc = FP::tBlssAccum;
   pRep = FP::tBlssReproj;
   pFea = FP::tBlssFeat;
   pNet = FP::tBlssNet;
@@ -4593,14 +4595,24 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   // SUBMISSION, not the composite); the other four split the composite's EE
   // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
   // figure above to within the counters' own overhead.
+  //
+  // `proxy=total/accum` splits the proxy feed itself: `accum` is
+  // RendererCoreBlss::addBag, the read-modify-write per (proxy, TILE), and
+  // `total - accum` is the projection half - eight corners through the MVP,
+  // the near clip, the bbox reduce, once per VU1 package. They are the two
+  // halves the same millisecond can be taken off in completely different ways,
+  // and this feature has already paid once for splitting a term by
+  // subtraction instead of measuring it.
   snprintf(line, sizeof(line),
-           "FTSPLIT f=%lu proxy=%.2f reproj=%.2f feat=%.2f net=%.2f pkt=%.2f",
+           "FTSPLIT f=%lu proxy=%.2f/%.2f reproj=%.2f feat=%.2f net=%.2f "
+           "pkt=%.2f",
            (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
+           (double)ms(sAcc, kWindow),
            (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
            (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
   TYRA_LOG(line);
   sBeg = sEnd = sCmp = sCmpEe = 0;
-  sPrx = sRep = sFea = sNet = sPkt = 0;
+  sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
   if (rawN >= kRaw) dumpRaw();
 }
 

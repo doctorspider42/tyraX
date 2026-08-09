@@ -544,7 +544,22 @@ Eight things here that were paid for, and that any edit must keep:
   **~5.95 ms EE floor on hardware** (proxy 2.39 + net 1.97 + 1.03 + 0.55);
   cutting the proxy term further means describing the frame more coarsely, which
   is a TWIN-CONTRACT change and needs `src/blsscorpus.cpp`'s `bagOf` to cut the
-  same way. Two measured negatives worth not repeating: moving the composite's
+  same way - the rule is now WRITTEN and SWITCHED OFF: the **proxy budget**
+  (`TYRA_BLSS_PROXY_BUDGET`, default 0) caps a bag's proxies at the number of
+  grid TILES its whole box covers, since the grid resolves nothing finer than a
+  tile; it takes 198 proxies to 116 on `upscaler-lab` and moves exactly one
+  feature channel (`coverage` 0.631 -> 0.638), and it may not go to 1 until
+  `bagOf()`/`bagList()` cut the same way. Two things the split counter
+  `tBlssAccum` (`proxy=total/accum` in FTSPLIT) settled about that feed, both
+  contradicting what the code said about itself: it is 262 PROJECTIONS for 198
+  accepted proxies touching only **7.6 tiles each**, so the cost is per-PROXY and
+  not per-tile - and `addBag`'s four `floorf` calls were **real out-of-line
+  newlib calls, 68 instructions each** (the tanhf/expf finding one function
+  along; replaced by a bit-identical cast + compare). Interleaving the six tile
+  accumulators to save cache lines was tried and is SLOWER: a float is 4 bytes
+  and a line is 64, so all sixteen tiles of a grid row already sit in one line of
+  each array. Two more measured negatives worth not repeating: moving the
+  composite's
   EE work in front of `endScene`'s drain can save at most `tBlssEnd`, which is
   **0.05 ms in PCSX2 and 0.11 ms on hardware**; and `beginScene`'s
   `draw_wait_finish()` is NOT removable - PATH1 preempts an in-flight PATH3

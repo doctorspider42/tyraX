@@ -250,6 +250,39 @@ whole-bag proxy rather than lying about where geometry is.
 `--blss-train --no-package-split` reverts the corpus to one proxy per object,
 which exists to reproduce the fold tables measured before the split.
 
+**A FIFTH RULE IS WRITTEN AND WAITING FOR ITS TWIN: the proxy budget.** The fixed
+cap of 32 above is a constant where the grid has a natural one. A proxy's only
+effect is on the tiles its screen bbox overlaps, and the grid resolves nothing
+finer than a `kTile` square — so describing a bag with more boxes than it covers
+tiles buys nothing that the accumulator can represent, while costing a full
+projection and a full tile update per extra box. The rule is:
+
+```
+project the bag's WHOLE object-space AABB through mvp exactly as a package box
+is projected  (eight corners, the twelve-edge near clip, the straddle rule,
+               the screen clamp)
+count its tile range   tiles = (tx1 - tx0 + 1) * (ty1 - ty0 + 1)
+                       with addBag()'s clamps and its -0.001F
+cap   = clamp(tiles, 1, kMaxProxiesPerBag)
+      = kMaxProxiesPerBag  if the whole box describes nothing
+group = ceil(parts / cap)              -- the existing consecutive-part merge
+```
+
+The fidelity loss is bounded by the mechanism the fixed cap already documents —
+merging by vertex range can only *enlarge* a box, never move it — and the cap is
+never 0, so no bag stops being described (a rule that could empty a bag would
+hand its tiles `coverage = 0`, which the network reads as "nothing here").
+
+It is implemented in the engine behind **`TYRA_BLSS_PROXY_BUDGET`**, which
+**ships at 0**, exactly like `TYRA_BLSS_ACT_TABLE` before it: one number in two
+files, moved in the same commit or not at all. `bagOf()` / `bagList()` in
+`src/blsscorpus.cpp` must apply the same cap — the same projection of the whole
+object AABB, the same tile arithmetic, the same `ceil(parts / cap)` — before the
+switch may go to 1. Measured on `examples/upscaler-lab` with it on: **198 proxies
+become 116 and 262 projections become 174**, `coverage` mean moves **0.631 →
+0.638**, and `depth`, `depthGrad`, `edgeDens`, `texDetail`, the covered-tile
+count, `BLSSWORST` and `BLSSFILL`'s `passes = 1.56` do not move at all.
+
 **A box that straddles the eye AND still fills the frame after clipping is
 dropped, by both producers.** Its bbox is the frame by construction and its
 `wNear` is the clip constant, not a measurement, so it hands every tile it
@@ -293,11 +326,21 @@ twins get checked:
 
   | line | what it carries |
   |---|---|
-  | `BLSSGRID` | tile counts, how many tiles are covered, **how many proxies described the frame**, the scale |
+  | `BLSSGRID` | tile counts, how many tiles are covered, **how many proxies described the frame**, how many boxes were **projected** to get them, how many **tile updates** that cost, the scale |
   | `BLSSWORST` | the single widest proxy — tiles touched, bbox, `w` range, the near plane. This is the line that names the culprit when the grid describes nothing |
   | `BLSSFEAT` | min/mean/max of all six inputs over the tile grid |
   | `BLSSOUT` | min/mean/max of the three outputs |
   | `BLSSFILL` | occupancy per pass and the frame's mean passes, through `emitGrid`'s own four-corner skip rule — the same quantity `blss::occupancy()` reports on the host |
+
+  `proxies of N projected` and `tile update(s)` are what price the feed: a box
+  that is projected and then rejected (behind the eye, off screen, or dropped by
+  the straddle rule) pays in full and describes nothing, and the tile count is
+  what `FrameProfile::tBlssAccum` is proportional to. On a parked frame of
+  `examples/upscaler-lab` they read 198 of 262, and 1 499 tile updates — 7.6
+  tiles per proxy, which is what says the feed's cost is per-PROXY rather than
+  per-tile (docs/profiling.md, "Pricing the proxy feed"). The tile-update column
+  wobbles by a few frame to frame, so it is not a byte-identity channel; the
+  other four lines are.
 
   The channel names and their order are **exactly `blss::kFeatureNames`**, so a
   line here sits next to a row of `--blss-eval --features`. It is compiled out of

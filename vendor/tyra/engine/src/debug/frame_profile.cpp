@@ -31,6 +31,7 @@ u32 tBlssEnd = 0;
 u32 tBlssComposite = 0;
 u32 tBlssCompositeEe = 0;
 u32 tBlssProxy = 0;
+u32 tBlssAccum = 0;
 u32 tBlssReproj = 0;
 u32 tBlssFeat = 0;
 u32 tBlssNet = 0;

@@ -52,7 +52,13 @@ the verification, and any fact worth reusing belongs in the relevant
     attempted the same day and did not complete: the console stopped answering
     `ps2client` and dropped off the LAN, which needs a power cycle at the
     machine. Nothing was adjusted in its place - the published figure is
-    labelled as the jitter-on timing everywhere it appears. The jitter changes
+    labelled as the jitter-on timing everywhere it appears. **Attempted a second
+    time on 2026-08-09 and lost the console the same way** - it answered ping at
+    the start of the session, booted the fixture once, and was then gone from the
+    ARP table entirely. Two rig traps found on that attempt are written up in
+    docs/profiling.md: `--build` deletes `bin/ps2link.run` (without it the game
+    logs to `bin/log.txt` over `host:` INSIDE the measurement), and `taskkill`
+    without `/F` will not close `ps2client`. The jitter changes
     *where* the half-res raster samples, not how much of it there is, and the
     retrained net asks for the same 1.76 passes, so the number is expected to
     hold; that is exactly the prediction the re-run is for. Rig: set
@@ -66,12 +72,27 @@ the verification, and any fact worth reusing belongs in the relevant
     parity run. Worth 2.11 ms in PCSX2 but only **~1.5 ms on hardware** (the
     emulator over-weights libm). The engine half was landed, hashed and DEAD
     until 2026-08-08 - `runNet` never called it; it does now.
-  - **The next EE cut is twin-contract work.** The bag-proxy feed is the largest
-    remaining EE term on hardware (2.39 ms). Cheaper means describing the frame
-    more coarsely - a screen-area floor below which a proxy is dropped, or one
-    box per bag beyond some distance - and `src/blsscorpus.cpp`'s `bagOf()` must
-    cut exactly the same way or the network is trained for a machine that does
-    not exist. Do not land the engine half alone.
+  - **The next EE cut is twin-contract work, and the ENGINE HALF IS NOW WRITTEN
+    AND SWITCHED OFF.** The bag-proxy feed is the largest remaining EE term on
+    hardware (2.69 ms). The rule that makes it cheaper is the **proxy budget**:
+    cap a bag's proxies at the number of grid TILES its whole box covers, since
+    the grid resolves nothing finer than a tile - stated exactly in
+    docs/blss-reconstruction.md section 2 and implemented behind
+    `TYRA_BLSS_PROXY_BUDGET` (0 = today's fixed cap of 32). **What is owed is the
+    host half**: `bagOf()` / `bagList()` in `src/blsscorpus.cpp` must apply the
+    same cap - the same projection of the whole object AABB, the same tile
+    arithmetic, the same `ceil(parts / cap)` - and then the switch flips on both
+    sides in ONE commit. Measured with it on: 198 proxies -> 116, 262 projections
+    -> 174, and the only feature channel that moves is `coverage` (0.631 ->
+    0.638). A screen-area floor was considered and rejected: it can empty a
+    distant bag entirely, which hands its tiles `coverage = 0`.
+  - **The proxy feed's own measurements are owed on hardware.** Everything in the
+    round above was taken in PCSX2 (the console was off the LAN), which this repo
+    admits for COUNTS and bit-identity and refuses for attribution. Owed: the
+    pre/post `proxy=total/accum` A/B for the landed `floorf` cut, the same for
+    the budget once its twin lands, and the restated break-even. Projection, not
+    a measurement: ~4.25 ms of EE and ~11 coverages against today's measured 5.02
+    and 13.
   - **The degenerate-net fast path is designed and unlanded.** When every output
     is deadzoned (measured: `point 0 % / temporal 0 % / sharpen 0 %` on a real
     project's own net) the composite is exactly one full-screen bilinear blit,

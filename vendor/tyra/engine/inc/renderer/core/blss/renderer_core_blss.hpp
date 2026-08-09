@@ -18,6 +18,26 @@
 #include "renderer/core/3d/renderer_core_3d.hpp"
 #include "renderer/models/color.hpp"
 
+/**
+ * THE PROXY BUDGET, and it is a TWIN SWITCH - one number in two files, moved in
+ * the same commit or not at all, exactly like TYRA_BLSS_ACT_TABLE.
+ *
+ * 0 = a bag is described by up to kMaxProxiesPerBag boxes however small it is
+ * on screen (what has shipped so far).
+ * 1 = the cap becomes the number of GRID TILES the bag's whole box covers, so a
+ * distant terrain chunk landing in four tiles is described by four boxes
+ * instead of twenty. RendererCoreBlss::proxyBudget states the exact rule.
+ *
+ * It changes WHAT THE CONSOLE DESCRIBES, so `bagOf()` / `bagList()` in the
+ * editor's src/blsscorpus.cpp must cut identically before this may go to 1 -
+ * otherwise the network is trained against a frame description the machine no
+ * longer produces, which is the exact failure docs/blss-reconstruction.md
+ * exists to prevent and which this feature has already paid for once.
+ */
+#ifndef TYRA_BLSS_PROXY_BUDGET
+#define TYRA_BLSS_PROXY_BUDGET 0
+#endif
+
 namespace Tyra {
 
 /**
@@ -278,7 +298,54 @@ class RendererCoreBlss {
   void addBagBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
                  const float& texelArea);
 
+  /**
+   * HOW MANY BOXES THIS BAG IS WORTH DESCRIBING WITH - the twin rule, and the
+   * only lever left on the proxy feed that is not a micro-optimisation.
+   *
+   * The rule, in the terms docs/blss-reconstruction.md section 2 uses:
+   *
+   *   Project the bag's WHOLE object-space AABB through `mvp` exactly as
+   *   addBagBox() projects a package box - eight corners, the twelve-edge near
+   *   clip, the straddle rule, the screen clamp - and count the tiles of its
+   *   tile range, `(tx1 - tx0 + 1) * (ty1 - ty0 + 1)`, with the same clamps and
+   *   the same -0.001F addBag() uses. The per-bag proxy cap is that count,
+   *   clamped to `1 .. kMaxProxiesPerBag`; a whole box that describes nothing
+   *   keeps the full cap. Consecutive parts then merge into `ceil(parts / cap)`
+   *   groups exactly as they already do above the fixed cap.
+   *
+   * Why the tile count is the right budget: a proxy's ONLY effect is on the
+   * tiles its screen bbox overlaps, and the grid resolves nothing finer than a
+   * tile. Twenty boxes landing in four tiles are summed into those four tiles
+   * either way; the extra sixteen buy a slightly tighter per-tile `wNear` and
+   * cost sixteen projections plus sixteen tile updates. The fidelity loss is
+   * bounded by the mechanism the fixed cap already documents - merging by
+   * vertex range can only ENLARGE a box, never move it - so the worst case
+   * degrades toward the whole-bag proxy rather than lying about where the
+   * geometry is. And the budget is never 0, so no bag stops being described: a
+   * rule that could empty a bag would hand its tiles `coverage = 0`, which the
+   * network reads as "nothing here".
+   *
+   * Returns kMaxProxiesPerBag - i.e. changes nothing - when BLSS is off or the
+   * call is outside the scene bracket.
+   */
+  int proxyBudget(const M4x4& mvp, const Vec4& objMin,
+                  const Vec4& objMax) const;
+
  private:
+  /**
+   * The shared geometry of addBagBox() and proxyBudget(): an object-space AABB
+   * through `mvp`, near-clipped, reduced to a CLAMPED screen bbox and a w range
+   * written into `out[6]` as {x0, y0, x1, y1, wNear, wFar}. Returns false for a
+   * box that describes nothing - wholly behind the eye, wholly off screen, or
+   * straddling the eye while still filling the frame.
+   *
+   * One implementation on purpose: the budget must count the tiles of exactly
+   * the box the accumulator would have seen, or the two halves of the rule
+   * disagree about what a bag covers.
+   */
+  bool projectBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
+                  float* out) const;
+
   /** A pinhole camera - the only form reprojection needs (docs section 3). */
   struct Pinhole {
     float pos[3] = {0.0F, 0.0F, 0.0F};
@@ -372,6 +439,24 @@ class RendererCoreBlss {
 
   // --- the feature-spread instrument (debugView >= 2) -------------------
   int proxies = 0;      // bag proxies accumulated this frame (reset per frame)
+  /**
+   * TILE UPDATES this frame - the sum over proxies of the tiles each one
+   * touched, i.e. how many times addBag()'s inner body ran. `proxies` alone
+   * cannot price the feed: a distant package box costs one tile and a near
+   * terrain chunk costs sixty, and it is this number, not the proxy count,
+   * that FrameProfile::tBlssAccum is proportional to. Reported by BLSSGRID so
+   * "ms per tile update" is a division rather than an estimate.
+   */
+  int proxyTiles = 0;
+  /**
+   * BOXES PROJECTED this frame - how many times addBagBox() ran, accepted or
+   * not. It is NOT `proxies`: a box wholly behind the eye, wholly off screen,
+   * or dropped by the straddle rule pays the full eight-corner projection and
+   * then returns, so the gap between these two columns is work the frame did
+   * to describe nothing. Without it the projection half of the feed cannot be
+   * priced at all - `proxies` counts only what survived.
+   */
+  int proxyCalls = 0;
   int logFrame = 0;     // frames since the last spread line
   // The widest proxy of the frame, by tiles touched - the one that decides
   // whether the feature grid describes anything.

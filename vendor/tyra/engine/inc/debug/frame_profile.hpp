@@ -129,6 +129,21 @@ extern u32 tBlssCompositeEe;
  */
 extern u32 tBlssProxy;
 
+/**
+ * The GRID-ACCUMULATION half of the above - RendererCoreBlss::addBag alone,
+ * i.e. everything downstream of a proxy's screen bbox. It is a SUBSET of
+ * tBlssProxy, so `proxy - accum` is the projection half (eight corners through
+ * the MVP, the near clip, the bbox reduce).
+ *
+ * It exists because `proxy` became the largest EE term in the feature and the
+ * two halves want opposite fixes: the projection half is arithmetic per PROXY
+ * and would move to VU0, the accumulation half is a read-modify-write per
+ * (proxy, TILE) and moves by changing the memory layout or by describing the
+ * frame more coarsely - which is a twin-contract change. Splitting them by
+ * subtraction is what this page already refused to do once.
+ */
+extern u32 tBlssAccum;
+
 /** finishTileStats + buildReproj (255 corners, 2 divides each). */
 extern u32 tBlssReproj;
 

@@ -141,6 +141,7 @@ improvement is fully visible at a locked 50 Hz.
 | `tBlssComposite` | `RendererCoreBlss::composite` | features + MLP + packet + GS raster |
 | `tBlssCompositeEe` | ... up to the DMA kick | the EE half of the line above |
 | `tBlssProxy` | `StaPipCore::render` | **scene submission**: the whole bag-proxy feed |
+| `tBlssAccum` | `addBagBox`/`addBagSphere` | the **grid-accumulation half** of the row above - `addBag` alone. A subset of it, so `proxy - accum` is the projection half |
 | `tBlssReproj` | `composite` | `finishTileStats` + `buildReproj` |
 | `tBlssFeat` | `composite` | `buildFeatures` |
 | `tBlssNet` | `composite` | `runNet` - the MLP |
@@ -157,8 +158,14 @@ split the composite at its four phases and reconstruct `comp`'s EE figure to
 within their own overhead. They print as a second line:
 
 ```
-FTSPLIT f=3150 proxy=3.04 reproj=0.39 feat=0.14 net=3.86 pkt=0.62
+FTSPLIT f=3150 proxy=3.04/1.31 reproj=0.39 feat=0.14 net=3.86 pkt=0.62
 ```
+
+`proxy` prints as **total/accum**. `accum` is the read-modify-write per (proxy,
+*tile*); `total - accum` is the projection per VU1 package - eight corners
+through the MVP, the near clip, the bbox reduce. They are two halves that the
+same millisecond comes off in completely different ways, and this page has
+already paid once for splitting a term by subtraction instead of measuring it.
 
 **The fairness fence is not optional.** BLSS' three brackets each end in
 `dma_channel_wait(GIF)` + `draw_wait_finish()`, so a BLSS frame is *serialised*
@@ -509,14 +516,29 @@ against an effect of 19.9. A **1.60x** speedup, in a scene a person can look at.
 
 > **Measured with `blssJitter` on, and the fixture now ships it off**
 > (2026-08-09 — see `examples/upscaler-lab`). The re-run against the jitter-off
-> build was attempted and did not complete: the console stopped answering
-> `ps2client` mid-session and dropped off the LAN, which needs a power cycle at
-> the machine. The number above is therefore the jitter-**on** timing, and it is
+> build has now been attempted **twice** and has not completed either time, for
+> the same reason both times: the console stopped answering `ps2client` and
+> dropped off the LAN, which needs a power cycle at the machine. On the second
+> attempt (2026-08-09) it answered ping at the start of the session, booted the
+> fixture once, and was then gone from the ARP table entirely. The number above is therefore the jitter-**on** timing, and it is
 > left standing rather than adjusted, because the alternative was to publish an
 > estimate as a measurement. The jitter changes *where* the half-res raster
 > samples rather than how much of it there is, and the retrained net asks for the
 > same 1.76 passes, so it is expected to carry over — that expectation is what
 > the re-run exists to test, not something it may assume.
+>
+> **Two rig facts the second attempt paid for, so the third does not have to.**
+> A plain `tyrax-editor --build` **deletes `bin/ps2link.run`** (`runner.cpp:350`,
+> so a leftover PS2 marker cannot confuse a PCSX2 run) — and without that marker
+> the generated game decides it is *not* under ps2link, sets `writeLogsToFile`,
+> and writes its whole `FRAMETIME`/`FTRAW` stream into `bin/log.txt` over `host:`
+> instead of to the console. The symptom is a `run.log` that stops after
+> ps2link's own `open fd = -1` line, and a benchmark measured with per-line
+> network file I/O inside the thing being measured. **Recreate the marker after
+> every build** that will be deployed by hand. And `taskkill` without `/F` does
+> not close `ps2client` (no window, no handler), so the tail of a redirected run
+> is lost however you stop it — run long enough that the `FTRAW` blocks you need
+> are well before the end, rather than trying to exit gracefully.
 
 **Two points fix the whole fill model**, because the old 3 072-particle run and
 this 192-particle one differ in nothing but particle count:
@@ -599,6 +621,134 @@ function of the proxies gathered during submission. It is not worth doing.
 `tBlssEnd` - the GS overhang that reordering would hide the EE work behind - is
 **0.05 ms in PCSX2 and 0.03 ms on hardware**. The maximum possible saving is
 that number.
+
+### Pricing the proxy feed, and the two things that were actually wrong (2026-08-09)
+
+`proxy` is the largest EE term on hardware (2.69 ms of a 5.02 ms bill), and the
+round above could only say that much — not *which part of it*. It has two halves
+that respond to completely different fixes, so `tBlssAccum` was added to split
+the accumulator (`addBag`, i.e. per (proxy, **tile**)) from the projection (eight
+corners through the MVP, once per VU1 package), and `BLSSGRID` gained the two
+counts that turn either half into a per-unit cost:
+
+```
+BLSSGRID 16x14 tiles, 147 covered, 198 proxy(ies) of 262 projected, 1499 tile update(s), scale 2x2
+FTSPLIT  f=4150 proxy=1.63/0.62 reproj=0.28 feat=0.12 net=0.79 pkt=0.38
+```
+
+**Read those two lines together before optimising this code, because they
+overturn the guess written in `addBag`'s own comment.** On a parked frame of
+`examples/upscaler-lab`, 262 boxes are projected, **198 survive**, and they touch
+**1 499 tiles between them — 7.6 tiles each**. A proxy is therefore a *small*
+object, roughly 3 × 2 tiles; the loop comment claiming the feed is "dominated by
+THIS loop rather than by the eight-corner projection" is wrong, and the split
+counter puts the projection at 1.01 ms against the accumulator's 0.79. Both
+halves are dominated by their **per-proxy fixed costs**, not by per-tile work.
+The 64 boxes that are projected and then rejected (24 %) are pure loss.
+
+> **Everything in this section is PCSX2**, because the console was off the LAN
+> for the whole session — the same failure as the owed jitter A/B above. That is
+> admissible for the **counts**, which are scene facts and transfer exactly, and
+> for **bit-identity**, which is a property of the code. It is **not** admissible
+> for attribution — this page's own rule — so the hardware figures are owed, not
+> reported.
+
+**What came off, each on its own counter:**
+
+| cut | proxy | accum | pkt | twin? |
+|---|---|---|---|---|
+| baseline (the counters only) | 1.80 | 0.79 | 0.46 | — |
+| interleave the six tile accumulators + an interior fast path | **1.95** | **0.92** | 0.46 | **reverted — see below** |
+| `floorf` → an inline floor-to-int | **1.63** | **0.62** | **0.38** | none, bit-identical |
+| …and the proxy budget on top | **1.25** | **0.45** | 0.38 | **yes — engine half only, switch off** |
+
+**The `floorf` cut is the activation-table finding one function along.** `addBag`
+derives its tile range with four `floorf` calls, and `emitGrid` two per grid
+corner of the reprojected pass — and newlib's `floorf` is a real out-of-line
+routine, **68 instructions plus the call sequence**, confirmed by disassembling
+the shipped ELF (`jal 20dea8 <floorf>`, four of them in `addBag`'s prologue).
+That is 792 + 510 library calls a frame to compute what a cast and a compare do
+exactly: a cast to int truncates toward zero, which *is* floor for a non-negative
+value and one too large for a negative non-integer, so one compare fixes
+precisely that case and the result is bit-identical for every finite argument in
+int range. Same lesson as `tanhf`/`expf`: **the arithmetic was never the cost,
+the libm round trip was.** PCSX2 over-weights libm, so treat −0.25 ms as this
+cut's *ceiling* on hardware rather than its value.
+
+**And a measured negative, so nobody spends the afternoon on it.** The obvious
+next move — interleave the six per-tile accumulators into one struct so a tile
+update touches one cache line instead of six — **makes it slower** (`accum`
+0.79 → 0.92), and the arithmetic says why it could never have helped: a float is
+4 bytes and a cache line is 64, so **all sixteen tiles of a grid row already sit
+in one line of each array**. Six parallel arrays cost six lines per row-span and
+one interleaved array costs exactly six as well. The interior fast path that came
+with it (a fully-covered tile has `a` exactly 1, so three multiplies drop out) is
+aimed at proxies spanning many tiles when the measured mean is 7.6 — so nearly
+every proxy is *all border and no interior*, and the scan that locates the
+interior is pure overhead. Both reverted. **Check the size distribution before
+optimising a loop for the big case.**
+
+**The proxy budget is the real lever, and it is a twin-contract change.** The
+rule is stated in [blss-reconstruction.md](blss-reconstruction.md) §2 and
+implemented behind `TYRA_BLSS_PROXY_BUDGET`, which **ships at 0** because
+`src/blsscorpus.cpp` has not been taught to cut the same way yet. Switched on it
+takes **198 proxies to 116 and 262 projections to 174**, and what it costs in
+description is one channel: `coverage` mean 0.631 → **0.638**, with `depth`,
+`depthGrad`, `edgeDens` and `texDetail` unchanged to three decimals, the
+covered-tile count identical at 147, `BLSSWORST` identical, and `BLSSFILL`
+identical at `passes = 1.56`. A 41 % cut in the feed for 0.007 of one input's
+range.
+
+**Bit-identity was checked, not asserted**, the way this page requires: under
+`blssDebugView 2` the `BLSSWORST` / `BLSSFEAT` / `BLSSOUT` / `BLSSFILL` lines of
+the shipped build are **byte-identical** to the pre-cut build's across the parked
+region. `BLSSGRID`'s tile-update column is *not* a byte-identity channel — it
+wobbles ±5 of 1 499 frame to frame on this fixture, equally in every build.
+
+**VU0 was evaluated and is not worth building.** The eight-corner projection
+looks like exactly the shape `renderer/rt/vu0_raytracer` proves out, but three
+things settle it. The one genuinely heavy piece of that math —
+`M4x4::operator*(Vec4)` — **already runs on VU0**, in macro mode, as COP2 inline
+asm (`m4x4.cpp`); what is left is 8 × 9 scalar flops of corner expansion, which
+is not where the time is. Micro mode would have to pay a `vcallms` plus a `cfc2`
+polling stall per call and the EE cannot overlap it (macro-mode COP2 shares VU0's
+register file, which is why the ray tracer runs synchronously), so at 262 calls a
+frame the sync alone would plausibly exceed the work. Batching a whole bag's
+boxes into one kick would amortise that — but the budget rule above removes 34 %
+of the calls outright for a fraction of the effort, and the honest ordering is to
+take that first and re-measure. Recorded so it is not re-derived from scratch:
+the batched form is one kick per bag, ≤ 32 boxes in at 2 qwords each and 2 qwords
+of clamped bbox + `w` range out, comfortably inside VU0's 4 KB data memory.
+
+**`emitGrid` on VU1 was assessed and declined.** Sending 255 corner alphas and
+letting VU1 expand the strips would cut most of the ~5 700-qword packet build and
+its DMA, and the machinery exists — the billboard programs already expand 21
+centres into 126 vertices, and `ensureProgramSet` already swaps a non-resident
+program set in. Three things against it, in order of weight. The prize is
+**`pkt`, 0.55 ms on hardware**, a fifth of `proxy`, and part of it has just come
+off for two lines of `floorf`. Micro memory sits at **2 036 of 2 042** with the
+clip family resident, so a grid program is a third on-demand set and another swap
+per frame. And the sparsity rule would have to move: `emitGrid` skips a cell when
+all four of its corner alphas are zero, which on VU1 becomes ADC bits on a
+fixed-length strip rather than a broken run — a different thing arriving at the
+GS, and **`emitGrid`'s skip rule is what the host's cost model is fitted to**
+(blss-reconstruction.md §6). A twin-contract risk for a fifth of the prize is the
+wrong trade while `proxy` is unfinished.
+
+**The break-even, restated — and it has NOT moved yet.** It is still **~13
+full-screen coverages**, because that figure comes from a *measured* hardware EE
+bill of 5.02 ms and nothing in this round has been measured on hardware. What the
+round buys, if the emulator's deltas carry over at all, is 0.7–0.8 ms — the
+`floorf` cut (ceiling 0.25, less on hardware) plus the budget's 23 % of `proxy` —
+which would put the bill near **4.25 ms** and break-even at
+
+> 0.741 × 0.587 × C > 4.25 + 0.46, i.e. **about 11 coverages**
+
+**and that is a projection, not a measurement, and must not be quoted as one.**
+The run that settles it is four arms on the fixture at
+`%TEMP%\tyra-editor-test\ulabhw` — pre-cut and post-cut, BLSS on, paired on the
+`f=` window key — plus the owed jitter-off A/B, and all of it needs the console
+back on the LAN.
 
 ### The stability gate (period-2 / the "bob")
 
