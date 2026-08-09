@@ -861,6 +861,7 @@ int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,
 // this is a simplification and not a speed-up, because the work moves from
 // `feat` into this function rather than disappearing.
 void RendererCoreBlss::finishTileStats() {
+  tileDepthValid = true;  // Modified by TyraX (frame warp reads tDepth)
   const int n = cols * rows;
   for (int i = 0; i < n; i++) {
     const float acc = coverAcc[i];

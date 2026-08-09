@@ -114,6 +114,31 @@ namespace Tyra {
  */
 class RendererCoreBlss {
  public:
+  /**
+   * Modified by TyraX (docs/frame-extrapolation.md): the per-tile mean 1/w this
+   * frame was described with - the SAME numbers buildReproj() uses to fetch its
+   * temporal history, handed to the frame warp so it can reproject camera
+   * TRANSLATION with real parallax instead of pretending the world is one
+   * plane.
+   *
+   * `hasTileDepth()` is false in plain mode and whenever a frame has not been
+   * described yet: plain mode returns from composite() before finishTileStats()
+   * runs, so the array holds the last neural frame's numbers or nothing at all.
+   * The warp reads 0 as "infinitely far", which is what an UNCOVERED tile
+   * already yields (`depthAcc/coverAcc` with no coverage), and which is exactly
+   * right - the sky must not move when the camera steps forward.
+   *
+   * The grid is the same kTile grid the warp uses, so a tile index means the
+   * same thing on both sides. Valid between composite() and the next
+   * beginScene().
+   */
+  bool hasTileDepth() const { return enabled && useNet && tileDepthValid; }
+  int getTileCols() const { return cols; }
+  int getTileRows() const { return rows; }
+  /** Mean 1/w of one tile, 0 where nothing covered it. No bounds check - the
+   * caller clamps against getTileCols()/getTileRows(). */
+  float getTileInvW(int tx, int ty) const { return tDepth[ty * cols + tx]; }
+
   /** Decision tile edge, in OUTPUT pixels (docs "Symbols": kTile = 32). */
   static constexpr int kTile = 32;
   /** 512 / 32 = 16 tile columns is the widest mode. */
@@ -671,6 +696,9 @@ class RendererCoreBlss {
   // (see kFeatures above).
   Pinhole cur, prev;
   bool hasPrev = false;
+  // Modified by TyraX: finishTileStats() has filled tDepth for a frame (see
+  // hasTileDepth). Cleared when a scene bracket opens.
+  bool tileDepthValid = false;
 
   packet2_t* packet = nullptr;
   packet2_t* beginPacket = nullptr;

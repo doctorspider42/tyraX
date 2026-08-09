@@ -41,11 +41,13 @@ RendererCoreWarp::~RendererCoreWarp() {
 }
 
 void RendererCoreWarp::init(RendererSettings* t_settings, RendererCoreGS* t_gs,
-                            RendererCoreSync* t_sync, Path1* t_path1) {
+                            RendererCoreSync* t_sync, Path1* t_path1,
+                            RendererCoreBlss* t_blss) {
   settings = t_settings;
   gs = t_gs;
   sync = t_sync;
   path1 = t_path1;
+  blss = t_blss;
   if (packet == nullptr)
     packet = packet2_create(kPacketQwords, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   updateGeometry();
@@ -69,18 +71,37 @@ void RendererCoreWarp::updateGeometry() {
 }
 
 // The reprojection, per grid corner. This is the neural upscaler's buildReproj()
-// run FORWARDS, with the per-tile 1/w replaced by one plane distance:
+// run FORWARDS, and when BLSS is on it reads the SAME per-tile 1/w:
 // BLSS asks "where was this pixel last frame" to fetch history, the warp asks
 // "where does last frame's pixel belong now" to synthesise a whole picture.
 //
 // The property worth protecting: for a pure ROTATION (from.position ==
-// to.position) `rel` is just `dir * planeDistance`, so planeDistance divides
-// out of both ratios below and the mapping is exact at every scene depth. The
-// plane only ever approximates TRANSLATION.
+// to.position) the translation term vanishes whatever the depth is, so `rel` is
+// the ray itself and the mapping is exact at every scene depth. Depth only ever
+// matters for TRANSLATION - and getting it per tile instead of per frame is the
+// difference between parallax and a lens zoom.
 void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
   const float invW = 2.0F / static_cast<float>(outW);
   const float invH = 2.0F / static_cast<float>(outH);
   const int uvMax = 0x3FFF;
+
+  // How far the eye moved. Translation enters the reprojection ONLY through
+  // this, scaled per corner by that corner's 1/w - so a corner at infinity
+  // (1/w = 0) sees pure rotation and one close to the camera sees the full
+  // parallax. That is the whole difference between a warp that reprojects and
+  // one that zooms.
+  const float dx = to.position.x - from.position.x;
+  const float dy = to.position.y - from.position.y;
+  const float dz = to.position.z - from.position.z;
+
+  // The depth source, in order: the neural upscaler's per-tile mean 1/w (the
+  // same numbers its own reprojection uses), else the single-plane fallback,
+  // else nothing at all - which is rotation only, and correct rather than
+  // merely safe.
+  const bool tileDepth = blss != nullptr && blss->hasTileDepth() &&
+                         blss->getTileCols() == cols &&
+                         blss->getTileRows() == rows;
+  const float planeInvW = planeDistance > 0.0F ? 1.0F / planeDistance : 0.0F;
 
   for (int j = 0; j < cornerRows; j++) {
     const int py = j * kTile > outH ? outH : j * kTile;
@@ -90,22 +111,41 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
       const float sX = (static_cast<float>(px) * invW - 1.0F) * to.tanHalfFovX;
       const int c = j * cornerCols + i;
 
-      // The view ray of this corner under the NEW camera, and the world point
-      // the plane assumption puts on it.
+      // The view ray of this corner under the NEW camera.
       const Vec4 dir(to.forward.x + to.right.x * sX + to.up.x * sY,
                      to.forward.y + to.right.y * sX + to.up.y * sY,
                      to.forward.z + to.right.z * sX + to.up.z * sY, 0.0F);
-      // planeDistance 0 = rotation only: the eye is treated as unmoved, so
-      // `rel` is the ray itself and the mapping is the exact rotation
-      // homography. Any positive distance folds the translation in through the
-      // single-plane assumption - see setPlaneDistance for why that is off by
-      // default.
-      const float pd = planeDistance > 0.0F ? planeDistance : 1.0F;
-      const Vec4 rel(
-          dir.x * pd + (planeDistance > 0.0F ? to.position.x - from.position.x : 0.0F),
-          dir.y * pd + (planeDistance > 0.0F ? to.position.y - from.position.y : 0.0F),
-          dir.z * pd + (planeDistance > 0.0F ? to.position.z - from.position.z : 0.0F),
-          0.0F);
+
+      // This corner's 1/w, averaged over the covered tiles that touch it -
+      // indexed by the corner's position in the NEW frame while the depths
+      // describe the OLD one. That is the usual reprojection approximation and
+      // it holds while the camera delta is small, which one field's worth of
+      // motion is; the alternative is an iterative search per corner.
+      // the same "representative depth" rule buildReproj() uses, so the two
+      // reprojections describe the world the same way. An uncovered tile
+      // contributes 0 by construction (no coverage, no depth), which reads as
+      // "infinitely far" and is exactly right for sky.
+      float cInvW = planeInvW;
+      if (tileDepth) {
+        float sum = 0.0F;
+        int n = 0;
+        for (int ty = j - 1; ty <= j; ty++) {
+          if (ty < 0 || ty >= rows) continue;
+          for (int tx = i - 1; tx <= i; tx++) {
+            if (tx < 0 || tx >= cols) continue;
+            const float d = blss->getTileInvW(tx, ty);
+            if (d > 0.0F) { sum += d; n++; }
+          }
+        }
+        cInvW = n > 0 ? sum / static_cast<float>(n) : 0.0F;
+      }
+
+      // rel is the world offset from the OLD eye, divided by this corner's
+      // depth. Dividing rather than multiplying is what lets 1/w = 0 mean
+      // infinity with no special case: the projection below is a ratio, so
+      // scaling rel by any positive constant leaves the UVs alone.
+      const Vec4 rel(dir.x + dx * cInvW, dir.y + dy * cInvW,
+                     dir.z + dz * cInvW, 0.0F);
 
       const float wPrev = dot3(rel, from.forward);
       float u, v;
@@ -253,6 +293,7 @@ void RendererCoreWarp::draw(const WarpCamera& from, const WarpCamera& to) {
   const int srcBufW = static_cast<int>(src->width);
 
   buildUVs(from, to);
+
 
 
   packet2_reset(packet, false);

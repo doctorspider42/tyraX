@@ -47,15 +47,29 @@ v = (0.5 - dot(rel, from.up) / (wPrev * from.tanHalfFovY) * 0.5) * outH
 and that factor divides out of both ratios — the mapping is a homography, right
 at every scene depth, with no depth buffer anywhere.
 
-**Translation is off by default** (`planeDistance` 0), and that is a decision,
-not caution. Approximating it with a single plane makes every pixel move as if
-it were the same distance away — but real forward motion is *parallax*: near
-things grow quickly, far things barely move, the sky does not move at all. One
-plane scales the whole picture uniformly, which the eye reads as a **lens
-zoom**, and a zooming frame alternating with a still one is far worse than a
-frame that simply did not move. Walking forward is where it shows worst, not
-least: at the 12-unit distance this originally shipped with, a half-unit step
-zoomed about 4% per synthesised frame.
+**Translation uses real per-tile depth when the neural upscaler is on.** BLSS
+already describes every 32-pixel tile with a mean `1/w` in order to fetch its own
+temporal history (`docs/blss-reconstruction.md` §3), and both grids are the same
+`kTile = 32` grid over the same raster, so the warp reads those numbers directly
+— measured on `examples/showcase`: grids matching at 16x14, 176 of 224 tiles
+covered, `1/w` spanning 0.015 to 10.0, i.e. depths from about 0.1 to 66 world
+units in one frame. Near ground then moves a lot, distant hills little, and the
+48 uncovered tiles — the sky — carry `1/w = 0` and do not move at all. That is
+parallax, and it needs no depth buffer read: the numbers were already being
+computed for something else.
+
+The arithmetic that makes it fall out cleanly is dividing rather than
+multiplying. `rel = dir + (to.pos − from.pos) * invW` is the same projection as
+before (the result is a ratio, so scaling `rel` changes nothing), but now
+`invW = 0` means "infinitely far" with no special case — which is exactly what
+an uncovered tile already yields.
+
+**Without that depth it falls back to a single plane**, `planeDistance`, which
+is 0 by default and therefore rotation only. A single plane makes every pixel move as if it were the same
+distance away, which scales the whole picture uniformly and reads as a **lens
+zoom** — worse than a frame that simply did not move. Walking forward is where
+it shows worst, not least: at the 12-unit distance this originally shipped with,
+a half-unit step zoomed about 4% per synthesised frame.
 
 With translation off, walking in a straight line makes the warp an exact
 identity — the synthesised frame is a pixel copy of the one before it, so the

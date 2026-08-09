@@ -45,6 +45,13 @@ the verification, and any fact worth reusing belongs in the relevant
     to verify a synthesised frame** (see the doc - the compositor screencast
     cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
     objects and the HUD on top of a warped frame, and hardware.
+  - **BLSS makes examples/showcase lose its terrain.** With `blssEnabled` on,
+    the palettised ground renders as flat sky colour while untextured
+    primitives (trees, the crate) draw correctly - the exact signature the
+    branch's own z-mask comment describes (a zeroed CLUT zeroes its alpha, and
+    ATEST NOTEQUAL/AREF 0 then discards every fragment of 4-bit palettised
+    geometry). Reproduced with frame extrapolation OFF, so it is not the warp.
+    Found while wiring the warp to BLSS' per-tile depth; not diagnosed further.
   - **Does the BLSS composite have the same TEXA/COLCLAMP bug?** The frame warp
     shipped with a state block that WROTE those two registers and then
     "restored" them to assumed GS reset values - which hue-shifted every scene

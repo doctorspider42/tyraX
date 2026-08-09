@@ -83,7 +83,7 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   splitView.init(&settings, &gs, &sync, &path1);
   // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
   // buffer double/triple buffering already keeps.
-  warp.init(&settings, &gs, &sync, &path1);
+  warp.init(&settings, &gs, &sync, &path1, &blss);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
