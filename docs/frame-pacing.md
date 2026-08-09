@@ -86,8 +86,16 @@ the mode decides whether the feature is possible at all:
 | display mode | 3 buffers + z | left for everything else |
 |---|---|---|
 | `InterlacedField` (512x224) | 458 752 | 589 824 — comfortable |
+| `Progressive480p` (448x448) | 802 816 | 245 760 — **fits**, tightly |
+| `HiDef1080i` (448x540) | 983 040 | 65 536 — **refused** |
 | `Interlaced` (512x448) | 917 504 | 131 072 — **refused** |
 | `Pal576i` (512x512) | 1 048 576 | 0 — **refused** |
+
+Two of the five have room, and 480p is the surprise: its 448x448 buffer is small
+enough that three of them plus z leave 0.94 MB, of which about 0.56 MB survives
+as texture heap. Booted and confirmed - `GS buffers: frame 448x448 x3`, no
+refusal line, 0.51 MB free. So a project in that mode gets no warning because
+there is nothing to warn about.
 
 **"Does it fit" is the wrong question, and asking it that way is a boot crash.**
 At 512x512 three buffers plus z are exactly the whole 4 MB: the allocation

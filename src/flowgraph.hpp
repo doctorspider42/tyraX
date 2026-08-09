@@ -1256,6 +1256,20 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "back on its own. 0 = switch blind, which strands the "
                      "player on a black screen if the TV cannot show the mode."},
          .desc = "Switches the console's video mode at runtime."},
+        {.key = "SetFrameExtrapolation", .title = "Set Frame Extrapolation",
+         .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
+         .numTips = {"0 = off, 1 = on but only while it pays for itself, "
+                     "2 = on always. Mode 1 is what the project setting does: "
+                     "the game synthesises a frame only while its work already "
+                     "overruns a field, so a fast scene loses nothing. Mode 2 "
+                     "overrides that - use it for a cutscene, where the camera "
+                     "is doing the moving and a smoother picture is worth "
+                     "letting the world run slower."},
+         .desc = "Turns frame extrapolation on or off while the game runs "
+                 "(docs/frame-extrapolation.md). Needs the project's Frame "
+                 "extrapolation preference on - that is what compiles the "
+                 "feature in; this only steers it. Fire it at the start of a "
+                 "cutscene and again at the end."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
          .numCount = 1, .numLabels = {"On"},
          .numTips = {"On = fit the projection for 16:9, off = 4:3. This "

@@ -194,6 +194,30 @@ It pairs naturally with [triple buffering](frame-pacing.md), but does not need
 it: with two buffers each of the two presents waits for its own vsync, which
 reaches the same 25 Hz world / 50 Hz picture (measured both ways).
 
+## Steering it from the game
+
+The project preference is what **compiles the feature in**; the **Set Frame
+Extrapolation** flow node steers it while the game runs, through
+`ScriptContext::frameExtrapolation` (the same shape every other runtime request
+uses - a node cannot call the game, so it writes a request and the game latches
+it):
+
+| Mode | Meaning |
+|---|---|
+| 0 | off |
+| 1 | on, subject to the per-frame gate - what the preference alone does |
+| 2 | on, gate ignored |
+
+**Mode 2 is the cutscene case, and it is why the mode is not a bool.** During a
+cinematic the camera is doing the moving and the world can afford to run slower,
+so the smoother picture is worth it - but the gate measures only whether the
+frame overruns a field, so on a scene that is already fast it would decline
+exactly when you want it. Fire mode 2 at the start of the cutscene and mode 1
+(or 0) at the end.
+
+Per scene rather than per cutscene needs no new mechanism either: fire the node
+from an `On Start` graph in that scene.
+
 ## Calling it yourself
 
 ```cpp

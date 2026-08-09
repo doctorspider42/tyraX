@@ -1230,6 +1230,7 @@ class TerrainGame : public Tyra::Game {
   bool extrapolationWorthIt();
   bool extrapolating = false;
   int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
   unsigned int extrapolationMark = 0;
   bool extrapolationSeeded = false;
   Tyra::WarpCamera warpPrev;
@@ -2481,6 +2482,7 @@ class TerrainGame : public Tyra::Game {
   bool extrapolationWorthIt();
   bool extrapolating = false;
   int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
   unsigned int extrapolationMark = 0;
   bool extrapolationSeeded = false;
   Tyra::WarpCamera warpPrev;
@@ -5814,6 +5816,16 @@ void TerrainGame::loop() {
 // again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
 // the margins plus the run length absorb what is left.
 bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2) return true;
   const float refresh = engine->renderer.core.getSettings().getRefreshRate();
   if (refresh < 1.0F) return false;
   const unsigned int field = (unsigned int)(294912000.0F / refresh);
@@ -18949,6 +18961,16 @@ void TerrainGame::loop() {
 // again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
 // the margins plus the run length absorb what is left.
 bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2) return true;
   const float refresh = engine->renderer.core.getSettings().getRefreshRate();
   if (refresh < 1.0F) return false;
   const unsigned int field = (unsigned int)(294912000.0F / refresh);
@@ -20136,6 +20158,11 @@ struct ScriptContext {
   // timer runs out (a mode the TV can't display would otherwise strand the
   // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
   // The game applies and resets all three.
+  // Frame extrapolation (docs/frame-extrapolation.md), written by the Set
+  // Frame Extrapolation flow node: -1 = leave alone, 0 = off, 1 = on (still
+  // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
+  // latches it and clears it back to -1.
+  int frameExtrapolation = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
@@ -28990,6 +29017,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
                   << ";\n";
+            } else if (n.type == "SetFrameExtrapolation") {
+                int m = (int)(n.num[0] + 0.5f);
+                if (m < 0) m = 0;
+                if (m > 2) m = 2;
+                c << pad << "ctx.frameExtrapolation = " << m << ";\n";
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
