@@ -88,6 +88,22 @@ the verification, and any fact worth reusing belongs in the relevant
   until someone hears the problem. The other half of that question is whether a
   click is masked in practice (a gunshot stealing footsteps hides a lot; two
   quiet voice lines do not).
+- **An interval-0 emitter still costs one audsrv call per frame.** The
+  expensive half of this is fixed - the music stream no longer blocks audsrv
+  for the whole program, so four such emitters plus streaming music measure
+  0.25 ms a frame instead of 10 (docs/sound.md) - but the calls themselves are
+  still per frame, and they are pure waste: the engine knows the sample it is
+  retriggering, so the retry timer could come from the sample's own LENGTH
+  instead of the author's interval. One call per loop, still seamless, and
+  interval 0 would stop being the expensive way to do the ordinary thing. Needs
+  the ADPCM length in samples out of `audsrv_adpcm_t` and a check that the
+  timing holds when a frame is dropped.
+- **Audit the rest of the audsrv surface for blocking calls.** The
+  `audsrv_wait_audio` stall above was found by accident, from a frame-rate
+  complaint. audsrv serializes every call through one IOP thread and one EE
+  semaphore, so anything else that blocks IOP-side has the same reach - worth
+  one pass over the fork's RPC handlers looking for `WaitSema` in a handler,
+  and a note in each caller's comment about what it costs.
 - **Reverb: a third room, and the tail of the cross-fade.** The two reverb
   units are both in use now (docs/reverb.md): a room owns a bus and transitions
   cross-fade across them. Two things were left where the chip runs out. A THIRD

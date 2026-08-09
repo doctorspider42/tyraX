@@ -92,6 +92,22 @@ works:
   near mesh N times multiplies that. The highlight's 25 ms was 5 extra
   full-mesh submits of a 9k-vertex primitive; the fix cut both the submit
   count and the per-submit vertex count.
+- **FRAME high with SCENE / HL / PART flat means the cost is not rendering
+  at all**, and the built-in profiler cannot see it — those three phases live
+  inside `renderScene`, and everything else the loop does is unbracketed. The
+  showcase's "25 FPS for the first ten seconds, then 50 for good" was this:
+  `FRAME` fell 31 → 20 ms while `SCENE` sat at 5.7 the whole way. Bracketing
+  the loop itself (before `beginFrame` / render / `endFrame`, then splitting
+  the first of those) put all ~10 ms in the sound step, and an A/B — remove the
+  music, then remove the emitter — pinned it on an audsrv call waiting behind
+  the music stream's blocking one. The fix was one line in the engine; see
+  [sound.md](sound.md#emitters-and-streaming-music-no-longer-fight-over-audsrv).
+  Two habits from that hunt: bracket **phases the profiler does not cover**
+  before theorising, and check the emulator's own speed readout in the same
+  capture — PCSX2's `Speed:` stayed at 70–85% across the whole run, which is
+  what ruled out host-side warm-up and proved the drop was real inside the
+  emulated machine (the game's own FPS comes from the PS2's T3 hblank timer, so
+  it never sees how fast the emulator is running).
 
 ## See also
 
