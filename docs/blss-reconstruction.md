@@ -1130,6 +1130,15 @@ case regardless — see the packet budget above.
   — cannot write past the smaller allocation. Anything that adds a draw outside
   the bracket inherits the protection for free; anything that clears or forces
   `mask` locally defeats it.
+
+  **`endScene()` restores the DERIVED value, not a literal 1** (per-scene BLSS,
+  docs/neural-upscaler.md). The two are the same number in every project that
+  upscales throughout, which is why nothing moved for them; they differ in a
+  project whose scenes disagree, where the z buffer is pinned at the full
+  display raster and the derived mask is 0. Writing the literal there left the
+  next NATIVE scene rendering its whole depth pass into a mask — the same class
+  of bug as §6, from the other direction. `RendererCoreGS::getZMaskDefault()` is
+  the one answer, owned by the object that owns the allocation.
 - **Depth of field, portals and split view** read or write real GS depth at
   display resolution and are therefore incompatible with a raster-sized z — and
   since the shrink, that depth is not merely unwritten, it is not allocated.

@@ -262,9 +262,48 @@ class RendererCoreBlss {
    * is not a policy choice made twice: the only thing that can fuse two jitter
    * phases is the temporal pass, and in plain mode there is none - jittered
    * sampling with nothing to fuse it is the period-2 bob and nothing else.
+   *
+   * `nativeScenes` (TyraX, BLSS per scene): SOME SCENE OF THIS GAME WILL
+   * RENDER AT THE FULL RASTER, so the z buffer must cover the display even
+   * though this configuration is reduced (RendererCoreGS::setZRasterScale).
+   *
+   * It is what makes setScene() below free. The z buffer follows the raster,
+   * and re-sizing it means vram.reset() + evicting every resident texture -
+   * safe exactly once, here, before a single asset is loaded, and ruinous
+   * later. Pinning the layout at the WIDEST raster any scene uses decides it
+   * once for the whole run: a scene change then flips a flag and a projection
+   * and touches no VRAM at all.
+   *
+   * The price is the z-buffer saving, and only for a game that actually mixes:
+   * such a game keeps the low-res colour target as pure overhead (224 KB at
+   * 512x448, 2x2) instead of trading it for 672 KB of z. A game whose scenes
+   * all agree passes false and is byte-for-byte what it always was.
    */
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
-                 int debugView, bool jitter = true, bool network = true);
+                 int debugView, bool jitter = true, bool network = true,
+                 bool nativeScenes = false);
+
+  /**
+   * The PER-SCENE half of configure(), and the one thing in this class that is
+   * safe to call at any point in a game's life (docs/neural-upscaler.md,
+   * "Per scene").
+   *
+   * `upscale` false = this scene rasterises straight into the display buffer,
+   * with beginScene/endScene/composite becoming no-ops; true = the reduced
+   * raster and the reconstruction. `network` picks the MLP or plain mode for
+   * this scene, exactly like configure()'s.
+   *
+   * It touches NO VRAM: no allocation, no eviction, no packet, no re-placement.
+   * All it does is flip two flags, republish the projection's raster scale and
+   * drop the temporal history (which belongs to the scene being left - after a
+   * switch the previous display buffer holds a loading screen). Everything
+   * expensive was decided by configure(), which is why that one has to be told
+   * about the native scenes up front.
+   *
+   * Calling it with `upscale` true when configure() never allocated a low-res
+   * target is a no-op rather than a fault: the scene keeps rendering natively.
+   */
+  void setScene(bool upscale, bool network);
 
   /** The trained weights (123 at the shipped kFeatures = 6, kHidden = 12),
    * emitted into the
@@ -577,6 +616,12 @@ class RendererCoreBlss {
   int cols = 0, rows = 0;   // tile counts
   int cornerCols = 0, cornerRows = 0;
 
+  // TyraX: what configure() was ASKED for, kept apart from jitterOn (what is
+  // in force). Plain mode forces the jitter off, and with the mode now a
+  // per-scene answer the request has to survive a scene that turns the network
+  // off - otherwise the first plain scene would silently disable the jitter for
+  // every neural scene after it, and the net for those was fitted with it on.
+  bool jitterWanted = true;
   bool jitterOn = true;     // TyraX: the kill switch - see configure()
   int phase = 0;            // jitter phase, alternating every frame
   int jitter16X = 0;        // this frame's jitter in 1/16 px (+-4, or 0)

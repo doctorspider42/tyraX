@@ -16,6 +16,37 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.13.0 (the upscaler is a property of a SCENE): BLSS gains a per-scene
+// override - SceneOverrides::upscaler, format v13 - carrying blssEnabled and
+// blssNetwork. A scene with a portal can refuse the upscaler while the scene
+// next door keeps it, which is the half of this that matters most: the build
+// interlock (blssClashes) was project-wide, so ONE portal anywhere disabled the
+// feature for every scene in the project, including scenes that had neither.
+// It is now asked per scene and the remedy is local too.
+//
+// The switch is FREE, and that is a measured claim, not a hopeful one. The
+// blocker on the rejected per-frame toggle was that configure() re-lays the
+// permanent VRAM region and evicts every texture - and a scene change does NOT
+// re-lay VRAM (it frees and re-acquires per asset, ref-counted), so doing it
+// there would have been the same problem in a quieter place. The fix is not to
+// do it at all: a project whose scenes disagree pins the z buffer at the FULL
+// display raster once, at init (RendererCoreGS::setZRasterScale), and
+// RendererCoreBlss::setScene() then flips two flags and re-derives the
+// projection. No eviction, no vram.reset(), no re-placement, nothing to
+// measure at the transition.
+//
+// The price is paid only by a project that actually mixes, and it is the z
+// saving: such a project keeps the low-res colour target as overhead (224 KB at
+// 512x448, 2x2) instead of trading it for 672 KB of z. A project whose scenes
+// all resolve alike is untouched and regenerates byte for byte - the per-scene
+// tables, the eighth configure() argument and the setScene() call are emitted
+// only when the resolved answers actually differ.
+//
+// MINOR: a capability appears, no default moves, and blssScale / blssJitter /
+// blssSharpen / blssTemporal / blssDebugView stay project-wide on purpose (one
+// project ships one net, and its provenance sidecar records the scale and the
+// sampler it was fitted for).
+//
 // 1.12.1 (the flagship demo on assets we may actually ship): every art asset
 // in examples/upscaler-lab is now CC0 1.0. The cottage and the animated spider
 // went in with UNVERIFIED redistribution terms and a banner in the project's
@@ -98,8 +129,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 12
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 13
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -210,6 +241,16 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // with v9's blssJitter, which does NOT preserve what it was saved with - that
 // exception was bought by a visibly shaking picture, and there is no equivalent
 // argument here.)
-inline constexpr int kFormatVersion = 12;
+// v13 (the upscaler per scene, docs/neural-upscaler.md, "Per scene"):
+// SceneOverrides::upscaler plus a scene-local blssEnabled/blssNetwork pair.
+// Additive AND INHERITING, which is a stronger property than merely additive: a
+// scene with the flag off resolves to the project value, i.e. to exactly what
+// the file meant before the key existed. So a v12 file opens as the project-wide
+// setting it already was, and - because both the flag and the values are WRITTEN
+// ONLY when the override is on - resaves byte for byte. There is nothing for a
+// migration step to do: it could only write the inherited answer into every
+// scene, which is the same behaviour spelled out at the cost of never being able
+// to change a project default again.
+inline constexpr int kFormatVersion = 13;
 
 }  // namespace version

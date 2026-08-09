@@ -965,14 +965,27 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << ", \"width\": " << fmtFloat(s.highlightWidth) << ", \"steps\": " << s.highlightSteps
       << ", \"opacity\": " << fmtFloat(s.highlightOpacity)
       << ", \"overlay\": " << (s.highlightOverlay ? "true" : "false")
-      << " } }";
+      << " }";
+    // The neural upscaler's two per-scene values, and the override flag below,
+    // are written ONLY when the scene actually overrides - unlike every
+    // category above, which is emitted whether it is active or not. That is
+    // deliberate and it is the property the feature is built on: a project
+    // whose scenes all inherit produces the bytes it produced before per-scene
+    // BLSS existed, so `--resave` on any existing project is a no-op and there
+    // is nothing for a migration step to do (the shot plan set the precedent).
+    if (sc.overrides.upscaler)
+        j << ", \"blss\": { \"enabled\": " << (s.blssEnabled ? "true" : "false")
+          << ", \"network\": " << (s.blssNetwork ? "true" : "false") << " }";
+    j << " }";
     const SceneOverrides& o = sc.overrides;
     j << ", \"overrides\": { \"lighting\": " << (o.lighting ? "true" : "false")
       << ", \"sky\": " << (o.sky ? "true" : "false") << ", \"clipping\": "
       << (o.clipping ? "true" : "false") << ", \"terrainMat\": "
       << (o.terrainMat ? "true" : "false") << ", \"postFx\": " << (o.postFx ? "true" : "false")
       << ", \"fog\": " << (o.fog ? "true" : "false")
-      << ", \"highlight\": " << (o.highlight ? "true" : "false") << " }";
+      << ", \"highlight\": " << (o.highlight ? "true" : "false");
+    if (o.upscaler) j << ", \"upscaler\": true";
+    j << " }";
     if (!sc.ambiencePreset.empty())
         j << ", \"ambiencePreset\": \"" << jsonEscape(sc.ambiencePreset) << "\"";
     if (!sc.loadingScreen.empty())
@@ -1054,6 +1067,13 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = hl->find("overlay"))
                     s.highlightOverlay = v->boolOr(false);
             }
+            // Absent on every file written before per-scene BLSS and on every
+            // scene that inherits, so the defaults here are the project's own
+            // - they are only read at all when "upscaler" is set below.
+            if (const auto* bl = st->find("blss")) {
+                if (const auto* v = bl->find("enabled")) s.blssEnabled = v->boolOr(false);
+                if (const auto* v = bl->find("network")) s.blssNetwork = v->boolOr(true);
+            }
         }
         sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
         sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
@@ -1068,6 +1088,8 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         sc.overrides.fog = ov->find("fog") ? ov->find("fog")->boolOr(false) : false;
         sc.overrides.highlight =
             ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
+        sc.overrides.upscaler =
+            ov->find("upscaler") ? ov->find("upscaler")->boolOr(false) : false;
     } else {
         // Legacy per-scene lighting + terrain texture were always active.
         if (const auto* li = js.find("lighting")) {
@@ -1185,6 +1207,14 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         r.highlightOpacity = o.highlightOpacity;
         r.highlightOverlay = o.highlightOverlay;
     }
+    // The neural upscaler, per scene: a scene with a portal can refuse it while
+    // the scene next door keeps it (docs/neural-upscaler.md, "Per scene"). Only
+    // these two - the scale, the jitter, the sharpen/temporal tuning and the
+    // debug view stay project-wide; SceneOverrides::upscaler says why.
+    if (s.overrides.upscaler) {
+        r.blssEnabled = o.blssEnabled;
+        r.blssNetwork = o.blssNetwork;
+    }
     // Ambience preset overlay: a resolved preset owns sky + lighting + fog and
     // wins over the raw project/scene values above (those remain the fallback
     // when no presets exist). Keeps all downstream codegen/viewport reading the
@@ -1233,6 +1263,27 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         }
     }
     return r;
+}
+
+BlssUse blssUse(const Project& p) {
+    BlssUse u;
+    bool first = true;
+    bool e0 = false, n0 = false;
+    for (const SceneData& sc : p.scenes) {
+        const ProjectSettings r = resolvedSettings(p, sc);
+        u.any |= r.blssEnabled;
+        u.anyNative |= !r.blssEnabled;
+        u.anyNetwork |= (r.blssEnabled && r.blssNetwork);
+        if (first) {
+            e0 = r.blssEnabled, n0 = r.blssNetwork, first = false;
+        } else if (r.blssEnabled != e0 || (r.blssEnabled && r.blssNetwork != n0)) {
+            u.mixed = true;
+        }
+    }
+    // A project with no scenes at all (never on disk, but the model allows it)
+    // resolves to "nothing uses it", which is what every consumer wants.
+    if (!u.any) u.mixed = false;
+    return u;
 }
 
 int ambienceIndexFor(const Project& p, const SceneData& s) {

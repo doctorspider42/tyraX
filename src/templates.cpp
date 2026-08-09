@@ -7903,7 +7903,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
-  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
@@ -23337,16 +23337,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
-    // The neural upscaler (docs/neural-upscaler.md). Project-wide, like the
-    // blob shadows above and unlike the POSTFX_* arrays: there is no per-scene
-    // override and no flow node, so these are plain constants and not
-    // per-scene tables.
+    // The neural upscaler (docs/neural-upscaler.md). Mostly project-wide, like
+    // the blob shadows above: the scale, the jitter, the sharpen/temporal
+    // tuning and the debug view are one net's properties and are plain
+    // constants. Two of them - whether the scene rasterises reduced at all, and
+    // whether the MLP reconstructs it - resolve PER SCENE, and get tables like
+    // the POSTFX_* ones below, but ONLY when the project's scenes actually
+    // disagree (project::blssUse().mixed). A project whose scenes all resolve
+    // alike keeps the scalars it had, which is what makes its regeneration
+    // byte-identical.
     //
-    // Emitted only while it is ON, like the rest of the feature. A project with
-    // the upscaler off must generate the header it generated before BLSS
-    // existed, byte for byte - and nothing references these constants there,
-    // because the init block and the frame bracket are equally absent.
-    if (p.settings.blssEnabled) {
+    // The whole block is emitted only while some scene has it ON, like the rest
+    // of the feature. A project with the upscaler off must generate the header
+    // it generated before BLSS existed, byte for byte - and nothing references
+    // these constants there, because the init block and the frame bracket are
+    // equally absent.
+    const project::BlssUse blssU = project::blssUse(p);
+    if (blssU.any) {
         // First: refuse the build outright when the project also uses depth of
         // field, a portal or split screen (blssClashes). "" when it does not,
         // which is what keeps a clean BLSS project generating what it always
@@ -23356,7 +23363,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         out << blssInterlock(p);
         const blss::Scale sc =
             p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
-        out << "constexpr int BLSS_ENABLED = " << (p.settings.blssEnabled ? 1 : 0)
+        // BLSS_ENABLED / BLSS_NETWORK are the WIDEST configuration the run will
+        // take, i.e. what init() has to allocate and bake for; in a mixed
+        // project the per-scene tables below narrow it at every scene load. In
+        // a uniform project the two say exactly what they always said.
+        out << "constexpr int BLSS_ENABLED = " << (blssU.any ? 1 : 0)
             << ";\n"
             << "constexpr int BLSS_SCALE_X = " << blss::scaleX(sc) << ";\n"
             << "constexpr int BLSS_SCALE_Y = " << blss::scaleY(sc) << ";\n"
@@ -23376,9 +23387,27 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             // mode reads (none of them, and it forces the jitter off), so the
             // policy lives in one place instead of being restated here.
             << "constexpr int BLSS_NETWORK = "
-            << (p.settings.blssNetwork ? 1 : 0) << ";\n"
+            << (blssU.anyNetwork ? 1 : 0) << ";\n"
             << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
             << ";\n";
+        // PER SCENE (docs/neural-upscaler.md, "Per scene"). Emitted only when
+        // the scenes disagree, because a table of identical values is a table
+        // that changes every existing project's generated header for nothing.
+        if (blssU.mixed) {
+            out << "// This project's scenes do not all resolve the upscaler "
+                   "alike, so it is\n"
+                   "// switched per scene at load (RendererCoreBlss::setScene, "
+                   "free - configure()\n"
+                   "// below already sized the z buffer for the WIDEST raster "
+                   "any scene uses).\n"
+                   "constexpr int BLSS_NATIVE_SCENES = 1;\n";
+            sceneBools("BLSS_ENABLEDS", [&](int si) { return rs[si].blssEnabled; });
+            sceneBools("BLSS_NETWORKS", [&](int si) {
+                return rs[si].blssEnabled && rs[si].blssNetwork;
+            });
+            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n"
+                   "#define BLSS_SCENE_NET BLSS_NETWORKS[g_activeScene]\n";
+        }
     }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
@@ -23915,14 +23944,19 @@ static std::string screenFxSource(const Project& p) {
 }
 
 // ---------------------------------------------------------- BLSS upscaler ---
-// The neural upscaler (docs/neural-upscaler.md) is project-wide and baked at
-// build time, so every piece of it is a pure function of the Project - which is
-// what lets fillTemplate (a pure function too) decide whether the boot log has
-// to admit the network is untrained.
+// The neural upscaler (docs/neural-upscaler.md) is baked at build time, so
+// every piece of it is a pure function of the Project - which is what lets
+// fillTemplate (a pure function too) decide whether the boot log has to admit
+// the network is untrained.
 //
-// Everything below emits NOTHING while settings.blssEnabled is false. That is
-// the contract for the whole feature: a project with the upscaler off must
-// generate byte-for-byte the sources it generated before BLSS existed.
+// Two of its settings resolve PER SCENE - whether the scene rasterises reduced,
+// and whether the MLP reconstructs it (project::blssUse). So everything below
+// asks blssUse(p) rather than p.settings.blssEnabled, and emits NOTHING while
+// no scene resolves it on. That is the contract for the whole feature: a
+// project with the upscaler off must generate byte-for-byte the sources it
+// generated before BLSS existed - and, since per-scene arrived, a project whose
+// scenes all resolve ALIKE must generate byte-for-byte what the project-wide
+// setting generated.
 
 // --- The interlock ---------------------------------------------------------
 // BLSS cannot be combined with depth of field, portals or split screen: all
@@ -24002,11 +24036,22 @@ static std::string errorSafe(const std::string& s) {
 // than the game would break is a build that blocks work for nothing.
 static std::vector<std::string> blssClashes(const Project& p) {
     std::vector<std::string> out;
-    if (!p.settings.blssEnabled) return out;
+    if (!project::blssUse(p).any) return out;
     // EVERY clashing feature is reported, but only the first place each one
     // shows up: a project with a portal AND split screen should learn both in
     // one build rather than fix one, rebuild, and be refused again - while
     // eleven scenes with depth of field are eleven copies of one sentence.
+    //
+    // PER SCENE (docs/neural-upscaler.md, "Per scene"). Every question below is
+    // asked of a scene that RESOLVES the upscaler on, and of no other. That is
+    // the whole second half of making this setting per-scene: the interlock was
+    // project-wide, so one portal anywhere refused the build for a project
+    // whose other nine scenes had neither a portal nor anything to do with it.
+    // The remedy is now local too - turn the upscaler off in THAT scene, in
+    // Scene > Scene Preferences.
+    const auto sceneUpscales = [&](size_t si) {
+        return project::resolvedSettings(p, p.scenes[si]).blssEnabled;
+    };
 
     auto sceneName = [&](size_t si) {
         return errorSafe(p.scenes[si].name.empty()
@@ -24035,6 +24080,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
     //    is a table of.
     for (size_t si = 0; si < p.scenes.size(); ++si) {
         const ProjectSettings rs = project::resolvedSettings(p, p.scenes[si]);
+        if (!rs.blssEnabled) continue;
         if (!dofActive(rs.dofAmount, rs.dofFocus)) continue;
         out.push_back(
             "BLSS x DEPTH OF FIELD: " + sceneName(si) +
@@ -24045,7 +24091,8 @@ static std::vector<std::string> blssClashes(const Project& p) {
             "the z buffer is only as big as the reduced render. Set the amount "
             "to 0 in Tools > UI Editor > [ Depth of field ] (or in the scene "
             "post-effects override, Scene > Scene Preferences > Post effects), "
-            "or turn the upscaler off.");
+            "or turn the upscaler off for this scene (Scene > Scene Preferences "
+            "> Neural upscaler) or for the project.");
         break;
     }
     // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
@@ -24056,7 +24103,8 @@ static std::vector<std::string> blssClashes(const Project& p) {
     //    this reads the same numbers the emitter does.
     if (out.empty()) {
         bool found = false;
-        for (size_t si = 0; si < p.scenes.size() && !found; ++si)
+        for (size_t si = 0; si < p.scenes.size() && !found; ++si) {
+            if (!sceneUpscales(si)) continue;
             for (const SceneObject& o : p.scenes[si].objects) {
                 const FlowNode* hit = nullptr;
                 for (const FlowNode& n : o.flowGraph.nodes) {
@@ -24081,10 +24129,12 @@ static std::vector<std::string> blssClashes(const Project& p) {
                     "test at DISPLAY resolution, and with the upscaler on the z "
                     "buffer is only as big as the reduced render. Set that "
                     "node's Mode to Off, or delete it, or turn the upscaler "
-                    "off.");
+                    "off for this scene (Scene > Scene Preferences > Neural "
+                    "upscaler) or for the project.");
                 found = true;
                 break;
             }
+        }
     }
     // 3. Portals. Objects in a scene, so this is data and not a preference -
     //    and only a LINKED pair renders a through-view (renderPortalView skips
@@ -24093,6 +24143,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
     //    Portal in the same scene.
     bool portalFound = false;
     for (size_t si = 0; si < p.scenes.size() && !portalFound; ++si) {
+        if (!sceneUpscales(si)) continue;
         const auto& objs = p.scenes[si].objects;
         for (size_t oi = 0; oi < objs.size(); ++oi) {
             const SceneObject& o = objs[oi];
@@ -24111,7 +24162,8 @@ static std::vector<std::string> blssClashes(const Project& p) {
                 ". A portal through-view wants real display-resolution depth, "
                 "and it carves its opening from inside renderScene() with a "
                 "display-sized raster window. Unlink or delete the portal, or "
-                "turn the upscaler off.");
+                "turn the upscaler off for THIS scene - Scene > Scene "
+                "Preferences > Neural upscaler - and keep it in the others.");
             portalFound = true;
             break;
         }
@@ -24124,6 +24176,7 @@ static std::vector<std::string> blssClashes(const Project& p) {
     //    does, because it is the one that stops the build.
     if (p.settings.multiplayer == "split") {
         for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!sceneUpscales(si)) continue;
             int players = 0;
             for (const SceneObject& o : p.scenes[si].objects)
                 if (o.type == PrimitiveType::Player) ++players;
@@ -24136,7 +24189,8 @@ static std::vector<std::string> blssClashes(const Project& p) {
                 "writes stay masked outside that bracket, so both halves would "
                 "render at full resolution into a depth buffer that is smaller "
                 "than the display and never written. Choose shared screen or "
-                "single player, or turn the upscaler off.");
+                "single player, or turn the upscaler off for this scene (Scene "
+                "> Scene Preferences > Neural upscaler).");
             break;
         }
     }
@@ -24154,21 +24208,25 @@ static std::string blssInterlock(const Project& p) {
         "===============\n"
         "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
         "//\n"
-        "// The neural upscaler (BLSS) is on and this project uses a feature it\n"
+        "// The neural upscaler (BLSS) is on in a SCENE that uses a feature it\n"
         "// cannot be combined with. Both halves would compile and boot; the\n"
         "// picture would be wrong, quietly, which is why this is an error and\n"
         "// not a warning. Fix EITHER side - one click resolves it:\n"
         "//\n"
-        "//   Project > Preferences > Neural upscaler (BLSS) >\n"
+        "//   Scene > Scene Preferences > Neural upscaler (BLSS): tick\n"
+        "//     \"Override project settings\" and untick the reduced render.\n"
+        "//     Every OTHER scene keeps the upscaler.\n"
+        "//   ...or project-wide, Project > Preferences > Neural upscaler >\n"
         "//     \"Reconstruct from a reduced-resolution render\"   (turn it off)\n"
         "//\n"
         "// ...or remove the clashing feature named below, then rebuild.\n"
         "// ==========================================================="
         "===============\n"
-        "#error BLSS BUILD REFUSED: the neural upscaler is on and this project "
-        "uses a feature it cannot be combined with. Turn it off in Project > "
-        "Preferences > Neural upscaler (BLSS), or remove the feature named "
-        "below. Details: docs/neural-upscaler.md, Limitations.\n";
+        "#error BLSS BUILD REFUSED: the neural upscaler is on in a scene that "
+        "uses a feature it cannot be combined with. Turn it off for THAT scene "
+        "in Scene > Scene Preferences > Neural upscaler and the others keep it, "
+        "or off for the project in Project > Preferences, or remove the feature "
+        "named below. Details: docs/neural-upscaler.md, Limitations.\n";
     for (const std::string& c : clashes) s += "#error   " + c + "\n";
     return s;
 }
@@ -24330,27 +24388,48 @@ static std::string blssNetHeader(const Project& p) {
 // FILE is still generated (blssNetHeader is emitted whenever the upscaler is
 // on), so which files a BLSS project has stays a function of blssEnabled alone.
 static std::string blssInclude(const Project& p) {
-    if (!p.settings.blssEnabled || !p.settings.blssNetwork) return "";
+    const project::BlssUse u = project::blssUse(p);
+    if (!u.any || !u.anyNetwork) return "";
     return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
            "(--blss-train)\n";
 }
 
 // TerrainGame::init(): configure the low-res target and hand over the net.
 static std::string blssInit(const Project& p) {
-    if (!p.settings.blssEnabled) return "";
+    const project::BlssUse u = project::blssUse(p);
+    if (!u.any) return "";
+    // The uniform project's comment is left EXACTLY as it was before per-scene
+    // existed, down to the wording: this text lands in src/terrain_game.cpp,
+    // and a project whose scenes all resolve alike has to regenerate byte for
+    // byte (it is still project-wide, so the old sentence is still true).
     std::string s =
-        "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
-        "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
-        "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
-        "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
-        "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
-        "  // raster and one bilinear composite pass.\n"
-        "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
-        "BLSS_SHARPEN,\n"
-        "                                       BLSS_TEMPORAL, "
-        "BLSS_DEBUG_VIEW,\n"
-        "                                       BLSS_JITTER, BLSS_NETWORK);\n";
-    if (p.settings.blssNetwork)
+        u.mixed
+            ? "  // The neural upscaler (docs/neural-upscaler.md): baked -\n"
+              "  // nothing at runtime turns it on or off, but this project's\n"
+              "  // scenes do not all resolve it alike, so the eighth argument\n"
+              "  // tells configure() to size the z buffer for the FULL display\n"
+              "  // raster. The layout is then decided once and loadScene()'s\n"
+              "  // setScene() switches the upscaler per scene, touching no VRAM.\n"
+              "  // configure() sizes the low-res render target and the\n"
+              "  // reconstruction knobs; in PLAIN mode (BLSS_NETWORK 0) it also\n"
+              "  // switches off the proxy feed, the reprojection, the feature\n"
+              "  // grid and the MLP, leaving one bilinear composite pass.\n"
+            : "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
+              "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
+              "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
+              "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
+              "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
+              "  // raster and one bilinear composite pass.\n";
+    s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+         "BLSS_SHARPEN,\n"
+         "                                       BLSS_TEMPORAL, "
+         "BLSS_DEBUG_VIEW,\n";
+    s += u.mixed ? "                                       BLSS_JITTER, "
+                   "BLSS_NETWORK,\n"
+                   "                                       BLSS_NATIVE_SCENES);\n"
+                 : "                                       BLSS_JITTER, "
+                   "BLSS_NETWORK);\n";
+    if (u.anyNetwork)
         s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
              "BLSS_NET_W2,\n"
              "                                    BLSS_NET_B2);\n";
@@ -24362,7 +24441,7 @@ static std::string blssInit(const Project& p) {
     // were both silent. Plain mode is a third such case and the loudest of
     // them: a reader who does not know the mode exists would otherwise measure
     // a frame with no network in it and attribute the numbers to one.
-    if (!p.settings.blssNetwork) {
+    if (!u.anyNetwork) {
         s += "  TYRA_LOG(\"BLSS: reconstruction = PLAIN (no network) - the reduced "
              "raster is blown up by one bilinear pass. No proxies, no reprojection, "
              "no feature grid, no MLP.\");\n";
@@ -24380,6 +24459,29 @@ static std::string blssInit(const Project& p) {
     return s;
 }
 
+// TerrainGame::loadScene(): the PER-SCENE half (docs/neural-upscaler.md, "Per
+// scene"). Emitted only when the project's scenes actually disagree, so a
+// project that resolves the upscaler alike everywhere generates the loadScene()
+// it always generated, byte for byte.
+//
+// It sits next to setVU1Clipping() on purpose: that is the same shape of thing
+// - a renderer-wide mode a scene may override, re-applied at every load - and
+// putting the two together is what says a per-scene BLSS is not special.
+//
+// The cost is a raster scale, a projection re-derivation and two flags. It is
+// free because configure() already sized the z buffer for the widest raster any
+// scene uses; without that, this call would evict every resident texture and
+// re-lay the permanent VRAM region, which is exactly why a PER-FRAME toggle was
+// rejected (docs/backlog.md).
+static std::string blssSceneSetup(const Project& p) {
+    if (!project::blssUse(p).mixed) return "";
+    return "  // The neural upscaler, per scene (docs/neural-upscaler.md). No\n"
+           "  // VRAM is touched: the z buffer was sized at init for the widest\n"
+           "  // raster any scene uses, so this is a flag and a projection.\n"
+           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, "
+           "BLSS_SCENE_NET);\n";
+}
+
 // The frame loop's 3D bracket. Off = the plain call the loop always had, byte
 // for byte. On = the raster redirect around it plus the composite, which MUST
 // run before applyPostFx and before any 2D: the HUD, the menus and every post
@@ -24388,11 +24490,19 @@ static std::string blssInit(const Project& p) {
 // Only the non-split branch is ever bracketed - splitView.end() restores the
 // display raster, and split screen is one of the three features BLSS cannot be
 // combined with anyway. That is not left to the docs and a warning any more:
-// blssClashes() above refuses the build when a project actually has both, so
+// blssClashes() above refuses the build when a SCENE actually has both, so
 // this branch is unreachable in a game that compiles (docs/neural-upscaler.md,
 // docs/blss-reconstruction.md section 7).
+//
+// PER SCENE NEEDS NO BRANCH HERE, and that is not an accident to be tidied
+// away: beginScene(), endScene() and composite() all return immediately when
+// `enabled` is false, so a scene that setScene() switched to native runs the
+// same three calls as three no-ops around a plain renderScene(). Adding an
+// `if (blss.isEnabled())` would put a second copy of that decision in the
+// hottest loop in the game and make the mixed and uniform builds differ for
+// nothing.
 static std::string blssSceneRender(const Project& p) {
-    if (!p.settings.blssEnabled) return "      renderScene();\n";
+    if (!project::blssUse(p).any) return "      renderScene();\n";
     return "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
            "scene\n"
            "      // renders into the low-res target, then the composite blows "
@@ -24556,6 +24666,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // the plain renderScene() call the loop always had).
     s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
     s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
+    s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
     s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
     return s;
 }
@@ -38341,7 +38452,7 @@ std::vector<File> generate(const Project& p) {
     // blss::emitGeneratedSource, the twin of the host forward pass; a missing
     // <projectDir>/blss.net is not an error, it is random weights with a banner
     // in the header and a TYRA_LOG line in the generated init.
-    if (p.settings.blssEnabled)
+    if (project::blssUse(p).any)
         files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;

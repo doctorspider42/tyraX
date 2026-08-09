@@ -248,7 +248,13 @@ void RendererCoreBlss::init(RendererSettings* t_settings, RendererCoreGS* t_gs,
   // resets the whole VRAM map, so an already-configured BLSS has to take its
   // page-aligned slot again, in the same relative order as post fx / env map /
   // camera feed (below every texture, where eviction cannot reach it).
-  if (enabled) {
+  //
+  // `allocated`, not `enabled` (TyraX, BLSS per scene): in a game that mixes
+  // upscaled and native scenes the display switch can land while a NATIVE
+  // scene is active, and gating on `enabled` would leave lowVram pointing into
+  // memory vram.reset() has just handed back to the texture heap - which the
+  // next upscaled scene would then rasterise into.
+  if (allocated || enabled) {
     updateGeometry();
     allocated = false;
     allocate();
@@ -288,7 +294,8 @@ void RendererCoreBlss::allocate() {
 
 void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
                                  bool t_temporal, int t_debugView,
-                                 bool t_jitter, bool t_network) {
+                                 bool t_jitter, bool t_network,
+                                 bool t_nativeScenes) {
   TYRA_ASSERT(settings != nullptr,
               "BLSS configure() before the renderer was initialized!");
   if (settings == nullptr) return;
@@ -304,10 +311,19 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // supersample, it is the period-2 bob with nothing left to average it. Doing
   // it here rather than in the caller keeps it a property of the mode instead
   // of a rule codegen and an embedder each have to remember.
-  jitterOn = t_jitter && useNet;
+  jitterWanted = t_jitter;
+  jitterOn = jitterWanted && useNet;
   // 1x1 is "off" - nothing is allocated and the projection keeps its full
   // raster scale, so a project without BLSS costs zero words and zero cycles.
   enabled = (scaleX * scaleY) > 1;
+
+  // BLSS PER SCENE: pin what the z buffer is sized for BEFORE the realloc
+  // decision below, so that decision is made once and for the whole run. A
+  // game that mixes upscaled and native scenes pins 1,1 - z covers the display,
+  // needsBufferRealloc() stays false forever after, and setScene() is free.
+  // A game whose scenes all agree pins nothing and gets the small z buffer it
+  // always got.
+  if (gs != nullptr && enabled && t_nativeScenes) gs->setZRasterScale(1, 1);
 
   settings->setRasterScale(enabled ? scaleX : 1, enabled ? scaleY : 1);
   // The projection's raster scale changed; the world-space frustum planes did
@@ -377,6 +393,49 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   TYRA_LOG("BLSS configured: scale ", scaleX, "x", scaleY, ", sharpen ",
            static_cast<int>(sharpen * 100.0F), "%, temporal ",
            temporal ? 1 : 0, ", debug ", debugView);
+}
+
+// Modified by TyraX (BLSS per scene) - see the header for why this costs
+// nothing and why configure() has to be told about the native scenes first.
+void RendererCoreBlss::setScene(bool t_upscale, bool t_network) {
+  if (settings == nullptr) return;
+  // `allocated` is the honest gate: without a low-res target there is nowhere
+  // to rasterise, so a scene asking to upscale in a game that never configured
+  // one simply renders natively.
+  const bool want = t_upscale && allocated && (scaleX * scaleY) > 1;
+  const bool wasEnabled = enabled;
+  const bool wasNet = useNet;
+  useNet = t_network;
+  jitterOn = jitterWanted && useNet;
+  enabled = want;
+
+  // ALWAYS, whether or not anything changed. The temporal history is the OTHER
+  // display buffer, which across a scene change holds the world being left (or
+  // a loading screen) - reprojecting from it would smear one scene into the
+  // next for a frame, and that is true even when both scenes are upscaled and
+  // nothing below this line has to run.
+  hasPrev = false;
+  phase = 0;
+
+  if (enabled != wasEnabled) {
+    settings->setRasterScale(enabled ? scaleX : 1, enabled ? scaleY : 1);
+    // The projection's raster scale moved; the world-space frustum planes did
+    // not (they come from fov + aspectRatio) - the same re-derivation
+    // configure() does, and the whole per-frame cost of a switch.
+    if (core3D != nullptr) core3D->setFov(core3D->getFov());
+    // Put the z mask back to what the ALLOCATION says it must be. endScene()
+    // leaves it masked, which is right while z is smaller than the display and
+    // wrong the moment a native scene follows an upscaled one - that scene
+    // would render its whole depth pass into a mask.
+    if (gs != nullptr) gs->zBuffer.mask = gs->getZMaskDefault();
+  }
+  // WHICH RECONSTRUCTION THIS SCENE RUNS, in the log, whenever it moves - the
+  // per-scene continuation of the rule that the boot log always says which one
+  // the game got. A plain scene following a neural one changes the answer
+  // without changing `enabled`, so this is not gated on the branch above.
+  if (enabled != wasEnabled || (enabled && useNet != wasNet))
+    TYRA_LOG("BLSS scene: ", enabled ? "upscaled " : "native",
+             enabled ? (useNet ? "(network)" : "(plain)") : "");
 }
 
 void RendererCoreBlss::setNet(const float* t_w1, const float* t_b1,
@@ -1475,7 +1534,15 @@ void RendererCoreBlss::endScene() {
   // low-res raster now, and everything that follows (composite, post fx, the
   // HUD) draws full-screen. Both are read by emitRasterRestore.
   gs->endRasterRedirect();
-  gs->zBuffer.mask = 1;
+  // The DERIVED default, not a literal 1 (TyraX, BLSS per scene). It IS 1
+  // whenever the z buffer came out smaller than the display raster, which is
+  // every game that upscales throughout - so nothing moves for those. It is 0
+  // in a game that mixes upscaled and native scenes, where z covers the display
+  // and the literal would leave the next native scene rendering its whole depth
+  // pass into a mask. RendererCoreGS owns that answer because it owns the
+  // allocation; assigning the mask from outside is the bug that stamped depth
+  // across the texture heap.
+  gs->zBuffer.mask = gs->getZMaskDefault();
 
   packet2_reset(endPacket, false);
   // TEXFLUSH: the low-res target was just rendered and composite() is about to

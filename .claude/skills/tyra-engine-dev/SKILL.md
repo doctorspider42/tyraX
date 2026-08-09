@@ -379,6 +379,44 @@ a machine that does not exist. `tyrax-editor --blss-eval` is the regression test
 (a parity break shows as the trained row falling well below the oracle row).
 Change one side, change the doc and the other side.
 
+**IT IS A PER-SCENE SETTING NOW, and `configure()` is still init-only.** The two
+halves are `configure(..., nativeScenes)` and `setScene(upscale, network)`, and
+the split is the whole design (docs/neural-upscaler.md, "Per scene"):
+
+- **`configure()` re-lays the permanent VRAM region and evicts every texture**,
+  because the z buffer's size follows the raster. That is safe at the top of
+  `init()` and nowhere later - and the theory that a scene change would absorb it
+  is FALSE, checked before anything was built: `loadScene()` frees and
+  re-acquires textures one at a time, ref-counted, and never calls `vram.reset()`
+  or `evictAll()`.
+- **So a mixed game does not reconfigure. It PINS the layout.**
+  `nativeScenes` true makes `configure()` call
+  `RendererCoreGS::setZRasterScale(1, 1)` before the realloc decision, so the z
+  buffer covers the full display for the whole run and `needsBufferRealloc()`
+  stays false however often the active raster scale changes afterwards.
+  `setScene()` then flips `enabled`/`useNet`, republishes
+  `settings->setRasterScale`, re-derives the projection (`core3D->setFov`), drops
+  `hasPrev` and restores the z mask. No allocation, no eviction, no packet.
+  Measured in PCSX2 over ~1 200 scene switches: **zero evictions**, resident
+  count and free VRAM constant, scene-load rate within 0.5 ms of both controls.
+- **`endScene()` restores `gs->getZMaskDefault()`, never a literal 1.** Same
+  number in every uniformly upscaled game (which is why nothing moved for them),
+  0 in a mixed one - and the literal left the next NATIVE scene rendering its
+  whole depth pass into a mask. The mask is still DERIVED by
+  `allocateVramBuffers` and never assigned from outside; this is asking the
+  allocator for its own answer, not overriding it.
+- **`init()` re-places the low-res target on `allocated`, not on `enabled`.** In
+  a mixed game a display-mode switch can land while a native scene is active, and
+  gating on `enabled` would leave `lowVram` pointing into memory `vram.reset()`
+  just returned to the texture heap.
+- **`jitterWanted` is kept apart from `jitterOn`.** Plain mode forces the jitter
+  off; with the mode a per-scene answer, the REQUEST has to survive a plain scene
+  or the first one would silently disable the jitter for every neural scene after
+  it - and those nets were fitted with it on.
+- **The three frame-loop entry points need no `if`.** `beginScene`, `endScene`
+  and `composite` all return immediately when `enabled` is false, so the
+  generated loop emits the same three calls whether or not the scene is upscaled.
+
 Eight things here that were paid for, and that any edit must keep:
 
 - **The raster redirect is EXPLICIT STATE on `RendererCoreGS`, not a private
@@ -796,6 +834,10 @@ asks the same four questions live. Env maps, camera feeds and projected shadows
 are **no longer on that list** — they nest now. The HUD, 2D and every post effect
 still draw at full resolution, after the composite, which is the one property an
 upscaler must not spoil.
+
+**That refusal is per SCENE since the setting became one**: `blssClashes()`
+asks each scene that RESOLVES the upscaler on, so a portal in one scene
+refuses that scene and leaves the others upscaled.
 
 **Out-of-distribution numbers: use `tyrax-editor --blss-eval --cv`**
 (leave-one-shot-out cross-validation), never a plain `--blss-eval`'s held-out

@@ -77,6 +77,54 @@ the verification, and any fact worth reusing belongs in the relevant
     input distribution very little (`texDetail` mean 0.297 -> 0.312, still the
     channel most correlated with the temporal weight). Route it as its own piece
     of work, and refit + re-measure the fold table in one commit if you do.
+  - **DONE - BLSS is a PER-SCENE setting** (docs/neural-upscaler.md, "Per
+    scene"). `SceneOverrides::upscaler` carries `blssEnabled` + `blssNetwork`;
+    the scale, the jitter and the reconstruction tuning stay project-wide,
+    because one project ships one net and its provenance sidecar records the
+    scale and the sampler it was fitted for. Format v13, additive AND
+    inheriting, so no migration step and byte-identical regeneration for every
+    project whose scenes resolve alike.
+
+    **The build interlock is per scene now, and that is the bigger half.**
+    `blssClashes()` refused the build for the whole PROJECT, so one linked
+    portal in scene 7 disabled the upscaler in all ten scenes. It asks each
+    scene that RESOLVES the upscaler on, and the `#error` names the scene and
+    the local remedy.
+
+    **The theory this was going to lean on is FALSE and was checked first**: a
+    scene change does NOT re-lay VRAM. `loadScene()` frees and re-acquires
+    textures one at a time, ref-counted, only for assets the incoming scene
+    does not also need; it never calls `vram.reset()` or `evictAll()` and never
+    moves a permanent buffer. Reconfiguring there would have been the per-frame
+    problem in a quieter place.
+
+    **So it does not reconfigure.** A project whose scenes disagree pins the z
+    buffer at the full display raster once, at init
+    (`RendererCoreGS::setZRasterScale` via `configure()`'s new `nativeScenes`
+    argument); `RendererCoreBlss::setScene()` then flips two flags and rebuilds
+    the projection. Measured in PCSX2 over ~1 200 scene switches: **zero
+    evictions**, resident count and free VRAM constant, and 10.04 / 10.02 /
+    9.99 scene loads per second for flip / uniform-on / off - a 0.5 ms spread
+    on a ~100 ms load, not resolvable. A native scene inside a mixed build is
+    **pixel-identical in the 3D picture** to the same scene in a BLSS-off build
+    (96 of 307 200 pixels differ, all of them the debug HUD's frame counter).
+
+    **The price, and it is per project rather than per frame**: a mixed project
+    gives up the z-buffer saving. Measured at 512x512, free texture heap:
+    native 0.375 MB, uniform BLSS 0.875 MB, mixed **0.125 MB** - i.e. 0.25 MB
+    worse than native and 0.75 MB worse than uniform BLSS, which is the same
+    trade the runtime-toggle entry below prices at 224/672 KB for a 512x448
+    raster, except that only projects that actually mix pay it.
+
+    Two things it does NOT do, both filed rather than forgotten: the `zBuffer.
+    mask` invariant is untouched (the mask is still DERIVED from the
+    allocation - `endScene()` now restores that derived value instead of a
+    literal 1, which is what makes a native scene after an upscaled one
+    correct), and **`--blss-train` still shoots every scene**, including scenes
+    that will render natively, so a project with one upscaled scene out of ten
+    fits its net mostly on frames it will never see. Skipping them needs a
+    special case for "no scene uses it yet" (the normal way to train is before
+    switching it on) and, more importantly, a measurement that it helps.
   - **Switching BLSS on and off at runtime - NOT BUILT, and the arithmetic is
     why.** Asked for as a comparison and debugging tool: flip the feature every
     N frames and an A/B has no scene or camera variance at all, which is what
@@ -122,7 +170,12 @@ the verification, and any fact worth reusing belongs in the relevant
     has no display-resolution depth - so the projects most likely to want an
     A/B are exactly the ones it cannot serve. (3) `needsBufferRealloc()` keys
     on the raster scale, so every toggle would ask for the rebuild the design
-    exists to avoid; it has to be decoupled from the allocation. (4) The
+    exists to avoid; it has to be decoupled from the allocation. **That last
+    one is now DONE** - `RendererCoreGS::setZRasterScale` pins what the z
+    buffer is sized for independently of the active raster scale, and the
+    per-scene switch above rides on it. A per-FRAME toggle would still need the
+    other three, and it would pay the both-layouts-resident row of the table
+    above for every project rather than only the ones that mix. (4) The
     measurement it buys is now much cheaper without it: **plain mode makes the
     interesting comparison a build-time one**, and the paired-build method
     works - an object script that pins the camera and hides every emitter
