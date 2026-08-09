@@ -20,12 +20,13 @@ the usual ~0.7 dB (24.49 against 25.19 on the shipped held-out split; it was
 a different question; for parity, the plain run is the one to watch, because the
 gap to the oracle is the quantity that moves when the twins drift.)
 
-**Pass `-i <net>` when you are checking parity.** `--blss-eval` runs *net-free*
-when there is no `blss.net` to load — it prints the oracle row and every fixed
-kernel, which is what answers "does this scene have anything to reconstruct", and
-omits the `half-res + BLSS (trained)` row entirely. That row is the one this page
-is a contract about, so a parity check without it silently measures nothing. See
-[the trainer section](neural-upscaler.md#training).
+**Pass `-i <net>` when you are checking parity**, and read the `[blss] net
+source=` line before believing the table. With no `-i` and no `blss.net` where
+the tool is looking, `--blss-eval` falls back to **the editor's built-in default
+net** — which is the right answer for "what will my game do" and the wrong one
+for a parity check, because the row this page is a contract about would then be
+describing a net you did not choose. (It used to omit the row entirely, which was
+at least loud.) See [the trainer section](neural-upscaler.md#training).
 
 The evaluation is threaded over shot runs and its numbers are **bit-exact at any
 thread count** — the workers produce per-frame values and the sums are folded in
@@ -50,7 +51,7 @@ to decide what to teach.
 | `lowW = outW/sx`, `lowH = outH/sy` | the low-res render target |
 | `kTile` | 32 — decision tile edge, in output pixels |
 | `cols = outW/kTile`, `rows = outH/kTile` | 16 × 14 |
-| `T[0..N]` | the shared activation table, §5 — **wired on both twins, off by default on both** |
+| `T[0..N]` | the shared activation table, §5 — **wired on both twins and ON by default on both** (`N = 512`) |
 | `jx`, `jy` | this frame's jitter, in low-res pixels: ±0.25, i.e. ±4/16 exactly |
 
 **`kTile` is 32 on both sides and the host can sweep it.** `--tile N` moves
@@ -150,8 +151,13 @@ every fold table on [the upscaler page](neural-upscaler.md#measured) was measure
 with. The corpus prints a line when it is off.
 
 **A net fitted with jitter on and run in a jitter-off build is fitted out of
-distribution**, and `blss.net` records nothing that could detect it — the same
-shape as the whole-bag proxy and the animated models. With jitter off the two
+distribution.** `blss.net` recorded nothing that could detect it — the same shape
+as the whole-bag proxy and the animated models — until the trainer started
+writing a `<net>.meta` sidecar beside every net it produces
+([provenance](neural-upscaler.md#provenance-what-a-net-says-about-itself)). The
+sampler is one of its fields, the bake compares it against the project's
+`blssJitter`, and a disagreement is now named in the generated header and in the
+boot log instead of being invisible. With jitter off the two
 phases sample the same position, so `u(x)`/`v(y)` below undo nothing, the
 current frame and the history are no longer a quincunx pair, and the temporal
 pass is accumulating genuinely identical samples rather than fusing two.
@@ -464,19 +470,17 @@ both sides, so the per-frame count below is the worst case rather than the
 typical one — the one console frame that has been instrumented had 159 of 196
 tiles covered.
 
-### The activation table — both halves now exist, both are OFF
+### The activation table — both halves exist and both are ON
 
-**Nothing in this subsection is switched on.** The host implements it behind
-`--act-table N` and ships with `N = 0`, i.e. `std::tanh` and
-`1/(1+std::exp(-z))`, because a host that fits against a table while the console
-evaluates libm is exactly the twin drift this page exists to prevent. The
-measurement that says it is free is
-[on the upscaler page](neural-upscaler.md#the-transcendentals-as-a-table).
-
-**The engine half is WIRED now, and it is off by the same default.**
-`renderer_core_blss.cpp` carries the `N = 512` table and `actTanh` /
-`actLogistic` behind `TYRA_BLSS_ACT_TABLE`, which defaults to **0 = libm** —
-the host's default, register for register. The 257 stored `short`s are
+**The table is the shipped configuration on both twins**, `N = 512`. The host
+implements it behind `--act-table N` and defaults to `blss::kEngineActTable`;
+`renderer_core_blss.cpp` carries the same table behind `TYRA_BLSS_ACT_TABLE`,
+which also defaults to **512**. They are one number in two files and they move in
+one commit — a host that fits against a table while the console evaluates libm is
+exactly the twin drift this page exists to prevent. The measurement that says it
+is free is [on the upscaler page](neural-upscaler.md#the-transcendentals-as-a-table),
+and the whole 39-fold table has since been re-run at the shipped activations
+(+0.42 → **+0.41 dB**, sd 0.34, proxy count unchanged at 1 217). The 257 stored `short`s are
 `tyrax-editor --blss-emit --act-table 512` **verbatim**; the FNV-1a below was
 re-derived from the pasted literals on 2026-08-08 and is `0x47A59E3C`, with a
 maximum deviation from `tanh` of 1.5e-05, i.e. half a Q15 LSB.
@@ -486,7 +490,7 @@ maximum deviation from `tanh` of 1.5e-05, i.e. half a Q15 LSB.
 straight to `tanhf`/`expf` — so the switch controlled nothing and "the engine
 half landed" (which this page used to say) was not true of the code that ran.
 `runNet()` calls them now, which makes `TYRA_BLSS_ACT_TABLE` a real switch for
-the first time. It still defaults to 0.
+the first time, and both defaults moved to 512 in one commit.
 
 **Flipping one side alone is silent divergence** — nothing in `blss.net` records
 which activation fitted it — so the switch-on is its own commit that moves
@@ -494,8 +498,9 @@ which activation fitted it — so the switch-on is its own commit that moves
 `TYRA_BLSS_ACT_TABLE` together, followed by a `--blss-eval -i` parity run.
 **It is worth 2.11 ms of EE**, measured on a console-shaped fixture in PCSX2
 (`runNet` 3.39 → 1.29 ms, 65 paired windows, CI [2.10, 2.12]) — the largest
-single saving available to this feature, and the only one still blocked on a
-decision rather than on work. See [profiling.md](profiling.md).
+single saving available to this feature, and it has been taken: on hardware it
+moved `net` from 1.93 ms to 0.79 ms, for a total EE bill of 5.02 ms. See
+[profiling.md](profiling.md).
 
 Why it is worth doing at all: the engine evaluates `12 tanhf + 3 expf + 3 fdiv`
 per tile (`renderer_core_blss.cpp`, the `logFeatureSpread` neighbourhood), in a
@@ -577,11 +582,18 @@ with that hash in its header comment, so if the formula ever disagrees between
 two toolchains the argument ends by pasting the literals.
 
 **`kNetVersion` does not move for this.** The file format and the topology are
-untouched, the measured quality difference is 0.01 dB against a fold sd of 0.35,
+untouched, the measured quality difference is 0.01 dB against a fold sd of 0.34,
 and a bump would refuse every existing `blss.net` to guard a difference no
 measurement can see. What the switch **must** do is land on both twins in one
-commit; there is nothing in `blss.net` that could ever record which activation
-fitted it, which is exactly why it cannot be turned on one side at a time.
+commit — and the reason has softened rather than gone away: the `<net>.meta`
+sidecar now records `act-table`, so a net fitted against one table and baked for
+another is *reported* (a warning, not a refusal, because the difference is 0.01
+dB). Nothing in `blss.net` itself records it, so a net that arrives without its
+sidecar is still undetectable, which is why the two sides still move together.
+`blss::kEngineActTable` is the host constant that names what the console
+evaluates and is the value a bake compares against — never `detail::gActN`, which
+is the host's own `--act-table` and is 0 in any process that never ran a BLSS
+verb.
 
 Outputs are `wA` (point), `wC` (temporal), `wD` (sharpen). The per-tile values
 are averaged onto the `(cols+1) × (rows+1)` grid corners — a corner is the mean

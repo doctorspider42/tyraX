@@ -29,6 +29,14 @@
 
 #include "blsscorpus.hpp"
 
+// The net that ships with the editor, and its provenance, both baked into the
+// binary by cmake/embed_binary.cmake. A loose data file next to the exe was the
+// alternative and it loses on the same grounds the app icon and the lunar
+// colour map lose on: the editor is a single static executable that people copy
+// around, and a default that is missing half the time is worse than no default.
+#include "blssmeta_gen.hpp"
+#include "blssnet_gen.hpp"
+
 namespace blss {
 
 const char* const kFeatureNames[kFeatures] = {"motion",    "depth",    "depthGrad",
@@ -656,25 +664,220 @@ bool save(const Net& n, const std::string& path, std::string* err) {
     return ok;
 }
 
+// The file is EXACTLY 8 + kNetFloats*4 bytes and nothing else is this format.
+// The length check is new and it is not pedantry: the old reader took the first
+// 500 bytes of whatever it was handed, so a net written by a future build with
+// more weights - or a file that merely starts with "BLSS" - loaded silently as a
+// prefix. It cannot change any published md5, because a file of the right length
+// is unaffected by a check on the length.
+constexpr size_t kNetBytes = 4 + sizeof(uint32_t) + kNetFloats * sizeof(float);
+
+bool loadMemory(Net& n, const unsigned char* data, size_t bytes, std::string* err) {
+    if (!data || bytes != kNetBytes || std::memcmp(data, "BLSS", 4) != 0) {
+        if (err)
+            *err = "not a BLSS net (want " + std::to_string(kNetBytes) + " bytes, got " +
+                   std::to_string(bytes) + ")";
+        return false;
+    }
+    uint32_t ver = 0;
+    std::memcpy(&ver, data + 4, sizeof(ver));
+    if (ver != kNetVersion) {
+        if (err)
+            *err = "BLSS net is version " + std::to_string(ver) + ", this build reads version " +
+                   std::to_string(kNetVersion) + " (the topology changed - refit it)";
+        return false;
+    }
+    float flat[kNetFloats];
+    std::memcpy(flat, data + 8, sizeof(flat));
+    flatToNet(n, flat);
+    return true;
+}
+
 bool load(Net& n, const std::string& path, std::string* err) {
     FILE* f = std::fopen(path.c_str(), "rb");
     if (!f) {
         if (err) *err = "cannot open " + path;
         return false;
     }
-    char magic[4] = {};
-    uint32_t ver = 0;
-    float flat[kNetFloats];
-    bool ok = std::fread(magic, 1, 4, f) == 4 && std::memcmp(magic, "BLSS", 4) == 0;
-    ok = ok && std::fread(&ver, sizeof(ver), 1, f) == 1 && ver == kNetVersion;
-    ok = ok && std::fread(flat, sizeof(float), kNetFloats, f) == kNetFloats;
+    unsigned char buf[kNetBytes + 1];
+    const size_t got = std::fread(buf, 1, sizeof(buf), f);
     std::fclose(f);
-    if (!ok) {
-        if (err) *err = path + " is not a BLSS net of version " + std::to_string(kNetVersion);
+    std::string why;
+    if (!loadMemory(n, buf, got, &why)) {
+        if (err) *err = path + ": " + why;
         return false;
     }
-    flatToNet(n, flat);
     return true;
+}
+
+// --------------------------------------------------------------- provenance ---
+//
+// Deterministic key/value text, one field per line, no timestamp - see the
+// Provenance comment in blss.hpp for why this is a sidecar and not a longer file
+// header. Unknown keys are IGNORED rather than refused, so a sidecar written by
+// a newer editor still tells an older one the four things it checks.
+
+std::string provenancePath(const std::string& netPath) { return netPath + ".meta"; }
+
+Provenance currentProvenance() {
+    Provenance p;
+    p.present = true;
+    p.netVersion = kNetVersion;
+    p.features = kFeatures;
+    p.hidden = kHidden;
+    p.outputs = kOutputs;
+    p.tile = tileSize();
+    p.actTable = detail::gActN;
+    return p;
+}
+
+std::string formatProvenance(const Provenance& p) {
+    std::string s =
+        "# BLSS net provenance (docs/neural-upscaler.md). Written beside the net\n"
+        "# it describes; the net's own bytes carry only magic + net-version, so\n"
+        "# everything here is what a consumer needs to know that a net which\n"
+        "# LOADS is also the right net. No timestamp and no editor version on\n"
+        "# purpose - re-running `command` must reproduce this file byte for byte.\n"
+        "blss-provenance 1\n";
+    char buf[512];
+    const auto line = [&](const char* fmt, auto... a) {
+        std::snprintf(buf, sizeof(buf), fmt, a...);
+        s += buf;
+    };
+    line("net-version %u\n", p.netVersion);
+    line("features %d\n", p.features);
+    line("hidden %d\n", p.hidden);
+    line("outputs %d\n", p.outputs);
+    line("tile %d\n", p.tile);
+    if (p.actTable >= 0) line("act-table %d\n", p.actTable);
+    if (p.scale.x > 0 && p.scale.y > 0) s += "scale " + scaleName(p.scale) + "\n";
+    if (p.jitter >= 0) line("jitter %d\n", p.jitter);
+    if (p.sharpen >= 0) line("sharpen %.9g\n", static_cast<double>(p.sharpen));
+    if (p.frames > 0) line("frames %d\n", p.frames);
+    if (p.shots > 0) line("shots %d\n", p.shots);
+    if (p.epochs > 0) line("epochs %d\n", p.epochs);
+    line("seed 0x%X\n", p.seed);
+    if (!p.corpus.empty()) s += "corpus " + p.corpus + "\n";
+    if (!p.command.empty()) s += "command " + p.command + "\n";
+    return s;
+}
+
+Provenance parseProvenance(const char* text, size_t n) {
+    Provenance p;
+    if (!text || n == 0) return p;
+    const std::string all(text, n);
+    size_t at = 0;
+    bool magic = false;
+    while (at <= all.size()) {
+        size_t eol = all.find('\n', at);
+        if (eol == std::string::npos) eol = all.size();
+        std::string ln = all.substr(at, eol - at);
+        at = eol + 1;
+        while (!ln.empty() && (ln.back() == '\r' || ln.back() == ' ')) ln.pop_back();
+        if (ln.empty() || ln[0] == '#') continue;
+        const size_t sp = ln.find(' ');
+        const std::string key = ln.substr(0, sp);
+        const std::string val = sp == std::string::npos ? std::string() : ln.substr(sp + 1);
+        const auto i = [&] { return std::atoi(val.c_str()); };
+        if (key == "blss-provenance") magic = true;
+        else if (key == "net-version") p.netVersion = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 0));
+        else if (key == "features") p.features = i();
+        else if (key == "hidden") p.hidden = i();
+        else if (key == "outputs") p.outputs = i();
+        else if (key == "tile") p.tile = i();
+        else if (key == "act-table") p.actTable = i();
+        else if (key == "scale") parseScale(val, &p.scale);
+        else if (key == "jitter") p.jitter = i() ? 1 : 0;
+        else if (key == "sharpen") p.sharpen = static_cast<float>(std::atof(val.c_str()));
+        else if (key == "frames") p.frames = i();
+        else if (key == "shots") p.shots = i();
+        else if (key == "epochs") p.epochs = i();
+        else if (key == "seed") p.seed = static_cast<uint32_t>(std::strtoul(val.c_str(), nullptr, 0));
+        else if (key == "corpus") p.corpus = val;
+        else if (key == "command") p.command = val;
+    }
+    p.present = magic;
+    return p;
+}
+
+bool writeProvenance(const Provenance& p, const std::string& netPath, std::string* err) {
+    const std::string path = provenancePath(netPath);
+    const std::string body = formatProvenance(p);
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) {
+        if (err) *err = "cannot open " + path + " for write";
+        return false;
+    }
+    const bool ok = std::fwrite(body.data(), 1, body.size(), f) == body.size();
+    std::fclose(f);
+    if (!ok && err) *err = "short write to " + path;
+    return ok;
+}
+
+Provenance readProvenance(const std::string& netPath) {
+    FILE* f = std::fopen(provenancePath(netPath).c_str(), "rb");
+    if (!f) return Provenance{};
+    std::string body;
+    char buf[1024];
+    size_t got;
+    while ((got = std::fread(buf, 1, sizeof(buf), f)) > 0) body.append(buf, got);
+    std::fclose(f);
+    return parseProvenance(body.data(), body.size());
+}
+
+NetIssues checkProvenance(const Provenance& p, const NetExpect& want) {
+    NetIssues out;
+    if (!p.present) {
+        out.warn.push_back(
+            "no provenance sidecar next to this net - its corpus, raster scale and sampler "
+            "are unknown, so nothing here can be checked");
+        return out;
+    }
+    const auto num = [](int v) { return std::to_string(v); };
+    // FATAL: the weights are not a net of this shape. load() already refuses a
+    // wrong net-version, so reaching here means the sidecar disagrees with the
+    // file it sits next to - which is a sidecar from a different net.
+    if (p.netVersion != kNetVersion)
+        out.fatal.push_back("provenance says net-version " + num(static_cast<int>(p.netVersion)) +
+                            ", this build is " + num(static_cast<int>(kNetVersion)));
+    if (p.features != kFeatures || p.hidden != kHidden || p.outputs != kOutputs)
+        out.fatal.push_back("provenance says topology " + num(p.features) + "-" + num(p.hidden) +
+                            "-" + num(p.outputs) + ", this build is " + num(kFeatures) + "-" +
+                            num(kHidden) + "-" + num(kOutputs));
+    if (p.tile > 0 && p.tile != tileSize())
+        out.fatal.push_back("fitted at tile " + num(p.tile) + " px, this build decides on " +
+                            num(tileSize()) + " px tiles");
+    // WARN: the net runs, it was just fitted for something else. Each of these
+    // is a measured difference and none of them is a broken picture.
+    if (p.actTable >= 0 && want.actTable >= 0 && p.actTable != want.actTable)
+        out.warn.push_back("fitted against activation table " + num(p.actTable) +
+                           ", this run evaluates it against " + num(want.actTable) +
+                           " (the labels came from a different tanh)");
+    if (want.scale.x > 0 && p.scale.x > 0 && p.scale != want.scale)
+        out.warn.push_back("fitted at raster scale " + scaleName(p.scale) +
+                           ", this project renders at " + scaleName(want.scale));
+    if (want.jitter >= 0 && p.jitter >= 0 && p.jitter != want.jitter)
+        out.warn.push_back(std::string("fitted with sub-pixel jitter ") +
+                           (p.jitter ? "ON" : "OFF") + ", this project ships it " +
+                           (want.jitter ? "ON" : "OFF") +
+                           " - the sampler changes what there is to reconstruct, so the two"
+                           " are different experiments (examples/procedural reads a ceiling"
+                           " of +0.773 dB jittered and +0.345 unjittered)");
+    return out;
+}
+
+bool defaultNet(Net& n, std::string* err) {
+    std::string why;
+    if (loadMemory(n, blssdefault::kDefaultNet, blssdefault::kDefaultNetSize, &why)) return true;
+    if (err)
+        *err = "the editor's built-in default network cannot be read (" + why +
+               ") - resources/blss-default.net was not refitted after the topology moved";
+    return false;
+}
+
+Provenance defaultProvenance() {
+    return parseProvenance(reinterpret_cast<const char*>(blssdefault::kDefaultNetMeta),
+                           blssdefault::kDefaultNetMetaSize);
 }
 
 namespace {
@@ -1644,8 +1847,62 @@ struct CliOpts {
     // THIS NUMBER IS THE ENGINE'S TYRA_BLSS_ACT_TABLE
     // (renderer_core_blss.cpp). They are one number in two files and they move
     // in the same commit - a one-sided flip is silent twin divergence.
-    int actTable = 512;
+    int actTable = kEngineActTable;
 };
+
+std::string joinArgs(const std::vector<std::string>& v) {
+    std::string s;
+    for (const std::string& a : v) {
+        if (!s.empty()) s += ' ';
+        s += a;
+    }
+    return s;
+}
+
+// The invocation, for the provenance sidecar - argv[0] deliberately replaced by
+// the tool's name rather than recorded, because the exe path differs per machine
+// and per worktree and the sidecar has to be byte-reproducible for a CI diff to
+// mean anything.
+std::string commandLine(int argc, char** argv) {
+    std::string s = "tyrax-editor";
+    for (int i = 1; i < argc; ++i) {
+        s += ' ';
+        s += argv[i];
+    }
+    return s;
+}
+
+// WHICH NET A VERB RUNS, and it is deliberately the same order templates.cpp
+// bakes in: an explicit `-i`, else the project's own blss.net, else the net the
+// editor ships. An explicit `-i` that cannot be opened stays a hard error - you
+// asked for that net - while a missing default is now answered rather than
+// reported, because there IS a default.
+enum class NetSource { None, Explicit, Project, Default };
+
+NetSource resolveNet(const CliOpts& o, Net& net, std::string* err) {
+    if (o.netGiven) return load(net, o.netPath, err) ? NetSource::Explicit : NetSource::None;
+    if (load(net, o.netPath, nullptr)) return NetSource::Project;
+    return defaultNet(net, err) ? NetSource::Default : NetSource::None;
+}
+
+// One line a caller can parse plus, when they exist, the provenance complaints.
+// The complaints are the reason this prints at all: a net that loads is not the
+// same thing as a net that was fitted for the run it is about to be used in.
+void announceNet(NetSource src, const CliOpts& o) {
+    const Provenance p =
+        src == NetSource::Default ? defaultProvenance() : readProvenance(o.netPath);
+    const char* kind = src == NetSource::Default ? "default"
+                       : src == NetSource::Explicit ? "explicit"
+                                                    : "project";
+    std::printf("[blss] net source=%s path=%s corpus=%s scale=%s jitter=%s\n", kind,
+                src == NetSource::Default ? "(built into the editor)" : o.netPath.c_str(),
+                p.corpus.empty() ? "?" : p.corpus.c_str(),
+                p.scale.x > 0 ? scaleName(p.scale).c_str() : "?",
+                p.jitter < 0 ? "?" : (p.jitter ? "on" : "off"));
+    const NetIssues iss = checkProvenance(p, NetExpect{o.scale, o.jitter, detail::gActN});
+    for (const std::string& f : iss.fatal) std::printf("[blss] net REFUSED: %s\n", f.c_str());
+    for (const std::string& w : iss.warn) std::printf("[blss] net warning: %s\n", w.c_str());
+}
 
 CliOpts parseCli(int argc, char** argv) {
     CliOpts o;
@@ -3296,7 +3553,26 @@ int trainMain(int argc, char** argv) {
         std::printf("blss: %s\n", err.c_str());
         return 1;
     }
-    std::printf("blss: final loss %.6f, wrote %s\n", loss, outPath.c_str());
+    // THE SIDECAR IS WRITTEN BY THE TRAINER, NOT BY WHOEVER RAN IT. A net's
+    // corpus, sampler and raster scale are known here and nowhere else, and the
+    // editor window's own `blss.net.args` file only exists when the window was
+    // the thing that trained - a net from a shell had no provenance at all. See
+    // the Provenance comment in blss.hpp for why this is a sidecar.
+    Provenance prov = currentProvenance();
+    prov.scale = o.scale;
+    prov.jitter = jitterEnabled() ? 1 : 0;
+    prov.sharpen = o.sharpen;
+    prov.frames = static_cast<int>(corpus.size());
+    prov.shots = shots;
+    prov.epochs = o.epochs;
+    prov.seed = o.seed;
+    prov.corpus = o.projectDirs.empty() ? std::string("bestiary") : joinArgs(o.projectDirs);
+    prov.command = commandLine(argc, argv);
+    std::string provErr;
+    if (!writeProvenance(prov, outPath, &provErr))
+        std::printf("blss: WARNING - %s (the net has no provenance)\n", provErr.c_str());
+    std::printf("blss: final loss %.6f, wrote %s (+ %s)\n", loss, outPath.c_str(),
+                provenancePath(outPath).c_str());
     // The three phases, named, so the next person to make this faster optimises
     // the one that is actually slow. Corpus and labelling are threaded; the fit
     // is sequential SGD (each Adam step reads the weights the previous one
@@ -3339,18 +3615,25 @@ int evalMain(int argc, char** argv) {
     // for that net, it is not there). A DEFAULT blss.net that is not there is
     // not - the table simply omits the trained row and everything else, verdict
     // included, is unchanged.
+    // ...and since a default net SHIPS, "no -i" no longer means "no net": it
+    // means the net this project would be BUILT with, which is the project's own
+    // `blss.net` if it has one and the editor's built-in default if it does not
+    // (the same order templates.cpp bakes in). That is the whole point of the
+    // Evaluate tab - it must measure what the game will run.
     Net net;
     std::string err;
-    bool haveNet = load(net, o.netPath, &err);
-    if (!haveNet && o.netGiven) {
+    const NetSource src = resolveNet(o, net, &err);
+    if (src == NetSource::None && o.netGiven) {
         std::printf("blss: %s\n  (run --blss-train first)\n", err.c_str());
         return 1;
     }
+    const bool haveNet = src != NetSource::None;
     if (!haveNet)
-        std::printf("blss: no %s - evaluating NET-FREE. The oracle row is the scene's own"
-                    " ceiling and\n      needs no network; train one and pass -i to see how"
-                    " much of it a net captures.\n",
-                    o.netPath.c_str());
+        std::printf("blss: no network available (%s) - evaluating NET-FREE. The oracle row is"
+                    " the scene's own ceiling and needs no network.\n",
+                    err.c_str());
+    else
+        announceNet(src, o);
 
     const auto tStart = std::chrono::steady_clock::now();
     const auto since = [](std::chrono::steady_clock::time_point t) {
@@ -3713,11 +3996,19 @@ int emitMain(int argc, char** argv) {
         return 0;
     }
 
+    // Same fallback order as --blss-eval and as the bake. It also makes this
+    // verb the cheapest check that the SHIPPED default is still readable by this
+    // build: `--blss-emit -o <tmp>` in a directory with no blss.net loads the
+    // embedded net, runs its provenance against the compiled-in topology and
+    // fails loudly if kNetVersion moved without resources/blss-default.net being
+    // refitted. That is the CI gate for the default (docs/neural-upscaler.md).
     Net net;
-    if (!load(net, o.netPath, &err)) {
+    const NetSource from = resolveNet(o, net, &err);
+    if (from == NetSource::None) {
         std::printf("blss: %s\n", err.c_str());
         return 1;
     }
+    announceNet(from, o);
     const std::string src = emitGeneratedSource(net);
     if (o.outPath.empty()) {
         std::fputs(src.c_str(), stdout);

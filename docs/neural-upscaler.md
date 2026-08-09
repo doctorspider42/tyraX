@@ -47,14 +47,23 @@ rasteriser and no pixel shaders at all.
 > frame's fill before switching it on — a project that is EE-bound gets nothing
 > here but a bill.
 >
-> **Ask whether your scene has a ceiling first; then fit it if it does.** That is
-> the one sentence on this page with a decision in it, and it replaces "fit the
-> project you will ship, and ship that net" — which was right about the net it
-> named and wrong about the general case.
-> `--blss-eval <projectDir>` answers the first half in one line and **needs no
-> trained network to do it** ([net-free evaluation](#training)); **twelve of the
-> thirty-two example projects have an oracle ceiling under +0.10 dB**, where no
-> net can win anything and the question of which net to ship does not arise.
+> **Ask whether your scene has a ceiling. If it has one, turn it on — a network
+> already ships.** That is the one sentence on this page with a decision in it,
+> and it is the second thing to replace *"fit the project you will ship, and ship
+> that net"*, which was right about the net it named and wrong about the general
+> case. `--blss-eval <projectDir>` answers the ceiling question in one line and
+> **needs no trained network to do it** ([net-free evaluation](#training));
+> **twelve of the thirty-two example projects have an oracle ceiling under
+> +0.10 dB**, where no net can win anything and the question of which net to ship
+> does not arise.
+>
+> **A project with no `blss.net` is built with the network the editor ships**
+> ([the net that ships](#the-net-that-ships)) — fitted on seven example projects
+> *and* the bestiary, embedded in the editor binary, named in the generated
+> header and in the boot log. It used to be built with **random weights** behind
+> a warning banner, which is not a neutral fallback: a random net is a per-tile
+> blend chosen by noise. Training your own is now an optimisation, not a
+> prerequisite.
 >
 > On a scene that *does* have a ceiling, the choice has now been measured
 > properly — leave-one-**project**-out over seven projects rather than one
@@ -68,11 +77,15 @@ rasteriser and no pixel shaders at all.
 > - a net fitted to **the bestiary and real projects together** scores
 >   **+0.29 dB on a project it has never seen**, against **+0.31 dB** for that
 >   project's own net — a tie at fold sds of 0.37 and 0.34. **One net can
->   ship.** `--blss-train <projects...> bestiary --all-shots`.
+>   ship**, and one now does: `resources/blss-default.net`, fitted with
+>   `--blss-train <the seven projects> bestiary --all-shots`.
 > - per-project training still reaches the highest number of all (**+0.41 dB**
 >   in distribution, which is what the console runs), so the retrain button
->   stays and so does the advice to press it. `--blss-train <projectDir>`, or the
->   corpus switch in the window's header, which defaults to it.
+>   stays — but **the reason it stays is no longer "otherwise it hurts you"**.
+>   It is worth a fraction of a decibel on a scene that has decibels to win, and
+>   nothing at all on the twelve examples that have no ceiling.
+>   `--blss-train <projectDir>`, or the corpus switch in the window's header,
+>   which defaults to it.
 >
 > **The picture still bobs with `blssJitter` on**, and that is a separate axis
 > from the timing. A person was shown three builds of `examples/upscaler-lab`
@@ -109,6 +122,23 @@ rasteriser and no pixel shaders at all.
 >    `blssScale 0` is `Scale::X2Y2`, half in *each* axis, so a quarter of the
 >    pixels survive. The break-even computed off the wrong factor read ~22
 >    coverages; it is ~13. Measured slope: 25.9 % of the fill survives.
+> 4. **"Fit the project you will ship, and ship that net — otherwise it hurts
+>    you."** This was the feature's training rule for two months and it rested on
+>    one row of three numbers taken on `examples/procedural`: −0.40 for a
+>    bestiary net, +0.06 for the project's own, against a +0.77 ceiling. **That
+>    row had two samplers in it.** The ceiling was measured with the sub-pixel
+>    jitter ON (re-measured today: **+0.773**) and the margins with it OFF, where
+>    the same scene's ceiling is **+0.345** — so the project net's +0.06 was
+>    being read against a ceiling it could never have reached, which is what made
+>    it look like a poor result rather than a scene with nothing left to win. At
+>    one sampler the row is −0.48 / −0.00 / **+0.345**. `generate()` now announces
+>    the sampler in both directions so a table cannot be assembled this way
+>    again. The *warning* half of the rule survived re-measurement — a
+>    bestiary-only net really is a lottery, −0.34 dB over seven projects and
+>    −1.09 at worst — but its *conclusion* did not: a corpus holding the bestiary
+>    **and** real projects ties per-project training on the only example that can
+>    tell them apart, so [a default net ships](#the-net-that-ships) and
+>    retraining is an optimisation.
 >
 > Two provisional figures this page used to carry are now retired. The
 > **+9.83 ms** regression was taken on a build carrying the z-mask defect
@@ -517,6 +547,12 @@ project has been booted to read a `VRAMSTAT` line back.
 
 ## Training
 
+**You do not have to train anything.** A default network ships inside the editor
+and a project with no `blss.net` is built with it
+([the net that ships](#the-net-that-ships)) — measured as a tie with per-project
+training on the only example project that can discriminate. Everything below is
+how to beat it on your own scene, and how the shipped one was made.
+
 The network is trained **on the host, headless, by the editor itself** — no
 Python, no external framework, no GPU:
 
@@ -534,12 +570,21 @@ tool loaded `blss.net` first and bailed with `cannot open blss.net`, so the firs
 step this page and the settings panel both prescribe ("evaluate your project
 BEFORE turning this on") was impossible to perform on a fresh project. Now:
 
-- **no `-i`, and no `blss.net` where the tool is looking** → the table is printed
-  without the `half-res + BLSS (trained)` row, the verdict is printed, and the
-  exit code is 0;
 - **no `-i`, but a `blss.net` is there** → it is used, exactly as before;
+- **no `-i`, and no `blss.net` where the tool is looking** → **the editor's
+  built-in default net is used**, because that is the net this project would be
+  *built* with and the Evaluate tab has to measure what the game will run. It
+  used to drop the `half-res + BLSS (trained)` row entirely, which was the honest
+  answer while a missing net meant random weights and is the wrong one now;
 - **an explicit `-i <file>` that cannot be opened** → still an error. You asked
   for that net.
+
+Every verb that resolves a net prints one line naming which one it got, plus any
+provenance complaint ([provenance](#provenance-what-a-net-says-about-itself)):
+
+```
+[blss] net source=default path=(built into the editor) corpus=examples/upscaler-lab … bestiary scale=2x2 jitter=off
+```
 
 Both verbs take `--frames N`, `--assets <dir>`, `--seed N`, `--sharpen K`,
 `--scale WxH` (or `--scale-1x2`, the same setting spelled the old way),
@@ -1435,10 +1480,26 @@ absence: a BLSS frame on a real PS2 cost **+9.83 ms and saved nothing**
 ([profiling.md](profiling.md#timing-a-frame-that-blss-is-in)).
 
 > These are **strings in `drawBlssSettings`, not computed values**, so they have
-> to be edited whenever a table on this page is. One known drift today: the
-> tooltip quotes the fold spread as **sd 0.40**, where the re-run in
-> [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
-> reads **0.35**.
+> to be edited whenever a table on this page is. **Four known drifts today**, all
+> in the window's copy and none in the numbers below:
+>
+> 1. the tooltip quotes the fold spread as **sd 0.40**; the re-run in
+>    [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
+>    reads **0.34**;
+> 2. the standing note's three facts are the **−0.40 / +0.06 / +0.77** row, which
+>    is [retracted](#first-the-040-db-re-measured-and-the-ceiling-next-to-it-was-a-different-sampler) —
+>    it had two samplers in it. At one sampler the same scene reads
+>    −0.48 / −0.00 / +0.345;
+> 3. the bestiary radio button's subtitle carries that same **−0.40 dB**; the
+>    generalised figure is **−0.34 dB mean over seven projects, −1.09 at worst**,
+>    and the actionable sentence is that the bestiary belongs *in* a corpus, not
+>    *as* one;
+> 4. **"Project network: none — the game will be built with RANDOM weights"** is
+>    no longer true of any project: the bake falls back to
+>    [the net that ships](#the-net-that-ships).
+>
+> They are listed rather than fixed here because they are UI text, and this page
+> is not where UI text lives.
 
 The **conditional** one lists whichever of **depth of field / portals /
 split-screen** *this project actually uses* — the pattern is "warn only about the
@@ -1488,28 +1549,28 @@ and is not what any example project ships:
 
 | held-out shot | seed `B1557` | seed `CCD704ED` | seed `8814F396` | mean | sd |
 |---|---|---|---|---|---|
-| 0 `floor-horizon` dolly-in | +0.35 | +0.20 | +0.48 | **+0.34** | 0.12 |
+| 0 `floor-horizon` dolly-in | +0.28 | +0.20 | +0.47 | **+0.32** | 0.11 |
 | 1 `boxes-sphere` orbit | +0.58 | +0.61 | +0.53 | **+0.57** | 0.03 |
-| 2 `poles` pan | +0.86 | +0.63 | +0.94 | **+0.81** | 0.13 |
-| 3 `foliage` static | +0.90 | +0.68 | +1.04 | **+0.87** | 0.15 |
-| 4 `grazing-wall` dolly-along | −0.13 | +0.05 | +0.07 | **−0.00** | 0.09 |
-| 5 `flat` slow pan | +1.11 | +0.97 | +1.06 | **+1.05** | 0.06 |
+| 2 `poles` pan | +0.85 | +0.62 | +0.93 | **+0.80** | 0.13 |
+| 3 `foliage` static | +0.90 | +0.38 | +1.03 | **+0.77** | 0.28 |
+| 4 `grazing-wall` dolly-along | −0.13 | +0.06 | +0.06 | **−0.00** | 0.09 |
+| 5 `flat` slow pan | +1.04 | +0.98 | +1.06 | **+1.03** | 0.04 |
 | 6 `whip` whip pan | +0.23 | +0.16 | +0.17 | **+0.19** | 0.03 |
-| 7 `corridor` dolly-down | −0.19 | +0.02 | −0.28 | **−0.15** | 0.13 |
-| 8 `strafe-field` lateral | +0.41 | +0.36 | +0.43 | **+0.40** | 0.03 |
-| 9 `pitch-sky` pitch-up | +0.82 | +0.27 | +0.34 | **+0.48** | 0.24 |
-| 10 `distant-plain` slow dolly | +0.43 | +0.17 | +0.21 | **+0.27** | 0.11 |
-| 11 `sphere-field` orbit-wide | +0.04 | +0.30 | +0.64 | **+0.33** | 0.25 |
-| 12 `foliage-walk` dolly-through | +0.31 | +0.22 | +0.21 | **+0.25** | 0.05 |
-| **mean over folds** | **+0.44** | **+0.36** | **+0.45** | **+0.42** | **0.04** |
+| 7 `corridor` dolly-down | −0.18 | +0.02 | −0.21 | **−0.12** | 0.10 |
+| 8 `strafe-field` lateral | +0.40 | +0.35 | +0.43 | **+0.39** | 0.04 |
+| 9 `pitch-sky` pitch-up | +0.81 | +0.27 | +0.34 | **+0.47** | 0.24 |
+| 10 `distant-plain` slow dolly | +0.43 | +0.19 | +0.21 | **+0.28** | 0.11 |
+| 11 `sphere-field` orbit-wide | +0.04 | +0.31 | +0.64 | **+0.33** | 0.24 |
+| 12 `foliage-walk` dolly-through | +0.31 | +0.21 | +0.21 | **+0.24** | 0.05 |
+| **mean over folds** | **+0.43** | **+0.34** | **+0.45** | **+0.41** | **0.05** |
 
-> **BLSS beats plain bilinear out of distribution by +0.42 dB**, sd 0.35 over 39
-> fold-runs, **3 of 39 below bilinear**, at **1.80 mean full-screen passes**
-> (sd 0.30) against 1.00 for bilinear.
+> **BLSS beats plain bilinear out of distribution by +0.41 dB**, sd 0.34 over 39
+> fold-runs, **3 of 39 below bilinear**, at **1.79 mean full-screen passes**
+> (sd 0.33) against 1.00 for bilinear.
 
-**The conservative figure is +0.26 dB.** Shots 7–12 are the six that were added
+**The conservative figure is +0.27 dB.** Shots 7–12 are the six that were added
 *after* the defaults were chosen and took no part in choosing them; their fold
-means are −0.15, +0.40, +0.48, +0.27, +0.33, +0.25. Quote that one when the
+means are −0.12, +0.39, +0.47, +0.28, +0.33, +0.24. Quote that one when the
 question is "will it help on content nobody tuned for".
 
 Per fold, mean over the three seeds — `in-dist` is the same margin on that fold's
@@ -1518,49 +1579,52 @@ twelve **training** shots, i.e. the control that says the fold trained at all
 
 | held-out shot | native | bilinear | BLSS | oracle | passes | flicker | in-dist |
 |---|---|---|---|---|---|---|---|
-| 0 `floor-horizon` | 19.57 | 18.88 | 19.22 | 20.28 | 1.49 | 33.98 | +0.49 |
-| 1 `boxes-sphere` | 20.26 | 18.95 | 19.52 | 19.85 | 2.07 | 45.85 | +0.47 |
-| 2 `poles` | 22.11 | 21.07 | 21.88 | 23.13 | 1.48 | 29.08 | +0.41 |
-| 3 `foliage` | 28.13 | 25.61 | 26.48 | 27.78 | 1.85 | 6.13 | +0.42 |
-| 4 `grazing-wall` | 29.31 | 27.55 | 27.54 | 28.01 | 1.87 | 7.82 | +0.55 |
-| 5 `flat` | 58.30 | 54.67 | 55.72 | 54.67 | 2.12 | 0.04 | +0.52 |
-| 6 `whip` | 25.48 | 22.58 | 22.77 | 23.62 | 1.96 | 41.93 | +0.56 |
-| 7 `corridor` | 31.80 | 27.42 | 27.28 | 27.59 | 2.11 | 17.68 | +0.55 |
-| 8 `strafe-field` | 22.58 | 21.67 | 22.07 | 22.79 | 1.81 | 21.11 | +0.49 |
-| 9 `pitch-sky` | 22.86 | 22.15 | 22.62 | 24.40 | 1.53 | 38.19 | +0.51 |
-| 10 `distant-plain` | 22.71 | 23.39 | 23.66 | 24.83 | 1.49 | 12.90 | +0.49 |
-| 11 `sphere-field` | 32.76 | 31.06 | 31.39 | 31.74 | 1.90 | 14.66 | +0.54 |
-| 12 `foliage-walk` | 29.32 | 27.40 | 27.64 | 27.82 | 1.77 | 14.22 | +0.55 |
+| 0 `floor-horizon` | 19.57 | 18.88 | 19.20 | 20.28 | 1.49 | 34.10 | +0.46 |
+| 1 `boxes-sphere` | 20.26 | 18.95 | 19.52 | 19.85 | 2.07 | 45.86 | +0.47 |
+| 2 `poles` | 22.11 | 21.07 | 21.87 | 23.13 | 1.47 | 29.09 | +0.40 |
+| 3 `foliage` | 28.13 | 25.61 | 26.38 | 27.78 | 1.78 | 6.30 | +0.42 |
+| 4 `grazing-wall` | 29.31 | 27.55 | 27.54 | 28.01 | 1.85 | 7.82 | +0.55 |
+| 5 `flat` | 58.30 | 54.67 | 55.70 | 54.67 | 2.02 | 0.04 | +0.51 |
+| 6 `whip` | 25.48 | 22.58 | 22.77 | 23.62 | 1.95 | 41.95 | +0.56 |
+| 7 `corridor` | 31.80 | 27.42 | 27.30 | 27.59 | 2.21 | 17.64 | +0.54 |
+| 8 `strafe-field` | 22.58 | 21.67 | 22.06 | 22.79 | 1.80 | 21.14 | +0.49 |
+| 9 `pitch-sky` | 22.86 | 22.15 | 22.62 | 24.40 | 1.52 | 38.19 | +0.51 |
+| 10 `distant-plain` | 22.71 | 23.39 | 23.66 | 24.83 | 1.47 | 12.89 | +0.51 |
+| 11 `sphere-field` | 32.76 | 31.06 | 31.40 | 31.74 | 1.90 | 14.67 | +0.54 |
+| 12 `foliage-walk` | 29.32 | 27.40 | 27.64 | 27.82 | 1.73 | 14.29 | +0.54 |
 
 > **These numbers were re-run for this page, not copied.** They moved, and mostly
-> in the right direction: the mean is +0.42 against the +0.40 this page used to
-> print, the folds below bilinear dropped from 5 to 3, and the pass count fell
-> from 2.85 to **1.80** — the deadzone and the proxy fix between them took a whole
-> full-screen pass out of the frame. Two numbers got *worse* and are worth naming:
-> the sd of the per-seed fold mean is **0.04** rather than 0.01, and two folds
-> (`pitch-sky`, `sphere-field`) now spread 0.24–0.25 dB across seeds. The seed
-> still moves the answer far less than the fold does, but by four times less
-> margin than this page claimed.
+> in the right direction: the mean is +0.41 against the +0.40 this page printed
+> before the deadzone and the proxy fix, the folds below bilinear dropped from 5
+> to 3, and the pass count fell from 2.85 to **1.79** — those two changes between
+> them took a whole full-screen pass out of the frame. Two numbers got *worse*
+> and are worth naming: the sd of the per-seed fold mean is **0.05** rather than
+> 0.01, and two folds (`pitch-sky`, `sphere-field`) spread 0.24 dB across seeds.
+> The seed still moves the answer far less than the fold does, but by four times
+> less margin than this page once claimed.
 >
-> **This table was measured with libm activations, and the tree now defaults to
-> the table** (`--act-table 512` on both twins). Spot-checked rather than re-run:
-> at seed `B1557`, `boxes-sphere` still reads **+0.58** and `floor-horizon` reads
-> **+0.28** against the +0.35 below. That is the size of difference
-> [the table's own sweep](#the-transcendentals-as-a-table) predicted — 0.01 dB on
-> the mean against a fold sd of 0.35 — and the bestiary's proxy count is
-> unchanged at 1 217, so it is the activation change and not the corpus. **The
-> whole table is owed a re-run at the shipped activations**; until then read the
-> per-fold cells as ±0.1 dB.
+> **The re-run at the shipped activations is done, and this IS it.** The table
+> above used to be a libm measurement carrying an "owed a re-run" flag, because
+> `--act-table 512` had since been turned on for both twins and only two cells
+> had been spot-checked. Re-run whole: the **mean moves +0.42 → +0.41**, the sd
+> **0.35 → 0.34**, the passes **1.80 → 1.79**, and 3 of 39 below bilinear is
+> unchanged. Both spot-checks land exactly where they were predicted to —
+> `floor-horizon` seed `B1557` **+0.35 → +0.28** and `boxes-sphere` **+0.58**,
+> unmoved — and the bestiary's proxy count is still **1 217**, which is the
+> control saying the corpus did not change underneath the activations. The
+> largest single-cell move is `foliage` (+0.87 → +0.77), driven entirely by its
+> middle seed (+0.68 → +0.38) against a fold sd that is now 0.28: a seed spread,
+> not a regression. **The ±0.1 dB caveat is withdrawn — read the cells as
+> measured.**
 >
-> **Re-run again at `7d3dbf67`, on the threaded corpus, and it reproduces cell
-> for cell** — every fold mean, every per-seed column, the +0.42, the sd 0.35,
-> the 3 of 39, the 1.80 passes and the 0.04 per-seed fold-mean sd. That is what
-> the determinism contract behind `--threads`
-> ([above](#--threads-n-and-the-determinism-that-pays-for-it)) is *for*. The
-> whole table now costs **3 min 38 s** of wall clock (16 min 49 s of CPU) on 6
-> cores, which is why it is reasonable to re-run it rather than quote it.
+> The whole table costs **65.6 s** of wall clock on 6 cores (corpus 7.7 s, oracle
+> 13.2 s, folds 44.6 s), which is why it is reasonable to re-run it rather than
+> quote it. It reproduces cell for cell across binaries — first at `7d3dbf67` on
+> the threaded corpus, now again with the provenance and default-net work in the
+> tree — which is what the determinism contract behind `--threads`
+> ([above](#--threads-n-and-the-determinism-that-pays-for-it)) is *for*.
 
-**The one shot it still loses on is `corridor` (−0.15), and the reason is a
+**The one shot it still loses on is `corridor` (−0.12), and the reason is a
 feature the network effectively does not have there.** `depth` is `1/w`
 normalised against `kDepthRef = 8` and clamped, so it reads 1.0 for anything
 closer than eight units. `--blss-eval --features` prints the per-shot mean of each
@@ -1578,11 +1642,11 @@ depth mapping), not an inherent limit — and it is not confined to one shot:
 `--features` to any investigation of "why does it not help here" before touching
 the topology; the channel statistics are the first place to look.
 
-`flat` is worth a second look for the opposite reason: 55.72 dB against
-bilinear's 54.67 on a screen with nothing in it, at **2.12 passes** — the highest
-pass count of the thirteen folds, on the one shot where no decibel is visible.
-The old reading of this fold was 4.33 passes and it has come down a long way, but
-it is still where the remaining fill lives.
+`flat` is worth a second look for the opposite reason: 55.70 dB against
+bilinear's 54.67 on a screen with nothing in it, at **2.02 passes** — and
+`corridor`'s 2.21 is now the only fold above it. The old reading of `flat` was
+4.33 passes and it has come down a long way, but the pair of them is still where
+the remaining fill lives.
 
 ### Against every fixed kernel
 
@@ -1809,6 +1873,158 @@ it is more content with a real ceiling — the screening below says the whole
 `examples/` tree contains exactly one scene above +0.5 dB, so this cannot be
 fixed by measuring harder, only by authoring or acquiring heavy-overdraw scenes.
 That is the same shortage the break-even table has: one fixture on each side.
+
+#### The net that ships
+
+The measurement above says one net can ship. This is that net.
+
+```bash
+tyrax-editor --blss-train \
+    examples/upscaler-lab examples/material-lab examples/endless-runner \
+    examples/cube examples/save-points examples/procedural \
+    examples/endless-scroller bestiary \
+    --all-shots --frames 660 --no-jitter -o resources/blss-default.net
+```
+
+`resources/blss-default.net` (500 bytes) plus `resources/blss-default.net.meta`,
+both **embedded into the editor binary** by `cmake/embed_binary.cmake` — the app
+icon's arrangement, for the app icon's reason: the editor is a single executable
+people copy around, and a default that is only present when someone remembered
+to carry a data file is worse than no default. `templates.cpp` falls back to it
+whenever a project has BLSS on and no `blss.net`, and both the generated header
+and the boot log name which network the build got.
+
+**Why those seven projects and not all thirty-two.** Three reasons, in order of
+weight:
+
+1. **A shot with no ceiling teaches "do nothing".** The oracle's labels on a
+   scene with +0.00 dB of headroom are all "ask for plain bilinear", and the
+   measured failure mode of a projects-only corpus is precisely that
+   degeneration ([below](#why-the-projects-only-union-collapses-and-it-is-not-it-learned-nothing)).
+   Adding twenty-five low-ceiling projects would add label mass pulling in the
+   one direction the corpus already has too much of. These seven are every
+   `examples/*` above **+0.24 dB** on the net-free screening in the next section.
+2. **It is the corpus the result was measured on.** Column 2 of the table above
+   trains on six of these seven plus the bestiary; the shipped net trains on all
+   seven plus the bestiary, which is the same recipe with nothing held out.
+   Adding a member would make the thing that ships a different object from the
+   thing that was cross-validated, and this feature has published five numbers
+   measured on something other than what shipped.
+3. **They span the content kinds the screening found.** Heavy alpha overdraw
+   (`upscaler-lab`), textured surface detail (`material-lab`), scrolling
+   parallax (`endless-runner`, `endless-scroller`), dense procedural scatter
+   (`procedural`), bare primitives against sky (`cube`) and terrain-with-props
+   (`save-points`). The bestiary supplies the *difficulty* range and, critically,
+   the `texDetail` spread — that channel is identically zero on five of the seven
+   and is the bestiary's most oracle-correlated input, which is the whole
+   mechanism behind "either corpus alone fails".
+
+**The other flags, and why each is the value it is.** `--all-shots` because
+nothing is held out of a net you ship (the fold tables are how it is measured,
+not how it is fitted). `--frames 660` because the corpus is **55 shots** and the
+leave-one-project-out experiment ran at **12 frames per shot**; frames are split
+evenly, so any other total is a different experiment, and at the bare default of
+156 the tail shots would get three frames each — a shot with three frames teaches
+the temporal channel almost nothing. `--no-jitter` because `blssJitter` defaults
+to `false` and every shipped example writes `false`; the sampler is resolved once
+for a union corpus, and a net fitted at the other one is fitted for a different
+picture. Everything else is the shipped default (400 epochs, decay `1e-4`,
+flicker 0 / period2, fill 16, sharpen 0.5, activation table 512, seed `0xB1557`).
+
+**What this net's number is, and what it is not.** The honest estimate of its
+performance on *your* project — a project it has never seen — is the **+0.29 dB
+±0.37** of column 2, on the one row in this tree that can discriminate. It is
+**not** the +0.41 in column 4: that is a net evaluated on the frames it was
+fitted on. And it is not a promise about a project whose ceiling is +0.00, where
+it will correctly ask for plain bilinear and win nothing.
+
+Reproducing it costs **39 s** on six cores (corpus 7.8 s, oracle 15.9 s, fit
+15.6 s) and writes md5 `879146bdee7f3b183c05985012753649`. That equality is
+checked rather than asserted: the net was trained once with the binary at
+`0187c887` and again with the provenance work in it, and both runs wrote the same
+500 bytes — which is also the check that adding provenance did not touch
+training.
+
+#### Provenance: what a net says about itself
+
+A `blss.net` is a four-byte magic, a `kNetVersion` and 123 floats. That version
+answers exactly one question — *can these bytes be read into this `Net`* — and
+`load()` refuses when they cannot. **Everything that decides whether a net is the
+RIGHT net was invisible**: its corpus, the raster scale it was fitted at, whether
+the sampler jittered, which activation table produced its labels. A net fitted at
+jitter ON, baked into a project that ships jitter OFF, loads perfectly and
+composites perfectly and is measurably worse, with nothing anywhere saying so.
+
+That was survivable while every net was trained by the person who baked it ten
+seconds earlier. It stops being survivable the moment a **default** net ships:
+nobody trained it, nobody remembers its corpus, and it outlives several editor
+versions.
+
+`--blss-train` now writes **`<net>.meta`** next to every net it produces:
+
+```
+blss-provenance 1
+net-version 3
+features 6
+hidden 12
+outputs 3
+tile 32
+act-table 512
+scale 2x2
+jitter 0
+sharpen 0.5
+frames 660
+shots 55
+epochs 400
+seed 0xB1557
+corpus examples/upscaler-lab … bestiary
+command tyrax-editor --blss-train … -o resources/blss-default.net
+```
+
+**Why a sidecar and not a longer file header**, which is the obvious fix and was
+refused: the net file's bytes are a *published reproducibility anchor*. This
+feature's shot-plan compatibility check, its thread-determinism contract and its
+default-net check are all of the form "does this command still write md5 X"
+(`e069f286ea0c524999bfd9dac769608c`, `6b2fba90d0f059f055134a55df478c8e`,
+`879146bdee7f3b183c05985012753649`). Adding one byte to the format invalidates
+every one of them silently, and the next person to run a check learns only that
+it failed. So the weights keep their format to the byte and the provenance sits
+beside them.
+
+**The sidecar carries no timestamp and no editor version**, and both omissions
+are the same decision: re-running `command` must reproduce the file byte for
+byte, or the CI check that guards the shipped default — *re-run it and diff* —
+cannot fire. A clock would break that outright (the chat-store precedent: the
+mtime is already there and a clock in the file is a diff nobody wants), and a
+semver would break it on every unrelated release, dirtying
+`resources/blss-default.net.meta` while the 500 bytes beside it are unchanged.
+That is a diff which teaches nothing and trains people to ignore the one that
+matters. Which editor wrote a net is recoverable from git; whether it is the
+*right* net is not, and that is what the fields are for. The property is checked
+rather than asserted: the sidecar was first written by hand from the format spec,
+and the trainer's own output came out identical.
+
+The price is stated rather than hidden: **a sidecar can be separated from its net
+by a copy.** A net with no sidecar reports *unknown provenance* — a warning, not
+an error, because every net trained before this existed is in that state and must
+keep working.
+
+**What the checks do.** Two severities, and the split is the point:
+
+| class | fields | what happens |
+|---|---|---|
+| **fatal** — the weights are not a net of this shape | `net-version`, topology, `tile` | the net is **refused**; the bake falls through to the next candidate and says why |
+| **warn** — the net runs, it was fitted for something else | `act-table`, `scale`, `jitter` | baked anyway, named in the generated header **and** in the boot log |
+
+The bake's candidate order is: the project's own `blss.net`, then the editor's
+built-in default, then — only if the embedded asset cannot be read by this build
+at all — the random initialisation, which is now a defect report rather than a
+routine outcome. One trap worth recording because it fired immediately: the
+activation-table check must compare against **`blss::kEngineActTable`**, the
+compile-time twin of the engine's `TYRA_BLSS_ACT_TABLE`, and never against
+`blss::detail::gActN`. The latter is the *host's* live `--act-table` setting and
+is 0 in any process that never ran a BLSS verb — so a `--refresh-gen` compared
+every net against 0 and warned about all of them.
 
 #### Which projects can discriminate anything
 

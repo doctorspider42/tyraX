@@ -23397,24 +23397,102 @@ static std::string blssInterlock(const Project& p) {
     return s;
 }
 
-// The trained net, plus whether it IS trained. A missing <projectDir>/blss.net
-// is never a build failure: the header is emitted with random weights and the
-// generated init says so out loud, because a silent random net looks exactly
-// like a broken upscaler.
+// WHICH NETWORK THIS BUILD BAKES, and the answer is no longer "the project's or
+// noise".
+//
+// It used to be. A project with BLSS on and no `blss.net` was compiled with the
+// random initialisation the trainer starts from, behind a comment banner in a
+// generated header and a boot-log line - which is the most a build can do when
+// there is genuinely nothing else to bake. But there IS something else now: the
+// editor ships a default network fitted on seven example projects AND the
+// bestiary, and leave-one-PROJECT-out measured that net at +0.29 dB on a project
+// it had never seen against +0.31 dB for that project's own net
+// (docs/neural-upscaler.md, "Can one net ship for every project?"). Random
+// weights are not a neutral fallback - they are a per-tile blend chosen by
+// noise - so "the game will be built with RANDOM weights" was a footgun with a
+// fix sitting next to it.
+//
+// The order is: the project's own net, then the editor's built-in default, then
+// (only if the shipped asset cannot be read by this build at all) the random
+// initialisation. Every step is named in the generated header AND in the boot
+// log, because the one thing worse than the wrong net is not knowing which net
+// you got.
 struct BlssBake {
     blss::Net net;
-    bool trained = false;
+    enum class Source { Random, Default, Project };
+    Source source = Source::Random;
+    blss::Provenance prov;
+    std::vector<std::string> warnings;  // fitted for a different configuration
+    std::vector<std::string> notes;     // why a candidate was passed over
 };
 
 static BlssBake blssBake(const Project& p) {
     BlssBake b;
-    const std::string path =
-        (std::filesystem::path(p.dir) / "blss.net").string();
-    b.trained = blss::load(b.net, path, nullptr);
+    // What this project will RUN the net in. A net is not wrong because it was
+    // fitted elsewhere; it is wrong when it was fitted for a different raster
+    // scale or a different sampler, and that is a comparison the file could not
+    // support until it grew a provenance sidecar.
+    const blss::NetExpect want{
+        p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2,
+        p.settings.blssJitter ? 1 : 0,
+        // The ENGINE's table, not the host's live `--act-table` setting: this
+        // process never ran a BLSS verb, so that global is 0 here.
+        blss::kEngineActTable};
+    const std::filesystem::path netPath = std::filesystem::path(p.dir) / "blss.net";
+    const std::string path = netPath.string();
+
+    std::string err;
+    if (blss::load(b.net, path, &err)) {
+        const blss::Provenance prov = blss::readProvenance(path);
+        const blss::NetIssues iss = blss::checkProvenance(prov, want);
+        if (iss.fatal.empty()) {
+            b.source = BlssBake::Source::Project;
+            b.prov = prov;
+            b.warnings = iss.warn;
+            return b;
+        }
+        // A net that loads into a differently shaped world is exactly the
+        // "reconstructing garbage" case: refuse it and fall through rather than
+        // bake weights that mean something else.
+        for (const std::string& f : iss.fatal)
+            b.notes.push_back("this project's blss.net was refused - " + f);
+    } else {
+        std::error_code ec;
+        if (std::filesystem::exists(netPath, ec))
+            b.notes.push_back("this project's blss.net was refused - " + err);
+    }
+
+    if (blss::defaultNet(b.net, &err)) {
+        b.source = BlssBake::Source::Default;
+        b.prov = blss::defaultProvenance();
+        const blss::NetIssues iss = blss::checkProvenance(b.prov, want);
+        b.warnings = iss.warn;
+        for (const std::string& f : iss.fatal)
+            b.notes.push_back("the editor's built-in default disagrees with itself - " + f);
+        return b;
+    }
+    b.notes.push_back(err);
     // The trainer's own starting seed, so an untrained bake is exactly the net
     // --blss-train begins from rather than a second arbitrary constant.
-    if (!b.trained) b.net.randomize(blss::TrainConfig{}.seed);
+    b.net.randomize(blss::TrainConfig{}.seed);
     return b;
+}
+
+// One sentence naming the network, used by both the generated header's banner
+// and the boot log so the two cannot describe different things.
+static std::string blssNetSummary(const BlssBake& b) {
+    switch (b.source) {
+        case BlssBake::Source::Project:
+            return "this project's own blss.net" +
+                   (b.prov.corpus.empty() ? std::string(" (no provenance recorded)")
+                                          : " (fitted on " + b.prov.corpus + ")");
+        case BlssBake::Source::Default:
+            return "the editor's built-in default network" +
+                   (b.prov.corpus.empty() ? std::string()
+                                          : " (fitted on " + b.prov.corpus + ")");
+        default:
+            return "RANDOM WEIGHTS - no network could be loaded";
+    }
 }
 
 // inc/blss_net.gen.hpp: blss::emitGeneratedSource is THE emitter (it is the
@@ -23422,22 +23500,47 @@ static BlssBake blssBake(const Project& p) {
 // second thing to keep in sync). Only the untrained banner is added.
 static std::string blssNetHeader(const Project& p) {
     const BlssBake b = blssBake(p);
-    std::string s;
-    if (!b.trained) {
-        s += "// ==========================================================="
-             "===========\n"
-             "// WARNING: THIS NETWORK IS UNTRAINED. There is no blss.net in\n"
-             "// this project directory, so the weights below are the random\n"
-             "// initialisation the trainer STARTS from - the upscaler will\n"
-             "// composite, but its per-tile choices are noise.\n"
+    // A comment, so anything user text can reach it has to survive being one -
+    // the corpus and the command come out of a sidecar file somebody may have
+    // edited, and a newline in either would end the comment and start emitting
+    // the file's contents as C++.
+    const auto commentLine = [](const std::string& s) {
+        std::string out = "// ";
+        for (char c : s) out += (c == '\n' || c == '\r') ? ' ' : c;
+        return out + "\n";
+    };
+    std::string s = "// ============================================================"
+                    "==========\n";
+    s += commentLine("Network: " + blssNetSummary(b));
+    if (!b.prov.command.empty()) s += commentLine("  rebuild it with: " + b.prov.command);
+    for (const std::string& n : b.notes) s += commentLine("  " + n);
+    for (const std::string& w : b.warnings) s += commentLine("  WARNING: " + w);
+    if (b.source == BlssBake::Source::Default)
+        s += "//\n"
+             "// This project has no blss.net of its own, so it is built with the\n"
+             "// network the editor ships. Measured leave-one-PROJECT-out, that\n"
+             "// net scores +0.29 dB on a project it has never seen against the\n"
+             "// project's own net's +0.31 - a tie - and fitting your own scene\n"
+             "// still reaches the highest number in distribution:\n"
+             "//\n"
+             "//     tyrax-editor --blss-eval <projectDir>    (is there a ceiling?)\n"
+             "//     tyrax-editor --blss-train <projectDir> --all-shots\n"
+             "//\n"
+             "// then rebuild. See docs/neural-upscaler.md.\n";
+    if (b.source == BlssBake::Source::Random)
+        s += "//\n"
+             "// WARNING: THIS NETWORK IS UNTRAINED. No network could be loaded -\n"
+             "// not the project's, and not the editor's built-in default - so the\n"
+             "// weights below are the random initialisation the trainer STARTS\n"
+             "// from. The upscaler will composite, but its per-tile choices are\n"
+             "// noise. This is a defect in the editor build, not in the project.\n"
              "//\n"
              "//     tyrax-editor --blss-train        (writes blss.net)\n"
              "//     tyrax-editor --blss-eval         (the PSNR table)\n"
              "//\n"
-             "// then rebuild. See docs/neural-upscaler.md.\n"
-             "// ==========================================================="
-             "===========\n";
-    }
+             "// then rebuild. See docs/neural-upscaler.md.\n";
+    s += "// ============================================================"
+         "==========\n";
     s += blss::emitGeneratedSource(b.net);
     return s;
 }
@@ -23465,18 +23568,20 @@ static std::string blssInit(const Project& p) {
         "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
         "BLSS_NET_W2,\n"
         "                                    BLSS_NET_B2);\n";
-    if (!blssBake(p).trained) {
-        // Said in the boot log and not only in a comment: the person who will
-        // wonder why the picture looks wrong is looking at bin/log.txt, not at
-        // a generated header.
-        s +=
-            "  // No blss.net in the project: the weights above are random.\n"
-            "  TYRA_LOG(\n"
-            "      \"BLSS: the baked network is UNTRAINED (random weights) - "
-            "run\"\n"
-            "      \" 'tyrax-editor --blss-train' in the project directory and "
-            "rebuild.\");\n";
-    }
+    // WHICH NET, IN THE BOOT LOG, ALWAYS. Said here and not only in a generated
+    // header, because the person wondering why the picture looks wrong is
+    // reading bin/log.txt. It used to be printed only in the untrained case,
+    // which meant the interesting cases - "I trained one and it is not being
+    // used" and "I never trained one and it works anyway" - were both silent.
+    const BlssBake b = blssBake(p);
+    s += "  TYRA_LOG(\"BLSS: network = " + escapeCString(blssNetSummary(b)) + "\");\n";
+    for (const std::string& n : b.notes)
+        s += "  TYRA_LOG(\"BLSS: " + escapeCString(n) + "\");\n";
+    for (const std::string& w : b.warnings)
+        s += "  TYRA_LOG(\"BLSS: WARNING - " + escapeCString(w) + "\");\n";
+    if (b.source == BlssBake::Source::Random)
+        s += "  TYRA_LOG(\"BLSS: the baked network is UNTRAINED (random weights) - run"
+             " 'tyrax-editor --blss-train' in the project directory and rebuild.\");\n";
     return s;
 }
 

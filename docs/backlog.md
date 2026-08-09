@@ -50,13 +50,37 @@ the verification, and any fact worth reusing belongs in the relevant
     sampler is announced in both directions now. Full account in
     docs/neural-upscaler.md, "Can one net ship for every project?".
 
-    **OWED, and none of it is measurement**: ship a default `blss.net` (in the
-    repo or generated at build) fitted with
-    `--blss-train <examples...> bestiary --all-shots`; offer it in the window
-    beside "train on this project"; and rebuild it in CI whenever the corpus,
-    the topology or `kNetVersion` moves - the file records no topology and no
-    provenance, so a SHIPPED default needs `kNetVersion` policed harder than a
-    locally trained one.
+    **DONE: the default net ships and it is the fallback.**
+    `resources/blss-default.net` (+ its `.meta`), fitted on the seven screened
+    projects AND the bestiary with `--all-shots --frames 660 --no-jitter`
+    (12 frames/shot over 55 shots, 39 s on six cores, md5
+    `879146bdee7f3b183c05985012753649`) and embedded into the editor by
+    `cmake/embed_binary.cmake`. `templates.cpp` bakes the project's own
+    `blss.net` if it has one, the shipped default if it does not, and the random
+    initialisation only when the embedded asset cannot be read at all - so the
+    window's "the game will be built with RANDOM weights" is no longer a state
+    any project reaches. Both the generated header and the boot log name the net
+    they got. Provenance is a `<net>.meta` SIDECAR written by `--blss-train`
+    (topology, `kNetVersion`, tile, activation table, scale, jitter, sharpen,
+    corpus, the exact command) rather than a longer file header, because the net
+    file's bytes are a published reproducibility anchor - `e069f286…` still
+    reproduces after the change. The loader refuses a topology/tile/version
+    mismatch and warns on scale / jitter / activation table. Also re-run and
+    closed: the 39-fold bestiary table at the shipped activations
+    (+0.42 -> **+0.41 dB**, sd 0.34, 3 of 39 below bilinear, 1.79 passes, proxy
+    count unchanged at 1 217).
+
+    **STILL OWED, and it is one CI job**: rebuild `resources/blss-default.net`
+    whenever the corpus, the topology or `blss::kNetVersion` moves. The check is
+    `tyrax-editor --blss-emit --act-table 0 -o <tmp>` from a directory with no
+    `blss.net` - it loads the embedded net, runs its `.meta` against the
+    compiled-in constants and exits non-zero when this build cannot read it -
+    plus a diff of the `.meta` against a re-run of the `command` line recorded
+    inside it (the sidecar carries no timestamp precisely so that diff is
+    meaningful). Two window items are also owed and belong to the BLSS panel, not
+    here: a *Use the shipped default* / *Train on this project* choice with the
+    default's provenance on screen, and the four stale strings in
+    `drawBlssSettings` listed in docs/neural-upscaler.md.
   - **DONE (corpus half): the training-shot plan is honoured by the trainer.**
     `blssscene::loadProject` now gates the six automatic moves on
     `Project::blssShots`, appends the author's own vantages, and carries a

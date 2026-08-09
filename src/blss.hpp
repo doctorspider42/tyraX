@@ -773,6 +773,15 @@ std::vector<Features> buildFeatures(int cols, int rows,
 // the same commit as RendererCoreBlss's copy, never before.
 constexpr float kActRange = 4.0f;   // table domain: a is clamped to [-4, +4]
 constexpr int kActScale = 32768;    // entries are round(tanh(a) * 32768), Q15
+// WHAT THE CONSOLE RUNS - the host twin of the engine's TYRA_BLSS_ACT_TABLE
+// (vendor/tyra/.../renderer_core_blss.cpp). `detail::gActN` below is a different
+// number with a similar name and confusing them is a real trap: gActN is the
+// HOST's live setting, moved by `--act-table` for a measurement and 0 in any
+// process that never ran a BLSS verb, whereas this is a property of the game
+// being built. A bake asking "was this net fitted against the activations the
+// console evaluates" must compare against THIS one; asking gActN in a
+// `--refresh-gen` process compares against 0 and warns about every net there is.
+constexpr int kEngineActTable = 512;
 
 namespace detail {
 extern int gActN;              // 0 = libm; otherwise the table has gActN+1 entries
@@ -837,6 +846,110 @@ struct Net {
 // blss.net: "BLSS" + u32 version + the floats in declaration order.
 bool save(const Net&, const std::string& path, std::string* err = nullptr);
 bool load(Net&, const std::string& path, std::string* err = nullptr);
+// The same bytes, from memory - the built-in default net is embedded in the
+// editor rather than shipped as a loose file (see defaultNet()).
+bool loadMemory(Net&, const unsigned char* data, size_t n, std::string* err = nullptr);
+
+// --------------------------------------------------------------- provenance ---
+//
+// A `blss.net` IS 500 BYTES OF FLOATS AND SAYS ALMOST NOTHING ABOUT ITSELF.
+// `kNetVersion` in its header answers exactly one question - "can these bytes be
+// read into this Net" - and load() refuses when it cannot. Everything else that
+// decides whether a net is the RIGHT net is invisible in the file: the corpus it
+// saw, the raster scale it was fitted at, whether the sampler jittered, which
+// activation table the oracle's labels were computed against. A net fitted at
+// jitter ON and baked into a project that ships jitter OFF loads perfectly,
+// composites perfectly, and is measurably worse (-0.48 dB against -0.85, the two
+// arms of the retracted row in docs/neural-upscaler.md) with nothing anywhere
+// saying so. That was tolerable while every net was trained by the person who
+// baked it, ten seconds earlier. It stops being tolerable the moment a DEFAULT
+// net ships: nobody trained it, nobody remembers its corpus, and it outlives
+// several editor versions.
+//
+// WHY A SIDECAR AND NOT A FILE HEADER. The obvious fix is more header. It was
+// refused because the net file's bytes are a published reproducibility anchor:
+// this feature's determinism contract, its shot-plan compatibility check and its
+// thread-count check are all "does this command still write md5 X"
+// (`e069f286ea0c524999bfd9dac769608c` for the shot plan,
+// `6b2fba90d0f059f055134a55df478c8e` for --threads). Adding a byte to the file
+// invalidates every one of those, silently, and the next person to run the check
+// learns nothing except that it fails. So the weights keep their format to the
+// byte and the provenance goes NEXT TO them, in `<net>.meta` - a deterministic
+// key/value text file, no timestamp (the chatAge precedent: the mtime is already
+// there and a clock in the file is a diff nobody wants), so re-running the
+// training command reproduces both files byte for byte and CI can diff them.
+//
+// The price is honest and worth stating: a sidecar can be separated from its net
+// by a copy. `present` is false then, which readers report as "unknown
+// provenance" - a WARNING, not an error, because a net trained by an older
+// binary is in exactly that state and must keep working.
+struct Provenance {
+    bool present = false;  // was a sidecar found and parsed
+    uint32_t netVersion = 0;
+    int features = 0, hidden = 0, outputs = 0, tile = 0;
+    int actTable = -1;   // -1 = not recorded
+    Scale scale{0, 0};   // {0,0} = not recorded
+    int jitter = -1;     // 0 / 1, -1 = not recorded
+    float sharpen = -1;  // the oracle's unsharp strength; < 0 = not recorded
+    int frames = 0, epochs = 0, shots = 0;
+    uint32_t seed = 0;
+    std::string corpus;   // the positional list, verbatim and in order
+    std::string command;  // the whole invocation, so it can be re-run
+    // NOTE what is deliberately NOT here: the editor version and a timestamp.
+    // Both were written once and both were removed, for the same reason - this
+    // file must be byte-reproducible from `command` or the CI check that guards
+    // the shipped default ("re-run it and diff") cannot fire. A semver bump for
+    // an unrelated feature would otherwise dirty resources/blss-default.net.meta
+    // while the 500 bytes next to it are unchanged, which is a diff that teaches
+    // nothing and trains people to ignore the one that matters. Which editor
+    // wrote a net is recoverable from git; whether it is the right net is not,
+    // and that is what the fields above are for.
+};
+
+// `<netPath>.meta`.
+std::string provenancePath(const std::string& netPath);
+// What THIS binary would fit: topology, tile and activation table taken from the
+// compiled-in constants, everything else left at "not recorded" for the caller
+// to fill in from its own options.
+Provenance currentProvenance();
+bool writeProvenance(const Provenance&, const std::string& netPath, std::string* err = nullptr);
+// Never fails: a missing or unparsable sidecar comes back with `present` false.
+Provenance readProvenance(const std::string& netPath);
+Provenance parseProvenance(const char* text, size_t n);
+std::string formatProvenance(const Provenance&);
+
+// What a CONSUMER is about to run the net in. -1 / {0,0} means "do not care".
+// `actTable` is the ACTIVATIONS THAT WILL EVALUATE IT - kEngineActTable for a
+// bake, `detail::gActN` for a host measurement - and never the other one.
+struct NetExpect {
+    Scale scale{0, 0};
+    int jitter = -1;
+    int actTable = -1;
+};
+
+// Two lists, and the split is the whole point of having them. `fatal` is a net
+// that cannot be used as loaded - the sidecar says a topology these weights are
+// not; `warn` is a net that will run and was fitted for a different
+// configuration than the one it is about to be run in. Both name the field, the
+// recorded value and the expected one, because "provenance mismatch" on its own
+// sends the reader back to the file.
+struct NetIssues {
+    std::vector<std::string> fatal;
+    std::vector<std::string> warn;
+    bool ok() const { return fatal.empty() && warn.empty(); }
+};
+NetIssues checkProvenance(const Provenance&, const NetExpect&);
+
+// THE NET THAT SHIPS WITH THE EDITOR (resources/blss-default.net, embedded).
+// Fitted on seven example projects AND the bestiary - the union corpus is the
+// whole result, see docs/neural-upscaler.md "Can one net ship for every
+// project?" - so a project with no `blss.net` of its own builds with a network
+// that was measured to be a tie with per-project training rather than with the
+// random weights it used to get. Returns false only when the embedded asset
+// cannot be read into THIS binary's Net, which is what happens when kNetVersion
+// or the topology moves and resources/blss-default.net was not refitted.
+bool defaultNet(Net&, std::string* err = nullptr);
+Provenance defaultProvenance();
 
 // The C++ the generated game compiles: a BLSS_NET_* constant table plus the
 // forward pass. Returns the file body (templates.cpp writes it).
