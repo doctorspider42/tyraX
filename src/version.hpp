@@ -16,13 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.9.0 (the neural upscaler's shippable half): a union-corpus default net in
-// resources/, `--cv-groups` (leave-one-PROJECT-out), `--blss-coverage` (the
-// headless twin of the window's speed estimate) and the shot plan's corpus
-// side. All additive to the editor, none of it to the file: format stays v6.
+// 1.9.1 (the calibration gate reports its own raster): FrameProfile::
+// gsFillProbe hands back the resolution it swept and the generated GSFILL line
+// carries `raster=WxH` + `perMpx=`, because the 0.5872 ms per-pass constant was
+// measured at 512x512 and then read against 512x448 coverages. PATCH and not
+// MINOR by this file's own rule - nothing here is a feature: it is a diagnostic
+// behind TYRA_FRAME_PROFILE (default 0, so a shipped libtyra.a and every
+// generated game carry zero bytes of it), no editor capability appears, and
+// what changed for a user is that a published number is now right, which is
+// what "fix" means. Format stays v6: project::save() is untouched.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 9
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

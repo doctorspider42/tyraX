@@ -52,7 +52,9 @@ packet2_t* probePacket = nullptr;
 }  // namespace
 
 u32 gsFillProbe(RendererCoreGS* gs, RendererCoreSync* sync, Path1* path1,
-                int k) {
+                int k, int* outW, int* outH) {
+  if (outW != nullptr) *outW = 0;
+  if (outH != nullptr) *outH = 0;
   if (gs == nullptr || k <= 0) return 0;
   if (probePacket == nullptr)
     probePacket = packet2_create(32, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
@@ -66,6 +68,9 @@ u32 gsFillProbe(RendererCoreGS* gs, RendererCoreSync* sync, Path1* path1,
   const framebuffer_t* src = gs->getPreviousFrameBuffer();
   const int w = static_cast<int>(fb->width);
   const int h = static_cast<int>(fb->height);
+  // The sprite covers exactly this, so this is what the slope is per.
+  if (outW != nullptr) *outW = w;
+  if (outH != nullptr) *outH = h;
   const int offX16 = 2048 * 16;
   const int offY16 = 2048 * 16 + gs->getFieldYOffset16();
 

@@ -4633,6 +4633,13 @@ constexpr int kCalibK[5] = {0, 2, 4, 8, 16};
 u32 calSum[5] = {0, 0, 0, 0, 0};
 int calN[5] = {0, 0, 0, 0, 0};
 int calFrame = 0;
+// THE RESOLUTION THE SWEEP RAN AT. The probe sizes its sprite from the current
+// framebuffer, so `slope` is ms per full-screen pass AT THIS RASTER and means
+// nothing without it - the 0.5872 this rig published was measured on a PAL 576i
+// fixture (512x512) and then read against 512x448 coverages for a year, which
+// is 14.3 % more pixels than the constant describes. Printed on the line, next
+// to a per-megapixel figure that does not depend on the mode at all.
+int calW = 0, calH = 0;
 
 void calibrate(Engine* engine) {
   const int slot = (calFrame / 10) % 5;  // 10 frames per K, then rotate
@@ -4640,7 +4647,7 @@ void calibrate(Engine* engine) {
   auto& core = engine->renderer.core;
   const u32 t = Tyra::FrameProfile::gsFillProbe(&core.gs, &core.sync,
                                                 core.getPath1(),
-                                                kCalibK[slot]);
+                                                kCalibK[slot], &calW, &calH);
   calSum[slot] += t;
   calN[slot]++;
   if (calFrame % 250) return;
@@ -4660,8 +4667,14 @@ void calibrate(Engine* engine) {
     sxy += x * y;
   }
   const float den = 5.0F * sxx - sx * sx;
-  snprintf(line + at, sizeof(line) - at, " slope=%.4f",
-           den != 0.0F ? (double)((5.0F * sxy - sx * sy) / den) : 0.0);
+  const float slope = den != 0.0F ? (5.0F * sxy - sx * sy) / den : 0.0F;
+  // raster= is what `slope` is per; perMpx= is the same measurement with the
+  // mode divided out, so two consoles - or two display modes on one console -
+  // can be compared without anybody having to remember which fixture booted in
+  // which resolution.
+  const float mpx = (float)calW * (float)calH * 1e-6F;
+  snprintf(line + at, sizeof(line) - at, " raster=%dx%d slope=%.4f perMpx=%.4f",
+           calW, calH, (double)slope, mpx > 0.0F ? (double)(slope / mpx) : 0.0);
   TYRA_LOG(line);
 }
 #endif  // TYRA_FRAME_PROFILE_CALIB

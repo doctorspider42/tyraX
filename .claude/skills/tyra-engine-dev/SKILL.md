@@ -501,8 +501,12 @@ Eight things here that were paid for, and that any edit must keep:
   (0 %) and only temporal is drawn over most of the screen. Occupancy is noisy
   (sd 0.30 over 39 cross-validation fold-runs, one fold at 2.12), and these are
   **fill counts, not timings** - and the conversion is measured now, not
-  guessed: on a real PS2 one full-screen textured blended pass is **0.587 ms**
-  (the calibration in docs/profiling.md), and PCSX2 reports **0.0077 ms** for
+  guessed: on a real PS2 one full-screen textured blended pass is **0.5896 ms
+  at 512x512 and 0.5174 ms at 512x448** - the calibration gate is per RASTER,
+  which it did not used to say, and 0.587 was a 512x512 (PAL 576i) figure read
+  against 512x448 coverages for a year; both are now measured back to back on
+  one console and `perMpx` agrees to 0.3 % (docs/profiling.md, "The calibration
+  gate") - and PCSX2 reports **0.0077 ms** for
   the same sweep - it under-reports GS fill by **76x**, so NO PCSX2 GS number
   about this feature is admissible. The first real A/B on hardware: BLSS cost
   **+9.83 ms per frame and saved nothing**, because the frame was EE-bound
@@ -578,9 +582,13 @@ Eight things here that were paid for, and that any edit must keep:
   jitter-ON timing, the off arm is unchanged and the BLSS arm came out 0.56 ms
   faster, and `BLSSFILL` reads **`passes = 1.56`** in both - i.e. the prediction
   ("the jitter moves where the half-res raster samples, not how much of it there
-  is") held. Keep both tables, labelled. Break-even is **11.5 full-screen
-  coverages** (10.5 with the proxy budget on, which ships off), derived from
-  `0.7548 x 0.5872 x C > 4.60 + 0.50`: BLSS keeps about a quarter of the fill,
+  is") held. Keep both tables, labelled. Break-even is **13.1 full-screen
+  coverages at 512x448** (`0.7548 x 0.5174 x C > 4.60 + 0.50`) and **11.5 at
+  512x512** - same formula, different pass price - so quote the break-even WITH
+  its raster or not at all. `breakEven()` and `--blss-coverage` still print the
+  11.5, because `kPassMs` is one scalar and has deliberately NOT been rescaled
+  (docs/backlog.md); that figure is right for a 576i project and 14 % optimistic
+  for an ordinary PAL one. BLSS keeps about a quarter of the fill,
   because `blssScale 0` is `Scale::X2Y2` - half in *each* axis, a quarter of the
   pixels, NOT half the fill, which is what the ~22 figure had assumed. The
   retention term is now FITTED on hardware over five load points (0.7548 saved,
@@ -632,6 +640,28 @@ Eight things here that were paid for, and that any edit must keep:
   `BLSSGRID`'s proxy count is the guard, read it before trusting any `proxy`
   number and discard a run whose count does not match. `reproj`/`feat`
   reproduce to +-0.001.
+- **THE SHIPPED DEFAULT NET WORKS ON A SCENE IT HAS NEVER SEEN, AND THE MLP IS
+  NOT WHY** (2026-08-09, real hardware, docs/profiling.md "The shipped default
+  net"). A stock `--new` fpp project plus six haze banks, **no `blss.net` of its
+  own**, so `blssBake` falls back to `resources/blss-default.net`: **30.65 ms
+  off against 15.62 ms on, d = +15.03 ms, CI [+14.96, +15.10], n = 1024 paired
+  frames, four cross-pairings spanning 0.018 ms - a 1.96x speedup, 25 FPS to a
+  locked 50.** The boot log names the net (`BLSS: network = the editor's
+  built-in default network (fitted on ...)`), which is what that line is for.
+  **But `BLSSFILL` reads `passes = 1.00` and every `BLSSOUT` channel is 0.000**:
+  the composite is ONE bilinear pass and the network chooses nothing, so the
+  win is the quarter-area raster alone. `BLSSFEAT` shows `texDetail` identically
+  **zero** - a stock project's terrain is vertex-coloured, not textured, and
+  `texDetail` comes from a bag's `texelArea` - which is the same channel the
+  one-net-lottery result named. This is NOT a defect: re-evaluated at that exact
+  vantage the scene's headroom is **+0.000 dB** (`bilinear = oracle = 38.435`,
+  native 45.543), i.e. bilinear IS optimal there and zero passes is the correct
+  and cheapest answer. Training a project net changed frame time by **+0.03 ms
+  (1.00x)** - the leave-one-project-out tie holds on hardware. Two traps this
+  cost: `--blss-train <projectDir>` writes `blss.net` into the **cwd**, not the
+  project, so the rebuild silently keeps using the default; and the corpus
+  RENDERER draws no emitters, so a PSNR number for a billboard-heavy scene
+  describes a frame the game never displays (both in docs/backlog.md).
 - **The bob is the JITTER, and the per-field bias is NOT part of it.** The
   +-1/4-pixel per-frame raster jitter in `beginScene` is the confirmed cause: a
   person watched three builds of `examples/upscaler-lab` differing in nothing

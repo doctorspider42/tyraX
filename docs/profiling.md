@@ -271,15 +271,49 @@ rotating), each followed by its own `draw_finish` + wait, and log the sweep plus
 a least-squares slope:
 
 ```
-GSFILL k0=0.000 k2=... k4=... k8=... k16=... slope=...
+GSFILL k0=0.000 k2=... k4=... k8=... k16=... raster=512x448 slope=... perMpx=...
 ```
 
 `slope` is milliseconds per full-screen pass on the machine under test. Real
-hardware should read roughly **0.2–0.4 ms** at 512×448 (229 376 px, ~8 px/clk
-textured at 147 MHz). **A slope near zero means that machine cannot measure
-this feature** — say so and stop quoting its GS numbers. The sweep is
-destructive (it paints over the displayed frame), which is why it is a separate
-switch.
+hardware should read roughly **0.2–0.6 ms** at SDTV rasters (229 376 px at
+512×448, ~8 px/clk textured at 147 MHz). **A slope near zero means that machine
+cannot measure this feature** — say so and stop quoting its GS numbers. The
+sweep is destructive (it paints over the displayed frame), which is why it is a
+separate switch.
+
+> **`slope` IS PER RASTER, AND THE RASTER IS NOW ON THE LINE — because leaving
+> it off cost this page a wrong constant for a year.** `gsFillProbe` sizes its
+> sprite from the **current framebuffer**, so the slope is milliseconds per pass
+> *at whatever display mode the fixture happened to boot in*. The 0.5872 this
+> page published was measured on a **PAL 576i fixture, i.e. 512×512**, and was
+> then read against coverages counted at the project's own raster — 512×448 for
+> `examples/upscaler-lab` and for any ordinary PAL project, which is **14.3 %
+> fewer pixels than the constant describes**. `raster=WxH` and a
+> mode-independent `perMpx=` are printed beside the slope now, so the two can
+> never be separated again (`FrameProfile::gsFillProbe` hands its `outW`/`outH`
+> back for exactly this).
+>
+> **Both rasters have now been measured on the same console, back to back**
+> (2026-08-09, the `blssdef` fixture below, `palFullHeight` the only difference):
+>
+> | raster | pixels | `slope` (ms per full-screen pass) | `perMpx` |
+> |---|---|---|---|
+> | 512×512 (PAL 576i) | 262 144 | **0.5896** | 2.2489 |
+> | 512×448 (PAL interlaced) | 229 376 | **0.5174** | 2.2557 |
+>
+> The two `perMpx` figures agree to **0.3 %**, so on this console the cost is
+> pure per-pixel and the mode is the whole story. Note the 512×512 figure
+> reproduces the published 0.5872 to within 0.4 %, which is what makes the pair
+> a rescale of one constant rather than two unrelated measurements.
+>
+> **So the number to use against a 512×448 coverage is 0.5174, measured** — not
+> the 0.5872 in the older tables on this page, and not the 0.5138 that pure
+> arithmetic predicts from it (the arithmetic is right to 0.7 %; the residual is
+> the published constant having been 0.4 % low to begin with). It moves the
+> break-even from 11.5 to **13.1** full-screen coverages at 512×448:
+> `0.7548 × 0.5174 × C > 4.60 + 0.50`. The estimator's own `kPassMs`
+> (`src/blss_ui.hpp`) still carries one scalar rather than a per-pixel figure —
+> that half is tracked in `docs/backlog.md` and is a twin-side change.
 
 ### Getting the log off real hardware
 
@@ -1117,6 +1151,101 @@ the counter resolves, so it is not worth the churn. The same arithmetic disposes
 of the other candidate here — computing each 4-neighbour depth difference once
 instead of twice in `buildFeatures` — which would save loads and compares in a
 function whose entire cost is 0.19 ms.
+
+### The shipped default net, on a scene it has never seen (2026-08-09, REAL HARDWARE)
+
+Every hardware figure above was taken on `examples/upscaler-lab`, whose net is
+**fitted to that scene**. The question a user actually poses is the other one:
+somebody ticks the upscaler on, never opens the training window, and ships with
+`resources/blss-default.net` — the union-corpus net the editor embeds. That path
+had been verified in codegen and by CLI and **never on hardware**, which is what
+this section closes.
+
+**The fixture (`blssdef`) is the new-user path and nothing else.** `--new
+<name> <dir> 100 100 fpp`, i.e. stock defaults including the untextured
+checkerboard terrain and `palFullHeight` (so it boots PAL 576i, 512×512), then
+exactly two edits: `blssEnabled` on, and six haze banks copied from
+`upscaler-lab`'s recipe (6 × 32 custom emitters at `size 9.0`, the configuration
+that measured watchable there) to put the frame above break-even. **No
+`blss.net` in the project**, which is the whole point. Protocol as above: parked
+frame-indexed camera from frame 0 (`src/scripts/parkcam.cpp` — a global script
+setting `cameraOverride`), Live Link / Live Debugger / Live Logic / Remote Pad /
+Time Machine off, debug HUD counters off, deployed over ps2link, samples are the
+`FTRAW` ticks of frames **550–1611** (two whole blocks, steady state in both
+arms — the particle field fills over `life = 8 s`). **Two runs per arm, all four
+cross-pairings.** Sign convention: **d = work(off) − work(on)**.
+
+| arm | mean | median | p95 | max | over20 | `drain` |
+|---|---|---|---|---|---|---|
+| BLSS **off** | **30.65** | 30.59 | 32.40 | 33.58 | 1024 / 1024 | 4.9 |
+| BLSS **on**, shipped default | **15.62** | 15.56 | 15.97 | 21.12 | 16 / 1024 | 0.02 |
+
+**d = +15.03 ms, 95 % CI [+14.96, +15.10], sd 1.13, n = 1024 paired frames per
+pairing; the four cross-pairings span 0.018 ms. A 1.96× speedup.** In frames a
+player sees, that is the 20 ms PAL budget missed on **every** frame against
+missed on 1.6 % of them — **25 FPS → a locked 50**. So: **yes, the shipped
+default delivers on a scene it has never seen.**
+
+**The proxy guard held exactly**, which is worth recording after the 0.051 ms
+run-to-run wobble found on `upscaler-lab`: both BLSS runs logged
+`BLSSGRID … 112 covered, 54 proxy(ies) of 88 projected` identically for 116
+consecutive seconds, so no run was discarded.
+
+> **AND THE NETWORK ITSELF CONTRIBUTED NOTHING — the speed-up is the quarter-area
+> raster, not the MLP.** For all 116 s the console logged
+> `BLSSOUT point=0.000/0.000/0.000 temporal=0.000/0.000/0.000 sharpen=0.000/…`
+> and `BLSSFILL point=0.0% temporal=0.0% sharpen=0.0% **passes=1.00**`. Every
+> output falls inside the inference deadzone, so the composite is **one bilinear
+> pass**: BLSS here is "render at 256×256 and stretch it", with the net running
+> and choosing nothing. `BLSSFEAT` says why in one column —
+> **`texDetail=0.000/0.000/0.000`**, identically zero, because `texDetail` is
+> derived from a bag's `texelArea` and a stock project's terrain is
+> vertex-coloured rather than textured. That is precisely the channel the
+> published lottery result named ("identically zero on five of those seven
+> projects"), now observed on hardware on the default new-project scene.
+>
+> **This is not a defect, and the oracle proves it.** Re-evaluated at *this
+> vantage* (add the parked eye/look to `blssShots` and re-run `--blss-eval`),
+> the scene's headroom is **+0.000 dB**: `bilinear=38.435 oracle=38.435
+> native=45.543`. Plain bilinear is already the best the composite's kernels can
+> do here, so asking for zero passes is the *correct* answer and also the
+> cheapest one. What the frame pays is the quarter-area round trip itself —
+> **−7.11 dB against native** — and that is the honest price of the feature on
+> this scene, unrelated to which net is loaded.
+
+**A project-trained net is a tie, in frame time, on hardware.** `--blss-train
+<projectDir> --all-shots` on this same scene, rebuilt (the boot log flips to
+`BLSS: network = this project's own blss.net`), two more runs, same window:
+**d = +0.03 ms, 95 % CI [+0.03, +0.04], n = 1024, 1.00×**, cross-pairing spread
+0.002 ms — and `passes = 1.00` again. The host's leave-one-project-out
+prediction (+0.29 dB against +0.31, a tie) therefore **holds as frame time**,
+though on this scene it holds for the degenerate reason that neither net has
+anything to ask for.
+
+**Two things this run says about the estimator.** `--blss-coverage` on the same
+project predicts **54.39 coverages → +19.00 ms saved, 1.56–2.47×**. The measured
+speed-up, **1.96×**, lands in the middle of that band, but the millisecond figure
+over-reads by **26 %** (19.00 predicted against 15.03 measured). This fixture
+runs at **512×512**, the very raster `kPassMs = 0.587` was measured at, so *none*
+of that 26 % is the resolution error in the calibration gate above — it is
+independent confirmation that a residual over-read survives after the rescale,
+on a second scene and a second vantage. And the corpus renderer that produces
+the PSNR tables **does not draw emitters at all** (`blsscorpus.cpp` models them
+only in the coverage counter), so for a scene whose entire overdraw is
+billboards the quality half of the feature is measuring a frame the game never
+displays — which is why the dB figures above had to be taken with the vantage
+pinned, and why the `passes` evidence comes from the console rather than the
+host.
+
+**What was not done: nobody looked at the picture on the console.** There is no
+capture path from the hardware (`scrdump` writes nothing — see the ps2link
+notes), the host twin's image dump does not render this scene's billboards or
+its untextured ground, and a second PCSX2 could not be brought up in isolation
+to stand in. The picture claim above is therefore *mechanical* — the composite
+provably runs one bilinear pass, and the dB cost is the host twin's — not
+visual. **The grazing-angle ground streaking this branch documents is
+unconfirmed for this fixture** and would want a look before anyone quotes it
+here.
 
 ### The stability gate (period-2 / the "bob")
 

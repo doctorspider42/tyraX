@@ -180,9 +180,18 @@ extern u32 tExcluded;
  *
  * Destructive: it paints over the frame being displayed. Only call it from a
  * fixture that is measuring, never from a game that is being looked at.
+ *
+ * `outW`/`outH` REPORT THE RASTER THE SWEEP RAN AT, and they are not a
+ * convenience. The sprite is sized from the CURRENT framebuffer, so the slope
+ * is milliseconds per pass *at whatever mode the fixture happened to boot in* -
+ * and the figure this rig published (0.5872 ms) was taken on a PAL 576i fixture
+ * at 512x512, then read for a year against 512x448 coverages, which is 14.3 %
+ * more pixels than the number describes. A per-pass constant is meaningless
+ * without its resolution; hand it back with the measurement so the two cannot
+ * be separated again.
  */
 u32 gsFillProbe(RendererCoreGS* gs, RendererCoreSync* sync, Path1* path1,
-                int k);
+                int k, int* outW = nullptr, int* outH = nullptr);
 
 }  // namespace FrameProfile
 }  // namespace Tyra
