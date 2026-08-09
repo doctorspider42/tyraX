@@ -362,15 +362,43 @@ the verification, and any fact worth reusing belongs in the relevant
       grow too, because covering 224 tiles instead of 147 runs the MLP on all of
       them) and **break-even 13.1 -> ~15.3 coverages** at 512x448.
 
-    **THE NEXT STEP IS A SPATIAL SPLIT, and it is the one remaining lever.**
-    Bin an emitter's centres by their COORDINATES - the pool's longest axis, or
-    a fixed 2x2x2 of its own box - and take one AABB per bin. Each box then
-    carries a *local* depth range, which is precisely what `depth` and
-    `depthGrad` lost, and it is **order-independent**, so unlike a split by pool
-    slot it is still twinnable across a corpus that does not simulate particles.
-    It costs more projections, so it has to be measured against the EE delta
-    above and not assumed. Until that is done and measured, both switches stay
-    at 0 and no fold table or shipped net changes.
+    **THE SPATIAL SPLIT WAS THE NAMED NEXT STEP AND IT IS NOW A MEASURED NO
+    (2026-08-09). CLOSED - do not re-open it without reading this.** The entry
+    used to say: bin an emitter's centres by their COORDINATES, take one AABB
+    per bin, each box then carries a *local* depth range, and it is
+    order-independent so unlike a split by pool slot it is still twinnable. All
+    of that is TRUE. It was implemented on both twins, measured, and removed;
+    the rule, the three design decisions and the full tables are in
+    docs/blss-reconstruction.md section 2, "A seventh rule that was measured and
+    rejected".
+
+    The result, on the console at a vantage where the one-box arm reproduced
+    this entry's own 207 proxies of 273 and 4.09 ms: **224 of 224 covered tiles
+    before and after**, `coverage` and `depthGrad` still `1.000/1.000/1.000`,
+    proxies 207 -> **241** of 310 projected, tile updates 2 636 -> **6 077**,
+    BLSS EE 4.07 -> **5.25 ms**, break-even ~15.3 -> **~18.2**. On the host the
+    share of tiles reading exactly 1.000 moves the WRONG way in both fixtures
+    (`coverage` 96.9 -> 98.4 %, `depthGrad` 87.8 -> 99.0 % on `upscaler-lab`).
+
+    Two reasons, and both generalise past this particular partition:
+    - **A partition of a solid region is a TILING of that region, and a tiling
+      has the same union.** `coverage` is decided by the union of the boxes, so
+      no spatial split can shrink it; `depthGrad` is a max over every bag
+      touching a tile, so a split along the view axis reunites the range and a
+      split across it leaves each cell its whole range. The premise needed the
+      pool to be CLUSTERED, and a Tyra emitter's pool never is - `updateParticles`
+      spawns uniformly over the emitter's own XZ rect and integrates one
+      velocity, and `emitterCentres` models the same box with a Halton pool.
+    - **The flat channel is the FIXTURE, not the description.** Strip
+      `upscaler-lab` to one small fire emitter and `coverage` reads 0.690 mean /
+      67.8 % at 1.000 in all three arms, identical to flag-off. On the shipped
+      fixture `--blss-coverage` counts 71.65 of 72.63 coverages as emitters, so
+      "covered, in every tile" is simply true there.
+
+    So the sixth rule's +0.88 ms is what an emitter proxy costs, and there is no
+    cheaper description waiting to be found. Both switches stay at 0 and no fold
+    table or shipped net changes. **If the emitter half is picked up again, the
+    open item is the one below, not this one.**
 
     What has NOT changed: the corpus renderer still draws no particles. So an
     `--emitter-proxy` run predicts a frame whose ground truth has none, and its

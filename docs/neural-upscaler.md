@@ -3031,15 +3031,76 @@ more than half the reachable band on `depthGrad`. That is the instrument
 detecting exactly the class of divergence it exists for, on a real vector rather
 than a hypothetical.
 
-**The verdict, and it is a "not yet" with a named next step.** Describing an
-emitter with **one** box makes three channels see the particles and turns a
-fourth into a constant, for +0.88 ms of EE and +2.2 coverages of break-even.
-That trade is not worth flipping. What would change it is splitting a pool
-**spatially** rather than as one box — bin the centres by their coordinates, so
-each box carries a *local* depth range instead of the bank's whole range. That
-is order-independent, so unlike a pool-order split it is still twinnable, and it
-is the only remaining lever on the two channels the one-box rule flattens. It is
-written up in `docs/backlog.md`; it is not half-landed here.
+**The verdict, and it is a "not yet".** Describing an emitter with **one** box
+makes three channels see the particles and turns a fourth into a constant, for
++0.88 ms of EE and +2.2 coverages of break-even. That trade is not worth
+flipping.
+
+#### …and the spatial split, which was the named next step and is now a measured NO
+
+The paragraph above used to end "what would change it is splitting a pool
+**spatially** — bin the centres by their coordinates, so each box carries a
+*local* depth range". It was implemented on both twins and measured on
+2026-08-09, and **it makes the two channels it was meant to rescue MORE constant,
+not less.** The rule, its numbers and the reason are in
+[§2 of the math doc](blss-reconstruction.md#a-seventh-rule-that-was-measured-and-rejected-the-spatial-split);
+the short form is that the premise was wrong.
+
+Host, `--blss-eval --features`, 156 frames / 34 944 tiles, jitter off, 2×2 — the
+share of tiles reading exactly 1.000, which is what "a constant" means here:
+
+| project | channel | flag off | one box | **split (8)** |
+|---|---|---|---|---|
+| `upscaler-lab` | `coverage` | 67.8 % | 96.9 % | **98.4 %** |
+| `upscaler-lab` | `depthGrad` | 41.5 % | 87.8 % | **99.0 %** |
+| `showcase` | `coverage` | 68.1 % | 78.9 % | **83.9 %** |
+| `showcase` | `depthGrad` | 59.7 % | 76.0 % | **81.4 %** |
+
+and the console agrees on the **real** pool (PCSX2, `upscaler-lab` parked at the
+same vantage in both arms — `cam=3.1416`, `motion=0.000`, frames 2450–2650; the
+one-box arm reproduced the published 207 proxies of 273 and 4.09 ms exactly,
+which is what makes the pair comparable):
+
+| | one box | **split (8)** |
+|---|---|---|
+| `BLSSGRID` proxies / projected | 207 / 273 | **241 / 310** |
+| covered tiles | 224 of 224 | **224 of 224** |
+| tile updates | 2 631–2 641 | **5 989–6 133** |
+| `coverage` min/mean/max | 1.000/1.000/1.000 | **1.000/1.000/1.000** |
+| `depthGrad` | 1.000/1.000/1.000 | **1.000/1.000/1.000** |
+| `edgeDens` mean | 0.617 | 0.884–0.928 |
+| `texDetail` mean | 0.211 | 0.133 |
+| `BLSSWORST` | 224/224, w 18.73..42.80 | 224/224, w 18.30..24.09 |
+| BLSS EE | 4.07 ms | **5.25 ms** |
+| break-even @ 512×448 | ~15.3 | **~18.2** |
+
+The split does exactly what it was designed to do — the worst proxy's depth
+range more than halves (42.80 → 24.09) — and **not one covered tile changes**,
+because of a geometric identity nobody had checked: **a partition of a solid
+region is a tiling of that region, and a tiling has the same union.** A Tyra
+emitter's pool *is* solid on both machines (`updateParticles` spawns uniformly
+over the emitter's own XZ rect and integrates one velocity; `emitterCentres`
+models the same box with a Halton pool), so there are no clusters to find and
+no empty space to stop claiming. All the split can add is boxes — and their
+extra bbox edges, which is `edgeDens` 0.617 → 0.9.
+
+**And the constant was never the rule's fault.** Strip `upscaler-lab` to ONE
+small fire emitter instead of eleven and re-run all three arms:
+
+| | flag off | one box | split (8) |
+|---|---|---|---|
+| `coverage` mean / % at 1 | 0.690 / 67.8 % | 0.690 / 67.8 % | 0.690 / 67.8 % |
+| proxies/frame | 187.2 | 187.7 | 189.3 |
+
+Nothing becomes constant, at either cluster count. `coverage = 1.000` on the
+shipped fixture is the **truth about that fixture**: `--blss-coverage` counts
+71.65 of 72.63 full-screen coverages as emitters there, so the particles really
+do blanket every tile many times over. The sixth rule describes a sparse emitter
+perfectly well; what it cannot do is report a haze soup as anything but covered.
+
+So the lever is spent, and it is spent by measurement rather than by argument.
+What is left for the emitter half is unchanged and unblocked: **the corpus
+renderer still draws no particles** — `docs/backlog.md`.
 
 ### The transcendentals, as a table
 

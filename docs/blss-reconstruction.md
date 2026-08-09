@@ -405,9 +405,103 @@ min = mean = max** — because one AABB over a haze bank fills the frame, with
 `depthGrad` nearly so at a spread of 0.101. A constant channel is a network
 making no per-tile decision, which is the exact failure this section was written
 about. The EE bill goes **3.21 → 4.09 ms** and break-even **13.1 → ~15.3**
-coverages at 512×448. So the rule is stated, twinned and off, and the thing that
-would make it worth flipping — splitting a pool **spatially**, which is
-order-independent and therefore still twinnable — is in `docs/backlog.md`.
+coverages at 512×448. So the rule is stated, twinned and off.
+
+### A SEVENTH RULE THAT WAS MEASURED AND REJECTED: the spatial split
+
+This section used to end by naming the next step — splitting a pool
+**spatially**, which is order-independent and therefore still twinnable. It was
+implemented on both twins and measured on 2026-08-09. **It is a NO**, and it is
+written down here rather than in the code because the rule is sound, cheap and
+perfectly twinnable — it simply does not do the thing it was for, and the reason
+generalises to every spatial partition, so the next person to have the idea
+should find it already answered.
+
+The rule as implemented, stated in this section's own form so a third
+implementation could match it:
+
+```
+C     = the bag's particle centres (a SET; slot order never enters)
+lo,hi = AABB(C)      d = hi - lo      e = the sixth rule's per-axis growth
+budget = min( |C| / kMinCentresPerProxy , kMaxEmitterProxies )    -- 8 and 8
+n = (1, 1, 1)
+while n.x*n.y*n.z * 2 <= budget:
+    among axes with  d[a]/n[a] > 2*e[a],  take the largest d[a]/n[a]
+    (ties: x before y before z); stop when no axis qualifies
+    n[a] *= 2
+cell(c)[a] = clamp( (int)((c[a] - lo[a]) * n[a]/d[a]), 0, n[a]-1 )   (0 if d[a]==0)
+one box per NON-EMPTY cell = AABB(the centres in it), grown by e, projected
+exactly as a package box.
+```
+
+Three decisions in it were deliberate and all three held up. **Eight boxes, not
+`kMaxProxiesPerBag`'s thirty-two**, because a geometry bag's boxes are its
+already-cached package boxes while an emitter has no parts, so every extra box is
+a whole extra projection. **The count scales with the pool** (`|C| / 8`), because
+a box over one or two centres describes particular *particles* and the two twins
+hold different pools — the console reads the simulation it is about to submit,
+the corpus states a modelled distribution — so a description at particle
+granularity is exactly where the two would drift with nothing able to catch it.
+And **`d[a]/n[a] > 2*e[a]` is what answers "a bank that is genuinely one blob"**:
+below that width two adjacent grown cells overlap by more than they separate, so
+a blob comes out as ONE box, byte for byte the sixth rule. Nothing there is
+tuned — `2*e` is the overlap of two grown cells, not a threshold.
+
+**What it measured.** Console, PCSX2, `examples/upscaler-lab` parked at the same
+vantage in both arms (`cam=3.1416`, `motion=0.000`, frames 2450–2650; the
+one-box arm reproduced this page's published 207 proxies of 273 and 4.09 ms, so
+the pair is comparable):
+
+| | one box | split (8) |
+|---|---|---|
+| `BLSSGRID` proxies / projected | 207 / 273 | **241 / 310** |
+| covered tiles | 224 of 224 | **224 of 224** |
+| tile updates | 2 631–2 641 | **5 989–6 133** |
+| `coverage` min/mean/max | 1.000/1.000/1.000 | **1.000/1.000/1.000** |
+| `depthGrad` | 1.000/1.000/1.000 | **1.000/1.000/1.000** |
+| `edgeDens` mean | 0.617 | 0.884–0.928 |
+| `BLSSWORST` w range | 18.73..42.80 | **18.30..24.09** |
+| BLSS EE | 4.07 ms | **5.25 ms** (+1.18) |
+| break-even @ 512×448 | ~15.3 | **~18.2** |
+
+and on the host, the share of tiles reading exactly 1.000 goes the **wrong way**
+in both fixtures — `coverage` 96.9 → 98.4 % and `depthGrad` 87.8 → 99.0 % on
+`upscaler-lab`, 78.9 → 83.9 % and 76.0 → 81.4 % on `showcase`.
+
+**Why, and this is the part that closes the question.** The split does exactly
+what it was designed to do: the worst proxy's depth range more than halves. And
+not one covered tile moves, because of an identity nobody had checked —
+**a partition of a solid region is a TILING of that region, and a tiling has the
+same union.** `coverage` is decided by the union of the boxes, so no partition
+can shrink it; `depthGrad` takes `dmax − dmin` over every bag touching a tile, so
+splitting along the view axis reunites the range in the same tile, and splitting
+across the view leaves each cell its whole depth range. All a split can add is
+boxes, their overlaps (each cell is grown by the full `e`, so interior tiles now
+sum several) and their extra bbox edges — which is `edgeDens` 0.617 → 0.9.
+
+The premise required the pool to be **clustered**, and a Tyra emitter's pool
+never is: `updateParticles` spawns uniformly over the emitter's own XZ rectangle
+and integrates one velocity with staggered lives, and `emitterCentres` models the
+same box with a Halton pool. There is no empty space between clusters to stop
+claiming, on either machine.
+
+**And the constant was never this rule's fault.** Strip `upscaler-lab` to ONE
+small fire emitter instead of eleven and `coverage` reads 0.690 mean / 67.8 % at
+1.000 in all three arms — identical to the flag-off distribution, at either
+cluster count. `coverage = 1.000` on the shipped fixture is the truth about that
+fixture: `--blss-coverage` counts 71.65 of 72.63 full-screen coverages as
+emitters there. The sixth rule describes a sparse emitter perfectly well; what it
+cannot do is report a haze soup as anything but covered. **So the flat channel is
+a property of the SCENE, not of the description**, and no amount of describing it
+more finely will make it vary.
+
+The implementation is not in the tree — a rule that measured worse has no
+business being written into this contract, and the statement above is complete
+enough to rebuild it. The twin checker was run on it before it was removed, and
+it worked: the matched pairing put the console's split vector at 98.4 % support
+on `coverage` and 44.4 % on `texDetail`, against 20.8 % for the deliberately
+mismatched arm — the two halves did implement the same rule, and the rule is
+still the wrong one.
 
 The corpus also honours what the console does **not** submit — a bag past its
 `drawDistance`, a terrain chunk past the streaming view distance, or a

@@ -29,7 +29,11 @@
 // changed by default. Measured before the flip and not after: it works
 // (147 -> 224 of 224 covered tiles, texDetail finally reports puff.png) and it
 // costs (coverage becomes a CONSTANT, +0.88 ms of EE, break-even 13.1 -> 15.3),
-// so it stays off and the spatial-split follow-up is in docs/backlog.md.
+// so it stays off. The spatial-split follow-up this line used to point at has
+// since been implemented on both twins, measured and REJECTED - it leaves all
+// 224 tiles covered and both channels constant for another +1.18 ms - because a
+// partition of a solid region is a tiling of it, and an emitter's pool is
+// always solid. docs/blss-reconstruction.md section 2 and docs/backlog.md.
 //
 // 1.10.3 (three things that were wrong, none of them a new capability): a FOG
 // emitter's Opacity survives a save (format v11 - it was written only inside

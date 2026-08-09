@@ -476,9 +476,25 @@ Eight things here that were paid for, and that any edit must keep:
   is the sky-dome failure in the channel the rule meant to rescue. Cost: BLSS EE
   **3.21 → 4.09 ms** (+0.88; `net` and `reproj` grow too — covering 224 tiles
   instead of 147 runs the MLP on all of them) and break-even **13.1 → ~15.3**
-  coverages. So it stays at 0, and the identified next step is a SPATIAL split
-  of the pool (bin the centres by coordinate, still order-independent, gives
-  each box a local depth range) — `docs/backlog.md`.
+  coverages. So it stays at 0.
+  **AND THE NAMED NEXT STEP - THE SPATIAL SPLIT - IS NOW A MEASURED NO
+  (2026-08-09). Do not re-open it.** Binning the centres by COORDINATE is
+  order-independent and perfectly twinnable, it was implemented on both twins,
+  and it makes the two channels it was for MORE constant: at the same parked
+  vantage, **224 of 224 covered tiles before and after**, `coverage` and
+  `depthGrad` still 1.000/1.000/1.000, proxies 207 -> **241** of 310, tile
+  updates 2 636 -> **6 077**, BLSS EE 4.07 -> **5.25 ms**, break-even ~15.3 ->
+  **~18.2**. Two reasons, both general: **a partition of a solid region is a
+  TILING of it, and a tiling has the same union** (so no spatial split can
+  shrink `coverage`, and `depthGrad`'s max over bags reunites the range inside
+  the tile), and a Tyra pool is never clustered - `updateParticles` spawns
+  uniformly over the emitter's XZ rect. **The flat channel is the FIXTURE**:
+  strip `upscaler-lab` to one small emitter and `coverage` reads 0.690 /
+  67.8 % at 1.000 in all three arms, while `--blss-coverage` counts 71.65 of
+  72.63 coverages as emitters on the shipped one - "covered everywhere" is
+  simply true there. The rule and its tables are in
+  docs/blss-reconstruction.md section 2; the emitter half's open item is that
+  the CORPUS DRAWS NO PARTICLES - `docs/backlog.md`.
 - **The instrument is PERMANENT, and deleting it is how this went unseen.**
   `logFeatureSpread()` under `blssDebugView = 2` logs one group a second into the
   game's `bin/log.txt`: `BLSSGRID` (tile/proxy counts), **`BLSSWORST`** (the widest
