@@ -1,5 +1,10 @@
+# Out-of-tree CMake build directories. build.ps1 -Dev writes build-dev/, and the
+# docs hand out `cmake -S . -B build-<whatever>` freely (build-demo, build-ee,
+# build-trainer...), so the whole family is ignored: without it a `git add -A`
+# run next to one of them stages a few hundred build artifacts. Directory-only
+# (trailing slash), so examples/*/build-scene.py stays tracked.
 build/
-build-dev/
+build-*/
 .vs/
 *.user
 imgui.ini
