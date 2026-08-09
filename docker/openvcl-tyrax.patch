@@ -1,3 +1,280 @@
+diff --git a/NOTICE-TYRAX.md b/NOTICE-TYRAX.md
+new file mode 100644
+index 0000000..b8601ec
+--- /dev/null
++++ b/NOTICE-TYRAX.md
+@@ -0,0 +1,231 @@
++# This is a MODIFIED copy of OpenVCL
++
++**This repository is not OpenVCL.** It is a derivative work, maintained for
++[TyraX](https://github.com/doctorspider42/tyra-editor), and it carries changes the
++upstream project has neither seen nor accepted. Do not report problems with it to
++upstream, and do not assume its behaviour matches theirs.
++
++This notice exists to satisfy section 6 (*Attribution Rights*) of the Academic Free
++License v2.0, under which OpenVCL is licensed: every copyright, patent and trademark
++notice from the original source is retained, and this file is the prominent notice
++that the Original Work has been modified.
++
++## Upstream
++
++* Project: **OpenVCL** — <https://github.com/ps2dev/openvcl>
++* Forked at commit `a5867c3daf03828806ee966aca4116622da3f671` (v0.4.0)
++* Originally written by **Jesper Svennevid** and **Daniel Collin**
++* Current upstream maintainer: **Francisco Javier Trujillo Mata**
++* Licence: **Academic Free License v2.0** — see [`LICENSE`](LICENSE), unchanged
++
++The names above are recorded as attribution, as the licence requires. Per section 4
++(*Exclusions From License Grant*) they do **not** endorse this copy, and nothing here
++should be read as their approval.
++
++## What was changed, and why
++
++TyraX compiles a PS2 engine's 25 VU1/VU0 microprograms. It needs an assembler it can
++ship, because the alternative — Sony's `vcl` — comes with no licence at all, which is
++what makes a publishable toolchain image impossible. Getting there took one
++correctness fix and a set of density flags; the full measurements, including the ones
++that failed, live in the TyraX repo under `docs/toolchain-image.md`.
++
++**Correctness**
++
++* `CLIPw` with an implied `w` component is accepted instead of rejected. Upstream
++  rejects the operand *and still writes a complete output file* with the `clipw`
++  missing and the `fcand` that reads its clip flags kept — silently emitting a program
++  that tests clip flags nobody set.
++* A CLIP-flag reader whose mask covers the whole window no longer skips the wait for
++  its own judgement to land. `padForClipFlagWindow()` has exempted those since it was
++  written, on the argument that `0x3FFFF` asks "is anything outside" and so gets the
++  same answer whichever entry the bits sit in. That is position-independence, and the
++  wait is not about position: the mask is three entries wide, so a read taken before
++  the newest push has landed covers a window **shifted by a whole vertex** and answers
++  about the previous one. Measured over 70 programs, 23 readers in 14 programs were
++  reading early, five of them the ADC bit of the vertex that completes a triangle;
++  Sony's `vcl` does it in none of them. Both halves of the exemption — the emitter's
++  and, under `--exempt-full-clip-masks`, the scheduler's — now hold every reader.
++
++**Density — six flags, every one off by default**
++
++| flag | effect |
++|---|---|
++| `--schedule-flag-readers` | MAC/CLIP flag readers take part in list scheduling instead of ending the segment |
++| `--fmac-interlock` | a VF-to-VF wait costs cycles, not emitted `nop` words — the FMAC pipeline interlocks |
++| `--sce-latencies` | flag visibility 4 → 1 cycle; an integer load's result readable at issue+3 |
++| `--emit-delay-fillers` | offer the instruction scheduled before a branch as its delay-slot filler |
++| `--branch-interlock` | no padding word before a branch whose operand came from a load or a flag reader |
++| `--branch-bubble-on-dependency` | emit the pre-branch bubble only when the row above actually produces one of the branch's operands |
++
++Every latency constant is calibrated against the minimum distances Sony's `vcl`
++demonstrates in its own output over those 25 programs — black-box observation of a
++known-good reference, no disassembly of anything. With all six, the engine's resident
++VU1 program set needs **2040** instructions against Sony's 2042, and the rendered
++frame is pixel-identical in PCSX2.
++
++**Register allocation — six more flags, every one off by default**
++
++The six above make the code denser; these make it fit. TyraX's VU authoring layer
++generates 45 microprograms and Sony's `vcl` compiles all 45; this copy compiled 23,
++every failure being *Register allocation ran out of registers*.
++
++| flag | effect |
++|---|---|
++| `--trim-uncarried-ranges` | rebuild a live range from the alias's own accesses, when the value provably dies at its last use inside one iteration |
++| `--coalesce-float-writes` | give a float write the register its own previous value already sits in, when that value is dead from the write on |
++| `--sink-loads` | move a load down the token list to just before the value it loads is first read, and re-derive the allocator's timeline from list position |
++| `--sink-loads-across-stores` | let a sinking load pass a store through a *different* base register — an aliasing assumption, and the one SCE's `vcl` makes in its own output |
++| `--sink-loads-into-loops` | let a sinking load pass one loop header, so a preamble load whose only readers are inside the batch loop stops pinning a register across the whole program |
++| `--sink-loads-past-branches` | let a sinking load cross a branch to a point every path out of its old position reaches, so a value read only past a two-arm block stops being live across it |
++
++With all six on top of the six above, **all 45** compile and assemble, all clean
++under TyraX's loop-carry checker, and the engine's resident VU1 set needs **2008**
++instructions against Sony's 2028 for the same ten programs.
++
++The last of the 45, `vu_script3_tce_cl`, is what the sixth flag exists for. Five
++GIF-tag quadwords are loaded in its preamble and read only by the `sq`s that build
++the packet header, but a two-arm branch picking the destination address sits in
++between, so their live ranges spanned the whole program and the peak was 33
++simultaneously live float ranges against 31 registers. Both arms rejoin at
++`setDestAddr:` before the first of those `sq`s, which is a point every path
++reaches, and landing the loads there takes the peak to 28. The post-dominance that
++licenses the move is tested during the sink pass's own forward walk, from one
++count of how many branches name each label, rather than from a control-flow graph
++the allocator does not build.
++
++Carrying a load over a branch reorders the block it lands in, and over the 45 it
++was worth about two words in either direction in programs that had registers to
++spare and gained nothing for it. So the flag is not applied speculatively: the
++allocation runs first exactly as it would with the flag off, and the flag only
++gets its turn when that runs out of registers. All 44 programs that compiled
++without it are byte-identical with it on, as are the engine's 25.
++
++**Dead code — one more flag, off by default**
++
++The twelve above made the generated programs *fit* and made them *dense*, and they
++were still bigger than Sony's: 9506 instructions against 9264 over the 45, larger
++in 34 of them. The first thing measured was whether the six allocator flags had
++caused it. They had not. Over the 23 programs that compile with and without them,
++the ten density flags alone come to 4064 and all sixteen come to 4064 — the same
++number. (The four sink flags cost 30 on their own and `--trim-uncarried-ranges`
++with `--coalesce-float-writes` buys 8 back, so the six net to zero.) The gap was
++there before any of that work.
++
++Counting rows and slots says where it was. Over the 45, Sony's output is 9240
++instruction rows holding 10910 non-`nop` slots; this copy's was 9486 rows holding
++**11222**. Both fit 1.18 real operations in a row. This copy was not
++scheduling worse — it was scheduling 312 instructions Sony's `vcl` never emitted,
++and the histogram named them: 93 more `loi`, 65 more `lq`, and the `muli`/`addi`/
++`mulw`/`addw` that consume them.
++
++They are dead. TyraX's VU authoring layer emits a whole four-component constant
++vector when the body reads two of its components, and an `lq` for every quadword
++the description names whether the body touches it or not. Sony's `vcl` deletes
++both. `--drop-dead-writes` does the same:
++
++| flag | effect |
++|---|---|
++| `--drop-dead-writes` | delete a token whose register destination is read nowhere in the program, field by field, and whose MAC/CLIP/I/Q/P/R/ACC writes nothing observes either |
++
++The liveness in it is the weakest one that finds them: a value is live if *any*
++token anywhere reads that component, with no control flow in the analysis at all.
++Nothing here deletes a write that is dead on one path and live on another — that
++needs dominance the register allocator does not build. Only aliases are
++candidates; a literal `VF05` an author named by number may be an interface with
++something this compiler cannot see. A name any `in_vf`/`out_vf`/`--exitm`
++directive mentions is live by declaration, as is a hardware resource any
++`out_hw_*` names. Stores, `xgkick`, the auto-incrementing loads, branches,
++anything with a delay slot, and any token carrying a label are never candidates.
++
++The flag writes are what make it worth having. Every FMAC instruction writes the
++MAC flags, so a dead `add.z` is only deletable if that write is unobserved; the
++test is global first (a program with no flag reader at all cannot observe any of
++them) and positional second (walk forward: a reader says live, another writer says
++dead, and a label, a branch, a directive or the end of the program says live,
++because a wrong answer here is a miscompile). It iterates to a fixed point:
++deleting `add.z k0, vf00, i` is what makes the `loi` above it dead.
++
++"Another writer says dead" is true of MAC and false of CLIP, and that is not a
++tuning knob — it is the difference between a register and a shift register. The
++CLIP register is a 24-bit window of the last **four** 6-bit judgements: `clipw`
++pushes six bits in at the bottom and moves the previous three entries up, so a
++later `clipw` does not overwrite an earlier one, and a positional reader — `fcand
++VI01,0x3CA3CA` names all four entries at once — still sees the older judgement
++three pushes later. Only the fourth subsequent push retires it. `fcset`, which
++really does replace the whole register, kills it at once. The same fact is why
++the dependency builder chains CLIP writers to each other instead of only to the
++final writer: which push landed in which entry is observable, so their program
++order is too. Both are unconditional; neither is behind a flag. Getting this
++wrong deletes four of the seven `clipw` in every `stapip_clip_*` program and
++leaves the "entirely inside, skip clipping" branch reading the previous
++triangle's bits — pixel-identical output, because Sutherland-Hodgman on a
++fully-inside polygon is a no-op, and five times the clipping work.
++
++With it on top of the twelve, over the 45 generated programs:
++
++| | Sony `vcl` | this copy, sixteen flags | plus `--drop-dead-writes` |
++|---|---|---|---|
++| instructions | 9264 | 9506 (+242) | **9308** (+44) |
++| smaller / larger / equal | — | 4 / 34 / 7 | 17 / 24 / 4 |
++
++and the engine's resident VU1 set drops from 2008 to **1988** against Sony's 2028.
++Not one of the 70 programs gets bigger: 42 of the 45 shrink and 3 are unchanged,
++6 of the 10 resident ones shrink and 4 are unchanged. All 45 still compile and
++assemble, all 25 engine programs still compile, both corpora are clean under
++TyraX's loop-carry checker, the multiset of stores and `xgkick`s each of the 70
++emits is unchanged to the offset, and with the flag off every one of them is
++byte-identical to what this copy emitted before it — no flags, the ten, and all
++sixteen.
++
++**What is left, and its shape.** With the dead code gone this copy emits *fewer*
++real operations than Sony's — 10864 non-`nop` slots against 10910 — in *more*
++rows: 9283 against 9240. None of the remaining 43 rows is work. All of it is `nop nop` in
++front of a CLIP reader: 91 words of it here against Sony's 48, and +43 is exactly
++the row gap. Every other padding bucket nets out.
++
++It is one shape, in the `_cl` programs' clip chain, and it is not a tuning
++constant. Sony pays the window exactly once in each of the sixteen `_cl` programs
++— three words, in the fan block where there is genuinely nothing else to do — and
++this copy pays it three to eleven times. The difference is how many `clip`s are
++allowed to be in flight at once. Over the 45:
++
++| | Sony `vcl` | this copy |
++|---|---|---|
++| `clip` sharing a row with a CLIP reader | 12 | **0** |
++| `clip`-to-`clip` distance 2, 3 or 4 rows | 10 / 10 / 13 | **0 / 0 / 0** |
++| `clip`-to-`clip` distance exactly 5 rows | 3 | 37 |
++
++Sony runs two or three `clip`s ahead of their readers and puts a reader in the
++lower slot of a row whose upper is the *next* `clip`; this copy issues one `clip`,
++waits out its window, reads it, and only then issues the next — five rows per
++vertex where Sony takes one or two. Sony's same-row reader is not reading the
++`clip` beside it; it is reading one from several rows back, which is the only way
++that output and the four-word window are both true. Two rules keep this copy from
++doing the same. The pair-legality test refuses a `clip` and a CLIP reader on one
++row outright, in both directions, and the window is enforced against the *nearest
++preceding* `clip` rather than against the one whose bits the mask selects.
++
++Both are about the same thing: the CLIP register is a 24-bit shift register, four
++entries of six bits, and neither the scheduler nor the emitter models the shift.
++They model "a `clip` happened N rows ago". Under that model a second `clip` in
++flight is indistinguishable from clobbering the first, so refusing it is the only
++safe answer, and the serialisation follows. Overlapping the chains needs the
++positions modelled — which entry each mask selects, and how many pushes have
++happened since — through the dependency graph, the pair test, the latency tracker
++and `emittedRowsSinceClipWrite`. That is the redesign, and it is the whole 43.
++
++It is also the part of this compiler with the worst track record. Three commits
++here — `ff1bc4a`, `09f8557`, `68d27df` — are all corrections to the positional
++CLIP window, and `stapip_clip_c` is still on the defect list below. Forty-three
++words out of 9264 do not justify reopening it without hardware to check against.
++
++## Known defects in this copy
++
++* `stapip_as_is_c`-style programs: a value loaded above a batch loop can be reused
++  inside it (TyraX works around it in its own sources). The obvious explanation —
++  liveness ignoring the back edge — is **wrong**: narrow the register pool and this
++  copy refuses cleanly instead of clobbering. No minimal reproducer yet.
++* One TyraX microprogram, `stapip_clip_c`, is still miscompiled by this copy.
++
++Upstream's own test suite (419 tests) passes unmodified.
+diff --git a/README.md b/README.md
+index 14667b8..deb5fce 100644
+--- a/README.md
++++ b/README.md
+@@ -106,12 +106,35 @@ Useful options:
+ | `--dump-instruction-info-json` | print the VU instruction metadata table as JSON |
+ | `--dump-schedule-info` | print generic ready-scheduler issue slots |
+ | `--dump-schedule-info-json` | print generic ready-scheduler issue slots as JSON |
++| `--schedule-flag-readers` | MAC/CLIP flag readers take part in list scheduling instead of ending the segment |
++| `--fmac-interlock` | a VF-to-VF wait costs cycles, not emitted `nop` words — the FMAC pipeline interlocks |
++| `--sce-latencies` | flag visibility 4 → 1 cycle; an integer load's result readable at issue+3 |
++| `--emit-delay-fillers` | offer the instruction scheduled before a branch as its delay-slot filler |
++| `--branch-interlock` | no padding word before a branch whose operand came from a load or a flag reader |
++| `--branch-bubble-on-dependency` | emit the pre-branch bubble only when the row above actually produces one of the branch's operands |
++| `--loop-liveness-always` | never skip extending a live range across a loop's back edge |
++| `--upper-move-with-w` | promote a full-width `move` into the upper pipe, where it can pair |
++| `--pair-best-of-two` | schedule each segment both ways and keep the shorter |
++| `--pair-best-of-many` | schedule each segment under seven ready-list heuristics and keep the shortest |
++| `--trim-uncarried-ranges` | rebuild a live range from the alias's own accesses, when the value provably dies at its last use inside one iteration |
++| `--coalesce-float-writes` | give a float write the register its own previous value already sits in, when that value is dead from the write on |
++| `--sink-loads` | move a load down the token list to just before the value it loads is first read, and re-derive the allocator's timeline from list position |
++| `--sink-loads-across-stores` | let a sinking load pass a store through a *different* base register — an aliasing assumption, and the one SCE's `vcl` makes in its own output |
++| `--sink-loads-into-loops` | let a sinking load pass one loop header, so a preamble load whose only readers are inside the batch loop stops pinning a register across the whole program |
++| `--sink-loads-past-branches` | let a sinking load cross a branch to a point every path out of its old position reaches, and only after an allocation has already run out of registers |
++| `--drop-dead-writes` | delete a token whose register destination is read nowhere in the program, field by field, and whose MAC/CLIP/I/Q/P/R/ACC writes nothing observes either — CLIP being a four-entry shift register, not a register, so a later `clipw` does not kill an earlier one |
++| `--exempt-full-clip-masks` | hold a CLIP-flag reader whose mask covers the whole window for the flag *visibility* latency rather than the (never smaller) *scheduling* latency. **Currently inert**: the two are both 4. It used to mean the reader need not wait at all — that, and the same exemption the emitter had made since `padForClipFlagWindow` was written, were a miscompile, and both are gone. A full-window mask is position-INDEPENDENT, which says which entry a judgement sits in does not matter; it does not say the newest judgement has arrived, and the mask is three entries wide, so a read taken early is the window shifted by a whole vertex |
++| `--clip-exemption-best-of` | schedule each program both with and without that exemption and keep the shorter. **Currently inert** for the same reason: with the two latencies equal the arms are identical |
+ | `--enable-generic-software-pipelining` | enable safe generic software-pipeline rewrites, currently the default |
+ | `--disable-generic-software-pipelining` | disable generic software-pipeline rewrites for comparison/debugging |
+ | `--strict-schedule-slots` | emit from the typed scheduler slot model without legacy lookahead pairing |
+ 
+ `-M`, `-P`, and `-Z` are accepted for VCL command-line compatibility.
+ 
++The nineteen density, register-allocation and dead-code options are additions
++this fork makes to OpenVCL, and every one of them is off by default. What each is
++for and what it measured are in [`NOTICE-TYRAX.md`](NOTICE-TYRAX.md).
++
+ ## VSM Cost Analysis
+ 
+ OpenVCL can also analyze already scheduled `.vsm` files. This works for both
 diff --git a/src/Alias.cpp b/src/Alias.cpp
 index a29122a..85588f0 100644
 --- a/src/Alias.cpp
@@ -1639,6 +1916,22 @@ index 5500026..e596b8e 100644
  inline bool CommandLine::genericSoftwarePipelining() const
  {
  	return m_genericSoftwarePipelining;
+diff --git a/src/Dependency.cpp b/src/Dependency.cpp
+index e59f968..1fa032c 100644
+--- a/src/Dependency.cpp
++++ b/src/Dependency.cpp
+@@ -34,7 +34,10 @@ void Dependency::depend( Dependency* dependency )
+ 		alias()->merge( oldAlias );
+ 		dependency->propagate( alias() );
+ 
+-		m_state->allocator().releaseAlias( oldAlias );
++		// The alias that survives is the one every dependency was just propagated
++		// to, so the allocator can rewrite the two-address chain onto it instead
++		// of cutting every edge that named the absorbed one.
++		m_state->allocator().releaseAlias( oldAlias, alias() );
+ 	}
+ 
+ 	dependency->m_output[ this ] = this;
 diff --git a/src/Error.cpp b/src/Error.cpp
 index 3f5cfc3..a4d6ad2 100644
 --- a/src/Error.cpp
@@ -2158,7 +2451,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..13d8f2d 100644
+index cf6d79b..82249ff 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,15 +10,18 @@
@@ -2702,12 +2995,81 @@ index cf6d79b..13d8f2d 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1322,6 +1668,1442 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1263,13 +1609,33 @@ void RegisterAllocator::extendMultiQStageLiveRanges( std::list<Token>& tokens )
+ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+ {
+ 	// One synthetic alias per (type, register) pair, with one range per
+-	// usage line.  Inserted into m_aliases pre-allocated to its physical
+-	// register so the existing conflict check in processAliases naturally
+-	// keeps user aliases off it.
++	// usage line PLUS one range per definition-to-use span.  Inserted into
++	// m_aliases pre-allocated to its physical register so the existing conflict
++	// check in processAliases naturally keeps user aliases off it.
++	//
++	// The span is what makes this a live range rather than a set of points, and
++	// it is not decoration.  VI01 is the only legal destination of fcand/fcor/
++	// fceq, so a clip judgement has to be read back out of VI01, and between the
++	// two the register holds a value.  Recorded as two points that range list
++	// merges only while they are ADJACENT - addRange treats a one-line gap as
++	// contiguous - so as long as the flag is read on the next line the two
++	// spellings agree and nothing here changes.  Open one row between them, which
++	// --branch-interlock does by inserting the bubble the hardware needs, and the
++	// point spelling says VI01 is free in the middle: --sink-loads then drops a
++	// load whose value is dead into that row, the allocator has already given it
++	// VI01 because a dead value's range is one line long and does not intersect
++	// either point, and the ibne below tests the load.
++	//
++	// A span is only ever added from a write to a LATER read, so a register that
++	// is only ever read (VI00, and anything the caller passes in) keeps exactly
++	// the ranges it had.  Reads on a path the write does not reach make the span
++	// too long rather than too short, which can cost a register but cannot lose
++	// a value.
+ 	Alias* floats[32];
+ 	Alias* integers[16];
++	unsigned int integerWrittenAt[16];
+ 	for( unsigned int i = 0; i < 32; i++ ) floats[i]   = NULL;
+-	for( unsigned int i = 0; i < 16; i++ ) integers[i] = NULL;
++	for( unsigned int i = 0; i < 16; i++ ) { integers[i] = NULL; integerWrittenAt[i] = 0; }
+ 
+ 	for( std::list<Token>::iterator it = tokens.begin(); it != tokens.end(); ++it )
+ 	{
+@@ -1285,10 +1651,17 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+ 
+ 		const unsigned int line = it->lineNumber();
+ 
++		// Reads before writes, so `iaddiu VI01, VI01, 2` closes the span it was
++		// standing in before it opens the next one - the same "the read wins"
++		// convention the branch-state analysis uses for aliases.
++		for( int pass = 0; pass < 2; ++pass )
+ 		for( std::list<Token::Argument>::const_iterator a = it->arguments().begin(); a != it->arguments().end(); ++a )
+ 		{
+ 			if( a->content() != Token::Argument::REGISTER )
+ 				continue;
++			const bool write = (a->flags() & Token::Argument::WRITE) != 0;
++			if( write != (pass == 1) )
++				continue;
+ 
+ 			if( a->type() == Token::Argument::FLOAT_REGISTER )
+ 			{
+@@ -1315,6 +1688,10 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+ 					m_aliases[ integers[r] ] = integers[r];
+ 				}
+ 				integers[r]->addRange( line, line );
++				if( write )
++					integerWrittenAt[r] = line;
++				else if( integerWrittenAt[r] && integerWrittenAt[r] < line )
++					integers[r]->addRange( integerWrittenAt[r], line );
+ 			}
+ 		}
+ 	}
+@@ -1322,27 +1699,1517 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
+-Alias* RegisterAllocator::obtainAlias( Alias::Type type )
 +namespace
-+{
+ {
+-	Alias* alias = new Alias( type );
 +	// One reference to an alias: which line, which components, and whether it
 +	// was the destination.  Sources are recorded before the destination of the
 +	// same token, which is the order the hardware sees them in.
@@ -2716,12 +3078,14 @@ index cf6d79b..13d8f2d 100644
 +		AliasAccess() : m_line(0), m_fields(0), m_write(false) {}
 +		AliasAccess( unsigned int line, unsigned int fields, bool write )
 +			: m_line(line), m_fields(fields), m_write(write) {}
-+
+ 
+-	m_aliases[ alias ] = alias;
 +		unsigned int m_line;
 +		unsigned int m_fields;
 +		bool m_write;
 +	};
-+
+ 
+-	return alias;
 +	// Which components an operand really touches.  A float source written
 +	// without a selector is read under the instruction's destination mask - a
 +	// `mini.xyz d,s,t` never looks at s.w - and openvcl leaves such an operand's
@@ -2784,12 +3148,15 @@ index cf6d79b..13d8f2d 100644
 +			loops.push_back( std::make_pair( label->second->lineNumber(), branch->lineNumber() ) );
 +		}
 +	}
-+}
-+
-+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-+
+ }
+ 
+ ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+ 
+-void RegisterAllocator::releaseAlias( Alias* alias )
 +namespace
-+{
+ {
+-	AliasMap::iterator i = m_aliases.find( alias );
+-	assert( i != m_aliases.end() );
 +	// "vertex1.x" -> "vertex1".  buildVuTokenResourceAccess reports a float
 +	// operand one component at a time; the sink pass cares about the value.
 +	std::string sinkRegisterBase( const std::string& key )
@@ -4142,11 +4509,91 @@ index cf6d79b..13d8f2d 100644
 +
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
- Alias* RegisterAllocator::obtainAlias( Alias::Type type )
- {
- 	Alias* alias = new Alias( type );
++Alias* RegisterAllocator::obtainAlias( Alias::Type type )
++{
++	Alias* alias = new Alias( type );
++
++	m_aliases[ alias ] = alias;
++
++	return alias;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++bool RegisterAllocator::trySetSameNamePredecessor( Alias* alias, Alias* predecessor )
++{
++	if( !alias || !predecessor || alias == predecessor )
++		return false;
++	if( alias->type() != predecessor->type() )
++		return false;
++
++	// A chain must stay a chain.  16 hops is well above any plausible depth and
++	// doubles as the defence against a cycle that is already there.
++	Alias* p = predecessor;
++	for( int hop = 0; hop < 16 && p; ++hop, p = p->sameNamePredecessor() )
++	{
++		if( p == alias )
++			return false;
++	}
++
++	alias->setSameNamePredecessor( predecessor );
++	return true;
++}
++
++///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
++
++void RegisterAllocator::releaseAlias( Alias* alias, Alias* replacement )
++{
++	AliasMap::iterator i = m_aliases.find( alias );
++	assert( i != m_aliases.end() );
++
++	// A merge is a RENAME, not a deletion.  Dependency::depend has just rewritten
++	// every dependency that named `alias` to name `replacement`, so the
++	// two-address chain - the edges that make `iaddi k0, k0, -1` write the
++	// register it read - has to be rewritten the same way.  Clearing those edges
++	// instead, which is what this did, is the bug it looks like a fix for: on a
++	// loop whose counter is decremented at a JOIN, the write of the counter is
++	// merged with a later write of the same name, the edge from the live-in dies
++	// with the absorbed alias, and the decrement is allocated to a register the
++	// loop's `ibgtz` at the bottom is the only reader of.  The counter then
++	// recomputes initial-1 every iteration and the trip count is wrong.
++	if( replacement && replacement != alias )
++	{
++		// The survivor inherits the absorbed alias's own predecessor when it has
++		// none: the absorbed alias's place in the chain is now the survivor's.
++		if( !replacement->sameNamePredecessor() )
++			trySetSameNamePredecessor( replacement, alias->sameNamePredecessor() );
++
++		for( AliasMap::iterator k = m_aliases.begin(); k != m_aliases.end(); ++k )
++		{
++			Alias* other = k->first;
++			if( other == alias || other->sameNamePredecessor() != alias )
++				continue;
++
++			// Rename first.  When the merge folds a LATER definition of the same
++			// name onto an earlier one the rename closes a cycle - every member of
++			// it is then the same value and belongs in one register, which a linear
++			// chain says by splicing the dying node out rather than by cutting the
++			// list at it.
++			if( !trySetSameNamePredecessor( other, replacement ) )
++				trySetSameNamePredecessor( other, alias->sameNamePredecessor() );
++		}
++	}
+ 
+-	// Any alias whose same-name predecessor chain points at `alias` is
+-	// about to hold a dangling pointer; clear those edges so processAliases
+-	// doesn't walk into freed memory.  (Without this guard openvcl segfaults
+-	// when branch-state merges release one half of a previously-recorded
+-	// two-address pair.)
++	// Anything still pointing at `alias` is about to hold a dangling pointer;
++	// clear those edges so processAliases doesn't walk into freed memory.
++	// (Without this guard openvcl segfaults when branch-state merges release one
++	// half of a previously-recorded two-address pair.)
+ 	for( AliasMap::iterator k = m_aliases.begin(); k != m_aliases.end(); ++k )
+ 	{
+ 		Alias* other = k->first;
 diff --git a/src/RegisterAllocator.h b/src/RegisterAllocator.h
-index 738fca5..f281575 100644
+index 738fca5..067d7c0 100644
 --- a/src/RegisterAllocator.h
 +++ b/src/RegisterAllocator.h
 @@ -24,6 +24,7 @@
@@ -4157,10 +4604,11 @@ index 738fca5..f281575 100644
  #include <vector>
  #include <sstream>
  
-@@ -47,6 +48,14 @@ public:
+@@ -47,7 +48,18 @@ public:
  
  	bool process( std::list<Token>& tokens );
  
+-	void releaseAlias( Alias* alias );
 +	// Put every accumulated allocation result back to its constructed state, so
 +	// the same allocator can be run a second time over a restored token list.
 +	// Only Parser::allocateRegisters() needs this, for the
@@ -4169,10 +4617,26 @@ index 738fca5..f281575 100644
 +	// path already did before returning.
 +	void reset();
 +
- 	void releaseAlias( Alias* alias );
++	// `replacement` is the alias `alias` has just been merged INTO, when there is
++	// one.  A merge is a rename, not a deletion, so the two-address chain has to
++	// be rewritten rather than cut - see the body.
++	void releaseAlias( Alias* alias, Alias* replacement = NULL );
  	Alias* obtainAlias( Alias::Type type );
  
-@@ -98,11 +107,86 @@ private:
+ 	const Register* floatRegister( unsigned int regNumber ) const;
+@@ -90,6 +102,11 @@ private:
+ 
+ 	bool processAliases();
+ 
++	// Install `predecessor` as `alias`'s two-address chain predecessor, unless
++	// that would make the chain a cycle - the same defence BranchState uses when
++	// it builds the edge in the first place.  Returns whether the edge was made.
++	static bool trySetSameNamePredecessor( Alias* alias, Alias* predecessor );
++
+ 	// Walks all emittable tokens and records, for each physical register,
+ 	// the line numbers where it appears as a *literal* (non-alias) operand.
+ 	// Used to keep the allocator from assigning an alias to a physical
+@@ -98,11 +115,86 @@ private:
  	// happens to share VI01.  Synthesized as preallocated aliases inserted
  	// into m_aliases so the existing interference check picks them up.
  	void collectLiteralRegisterUsage( std::list<Token>& tokens );
@@ -4259,7 +4723,7 @@ index 738fca5..f281575 100644
  	void extendMultiQStageRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd );
  
  	bool updateDynamicTracker( const Token* src );
-@@ -128,6 +212,11 @@ private:
+@@ -128,6 +220,11 @@ private:
  	bool m_showRegisterInfo;
  
  	AliasMap m_aliases;

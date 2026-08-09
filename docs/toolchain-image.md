@@ -2545,6 +2545,64 @@ decisions onto the emitted program, so a wrongly-unconditional delay-slot write 
 reader is a branch condition **normalises away**. That is structurally why four rounds of value
 oracles never found the delay-slot bug, and it is still true.
 
+### Branch conditions, the last blindness — and two more bugs behind it
+
+The value oracle replays the **source's** branch decisions onto the emitted program. So a value
+that is *stored* gets compared, and a value whose only reader is a **branch condition** was never
+compared at all. That is structurally why four rounds of value oracles walked past the delay-slot
+bug, and closing it found two more.
+
+`pd-cond.py` records, at every conditional branch on the trace, the expression DAG of the value
+the branch tests — read from the **pre-row** snapshot, which is the point: a delay-slot write
+cannot corrupt the branch that owns the slot, only the next one down, and that is the one now
+compared. Telling a real disagreement from two correct programs computing a condition differently
+rests on one thing: **the condition is a value, not a register.** The DAG is interned, so a
+counter openvcl keeps in VI08 and SCE keeps in VI11 is the *same node* — register allocation is
+invisible by construction rather than normalised away.
+
+| corpus | openvcl | SCE |
+|---|---|---|
+| the 70, unroll 2 and 3 | **0 findings**, 381/381 branch sites, 29 888 conditions | 0 |
+| 400 control-flow | **0**, 1975/1975 sites | 0 |
+| 960 condition-stress | 31 at margin 0 | 0 |
+
+Detector power, measured by mutation rather than asserted: **153 of 155 mutants caught, 106 of
+them invisible to the previous oracle.** The two missed both write a value nothing reads.
+
+**Two bugs, both fixed, both zero-cost on the 70:**
+
+* **A loop-carried integer counter that never advances**, and it fires on **stock upstream with
+  no flags** — all 23 flag ablations reproduce it. Not the loop-liveness family: `Dependency::depend`
+  merges two aliases at an SSA join and hands the absorbed one to `releaseAlias`, which **cleared**
+  every `sameNamePredecessor` edge pointing at it as a dangling-pointer guard. But a merge is a
+  *rename* — `propagate()` has just rewritten every dependency onto the survivor, so the
+  two-address chain must be rewritten too. Clearing it cut the chain that exists precisely so
+  `iaddi k0,k0,-1` writes the register it read; the emitted loop recomputed `initial−1` every
+  iteration. Fixed by splicing rather than cutting, with a cycle defence for the case where a
+  later definition folds onto an earlier one.
+* **A clip judgement clobbered before the branch reads it.** VI01 is the only legal destination of
+  `fcand`/`fcor`/`fceq`, so a judgement must be read back out of it.
+  `collectLiteralRegisterUsage` recorded a physical register's usage as a **set of points**, one
+  per line, not a live range — and `addRange` merges points one line apart, so `fcor VI01` /
+  `ibne VI01` on adjacent rows looked contiguous. `--branch-interlock` then opens the bubble the
+  hardware needs between them, the point spelling says VI01 is free in that row, and
+  `--sink-loads` drops a *dead* `ilw` into the gap. The branch tests the load. Fixed by giving
+  each physical integer register a definition-to-use span.
+
+**And the fix is not a ban on VI01**, which is the measurable form of that requirement: VI01 is
+still an ordinary destination **192 times in 66 of the 70** programs, identical to baseline. The
+suite's `cond_clipflag_live` control exists to catch a fix that became a blanket ban.
+
+Over 1430 programs, 22 of 31 condition divergences closed and none introduced. **The 70 did not
+move: zero bytes, zero programs.**
+
+Two instruments were built and **discarded** in this round, which is the discipline rather than a
+setback: one syntactic screen fired 105 times on SCE against 66 on openvcl, and another returned
+zero on a corpus *containing the very finding it was written for* — it failed its own positive
+control and was thrown away rather than reported as agreement. A third had a recursion that blew
+Python's stack at ~1000 nodes and survived the 70 by luck; a detector that raises reads as
+"nothing here".
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
