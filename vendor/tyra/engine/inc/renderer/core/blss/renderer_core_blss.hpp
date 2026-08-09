@@ -485,12 +485,29 @@ class RendererCoreBlss {
   float dMax[kMaxTiles];
 
   // --- per-tile stats + features + outputs -----------------------------
-  float tCover[kMaxTiles];
-  float tDepth[kMaxTiles];  // depthMean, already 1/w
-  float tDetail[kMaxTiles];
-  float tEdge[kMaxTiles];
-  float tDepthMin[kMaxTiles];
-  float tDepthMax[kMaxTiles];
+  //
+  // FIVE ARRAYS THAT USED TO LIVE HERE ARE GONE. tCover / tDetail / tEdge were
+  // written by finishTileStats and then COPIED, unchanged, into feat[][5] / [4]
+  // / [3] by buildFeatures; tDepthMin / tDepthMax existed only to be subtracted
+  // from each other one function later. finishTileStats writes the three
+  // straight into `feat` now and reduces the depth pair to `tGrad` on the spot,
+  // which removes a 224-tile pass and 4.4 KB of per-frame working set. Every
+  // expression is unchanged and in the same order, so the network's inputs are
+  // bit-identical - proved on hardware, not asserted.
+  //
+  // **It is a simplification, NOT a speed-up, and the measurement says so.**
+  // The work does not disappear, it MOVES: `feat` 0.190 -> 0.141 ms and
+  // `reproj` 0.275 -> 0.310, for a net +0.014 ms. The pass that was deleted was
+  // very nearly free, because 224 floats is 896 bytes and the EE's data cache
+  // had no trouble with it - the cache story this comment used to tell was a
+  // guess, and it was wrong. See docs/profiling.md, "The last terms in the
+  // composite", for the numbers and for why nothing else here is worth taking.
+  float tDepth[kMaxTiles];  // depthMean, already 1/w; buildReproj reads it
+  // (depthMax - depthMin) * kDepthRef, the tile's own near/far spread - the
+  // floor of the depthGrad channel, ready to compare against its neighbours.
+  float tGrad[kMaxTiles];
+  // [0] motion, [1] depth, [2] depthGrad, [3] edgeDens, [4] texDetail,
+  // [5] coverage. finishTileStats fills 1/3/4/5; buildFeatures fills 0 and 2.
   float feat[kMaxTiles][kFeatures];
   float outW_A[kMaxTiles];  // wA per tile
   float outW_C[kMaxTiles];  // wC per tile

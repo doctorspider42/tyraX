@@ -4603,9 +4603,15 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   // halves the same millisecond can be taken off in completely different ways,
   // and this feature has already paid once for splitting a term by
   // subtraction instead of measuring it.
+  // THREE decimals, not two, and the reason is that this line has outlived the
+  // sizes it was written for. When it was added the terms it splits ran 2-4 ms
+  // and 0.01 was noise; the cuts since have taken reproj to 0.28 and feat to
+  // 0.19, where a real 0.05 ms saving is five units of the last digit and a
+  // 0.02 one is two. A term measured to 0.01 ms cannot resolve a cut worth
+  // 0.03, and rounding is not something more paired windows can average away.
   snprintf(line, sizeof(line),
-           "FTSPLIT f=%lu proxy=%.2f/%.2f reproj=%.2f feat=%.2f net=%.2f "
-           "pkt=%.2f",
+           "FTSPLIT f=%lu proxy=%.3f/%.3f reproj=%.3f feat=%.3f net=%.3f "
+           "pkt=%.3f",
            (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
            (double)ms(sAcc, kWindow),
            (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),

@@ -219,8 +219,7 @@ RendererCoreBlss::RendererCoreBlss() {
     coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
     dMin[i] = 1e30F;
     dMax[i] = 0.0F;
-    tCover[i] = tDepth[i] = tDetail[i] = tEdge[i] = 0.0F;
-    tDepthMin[i] = tDepthMax[i] = 0.0F;
+    tDepth[i] = tGrad[i] = 0.0F;
     outW_A[i] = outW_C[i] = outW_D[i] = 0.0F;
     for (int f = 0; f < kFeatures; f++) feat[i][f] = 0.0F;
   }
@@ -781,35 +780,78 @@ int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,
 }
 
 // --------------------------------------------------------------- section 2 ---
+// This used to end by storing six per-tile arrays, three of which buildFeatures
+// then copied verbatim into `feat` and two of which it only ever subtracted.
+// The copies and the subtraction happen HERE now, while the values are already
+// in registers: same expressions, same order, same results, one fewer 224-tile
+// pass over memory. See the header for the array list - INCLUDING the note that
+// this is a simplification and not a speed-up, because the work moves from
+// `feat` into this function rather than disappearing.
 void RendererCoreBlss::finishTileStats() {
   const int n = cols * rows;
   for (int i = 0; i < n; i++) {
     const float acc = coverAcc[i];
-    tCover[i] = acc > 1.0F ? 1.0F : acc;
+    feat[i][5] = acc > 1.0F ? 1.0F : acc;
     const float inv = 1.0F / (acc > 1e-6F ? acc : 1e-6F);
-    tDepth[i] = depthAcc[i] * inv;
-    tDetail[i] = detAcc[i] * inv;
+    const float depth = depthAcc[i] * inv;
+    tDepth[i] = depth;
+    feat[i][4] = detAcc[i] * inv;
+    // The normalised depth the 4-neighbour gradient differences. It used to be
+    // its own full pass at the top of buildFeatures, for the good reason that
+    // the gradient needs the WHOLE field before it can run - which this still
+    // honours, one function earlier.
+    feat[i][1] = clamp01(depth * kDepthRef);
     if (acc > 0.0F) {
-      tDepthMin[i] = dMin[i] > 1e29F ? 0.0F : dMin[i];
-      tDepthMax[i] = dMax[i];
+      const float dLo = dMin[i] > 1e29F ? 0.0F : dMin[i];
+      tGrad[i] = (dMax[i] - dLo) * kDepthRef;
     } else {
-      tDepthMin[i] = 0.0F;
-      tDepthMax[i] = 0.0F;
+      tGrad[i] = 0.0F;
     }
     const float e = edgeAcc[i] / static_cast<float>(2 * kTile);
-    tEdge[i] = e > 1.0F ? 1.0F : e;
+    feat[i][3] = e > 1.0F ? 1.0F : e;
   }
 }
 
 // --------------------------------------------------------------- section 3 ---
+// Reciprocals of the corner's neighbour count. 1, 2 and 4 are exact binary
+// scalings; 3 is not, so it keeps its divide below.
+static const float kInvCount[5] = {0.0F, 1.0F, 0.5F, 0.0F, 0.25F};
+
 void RendererCoreBlss::buildReproj() {
   const float fOutW = static_cast<float>(outW);
   const float fOutH = static_cast<float>(outH);
 
+  // THE SCREEN RAY THROUGH A GRID CORNER DOES NOT DEPEND ON ANYTHING THE INNER
+  // LOOP COMPUTES: sX is a function of the corner's COLUMN alone and sY of its
+  // ROW alone. Both were evaluated per surviving corner, and each carries a
+  // divide by the output size - so a 17x15 grid produced 32 distinct values the
+  // hard way. Hoisting them is a plain common-subexpression move: the same
+  // expressions with the same operands in the same order, so cornerDu/cornerDv
+  // come out bit-identical (checked on hardware, not asserted).
+  //
+  // **AND IT PRICES A DIVIDE, WHICH IS THE POINT OF RECORDING IT.** Together
+  // with the count reciprocal below it removes roughly 565 `div.s` a frame and
+  // `reproj` moves 0.310 -> 0.303 ms - about 2 100 EE cycles, i.e. a divide on
+  // this machine is single digits of cycles and five hundred of them are worth
+  // 0.007 ms. That is the number to reach for before optimising arithmetic
+  // anywhere in this file again: unlike tanhf/expf/floorf, which were library
+  // CALLS, `div.s` and `sqrt.s` are single instructions here and there is no
+  // hidden round trip left to find (docs/profiling.md, "The last terms in the
+  // composite", has the disassembly).
+  float pxCol[kMaxCols + 1], sXCol[kMaxCols + 1];
+  for (int i = 0; i < cornerCols; i++) {
+    const int px = i * kTile > outW ? outW : i * kTile;
+    pxCol[i] = static_cast<float>(px);
+    sXCol[i] = (2.0F * pxCol[i] / fOutW - 1.0F) * cur.tanHalfFovX;
+  }
+
   for (int j = 0; j < cornerRows; j++) {
     const int py = j * kTile > outH ? outH : j * kTile;
+    const float fpy = static_cast<float>(py);
+    const float sY = (1.0F - 2.0F * fpy / fOutH) * cur.tanHalfFovY;
     for (int i = 0; i < cornerCols; i++) {
-      const int px = i * kTile > outW ? outW : i * kTile;
+      const float fpx = pxCol[i];
+      const float sX = sXCol[i];
       const int c = j * cornerCols + i;
       cornerDu[c] = 0.0F;
       cornerDv[c] = 0.0F;
@@ -826,20 +868,20 @@ void RendererCoreBlss::buildReproj() {
           const int tx = i + dx;
           if (tx < 0 || tx >= cols) continue;
           const int t = ty * cols + tx;
-          if (tCover[t] <= 0.0F) continue;
+          if (feat[t][5] <= 0.0F) continue;
           sum += tDepth[t];
           count++;
         }
       }
       if (count == 0) continue;
-      const float invWrep = sum / static_cast<float>(count);
+      // count is 1..4, and 1, 2 and 4 are exact binary scalings - x * 0.5F is
+      // the SAME float as x / 2.0F, bit for bit, so this is a strength
+      // reduction and not an approximation. 3 keeps its divide.
+      const float invWrep =
+          count == 3 ? sum / 3.0F : sum * kInvCount[count];
       if (invWrep <= 1e-6F) continue;
 
       const float w = 1.0F / invWrep;
-      const float sX =
-          (2.0F * static_cast<float>(px) / fOutW - 1.0F) * cur.tanHalfFovX;
-      const float sY =
-          (1.0F - 2.0F * static_cast<float>(py) / fOutH) * cur.tanHalfFovY;
       const float dirX = cur.fwd[0] + cur.right[0] * sX + cur.up[0] * sY;
       const float dirY = cur.fwd[1] + cur.right[1] * sX + cur.up[1] * sY;
       const float dirZ = cur.fwd[2] + cur.right[2] * sX + cur.up[2] * sY;
@@ -860,8 +902,8 @@ void RendererCoreBlss::buildReproj() {
 
       // The history IS the other display framebuffer, so histW/histH ==
       // outW/outH and one history texel is one output pixel.
-      float du = (sXp * 0.5F + 0.5F) * fOutW - static_cast<float>(px);
-      float dv = (0.5F - sYp * 0.5F) * fOutH - static_cast<float>(py);
+      float du = (sXp * 0.5F + 0.5F) * fOutW - fpx;
+      float dv = (0.5F - sYp * 0.5F) * fOutH - fpy;
       // Keep the 12.4 UV field addressable (see emitGrid) - an offset this
       // large is off-screen history anyway, which the region clamp folds onto
       // the border.
@@ -876,15 +918,21 @@ void RendererCoreBlss::buildReproj() {
 }
 
 // --------------------------------------------------------------- section 4 ---
+// Two channels, not six: [1], [3], [4] and [5] are finished by finishTileStats
+// while their inputs are still in registers, and the normalised-depth pass that
+// used to open this function went with them (the 4-neighbour gradient still
+// needs the WHOLE normalised field before it can run - that is now satisfied
+// one function earlier, not by a second pass here).
+//
+// WHAT IS LEFT HERE IS NOT LIBM AND IS NOT DIVISION. `sqrtf` compiles to a bare
+// `sqrt.s` on the R5900 - checked in the shipped ELF's disassembly, no call, no
+// errno branch - `fabsf` to `abs.s`, and `/ kTile` folded into a multiply
+// because kTile is a power of two. The whole function is 346 instructions with
+// zero `jal` and zero `div.s`. The tanhf/expf/floorf pattern (an innocent-
+// looking C call that was really a 68-instruction library round trip) does NOT
+// repeat here, and this comment exists so the next round checks the
+// disassembly first instead of assuming it does.
 void RendererCoreBlss::buildFeatures() {
-  const int n = cols * rows;
-
-  // Normalised depth first: the 4-neighbour gradient below differences the
-  // NORMALISED values, so it needs the whole field before it can run.
-  for (int i = 0; i < n; i++) {
-    feat[i][1] = clamp01(tDepth[i] * kDepthRef);
-  }
-
   for (int cy = 0; cy < rows; cy++) {
     for (int cx = 0; cx < cols; cx++) {
       const int i = cy * cols + cx;
@@ -907,7 +955,7 @@ void RendererCoreBlss::buildFeatures() {
       // depthGrad: the larger of the 4-neighbour difference and the tile's own
       // near/far spread - a disocclusion / silhouette proxy.
       const float d = feat[i][1];
-      float grad = (tDepthMax[i] - tDepthMin[i]) * kDepthRef;
+      float grad = tGrad[i];
       if (cx > 0) {
         const float t = fabsf(feat[i - 1][1] - d);
         if (t > grad) grad = t;
@@ -925,10 +973,6 @@ void RendererCoreBlss::buildFeatures() {
         if (t > grad) grad = t;
       }
       feat[i][2] = clamp01(grad);
-
-      feat[i][3] = tEdge[i];
-      feat[i][4] = tDetail[i];
-      feat[i][5] = tCover[i];
     }
   }
 }
@@ -1090,7 +1134,7 @@ void RendererCoreBlss::logFeatureSpread() {
   }
   int covered = 0;
   for (int i = 0; i < n; i++) {
-    if (tCover[i] >= 0.02F) covered++;
+    if (feat[i][5] >= 0.02F) covered++;  // the coverage channel IS tCover
     for (int f = 0; f < kFeatures; f++) {
       const float v = feat[i][f];
       if (v < fMin[f]) fMin[f] = v;

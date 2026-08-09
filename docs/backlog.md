@@ -191,6 +191,22 @@ the verification, and any fact worth reusing belongs in the relevant
     parity run. Worth 2.11 ms in PCSX2 but only **~1.5 ms on hardware** (the
     emulator over-weights libm). The engine half was landed, hashed and DEAD
     until 2026-08-08 - `runNet` never called it; it does now.
+  - **DONE, and the answer is a floor: the composite's LAST two terms are not
+    worth optimising.** `reproj` (0.275) + `feat` (0.190) was the only part of
+    the EE bill nobody had opened. Disassembled first, on the method that found
+    `tanhf`/`expf` and `floorf`: **`sqrtf` is a bare `sqrt.s`** on the R5900 and
+    `buildFeatures` has **zero `jal` and zero `div.s`** - the libm-round-trip
+    seam is exhausted, and the three previous wins were all the same win. Two
+    bit-identical changes landed anyway (fuse the tile-stat pass into
+    `finishTileStats`, hoist `buildReproj`'s per-column/row screen ray) and are
+    worth **+0.017 ms of a 4.60 ms bill** - a simplification, not a speed-up.
+    They also **price a divide**: ~565 fewer `div.s` a frame is 0.007 ms, which
+    is the number that disposes of every remaining arithmetic idea here. Bill
+    **4.60 -> 4.58 ms**, break-even unchanged at 11.5 coverages. Full account and
+    the fixture trap it exposed (`proxy` differs 0.051 ms between two runs of the
+    IDENTICAL ELF; `BLSSGRID`'s proxy count is the guard) in docs/profiling.md,
+    "The last terms in the composite". **What is left on the EE is `proxy`
+    (2.34) and it is the twin-contract item below.**
   - **The next EE cut is twin-contract work, and the ENGINE HALF IS NOW WRITTEN
     AND SWITCHED OFF.** The bag-proxy feed is the largest remaining EE term on
     hardware (2.69 ms). The rule that makes it cheaper is the **proxy budget**:

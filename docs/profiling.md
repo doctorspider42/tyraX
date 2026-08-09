@@ -158,8 +158,13 @@ split the composite at its four phases and reconstruct `comp`'s EE figure to
 within their own overhead. They print as a second line:
 
 ```
-FTSPLIT f=3150 proxy=3.04/1.31 reproj=0.39 feat=0.14 net=3.86 pkt=0.62
+FTSPLIT f=3150 proxy=3.040/1.310 reproj=0.390 feat=0.140 net=3.860 pkt=0.620
 ```
+
+(Three decimals since 2026-08-09. The terms are sub-millisecond now — see "The
+last terms in the composite" — and at two decimals a real 0.03 ms cut is three
+units of the last digit, which no number of paired windows can average away.
+Older lines in this page are quoted at two.)
 
 `proxy` prints as **total/accum**. `accum` is the read-modify-write per (proxy,
 *tile*); `total - accum` is the projection per VU1 package - eight corners
@@ -608,7 +613,7 @@ With everything above applied, the EE cost of BLSS on this fixture is
 |---|---|---|
 | `proxy` | 2.39 | one box per VU1 package must be projected and accumulated into tiles; cutting further means describing the frame more coarsely, which is a **twin-contract change** |
 | `net` | 0.79 | the MLP, with the activation table in (it took 1.14 ms off); what is left is 108 multiply-adds x N tiles and no table can remove it |
-| `reproj` + `feat` + `pkt` | 1.03 | 255 corners, N tiles, and the grid packet |
+| `reproj` + `feat` + `pkt` | 1.03 | 255 corners, N tiles, and the grid packet — **and this one has now been dug into and is genuinely a floor**: no libm, no divides worth removing, see "The last terms in the composite" |
 | `begin` + `end` | 0.55 | the raster redirect and its drain |
 
 (Hardware, `upscaler-lab`. `blssrig` in PCSX2 gives 1.97 / 1.29 / 0.84 / 0.14
@@ -845,6 +850,11 @@ replacing the projected "about 11" and the earlier measured **13**. With the
 proxy budget on it would be **10.5**. Each millisecond off the bill is still
 worth about **2.3** coverages.
 
+(The bill has since gone to **4.58 ms** — the last two composite terms were
+looked at and there was almost nothing in them. Break-even does not move at the
+decimal it is quoted to. See "The last terms in the composite" below, which is
+also where the disassembly showing why this is a floor lives.)
+
 ### Calibrating the speed model against hardware (2026-08-09)
 
 The editor predicts a project's speedup before building, from
@@ -994,6 +1004,119 @@ shot-plan question rather than a new instrument.
 fixture whose variable load is alpha-blended billboards; a scene whose overdraw is
 opaque geometry may well retain a different fraction, and nothing here measures
 that.
+
+### The last terms in the composite, and why this is the floor (2026-08-09)
+
+Four rounds have now taken `proxy` 3.95 → 2.34, `net` 2.20 → 0.79 and `pkt`
+0.73 → 0.50 on hardware. What had never been looked at is the rest:
+`finishTileStats` + `buildReproj` (`reproj`, 0.275 ms) and `buildFeatures`
+(`feat`, 0.190 ms) — 0.47 ms of a 4.60 ms bill. This round looked, and the
+answer is **there is almost nothing there, and the reason is that the previous
+three wins were all the same win.**
+
+**The instrument first: `FTSPLIT` prints three decimals now.** It was written
+when the terms it splits ran 2–4 ms and 0.01 was noise. At `reproj` 0.28 and
+`feat` 0.19 a real 0.03 ms cut is three units of the last digit, and rounding is
+not something more paired windows can average away.
+
+**THE METHOD THAT SETTLED IT WAS THE DISASSEMBLY, NOT A HYPOTHESIS.** The two
+biggest wins this feature has had — `tanhf`/`expf` (−1.14 ms) and `floorf`
+(−0.23 ms) — were the same discovery twice: an innocent-looking C call that was
+really an out-of-line newlib routine, 68 instructions plus the call sequence, on
+a CPU with no double-precision FPU. `buildFeatures` runs a `sqrtf` per tile, so
+the obvious guess was a third one. **It is not.** In the shipped ELF:
+
+```
+1738f8:  add.s   $f0,$f0,$f1
+1738fc:  sqrt.s  $f0,$f0        <- sqrtf, inline, no call, no errno branch
+173900:  mul.s   $f0,$f0,$f5    <- / kTile, folded to a multiply (power of two)
+```
+
+Sweeping every call target across the whole BLSS code region:
+
+| function | instructions | `jal` | `div.s` | `sqrt.s` |
+|---|---|---|---|---|
+| `finishTileStats` | 92 | 0 | 1 | 0 |
+| `buildReproj` | 600 | 0 | 22 | 0 |
+| `buildFeatures` | 346 | **0** | **0** | 2 (loop-peeled copies of one) |
+
+`fabsf` is `abs.s`, `edgeAcc / (2*kTile)` is a multiply, and the only libm left
+anywhere near BLSS is one `logf` (3×/frame, `runNet`'s deadzone setup), one
+`tanf` (camera setup) and 17 `__extendsfdf2` inside `logFeatureSpread`'s
+`snprintf` — which the counters already exclude. **The libm-round-trip seam is
+exhausted. Disassemble before assuming a fourth one exists.**
+
+**What was tried anyway, and what it was worth.** Two bit-identical changes, each
+measured on its own counter: (1) `finishTileStats` writes `feat[i][1]/[3]/[4]/[5]`
+directly and reduces the depth pair to `tGrad` on the spot, deleting five per-tile
+arrays and the 224-tile pass at the top of `buildFeatures`; (2) `buildReproj`
+hoists the per-column/per-row screen ray out of the corner loop and turns the
+neighbour-count average into an exact binary scaling — together ~565 fewer `div.s`
+a frame.
+
+Fixture `examples/upscaler-lab` at `%TEMP%\tyra-editor-test\ulabhw`, BLSS on,
+jitter off, debug profile, Live everything off. Three arms built from one code
+base by swapping the two engine files — **A** baseline, **B** = A + the fused
+pass, **C** = B + the hoist — **two runs per arm, interleaved A,B,C,A,B,C**, paired
+on the `f=` window key, all cross-pairings, over the parked six-bank region
+(frames 600–2550, 40 windows a run). Sign: **d > 0 = the cut saved time.**
+
+| counter | A (baseline) | C (both) | d (95 % CI) |
+|---|---|---|---|
+| `feat` | 0.190 | **0.142** | **+0.049** [+0.048, +0.049] |
+| `reproj` | 0.275 | **0.303** | **−0.029** [−0.029, −0.028] |
+| `net` | 0.779 | 0.779 | +0.000 [−0.000, +0.001] |
+| `pkt` | 0.499 | 0.502 | −0.004 [−0.004, −0.003] |
+| **the four composite counters** | **1.743** | **1.726** | **+0.017** |
+| `composite` EE, independently | **1.848** | **1.832** | **+0.016** |
+| `begin` / `end` / composite GS | 0.410 / 0.107 / 0.500 | 0.410 / 0.109 / 0.500 | unchanged |
+
+**The fused pass does not delete work, it MOVES it** — `feat` 0.190 → 0.141 and
+`reproj` 0.275 → 0.310, keeping +0.014 — and the hoist's ~565 divides are worth
+`reproj` 0.310 → 0.303, i.e. **+0.007 ms**. Both reproduce in the still-scene
+segment (+0.017 there too). So:
+
+> **~565 `div.s` a frame cost about 0.007 ms — roughly 2 100 EE cycles.** That is
+> the conversion factor to reach for before optimising arithmetic in this file
+> again. A divide here is a single instruction of single-digit cycles; the reason
+> the earlier rounds found milliseconds is that they were removing *calls*, not
+> operations.
+
+**The whole round is +0.017 ms of a 4.60 ms bill — 0.4 %.** The bill becomes
+**4.58 ms**, break-even stays at **11.5 coverages** to the decimal it is quoted
+at, and at frame level the change is invisible (`work` moved by less than its own
+run-to-run drift). It landed because it is bit-identical, deletes five arrays and
+one whole pass, and is not negative — **not because it is a speed-up.** The
+honest headline is the one this section opened with: after the proxy feed, the
+MLP and the packet, the remaining composite arithmetic is a floor.
+
+**Bit-identity was proved on hardware across three arms.** Under `blssDebugView 2`,
+in the sweep script's final segment (which hides **every** emitter, so the scene
+is genuinely still), `BLSSWORST` / `BLSSFEAT` / `BLSSOUT` / `BLSSFILL` are
+byte-identical and `BLSSGRID` identical in every column but tile updates —
+**A1 ≡ B1 ≡ B2 ≡ C1 ≡ C2**, one distinct value each over 44 samples a run.
+
+> **A NEW FIXTURE TRAP, AND `BLSSGRID` IS THE GUARD AGAINST IT.** One run in six
+> (`A2`) came back different on every channel — and it differed from **its own
+> arm's other run** exactly as much as from C, which is what identifies it as the
+> fixture rather than the code. `BLSSGRID` names the cause: **201 proxies of 262
+> instead of 198**, from the fifth log sample onward, with a different
+> `BLSSWORST` box. The parked scene had settled into a slightly different state,
+> three proxies' worth, and stayed there for the whole run. It also explains a
+> figure that looks like noise and is not: `proxy` differed by **0.051 ms between
+> two runs of the identical ELF**, while `reproj` and `feat` reproduced to
+> ±0.001. So: **`proxy` and `accum` are not attributable below ~0.05 ms on this
+> fixture, and `BLSSGRID`'s proxy count is the check that says whether a run is
+> comparable at all.** Read it before reading any other number, and discard a run
+> whose count does not match — do not average it in.
+
+**One idea recorded as declined rather than re-derived.** `runNet`'s corner
+averaging divides by a 1..4 count 255 times a frame, the same shape the hoist
+just fixed. At the price measured above that is worth about 0.003 ms, below what
+the counter resolves, so it is not worth the churn. The same arithmetic disposes
+of the other candidate here — computing each 4-neighbour depth difference once
+instead of twice in `buildFeatures` — which would save loads and compares in a
+function whose entire cost is 0.19 ms.
 
 ### The stability gate (period-2 / the "bob")
 

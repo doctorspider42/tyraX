@@ -607,6 +607,31 @@ Eight things here that were paid for, and that any edit must keep:
   The instrument is `inc/debug/frame_profile.hpp` (TYRA_FRAME_PROFILE, default
   0, so a shipped libtyra.a carries none of it) plus the FRAMETIME line in the
   generated drawDebugHud.
+- **THE COMPOSITE'S LAST TWO TERMS WERE DUG INTO AND THEY ARE A FLOOR - STOP
+  LOOKING FOR A FOURTH LIBM WIN** (2026-08-09, hardware, docs/profiling.md
+  "The last terms in the composite"). `reproj` 0.275 + `feat` 0.190 was the only
+  part of the bill nobody had opened. The method that found the previous three
+  wins was applied first, and it came back empty: **`sqrtf` in `buildFeatures`
+  compiles to a bare `sqrt.s`** - no call, no errno branch, `/ kTile` folded to
+  a multiply - and `buildFeatures` is 346 instructions with **zero `jal` and
+  zero `div.s`**. `tanhf`/`expf`/`floorf` were wins because they were CALLS; the
+  arithmetic that is left is single instructions and there is no round trip to
+  find. Two bit-identical changes landed anyway and are worth **+0.017 ms of a
+  4.60 ms bill (0.4 %)**: `finishTileStats` writes `feat[][1]/[3]/[4]/[5]` and
+  `tGrad` directly (five per-tile arrays and one 224-tile pass deleted - but the
+  work MOVES rather than disappearing, `feat` 0.190 -> 0.141 against `reproj`
+  0.275 -> 0.310), and `buildReproj` hoists the per-column/row screen ray and
+  makes the neighbour-count average an exact binary scaling. That second one
+  **prices a divide: ~565 fewer `div.s` a frame is 0.007 ms**, i.e. ~2 100 EE
+  cycles - the conversion factor to use before optimising arithmetic here again.
+  Bit-identity proved on hardware across all three arms (A1 = B1 = B2 = C1 = C2
+  byte-identical on BLSSWORST/BLSSFEAT/BLSSOUT/BLSSFILL in the emitters-off
+  segment). **And a fixture trap worth knowing: `proxy`/`accum` differ by
+  0.051 ms between two runs of the IDENTICAL ELF** on `upscaler-lab`, because
+  the parked scene sometimes settles with 201 proxies instead of 198 -
+  `BLSSGRID`'s proxy count is the guard, read it before trusting any `proxy`
+  number and discard a run whose count does not match. `reproj`/`feat`
+  reproduce to +-0.001.
 - **The bob is the JITTER, and the per-field bias is NOT part of it.** The
   +-1/4-pixel per-frame raster jitter in `beginScene` is the confirmed cause: a
   person watched three builds of `examples/upscaler-lab` differing in nothing
