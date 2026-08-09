@@ -21592,7 +21592,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float emitWeight;  // custom: air drag ~ 1/weight\n"
            "  float emitLife;    // custom: particle lifetime, seconds\n"
            "  float emitGrow;    // custom: size multiplier at end of life\n"
-           "  float emitOpacity; // custom: base alpha 0..1\n"
+           "  float emitOpacity; // fog/custom: base alpha 0..1\n"
            "  int emitDieGround; // custom: 1 = particle dies on the terrain\n"
            "  int snd;        // sound emitters: index into SND_PATHS, -1 = none\n"
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
