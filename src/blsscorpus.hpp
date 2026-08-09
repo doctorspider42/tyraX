@@ -75,6 +75,19 @@ struct CorpusConfig {
     // the bestiary's hand-chunked floors and walls were its stand-in for. Kept
     // as `--no-package-split` so those tables stay reproducible.
     bool packageSplit = true;
+    // THE PROXY BUDGET - the fifth rule of the twin contract, and it SHIPS OFF
+    // on both sides. docs/blss-reconstruction.md section 2 is the normative
+    // statement; proxyGroupSize() in the .cpp is this side of it.
+    //
+    // The engine's half is `TYRA_BLSS_PROXY_BUDGET`, which is 0. This is the
+    // same number in the other file, and the two move in ONE commit or not at
+    // all - a host that describes a frame with 116 proxies while the console
+    // describes it with 198 is the twin drift the whole file is arranged to
+    // prevent, and it is the exact shape of the bug that had the network fitted
+    // to bounding spheres for eleven commits. `--proxy-budget` turns this side
+    // on so the cost can be measured BEFORE the paired flip, which is what it
+    // is for.
+    bool proxyBudget = false;
     // ANIMATED MODELS ARE PART OF THE FRAME. On the console a skinned mesh is
     // submitted through StaPipCore like any other static bag, so it is drawn
     // AND it describes tiles; this corpus used to do neither. `--no-anim`

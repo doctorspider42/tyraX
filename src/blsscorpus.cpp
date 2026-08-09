@@ -978,9 +978,63 @@ bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
     return true;
 }
 
+// THE PROXY BUDGET, and it is the fifth rule of the twin contract
+// (docs/blss-reconstruction.md section 2 - read it there, it is the engine
+// agent's file and it is the normative statement).
+//
+// A proxy's ONLY effect is on the tiles its screen bbox overlaps, and the grid
+// resolves nothing finer than a kTile square. So describing a bag with more
+// boxes than it covers tiles buys nothing the accumulator can represent, while
+// costing a projection (eight corners, twelve edges) and a full tile update per
+// extra box. The cap is therefore the bag's own tile footprint, counted with
+// addBag's arithmetic so the two sides agree on the boundary case:
+//
+//     tiles = (cx1 - cx0 + 1) * (cy1 - cy0 + 1)   of the WHOLE bag's box
+//     cap   = clamp(tiles, 1, kMaxProxiesPerBag)
+//           = kMaxProxiesPerBag  when the whole box describes nothing at all
+//     group = ceil(parts / cap)                   the existing consecutive merge
+//
+// It is CAMERA-DEPENDENT, which is why it lives here and not in finishObject():
+// the same bag is worth 32 boxes across the screen and 1 in the distance.
+//
+// Two things it deliberately is not. It is not a screen-AREA floor - that was
+// considered on the engine side and REJECTED, because a rule that can take a
+// distant bag's proxy count to zero hands its tiles `coverage = 0`, which the
+// network reads as "there is nothing here" rather than "there is something
+// small here". The cap is never below 1. And it is not a fidelity-free change:
+// merging consecutive parts can only ENLARGE a box, never move it, so the worst
+// case degrades toward the whole-bag proxy this feature spent eleven commits
+// getting away from - which is exactly why it ships off until measured.
+//
+// Returns the number of consecutive parts that merge into one proxy.
+int proxyGroupSize(const Object& o, const Materials& mats, const Pinhole& cam, int outW,
+                   int outH) {
+    const int parts = (int)o.part.size();
+    if (parts <= 1) return 1;
+    // The corpus' own grid, derived the way generate() derives it.
+    const int tile = tileSize();
+    const int cols = std::max(outW / tile, 1), rows = std::max(outH / tile, 1);
+    BagProxy whole;
+    int cap = kMaxProxiesPerBag;
+    if (bagOf(o, o.lo, o.hi, mats, cam, outW, outH, whole)) {
+        // addBag's clamps and its -1e-3f, so a box ending exactly on a tile
+        // boundary does not claim the tile after it. Getting this wrong is a
+        // one-tile disagreement that no PSNR column can see.
+        const auto clampTile = [](int v, int hi) { return v < 0 ? 0 : (v > hi ? hi : v); };
+        const int cx0 = clampTile((int)std::floor(whole.x0 / (float)tile), cols - 1);
+        const int cx1 = clampTile((int)std::floor((whole.x1 - 1e-3f) / (float)tile), cols - 1);
+        const int cy0 = clampTile((int)std::floor(whole.y0 / (float)tile), rows - 1);
+        const int cy1 = clampTile((int)std::floor((whole.y1 - 1e-3f) / (float)tile), rows - 1);
+        const int tiles = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
+        cap = std::min(std::max(tiles, 1), kMaxProxiesPerBag);
+    }
+    return (parts + cap - 1) / cap;
+}
+
 std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& mats,
                               const Pinhole& cam, int outW, int outH,
-                              const std::vector<const Object*>* extra = nullptr) {
+                              const std::vector<const Object*>* extra = nullptr,
+                              bool proxyBudget = false) {
     std::vector<BagProxy> out;
     out.reserve(objs.size() + (extra ? extra->size() : 0));
     BagProxy b;
@@ -1001,9 +1055,32 @@ std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& 
                        o.centre.z - cam.pos[2]};
             if (dot(d, d) > o.viewDist * o.viewDist) continue;
         }
-        for (const std::pair<V3, V3>& p : o.part)
-            if (bagOf(o, p.first, p.second, mats, cam, outW, outH, b))
-                out.push_back(b);
+        const int group = proxyBudget ? proxyGroupSize(o, mats, cam, outW, outH) : 1;
+        if (group <= 1) {
+            for (const std::pair<V3, V3>& p : o.part)
+                if (bagOf(o, p.first, p.second, mats, cam, outW, outH, b))
+                    out.push_back(b);
+            continue;
+        }
+        // The consecutive-part merge, the same one finishObject() applies to the
+        // fixed cap: union the world AABBs of `group` consecutive parts. The
+        // parts partition consecutive vertex RANGES, so the union of their boxes
+        // IS the box over the union range - this is the same merge, applied per
+        // frame because the budget is per frame.
+        const int parts = (int)o.part.size();
+        for (int base = 0; base < parts; base += group) {
+            const int end = std::min(base + group, parts);
+            V3 lo = o.part[(size_t)base].first, hi = o.part[(size_t)base].second;
+            for (int k = base + 1; k < end; ++k) {
+                lo.x = std::min(lo.x, o.part[(size_t)k].first.x);
+                lo.y = std::min(lo.y, o.part[(size_t)k].first.y);
+                lo.z = std::min(lo.z, o.part[(size_t)k].first.z);
+                hi.x = std::max(hi.x, o.part[(size_t)k].second.x);
+                hi.y = std::max(hi.y, o.part[(size_t)k].second.y);
+                hi.z = std::max(hi.z, o.part[(size_t)k].second.z);
+            }
+            if (bagOf(o, lo, hi, mats, cam, outW, outH, b)) out.push_back(b);
+        }
     }
     return out;
 }
@@ -1863,6 +1940,13 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             "camera and FIRST pose, so only the jitter phase advances. This is the host "
             "twin of the console's frozen-camera experiment and it is a METRIC fixture, "
             "not a corpus - do not train on it, and read only the period-2 table.\n");
+    if (cfg.verbose && cfg.proxyBudget)
+        std::printf(
+            "[blss] PROXY BUDGET ON (--proxy-budget): a bag gets at most as many proxies "
+            "as it covers tiles, capped at %d and merged consecutively. THE ENGINE'S "
+            "TYRA_BLSS_PROXY_BUDGET IS 0 - this run describes the frame more coarsely "
+            "than the console does, which is a MEASUREMENT and not a twin.\n",
+            kMaxProxiesPerBag);
     if (cfg.verbose && !wantJitter)
         std::printf(
             "[blss] sub-pixel jitter OFF%s - both phases sample the same "
@@ -1903,7 +1987,11 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // console's own instrument prints next to its feature spread, and the
         // one that was 2 on the day this feature was found running on a
         // distribution nothing had measured.
-        std::printf("[blss] %zu bag proxy(ies) over %s, %s\n", proxies,
+        // With the budget on this is the UNCAPPED count - the cap is per frame
+        // and per camera, so there is no one number for it here. The per-frame
+        // count is what --blss-eval --features reports.
+        std::printf("[blss] %zu bag proxy(ies)%s over %s, %s\n", proxies,
+                    cfg.proxyBudget ? " before the budget" : "",
                     projectGeometry.empty() ? "the bestiary"
                                             : "the project's scenes",
                     cfg.packageSplit ? "one per VU1 package (the engine's split)"
@@ -2022,7 +2110,8 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
 
         // ...and what the EE knows ABOUT it: one bag per drawn object, from
         // the unjittered display-resolution projection.
-        const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH, &animNow);
+        const std::vector<BagProxy> bags =
+            bagList(geo, mats, cur, outW, outH, &animNow, cfg.proxyBudget);
         const std::vector<TileStats> stats = accumulate(cols, rows, outW, outH, bags);
         // History size is the DISPLAY size: the runtime's history is the other
         // display framebuffer (docs/blss-reconstruction.md section 6), so one

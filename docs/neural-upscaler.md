@@ -536,7 +536,7 @@ shipped defaults (`0` and `16`) are the result of such a sweep, recorded with it
 numbers in `src/blss.hpp`. Changing either changes the *labels*, so a change is
 only meaningful after a re-train:
 
-Five more take a configuration **no project can currently ask for**, and each
+Six more take a configuration **no project can currently ask for**, and each
 prints a line saying so, because a table of decibels whose configuration is not
 on the page is a table nobody can reproduce:
 
@@ -547,6 +547,7 @@ on the page is a table nobody can reproduce:
 | `--act-table N` | `tanh`/logistic from a shared table instead of libm, on the fit *and* the inference | [The transcendentals, as a table](#the-transcendentals-as-a-table) |
 | `--no-anim` | leaves the project's animated models out of the corpus, the way it worked before they were added | [The animated models the corpus was not drawing](#the-animated-models-the-corpus-was-not-drawing) |
 | `--still` | freezes each shot at one camera and one pose so only the jitter phase advances — the host twin of the console's frozen-camera experiment, and a **fixture for the period-2 table only** (it is refused by `--blss-train` and by `--cv`) | [The still fixture](#the-still-fixture-and-what-it-showed-the-metrics-floor-was) |
+| `--proxy-budget` | caps a bag's proxy count at the tiles it covers — the fifth rule of the twin contract, which **ships off on both sides** | [The proxy budget](#the-proxy-budget-what-the-cheaper-frame-description-costs-the-network) |
 
 ```bash
 tyrax-editor --blss-train --frames 84 --fill-weight 4 -o try.net
@@ -1982,6 +1983,77 @@ different frames.
 > so the temporal kernel can beat a one-sample render even when there is nothing
 > to upscale — the same reason
 > [`native` is not a ceiling](#how-to-read-these-tables-and-what-not-to-read-into-them).)
+
+### The proxy budget: what the cheaper frame description costs the network
+
+**The host half of the twin contract's fifth rule is in, and it costs nothing
+measurable.** The rule itself is the engine's — it is stated normatively in
+[§2 of the math doc](blss-reconstruction.md) — and it says that describing a bag
+with more boxes than it covers *tiles* buys nothing the accumulator can
+represent, while costing a projection and a tile update per extra box. So the
+cap becomes the bag's own tile footprint:
+
+```
+tiles = (cx1-cx0+1) * (cy1-cy0+1)   of the WHOLE bag's box, addBag's arithmetic
+cap   = clamp(tiles, 1, 32)         = 32 when the whole box describes nothing
+group = ceil(parts / cap)           the existing consecutive-part merge
+```
+
+It is **camera-dependent**, which is why the corpus applies it in `bagList()` per
+frame rather than in `finishObject()` at build time: the same bag is worth 32
+boxes across the screen and one in the distance.
+
+**It ships OFF on both sides** — `TYRA_BLSS_PROXY_BUDGET` is 0 and
+`--proxy-budget` is the host's opt-in — because a host that describes a frame
+with 122 proxies while the console describes it with 187 is precisely the twin
+drift that had this network [fitted to bounding
+spheres for eleven commits](#where-a-bags-screen-box-comes-from-and-why-that-was-the-bug).
+The two move in one commit or not at all.
+
+What it costs the network, since the question was worth asking rather than
+assuming — same protocol as everything above, `--cv --cv-seeds 5`, 120 frames,
+**30 fold-runs per row**:
+
+| | proxies/frame | margin | sd | below bilinear | passes | temporal occ. |
+|---|---|---|---|---|---|---|
+| `upscaler-lab`, off | **187.2** | +0.33 | 0.34 | 2/30 | 1.65 | 65.1 % |
+| `upscaler-lab`, **on** | **121.8** (−35 %) | **+0.34** | 0.34 | 2/30 | 1.65 | 64.7 % |
+| `procedural`, off | **281.7** | −0.04 | 0.09 | 15/30 | 1.16 | 15.6 % |
+| `procedural`, **on** | **219.5** (−22 %) | **−0.04** | 0.09 | 15/30 | 1.15 | 15.5 % |
+
+**A third of the frame description, for 0.01 dB** — one thirty-fourth of the
+fold-to-fold sd, i.e. below what this instrument can resolve. Nothing else moves
+either: the spread, the folds that lose to plain bilinear, the mean passes and
+the per-kernel occupancy are the same to the digit, at deadzone 8 and at deadzone
+0. The engine's own counts on its own fixture are 198 → 116 proxies and
+262 → 174 projections for `proxy` 1.63 → 1.25 ms; the host's −35 % over six
+camera moves is the same order and the same direction, and the two are not
+expected to be equal because they are walking the scene differently.
+
+**And the two sides agree on WHICH channel moves**, which is the check worth
+having, because a description change that quietly altered a feature the network
+leans on would not show up in a margin this project has plenty of.
+`--blss-eval --features`, `upscaler-lab`, 26 880 tiles, off → on:
+
+| | motion | depth | depthGrad | edgeDens | texDetail | **coverage** |
+|---|---|---|---|---|---|---|
+| host mean, budget **off** | 0.422 | 0.552 | 0.577 | 0.514 | 0.445 | **0.693** |
+| host mean, budget **on** | 0.423 | 0.554 | 0.579 | 0.517 | 0.447 | **0.695** |
+
+`coverage` moves up by 0.002 and everything else by ≤0.003 — the engine reported
+`coverage` **0.631 → 0.638** on its own fixture and no movement anywhere else,
+which is the same channel moving in the same direction by the same tiny amount.
+(One thing the host sees that the engine's summary did not mention: `texDetail`'s
+saturation falls, 7.8 % → 4.5 % of tiles at exactly 1.0. Merging boxes enlarges
+the screen bbox, which is the denominator of the minification ratio, so a
+slightly coarser description is a slightly *less* clipped `texDetail` — mildly in
+the right direction for a page that keeps complaining about
+[saturated channels](#what-is-still-open).)
+
+**A screen-area floor is the idea to not have here**, and it was already rejected
+on the engine side: a rule that can take a distant bag's proxy count to *zero*
+hands its tiles `coverage = 0`, which the network reads as "there is nothing
+here" rather than "there is something small here". The cap is never below 1.
 
 ### The transcendentals, as a table
 

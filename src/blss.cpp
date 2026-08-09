@@ -1520,6 +1520,10 @@ struct CliOpts {
     // package. Off is what the console does; on reproduces every fold table
     // published before the split existed. See CorpusConfig::packageSplit.
     bool packageSplit = true;
+    // `--proxy-budget`: cap a bag's proxy count at the tiles it covers - the
+    // fifth rule of the twin contract, off on BOTH sides. See
+    // CorpusConfig::proxyBudget and docs/blss-reconstruction.md section 2.
+    bool proxyBudget = false;
     // `--no-anim`: leave animated models out of the project corpus, the way it
     // worked before they were added. The console draws and describes them, so
     // this is a reproduction switch, not a setting - see CorpusConfig::animated.
@@ -1713,6 +1717,7 @@ CliOpts parseCli(int argc, char** argv) {
                     want.c_str());
         }
         else if (a == "--no-package-split") o.packageSplit = false;
+        else if (a == "--proxy-budget") o.proxyBudget = true;
         else if (a == "--no-anim") o.animated = false;
         else if (a == "--still") o.still = true;
         else if (a == "--no-jitter") o.jitter = 0;
@@ -1889,6 +1894,7 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.assetDir = o.assetDir;
     cc.projectDir = o.projectDir;
     cc.packageSplit = o.packageSplit;
+    cc.proxyBudget = o.proxyBudget;
     cc.animated = o.animated;
     cc.still = o.still;
     cc.jitter = o.jitter;

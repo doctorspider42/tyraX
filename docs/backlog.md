@@ -82,6 +82,21 @@ the verification, and any fact worth reusing belongs in the relevant
     because +-4/16 of a LOW-RES pixel stops being an output-pixel centre below
     2x2. Full account and the second fixture in docs/neural-upscaler.md
     ("Below half resolution, swept").
+  - **DONE (host half): the PROXY BUDGET, the twin contract's fifth rule.**
+    `--proxy-budget` caps a bag's proxy count at the tiles its whole box covers
+    (`cap = clamp(tiles, 1, 32)`, `group = ceil(parts / cap)`, the existing
+    consecutive merge) in `bagList()` - per FRAME, because the cap is
+    camera-dependent. **It ships OFF, matching the engine's
+    `TYRA_BLSS_PROXY_BUDGET = 0`**; the two move in one commit or not at all,
+    because a host describing a frame with 122 proxies while the console uses 187
+    is exactly the drift that had this net fitted to bounding spheres for eleven
+    commits. **Measured, it costs nothing**: upscaler-lab 187.2 -> 121.8
+    proxies/frame (-35 %) for +0.33 -> +0.34 dB at the same sd 0.34, the same
+    2/30 below bilinear, the same 1.65 passes and the same occupancy;
+    procedural 281.7 -> 219.5 (-22 %) for -0.04 -> -0.04. The only feature channel
+    that moves is `coverage`, 0.693 -> 0.695, which is the same channel and the
+    same direction the engine reported (0.631 -> 0.638). **Ready for the paired
+    flip whenever the engine side wants it.**
   - **OWED - re-run that hardware A/B against the jitter-OFF build.** The example
     shipped `blssJitter: true` when the 52.86/32.98 pair was measured and ships
     `false` since 2026-08-09 (its net is retrained to match). The re-run was
