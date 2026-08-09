@@ -206,6 +206,27 @@ struct CorpusFrame {
     std::string groupName;
 };
 
+// WHAT THE CORPUS KNOWS ABOUT ITSELF THAT A FRAME CANNOT CARRY. One field so
+// far, and it exists because a caveat printed at the top of a run is not
+// attached to the number at the bottom of it.
+//
+// `emitters` is how many ENABLED particle emitters the corpus walked past
+// without drawing. The renderer has no blending and no emitter parameter, so a
+// project's ground truth is its scene with the particles removed; on
+// `examples/showcase` that is 95.6 % of the frame's fill (`--blss-coverage`:
+// 14.57 emitter coverages against 0.67 of geometry). A PSNR table computed
+// against that truth is a measurement of the other 4.4 %, and the verdict it
+// ends with - "THIS SCENE WILL NOT BENEFIT" - is a confident sentence about a
+// frame the game does not display.
+//
+// So the count rides out of the corpus and onto the verdict line, where the
+// window, CI and a human all read it. See docs/backlog.md for what drawing them
+// would take and why it is not attempted before the ENGINE describes an emitter
+// bag at all.
+struct CorpusInfo {
+    int emitters = 0;
+};
+
 // Renders the whole corpus, one worker per frame (CorpusConfig::threads). Frame
 // N's `prevLow` is frame N-1 of the same shot (the first frame of a shot reuses
 // its own render, which is what the console does on a scene cut), and the
@@ -216,7 +237,7 @@ struct CorpusFrame {
 // function of N and the loop parallel at all - see the note above generate() in
 // the .cpp. The frames come back in the same order a serial run produced them,
 // so a corpus index still means what every held-out split assumes it means.
-std::vector<CorpusFrame> generate(const CorpusConfig&);
+std::vector<CorpusFrame> generate(const CorpusConfig&, CorpusInfo* info = nullptr);
 
 // ------------------------------------------------------------- coverage ------
 

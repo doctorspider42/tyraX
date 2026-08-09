@@ -719,6 +719,33 @@ bool load(Net& n, const std::string& path, std::string* err) {
 
 std::string provenancePath(const std::string& netPath) { return netPath + ".meta"; }
 
+// WHERE THE FILE ACTUALLY LANDED, spelled so it cannot be read two ways.
+//
+// `--blss-train <projectDir>` resolves its default net against the PROJECT now
+// (parseCli), not the cwd, which is the fix for a net that used to be written
+// where the build never reads it. The half that makes that fix checkable is
+// this one: the line the tool prints has to name a path the reader can paste,
+// and `examples/showcase/blss.net` names a different file from every directory.
+// That ambiguity cost a hardware round - the rebuild went on baking the shipped
+// default and the only evidence was a relative path nobody could resolve.
+//
+// `weakly_canonical` rather than `canonical` because the net does not exist yet
+// at the moment the caller formats the message, and a filesystem error must
+// NEVER turn a successful train into a failure - a net that was fitted, written
+// and then could not be pretty-printed is still a fitted net, so the plain
+// string is the fallback.
+std::string displayPath(const std::string& p) {
+    if (p.empty()) return p;
+    std::error_code ec;
+    const std::filesystem::path abs = std::filesystem::weakly_canonical(p, ec);
+    if (ec || abs.empty()) {
+        const std::filesystem::path fb = std::filesystem::absolute(p, ec);
+        if (ec) return p;
+        return fb.lexically_normal().string();
+    }
+    return abs.string();
+}
+
 Provenance currentProvenance() {
     Provenance p;
     p.present = true;
@@ -2206,6 +2233,21 @@ void applySweepKnobs(const CliOpts& o) {
     }
 }
 
+// HOW MANY ENABLED EMITTERS THE LAST CORPUS WALKED PAST WITHOUT DRAWING.
+//
+// A file-scope int rather than a parameter on all four call sites because it is
+// a property of the corpus the verb just built, every verb builds exactly one,
+// and the verbs are single-threaded up to the point they print. The corpus
+// itself is threaded; this is written once, before any worker starts.
+//
+// It exists so the CAVEAT reaches the VERDICT. `generate()` already printed a
+// four-line warning naming the count - at the top of a run that then prints two
+// PSNR tables, an alternation table and a one-line machine-readable verdict, by
+// which point the warning has scrolled away and the window's parser never saw
+// it at all. See CorpusInfo in blsscorpus.hpp for the measurement that says why
+// this matters more than it looks.
+int gCorpusEmitters = 0;
+
 std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     CorpusConfig cc;
     cc.frames = o.frames;
@@ -2230,7 +2272,9 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     else
         std::printf("blss: rendering %d corpus frames at %dx%d on every core\n", cc.frames,
                     cc.outW, cc.outH);
-    std::vector<CorpusFrame> corpus = generate(cc);
+    CorpusInfo ci;
+    std::vector<CorpusFrame> corpus = generate(cc, &ci);
+    gCorpusEmitters = ci.emitters;
     // --drop-feature: hold a channel at zero everywhere. A constant input is
     // worth exactly what a deleted one is - the net's weights on it are only
     // ever touched by weight decay - so this measures "would kFeatures - 1
@@ -3598,8 +3642,9 @@ int trainMain(int argc, char** argv) {
     std::string provErr;
     if (!writeProvenance(prov, outPath, &provErr))
         std::printf("blss: WARNING - %s (the net has no provenance)\n", provErr.c_str());
-    std::printf("blss: final loss %.6f, wrote %s (+ %s)\n", loss, outPath.c_str(),
-                provenancePath(outPath).c_str());
+    std::printf("blss: final loss %.6f, wrote %s (+ %s)\n", loss,
+                displayPath(outPath).c_str(),
+                displayPath(provenancePath(outPath)).c_str());
     // The three phases, named, so the next person to make this faster optimises
     // the one that is actually slow. Corpus and labelling are threaded; the fit
     // is sequential SGD (each Adam step reads the weights the previous one
@@ -3916,7 +3961,26 @@ int evalMain(int argc, char** argv) {
             // to "will this scene benefit" however you asked the question.
             constexpr double kNoHeadroomDb = 0.10;
             std::printf("\n  THE ANSWER - frame-weighted over both splits, %d frame(s)\n", frames);
-            if (ceiling < kNoHeadroomDb) {
+            if (ceiling < kNoHeadroomDb && gCorpusEmitters > 0) {
+                // THE ONE BRANCH THAT MUST NOT BE CONFIDENT. "Nothing to
+                // reconstruct" is a claim about the CONTENT, and the content
+                // this corpus rendered is the scene with its particles removed -
+                // which on `examples/showcase` is 4.4 % of the fill the game
+                // pays for (--blss-coverage: 0.67 geometry coverages against
+                // 14.57 emitter). A near-zero ceiling measured on the 4 % that
+                // was drawn says nothing about the 96 % that was not, and this
+                // is the exact sentence the BLSS window quotes verbatim.
+                std::printf("  NO VERDICT: this scene is %d enabled emitter(s) the corpus did not"
+                            " draw.\n", gCorpusEmitters);
+                std::printf("  The oracle reaches %+.2f dB over plain bilinear at %.2f passes ON"
+                            " THE GEOMETRY ALONE,\n  which would read as \"nothing to"
+                            " reconstruct\" - but the particles are missing from the\n  ground"
+                            " truth, not from the game. Run --blss-coverage here: if the emitter"
+                            " half of\n  that count dominates, this number is a measurement of the"
+                            " part of the frame that\n  happens to be geometry."
+                            " See docs/backlog.md.\n",
+                            ceiling, orcPas);
+            } else if (ceiling < kNoHeadroomDb) {
                 std::printf("  THIS SCENE WILL NOT BENEFIT. Leave the upscaler off.\n");
                 std::printf("  The ORACLE - the best any per-tile weighting can do under the exact"
                             " GS composite,\n  which no network can beat - scores %+.2f dB over"
@@ -3953,9 +4017,17 @@ int evalMain(int argc, char** argv) {
             // net-free, which is the point: headroom is the oracle's margin over
             // bilinear and `passes` is what the oracle pays for it, so a caller
             // can decide whether to bother training before any net exists.
+            //
+            // `emitters` is APPENDED, and that is the compatible way to do it:
+            // blssui::parseEval reads this line key=value and ignores keys it
+            // does not know (src/blss_ui.cpp), unlike the TABLES above it, which
+            // are read by column position and must never gain a column in the
+            // middle. It is the machine-readable half of the "NO VERDICT" branch
+            // - a caller that only reads this line still learns that `headroom`
+            // was measured on a frame missing N emitters' worth of fill.
             std::printf("[blss] verdict headroom=%+.3f passes=%.2f bilinear=%.3f oracle=%.3f"
-                        " native=%.3f\n",
-                        ceiling, orcPas, bil, orc, nat);
+                        " native=%.3f emitters=%d\n",
+                        ceiling, orcPas, bil, orc, nat, gCorpusEmitters);
         }
     }
 
@@ -4018,8 +4090,8 @@ int emitMain(int argc, char** argv) {
         }
         std::fwrite(tab.data(), 1, tab.size(), tf);
         std::fclose(tf);
-        std::printf("blss: wrote %s (activation table, hash 0x%08X)\n", o.outPath.c_str(),
-                    actTableHash());
+        std::printf("blss: wrote %s (activation table, hash 0x%08X)\n",
+                    displayPath(o.outPath).c_str(), actTableHash());
         return 0;
     }
 
@@ -4048,7 +4120,7 @@ int emitMain(int argc, char** argv) {
     }
     std::fwrite(src.data(), 1, src.size(), f);
     std::fclose(f);
-    std::printf("blss: wrote %s\n", o.outPath.c_str());
+    std::printf("blss: wrote %s\n", displayPath(o.outPath).c_str());
     return 0;
 }
 

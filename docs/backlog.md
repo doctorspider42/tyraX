@@ -276,7 +276,16 @@ the verification, and any fact worth reusing belongs in the relevant
     project positional, on the read side as well as the write; an explicit
     `-i`/`-o` still wins, and the bestiary and the union corpus keep the
     cwd-relative default because a net fitted on several projects belongs to
-    none of them. `--blss-train` already printed the absolute path it wrote.
+    none of them. **The diagnostic half landed on 2026-08-09**: `--blss-train`
+    did NOT print an absolute path - it printed `outPath` as given, and
+    `lexically_normal()` only normalises - so from a foreign cwd it still
+    reported `examples/showcase/blss.net`, which names a different file from
+    every directory and is exactly the ambiguity that cost the hardware round.
+    `blss::displayPath` (`weakly_canonical`, because the net does not exist yet
+    when the message is formatted, falling back to `absolute` and then to the
+    plain string, because a net that was fitted and written but could not be
+    pretty-printed is still a fitted net) now spells the net, its `.meta`
+    sidecar and both `--blss-emit` outputs absolutely.
     Verified four ways from a foreign cwd: the net lands in the project and not
     in the cwd, `--blss-eval` reports `net source=project` where it used to say
     `default`, the bestiary still writes `./blss.net`, `-o` still wins - and the
@@ -292,54 +301,143 @@ the verification, and any fact worth reusing belongs in the relevant
     `--blss-coverage` path); `renderScene()` takes geometry and materials and
     has no emitter parameter at all.
 
-    **How bad it is, measured rather than described.** On
-    `examples/upscaler-lab` - the flagship demo, 3 072 alpha-blended
-    billboards, measured at **1.63x on a real PS2** - `--blss-eval` renders
-    bare sky and flat ground and prints `headroom=+0.000`, `oracle ==
-    bilinear`, and the verdict **"THIS SCENE WILL NOT BENEFIT. Leave the
-    upscaler off."** `--blss-coverage` on the same directory reads 65.6
-    coverages against a 13.1 break-even and calls it a win. So the two verbs
-    do not merely disagree about what is in the scene: the quality one gives
-    a CONFIDENT WRONG ANSWER about the one project this feature exists to
-    demonstrate, in the voice the window quotes verbatim.
+    **How bad it is, measured 2026-08-09 on this tree** (jitter off, 2x2,
+    shipped defaults). The scene that prints the confidently wrong sentence is
+    `examples/showcase`, NOT `examples/upscaler-lab` - the earlier version of
+    this entry named the wrong one, and both of its numbers for it were stale:
 
-    **And it reaches a published claim.** `examples/showcase` has **8**
-    enabled emitters, so the "+0.00 dB oracle, some projects have nothing to
-    win" result quoted in docs/neural-upscaler.md and the skills was also
-    measured without a cavern of fog. Re-measure it when the renderer grows
-    billboards; do not assume it survives.
+    | project | `--blss-eval` | `--blss-coverage` geom + emit | emitter share |
+    |---|---|---|---|
+    | `examples/showcase` | `headroom=+0.006` -> "WILL NOT BENEFIT" | 15.24 = 0.67 + **14.57** | **95.6 %** |
+    | `examples/upscaler-lab` | `headroom=+1.058` at 1.38 passes | 72.63 = 0.98 + **71.65** | **98.7 %** |
 
-    **Landed instead, because a silently wrong verdict is worse than a
-    missing one:** the corpus builder counts a project's enabled emitters and
-    prints a four-line WARNING naming the count, saying the ground truth is
-    the scene without its particles, and pointing at `--blss-coverage`.
-    It fires on upscaler-lab (11) and showcase (8) and stays silent on
-    `examples/cube` and the bestiary. It costs nothing and it is a caveat,
-    not a fix.
+    `upscaler-lab` reads a +1.06 dB ceiling today, so it no longer contradicts
+    the speed verb; the retracted claims are its `+0.000` / "WILL NOT BENEFIT"
+    and its "3 072 billboards" (it has **11 emitters and 568 billboards**).
+    `showcase` is the live case: a near-zero ceiling measured on **4.4 %** of
+    the frame's fill, quoted verbatim by the BLSS window.
 
-    **What the fix actually needs**, which is why it was not half-landed:
-    (1) a BLENDING path in a rasteriser whose own comment says "no blending
-    anywhere in this" - today it is opaque plus the GS alpha TEST only;
-    (2) back-to-front sorting of the transparent quads, because a z-buffer
-    cannot order blended geometry; (3) a particle SIMULATION twin - the
-    counter places modelled centres on a rise, which is fine for counting
-    area and would be a fabricated ground truth if rendered, and a wrong
-    truth image is worse than none because the PSNR computed against it
-    looks valid; (4) camera-facing quad construction matching VU1's
-    billboard expansion, and a `BagProxy` for those bags matching what
-    `StaPipBillboardBag` submits, or the network is handed a description the
-    EE does not produce - the `luma` mistake again.
+    **Landed 2026-08-09, because a silently wrong verdict is worse than a
+    missing one:** the WARNING (from d240ef7a) now reaches the ANSWER as well
+    as the top of the run. A project with any enabled emitter and a ceiling
+    under +0.10 dB prints **`NO VERDICT:`** with the count and a pointer to
+    `--blss-coverage` instead of "THIS SCENE WILL NOT BENEFIT", and the
+    machine-readable line carries **`emitters=N`** (appended - that line is
+    parsed key=value with unknown keys ignored; the TABLES above it are read by
+    column position and must never gain a column). Verified: `showcase` prints
+    NO VERDICT, `procedural` is unchanged with `emitters=0`, and the anchor
+    `--blss-train examples/procedural --all-shots --frames 72 --no-jitter` is
+    still md5 `e069f286ea0c524999bfd9dac769608c` at `--threads 1` and at auto.
+    It is a caveat, not a fix.
 
-    **The ordering constraint that makes it expensive:** the oracle fits its
-    labels against the rendered truth, so drawing particles changes the
-    labels for every project that has any. That invalidates every published
-    fold table AND `resources/blss-default.net`, which was fitted on seven
-    projects several of which have emitters. Land it with the refit and the
-    re-publication in the same commit, the way `kNetVersion` changes are
-    handled, or the numbers and the shipped net silently stop describing the
-    same thing. Until then: treat a PSNR for a particle-heavy project as
-    NOT MEASURED, read the speed verdict instead, and pin the vantage
-    (`blssShots`) before quoting anything at all.
+    **THE BLOCKER IS THE ENGINE, NOT THE RASTERISER, and that is the finding
+    that should decide when this is attempted.** An emitter bag contributes
+    **no BagProxy at all** on the console: `buildParticles` sets
+    `frustumCulling = None` (templates.cpp), so `stapip_core.cpp` has no bbox,
+    falls to `addBagSphere(modelTranslation, radius = 0)`, and `addBag` rejects
+    it at `x1 <= x0`. Confirmed by reading both files; the corpus agrees by
+    accident, because `bagList()` only walks geometry.
+
+    So **drawing particles moves every LABEL and cannot move one INPUT.** All
+    six channels would still describe the opaque geometry alone while the truth
+    image became 96-99 % particles. On `showcase` the oracle would be re-fitted
+    against a frame whose predictors describe 4.4 % of it - not a harder
+    learning problem, an *unlearnable* one - and the net would fit whatever
+    geometry feature happened to correlate. That is worse than not drawing them,
+    and it is why the honest order is: **engine describes emitter bags first,
+    corpus draws them second.**
+
+    Two things that ordering also fixes, and neither is available today:
+    - **the twin contract would become uncheckable.** Its instrument is a
+      console `BLSSFEAT` line probed against the corpus distribution
+      (`--blss-eval --probe`), which compares FEATURE VECTORS. Emitters produce
+      no feature vector, so every rule below could be transcribed wrongly and
+      nothing in this repo would notice;
+    - **`--blss-coverage`'s emitter model could stop being modelled.**
+      `billboardOf`/`emitterCentres` average the life curves and spread the pool
+      through a box; a real simulation would replace them - at the cost of
+      re-publishing every coverage number, so it is its own tail.
+
+    **The sixteen twin rules a correct particle corpus owes**, all read out of
+    `templates.cpp` `updateParticles` / the billboard `.vclpp` / the GS setup,
+    so this is an inventory rather than a research task. Note (2) and (4): the
+    earlier version of this entry prescribed **back-to-front sorting** and **"a
+    BagProxy matching what `StaPipBillboardBag` submits"**, and BOTH are wrong -
+    the console does not sort, and it submits nothing.
+    1. blending: GS `(Cs - Cd) * As >> 7 + Cd`, in a rasteriser whose stated
+       invariant is that it has none;
+    2. **draw order = emitter order then pool-slot order, NOT depth.** The
+       console iterates `particles` and submits each pool as one bag;
+    3. z-test GEQUAL **with z-write** (`PipelineZTest_Standard`), so particles
+       occlude each other in draw order;
+    4. **no proxy for the bag** - which is the exact console match, so this rule
+       is free and is the one the old entry got backwards;
+    5. alpha test `!= 0` with `AFAIL = KEEP_ALL` (a zero-alpha particle writes
+       nothing at all, not even z);
+    6. MODULATE with TCC = RGBA, so `As = At * Af >> 7` for the textured
+       emitters (`upscaler-lab`'s haze is `puff.png`, RGBA32 by a per-asset
+       quality override) - and the product can exceed 128;
+    7. per-quad **`clipw` cull against the +-2048 px raster window: any corner
+       out drops the WHOLE quad**, which a 9-unit haze puff near the eye hits;
+    8. corner = `C +- (R*m00 + U*m01) +- (R*m10 + U*m11)`, STs
+       `(0,1)(1,1)(1,0)(0,0)`;
+    9. the camera basis `right = normalise(fwd.z, 0, -fwd.x)`,
+       `up = (-rz*fwd.y, rz*fwd.x - rx*fwd.z, rx*fwd.y)`; rain uses world-up;
+    10. per-kind spawn, velocity, lifetime for six kinds;
+    11. per-kind size and alpha curves (peak alpha: fire 90, smoke 40, fog
+        `opacity*60`, sparks 110, rain 70, custom `opacity*128`) and fire's
+        colour ramp;
+    12. fog's per-particle swirl (rotation by index and age);
+    13. rain's terrain fall distance and custom's die-on-ground, i.e. a
+        `terrainHeightAt` twin (`heightAtWorld` in blssscene.cpp already is one);
+    14. `emitFollow`, which makes the spawn box camera-relative;
+    15. the LCG `prand` with seed `12345 + runtimeIndex * 7919`, its exact
+        consumption order, and the staggered first respawn;
+    16. **a fixed `dt` the console does not have.** `g_frameDt` is real elapsed
+        time - on `upscaler-lab` that is 33 ms with BLSS on and 53 ms off, so
+        the two arms of the feature's own A/B do not even simulate the same
+        particle field. The corpus would have to invent one (1/50 s is the
+        defensible choice, and `AnimMesh`'s per-console-frame pose table is the
+        precedent).
+
+    **The tail, and it is smaller than this entry used to claim.**
+    `resources/blss-default.net` is fitted on `upscaler-lab material-lab
+    endless-runner cube save-points procedural endless-scroller bestiary` - of
+    those eight members exactly **one** (`upscaler-lab`) has any emitter, ~6 of
+    55 shots. `showcase` is NOT a member. So the refit blast radius is ~11 % of
+    the corpus, not "seven projects several of which have emitters". It still
+    has to be one commit: refit the default, regenerate the `.meta`, re-run the
+    published fold tables, or the CI check that reproduces the net from its
+    recorded command fails, correctly.
+
+    Until then: treat a PSNR for a particle-heavy project as NOT MEASURED, read
+    the speed verdict instead, and pin the vantage (`blssShots`) before quoting
+    anything at all.
+  - **A FOG emitter loses its Opacity on save/load - authored 0.3 comes back
+    0.6, and the fog is silently twice as dense.** Found while inventorying the
+    emitter parameters above; NOT fixed here because `src/project.cpp` was
+    outside this change's ownership.
+
+    `project::save()` writes the emitter's `opacity` **only inside the
+    `if (k == 5)` custom-physics block** (`src/project.cpp`, the `"emitter": {`
+    writer), while the loader reads `opacity` for every kind and defaults it to
+    **0.6**, and codegen emits `o.emitterOpacity` for every kind
+    (`src/templates.cpp`, the `SCENE_OBJECTS` writer). Fog is the one non-custom
+    kind that USES it - `alpha = d.emitOpacity * 60.0F` in `updateParticles` -
+    so a fog emitter is the case where the round trip loses data. Kinds 0/1/3/4
+    ignore the field, and kind 5 saves it, which is why this has survived.
+
+    Symptom sequence: set a fog emitter's Opacity to 0.3, the viewport preview
+    obeys it (`viewport.cpp` reads the same field), save, reopen - the value
+    reads 0.6 and the built game gets 0.6. Fix is one line (write `opacity`
+    outside the `k == 5` block) plus a thought about whether existing projects
+    need a migration: they cannot be distinguished from ones authored at the
+    default, so the honest answer is probably "no migration, note it in the
+    format-version entry".
+
+    It does NOT break the BLSS twin: the corpus and the generated game both read
+    the same lossy `.tyra`, so they agree with each other and are equally wrong
+    about what the author typed.
   - **The degenerate-net fast path is designed and unlanded.** When every output
     is deadzoned (measured: `point 0 % / temporal 0 % / sharpen 0 %` on a real
     project's own net) the composite is exactly one full-screen bilinear blit,

@@ -60,6 +60,14 @@ rasteriser and no pixel shaders at all.
 > +0.10 dB**, where no net can win anything and the question of which net to ship
 > does not arise.
 >
+> **Ask it about a scene whose overdraw is PARTICLES and you get no answer at
+> all, by design as of 2026-08-09.** The corpus renderer draws no emitters, so a
+> ceiling for such a project is measured on the geometry alone — 4.4 % of the
+> frame on `examples/showcase`. `--blss-eval` now prints **`NO VERDICT:`** there
+> instead of a confident *"WILL NOT BENEFIT"*, and
+> [says why](#the-corpus-renderer-draws-no-emitters). Use `--blss-coverage`,
+> which counts the particles.
+>
 > **A project with no `blss.net` is built with the network the editor ships**
 > ([the net that ships](#the-net-that-ships)) — fitted on seven example projects
 > *and* the bestiary, embedded in the editor binary, named in the generated
@@ -686,6 +694,14 @@ reconstruct), `passes` is what the oracle pays for it (1.00 *is* plain bilinear,
 5.00 is every kernel everywhere), and the three PSNRs are frame-weighted over
 both splits, the way `blssui::summarise()` computes them.
 
+`emitters=N` was appended to that line on 2026-08-09 and is the count of enabled
+particle emitters the corpus walked past **without drawing** — see
+[the emitter caveat](#the-corpus-renderer-draws-no-emitters). Any non-zero value
+means `headroom` describes a frame missing that much fill, and a caller reading
+only this line still learns it. **Appending is the compatible move and inserting
+would not be:** this line is parsed key=value with unknown keys ignored, while
+the tables above it are read by column position (next paragraph).
+
 The **fold line is printed by `--blss-eval --cv`** as each fold finishes. The
 fold loop turns the trainer's own verbosity off and prints nothing else until the
 table at the very end, so a progress bar driven off this tool's output used to go
@@ -900,24 +916,45 @@ read. The explicit `-o` / `-i` above were the workaround; they still override,
 and a bestiary or multi-project corpus still writes to the current directory
 because a net fitted on several projects belongs to none of them.
 
-> **THE CORPUS RENDERER DRAWS NO EMITTERS, so a PSNR number for a
-> particle-heavy project is not measured — it is measured on a different
-> scene.** `blsscorpus.cpp` models emitters only in the coverage counter; the
+#### The corpus renderer draws no emitters
+
+> **A PSNR number for a particle-heavy project is not measured — it is measured
+> on a different scene.** `blsscorpus.cpp` models emitters only in the coverage counter; the
 > renderer that produces the truth images and the `--dump` comparisons has no
-> emitter path and no blending at all. On `examples/upscaler-lab` — 3 072
-> alpha-blended billboards, **1.63x measured on a real PS2** — `--blss-eval`
-> renders bare sky and flat ground, reads `headroom=+0.000` and prints *"THIS
-> SCENE WILL NOT BENEFIT. Leave the upscaler off."* while `--blss-coverage` on
-> the same directory calls it a clear win. **The two verbs disagree about what
-> is in the scene and the quality one is the one that is wrong.**
+> emitter path and no blending at all.
 >
-> Both `--blss-train` and `--blss-eval` now print a WARNING naming the emitter
-> count whenever a project has any, so no table leaves the tool without the
-> caveat attached. Until the renderer grows billboards: read the **speed**
-> verdict for such a project, treat its decibels as absent, and note that the
-> published *"`examples/showcase` has a +0.00 dB ceiling"* row was measured
-> without that project's 8 emitters too. What a fix needs, and why it is not a
-> small one, is in [backlog.md](backlog.md).
+> **The scene that shows it is `examples/showcase`, not `examples/upscaler-lab`,
+> and this page said the wrong one for a day.** Re-measured 2026-08-09 on this
+> tree, jitter **off**, scale **2×2**, shipped defaults:
+>
+> | | `--blss-eval` | `--blss-coverage` (geometry + emitters) | emitter share |
+> |---|---|---|---|
+> | `examples/showcase` | `headroom=+0.006` → **"WILL NOT BENEFIT"** | 15.24 = 0.67 + **14.57** | **95.6 %** |
+> | `examples/upscaler-lab` | `headroom=+1.058` at 1.38 passes | 72.63 = 0.98 + **71.65** | **98.7 %** |
+>
+> So the confident sentence is real, and it is `showcase` that prints it: a
+> near-zero ceiling measured on **4.4 %** of the frame's fill, quoted verbatim by
+> the BLSS window. `upscaler-lab` no longer prints it — it reads a +1.06 dB
+> ceiling today — so the older claim on this page that *it* read `+0.000` and
+> *"THIS SCENE WILL NOT BENEFIT"* is **retracted**; it was measured before the
+> shot plan and the demo's re-tune. The billboard count quoted with it (3 072)
+> was wrong too: the project has **11 emitters and 568 billboards**.
+>
+> **What the tools do about it now.** `--blss-train` and `--blss-eval` print a
+> WARNING naming the emitter count, and — since that warning scrolls off the top
+> of a run that ends in three tables — the caveat also reaches the answer itself:
+>
+> - a project with **any** enabled emitter and a ceiling under +0.10 dB gets
+>   **`NO VERDICT:`** instead of *"THIS SCENE WILL NOT BENEFIT"*, naming the
+>   count and pointing at `--blss-coverage`. "Nothing to reconstruct" is a claim
+>   about content, and the content was not all rendered;
+> - the machine-readable line carries **`emitters=N`** (appended — that line is
+>   parsed key=value and ignores unknown keys, unlike the tables above it).
+>
+> Until the renderer grows billboards: read the **speed** verdict for such a
+> project and treat its decibels as absent. What a fix needs, why the blocker is
+> the **engine** rather than the rasteriser, and why it must not be half-landed,
+> is in [backlog.md](backlog.md).
 
 Both entry points take an optional **positional project directory**, and with one
 the corpus is the project's own scenes — real geometry, real materials, real
@@ -981,11 +1018,24 @@ Two rules follow, and they pull in opposite directions on purpose:
   Six moves over one scene do not generalise to a seventh — the same wall the
   bestiary hit at five shots (+0.10 dB) before it grew to thirteen.
 
-**And not every project has anything to win.** On `examples/showcase` — 156
+**And not every project has anything to win** — but the example this section has
+always used to say so is the **worst possible one**, and that is now flagged
+rather than quietly repeated. On `examples/showcase` — 156
 frames over two scenes × six moves — the *oracle* itself scores **+0.02 dB** over
 bilinear at **1.00 passes**, frame-weighted over both splits the way the window's
 verdict computes it (+0.04 held-out, +0.01 over the training shots): soft ground
-texture, low-poly props, nothing that aliases. `--blss-eval <projectDir>` is how
+texture, low-poly props, nothing that aliases.
+
+> **That number is measured on 4.4 % of the frame.** `showcase` has **8 enabled
+> emitters** and `--blss-coverage` reads **14.57** emitter coverages against
+> **0.67** of geometry, so "nothing that aliases" is a statement about the
+> geometry and the fog was never rendered. The tool now refuses to turn it into a
+> verdict (`NO VERDICT:` rather than *"WILL NOT BENEFIT"*). The claim that a
+> project *can* have no ceiling stands — `examples/procedural` reads +0.325 dB
+> with **zero** emitters and there are ten more emitter-free examples under
+> +0.10 dB — but **`showcase` is no longer evidence for it.**
+
+`--blss-eval <projectDir>` is how
 you find that out before shipping BLSS on it, and the window says it in one line.
 
 > **The window does this too, and it is the default.** *Tools ▸ Neural Upscaler
@@ -1220,6 +1270,11 @@ or
 
 > *Headroom: +0.95 dB available at 1.22 passes.*  [ Train a network for this scene ]
 
+or, on a project with particle emitters, **neither** — see
+[the emitter caveat](#the-corpus-renderer-draws-no-emitters). The first form is
+withheld there rather than shown, because the corpus did not draw the emitters
+and a near-zero ceiling for the geometry is not a fact about the scene.
+
 That button is there because the window used to tell people to *"run the Evaluate
 tab on your project BEFORE turning this on"* and **that was impossible**: Evaluate
 loaded `blss.net` first and bailed, and only Train could produce one — twenty
@@ -1432,9 +1487,15 @@ table, in one of three forms:
 
 | when | what it says |
 |---|---|
+| the oracle margin is under **0.10 dB** **and the project has enabled emitters** | **NO VERDICT** — naming the count. The ceiling was measured on the geometry alone, so "nothing to reconstruct" is not a claim this corpus can make ([why](#the-corpus-renderer-draws-no-emitters)) |
 | the oracle margin is under **0.10 dB** | **THIS SCENE WILL NOT BENEFIT** — leave the upscaler off. There is nothing to reconstruct, and no amount of training moves that |
 | the net's own margin is **below zero** on a scene that *does* have room | **THE NETWORK YOU HAVE IS WORSE THAN NOT USING IT** — this is the net, not the content. On the bestiary corpus it adds that this is exactly what a bestiary-trained net does on a real project |
 | otherwise | the margin, the pass count, the ceiling, and **what fraction of the ceiling** the network captured |
+
+The emitter row is **first** because it is a guard on the row under it: the CLI
+prints the same four branches in the same order (`src/blss.cpp`), and the window
+quotes the CLI verbatim, so there is exactly one answer to "will this scene
+benefit" however the question was asked.
 
 The arithmetic is `blssui::summarise()`, **not a calculation inside an ImGui draw
 call** — same reason the parsers live there: a pure function of the parsed table
@@ -2176,6 +2237,14 @@ so the whole tree can be screened. All 32, 48 frames, jitter off, sorted:
 
 Twelve of the thirty-two cannot tell two nets apart at all. Any mean over
 `examples/` is mostly those twelve.
+
+> **Eleven of those twelve stand; `showcase` does not.** It is the only member of
+> the bottom row with particle emitters (8 of them), and
+> [the corpus renderer draws none](#the-corpus-renderer-draws-no-emitters) — its
+> +0.000 is a ceiling for the 4.4 % of the frame that is geometry. `portals` in
+> the +0.2 row has one enabled emitter and is flagged for the same reason. Every
+> other project in this table is emitter-free, so the shape of the result — most
+> examples have no ceiling — is unaffected.
 
 #### Why the projects-only union collapses, and it is not "it learned nothing"
 

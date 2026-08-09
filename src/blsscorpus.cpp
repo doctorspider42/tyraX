@@ -1858,8 +1858,21 @@ void parallelFrames(int n, int threads, const F& body) {
 // truth that dominates the frame. What it buys is that frame i is computed from
 // i alone, so `--threads 1` and `--threads 32` produce byte-identical corpora,
 // byte-identical labels, and a byte-identical blss.net.
-std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
+std::vector<CorpusFrame> generate(const CorpusConfig& cfg, CorpusInfo* info) {
     std::vector<CorpusFrame> out;
+    // Summed over the union corpus' members, and written back through `info`
+    // however this function returns - including the early returns below, which
+    // is why it is initialised here and stored by the scope guard rather than at
+    // the one successful exit. A caller that asked how many emitters the corpus
+    // ignored must not get 0 because the grid did not divide.
+    int corpusEmitters = 0;
+    struct InfoOut {
+        CorpusInfo* to;
+        const int* emitters;
+        ~InfoOut() {
+            if (to) to->emitters = *emitters;
+        }
+    } infoOut{info, &corpusEmitters};
     const int outW = cfg.outW, outH = cfg.outH;
     // The tile grid. FLOOR, where the engine's configure() takes a CEILING
     // ((outW + kTile - 1) / kTile) - identical at every size that divides, and
@@ -1976,25 +1989,36 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // path); renderScene() takes geometry and has no blending at all. So on
         // a project whose overdraw IS its particles the truth images are bare
         // sky and flat ground, and every PSNR in the table describes a frame the
-        // game never displays. That is not a rounding error: on
-        // examples/upscaler-lab - 3 072 alpha-blended billboards, measured at
-        // 1.63x on a real PS2 - `--blss-eval` reads +0.00 dB of headroom and
-        // prints "THIS SCENE WILL NOT BENEFIT. Leave the upscaler off", while
-        // `--blss-coverage` on the same directory calls it a win. The two verbs
-        // disagree about what is in the scene, and the quality one is the one
-        // that is wrong.
+        // game never displays.
+        //
+        // MEASURED, 2026-08-09, and the example this comment used to name was
+        // the wrong one. `examples/upscaler-lab` reads `headroom=+1.058` today,
+        // so it is no longer the scene with the confidently wrong verdict; the
+        // scene that IS, is `examples/showcase`:
+        //
+        //   --blss-eval      headroom=+0.006 -> "THIS SCENE WILL NOT BENEFIT."
+        //   --blss-coverage  15.24 coverages, of which 14.57 are the emitters
+        //                    and 0.67 the geometry - 95.6 % of the frame
+        //
+        // i.e. the sentence the window quotes verbatim is a confident statement
+        // about 4.4 % of what the game draws. On upscaler-lab the split is
+        // 71.65 emitter against 0.98 geometry, 98.7 %.
         //
         // Drawing them is a real piece of work and is filed in docs/backlog.md
-        // rather than half-landed (it needs a blending path in a rasteriser
-        // whose stated invariant is that it has none, back-to-front sorting, a
-        // particle-simulation twin, and a refit of every published net). Until
-        // then the honest thing is that no number leaves this tool without the
-        // caveat attached - a silently wrong verdict is worse than a missing
-        // one, which is the rule this whole feature was rebuilt around.
+        // rather than half-landed, and the blocker is NOT the rasteriser: an
+        // emitter bag contributes no BagProxy on the console either
+        // (`frustumCulling_None` -> no bbox -> `addBagSphere` at radius 0 ->
+        // `addBag` rejects the empty box), so drawing particles would move every
+        // LABEL while leaving all six input channels describing the geometry
+        // alone. Until the engine describes an emitter bag, the honest thing is
+        // that no number leaves this tool without the caveat attached - and
+        // attached to the VERDICT, not only to a warning sixty lines above it,
+        // which is what `CorpusInfo::emitters` is for.
         int liveEmitters = 0;
         for (const ProjectScene& s : scenes)
             for (const SceneEmitter& e : s.emitter)
                 if (e.enabled) ++liveEmitters;
+        corpusEmitters += liveEmitters;
         if (liveEmitters > 0)
             std::printf(
                 "[blss] WARNING: '%s' has %d enabled emitter(s) and the corpus renderer draws "
