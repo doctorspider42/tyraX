@@ -11,6 +11,11 @@
 # and four of them shipped. This is the command that says a bump reintroduced
 # one.
 #
+# One of them was not silent: `--loop-liveness-always` did not terminate on one
+# control-flow shape, which hangs a project build instead of failing it. That is
+# what the suite's TIME kind asserts, and it is why every case here is compiled
+# under a bound - a suite that hangs with the compiler reports nothing at all.
+#
 # The suite needs the fork's sources (it parses the VU instruction table out of
 # them at run time, rather than keeping a second copy that can drift), so point
 # OPENVCL_SRC at a checkout of doctorspider42/openvcl-tyrax. Without one this

@@ -2727,12 +2727,143 @@ rather than nested (`Lconly9:` sits *above* `Lconly8:`, `Lloop19` above `Lsc18`)
 
 That flag ships. A generated VU program with this control-flow shape would hang a project build
 rather than fail it, which is worse than a compile error. It is a TyraX-fork defect, not
-upstream's - upstream has no such flag - and it is open.
+upstream's - upstream has no such flag. **Fixed in the round below.**
 
 **`--fmac-interlock` is not the villain.** Judged by oracle verdict rather than emitted text - the
 only sound comparison across flag sets - the three corpora give 23/22/21 divergent programs with
 the flag and 26/22/22 without it, overlapping on 22/21/19. The flag *exposed* bug 11; it does not
 cause a class of divergence of its own, and the 70 are clean under both settings.
+
+### The hang, and the last five residuals
+
+Two things came out of this round, and the first is the only defect in this compiler that could
+ever have hurt a user directly.
+
+**Bug 13 - the same-name chain became a ring, and one walk of it had no cap.** Sampling the
+stack of the shipped binary while it sat on `pd720006` answers the question the previous round
+left open - an unbounded loop or an exponential one - in four samples: the program counter never
+leaves a three-instruction span of `RegisterAllocator::processAliases`, and the disassembly there
+is `cmp / mov 0x10(%rax),%rax / test / jne`, a linked-list walk. It is an **infinite loop**.
+Printing the list from the debugger names it: `k3`, aliases 35 → 49 → 36 → **35**.
+
+`--loop-liveness-always` extends live ranges once per BACK EDGE, and two back edges need not
+nest. Each call picks the first alias of a name in *its own* range as the one the readers at the
+top hold, and ties every in-loop write of that name to it; with the ranges interleaved, loop A
+ties X to Y and loop B ties Y back to X. The fork already had a cycle-safe setter,
+`trySetSameNamePredecessor`, and this one call site was not using it. Refusing the closing edge
+costs nothing at all - an edge that would close a ring runs between two aliases *already on one
+chain*, so they reach one root and the pre-pass hands them one register either way. The cycle
+test itself became Floyd rather than a fixed depth of 16, because a fixed depth answers "no
+cycle" for any ring that closes further up and the walks it guards then never end.
+
+`pd720006` now compiles in **0.55 s** with the full flag list and **0.068 s** with the flag alone,
+against 66 minutes and never-seen-to-finish. Worth recording: the unbounded walk that hung is
+**upstream's code, verbatim** (`a5867c3`, same file, same lines) - but upstream cannot build a
+ring to walk, because nothing there sets a predecessor except the parser's two-address pairing.
+It is a latent hazard there and a live defect here, so it is written up in the fork, not in
+`docs/upstream-openvcl.md`.
+
+**Bug 14 - a cycle that becomes no instruction word was being spent twice.** With the hang out of
+the way the five remaining residuals could be read, and the first one read - `pd710355`, a
+straight-line `rsqrt` → `mulq` at 9 cycles of the 13 that RSQRT needs - named its own cause under
+a flag ablation: all 21 flags give the reader 3 words below the division and no `waitq`, dropping
+`--fmac-interlock` alone gives 9 words and a `waitq`, and no other flag of the 21 changes it.
+
+Under `--fmac-interlock` a wait on the FMAC pipeline is kept in the cycle model and emitted as
+nothing, because the hardware stalls by itself. The FDIV and EFU pipelines have no interlock:
+their results land a fixed number of cycles after issue, and the only thing that carries a
+program from one of those cycles to the next is an instruction word. Counting a suppressed stall
+against `qReadyCycle` spends it twice - once as the FMAC wait it was, again as part of a
+division's latency. The instrumented compiler says exactly that: `rsqrt` issued at model cycle
+56, ready at 70, `mulq` chosen at 70 - a gap of 14 cycles across **3 emitted words**. A hand count
+of the dependence chain in those rows gives 9 cycles, the oracle's hardware model gives 9, and
+Sony's `vcl` puts a `waitq` there. The fix pushes the outstanding FDIV/EFU results back by every
+cycle that produced no word, in both the scheduler's model and the emitter's - two calls to a
+`delayPipelinedResultsBy` that already existed for the block-entry skew.
+
+**The residual is now zero.** Over the three generated corpora the value/condition oracle goes
+from **1 / 2 / 2** divergent programs to **0 / 0 / 0**, and the stronger pass - every path policy
+re-run with each impossible edge *pinned* rather than forced, which is what re-labelled 12
+findings last round - goes from **1 / 1 / 2** to **0 / 0 / 0**. The 70 stay clean. Those 12
+re-labelled findings are settled by the same run: nine of the ten on `pbz` were subsumed by bug
+12, and every survivor was one of the five named residuals.
+
+**The positive control is what makes that mean anything.** On the same run, the same instrument
+reports **2 divergent programs in Sony's own output** and 0 in this one. An oracle that had
+simply gone blind would say zero for both.
+
+The cost is +2 words on the engine's 25 (3908 → 3910) and 0 on the generated 45, from **10 extra
+`waitq`** across the 70 - a `waitq` whose Q has already landed costs one word and no cycles. The
+resident ten fall 2 (1998 → 1996). `clipw` stays 7 per clip program and `addaw` 3 per env-mapped
+one. This is the first change in this effort that moves a byte of the 70, and it is a
+correctness fix in ten places where the engine's own microprograms were reading `Q` on a gap the
+hardware is not guaranteed to open.
+
+**And the paragraph that said the loop-carried direction "comes out right by accident" was
+wrong.** The fork's own known-limits list recorded that a division BELOW its consumer, reaching
+it through a back edge, is not modelled - but claimed it was harmless, because the tracker sees a
+division from the block above the loop and over-waits. Building the shape rather than reasoning
+about it takes ten minutes and settles it: put enough work between that division and the loop for
+`qReadyCycle` to elapse, and the shipped build issues the consumer on the **first row of the
+body** with no `waitq`, four words from the `rsqrt` two rows below it that feeds it on the next
+iteration. Both value oracles flag it; it is `test/regress/src/q_backedge_stale.vcl`. Bug 14's
+push happens to cover that reproducer, and *happens to* is exactly the complaint - nothing in the
+compiler reasons about a back edge, so the next shape of it is unguarded. A predecessor-aware
+Q/P model is the real answer and is open.
+
+### The scene that used to be sensitive has gone blind, and the phase timers have not
+
+Bug 14 is the first change in this effort to move a byte of the seventy, so for the first time
+the question "does this cost frames" had to be answered rather than reasoned about. The answer
+is no - and getting it took throwing away the first instrument.
+
+**The terrain FPS scene reports nothing now.** The table above records it as *sensitive*: Sony
+100.4, pre-fix 78.3, post-fix 99.5, a 27% spread the scene could see. Re-run today, on the
+frame counter rather than the HUD, all three arms land inside a point of each other - and that
+includes the **pre-CLIP-fix build carried as a known-bad control**:
+
+| arm | FPS, software renderer | FPS, hardware renderer |
+|---|---:|---:|
+| pre-CLIP-fix (known bad) | 68.20 | 69.69 |
+| previous build, 1998 words | 68.06 | - |
+| bug 13+14, 1996 words | 68.74 | - |
+
+A build known to be 27% slower reading *faster* than the one under test is not a null result, it
+is a dead instrument. Swapping PCSX2 from the software rasterizer to the hardware one changed
+nothing either, so the GS is not what pinned it. Whatever now dominates that frame, it is not
+VU1. **The scene is the same scene** - 128x128 terrain in the manifest - which is the point
+worth keeping: a perf scene's sensitivity is a property of the whole system on the day you
+measure, not of the scene file, and it expires quietly.
+
+**The engine's own COP0 phase timers still separate.** Alternated ABC/CBA so host drift cannot
+line up with one arm, wiping the engine build outputs between arms, 147-188 measurement windows
+each:
+
+| arm | FRAME r1 | FRAME r2 | SCENE |
+|---|---:|---:|---:|
+| pre-CLIP-fix (known bad) | 13.282 ms | 13.251 ms | 7.690 ms |
+| previous build, 1998 words | 10.382 ms | 10.426 ms | 7.770 ms |
+| **bug 13+14, 1996 words** | **10.288 ms** | **10.327 ms** | 7.770 ms |
+
+The control separates by **+28%**, which is the 27% the old FPS table saw, so the instrument
+registers a change of the size in question. Against that, the new build is **0.09 ms faster**
+than the old one with a 0.04 ms spread inside each arm - no regression, and consistent with the
+resident set having *shrunk* by two words. Ten `waitq` that the hardware needed cost nothing
+measurable.
+
+**And the picture is unchanged.** Same scene, same camera, screenshots before and after diffed
+pixel by pixel: 537 differing pixels, every one of them inside x 254-278, y 70-92 - the digits
+of the on-screen FPS counter. The rendered scene is identical.
+
+**Two traps this measurement paid for.** `fpsmeas.ps1` launches PCSX2 itself with `-batch -elf`,
+and that instance gets no host-filesystem redirect: `log.txt` stays empty, no `VRAMSTAT` line
+ever appears, and the script returns **0 frames / 0 FPS** - which looks like a catastrophic
+regression and is nothing at all. The game has to be started the way the editor starts it. And
+switching `TYRAX_IMAGE` leaves objects from the previous SDK inside a `libtyra.a` whose mtime is
+today, because the engine lives in an external volume and `ar` replaces only changed members;
+the link then fails on `undefined reference to SifInitRpc`, which reads exactly like the new
+compiler broke something. Wipe `/tyra/engine/{obj,bin}` - never the sources, which are a
+read-only bind mount - and it goes away.
 
 ### The regression suite
 
@@ -2804,6 +2935,11 @@ latencies are separately calibrated and not required to stay equal.
 40 words, still under SCE on all three and 44 under the ceiling. The detector's `LAND` count goes
 **23 → 0** with SCE still clean, and the independent `p6-window.py` goes 16 → 2 (both residuals
 are sites where openvcl is *stricter* than SCE, i.e. conservative).
+
+`1998 / 3908 / 9242` was the standing gate for every round after this one and held
+byte-for-byte through eleven more fixes. Bug 14 above is the one that moved it, to
+**1996 / 3910 / 9242** — ten `waitq` that the engine's own microprograms needed and did not
+have. That is the number to check against now.
 
 **Not demonstrated on screen, and that is worth stating plainly.** The three wrong sites need a
 scene where those particular programs' kicking vertex judges a triangle on the frustum silhouette;

@@ -466,6 +466,16 @@ runs - at or below the reference everywhere. All five that remain are still in t
 bucket: two read `undef(P)` after an `esum`, and three read the wrong quotient in shapes this fix
 does not reach.
 
+Those five have since gone to **zero** on all three corpora, with Sony still at 2 on the same
+run. Their cause was a second, independent one, and it is the TyraX fork's rather than
+upstream's: `--fmac-interlock` (a fork flag) keeps a wait on the FMAC pipeline in the cycle model
+and emits no instruction word for it, because the hardware stalls by itself - but FDIV and EFU
+have no interlock, and only a word carries the program from one cycle to the next, so a
+suppressed stall was being spent twice. Written up in the fork's `CHANGELOG.md` and in
+"The hang, and the last five residuals" in `toolchain-image.md`. It is the one change in this
+effort that moves the 70's word counts: 1998 / 3908 / 9242 → **1996 / 3910 / 9242**, ten `waitq`
+the engine's own microprograms needed.
+
 **What is NOT fixed by this.** A producer BELOW its consumer, feeding it through a back edge on
 the next iteration, is a different question: the linear tracker has not seen the producer at all
 when it schedules the consumer. openvcl happens to answer that one correctly today, by emitting

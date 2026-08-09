@@ -154,7 +154,7 @@ index 5bec71c..739b634 100644
  		if( state.dependency() )
  			newDependency->depend( state.dependency() );
 diff --git a/src/CodeGenerator.cpp b/src/CodeGenerator.cpp
-index 699abe7..37ccc21 100644
+index 699abe7..88317c9 100644
 --- a/src/CodeGenerator.cpp
 +++ b/src/CodeGenerator.cpp
 @@ -24,6 +24,7 @@
@@ -787,7 +787,7 @@ index 699abe7..37ccc21 100644
  	if( branchNeedsPreBubble(a) )
  		padForBranchPreBubble(a);
  	if( branchNeedsPreBubble(b) )
-@@ -2039,12 +2583,16 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2039,12 +2583,22 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  
  		case VU_SCHEDULED_PADDING_NOP:
  		{
@@ -805,11 +805,17 @@ index 699abe7..37ccc21 100644
  				addNopLine();
 -				m_currentCycle++;
 -			}
++			// The cycles that became no words belong to the FMAC interlock and to
++			// nothing else. Q and P are not interlocked, so a division's latency
++			// cannot be paid out of them - see the same call in
++			// appendReadHazardPaddingSlots.
++			m_latencyTracker.delayPipelinedResultsBy(
++				static_cast<int>( cycles ) - static_cast<int>( words ) );
 +			m_currentCycle += cycles;
  			break;
  		}
  
-@@ -2053,9 +2601,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
+@@ -2053,9 +2607,66 @@ void CodeGenerator::emitStrictScheduledPadding( const VuScheduledIssueSlot& slot
  	}
  }
  
@@ -877,7 +883,7 @@ index 699abe7..37ccc21 100644
  	std::vector<const VuScheduledIssueSlot*> slots;
  	for( std::vector<VuScheduledBasicBlock>::const_iterator block = program.blocks.begin();
  	     block != program.blocks.end();
-@@ -2230,6 +2835,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2230,6 +2841,9 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  			continue;
  		}
  		const Token* branch = branchTokenInScheduledSlot(slot);
@@ -887,7 +893,7 @@ index 699abe7..37ccc21 100644
  		const Token* delayFiller = NULL;
  		unsigned int delayFillerSlot = i + 1;
  		while( branch && delayFillerSlot < slots.size() && slots[delayFillerSlot]->padding )
-@@ -2237,6 +2845,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
+@@ -2237,6 +2851,44 @@ bool CodeGenerator::emitStrictScheduledProgram( const std::list<Token>& tokens,
  		if( branch && delayFillerSlot < slots.size() )
  			delayFiller = branchDelayFillerInScheduledSlot(*slots[delayFillerSlot]);
  
@@ -932,7 +938,7 @@ index 699abe7..37ccc21 100644
  		if( delayFiller && prepareStrictScheduledToken(*delayFiller, exitWritten, true) )
  		{
  			const Token* branchPartner = NULL;
-@@ -2365,10 +3011,11 @@ void CodeGenerator::recordRegisterWrites( const Token& token, int issueCycle )
+@@ -2365,10 +3017,11 @@ void CodeGenerator::recordRegisterWrites( const Token& token, int issueCycle )
  	m_latencyTracker.recordWrites( token, issueCycle, emitsAsUpperMove( token ) );
  }
  
@@ -946,7 +952,7 @@ index 699abe7..37ccc21 100644
  }
  
  void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
-@@ -2397,8 +3044,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
+@@ -2397,8 +3050,46 @@ void CodeGenerator::fillBranchDelaySlots( std::list<Token>& tokens ) const
  			continue;
  		std::list<Token>::iterator candidate = branch;
  		--candidate;
@@ -994,7 +1000,7 @@ index 699abe7..37ccc21 100644
  
  		Token filler = *candidate;
  		filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2646,6 +3331,14 @@ bool CodeGenerator::moveDeadFallthroughIntoBranchDelaySlot( std::list<Token>& to
+@@ -2646,6 +3337,14 @@ bool CodeGenerator::moveDeadFallthroughIntoBranchDelaySlot( std::list<Token>& to
  		return false;
  	if( !writesAreDeadFromTarget(candidateAccess.registerWrites, target, tokens.end()) )
  		return false;
@@ -1009,7 +1015,7 @@ index 699abe7..37ccc21 100644
  
  	Token filler = *candidate;
  	filler.setFlags(filler.flags() | Token::BRANCH_DELAY_FILLER);
-@@ -2667,7 +3360,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2667,7 +3366,17 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  		return false;
  	if( vuTokenBranchDelaySlots(candidate) > 0 )
  		return false;
@@ -1028,7 +1034,7 @@ index 699abe7..37ccc21 100644
  		return false;
  	if( candidate.operand()->latency() > 1 )
  		return false;
-@@ -2678,8 +3381,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
+@@ -2678,8 +3387,15 @@ bool CodeGenerator::canMoveIntoBranchDelaySlot( const Token& candidate, const To
  	    || !buildVuTokenResourceAccess(branch, branchAccess) )
  		return false;
  
@@ -1046,7 +1052,7 @@ index 699abe7..37ccc21 100644
  		return false;
  	if( candidateAccess.branchDelaySlots > 0 )
  		return false;
-@@ -2759,6 +3469,153 @@ bool CodeGenerator::writesAreDeadFromTarget( const std::list<std::string>& write
+@@ -2759,6 +3475,153 @@ bool CodeGenerator::writesAreDeadFromTarget( const std::list<std::string>& write
  	return true;
  }
  
@@ -1200,7 +1206,7 @@ index 699abe7..37ccc21 100644
  bool CodeGenerator::tryEmitKnownLoopOptimization( std::list<Token>& tokens,
                                                    std::list<Token>::iterator& token )
  {
-@@ -9833,6 +10690,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
+@@ -9833,6 +10696,10 @@ std::string CodeGenerator::generateUpperMoveInstruction( const Token& token )
  		if(token.fields() & (1<<t))
  			fields += fieldnames[t];
  	}
@@ -2207,7 +2213,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..82249ff 100644
+index cf6d79b..c8cbfd3 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,15 +10,18 @@
@@ -2446,7 +2452,26 @@ index cf6d79b..82249ff 100644
  	}
  
  	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
-@@ -757,6 +902,16 @@ bool RegisterAllocator::processAliases()
+@@ -740,8 +885,17 @@ bool RegisterAllocator::processAliases()
+ 				if( src == dest ) continue;
+ 				// Same-name predecessor on the chain doesn't count as a
+ 				// conflict: that's the whole point of coalescing.
++				// Bounded by the alias count, which no acyclic chain can reach, so
++				// this walk gives the same answer as an unbounded one on every
++				// input that is well formed and merely stops on one that is not.
++				// It is the loop that hung on --loop-liveness-always: every other
++				// walk of this chain in the file already carries a cap and this one
++				// did not, so a ring built by the pass above spun here forever.
+ 				bool isAncestor = false;
+-				for( Alias* p = dest->sameNamePredecessor(); p; p = p->sameNamePredecessor() )
++				const size_t ancestorCap = m_aliases.size() + 1;
++				size_t ancestorHops = 0;
++				for( Alias* p = dest->sameNamePredecessor(); p && ancestorHops < ancestorCap;
++				     p = p->sameNamePredecessor(), ++ancestorHops )
+ 				{
+ 					if( p == src ) { isAncestor = true; break; }
+ 				}
+@@ -757,6 +911,16 @@ bool RegisterAllocator::processAliases()
  			}
  		}
  
@@ -2463,7 +2488,7 @@ index cf6d79b..82249ff 100644
  		for( unsigned int j = 0; j < maxLimit; ++j )
  		{
  			const Register* candidate = (dest->type() == Alias::FLOAT) ? &m_floats[j] : &m_integers[j];
-@@ -786,23 +941,50 @@ bool RegisterAllocator::processAliases()
+@@ -786,23 +950,50 @@ bool RegisterAllocator::processAliases()
  
  			if( candidate )
  			{
@@ -2517,7 +2542,7 @@ index cf6d79b..82249ff 100644
  	return true;
  }
  
-@@ -905,44 +1087,196 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +1096,206 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -2715,13 +2740,23 @@ index cf6d79b..82249ff 100644
 +			// name cannot claim it too without contradicting the earlier link.
 +			if( written->sameNamePredecessor() )
 +				continue;
-+			written->setSameNamePredecessor( carried->second );
++			// Through trySetSameNamePredecessor, not the raw setter, because this
++			// runs ONCE PER BACK EDGE and the ranges of two back edges need not
++			// nest. Two overlapping loops disagree about which alias of a name is
++			// the one its readers hold - each picks the first in ITS OWN range -
++			// so loop A can tie X to Y and loop B tie Y back to X. The chain is
++			// then a ring with no root, and processAliases walks it forever.
++			// Refusing the closing edge costs nothing: an edge that closes a ring
++			// runs between two aliases that are ALREADY on one chain, which is the
++			// whole of what tying them was for - they reach one root and the
++			// pre-pass hands the ring one register either way.
++			trySetSameNamePredecessor( written, carried->second );
 +		}
 +	}
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1307,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1326,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -2737,7 +2772,7 @@ index cf6d79b..82249ff 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1557,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1576,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -2751,7 +2786,7 @@ index cf6d79b..82249ff 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1263,13 +1609,33 @@ void RegisterAllocator::extendMultiQStageLiveRanges( std::list<Token>& tokens )
+@@ -1263,13 +1628,33 @@ void RegisterAllocator::extendMultiQStageLiveRanges( std::list<Token>& tokens )
  void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  {
  	// One synthetic alias per (type, register) pair, with one range per
@@ -2789,7 +2824,7 @@ index cf6d79b..82249ff 100644
  
  	for( std::list<Token>::iterator it = tokens.begin(); it != tokens.end(); ++it )
  	{
-@@ -1285,10 +1651,17 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1285,10 +1670,17 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  		const unsigned int line = it->lineNumber();
  
@@ -2807,7 +2842,7 @@ index cf6d79b..82249ff 100644
  
  			if( a->type() == Token::Argument::FLOAT_REGISTER )
  			{
-@@ -1315,6 +1688,10 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1315,6 +1707,10 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  					m_aliases[ integers[r] ] = integers[r];
  				}
  				integers[r]->addRange( line, line );
@@ -2818,7 +2853,7 @@ index cf6d79b..82249ff 100644
  			}
  		}
  	}
-@@ -1322,27 +1699,1517 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,27 +1718,1529 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -4283,12 +4318,24 @@ index cf6d79b..82249ff 100644
 +	if( alias->type() != predecessor->type() )
 +		return false;
 +
-+	// A chain must stay a chain.  16 hops is well above any plausible depth and
-+	// doubles as the defence against a cycle that is already there.
-+	Alias* p = predecessor;
-+	for( int hop = 0; hop < 16 && p; ++hop, p = p->sameNamePredecessor() )
++	// A chain must stay a chain, and the check has to be COMPLETE rather than
++	// deep-enough-looking: a fixed depth of 16 answers "no cycle" for any ring
++	// that would close further up than that, and the walks it protects then never
++	// terminate. Floyd rather than a depth, because this is a static member with
++	// no alias count to bound itself by - and it needs no bound: the hare meets
++	// the tortoise on a ring, so the walk ends whether or not the chain it is
++	// handed is already one. A chain that IS already a ring gets nothing added to
++	// it either.
++	Alias* slow = predecessor;
++	Alias* fast = predecessor;
++	while( slow )
 +	{
-+		if( p == alias )
++		if( slow == alias )
++			return false;
++		slow = slow->sameNamePredecessor();
++		fast = fast ? fast->sameNamePredecessor() : NULL;
++		fast = fast ? fast->sameNamePredecessor() : NULL;
++		if( fast && fast == slow )
 +			return false;
 +	}
 +
@@ -5084,7 +5131,7 @@ index 2c14ff6..de7def2 100644
  	std::map<std::string, int> m_registerReadyCycle;
  	std::map<std::string, std::string> m_registerProducerMnemonic;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..8107f2d 100644
+index 3260370..7b9360f 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -5566,7 +5613,7 @@ index 3260370..8107f2d 100644
  	void appendReadHazardPaddingSlots( std::vector<VuScheduledIssueSlot>& slots,
  	                                   const Token& token,
  	                                   const Token* partner,
-@@ -368,9 +702,28 @@ namespace
+@@ -368,9 +702,40 @@ namespace
  				                                     static_cast<int>( currentCycle ) );
  			const unsigned int paddingCycleCount =
  				waitPaddingCycleCount( paddingKind, latencyTracker, currentCycle );
@@ -5595,10 +5642,22 @@ index 3260370..8107f2d 100644
 +			paddingSlot.emitCycleCount = emitCycleCount;
 +			if( emitCycleCount > 0 )
 +			slots.push_back( paddingSlot );
++			// A cycle that becomes no word is a cycle the FMAC interlock is
++			// trusted to supply, and the FDIV pipeline is NOT interlocked: Q and P
++			// arrive a fixed number of cycles after the division issues, and the
++			// only thing that carries a program from one of those cycles to the
++			// next is an instruction word. Letting a suppressed cycle count
++			// against qReadyCycle spends a stall twice - once as the FMAC wait it
++			// was, and again as part of a division's latency - and the Q reader
++			// below then issues with no waitq on a gap the hardware never opened.
++			// Pushing the pipelined results out by the suppressed count measures
++			// that gap in words, which is what the hardware guarantees.
++			latencyTracker.delayPipelinedResultsBy(
++				static_cast<int>( paddingCycleCount ) - static_cast<int>( emitCycleCount ) );
  			currentCycle += paddingCycleCount;
  			issueDelay = latencyTracker.readHazardDelay( token,
  			                                             partner,
-@@ -559,6 +912,7 @@ namespace
+@@ -559,6 +924,7 @@ namespace
  	                            const VuLatencyTracker& latencyTracker,
  	                            unsigned int ignoredImplicitWawResources,
  	                            unsigned int currentCycle,
@@ -5606,7 +5665,7 @@ index 3260370..8107f2d 100644
  	                            unsigned int& waitToken,
  	                            unsigned int& upperToken,
  	                            VuScheduledPaddingKind& paddingKind )
-@@ -605,7 +959,8 @@ namespace
+@@ -605,7 +971,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -5616,7 +5675,7 @@ index 3260370..8107f2d 100644
  				if( upperToken == block.tokens.size() || score < bestScore )
  				{
  					waitToken = wait;
-@@ -623,7 +978,9 @@ namespace
+@@ -623,7 +990,9 @@ namespace
  	                                                                  unsigned int ignoredImplicitWawResources,
  	                                                                  VuLatencyTracker& latencyTracker,
  	                                                                  unsigned int blockStartCycle,
@@ -5627,7 +5686,7 @@ index 3260370..8107f2d 100644
  	{
  		std::vector<VuScheduledIssueSlot> slots;
  		if( segment.size() < 2 )
-@@ -681,6 +1038,7 @@ namespace
+@@ -681,6 +1050,7 @@ namespace
  			                           latencyTracker,
  			                           ignoredImplicitWawResources,
  			                           currentCycle,
@@ -5635,7 +5694,7 @@ index 3260370..8107f2d 100644
  			                           waitToken,
  			                           waitUpper,
  			                           waitPaddingKind ) )
-@@ -715,7 +1073,8 @@ namespace
+@@ -715,7 +1085,8 @@ namespace
  				                                       block,
  				                                       priority,
  				                                       latencyTracker,
@@ -5645,7 +5704,7 @@ index 3260370..8107f2d 100644
  				if( best == block.tokens.size() || score < bestScore )
  				{
  					best = i;
-@@ -744,7 +1103,58 @@ namespace
+@@ -744,7 +1115,58 @@ namespace
  			                                                     priority,
  			                                                     latencyTracker,
  			                                                     ignoredImplicitWawResources,
@@ -5705,7 +5764,7 @@ index 3260370..8107f2d 100644
  			const Token* partnerToken = partner < block.tokens.size() ? block.tokens[partner] : NULL;
  			const int bestDelay =
  				latencyTracker.readHazardDelay( *block.tokens[best],
-@@ -837,10 +1247,14 @@ namespace
+@@ -837,10 +1259,14 @@ namespace
  		{
  			lastMacReader = -1;
  			lastClipReader = -1;
@@ -5720,7 +5779,7 @@ index 3260370..8107f2d 100644
  	};
  
  	bool tokenReadsMac( const Token& token )
-@@ -853,16 +1267,104 @@ namespace
+@@ -853,16 +1279,104 @@ namespace
  		return token.operand() && isVuClipReader( token.operand()->name() );
  	}
  
@@ -5827,7 +5886,7 @@ index 3260370..8107f2d 100644
  	}
  
  	VuFlagLiveness analyzeFlagLiveness( const std::list<Token>& tokens )
-@@ -875,10 +1377,196 @@ namespace
+@@ -875,10 +1389,196 @@ namespace
  				liveness.lastMacReader = static_cast<int>( index );
  			if( tokenReadsClip( *i ) )
  				liveness.lastClipReader = static_cast<int>( index );
@@ -6024,7 +6083,7 @@ index 3260370..8107f2d 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1574,64 @@ namespace
+@@ -886,12 +1586,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -6090,7 +6149,7 @@ index 3260370..8107f2d 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1644,7 @@ namespace
+@@ -904,6 +1656,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -6098,7 +6157,7 @@ index 3260370..8107f2d 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1654,34 @@ namespace
+@@ -913,45 +1666,34 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -6168,7 +6227,7 @@ index 3260370..8107f2d 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1694,7 @@ namespace
+@@ -964,7 +1706,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -6177,7 +6236,7 @@ index 3260370..8107f2d 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1723,11 @@ namespace
+@@ -993,6 +1735,11 @@ namespace
  			}
  		}
  
@@ -6189,7 +6248,7 @@ index 3260370..8107f2d 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6417,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6429,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -6197,7 +6256,7 @@ index 3260370..8107f2d 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -5875,7 +6611,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5875,7 +6623,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  		{
  			const VuTokenResourceAccess& a = accesses[before];
  			const VuTokenResourceAccess& b = accesses[after];
@@ -6212,7 +6271,7 @@ index 3260370..8107f2d 100644
  			const unsigned int pairwiseImplicitResources = ~preciseImplicitResources;
  
  			if( intersects( a.registerWrites, b.registerReads ) )
-@@ -5913,6 +6655,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5913,6 +6667,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  	                                    accesses,
  	                                    VU_RESOURCE_CLIP,
  	                                    ignoredImplicitWawResources );
@@ -6223,7 +6282,7 @@ index 3260370..8107f2d 100644
  
  	return edges;
  }
-@@ -6003,6 +6749,111 @@ std::vector<VuScheduledIssueSlot> scheduleVuBasicBlockReadyIssueSlots( const VuB
+@@ -6003,6 +6761,111 @@ std::vector<VuScheduledIssueSlot> scheduleVuBasicBlockReadyIssueSlots( const VuB
  
  namespace
  {
@@ -6335,7 +6394,7 @@ index 3260370..8107f2d 100644
  	VuScheduledProgram scheduleVuProgramReadyIssueSlotsInternal( const std::list<Token>& tokens,
  	                                                             unsigned int ignoredImplicitWawResources,
  	                                                             bool carryLatencyAcrossBlocks )
-@@ -6010,14 +6861,17 @@ namespace
+@@ -6010,14 +6873,17 @@ namespace
  		VuScheduledProgram program;
  		const std::vector<VuBasicBlock> blocks = buildVuBasicBlocks( tokens );
  		VuLatencyTracker programLatencyTracker;
@@ -6353,7 +6412,7 @@ index 3260370..8107f2d 100644
  				scheduledBlock.issueSlots =
  					scheduleVuBasicBlockReadyIssueSlotsWithLatency( *block,
  					                                                ignoredImplicitWawResources,
-@@ -6033,6 +6887,7 @@ namespace
+@@ -6033,6 +6899,7 @@ namespace
  					                                                blockLatencyTracker,
  					                                                program.cycleCount );
  			}
@@ -6361,7 +6420,7 @@ index 3260370..8107f2d 100644
  			for( std::vector<VuScheduledIssueSlot>::const_iterator slot = scheduledBlock.issueSlots.begin();
  			     slot != scheduledBlock.issueSlots.end(); ++slot )
  				scheduledBlock.cycleCount += slot->cycleCount;
-@@ -6075,14 +6930,17 @@ namespace
+@@ -6075,14 +6942,17 @@ namespace
  		const std::vector<VuBasicBlock> blocks = buildVuBasicBlocks( tokens );
  		const VuFlagLiveness liveness = analyzeFlagLiveness( tokens );
  		VuLatencyTracker programLatencyTracker;
@@ -6379,7 +6438,7 @@ index 3260370..8107f2d 100644
  				scheduledBlock.issueSlots =
  					scheduleVuBasicBlockReadyIssueSlotsWithFlagLiveness( *block,
  					                                                     liveness,
-@@ -6098,6 +6956,7 @@ namespace
+@@ -6098,6 +6968,7 @@ namespace
  					                                                     blockLatencyTracker,
  					                                                     program.cycleCount );
  			}
@@ -6387,7 +6446,7 @@ index 3260370..8107f2d 100644
  			for( std::vector<VuScheduledIssueSlot>::const_iterator slot = scheduledBlock.issueSlots.begin();
  			     slot != scheduledBlock.issueSlots.end(); ++slot )
  				scheduledBlock.cycleCount += slot->cycleCount;
-@@ -6114,6 +6973,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6985,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -6403,7 +6462,7 @@ index 3260370..8107f2d 100644
  std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program )
  {
  	std::list<Token> scheduled;
-@@ -6127,13 +6995,53 @@ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& prog
+@@ -6127,13 +7007,53 @@ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& prog
  
  unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator begin,
                                                      std::list<Token>::const_iterator end )
@@ -6457,7 +6516,7 @@ index 3260370..8107f2d 100644
  	}
  
  	unsigned int mask = VU_RESOURCE_NONE;
-@@ -6141,7 +7049,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+@@ -6141,7 +7061,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
  		mask |= VU_RESOURCE_MAC;
  	if( !readsClip )
  		mask |= VU_RESOURCE_CLIP;
