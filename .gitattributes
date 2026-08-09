@@ -5,10 +5,10 @@ engine-patches/** text eol=lf
 # regardless of the checkout's core.autocrlf setting.
 vendor/tyra/** text=auto eol=lf
 
-# Prebuilt audsrv artifacts (custom IRX + EE lib with per-channel L/R panning,
-# see vendor/tyra/audsrv-pan/README.md) - never treat as text.
-vendor/tyra/audsrv-pan/*.irx binary
-vendor/tyra/audsrv-pan/*.a binary
+# Prebuilt audsrv artifacts (built from the vendored source next to them -
+# see vendor/tyra/audsrv/README.md) - never treat as text.
+vendor/tyra/audsrv/bin/*.irx binary
+vendor/tyra/audsrv/bin/*.a binary
 
 # The editor always writes LF, and generated projects are built in a Linux
 # Docker container. Pin them to LF so a checkout with core.autocrlf=true does
@@ -19,6 +19,14 @@ examples/** text=auto eol=lf
 *.tyra text eol=lf
 *.heights text eol=lf
 *.flownode text eol=lf
+
+# The neural upscaler's network and its provenance sidecar. The `.net` is 500
+# bytes of floats and must never be line-ending-normalised; the `.meta` is text
+# the TRAINER writes with LF, and the check that guards the shipped default is
+# "re-run the command recorded inside it and diff", so a checkout that turned it
+# into CRLF would make that diff fail forever on Windows and nowhere else.
+*.net binary
+*.net.meta text eol=lf
 
 # The TyraX ps2link patch is applied to a Unix (Linux-container) checkout of
 # ps2link; a CRLF patch fails `git apply`. Keep it (and the tool sources) LF.

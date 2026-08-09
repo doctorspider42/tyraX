@@ -49,6 +49,12 @@ struct SceneMesh {
     std::vector<SceneVert> vert;
     std::vector<int> idx;      // 3 per triangle
     std::string texture;       // ABSOLUTE path to a PNG, "" = untextured
+    // ...or an index into ProjectScene::embedded when the texture lives INSIDE
+    // a .glb and has no path on the host (>= 0 wins over `texture`). The build
+    // writes those images out next to the ELF, so the console is textured; a
+    // corpus that called the same part untextured would report texDetail = 0
+    // for a bag whose console twin reports a real minification ratio.
+    int embeddedTex = -1;
     float tint[3] = {1, 1, 1}; // object colour x material Kd, already in `c`
     bool cutout = false;       // alpha-tested (decals, foliage sheets)
     bool bilinear = true;
@@ -89,18 +95,117 @@ struct SceneShot {
     // history is fine, frames where it is useless, and the two transitions.
     float ease = 0.0f;
     float fovDeg = 60.0f;
+    // HOW MANY CORPUS FRAMES THIS SHOT GETS. 0 means "an equal share of what is
+    // left", which is what every shot asked for before the training-shot plan
+    // existed and is what a default plan still asks for - so a default plan
+    // produces the byte-identical corpus every published fold table was
+    // measured on. A positive number is the author saying "spend exactly this
+    // many here", and generate() honours the explicit counts FIRST and shares
+    // the remainder over the rest (Project::BlssShotPlan::autoFrames and
+    // BlssShot::frames are where it comes from).
+    int frames = 0;
     int keys() const { return static_cast<int>(eye.size() / 3); }
+};
+
+// ONE ANIMATED MODEL PART, POSED PER CONSOLE FRAME - and it is here because the
+// corpus was fitting a distribution the console does not run.
+//
+// This file used to SKIP animated models outright, on the stated grounds that
+// "animated .glb goes down the dynamic pipeline, which does not feed BLSS at
+// all". That was true of the engine this fork started from and is not true of
+// this one: `updateAndRenderAnimObjects` skins on the EE and then submits the
+// skinned arrays through `stapip.core.render()` like any other static bag
+// (templates.cpp), `PipelineInfoBag::blssProxy` defaults to true, and
+// `StaPipCore` therefore hands RendererCoreBlss one box per VU1 package for
+// every animated part on screen. So on the console a spider is drawn AND
+// described; in the corpus it was neither. Same class of bug as the whole-bag
+// proxy, and the same instrument found it: compare what the frame contains.
+//
+// `pose[f]` is the mesh as it stands at console frame f of the shot, with the
+// object's clip, its `animSpeed`, its loop flag and its autoplay flag already
+// folded in, so the consumer only ever indexes by frame number. Triangles,
+// material and vertex count are identical across poses - only positions,
+// normals (hence the baked vertex colour) and the bounding boxes move.
+struct AnimMesh {
+    std::vector<SceneMesh> pose;  // >= 1
+};
+
+// How many console frames of pose are baked. The corpus splits its frame budget
+// over the shots, so a shot is a dozen-odd frames; 48 is generous enough that
+// the pose never has to be held past the end and small enough that a 2 000-vertex
+// character costs ~3 MB. Frames past it clamp to the last pose.
+constexpr int kAnimPoses = 48;
+
+// ONE PARTICLE EMITTER, DESCRIBED RATHER THAN DRAWN - and it is here because
+// the fill it produces is the whole reason this feature has a winning fixture.
+//
+// The walk above cannot see an emitter: it draws no triangles on the host and
+// its quads are built on VU1 from a centre plus a 2x2 basis, so `drawsGeometry`
+// says false and always has. That is right for the CORPUS (a net is fitted to
+// what a BagProxy can describe, and a billboard bag describes nothing useful)
+// and completely wrong for a question about FILL: `examples/upscaler-lab` wins
+// 1.60x on hardware and the thing it is winning against is 192 large
+// alpha-blended puffs. A coverage estimate taken from geometry alone reads that
+// scene as a handful of coverages and tells the user to leave the feature off.
+//
+// So the emitters are carried, unused by the corpus RENDERER and read by
+// blss::measureCoverage(). Everything here is what `MeshData`/`RuntimeObject`
+// hand `TerrainGame::buildParticles` and `updateParticles`; the billboard is
+// `2 * size` world units across (`m00 = size`, `m11 = size`, corner = centre +-
+// right*m00 +- up*m11 - templates.cpp), which is the one number the estimate
+// turns into pixels.
+//
+// SINCE THE SIXTH TWIN RULE they are also read by `bagList()` under
+// `--emitter-proxy`, which turns each one into a BagProxy the way the console's
+// TYRA_BLSS_EMITTER_PROXY does (docs/blss-reconstruction.md section 2). Both
+// halves ship OFF. Note what that does and does not fix: it makes the six
+// feature channels DESCRIBE the particles, and it does not make the corpus
+// renderer DRAW them - so with the flag on, the corpus predicts a frame whose
+// ground truth still has no particles in it. Drawing them is the other half and
+// is still filed in docs/backlog.md.
+struct SceneEmitter {
+    std::string name;
+    float pos[3] = {0, 0, 0};    // world position
+    float box[3] = {1, 1, 1};    // object scale = the spawn box, FULL extent
+    float size = 0.5f;           // emitterSize, world units
+    float grow = 1.0f;           // custom kind: size multiplier reached at death
+    float speed = 3.0f;          // custom kind: emission speed, units/s
+    float life = 1.5f;           // custom kind: particle lifetime, seconds
+    int count = 24;              // pool size, clamped to 256 by the runtime
+    int kind = 0;                // 0 fire, 1 smoke, 2 fog, 3 sparks, 4 rain, 5 custom
+    bool enabled = true;         // false = starts hidden, so it draws nothing
+    // ABSOLUTE path to the emitter material's map_Kd PNG, "" = untextured.
+    // Needed because texDetail is one of the six channels: the console reads
+    // the bound texture's texel count straight off the billboard bag's texture
+    // bag (`puff.png` for upscaler-lab's haze), so a corpus that called every
+    // emitter untextured would report 0 on exactly the channel the emitter
+    // proxy exists to populate. Ignored by measureCoverage(), which counts
+    // pixels and does not care what is in them.
+    std::string texture;
 };
 
 // One scene of the project, drawn and shot.
 struct ProjectScene {
     std::string name;
     std::vector<SceneMesh> mesh;
+    // One entry per animated model PART on screen (a two-material character is
+    // two, exactly as it is two bags on the console).
+    std::vector<AnimMesh> anim;
+    // PNG blobs lifted out of .glb files, referenced by SceneMesh::embeddedTex.
+    // Stored once per scene rather than per pose: a pose list is 48 copies of
+    // the same mesh and would have been 48 copies of the texture with it.
+    std::vector<std::vector<unsigned char>> embedded;
+    // Read by measureCoverage() and by NOTHING the corpus does - see
+    // SceneEmitter. Filled after the bounds are taken, so adding it moved no
+    // camera and no corpus frame.
+    std::vector<SceneEmitter> emitter;
     std::vector<SceneShot> shot;
     float bmin[3] = {0, 0, 0}, bmax[3] = {0, 0, 0};
     size_t triangles() const {
         size_t n = 0;
         for (const SceneMesh& m : mesh) n += m.idx.size() / 3;
+        for (const AnimMesh& a : anim)
+            if (!a.pose.empty()) n += a.pose[0].idx.size() / 3;
         return n;
     }
 };
@@ -109,13 +214,48 @@ struct ProjectScene {
 // frame budget evenly over shots and leave-one-shot-out cross-validation runs
 // one fold per shot, so this is a cost knob in both directions: too many shots
 // and every fold is three frames deep, too few and the net sees one viewpoint.
+//
+// IT IS SIX TOTAL, NOT SIX AUTOMATIC, and nothing said so until a project hit
+// it: an authored Cutscene take is pushed FIRST and then the automatic set
+// fills up to this number, so a take DISPLACES a move rather than adding to it.
+// On `examples/upscaler-lab` the take costs the strafe - the run reports
+// take/walk/pan/orbit/whip/pitch and no `strafe` at all, which is the one move
+// that produces real parallax. That is the reason the training-shot plan LIFTS
+// this cap as soon as it is non-default: an author who has asked for particular
+// shots has also said the six-shot budget is not the constraint any more.
 constexpr int kShotsPerScene = 6;
 
 // Walks `projectDir` and returns one entry per scene that produced geometry.
 // Empty (with `err` set) when the directory is not a project; empty with no
 // `err` when the project loads but has nothing to draw - which is the case the
 // caller must fall back to the procedural bestiary for.
+// WHAT THE PROJECT SAYS ABOUT BLSS, so the corpus can fit the build that will
+// actually ship rather than a default. Only the settings that change what a
+// FRAME looks like belong here - a net fitted against a sampler the generated
+// game does not use is fitted out of distribution, which is the mistake this
+// whole file exists to stop making.
+struct ProjectBlss {
+    bool found = false;   // false: not a loadable project, so nothing was read
+    bool jitter = true;   // ProjectSettings::blssJitter (format v5)
+};
+
+// `animated` false leaves the animated models out entirely - no pose table, no
+// pixels, no proxies - which is how this corpus behaved for its whole life
+// before AnimMesh existed. It is `--no-package-split`'s sibling and exists for
+// the same one reason: to reproduce a fold table measured before the change,
+// not to ship.
+//
+// `honourPlan` false ignores `Project::blssShots` entirely - six automatic
+// moves, takes on, no authored vantages, an equal frame share - which is what
+// this walk did before the plan existed. Same role again (`--ignore-shot-plan`):
+// a project that HAS a plan can still be measured the old way, so a fold table
+// taken before it survives as a comparison. A project whose plan is default
+// produces the same shots either way, which is what keeps every published table
+// reproducible without passing anything.
 std::vector<ProjectScene> loadProject(const std::string& projectDir,
-                                      std::string* err, bool verbose);
+                                      std::string* err, bool verbose,
+                                      bool animated = true,
+                                      ProjectBlss* blss = nullptr,
+                                      bool honourPlan = true);
 
 }  // namespace blss

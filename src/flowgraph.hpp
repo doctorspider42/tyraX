@@ -131,7 +131,11 @@ enum class FlowParamKind {
     KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
     PrefabName,  // name of a Project::prefabs entry (Tools > Prefabs)
     EventName,  // name of a graph event (free text; exists by being named)
+    FactName,   // name of a Project::facts entry (Tools > World Facts)
+    FactQueryName,  // name of a Project::factQueries entry (a named condition)
     ScreenFxName,  // key of a Project::screenFx placement (custom .screenfx)
+    ReverbPreset,  // key of a reverbPresets() entry - a closed list, like
+                   // SaveSlotMode below, not a project lookup
     // Which slot a Commit Checkpoint writes: "" / "fixed" = the Slot number
     // below it, "autosave" = the project's autosave slot, "next" = the next
     // free one. "" is fixed so a graph written before this existed is
@@ -160,6 +164,45 @@ inline const std::vector<SaveSlotModeInfo>& saveSlotModes() {
     };
     return modes;
 }
+
+// The SPU2 reverb presets (docs/reverb.md). Unlike the list above, ORDER IS
+// LOAD-BEARING: the index is Tyra::AudioReverb::Preset, which is libsd's
+// SD_EFFECT_MODE_*, and it is what gets baked into REVERB_ZONES and written to
+// the hardware. Append only, never reorder. This is the single source for the
+// Area properties combo, the Set Reverb node and codegen alike; the node
+// stores the KEY, an area stores the INDEX.
+struct ReverbPresetInfo {
+    const char* key;
+    const char* label;
+    const char* desc;
+};
+inline const std::vector<ReverbPresetInfo>& reverbPresets() {
+    static const std::vector<ReverbPresetInfo> presets = {
+        {"off", "Off", "No reverb - a dry pocket. Useful INSIDE another zone."},
+        {"room", "Room", "A small, tight room. The subtle one."},
+        {"studioA", "Studio A", "A treated room, short tail."},
+        {"studioB", "Studio B", "Studio A, bigger."},
+        {"studioC", "Studio C", "The biggest of the studio three."},
+        {"hall", "Hall", "A large hall - the obvious cave/church/hangar."},
+        {"space", "Space echo", "A long, washed-out ambience. Very wet."},
+        {"echo", "Echo", "Discrete repeats. Delay and feedback apply."},
+        {"delay", "Delay", "A single delay line. Delay and feedback apply."},
+        {"pipe", "Pipe", "A resonant tube - metallic, narrow."},
+    };
+    return presets;
+}
+// Index of a preset key. An unknown or empty key reads as Room, so a node
+// dropped and not yet configured does something audible rather than nothing.
+inline int reverbPresetIndex(const std::string& key) {
+    const std::vector<ReverbPresetInfo>& ps = reverbPresets();
+    for (size_t i = 0; i < ps.size(); ++i)
+        if (key == ps[i].key) return (int)i;
+    return 1;
+}
+// Delay and feedback are read by Echo and Delay ONLY - libsd folds them into
+// that line's taps and zeroes both for every other preset. Pipe looks like an
+// echo and is not one.
+inline bool reverbUsesEcho(int preset) { return preset == 7 || preset == 8; }
 
 struct FlowNodeType {
     const char* key = "";
@@ -1279,12 +1322,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "SetBars", .title = "Set Letterbox Bars", .category = "Camera",
          .numCount = 2, .numLabels = {"Style", "Amount"},
          .numTips = {"Which mask: 0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 "
-                     "pillarbox, 4 frame.",
+                     "pillarbox, 4 frame. Cinema and wide letterbox INSIDE the "
+                     "picture, so on a 16:9 game wide covers nothing and "
+                     "cinema is thinner.",
                      "How far the chosen style is deployed, 0..1 of its full "
                      "coverage - wire a Tween into it to slide the bars in."},
          .numIn = true,
          .desc = "Masks the frame with black bars. A playing cutscene's own "
-                 "bars win over this."},
+                 "bars win over this. The coverage follows the aspect the "
+                 "console is outputting, so it stays right when Set Widescreen "
+                 "or the player's own widescreen option changes it."},
         {.key = "SetPlayerVisible", .title = "Set Player Visible",
          .category = "Camera", .execInCount = 2,
          .execInLabels = {"show", "hide"},
@@ -1446,16 +1493,50 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "The one place to duck all the sound effects at once - under "
                  "a cutscene, under dialogue. Music has its own Set Music "
                  "Volume."},
+        {.key = "SetReverb", .title = "Set Reverb", .category = "Audio",
+         .strKind = FlowParamKind::ReverbPreset,
+         .strTip = "Which room the effects are heard in. \"Off\" silences the "
+                   "reverb without handing control back to the zones.",
+         .numCount = 3, .numLabels = {"Amount", "Delay", "Feedback"},
+         .numTips = {"How wet, 0..100. A wired number replaces it, so a Tween "
+                     "into this ramps a room up or down.",
+                     "Time between repeats, 0..127. Echo and Delay presets "
+                     "only - the room presets have fixed geometry.",
+                     "How much of each repeat feeds the next, 0..127. Echo and "
+                     "Delay presets only."},
+         .numIn = true,
+         .execInCount = 2, .execInLabels = {"set", "clear"},
+         .execInTips = {"Force this reverb everywhere, whatever area the "
+                        "player is standing in.",
+                        "Hand control back to the reverb zones (docs/"
+                        "reverb.md). Without this the override stays in force."},
+         .desc = "Overrides the reverb for the whole game - a scripted moment "
+                 "that should sound like a cathedral wherever it happens, or "
+                 "an underwater stretch. Rooms placed as Areas cover the "
+                 "ordinary case and need no node at all. The console has ONE "
+                 "reverb unit, so this REPLACES the zones rather than adding "
+                 "to them; changing preset fades out and back in (~0.3 s) "
+                 "because switching the algorithm zeroes its work area."},
         {.key = "PlaySound", .title = "Play Sound", .category = "Audio",
          .strKind = FlowParamKind::SoundTrack,
          .strTip = "The sound effect to play (imported in the Project panel > "
                    "Sounds). One-shot ADPCM - for looping background audio use "
                    "Play Music.",
-         .numCount = 2, .numLabels = {"Volume", "Channel"},
+         .numCount = 4, .numLabels = {"Volume", "Channel", "Dry", "Priority"},
          .numTips = {"How loud, 0..100. Set Sound Volume scales this on top.",
-                     "Which of the SPU's 24 voices to use, or auto to rotate "
-                     "through them. Pinning a channel is how you make a new "
-                     "trigger CUT OFF the previous one instead of layering."},
+                     "Which voice to use, or auto to rotate through them. "
+                     "Auto cycles 0-15 and layers; 16-23 belong to the sound "
+                     "emitters. A PINNED channel CUTS OFF its own previous "
+                     "sample instead of layering - pin a footstep, a UI beep "
+                     "or a weapon so the new one replaces the old one.",
+                     "1 = never send this sound through a reverb zone - a menu "
+                     "beep or a voice line that must sound the same in a cave "
+                     "as outdoors. 0 (the default) = the room applies.",
+                     "Who wins when all sixteen voices are busy: a sound cuts "
+                     "off the LOWEST priority strictly below its own, and is "
+                     "dropped when nothing playing is less important. 0 is "
+                     "ordinary; raise it for a gunshot or a line of dialogue, "
+                     "lower it for chatter you would rather lose."},
          .desc = "Fires a one-shot sound effect."},
         // Save data: named values persisted in memory card slots (Project
         // panel, "Save data"); every save slot stores a snapshot.
@@ -1637,6 +1718,140 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .pure = true, .textOut = true,
          .desc = "Pure text: a global int variable, printed. Number To Text "
                  "(formatted) is the version with padding and decimals."},
+        // World Facts (docs/world-facts.md): the DECLARED half of the same
+        // idea as the Variables nodes above. A fact is picked from the
+        // catalog rather than typed, carries a type, a default and a
+        // lifetime, and is visible in the World Blackboard while the game
+        // runs. The Variables nodes keep working and are a separate
+        // namespace - one is a scratch value, the other is game state
+        // someone wrote down.
+        {.key = "SetFact", .title = "Set Fact", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to write, from the catalog (Tools > World "
+                   "Facts). A computed fact cannot be written - it is derived "
+                   "from others.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"What to assign or add, depending on which pin fired. "
+                     "For a yes/no fact anything other than 0 is true; for a "
+                     "one-of-several fact this is the option's position in the "
+                     "list. A wired number replaces it."},
+         .numIn = true, .execInCount = 3,
+         .execInLabels = {"set", "add", "toggle"},
+         .execInTips = {"Assigns Value, discarding whatever was there.",
+                        "ADDS Value to what is there - a counter is On Button "
+                        "-> add with Value 1, and needs no read at all.",
+                        "Flips a yes/no fact without reading it first. On any "
+                        "other type this sets 0 when it was non-zero and 1 "
+                        "when it was 0."},
+         .desc = "Writes a fact in the World Facts catalog. Unlike a "
+                 "variable, the write is checked against the fact's declared "
+                 "type at build time and shows up in the blackboard's change "
+                 "history with this node's name against it."},
+        {.key = "SetFactPos", .title = "Set Fact Position",
+         .category = "Facts", .strKind = FlowParamKind::FactName,
+         .strTip = "The position fact to write.",
+         .numCount = 3, .numLabels = {"X", "Y", "Z"},
+         .numTips = {"The X to store. A linked position replaces all three.",
+                     "The Y to store.", "The Z to store."},
+         .posIn = true,
+         .desc = "Writes a position fact - a remembered spawn point, the "
+                 "place the player last died, where the boat was left."},
+        {.key = "ClearFact", .title = "Clear Fact", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to put back to the value it starts a new game "
+                   "at.",
+         .desc = "Resets one fact to its declared default. What 'start this "
+                 "puzzle again' is made of - and the honest version of it, "
+                 "because the default lives in the catalog rather than being "
+                 "retyped at every reset site."},
+        {.key = "GetFact", .title = "Get Fact", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to read. A yes/no fact reads 1 or 0.",
+         .pure = true, .numOut = true,
+         .desc = "Pure number: a fact's value. Wire it into a Math node or "
+                 "straight into any number input."},
+        {.key = "GetFactBool", .title = "Fact Is True", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test. Anything other than 0 is true, so this "
+                   "reads a count as 'at least one'.",
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: is this fact set? The usual way into a gate or "
+                 "an On Condition."},
+        {.key = "GetFactPos", .title = "Get Fact Position",
+         .category = "Facts", .strKind = FlowParamKind::FactName,
+         .strTip = "The position fact to read. One never written reads its "
+                   "declared default.",
+         .posOut = true, .pure = true,
+         .desc = "Pure position: a position fact, ready to wire into a "
+                 "Teleport or a Move Object To."},
+        {.key = "GetFactText", .title = "Get Fact As Text",
+         .category = "Facts", .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to print.",
+         .pure = true, .textOut = true,
+         .desc = "Pure text: a fact printed for the player. A one-of-several "
+                 "fact prints its OPTION NAME, not its number - which is the "
+                 "reason to declare one instead of using a bare int."},
+        {.key = "FactAtLeast", .title = "Fact At Least", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test.",
+         .numCount = 1, .numLabels = {"Threshold"},
+         .numTips = {"The value it has to reach or beat. A wired number "
+                     "replaces it, so one fact can be compared against "
+                     "another."},
+         .pure = true, .boolOut = true, .numIn = true,
+         .desc = "Pure bool: is the fact at or above the threshold? Evaluated "
+                 "fresh every frame, so wire it into On Condition or a gate "
+                 "rather than expecting it to fire."},
+        {.key = "FactAtMost", .title = "Fact At Most", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test.",
+         .numCount = 1, .numLabels = {"Threshold"},
+         .numTips = {"The value it must not exceed. A wired number replaces "
+                     "it."},
+         .pure = true, .boolOut = true, .numIn = true,
+         .desc = "Pure bool: is the fact at or below the threshold?"},
+        {.key = "FactIs", .title = "Fact Is", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"The value it must equal. For a one-of-several fact this "
+                     "is the option's position in the list - the editor shows "
+                     "the names beside it. Compared with a small tolerance, "
+                     "because the plane is float."},
+         .pure = true, .boolOut = true, .numIn = true,
+         .desc = "Pure bool: does the fact hold exactly this value? The node "
+                 "for a one-of-several fact - 'power.state is Overloaded'."},
+        {.key = "FactQuery", .title = "Query", .category = "Facts",
+         .strKind = FlowParamKind::FactQueryName,
+         .strTip = "The named condition to evaluate (Tools > World Facts > "
+                   "Queries).",
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: a reusable named condition - CanEnterBasement, "
+                 "MartaWillTalk. The same query gates a door, a dialogue line "
+                 "and an NPC's behaviour, so the design changes in one place "
+                 "instead of in every graph that happened to copy it."},
+        {.key = "OnFactChanged", .title = "On Fact Changed",
+         .category = "Facts", .trigger = true,
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to watch. Fires on the frame its value differs "
+                   "from the frame before - whoever wrote it, graph or rule.",
+         .execOutCount = 3,
+         .execOutLabels = {"changed", "became true", "became false"},
+         .desc = "Trigger: the fact changed. The reactive door into a graph - "
+                 "no polling, no On Condition that has to describe the state "
+                 "you are already storing.\n"
+                 "Three outputs off ONE node rather than three node types: "
+                 "\"changed\" fires on any move, \"became true\" on the "
+                 "0 -> non-zero edge and \"became false\" on the way back, so "
+                 "\"when the generator is repaired\" needs no Fact Is True "
+                 "and no On Condition beside it. A POSITION fact only has "
+                 "\"changed\" - three coordinates have no truth to cross - "
+                 "and the other two outputs are left unwired for one.\n"
+                 "For anything more than a yes/no edge (a threshold, several "
+                 "facts at once) reach for a Query wired into On Condition "
+                 "instead: the condition is then authored once in the World "
+                 "Facts window rather than restated in every graph."},
+
         // The number plane. Sources (Number, Get Int, Get Save Value) feed
         // these, they feed each other, and a consumer's num[0] gives way to
         // the wire. Every one of them is PURE - a number is an expression
@@ -2332,9 +2547,13 @@ inline int flowExecOutIndex(int slot) {
 // two different questions.
 inline int flowExecOutCount(const FlowNodeType& t) {
     if (t.pure) return 0;
-    if (t.trigger) return 1;
+    // A TRIGGER may declare several outputs too (On Fact Changed's changed /
+    // became true / became false). It used to be capped at one, which is why
+    // output 0 keeps the plain "then" slot: a trigger that grows outputs later
+    // does not move the pin every existing graph is already linked to.
     if (t.execOutCount > 0)
         return t.execOutCount > kFlowMaxExecOut ? kFlowMaxExecOut : t.execOutCount;
+    if (t.trigger) return 1;
     return t.execThrough ? 1 : 0;
 }
 
@@ -2402,6 +2621,8 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::PrefabName: return "Prefab";
         case FlowParamKind::VarName: return "Variable";
         case FlowParamKind::EventName: return "Event";
+        case FlowParamKind::FactName: return "Fact";
+        case FlowParamKind::FactQueryName: return "Query";
         default: return "";
     }
 }

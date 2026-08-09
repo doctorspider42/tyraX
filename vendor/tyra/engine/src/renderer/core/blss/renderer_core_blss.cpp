@@ -25,8 +25,30 @@
 #include "renderer/core/blss/renderer_core_blss.hpp"
 #include "math/math.hpp"
 #include "debug/debug.hpp"
+#include "debug/frame_profile.hpp"
 
 namespace Tyra {
+
+// The TEXA the DRAWING ENVIRONMENT runs with - NOT the GS reset value, and the
+// difference cost this feature every textured primitive in the game.
+//
+// Nothing in the engine writes TEXA except these passes, so it holds whatever
+// ps2sdk's draw_setup_environment left. That helper ships no sources in the
+// toolchain image; disassembling libdraw.a settles it - its 15-register block
+// ends with TEXA = TA0 0x80, AEM 0, TA1 0x80 (and COLCLAMP = 1, i.e. CLAMP,
+// not MASK). Both restores here used to write ZERO, on the belief that the
+// engine ran on GS reset values.
+//
+// Why TA0 = 0 is fatal rather than cosmetic: a 24-bit texture loads as
+// TEXTURE_COMPONENTS_RGB (png_loader.cpp handle24bpp), so its draws set
+// TEX0.TCC = 0 and the fragment takes its alpha from TEXA.TA0. The drawing
+// environment's alpha test is ATE=1 / ATST=NOTEQUAL / AREF=0, and StaPip's
+// per-bag TEST keeps that method - so alpha 0 FAILS and the fragment writes no
+// colour at all. Untextured geometry (vertex alpha 0x80) and RGBA/palettised
+// textures (TCC = 1) are unaffected, which is exactly the three-way split the
+// bug presented as. The composite runs at the END of a frame, so the damage
+// lands on the NEXT frame's scene.
+static const u64 kEnvTexa = GS_SET_TEXA(0x80, 0, 0x80);
 
 // ceil(log2(v)) - the GS TEX0 TW/TH fields are log2 of a power-of-two extent
 // that must COVER the real one; the region CLAMP below cuts it back down.
@@ -36,8 +58,140 @@ static u8 lg2(int v) {
   return r;
 }
 
+/**
+ * `(int)floorf(v)` WITHOUT THE LIBRARY CALL, and it is bit-identical for every
+ * value this file feeds it.
+ *
+ * newlib's floorf is a real out-of-line function - 68 instructions plus the
+ * call sequence - and addBag() runs four of them on every proxy, emitGrid two
+ * on every grid corner of the reprojected pass. On a parked frame of
+ * examples/upscaler-lab that is 792 + 510 calls, and it is the same shape of
+ * finding as the tanhf/expf one that the activation table came out of: the
+ * arithmetic was never the cost, the libm round trip was.
+ *
+ * A cast to int truncates TOWARD ZERO, which is floor for v >= 0 and one too
+ * large for a negative non-integer; the compare fixes exactly that case, so
+ * the result equals floorf's for every finite v with |v| < 2^31. Both callers
+ * pass screen coordinates over the tile size, so the range is never in doubt.
+ */
+static inline int floorToInt(float v) {
+  const int t = static_cast<int>(v);
+  return static_cast<float>(t) > v ? t - 1 : t;
+}
+
 static inline float clamp01(float v) {
   return v < 0.0F ? 0.0F : (v > 1.0F ? 1.0F : v);
+}
+
+// ------------------------------------------------- the activation table ---
+// The engine half of docs/blss-reconstruction.md S5, "The activation table".
+// The contract is written there; this is a transcription, and the literals
+// below are `tyrax-editor --blss-emit --act-table 512` verbatim.
+//
+// SHIPS OFF, and it must stay in lockstep with the host. src/blss.cpp
+// implements the same table behind `--act-table N` and defaults to N = 0
+// (libm). A net is fitted against whichever activation the HOST evaluated and
+// nothing in blss.net records which one it was, so flipping one side alone is
+// silent twin divergence. Turn both on in the same commit or neither.
+//
+// What it buys when it is turned on (measured on the host: 0.01 dB against a
+// fold sd of 0.35, i.e. free): runNet() drops 12 tanhf + 3 expf + 3 fdiv per
+// tile - 2 688 tanhf, 672 expf and 672 fdiv a frame over a 16x14 grid, in a
+// build with no -ffast-math - for 15 table lookups. ONE table serves both,
+// because logistic(z) = (1 + tanh(z/2)) / 2 exactly, so the divide dies with
+// the expf. MACs are unchanged.
+//
+// AND ON THE EE THAT IS THE LARGEST SINGLE COST THIS FEATURE HAS. runNet()
+// measures 3.96 ms of the composite's 5.14 ms EE half (PCSX2, the blssrig
+// fixture, 224 tiles) - more than the whole bag-proxy feed, and it was never
+// where anyone looked. newlib's tanhf/expf compute in DOUBLE and the EE has no
+// double-precision FPU, so each of those 15 calls per tile is a software-
+// emulated round trip. MEASURED behind this switch on that fixture, 65 paired
+// 50-frame windows: runNet 3.39 -> 1.29 ms, i.e. -2.11 ms [-2.10, -2.12], and
+// the 1.29 ms that is left is the 108 MACs a tile that no table can remove.
+// Nothing else in this file is worth 2 ms.
+//
+// Until 2026-08-08 actTanh/actLogistic were never CALLED - the table was
+// landed, hashed, documented and dead, and runNet() went straight to
+// tanhf/expf. It is wired now, and since 2026-08-08 it SHIPS AT 512, together
+// with the host's `--act-table` default in src/blss.cpp. The two numbers are
+// one number: a one-sided flip is silent twin divergence, which is the exact
+// failure docs/blss-reconstruction.md exists to prevent. Never move one
+// without the other, in the same commit.
+#ifndef TYRA_BLSS_ACT_TABLE
+#define TYRA_BLSS_ACT_TABLE 512  // 0 = libm; 512 = table (the host's default)
+#endif
+
+#if TYRA_BLSS_ACT_TABLE
+static constexpr int kActN = TYRA_BLSS_ACT_TABLE;  // INTERVALS; kActN+1 entries
+static constexpr float kActRange = 4.0F;           // domain [-4, +4]
+static constexpr float kActQ15 = 3.0517578125e-05F;  // 2^-15, exact
+
+// BLSS activation table - docs/blss-reconstruction.md S5.
+// tanh over [-4, +4], 512 intervals, Q15, odd-symmetric:
+// only the upper half is stored, T[i] = -T[n-i] below it.
+// FNV-1a over all 513 int16 entries (LE): 0x47A59E3C
+static const short kBlssTanhHalf[257] = {
+         0,    512,   1024,   1535,   2045,   2555,   3063,   3570,   4075,   4578,   5079,   5577,
+      6073,   6566,   7056,   7542,   8025,   8505,   8980,   9452,   9919,  10382,  10840,  11294,
+     11743,  12186,  12625,  13058,  13486,  13909,  14326,  14737,  15143,  15542,  15936,  16324,
+     16706,  17082,  17452,  17816,  18173,  18525,  18870,  19209,  19542,  19869,  20189,  20504,
+     20813,  21115,  21411,  21702,  21986,  22265,  22538,  22804,  23066,  23321,  23571,  23815,
+     24054,  24287,  24516,  24738,  24956,  25168,  25376,  25578,  25776,  25969,  26157,  26340,
+     26519,  26694,  26864,  27029,  27191,  27348,  27502,  27651,  27797,  27938,  28076,  28211,
+     28341,  28469,  28592,  28713,  28830,  28944,  29055,  29163,  29268,  29370,  29470,  29566,
+     29660,  29751,  29840,  29926,  30010,  30091,  30170,  30247,  30322,  30394,  30465,  30533,
+     30600,  30664,  30727,  30788,  30847,  30904,  30960,  31014,  31067,  31118,  31167,  31215,
+     31262,  31307,  31351,  31394,  31435,  31476,  31515,  31553,  31589,  31625,  31659,  31693,
+     31726,  31757,  31788,  31817,  31846,  31874,  31901,  31928,  31953,  31978,  32002,  32025,
+     32048,  32070,  32091,  32112,  32132,  32151,  32170,  32188,  32206,  32223,  32240,  32256,
+     32271,  32287,  32301,  32316,  32329,  32343,  32356,  32368,  32381,  32392,  32404,  32415,
+     32426,  32436,  32447,  32456,  32466,  32475,  32484,  32493,  32501,  32509,  32517,  32525,
+     32532,  32540,  32547,  32553,  32560,  32566,  32573,  32579,  32584,  32590,  32596,  32601,
+     32606,  32611,  32616,  32620,  32625,  32629,  32634,  32638,  32642,  32646,  32649,  32653,
+     32657,  32660,  32663,  32667,  32670,  32673,  32676,  32678,  32681,  32684,  32686,  32689,
+     32691,  32694,  32696,  32698,  32700,  32702,  32704,  32706,  32708,  32710,  32712,  32714,
+     32715,  32717,  32718,  32720,  32721,  32723,  32724,  32726,  32727,  32728,  32729,  32731,
+     32732,  32733,  32734,  32735,  32736,  32737,  32738,  32739,  32740,  32741,  32741,  32742,
+     32743,  32744,  32745,  32745,  32746,
+};
+
+// Entry i of the FULL table, 0 <= i <= kActN. The lower half is COMPUTED as
+// -T[kActN - i] rather than stored, so the two ends cannot round apart and the
+// table costs 514 bytes instead of 1 026.
+static inline float actEntry(int i) {
+  const int half = kActN / 2;
+  return i >= half ? static_cast<float>(kBlssTanhHalf[i - half]) * kActQ15
+                   : -static_cast<float>(kBlssTanhHalf[half - i]) * kActQ15;
+}
+#endif
+
+// Clamp FIRST, then nearest index via a truncating cast of x + 0.5 - so the
+// index can never leave [0, kActN] and the result is a table value EXACTLY.
+// No interpolation: that exactness is the whole bit-identity argument, and a
+// lerp would put a float multiply back between the twins for ~2e-5 that a byte
+// cannot hold anyway.
+static inline float actTanh(float a) {
+#if TYRA_BLSS_ACT_TABLE
+  if (a <= -kActRange) return actEntry(0);
+  if (a >= kActRange) return actEntry(kActN);
+  const float x = (a + kActRange) *
+                  (static_cast<float>(kActN) / (2.0F * kActRange));
+  return actEntry(static_cast<int>(x + 0.5F));
+#else
+  return tanhf(a);
+#endif
+}
+
+static inline float actLogistic(float z) {
+#if TYRA_BLSS_ACT_TABLE
+  // Both constants are powers of two, so this is one multiply and one
+  // multiply-add and loses nothing. |z| >= 8 saturates, which is alpha 127.96
+  // against libm's 128 - one byte at the extreme and nowhere else.
+  return 0.5F + 0.5F * actTanh(0.5F * z);
+#else
+  return 1.0F / (1.0F + expf(-z));
+#endif
 }
 
 // The composite packet, in qwords. Worst case over ALL passes of the FULL
@@ -65,8 +219,7 @@ RendererCoreBlss::RendererCoreBlss() {
     coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
     dMin[i] = 1e30F;
     dMax[i] = 0.0F;
-    tCover[i] = tDepth[i] = tDetail[i] = tEdge[i] = 0.0F;
-    tDepthMin[i] = tDepthMax[i] = 0.0F;
+    tDepth[i] = tGrad[i] = 0.0F;
     outW_A[i] = outW_C[i] = outW_D[i] = 0.0F;
     for (int f = 0; f < kFeatures; f++) feat[i][f] = 0.0F;
   }
@@ -134,7 +287,8 @@ void RendererCoreBlss::allocate() {
 }
 
 void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
-                                 bool t_temporal, int t_debugView) {
+                                 bool t_temporal, int t_debugView,
+                                 bool t_jitter, bool t_network) {
   TYRA_ASSERT(settings != nullptr,
               "BLSS configure() before the renderer was initialized!");
   if (settings == nullptr) return;
@@ -143,6 +297,14 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   sharpen = clamp01(t_sharpen);
   temporal = t_temporal;
   debugView = t_debugView;
+  useNet = t_network;
+  // PLAIN MODE FORCES THE JITTER OFF, in one place, here. The temporal pass is
+  // the only thing that can fuse two sub-pixel phases back into one image and
+  // plain mode has no temporal pass - so jitter without it is not a cheaper
+  // supersample, it is the period-2 bob with nothing left to average it. Doing
+  // it here rather than in the caller keeps it a property of the mode instead
+  // of a rule codegen and an embedder each have to remember.
+  jitterOn = t_jitter && useNet;
   // 1x1 is "off" - nothing is allocated and the projection keeps its full
   // raster scale, so a project without BLSS costs zero words and zero cycles.
   enabled = (scaleX * scaleY) > 1;
@@ -167,13 +329,16 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // rebuild performs has nothing to evict and docs/gs-vram.md's "permanent
   // buffers before any texture" invariant holds.
   if (gs != nullptr) {
-    // Mask scene-depth writes for everything OUTSIDE the low-res bracket, and
-    // do it before the rebuild - reallocateBuffers() re-sends the drawing
-    // environment, which is what puts the new mask on the GS. Every
-    // draw_enable_tests / draw_setup_environment in the engine reads this one
-    // field, so one assignment covers the frame clear, post fx, the 2D path
-    // and the env-map / shadow-map restores.
-    gs->zBuffer.mask = enabled ? 1 : 0;
+    // NOTE: zBuffer.mask is NOT set here. Masking scene-depth writes outside
+    // the low-res bracket is the invariant that makes a smaller z buffer safe,
+    // so it belongs to whoever SIZES the buffer - RendererCoreGS::
+    // allocateVramBuffers derives it from the allocation now. This line used
+    // to assign it one statement before the rebuild below, and the rebuild
+    // runs allocateVramBuffers, which cleared it again: the flag was 0 for the
+    // whole run, display-resolution passes wrote z at a 512 stride over a
+    // 256x224 allocation, and the depth they stamped landed on the texture
+    // heap - see the comment there for why that deleted 4-bit palettised
+    // textures specifically.
     if (gs->needsBufferRealloc()) {
       if (vramRebuild != nullptr) {
         vramRebuild(vramRebuildUser);
@@ -202,6 +367,13 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   hasPrev = false;
   phase = 0;
 
+  if (!useNet) {
+    // The one line that says which of the two composites this ELF runs. The
+    // rest of the log line would describe knobs plain mode does not read.
+    TYRA_LOG("BLSS configured: scale ", scaleX, "x", scaleY,
+             ", PLAIN (no network, no proxies, one composite pass)");
+    return;
+  }
   TYRA_LOG("BLSS configured: scale ", scaleX, "x", scaleY, ", sharpen ",
            static_cast<int>(sharpen * 100.0F), "%, temporal ",
            temporal ? 1 : 0, ", debug ", debugView);
@@ -270,15 +442,15 @@ void RendererCoreBlss::capturePinhole() {
 // --------------------------------------------------------------- section 2 ---
 void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
                               float wNear, float wFar, float texDetail) {
-  if (!enabled || !inScene) return;
+  if (!wantsProxies() || !inScene) return;
   if (x1 <= x0 || y1 <= y0) return;
 
   // Only the tile RANGE is clamped to the screen, never the bbox itself: a
   // clipped bbox would plant a spurious bbox EDGE on the screen border.
-  int tx0 = static_cast<int>(floorf(x0 / static_cast<float>(kTile)));
-  int tx1 = static_cast<int>(floorf((x1 - 0.001F) / static_cast<float>(kTile)));
-  int ty0 = static_cast<int>(floorf(y0 / static_cast<float>(kTile)));
-  int ty1 = static_cast<int>(floorf((y1 - 0.001F) / static_cast<float>(kTile)));
+  int tx0 = floorToInt(x0 / static_cast<float>(kTile));
+  int tx1 = floorToInt((x1 - 0.001F) / static_cast<float>(kTile));
+  int ty0 = floorToInt(y0 / static_cast<float>(kTile));
+  int ty1 = floorToInt((y1 - 0.001F) / static_cast<float>(kTile));
   if (tx0 < 0) tx0 = 0;
   if (ty0 < 0) ty0 = 0;
   if (tx1 > cols - 1) tx1 = cols - 1;
@@ -292,6 +464,7 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   // it. `wNear == the near plane` in that line means the box straddles the
   // eye, which is the shape that cannot carry a per-tile depth at all.
   const int span = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
+  proxyTiles += span;  // ...and how much WORK that description cost (header)
   if (span > worstTiles) {
     worstTiles = span;
     worstX0 = x0;
@@ -307,6 +480,33 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
   const float invTile2 = 1.0F / static_cast<float>(kTile * kTile);
   const float det = clamp01(texDetail);
 
+  // The x overlap and the two VERTICAL bbox edges depend only on the COLUMN,
+  // so they are computed once per column instead of once per (row, column).
+  // Same expressions, same order, same values - this is a hoist, not a
+  // reformulation, and the accumulators come out bit-identical.
+  //
+  // THE CLAIM THAT USED TO BE HERE - "the cost of the feed is dominated by THIS
+  // loop rather than by the eight-corner projection above" - WAS WRONG, and the
+  // split counter FrameProfile::tBlssAccum is what caught it. A parked frame of
+  // examples/upscaler-lab projects 262 boxes, accepts 198, and those 198 touch
+  // 1 499 tiles between them: SEVEN AND A HALF TILES EACH. The projection half
+  // measures larger than the accumulation half, and both are dominated by their
+  // per-PROXY fixed costs rather than by per-tile work - which is why the four
+  // floorf calls above mattered and why interleaving the accumulators did not
+  // (docs/profiling.md, "Pricing the proxy feed"). The hoist below is still
+  // worth its lines; the reason written for it was not the real one.
+  float oxCol[kMaxCols];
+  bool vx0Col[kMaxCols], vx1Col[kMaxCols];
+  for (int tx = tx0; tx <= tx1; tx++) {
+    const float tileX0 = static_cast<float>(tx * kTile);
+    const float tileX1 = tileX0 + static_cast<float>(kTile);
+    float ox = (x1 < tileX1 ? x1 : tileX1) - (x0 > tileX0 ? x0 : tileX0);
+    if (ox < 0.0F) ox = 0.0F;
+    oxCol[tx] = ox;
+    vx0Col[tx] = x0 >= tileX0 && x0 < tileX1;
+    vx1Col[tx] = x1 >= tileX0 && x1 < tileX1;
+  }
+
   for (int ty = ty0; ty <= ty1; ty++) {
     const float tileY0 = static_cast<float>(ty * kTile);
     const float tileY1 = tileY0 + static_cast<float>(kTile);
@@ -314,14 +514,12 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
     if (oy < 0.0F) oy = 0.0F;
     const bool topEdgeHere = y0 >= tileY0 && y0 < tileY1;
     const bool botEdgeHere = y1 >= tileY0 && y1 < tileY1;
+    const int row = ty * cols;
 
     for (int tx = tx0; tx <= tx1; tx++) {
-      const float tileX0 = static_cast<float>(tx * kTile);
-      const float tileX1 = tileX0 + static_cast<float>(kTile);
-      float ox = (x1 < tileX1 ? x1 : tileX1) - (x0 > tileX0 ? x0 : tileX0);
-      if (ox < 0.0F) ox = 0.0F;
+      const float ox = oxCol[tx];
 
-      const int idx = ty * cols + tx;
+      const int idx = row + tx;
       const float a = ox * oy * invTile2;
       coverAcc[idx] += a;
       depthAcc[idx] += a * invNear;
@@ -334,8 +532,8 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
       float e = 0.0F;
       if (topEdgeHere) e += ox;
       if (botEdgeHere) e += ox;
-      if (x0 >= tileX0 && x0 < tileX1) e += oy;
-      if (x1 >= tileX0 && x1 < tileX1) e += oy;
+      if (vx0Col[tx]) e += oy;
+      if (vx1Col[tx]) e += oy;
       edgeAcc[idx] += e;
     }
   }
@@ -344,7 +542,7 @@ void RendererCoreBlss::addBag(float x0, float y0, float x1, float y1,
 void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
                                     const float& worldRadius,
                                     const float& texelArea) {
-  if (!enabled || !inScene) return;
+  if (!wantsProxies() || !inScene) return;
   // A reflection probe / camera feed / shadow caster re-submits the SAME bags
   // through a foreign camera, inside this bracket (that is what the nesting
   // fix made actually happen). Their screen bboxes would be computed with that
@@ -387,18 +585,24 @@ void RendererCoreBlss::addBagSphere(const Vec4& worldCenter,
     if (texDetail > 1.0F) texDetail = 1.0F;
   }
 
+#if TYRA_FRAME_PROFILE
+  // Charged at the CALL SITE rather than inside addBag, so a build with the rig
+  // off carries not one extra instruction (addBag has early returns; bracketing
+  // it from the inside would mean either a wrapper call or a do/while).
+  const u32 fpA0 = FrameProfile::ticks();
   addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail);
+  FrameProfile::tBlssAccum += FrameProfile::ticks() - fpA0;
+#else
+  addBag(cx - rx, cy - ry, cx + rx, cy + ry, wNear, wFar, texDetail);
+#endif
 }
 
 // --------------------------------------------------------------- section 2 ---
 // The twin of the corpus' bagOf() (src/blsscorpus.cpp): an object-space AABB
 // through `mvp`, near-clipped along its twelve edges, reduced to a screen bbox
 // and a w range. See the header for WHY this replaces the bounding sphere.
-void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
-                                 const Vec4& objMax, const float& texelArea) {
-  if (!enabled || !inScene) return;
-  if (core3D->isForeignViewActive()) return;
-
+bool RendererCoreBlss::projectBox(const M4x4& mvp, const Vec4& objMin,
+                                  const Vec4& objMax, float* out) const {
   // Clip space is AFFINE in the box's parametric coordinates, so one
   // matrix-vector product and three scaled columns give all eight corners.
   // M4x4 is column-major storage of a column-vector matrix: data[0..3] is
@@ -436,7 +640,6 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
 
   float x0 = 1e30F, y0 = 1e30F, x1 = -1e30F, y1 = -1e30F;
   float wn = 1e30F, wf = -1e30F;
-  bool any = false;
   const float halfW = static_cast<float>(outW) * 0.5F;
   const float halfH = static_cast<float>(outH) * 0.5F;
   const float sx = 2048.0F * static_cast<float>(scaleX);
@@ -454,32 +657,50 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
     if (py > y1) y1 = py;
     if (cw < wn) wn = cw;
     if (cw > wf) wf = cw;
-    any = true;
   };
 
-  // The twelve edges of eight corners. An edge that crosses the near plane
-  // contributes its INTERSECTION, which is what keeps a floor the camera
-  // stands on from projecting its behind-the-eye corners to nonsense.
+  // EVERY IN-FRONT CORNER CONTRIBUTES ITSELF; ONLY A CROSSING EDGE CONTRIBUTES
+  // AN INTERSECTION - and a box wholly in front of the near plane has no
+  // crossing edge, so it never enters the twelve-edge loop at all.
+  //
+  // This used to be written the other way round: twelve edges, each taking
+  // BOTH of its endpoints. That is the same set of points - min/max is
+  // idempotent and an out-corner was never taken either way, so the result
+  // here is BIT-IDENTICAL and the twin contract (src/blsscorpus.cpp bagOf())
+  // is untouched - but it evaluated take() 24 times instead of 8, i.e. 24
+  // perspective divides to reduce 8 points. The straddling case is rare (it
+  // needs the eye inside the package's own AABB) and pays exactly what it did
+  // before; the common case is 3x cheaper. A generated frame submits one of
+  // these per VU1 package - 300..440 of them for twenty terrain chunks - which
+  // is why the shape of this loop is worth a paragraph.
+  int inMask = 0;
   for (int c = 0; c < 8; c++) {
-    for (int bit = 0; bit < 3; bit++) {
-      if (c & (1 << bit)) continue;
-      const P& a = corner[c];
-      const P& b = corner[c | (1 << bit)];
-      const bool ina = a.w >= near, inb = b.w >= near;
-      if (!ina && !inb) continue;
-      if (ina) take(a.x, a.y, a.w);
-      if (inb) take(b.x, b.y, b.w);
-      if (ina != inb) {
+    if (corner[c].w >= near) {
+      inMask |= 1 << c;
+      take(corner[c].x, corner[c].y, corner[c].w);
+    }
+  }
+  if (inMask == 0) return false;  // wholly behind the eye
+  if (inMask != 0xFF) {
+    // The twelve edges, but only where the near plane actually cuts one. The
+    // intersection is what keeps a floor the camera stands on from projecting
+    // its behind-the-eye corners to nonsense.
+    for (int c = 0; c < 8; c++) {
+      for (int bit = 0; bit < 3; bit++) {
+        if (c & (1 << bit)) continue;
+        const int other = c | (1 << bit);
+        if (((inMask >> c) & 1) == ((inMask >> other) & 1)) continue;
+        const P& a = corner[c];
+        const P& b = corner[other];
         const float d = b.w - a.w;
         const float t = (d > 1e-9F || d < -1e-9F) ? (near - a.w) / d : 0.0F;
         take(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, near);
       }
     }
   }
-  if (!any) return;  // wholly behind the eye
   const float fOutW = static_cast<float>(outW);
   const float fOutH = static_cast<float>(outH);
-  if (x1 <= 0.0F || y1 <= 0.0F || x0 >= fOutW || y0 >= fOutH) return;
+  if (x1 <= 0.0F || y1 <= 0.0F || x0 >= fOutW || y0 >= fOutH) return false;
 
   // A BOX THAT STRADDLES THE EYE AND STILL FILLS THE FRAME DESCRIBES NOTHING,
   // and both twins drop it (blss::accumulate's producer, bagOf(), has the same
@@ -493,7 +714,7 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
   // usable near depth, which is the pathological shape and nothing else.
   const bool eyeInside = wn <= near * 1.0001F;
   const bool fillsFrame = x0 <= 0.0F && y0 <= 0.0F && x1 >= fOutW && y1 >= fOutH;
-  if (eyeInside && fillsFrame) return;
+  if (eyeInside && fillsFrame) return false;
 
   if (x0 < 0.0F) x0 = 0.0F;
   if (y0 < 0.0F) y0 = 0.0F;
@@ -502,50 +723,208 @@ void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
   if (wn < near) wn = near;
   if (wf < wn) wf = wn;
 
+  out[0] = x0;
+  out[1] = y0;
+  out[2] = x1;
+  out[3] = y1;
+  out[4] = wn;
+  out[5] = wf;
+  return true;
+}
+
+// --------------------------------------------------------------- section 2 ---
+void RendererCoreBlss::addBagBox(const M4x4& mvp, const Vec4& objMin,
+                                 const Vec4& objMax, const float& texelArea) {
+  if (!wantsProxies() || !inScene) return;
+  if (core3D->isForeignViewActive()) return;
+  proxyCalls++;  // every box the frame projects, accepted or not
+
+  float b[6];
+  if (!projectBox(mvp, objMin, objMax, b)) return;
+
   // Section 2's minification ratio, off the CLAMPED bbox - the corpus does the
   // same, so a proxy running off the side of the screen reports the detail of
   // what is on screen.
   float texDetail = 0.0F;
   if (texelArea > 0.0F) {
-    float area = (x1 - x0) * (y1 - y0);
+    float area = (b[2] - b[0]) * (b[3] - b[1]);
     if (area < 1.0F) area = 1.0F;
     texDetail = sqrtf(texelArea / area) * 0.25F;
     if (texDetail > 1.0F) texDetail = 1.0F;
   }
 
-  addBag(x0, y0, x1, y1, wn, wf, texDetail);
+#if TYRA_FRAME_PROFILE
+  const u32 fpA0 = FrameProfile::ticks();
+  addBag(b[0], b[1], b[2], b[3], b[4], b[5], texDetail);
+  FrameProfile::tBlssAccum += FrameProfile::ticks() - fpA0;
+#else
+  addBag(b[0], b[1], b[2], b[3], b[4], b[5], texDetail);
+#endif
 }
 
 // --------------------------------------------------------------- section 2 ---
+// THE EMITTER PROXY - the sixth rule of the twin contract. The header carries
+// the derivation; this is the two passes it reduces to.
+//
+// Both loops read memory the EE wrote moments ago (updateParticles fills the
+// centre and param arrays every frame), so this is a scan of the bag rather
+// than a re-simulation of anything - which is the whole reason the rule is
+// affordable at all. The two maxima loops are fused: one walk, ten compares.
+void RendererCoreBlss::addBagBillboard(const M4x4& mvp, const Vec4* centres,
+                                       const u32& count, const Vec4* params,
+                                       const Vec4& right, const Vec4& up,
+                                       const float& texelArea) {
+  if (!wantsProxies() || !inScene) return;
+  if (core3D->isForeignViewActive()) return;
+  if (centres == nullptr || params == nullptr || count == 0) return;
+
+  float lox = centres[0].x, loy = centres[0].y, loz = centres[0].z;
+  float hix = lox, hiy = loy, hiz = loz;
+  // max|m00|, max|m01|, max|m10|, max|m11| over the pool. Kept as four separate
+  // maxima rather than one radius because the two half-axes are independent:
+  // rain is a thin streak (m00 = 0.06 * size, m11 = 0.5 * size) hanging from
+  // WORLD up, and a single isotropic radius would describe it as a square.
+  float m00 = 0.0F, m01 = 0.0F, m10 = 0.0F, m11 = 0.0F;
+  for (u32 i = 0; i < count; i++) {
+    const Vec4& c = centres[i];
+    if (c.x < lox) lox = c.x;
+    if (c.y < loy) loy = c.y;
+    if (c.z < loz) loz = c.z;
+    if (c.x > hix) hix = c.x;
+    if (c.y > hiy) hiy = c.y;
+    if (c.z > hiz) hiz = c.z;
+    const Vec4& p = params[i];
+    const float a0 = p.x < 0.0F ? -p.x : p.x;
+    const float a1 = p.y < 0.0F ? -p.y : p.y;
+    const float a2 = p.z < 0.0F ? -p.z : p.z;
+    const float a3 = p.w < 0.0F ? -p.w : p.w;
+    if (a0 > m00) m00 = a0;
+    if (a1 > m01) m01 = a1;
+    if (a2 > m10) m10 = a2;
+    if (a3 > m11) m11 = a3;
+  }
+
+  // e.axis = |R.axis| * (max|m00| + max|m10|) + |U.axis| * (max|m01| + max|m11|)
+  const float sR = m00 + m10;
+  const float sU = m01 + m11;
+  const float rxA = right.x < 0.0F ? -right.x : right.x;
+  const float ryA = right.y < 0.0F ? -right.y : right.y;
+  const float rzA = right.z < 0.0F ? -right.z : right.z;
+  const float uxA = up.x < 0.0F ? -up.x : up.x;
+  const float uyA = up.y < 0.0F ? -up.y : up.y;
+  const float uzA = up.z < 0.0F ? -up.z : up.z;
+  const float ex = rxA * sR + uxA * sU;
+  const float ey = ryA * sR + uyA * sU;
+  const float ez = rzA * sR + uzA * sU;
+
+  addBagBox(mvp, Vec4(lox - ex, loy - ey, loz - ez, 1.0F),
+            Vec4(hix + ex, hiy + ey, hiz + ez, 1.0F), texelArea);
+}
+
+// --------------------------------------------------------------- section 2 ---
+// THE PROXY BUDGET - the twin rule stated in docs/blss-reconstruction.md
+// section 2. See the header for why the tile count is the right budget.
+int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,
+                                  const Vec4& objMax) const {
+  if (!wantsProxies() || !inScene) return kMaxProxiesPerBag;
+  float b[6];
+  // A bag whose WHOLE box describes nothing (behind the eye, off screen, or
+  // dropped by the straddle rule) keeps the full cap: the budget may only ever
+  // take description away from a bag the grid can already see, never add a new
+  // reason to drop one. Its parts are still projected and tested one by one,
+  // exactly as before.
+  if (!projectBox(mvp, objMin, objMax, b)) return kMaxProxiesPerBag;
+
+  // The SAME tile range addBag() derives, so the budget counts the tiles the
+  // parts can actually land in - including the -0.001F that keeps a bbox
+  // ending exactly on a tile boundary out of the next tile.
+  int tx0 = floorToInt(b[0] / static_cast<float>(kTile));
+  int tx1 = floorToInt((b[2] - 0.001F) / static_cast<float>(kTile));
+  int ty0 = floorToInt(b[1] / static_cast<float>(kTile));
+  int ty1 = floorToInt((b[3] - 0.001F) / static_cast<float>(kTile));
+  if (tx0 < 0) tx0 = 0;
+  if (ty0 < 0) ty0 = 0;
+  if (tx1 > cols - 1) tx1 = cols - 1;
+  if (ty1 > rows - 1) ty1 = rows - 1;
+  if (tx1 < tx0 || ty1 < ty0) return 1;
+
+  const int tiles = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
+  return tiles < kMaxProxiesPerBag ? tiles : kMaxProxiesPerBag;
+}
+
+// --------------------------------------------------------------- section 2 ---
+// This used to end by storing six per-tile arrays, three of which buildFeatures
+// then copied verbatim into `feat` and two of which it only ever subtracted.
+// The copies and the subtraction happen HERE now, while the values are already
+// in registers: same expressions, same order, same results, one fewer 224-tile
+// pass over memory. See the header for the array list - INCLUDING the note that
+// this is a simplification and not a speed-up, because the work moves from
+// `feat` into this function rather than disappearing.
 void RendererCoreBlss::finishTileStats() {
   const int n = cols * rows;
   for (int i = 0; i < n; i++) {
     const float acc = coverAcc[i];
-    tCover[i] = acc > 1.0F ? 1.0F : acc;
+    feat[i][5] = acc > 1.0F ? 1.0F : acc;
     const float inv = 1.0F / (acc > 1e-6F ? acc : 1e-6F);
-    tDepth[i] = depthAcc[i] * inv;
-    tDetail[i] = detAcc[i] * inv;
+    const float depth = depthAcc[i] * inv;
+    tDepth[i] = depth;
+    feat[i][4] = detAcc[i] * inv;
+    // The normalised depth the 4-neighbour gradient differences. It used to be
+    // its own full pass at the top of buildFeatures, for the good reason that
+    // the gradient needs the WHOLE field before it can run - which this still
+    // honours, one function earlier.
+    feat[i][1] = clamp01(depth * kDepthRef);
     if (acc > 0.0F) {
-      tDepthMin[i] = dMin[i] > 1e29F ? 0.0F : dMin[i];
-      tDepthMax[i] = dMax[i];
+      const float dLo = dMin[i] > 1e29F ? 0.0F : dMin[i];
+      tGrad[i] = (dMax[i] - dLo) * kDepthRef;
     } else {
-      tDepthMin[i] = 0.0F;
-      tDepthMax[i] = 0.0F;
+      tGrad[i] = 0.0F;
     }
     const float e = edgeAcc[i] / static_cast<float>(2 * kTile);
-    tEdge[i] = e > 1.0F ? 1.0F : e;
+    feat[i][3] = e > 1.0F ? 1.0F : e;
   }
 }
 
 // --------------------------------------------------------------- section 3 ---
+// Reciprocals of the corner's neighbour count. 1, 2 and 4 are exact binary
+// scalings; 3 is not, so it keeps its divide below.
+static const float kInvCount[5] = {0.0F, 1.0F, 0.5F, 0.0F, 0.25F};
+
 void RendererCoreBlss::buildReproj() {
   const float fOutW = static_cast<float>(outW);
   const float fOutH = static_cast<float>(outH);
 
+  // THE SCREEN RAY THROUGH A GRID CORNER DOES NOT DEPEND ON ANYTHING THE INNER
+  // LOOP COMPUTES: sX is a function of the corner's COLUMN alone and sY of its
+  // ROW alone. Both were evaluated per surviving corner, and each carries a
+  // divide by the output size - so a 17x15 grid produced 32 distinct values the
+  // hard way. Hoisting them is a plain common-subexpression move: the same
+  // expressions with the same operands in the same order, so cornerDu/cornerDv
+  // come out bit-identical (checked on hardware, not asserted).
+  //
+  // **AND IT PRICES A DIVIDE, WHICH IS THE POINT OF RECORDING IT.** Together
+  // with the count reciprocal below it removes roughly 565 `div.s` a frame and
+  // `reproj` moves 0.310 -> 0.303 ms - about 2 100 EE cycles, i.e. a divide on
+  // this machine is single digits of cycles and five hundred of them are worth
+  // 0.007 ms. That is the number to reach for before optimising arithmetic
+  // anywhere in this file again: unlike tanhf/expf/floorf, which were library
+  // CALLS, `div.s` and `sqrt.s` are single instructions here and there is no
+  // hidden round trip left to find (docs/profiling.md, "The last terms in the
+  // composite", has the disassembly).
+  float pxCol[kMaxCols + 1], sXCol[kMaxCols + 1];
+  for (int i = 0; i < cornerCols; i++) {
+    const int px = i * kTile > outW ? outW : i * kTile;
+    pxCol[i] = static_cast<float>(px);
+    sXCol[i] = (2.0F * pxCol[i] / fOutW - 1.0F) * cur.tanHalfFovX;
+  }
+
   for (int j = 0; j < cornerRows; j++) {
     const int py = j * kTile > outH ? outH : j * kTile;
+    const float fpy = static_cast<float>(py);
+    const float sY = (1.0F - 2.0F * fpy / fOutH) * cur.tanHalfFovY;
     for (int i = 0; i < cornerCols; i++) {
-      const int px = i * kTile > outW ? outW : i * kTile;
+      const float fpx = pxCol[i];
+      const float sX = sXCol[i];
       const int c = j * cornerCols + i;
       cornerDu[c] = 0.0F;
       cornerDv[c] = 0.0F;
@@ -562,20 +941,20 @@ void RendererCoreBlss::buildReproj() {
           const int tx = i + dx;
           if (tx < 0 || tx >= cols) continue;
           const int t = ty * cols + tx;
-          if (tCover[t] <= 0.0F) continue;
+          if (feat[t][5] <= 0.0F) continue;
           sum += tDepth[t];
           count++;
         }
       }
       if (count == 0) continue;
-      const float invWrep = sum / static_cast<float>(count);
+      // count is 1..4, and 1, 2 and 4 are exact binary scalings - x * 0.5F is
+      // the SAME float as x / 2.0F, bit for bit, so this is a strength
+      // reduction and not an approximation. 3 keeps its divide.
+      const float invWrep =
+          count == 3 ? sum / 3.0F : sum * kInvCount[count];
       if (invWrep <= 1e-6F) continue;
 
       const float w = 1.0F / invWrep;
-      const float sX =
-          (2.0F * static_cast<float>(px) / fOutW - 1.0F) * cur.tanHalfFovX;
-      const float sY =
-          (1.0F - 2.0F * static_cast<float>(py) / fOutH) * cur.tanHalfFovY;
       const float dirX = cur.fwd[0] + cur.right[0] * sX + cur.up[0] * sY;
       const float dirY = cur.fwd[1] + cur.right[1] * sX + cur.up[1] * sY;
       const float dirZ = cur.fwd[2] + cur.right[2] * sX + cur.up[2] * sY;
@@ -596,8 +975,8 @@ void RendererCoreBlss::buildReproj() {
 
       // The history IS the other display framebuffer, so histW/histH ==
       // outW/outH and one history texel is one output pixel.
-      float du = (sXp * 0.5F + 0.5F) * fOutW - static_cast<float>(px);
-      float dv = (0.5F - sYp * 0.5F) * fOutH - static_cast<float>(py);
+      float du = (sXp * 0.5F + 0.5F) * fOutW - fpx;
+      float dv = (0.5F - sYp * 0.5F) * fOutH - fpy;
       // Keep the 12.4 UV field addressable (see emitGrid) - an offset this
       // large is off-screen history anyway, which the region clamp folds onto
       // the border.
@@ -612,15 +991,21 @@ void RendererCoreBlss::buildReproj() {
 }
 
 // --------------------------------------------------------------- section 4 ---
+// Two channels, not six: [1], [3], [4] and [5] are finished by finishTileStats
+// while their inputs are still in registers, and the normalised-depth pass that
+// used to open this function went with them (the 4-neighbour gradient still
+// needs the WHOLE normalised field before it can run - that is now satisfied
+// one function earlier, not by a second pass here).
+//
+// WHAT IS LEFT HERE IS NOT LIBM AND IS NOT DIVISION. `sqrtf` compiles to a bare
+// `sqrt.s` on the R5900 - checked in the shipped ELF's disassembly, no call, no
+// errno branch - `fabsf` to `abs.s`, and `/ kTile` folded into a multiply
+// because kTile is a power of two. The whole function is 346 instructions with
+// zero `jal` and zero `div.s`. The tanhf/expf/floorf pattern (an innocent-
+// looking C call that was really a 68-instruction library round trip) does NOT
+// repeat here, and this comment exists so the next round checks the
+// disassembly first instead of assuming it does.
 void RendererCoreBlss::buildFeatures() {
-  const int n = cols * rows;
-
-  // Normalised depth first: the 4-neighbour gradient below differences the
-  // NORMALISED values, so it needs the whole field before it can run.
-  for (int i = 0; i < n; i++) {
-    feat[i][1] = clamp01(tDepth[i] * kDepthRef);
-  }
-
   for (int cy = 0; cy < rows; cy++) {
     for (int cx = 0; cx < cols; cx++) {
       const int i = cy * cols + cx;
@@ -643,7 +1028,7 @@ void RendererCoreBlss::buildFeatures() {
       // depthGrad: the larger of the 4-neighbour difference and the tile's own
       // near/far spread - a disocclusion / silhouette proxy.
       const float d = feat[i][1];
-      float grad = (tDepthMax[i] - tDepthMin[i]) * kDepthRef;
+      float grad = tGrad[i];
       if (cx > 0) {
         const float t = fabsf(feat[i - 1][1] - d);
         if (t > grad) grad = t;
@@ -661,10 +1046,6 @@ void RendererCoreBlss::buildFeatures() {
         if (t > grad) grad = t;
       }
       feat[i][2] = clamp01(grad);
-
-      feat[i][3] = tEdge[i];
-      feat[i][4] = tDetail[i];
-      feat[i][5] = tCover[i];
     }
   }
 }
@@ -691,6 +1072,30 @@ void RendererCoreBlss::runNet() {
   float dead[kOutputs];
   for (int m = 0; m < kOutputs; m++)
     dead[m] = scale[m] > 0.0F ? kDeadzoneAlpha / scale[m] : 1e30F;
+
+  // THE DEADZONE COMPARE, MOVED IN FRONT OF THE LOGISTIC. logistic() is
+  // strictly increasing, so `logistic(s) <= dead` is exactly `s <= logit(dead)`
+  // - and a tile that is about to be snapped to zero has no use for the expf +
+  // fdiv that produced the number being thrown away. This is a pure cost cut,
+  // not an approximation: within kLogitGuard of the threshold the logistic is
+  // STILL evaluated and the original compare still decides, so every output
+  // byte is bit-identical to before and nothing about the twin contract moves.
+  // The guard is generous by orders of magnitude - the logistic's slope is at
+  // most 1/4, so 0.01 in `s` is at least 0.0025 in `o`, against a round-trip
+  // error in the last bits of a float.
+  //
+  // `allDead` is the same rule taken to its limit: an output whose alpha scale
+  // is zero - `sharpen` 0, which is a project setting and a common one - is
+  // deadzoned in every tile of every frame, so its whole row of the second
+  // layer never runs.
+  static constexpr float kLogitGuard = 0.01F;
+  bool allDead[kOutputs];
+  float sDead[kOutputs];
+  for (int m = 0; m < kOutputs; m++) {
+    allDead[m] = dead[m] >= 1.0F;
+    sDead[m] =
+        allDead[m] ? 0.0F : logf(dead[m] / (1.0F - dead[m])) - kLogitGuard;
+  }
   for (int i = 0; i < n; i++) {
     // An empty tile is not a decision the network is entitled to make. The
     // oracle's importance weighting gives "tiles where every kernel is
@@ -709,13 +1114,21 @@ void RendererCoreBlss::runNet() {
     for (int k = 0; k < kHidden; k++) {
       float s = b1[k];
       for (int f = 0; f < kFeatures; f++) s += w1[k][f] * feat[i][f];
-      h[k] = tanhf(s);
+      h[k] = actTanh(s);
     }
     float o[kOutputs];
     for (int m = 0; m < kOutputs; m++) {
+      if (allDead[m]) {
+        o[m] = 0.0F;
+        continue;
+      }
       float s = b2[m];
       for (int k = 0; k < kHidden; k++) s += w2[m][k] * h[k];
-      o[m] = 1.0F / (1.0F + expf(-s));
+      if (s <= sDead[m]) {
+        o[m] = 0.0F;  // below the deadzone with room to spare - see above
+        continue;
+      }
+      o[m] = actLogistic(s);
       // A logistic cannot emit 0, and "barely on" costs exactly as much fill
       // as "fully on" - kDeadzoneAlpha. Three compares per tile against
       // thresholds derived above; twinned with netField() on the host, which
@@ -794,7 +1207,7 @@ void RendererCoreBlss::logFeatureSpread() {
   }
   int covered = 0;
   for (int i = 0; i < n; i++) {
-    if (tCover[i] >= 0.02F) covered++;
+    if (feat[i][5] >= 0.02F) covered++;  // the coverage channel IS tCover
     for (int f = 0; f < kFeatures; f++) {
       const float v = feat[i][f];
       if (v < fMin[f]) fMin[f] = v;
@@ -835,8 +1248,10 @@ void RendererCoreBlss::logFeatureSpread() {
 
   char line[512];
   snprintf(line, sizeof(line),
-           "BLSSGRID %dx%d tiles, %d covered, %d proxy(ies), scale %dx%d",
-           cols, rows, covered, proxies, scaleX, scaleY);
+           "BLSSGRID %dx%d tiles, %d covered, %d proxy(ies) of %d projected,"
+           " %d tile update(s), scale %dx%d",
+           cols, rows, covered, proxies, proxyCalls, proxyTiles, scaleX,
+           scaleY);
   TYRA_LOG(line);
   snprintf(line, sizeof(line),
            "BLSSWORST %d of %d tile(s), bbox %.0f,%.0f..%.0f,%.0f, w %.2f..%.2f"
@@ -880,6 +1295,9 @@ void RendererCoreBlss::logFeatureSpread() {
 // --------------------------------------------------------------- section 1 ---
 void RendererCoreBlss::beginScene(const Color& clearColor) {
   if (!enabled) return;
+#if TYRA_FRAME_PROFILE
+  const u32 fpT0 = FrameProfile::ticks();
+#endif
   if (!allocated) allocate();
 
   // The raster redirect below is global GS state - drain in-flight PATH1 3D
@@ -889,20 +1307,40 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
 
   // Two phases, alternating every frame, +-0.25 low-res pixels = +-4 raw
   // XYOFFSET units, which is why the host can reproduce them bit-exactly.
-  jitter16X = phase == 0 ? -4 : 4;
-  jitter16Y = phase == 0 ? -4 : 4;
+  // With jitterOn false both offsets are pinned to 0 and every frame samples
+  // the SAME scene points: no temporal supersampling, and no period-2 bob
+  // (docs/neural-upscaler.md, "The oscillation"). `phase` keeps toggling
+  // either way so nothing else in the class has to know about the switch.
+  jitter16X = jitterOn ? (phase == 0 ? -4 : 4) : 0;
+  jitter16Y = jitterOn ? (phase == 0 ? -4 : 4) : 0;
   phase ^= 1;
 
-  const int n = cols * rows;
-  for (int i = 0; i < n; i++) {
-    coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
-    dMin[i] = 1e30F;
-    dMax[i] = 0.0F;
-  }
+  // PLAIN MODE skips every line of this: the accumulators feed a feature grid
+  // that is never built, the instrument counters describe a proxy feed that is
+  // never fed, and capturePinhole() exists for a reprojection that never runs.
+  // What survives below - the redirect, the clear, the z unmask - is the whole
+  // of the mode.
   proxies = 0;
+  proxyTiles = 0;
+  proxyCalls = 0;
   worstTiles = 0;
-
-  capturePinhole();
+#if TYRA_FRAME_PROFILE
+  // StaPipCore accumulates into this across the whole scene; the frame's owner
+  // is this bracket, so it is cleared here. Cleared in plain mode too, and on
+  // purpose: nothing writes them there, so a counter left at its last neural
+  // value would report a proxy feed that is not running.
+  FrameProfile::tBlssProxy = 0;
+  FrameProfile::tBlssAccum = 0;
+#endif
+  if (useNet) {
+    const int n = cols * rows;
+    for (int i = 0; i < n; i++) {
+      coverAcc[i] = depthAcc[i] = detAcc[i] = edgeAcc[i] = 0.0F;
+      dMin[i] = 1e30F;
+      dMax[i] = 0.0F;
+    }
+    capturePinhole();
+  }
   inScene = true;
 
   // XYOFFSET is written RAW (not through draw_primitive_xyoffset) so the
@@ -912,8 +1350,29 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   // lowW/2 + s.
   const int offX16 =
       static_cast<int>((2048.0F - lowW / 2.0F) * 16.0F) + jitter16X;
-  const int offY16 = static_cast<int>((2048.0F - lowH / 2.0F) * 16.0F) +
-                     jitter16Y + gs->getFieldYOffset16();
+  // NO getFieldYOffset16() here, and that is a fix rather than an omission.
+  // The InterlacedField per-field bias is half a PHYSICAL BUFFER row, and it
+  // belongs to whichever pass writes the buffer the CRT actually scans - which
+  // under BLSS is composite(), at display resolution, where it is already
+  // applied. The low-res target is an offscreen texture; nothing scans it out.
+  // Adding it here was wrong twice over:
+  //   * scale - XYOFFSET is 1/16 of a raster pixel of the CURRENT FRAME, and
+  //     inside this bracket that is a LOW-RES row worth scaleY physical rows,
+  //     so the 8 units meant as half a physical row acted as 0.5*scaleY of
+  //     them (a whole physical row at 2x2, twice the intended bias);
+  //   * double application - composite() then adds the real one on top, so the
+  //     odd field ended up offset by 0.5*scaleY + 0.5 = 1.5 physical rows at
+  //     2x2 instead of 0.5, i.e. the two fields interleaved a whole line
+  //     apart. Measured on the blssbug fixture forced to interlaced-field,
+  //     PCSX2 software renderer, frozen camera, period-2 clustering: 0.20 % of
+  //     the picture alternating at amplitude 0.109/255 before, against a
+  //     0.10 %/0.013 within-cluster floor - small on a scene with few
+  //     horizontal edges, and pure misregistration on any scene with many.
+  // Keeping the low-res target field-INDEPENDENT is also what pass 3 wants:
+  // the temporal history is the other display buffer, so a scene that shifted
+  // every field would fight its own reprojection.
+  const int offY16 =
+      static_cast<int>((2048.0F - lowH / 2.0F) * 16.0F) + jitter16Y;
 
   const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
   const int zsm = static_cast<int>(gs->zBuffer.zsm);
@@ -992,10 +1451,20 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssBegin = FrameProfile::ticks() - fpT0;
+#endif
 }
 
 void RendererCoreBlss::endScene() {
   if (!enabled || !inScene) return;
+#if TYRA_FRAME_PROFILE
+  // What this bracket costs is almost entirely the align3D() below, i.e. the
+  // GS OVERHANG of the half-resolution scene: how far behind the EE the
+  // rasteriser still was when the last bag was submitted. ~0 means the frame
+  // is EE-bound and BLSS has nothing to trade.
+  const u32 fpT0 = FrameProfile::ticks();
+#endif
   inScene = false;
 
   // Drain the low-res scene itself before the raster moves back out.
@@ -1017,6 +1486,9 @@ void RendererCoreBlss::endScene() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssEnd = FrameProfile::ticks() - fpT0;
+#endif
 }
 
 // --------------------------------------------------------------- section 6 ---
@@ -1079,16 +1551,16 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
     PACK_GIFTAG(q, GS_SET_CLAMP(2, 2, 0, texW - 1, 0, texH - 1),
                 GS_REG_CLAMP_1);
     q++;
-    // The first TEXA write in the engine. Without it the passes inherit the GS
-    // reset value (0), TCC = 0 would hand every texel alpha 0, and the vertex
-    // alpha trick above would multiply everything by zero.
-    PACK_GIFTAG(q, GS_SET_TEXA(0x80, 0, 0x80), GS_REG_TEXA);
+    // The first TEXA write in the engine's own code. It happens to re-state
+    // what ps2sdk's draw_setup_environment already established (kEnvTexa
+    // below), which is why it is safe - but it is written explicitly so the
+    // per-vertex-alpha trick above does not depend on a helper's choice.
+    PACK_GIFTAG(q, kEnvTexa, GS_REG_TEXA);
     q++;
   }
-  // COLCLAMP is never written anywhere else either, so it also holds the GS
-  // reset value - which is MASK, i.e. blend results WRAP. Section 6 assumes
-  // 0..255 clamping and the host clamps, so a saturated pixel would diverge
-  // spectacularly. Set it per pass and restore the engine-wide value on exit.
+  // COLCLAMP: section 6 assumes 0..255 clamping and the host twin clamps, so a
+  // saturated pixel would diverge spectacularly if the GS wrapped. This too is
+  // what draw_setup_environment leaves (see kEnvTexa), re-stated per pass.
   PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
   q++;
   PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
@@ -1108,6 +1580,23 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
   PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 1), GS_REG_ZBUF_1);
   q++;
   return q;
+}
+
+// Does this pass draw ANYTHING? emitGrid's own skip rule is per cell, so a
+// pass whose every corner quantises to alpha 0 already emits no primitive -
+// but it still walked all 255 corners building UVs it threw away, and
+// composite() still emitted its ~10-qword state block for a pass that then
+// drew nothing at all. Point and sharpen measure 0 % occupancy at the shipped
+// deadzone, so that was two of the five passes on every frame.
+//
+// Free of any twin implication: emitGrid's four-corner rule decides what is
+// drawn and this only asks it earlier. A pass with no non-zero corner has no
+// cell with a non-zero corner, by construction.
+bool RendererCoreBlss::passHasAlpha(int pass) const {
+  const int n = cornerCols * cornerRows;
+  for (int c = 0; c < n; c++)
+    if (cornerAlpha(pass, c) != 0) return true;
+  return false;
 }
 
 qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
@@ -1137,12 +1626,10 @@ qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
         // History: the previous full-resolution frame, sampled at the
         // reprojected pixel. Same shape as the low-res mapping with sx = 1 and
         // the reprojection offset playing the jitter's role.
-        u = static_cast<int>(
-            floorf((static_cast<float>(px) + 0.5F + cornerDu[c]) * 16.0F +
-                   0.5F));
-        v = static_cast<int>(
-            floorf((static_cast<float>(py) + 0.5F + cornerDv[c]) * 16.0F +
-                   0.5F));
+        u = floorToInt((static_cast<float>(px) + 0.5F + cornerDu[c]) * 16.0F +
+                       0.5F);
+        v = floorToInt((static_cast<float>(py) + 0.5F + cornerDv[c]) * 16.0F +
+                       0.5F);
       } else {
         // u(x) = (x + 0.5) / sx + jx, expressed as a constant +jx*16 on the
         // 12.4 UVs. The +0.5 is the GS' own texel-centre convention, so a
@@ -1250,17 +1737,162 @@ qword_t* RendererCoreBlss::emitGrid(qword_t* q, int pass) {
   return q;
 }
 
+// Put back the TEXTURE / BLEND state only the composite passes touch (the
+// raster registers come from emitRasterRestore, which is also what puts the
+// window-centred XYOFFSET the VU1 3D pipeline expects back - with the per-field
+// bias, in one place).
+//
+// ONE COPY, because both composites end with it and a plain-mode frame that
+// restored four of the five registers would break the NEXT frame's scene in
+// exactly the way this block already paid for once.
+qword_t* RendererCoreBlss::emitCompositeRestore(qword_t* q) {
+  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
+  q++;
+  // TEXA and COLCLAMP go back to what the DRAWING ENVIRONMENT holds, which is
+  // NOT the GS reset value - this block used to write zero into both and it
+  // deleted every textured primitive and every textured terrain chunk in the
+  // game (see kEnvTexa above for the mechanism and the disassembly).
+  PACK_GIFTAG(q, kEnvTexa, GS_REG_TEXA);
+  q++;
+  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
+  q++;
+  return gs->emitRasterRestore(q, false);
+}
+
+// --------------------------------------------------------------- plain mode ---
+// The base pass as ONE CELL of the grid instead of 224 of them. Everything
+// about the sampling is copied from emitGrid(q, 0) rather than restated: the
+// same u(x) = (x << 4) / scaleX + jitter, the same 14-bit UV clamp, the same
+// screen-origin XY, the same primitive, the same vertex order. See the header
+// for why that makes the two pictures the same one, and for the measurement.
+qword_t* RendererCoreBlss::emitBaseQuad(qword_t* q) {
+  const int uMax = 0x3FFF;
+  auto uvOf = [&](int px, int py, s16 out[2]) {
+    int u = (px << 4) / scaleX + jitter16X;
+    int v = (py << 4) / scaleY + jitter16Y;
+    if (u < 0) u = 0;
+    if (v < 0) v = 0;
+    if (u > uMax) u = uMax;
+    if (v > uMax) v = uMax;
+    out[0] = static_cast<s16>(u);
+    out[1] = static_cast<s16>(v);
+  };
+
+  // NLOOP = 1 (PRIM) + 3 registers per vertex, four vertices. A miscount
+  // stalls the GIF forever - the same counting rule every packet in this file
+  // lives by.
+  PACK_GIFTAG(q, GIF_SET_TAG(1 + 3 * 4, 0, 0, 0, GIF_FLG_PACKED, 1),
+              GIF_REG_AD);
+  q++;
+  // THE SAME PRIMITIVE emitGrid GIVES PASS 0, and that is the whole reason this
+  // is not a GS sprite. A sprite is the obvious shape for "one full-screen
+  // blit" and would save seven qwords, but it hands the picture to a DIFFERENT
+  // rasteriser path, and whether that path sets its texture DDA up bit for bit
+  // like the triangle one is a question about hardware nobody here can answer.
+  // A one-cell TRIANGLE_STRIP asks no such question: same PRIM flags, same
+  // vertex order, same linear UV, so the identity below is a property of the
+  // packet rather than a comparison that happened to come out clean. (A sprite
+  // was written first and then abandoned before it was ever measured against a
+  // valid reference - the arm it was compared against had its temporal pass
+  // running, so the difference that reading showed was the network's, not the
+  // primitive's. It remains an open, and uninteresting, question.)
+  PACK_GIFTAG(q, GS_SET_PRIM(4, 1, 1, 0, 0, 0, 1 /* FST */, 0, 0), GS_REG_PRIM);
+  q++;
+  // THE VERTEX ORDER IS emitGrid'S: (i,j) (i,j+1) (i+1,j) (i+1,j+1), so the
+  // quad's diagonal runs the same way. It carries no weight field here, but a
+  // diagonal the other way is a different pair of triangles and therefore a
+  // different pair of interpolation planes.
+  const int px[4] = {0, 0, outW, outW};
+  const int py[4] = {0, outH, 0, outH};
+  for (int k = 0; k < 4; k++) {
+    s16 uv[2];
+    uvOf(px[k], py[k], uv);
+    // RGB pinned to 128 so MODULATE is the identity on the texel and alpha
+    // 0x80, exactly what cornerAlpha() returns for pass 0.
+    PACK_GIFTAG(q, GS_SET_RGBAQ(0x80, 0x80, 0x80, 0x80, 0x3F800000),
+                GS_REG_RGBAQ);
+    q++;
+    PACK_GIFTAG(q, GS_SET_UV(uv[0], uv[1]), GS_REG_UV);
+    q++;
+    PACK_GIFTAG(q, GS_SET_XYZ((2048 + px[k]) << 4, (2048 + py[k]) << 4, 0),
+                GS_REG_XYZ2);
+    q++;
+  }
+  return q;
+}
+
 void RendererCoreBlss::composite() {
   if (!enabled || gs == nullptr || packet == nullptr) return;
+#if TYRA_FRAME_PROFILE
+  const u32 fpT0 = FrameProfile::ticks();
+#endif
 
   // Defensive: endScene() already drained, but the composite must never race
   // the tail of the low-res render it is about to sample.
   if (path1->isVU1Configured()) sync->align3D();
 
+  // PLAIN MODE: no tile stats, no reprojection, no features, no MLP - one
+  // sprite. The FrameProfile terms those four fill are ZEROED rather than left
+  // alone, so `FTSPLIT` reports the mode honestly instead of repeating the last
+  // neural frame's attribution.
+  if (!useNet) {
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssReproj = 0;
+    FrameProfile::tBlssFeat = 0;
+    FrameProfile::tBlssNet = 0;
+    const u32 fpP0 = FrameProfile::ticks();
+#endif
+    packet2_reset(packet, false);
+    qword_t* q = packet->base;
+    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q,
+                GS_SET_XYOFFSET(2048 * 16, 2048 * 16 + gs->getFieldYOffset16()),
+                GS_REG_XYOFFSET_1);
+    q++;
+    q = emitPassState(q, lowVram, lowBufW, lowW, lowH, true,
+                      GS_SET_ALPHA(0, 1, 0, 1, 0), true);
+    q = emitBaseQuad(q);
+    q = emitCompositeRestore(q);
+    packet2_update(packet, q);
+    packet2_update(packet, draw_finish(packet->next));
+    dma_channel_wait(DMA_CHANNEL_GIF, 0);
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssPacket = FrameProfile::ticks() - fpP0;
+    FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
+#endif
+    dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+    draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssComposite = FrameProfile::ticks() - fpT0;
+#endif
+    return;
+  }
+
+#if TYRA_FRAME_PROFILE
+  const u32 fpS0 = FrameProfile::ticks();
+#endif
   finishTileStats();
   buildReproj();
+#if TYRA_FRAME_PROFILE
+  const u32 fpS1 = FrameProfile::ticks();
+  FrameProfile::tBlssReproj = fpS1 - fpS0;
+#endif
   buildFeatures();
+#if TYRA_FRAME_PROFILE
+  const u32 fpS2 = FrameProfile::ticks();
+  FrameProfile::tBlssFeat = fpS2 - fpS1;
+#endif
   runNet();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssNet = FrameProfile::ticks() - fpS2;
+#endif
 
   // debugView 2: the feature/output spread of this frame, once a second. It
   // runs HERE, on the same tile stats and outputs the packet below is about to
@@ -1274,6 +1906,11 @@ void RendererCoreBlss::composite() {
   const int histVram = static_cast<int>(hist->address);
   const int histBufW = static_cast<int>(hist->width);
 
+#if TYRA_FRAME_PROFILE
+  // After the once-a-second log block above, which is host: file I/O and is
+  // not part of what the packet build costs.
+  const u32 fpS3 = FrameProfile::ticks();
+#endif
   packet2_reset(packet, false);
   qword_t* q = packet->base;
 
@@ -1291,14 +1928,16 @@ void RendererCoreBlss::composite() {
   q = emitGrid(q, 0);
 
   // Pass 2 - nearest, lerped in by wA: (Cs - Cd) * As >> 7 + Cd.
-  q = emitPassState(q, lowVram, lowBufW, lowW, lowH, false,
-                    GS_SET_ALPHA(0, 1, 0, 1, 0), true);
-  q = emitGrid(q, 1);
+  if (passHasAlpha(1)) {
+    q = emitPassState(q, lowVram, lowBufW, lowW, lowH, false,
+                      GS_SET_ALPHA(0, 1, 0, 1, 0), true);
+    q = emitGrid(q, 1);
+  }
 
   // Pass 3 - the reprojected previous frame, lerped in by wC/2. The history is
   // the OTHER display framebuffer: already full resolution, one frame old, and
   // itself composited, so a static camera keeps accumulating samples.
-  if (temporal && hasPrev) {
+  if (temporal && hasPrev && passHasAlpha(2)) {
     q = emitPassState(q, histVram, histBufW, outW, outH, true,
                       GS_SET_ALPHA(0, 1, 0, 1, 0), true);
     q = emitGrid(q, 2);
@@ -1308,7 +1947,8 @@ void RendererCoreBlss::composite() {
   // blend equations the GS actually has. C = 0 (As), NOT 2 (FIX): the sharpen
   // amount is per tile, so it has to ride in on the vertex alpha like every
   // other weight.
-  if (sharpen > 0.0F) {
+  // Passes 4 and 5 share one weight (cornerD), so one check covers both.
+  if (sharpen > 0.0F && passHasAlpha(3)) {
     q = emitPassState(q, lowVram, lowBufW, lowW, lowH, true,
                       GS_SET_ALPHA(0, 2, 0, 1, 0), true);  // Cd + Cs * As
     q = emitGrid(q, 3);
@@ -1324,33 +1964,27 @@ void RendererCoreBlss::composite() {
     q = emitGrid(q, 5);
   }
 
-  // Restore the TEXTURE / BLEND state only these passes touch (the raster
-  // registers come from emitRasterRestore below, which is also what puts the
-  // window-centred XYOFFSET the VU1 3D pipeline expects back - with the
-  // per-field bias, in one place).
-  PACK_GIFTAG(q, GIF_SET_TAG(5, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_ALPHA(0, 1, 0, 1, 0), GS_REG_ALPHA_1);
-  q++;
-  // TEXA and COLCLAMP go back to the GS reset values, which is what the whole
-  // engine has always run with (neither register is written anywhere else), so
-  // nothing outside these passes changes behaviour. Making those defaults
-  // engine-wide would be a separate, deliberate decision.
-  PACK_GIFTAG(q, GS_SET_TEXA(0, 0, 0), GS_REG_TEXA);
-  q++;
-  PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_MASK), GS_REG_COLCLAMP);
-  q++;
-  q = gs->emitRasterRestore(q, false);
+  q = emitCompositeRestore(q);
 
   packet2_update(packet, q);
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssPacket = FrameProfile::ticks() - fpS3;
+#endif
+#if TYRA_FRAME_PROFILE
+  // The split the whole feature is judged on: everything above this read is
+  // EE (reprojection, the feature grid, the MLP, quantisation, the packet -
+  // ~5 700 qwords worst case), everything below is the GS rasterising the
+  // 1..5 full-screen passes. An upscaler that saves GS fill but spends it
+  // again on the EE has not saved anything.
+  FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
+#endif
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tBlssComposite = FrameProfile::ticks() - fpT0;
+#endif
 
   prev = cur;
   hasPrev = true;

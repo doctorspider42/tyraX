@@ -143,7 +143,9 @@ void addObjectReceiver(std::vector<Tri>& out, const Project& p, const SceneObjec
     std::vector<float> mesh;
     switch (o.type) {
         case PrimitiveType::Sphere: mesh = primmesh::unitSphere(o.primDetail); break;
-        case PrimitiveType::Cylinder: mesh = primmesh::unitCylinder(o.primDetail); break;
+        case PrimitiveType::Cylinder:
+            mesh = primmesh::unitCylinder(o.primDetail, o.primRings);
+            break;
         case PrimitiveType::Cone: mesh = primmesh::unitCone(o.primDetail); break;
         case PrimitiveType::Plane: mesh = primmesh::unitPlane(); break;
         default: mesh = primmesh::unitBox(o.primDetail); break;  // Box, SavePoint

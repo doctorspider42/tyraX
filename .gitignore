@@ -1,5 +1,11 @@
 build/
-build-dev/
+# Every other build tree too: build.ps1 -Dev writes build-dev/, and a session
+# that compares two configurations invents its own (build-demo/, build-rig/...).
+# None of them are ever tracked, and an unignored one is ~1300 artifacts that a
+# `git add -A` will happily stage. Checked against `git ls-files | grep build`:
+# no tracked path starts with "build-", and build.ps1/build.sh/build.cmd are
+# files, which this pattern (directories only) cannot match.
+build-*/
 .vs/
 *.user
 imgui.ini
@@ -60,9 +66,14 @@ vendor/tyra/*
 # restored, so this copy is recovered verbatim from h4570/tyra@68eb496 - the
 # last commit that had it. See THIRD-PARTY-LICENSES.md.
 !vendor/tyra/LICENSE
-# Prebuilt audsrv with L/R panning, overlaid onto the container's PS2SDK at
-# build time (see vendor/tyra/audsrv-pan/README.md).
-!vendor/tyra/audsrv-pan/
+# ...and the audsrv fork, which is maintained in-tree the same way: sources
+# plus the built module that gets overlaid onto the container's PS2SDK at build
+# time (LGPL v2 - see vendor/tyra/audsrv/README.md).
+!vendor/tyra/audsrv/
+# ...but not its build work tree: a pinned ps2sdk clone the build script
+# overlays our sources onto. The sources and the built module are committed;
+# that scratch clone is not.
+vendor/tyra/audsrv/.work/
 vendor/tyra/engine/obj/
 vendor/tyra/engine/bin/
 

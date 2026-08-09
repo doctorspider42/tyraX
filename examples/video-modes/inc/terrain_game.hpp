@@ -252,6 +252,19 @@ class TerrainGame : public Tyra::Game {
     // (see buildHighlightProxy). Built when first highlighted, cleared
     // whenever the object rebuilds.
     std::vector<Tyra::Vec4> hullProxyVerts;
+    // The same proxy ALREADY GROWN along its own surface normals - the shell a
+    // shell-pass program asks for (vuscript::shellActive, e.g. a cell-shading
+    // outline). Grown here rather than on VU1 because the EE clipper cuts a
+    // mesh against the frustum before any VU program runs: a vertex grown
+    // afterwards is grown past a cut computed without it, and the line tears
+    // wherever an object meets the edge of the screen. Baked once per geometry
+    // rebuild, so the per-frame cost is one extra draw and nothing else.
+    std::vector<Tyra::Vec4> outlineVerts;
+    // Whether this proxy was built at the object's own detail (a shell pass
+    // needs that) or at the highlight's coarser one. An object first seen with
+    // no shell program active would otherwise keep its coarse proxy when one
+    // is switched on, and wear the plates instead of a line.
+    bool hullProxyFine = false;
     u32 hullProxyStamp = 0;
   };
   // Custom .obj models (paths in model_data.gen.hpp): geometry split per MTL
@@ -736,6 +749,9 @@ class TerrainGame : public Tyra::Game {
   float portalExitPlane[4] = {0, 0, 0, 0};
   bool portalExitPlaneOn = false;
   void renderHighlightHull(int index);
+  // The shell pass a project's own VU program can ask for
+  // (vuscript::shellActive - outlines, fur, anything grown from a copy).
+  void renderOutlineShells();
   void buildHighlightApron(int index, float half);
   void buildHighlightProxy(int index);
   bool highlightInReach(int index) const;
@@ -746,6 +762,19 @@ class TerrainGame : public Tyra::Game {
   // Shell colors need persistent storage - the single-color pointer is
   // DMA-referenced at submit time, not copied.
   Tyra::M4x4 hullMat;
+  // The shell pass reuses the highlight's proxy and its pushback trick, but
+  // grows on VU1 instead of scaling about the object centre, so this matrix
+  // carries the eye-scale ALONE - scaling about the eye leaves the projected
+  // size untouched and only moves depth, which is what hides the shell behind
+  // its own object and leaves the sliver past the silhouette.
+  Tyra::M4x4 outlineMat;
+  // Persistent: a single-colour bag DMA-references this pointer at submit
+  // time rather than copying it. The value never reaches the screen - the
+  // program zeroes it - but it has to exist somewhere stable.
+  Tyra::Color outlineCol{0.0F, 0.0F, 0.0F, 128.0F};
+  std::unique_ptr<Tyra::StaPipBag> outlineBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> outlineInfoBag;
+  std::unique_ptr<Tyra::StaPipColorBag> outlineColorBag;
   std::vector<Tyra::Color> hullShellCols;
   std::unique_ptr<Tyra::StaPipBag> hullBag;
   std::unique_ptr<Tyra::StaPipInfoBag> hullInfoBag;
@@ -828,10 +857,39 @@ class TerrainGame : public Tyra::Game {
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   // The general sweep behind springArm: first blocked distance along d for a
-  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
-  // (the swept object itself). Also carries/throws pickable objects.
+  // sphere of `radius`, vs object collision boxes + the terrain; skipIndex is
+  // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+
+  // --- the collision box (docs/collision-boxes.md) --------------------------
+  // What an object reduces to for the walker, the camera boom and the
+  // split-screen cull. ONE builder: these three used to size the box
+  // themselves, by hand, from the same fields - and had already drifted (the
+  // scroller belt marker blocked the camera but not the player, and none of
+  // them turned the box by an animated model's content-forward yaw, so an
+  // X-forward-authored character collided across its own mesh).
+  // Twin of placement::collisionBox on the host, which is what the editor's
+  // View > Collision boxes overlay draws.
+  struct CollisionBox {
+    float center[3] = {0.0F, 0.0F, 0.0F};  // MODEL frame, scale folded in
+    float half[3] = {0.5F, 0.5F, 0.5F};
+    float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
+  };
+  CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+  // Debug overlay: draws those boxes as red wireframes in the running game
+  // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
+  // constexpr, so a shipping build emits nothing). Rebuilt every frame from
+  // the nearest COLLISION_BOX_LIMIT colliders, so it follows physics bodies
+  // and anything a flow node moves.
+  void renderCollisionBoxes();
+  std::vector<Tyra::Vec4> collisionBoxVerts;
+  std::vector<Tyra::Color> collisionBoxCols;
+  std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
+  std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
+  // Does this object take part in collision at all? Geometry-less markers and
+  // "collision: none" objects do not.
+  static bool objectCollides(const SceneObjectData& d);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -877,6 +935,10 @@ class TerrainGame : public Tyra::Game {
   std::vector<audsrv_adpcm_t*> sndSamples;  // scene_data.hpp SND_PATHS order
   std::vector<int> sndTimers;               // per-object retrigger countdown
   void updateSoundEmitters();
+  // Reverb zones (docs/reverb.md): picks the room the listener is in and
+  // ramps the SPU2's reverb toward it. Folds away when the project has
+  // neither a zone nor a Set Reverb node.
+  void updateReverb();
 
   // Scene switch target held across the loading-screen frames (the screen
   // itself is drawn by loadingscreen::renderFrame from loading_data.gen.hpp).

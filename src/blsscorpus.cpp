@@ -3,12 +3,14 @@
 #include "blssscene.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -433,6 +435,30 @@ int projectTexture(Materials& m, const std::string& absPath, bool cutout) {
     return idx;
 }
 
+// ...and one whose PNG never existed as a file. An animated model's texture is
+// embedded in the .glb; the build writes it out next to the ELF, so the console
+// is textured and the corpus must be too - a part called untextured here would
+// report texDetail = 0 against a console twin that reports a real minification
+// ratio. Cached by (scene, index) rather than by path, since there is no path.
+int embeddedTexture(Materials& m, const ProjectScene& ps, int index, bool cutout) {
+    if (index < 0 || index >= (int)ps.embedded.size()) return -1;
+    char key[96];
+    std::snprintf(key, sizeof(key), "@glb:%p:%d", (const void*)&ps, index);
+    const auto it = m.byPath.find(key);
+    if (it != m.byPath.end()) return it->second;
+    Image img;
+    int idx = -1;
+    const std::vector<unsigned char>& png = ps.embedded[(size_t)index];
+    if (readPngMemory(img, png.data(), png.size()) && img.w >= 2 && img.h >= 2) {
+        Texture t = toTexture(img, cutout);
+        t.cutout = cutout;
+        idx = (int)m.tex.size();
+        m.tex.push_back(std::move(t));
+    }
+    m.byPath.emplace(key, idx);
+    return idx;
+}
+
 // ------------------------------------------------------------------ objects ---
 
 // A vertex, in WORLD space with the light already baked into rgb. Objects never
@@ -685,9 +711,16 @@ struct RVert {
 // position changes) and it is equally the knob a supersampling grid would turn.
 // `zb` is scratch owned by the caller: at 4x supersample it is 15 MB, which is
 // not worth reallocating 48 times.
+// `extra` is the frame's ANIMATED objects - the poses picked for this frame out
+// of the pre-built pose table. It is a pointer list rather than a second
+// std::vector<Object> because the poses live in per-part tables and gathering
+// them by value once per frame would copy a character's mesh for nothing.
+// Drawn in the SAME pass as the static set, after it: the z buffer sorts them,
+// and a second renderScene() call would clear the target.
 void renderScene(const std::vector<Object>& objs, const Materials& mats,
                  const Pinhole& cam, int rw, int rh, float offX, float offY,
-                 Image& img, std::vector<float>& zb) {
+                 Image& img, std::vector<float>& zb,
+                 const std::vector<const Object*>* extra = nullptr) {
     img.resize(rw, rh);
     // Clear one row, then replicate it: the supersampled target is 15 MB and a
     // pixel-at-a-time clear of it was a measurable slice of the whole corpus.
@@ -704,7 +737,14 @@ void renderScene(const std::vector<Object>& objs, const Materials& mats,
     const float cx = 0.5f * (float)rw + offX;
     const float cy = 0.5f * (float)rh + offY;
 
-    for (const Object& o : objs) {
+    std::vector<const Object*> all;
+    all.reserve(objs.size() + (extra ? extra->size() : 0));
+    for (const Object& o : objs) all.push_back(&o);
+    if (extra)
+        for (const Object* o : *extra) all.push_back(o);
+
+    for (const Object* objPtr : all) {
+        const Object& o = *objPtr;
         // The console's own submission test: past its draw distance a bag is
         // not drawn, so it is not in the ground truth either (bagList applies
         // the same test to the proxy list - the two must agree).
@@ -856,8 +896,15 @@ void renderScene(const std::vector<Object>& objs, const Materials& mats,
 // (unjittered - the bag list describes the frame, not the raster offset it
 // happened to be drawn with). Twelve edges of eight corners, which is the whole
 // cost of a proxy on the EE.
-bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
-           const Pinhole& cam, int outW, int outH, BagProxy& out) {
+// One box -> one BagProxy. Split out of bagOf() so the emitter proxy (the sixth
+// twin rule) goes through the SAME projection, the same near clip, the same
+// straddle rule and the same texDetail as geometry does - a second copy of this
+// arithmetic is precisely the drift docs/blss-reconstruction.md exists to stop.
+// `tex` is the Materials index (-1 = untextured) and `texelArea` the material's
+// texel count over the bag, exactly the pair Object carries.
+bool bagOfBox(const V3& blo, const V3& bhi, int tex, float texelArea,
+              const Materials& mats, const Pinhole& cam, int outW, int outH,
+              BagProxy& out) {
     const float sxScale = 0.5f * (float)outW / cam.tanHalfFovX;
     const float syScale = 0.5f * (float)outH / cam.tanHalfFovY;
     struct P {
@@ -930,21 +977,255 @@ bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
     // NOT clamped up off a thin bbox - a pole one pixel wide really does cram
     // its whole texture into a column, and that is the case the feature exists
     // to flag.
-    if (o.tex >= 0 && mats.tex[(size_t)o.tex].w > 0) {
+    if (tex >= 0 && mats.tex[(size_t)tex].w > 0) {
         const float area = std::max((out.x1 - out.x0) * (out.y1 - out.y0), 1.0f);
-        out.texDetail = clamp01(std::sqrt(o.texelArea / area) * 0.25f);
+        out.texDetail = clamp01(std::sqrt(texelArea / area) * 0.25f);
     } else {
         out.texDetail = 0.0f;
     }
     return true;
 }
 
+// The geometry form: one of a bag's package boxes, with the bag's own material.
+bool bagOf(const Object& o, const V3& blo, const V3& bhi, const Materials& mats,
+           const Pinhole& cam, int outW, int outH, BagProxy& out) {
+    return bagOfBox(blo, bhi, o.tex, o.texelArea, mats, cam, outW, outH, out);
+}
+
+// THE PROXY BUDGET, and it is the fifth rule of the twin contract
+// (docs/blss-reconstruction.md section 2 - read it there, it is the engine
+// agent's file and it is the normative statement).
+//
+// A proxy's ONLY effect is on the tiles its screen bbox overlaps, and the grid
+// resolves nothing finer than a kTile square. So describing a bag with more
+// boxes than it covers tiles buys nothing the accumulator can represent, while
+// costing a projection (eight corners, twelve edges) and a full tile update per
+// extra box. The cap is therefore the bag's own tile footprint, counted with
+// addBag's arithmetic so the two sides agree on the boundary case:
+//
+//     tiles = (cx1 - cx0 + 1) * (cy1 - cy0 + 1)   of the WHOLE bag's box
+//     cap   = clamp(tiles, 1, kMaxProxiesPerBag)
+//           = kMaxProxiesPerBag  when the whole box describes nothing at all
+//     group = ceil(parts / cap)                   the existing consecutive merge
+//
+// It is CAMERA-DEPENDENT, which is why it lives here and not in finishObject():
+// the same bag is worth 32 boxes across the screen and 1 in the distance.
+//
+// Two things it deliberately is not. It is not a screen-AREA floor - that was
+// considered on the engine side and REJECTED, because a rule that can take a
+// distant bag's proxy count to zero hands its tiles `coverage = 0`, which the
+// network reads as "there is nothing here" rather than "there is something
+// small here". The cap is never below 1. And it is not a fidelity-free change:
+// merging consecutive parts can only ENLARGE a box, never move it, so the worst
+// case degrades toward the whole-bag proxy this feature spent eleven commits
+// getting away from - which is exactly why it ships off until measured.
+//
+// Returns the number of consecutive parts that merge into one proxy.
+int proxyGroupSize(const Object& o, const Materials& mats, const Pinhole& cam, int outW,
+                   int outH) {
+    const int parts = (int)o.part.size();
+    if (parts <= 1) return 1;
+    // The corpus' own grid, derived the way generate() derives it.
+    const int tile = tileSize();
+    const int cols = std::max(outW / tile, 1), rows = std::max(outH / tile, 1);
+    BagProxy whole;
+    int cap = kMaxProxiesPerBag;
+    if (bagOf(o, o.lo, o.hi, mats, cam, outW, outH, whole)) {
+        // addBag's clamps and its -1e-3f, so a box ending exactly on a tile
+        // boundary does not claim the tile after it. Getting this wrong is a
+        // one-tile disagreement that no PSNR column can see.
+        const auto clampTile = [](int v, int hi) { return v < 0 ? 0 : (v > hi ? hi : v); };
+        const int cx0 = clampTile((int)std::floor(whole.x0 / (float)tile), cols - 1);
+        const int cx1 = clampTile((int)std::floor((whole.x1 - 1e-3f) / (float)tile), cols - 1);
+        const int cy0 = clampTile((int)std::floor(whole.y0 / (float)tile), rows - 1);
+        const int cy1 = clampTile((int)std::floor((whole.y1 - 1e-3f) / (float)tile), rows - 1);
+        const int tiles = (cx1 - cx0 + 1) * (cy1 - cy0 + 1);
+        cap = std::min(std::max(tiles, 1), kMaxProxiesPerBag);
+    }
+    return (parts + cap - 1) / cap;
+}
+
+// --- the emitter half, which is MODELLED and says so ------------------------
+//
+// Two consumers now, and that is why these live up here with the proxies rather
+// than down in the coverage counter where they were written: `--blss-coverage`
+// turns the pool into PIXELS, and `bagList()` under `--emitter-proxy` turns the
+// same pool into a BOX. One model, so the two cannot drift into disagreeing
+// about where a project's particles are.
+//
+// A billboard's half extents are `m00` and `m11` in updateParticles(), and both
+// are the emitter's `size` scaled by a per-kind curve of the particle's life
+// fraction. Averaged over a uniformly distributed life, those curves are the
+// constants below - the same arithmetic templates.cpp runs per particle per
+// frame, integrated once. Getting the fog one wrong would be a factor of three.
+struct CovBillboard {
+    float halfW = 0.5f, halfH = 0.5f;
+};
+CovBillboard billboardOf(const SceneEmitter& e) {
+    CovBillboard b;
+    float mul = 1.0f;
+    switch (e.kind) {
+        case 0: mul = 0.9f; break;   // fire:   size * (0.5 + 0.8 t)
+        case 1: mul = 1.1f; break;   // smoke:  size * (1.6 - t)
+        case 2: mul = 3.0f; break;   // fog:    size * 3
+        case 3: mul = 0.35f; break;  // sparks: size * 0.35
+        case 4:                      // rain: a thin streak, width != height
+            b.halfW = e.size * 0.06f;
+            b.halfH = e.size * 0.5f;
+            return b;
+        default:                     // custom: 1 -> Grow over the life
+            mul = 1.0f + (e.grow - 1.0f) * 0.5f;
+            break;
+    }
+    b.halfW = b.halfH = e.size * mul;
+    return b;
+}
+
+// How far a particle gets from where it spawned, per kind, over its life. The
+// runtime spawns on the emitter's own XZ rectangle and integrates a velocity;
+// this spreads the pool through a box instead. It is the coarsest thing in the
+// estimate and it is second order - the distance to the CAMERA and the
+// billboard's own size are what set the pixels - but a fire whose flames all
+// sat at the emitter's y would read as one hot spot rather than a column.
+float emitterRise(const SceneEmitter& e) {
+    switch (e.kind) {
+        case 0: return 1.4f;   // fire:   ~1.8 u/s over ~0.8 s
+        case 1: return 2.0f;   // smoke:  ~0.75 u/s over ~2.75 s
+        case 2: return 0.1f;   // fog:    hugs the ground
+        case 3: return 1.5f;   // sparks
+        case 4: return e.box[1];  // rain falls the emitter's own height
+        default: return std::min(e.speed * e.life * 0.5f, 40.0f);  // custom
+    }
+}
+
+// The pool, as world-space centres. Deterministic (a fixed low-discrepancy
+// sequence, never rand()), so pressing the button twice gives the same answer -
+// the same rule the corpus itself is built on.
+std::vector<V3> emitterCentres(const SceneEmitter& e) {
+    int n = e.count;
+    if (n < 1) n = 1;
+    if (n > 256) n = 256;  // the runtime's own clamp (buildParticles)
+    const float rise = emitterRise(e);
+    std::vector<V3> out;
+    out.reserve((size_t)n);
+    // Halton (2, 3) over XZ and a straight stratification up Y: the pool is
+    // small and a hashed uniform draw clumps visibly at n = 32.
+    const auto halton = [](int i, int base) {
+        float f = 1.0f, r = 0.0f;
+        while (i > 0) {
+            f /= (float)base;
+            r += f * (float)(i % base);
+            i /= base;
+        }
+        return r;
+    };
+    for (int i = 0; i < n; ++i) {
+        const float hx = halton(i + 1, 2), hz = halton(i + 1, 3);
+        const float hy = ((float)i + 0.5f) / (float)n;
+        V3 c;
+        c.x = e.pos[0] + (hx - 0.5f) * e.box[0];
+        c.z = e.pos[2] + (hz - 0.5f) * e.box[2];
+        c.y = e.kind == 4 ? e.pos[1] - hy * rise : e.pos[1] + hy * rise;
+        out.push_back(c);
+    }
+    return out;
+}
+
+// THE SIXTH RULE OF THE TWIN CONTRACT - one emitter, as the thing bagList()
+// describes. docs/blss-reconstruction.md section 2 is the normative statement;
+// RendererCoreBlss::addBagBillboard is the other half.
+//
+// The console reads the pool it is about to submit: an AABB over the particle
+// CENTRES, grown per axis by
+//
+//     e.axis = |R.axis| * (max|m00| + max|m10|)
+//            + |U.axis| * (max|m01| + max|m11|)
+//
+// where R/U are the bag's billboard basis and the four maxima are over that
+// bag's own particles. This side runs the same formula over the MODELLED pool
+// above, with the four maxima in closed form instead of scanned - which is the
+// one asymmetry, and it is the same one the coverage counter already carries:
+// the corpus does not simulate particles (it has no dt - docs/backlog.md), so
+// where the console reads the pool the corpus states its distribution.
+//
+// The two half-axis sums, per kind, straight out of updateParticles():
+//   kinds 0/1/3/4/5   m01 = m10 = 0, m00 = halfW, m11 = halfH
+//                     -> sR = halfW, sU = halfH
+//   kind 2 (fog)      the puffs SWIRL: m00 = cos(a)*s, m01 = sin(a)*s,
+//                     m10 = -sin(a)*s, m11 = cos(a)*s, and the angles are
+//                     spread over the pool by index and age, so all four
+//                     maxima reach s = halfW
+//                     -> sR = sU = 2 * halfW
+// The swirl case is conservative by at most sqrt(2) (a rotating square's
+// circumradius against the bound), which is a growth of the BOX and never a
+// move of it - the same fidelity argument the consecutive-part merge uses.
+//
+// It is ONE BOX PER EMITTER, not one per VU1 package, and that is a twin
+// decision. Geometry splits per package because both halves agree on which
+// vertices land in which package: the vertex order is the authored order. A
+// particle pool's order is its SPAWN order, an artefact of a simulation this
+// side does not run, so any sub-bag split would put different particles in each
+// box on each machine. The AABB of a SET is order-independent, which is exactly
+// what makes one box per bag a rule both halves can meet.
+struct EmitterBag {
+    V3 lo{}, hi{};         // AABB over the modelled pool's centres
+    float sR = 0.0f;       // max|m00| + max|m10|
+    float sU = 0.0f;       // max|m01| + max|m11|
+    bool worldUp = false;  // rain hangs from world up, not from the camera's
+    int tex = -1;
+    float texelArea = 0.0f;
+};
+
+std::vector<EmitterBag> emitterBagsOf(const ProjectScene& ps, Materials& mats) {
+    std::vector<EmitterBag> out;
+    out.reserve(ps.emitter.size());
+    for (const SceneEmitter& e : ps.emitter) {
+        // A disabled emitter starts hidden, so `updateParticles` leaves its bag
+        // at count 0 and StaPipCore never sees it - neither drawn nor
+        // described, the same rule Object::proxy and Object::viewDist follow.
+        if (!e.enabled) continue;
+        const std::vector<V3> centres = emitterCentres(e);
+        if (centres.empty()) continue;
+        EmitterBag b;
+        b.lo = b.hi = centres[0];
+        for (const V3& c : centres) {
+            b.lo.x = std::min(b.lo.x, c.x), b.hi.x = std::max(b.hi.x, c.x);
+            b.lo.y = std::min(b.lo.y, c.y), b.hi.y = std::max(b.hi.y, c.y);
+            b.lo.z = std::min(b.lo.z, c.z), b.hi.z = std::max(b.hi.z, c.z);
+        }
+        const CovBillboard q = billboardOf(e);
+        const float swirl = e.kind == 2 ? 2.0f : 1.0f;
+        b.sR = q.halfW * swirl;
+        b.sU = q.halfH * swirl;
+        b.worldUp = e.kind == 4;
+        // The emitter's material texture, as the console binds it into the
+        // particle texture bag - `texDetail` is one of the six channels and it
+        // is the one this rule exists to stop reading zero over a particle.
+        b.tex = projectTexture(mats, e.texture, /*cutout=*/false);
+        if (b.tex >= 0) {
+            const Texture& t = mats.tex[(size_t)b.tex];
+            b.texelArea = (float)t.w * (float)t.h;
+        }
+        out.push_back(b);
+    }
+    return out;
+}
+
 std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& mats,
-                              const Pinhole& cam, int outW, int outH) {
+                              const Pinhole& cam, int outW, int outH,
+                              const std::vector<const Object*>* extra = nullptr,
+                              bool proxyBudget = false,
+                              const std::vector<EmitterBag>* emitters = nullptr) {
     std::vector<BagProxy> out;
-    out.reserve(objs.size());
+    out.reserve(objs.size() + (extra ? extra->size() : 0));
     BagProxy b;
-    for (const Object& o : objs) {
+    std::vector<const Object*> all;
+    all.reserve(objs.size() + (extra ? extra->size() : 0));
+    for (const Object& o : objs) all.push_back(&o);
+    if (extra)
+        for (const Object* o : *extra) all.push_back(o);
+    for (const Object* objPtr : all) {
+        const Object& o = *objPtr;
         // A bag the console never submits describes nothing and is drawn by
         // nothing - see Object::proxy and Object::viewDist. Both tests are here
         // rather than at render time so the two lists cannot disagree; the
@@ -955,9 +1236,53 @@ std::vector<BagProxy> bagList(const std::vector<Object>& objs, const Materials& 
                        o.centre.z - cam.pos[2]};
             if (dot(d, d) > o.viewDist * o.viewDist) continue;
         }
-        for (const std::pair<V3, V3>& p : o.part)
-            if (bagOf(o, p.first, p.second, mats, cam, outW, outH, b))
+        const int group = proxyBudget ? proxyGroupSize(o, mats, cam, outW, outH) : 1;
+        if (group <= 1) {
+            for (const std::pair<V3, V3>& p : o.part)
+                if (bagOf(o, p.first, p.second, mats, cam, outW, outH, b))
+                    out.push_back(b);
+            continue;
+        }
+        // The consecutive-part merge, the same one finishObject() applies to the
+        // fixed cap: union the world AABBs of `group` consecutive parts. The
+        // parts partition consecutive vertex RANGES, so the union of their boxes
+        // IS the box over the union range - this is the same merge, applied per
+        // frame because the budget is per frame.
+        const int parts = (int)o.part.size();
+        for (int base = 0; base < parts; base += group) {
+            const int end = std::min(base + group, parts);
+            V3 lo = o.part[(size_t)base].first, hi = o.part[(size_t)base].second;
+            for (int k = base + 1; k < end; ++k) {
+                lo.x = std::min(lo.x, o.part[(size_t)k].first.x);
+                lo.y = std::min(lo.y, o.part[(size_t)k].first.y);
+                lo.z = std::min(lo.z, o.part[(size_t)k].first.z);
+                hi.x = std::max(hi.x, o.part[(size_t)k].second.x);
+                hi.y = std::max(hi.y, o.part[(size_t)k].second.y);
+                hi.z = std::max(hi.z, o.part[(size_t)k].second.z);
+            }
+            if (bagOf(o, lo, hi, mats, cam, outW, outH, b)) out.push_back(b);
+        }
+    }
+    // THE EMITTERS, LAST, because the console submits them last: the generated
+    // renderScene() draws every static bag and then walks `particles`. Order
+    // does not reach a feature (accumulate() sums over bags and every reduction
+    // in it is a sum, a min or a max), but the two lists should still read the
+    // same way round when someone puts BLSSGRID next to this one.
+    if (emitters) {
+        for (const EmitterBag& e : *emitters) {
+            // The per-axis growth, in the camera basis the console uploads:
+            // camera right for every kind, and camera up for all but rain,
+            // whose quads hang from WORLD up (templates.cpp updateParticles,
+            // and the same split billboardOf() already models).
+            const float ux = e.worldUp ? 0.0f : cam.up[0];
+            const float uy = e.worldUp ? 1.0f : cam.up[1];
+            const float uz = e.worldUp ? 0.0f : cam.up[2];
+            const V3 g{std::fabs(cam.right[0]) * e.sR + std::fabs(ux) * e.sU,
+                       std::fabs(cam.right[1]) * e.sR + std::fabs(uy) * e.sU,
+                       std::fabs(cam.right[2]) * e.sR + std::fabs(uz) * e.sU};
+            if (bagOfBox(e.lo - g, e.hi + g, e.tex, e.texelArea, mats, cam, outW, outH, b))
                 out.push_back(b);
+        }
     }
     return out;
 }
@@ -997,9 +1322,27 @@ struct Shot {
     // shots over ONE geometry set, and copying a 200 000-triangle scene six
     // times is minutes of wall clock and a gigabyte for nothing.
     const std::vector<Object>* shared = nullptr;
+    // ...and the scene's ANIMATED parts, one finished Object per part per
+    // console frame. Shared for the same reason and indexed per frame: the
+    // frame loop picks pose i and pose i-1 and hands them to renderScene and
+    // bagList, so the ground truth and the proxy list describe the same pose.
+    const std::vector<std::vector<Object>>* animShared = nullptr;
+    // ...and the scene's EMITTERS, as the boxes bagList() describes them with
+    // (the sixth twin rule). Shared for the same reason, and pose-free: the
+    // corpus has no particle simulation, so an emitter's box is a property of
+    // the scene and only the CAMERA moves under it. Null for the bestiary,
+    // which has no emitters, and ignored entirely unless --emitter-proxy.
+    const std::vector<EmitterBag>* emitShared = nullptr;
     std::vector<float> pathEye, pathLook;  // 3 per key
     float ease = 0.0f;                     // 1 = smoothstep in t (the whip)
     float fovDeg = 60.0f;
+
+    // Which member of a union corpus this shot belongs to (CorpusFrame::group).
+    // 0 for the bestiary and for a single project.
+    int group = 0;
+    // SceneShot::frames - 0 = an equal share of --frames, > 0 = exactly this
+    // many. The bestiary never sets it, so its split is unchanged.
+    int frames = 0;
 
     const std::vector<Object>& geometry() const { return shared ? *shared : objs; }
 };
@@ -1553,47 +1896,93 @@ std::vector<Shot> buildShots(const CorpusConfig& cfg, const Materials& m) {
 // here is a change of representation: no geometry is merged, split, culled or
 // re-lit, because every one of those would make the corpus describe a frame the
 // console does not draw.
+Object objectOf(const ProjectScene& ps, const SceneMesh& sm, Materials& mats,
+                bool packageSplit) {
+    Object o;
+    o.vert.reserve(sm.vert.size());
+    for (const SceneVert& sv : sm.vert) {
+        Vertex v;
+        v.p = {sv.p[0], sv.p[1], sv.p[2]};
+        v.u = sv.u, v.v = sv.v;
+        v.c = {sv.c[0], sv.c[1], sv.c[2]};
+        o.vert.push_back(v);
+    }
+    o.idx = sm.idx;
+    o.tex = sm.embeddedTex >= 0 && sm.embeddedTex < (int)ps.embedded.size()
+                ? embeddedTexture(mats, ps, sm.embeddedTex, sm.cutout)
+                : projectTexture(mats, sm.texture, sm.cutout);
+    o.bilinear = sm.bilinear;
+    o.cutout = sm.cutout;
+    o.proxy = sm.proxy;
+    o.viewDist = sm.viewDist;
+    finishObject(o, mats, packageSplit);
+    // finishObject recomputes the centre from the mesh; the scene walker's
+    // is the same box, so this is belt and braces rather than a fix.
+    o.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
+    return o;
+}
+
 std::vector<Object> objectsOf(const ProjectScene& ps, Materials& mats,
                               bool packageSplit) {
     std::vector<Object> objs;
     objs.reserve(ps.mesh.size());
-    for (const SceneMesh& sm : ps.mesh) {
-        Object o;
-        o.vert.reserve(sm.vert.size());
-        for (const SceneVert& sv : sm.vert) {
-            Vertex v;
-            v.p = {sv.p[0], sv.p[1], sv.p[2]};
-            v.u = sv.u, v.v = sv.v;
-            v.c = {sv.c[0], sv.c[1], sv.c[2]};
-            o.vert.push_back(v);
-        }
-        o.idx = sm.idx;
-        o.tex = projectTexture(mats, sm.texture, sm.cutout);
-        o.bilinear = sm.bilinear;
-        o.cutout = sm.cutout;
-        o.proxy = sm.proxy;
-        o.viewDist = sm.viewDist;
-        finishObject(o, mats, packageSplit);
-        // finishObject recomputes the centre from the mesh; the scene walker's
-        // is the same box, so this is belt and braces rather than a fix.
-        o.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
-        objs.push_back(std::move(o));
-    }
+    for (const SceneMesh& sm : ps.mesh)
+        objs.push_back(objectOf(ps, sm, mats, packageSplit));
     return objs;
+}
+
+// THE ANIMATED HALF, one finished Object per (part, console frame). Building
+// every pose up front rather than skinning inside the frame loop is what keeps
+// the loop a pure function of its frame index: a worker only ever INDEXES this
+// table, never writes to it, so `--threads 1` and `--threads 32` still produce
+// the same corpus. It costs a few MB per animated part and buys the whole
+// determinism contract back for free.
+//
+// The package split runs per pose, because the boxes the console cuts are cut
+// over the SKINNED vertices - `StaPipCore` recomputes a bag's package bboxes
+// whenever `bboxVersion` changes, which `updateAndRenderAnimObjects` bumps on
+// every re-skin. A single set of boxes taken from the bind pose would be the
+// whole-bag proxy problem again, one level down.
+std::vector<std::vector<Object>> animObjectsOf(const ProjectScene& ps, Materials& mats,
+                                               bool packageSplit) {
+    std::vector<std::vector<Object>> out;
+    out.reserve(ps.anim.size());
+    for (const AnimMesh& am : ps.anim) {
+        std::vector<Object> poses;
+        poses.reserve(am.pose.size());
+        for (const SceneMesh& sm : am.pose) poses.push_back(objectOf(ps, sm, mats, packageSplit));
+        out.push_back(std::move(poses));
+    }
+    return out;
 }
 
 // The project's scenes, as the corpus' shot table. `geometry` is filled first
 // and never resized afterwards - every shot of a scene POINTS at one geometry
 // set, because copying a real scene once per camera move is minutes of wall
 // clock for nothing.
-std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
-                                    std::vector<std::vector<Object>>& geometry,
-                                    const std::vector<ProjectScene>& scenes) {
-    std::vector<Shot> shots;
-    geometry.clear();
-    geometry.reserve(scenes.size());
-    for (const ProjectScene& ps : scenes)
-        geometry.push_back(objectsOf(ps, mats, cfg.packageSplit));
+// APPENDS this project's shots, so a union corpus is a concatenation and
+// nothing else. `geometry` and `anim` are the caller's owning stores and they
+// grow across members - a Shot holds POINTERS into them, so they must never be
+// cleared or reallocated-with-move once a shot points at them, which is why
+// they are reserved by the caller and only ever pushed to here.
+void buildProjectShots(const CorpusConfig& cfg, Materials& mats,
+                       std::vector<std::unique_ptr<std::vector<Object>>>& geometry,
+                       std::vector<std::unique_ptr<std::vector<std::vector<Object>>>>& anim,
+                       std::vector<std::unique_ptr<std::vector<EmitterBag>>>& emit,
+                       const std::vector<ProjectScene>& scenes, int group,
+                       const std::string& groupName, std::vector<Shot>& shots) {
+    const size_t base = geometry.size();
+    for (const ProjectScene& ps : scenes) {
+        geometry.push_back(
+            std::make_unique<std::vector<Object>>(objectsOf(ps, mats, cfg.packageSplit)));
+        anim.push_back(std::make_unique<std::vector<std::vector<Object>>>(
+            animObjectsOf(ps, mats, cfg.packageSplit)));
+        // ALWAYS built, never conditioned on cfg.emitterProxy - exactly like
+        // the animated poses above and for the same reason: it costs a few
+        // dozen boxes, and building it only in one arm would put a different
+        // number of loaded TEXTURES in `mats` between the two arms of the A/B.
+        emit.push_back(std::make_unique<std::vector<EmitterBag>>(emitterBagsOf(ps, mats)));
+    }
 
     for (size_t i = 0; i < scenes.size(); ++i) {
         const ProjectScene& ps = scenes[i];
@@ -1603,15 +1992,19 @@ std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
             s.name = ss.name;
             s.moveName = ss.move;
             s.move = Move::Path;
-            s.shared = &geometry[i];
+            s.shared = geometry[base + i].get();
+            s.animShared = anim[base + i].get();
+            s.emitShared = emit[base + i].get();
             s.pathEye = ss.eye;
             s.pathLook = ss.look;
             s.ease = ss.ease;
             s.fovDeg = ss.fovDeg > 5.0f ? ss.fovDeg : 60.0f;
+            s.group = group;
+            s.frames = ss.frames;
             shots.push_back(std::move(s));
         }
     }
-    return shots;
+    (void)groupName;
 }
 
 }  // namespace
@@ -1679,14 +2072,54 @@ void parallelFrames(int n, int threads, const F& body) {
 // truth that dominates the frame. What it buys is that frame i is computed from
 // i alone, so `--threads 1` and `--threads 32` produce byte-identical corpora,
 // byte-identical labels, and a byte-identical blss.net.
-std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
+std::vector<CorpusFrame> generate(const CorpusConfig& cfg, CorpusInfo* info) {
     std::vector<CorpusFrame> out;
+    // Summed over the union corpus' members, and written back through `info`
+    // however this function returns - including the early returns below, which
+    // is why it is initialised here and stored by the scope guard rather than at
+    // the one successful exit. A caller that asked how many emitters the corpus
+    // ignored must not get 0 because the grid did not divide.
+    int corpusEmitters = 0;
+    struct InfoOut {
+        CorpusInfo* to;
+        const int* emitters;
+        ~InfoOut() {
+            if (to) to->emitters = *emitters;
+        }
+    } infoOut{info, &corpusEmitters};
     const int outW = cfg.outW, outH = cfg.outH;
-    const int cols = outW / kTile, rows = outH / kTile;
+    // The tile grid. FLOOR, where the engine's configure() takes a CEILING
+    // ((outW + kTile - 1) / kTile) - identical at every size that divides, and
+    // the two shipping ones do (512/32 = 16, 448/32 = 14; 512/64 = 8,
+    // 448/64 = 7). At a size that does NOT divide, the corpus would build a
+    // smaller grid than the console and the last partial tile column would be
+    // described by nothing, so say so rather than silently measure a different
+    // frame - see docs/blss-reconstruction.md, "Symbols".
+    const int tile = tileSize();
+    const int cols = outW / tile, rows = outH / tile;
+    if (cfg.verbose && (outW % tile || outH % tile))
+        std::printf(
+            "[blss] WARNING: tile %d does not divide %dx%d - the corpus grid is "
+            "%dx%d, the engine's would be %dx%d. This configuration is NOT a "
+            "twin.\n",
+            tile, outW, outH, cols, rows, (outW + tile - 1) / tile,
+            (outH + tile - 1) / tile);
     if (cfg.frames <= 0 || cols <= 0 || rows <= 0) return out;
     const int ss = std::max(cfg.supersample, 1);
     const int sx = scaleX(cfg.scale), sy = scaleY(cfg.scale);
     const int lowW = std::max(outW / sx, 1), lowH = std::max(outH / sy, 1);
+    // The raster scale has to DIVIDE the output or the two twins are describing
+    // different frames: the engine allocates lowW = outW / scaleX and composites
+    // from it with `(px << 4) / scaleX`, so a remainder is a column of output
+    // pixels sampled off the end of the low-res target. Every scale worth
+    // sweeping divides both shipped output sizes (512 and 448 take 1, 2 and 4;
+    // Pal576i's 512x512 takes 1, 2, 4 and 8), so this fires only on a typo.
+    if (cfg.verbose && (outW % sx || outH % sy))
+        std::printf(
+            "[blss] WARNING: scale %s does not divide %dx%d - the low-res target is "
+            "%dx%d and %d x %d output pixel(s) sample past its edge. This "
+            "configuration is NOT a twin.\n",
+            scaleName(cfg.scale).c_str(), outW, outH, lowW, lowH, outW % sx, outH % sy);
 
     const auto t0 = std::chrono::steady_clock::now();
     Materials mats = buildMaterials(cfg);
@@ -1695,24 +2128,128 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     // - the jitter, the supersampled truth, the bag list, the features - runs
     // on whichever list of shots comes out of here, which is what makes a
     // project-trained net and a procedurally-trained one comparable.
-    std::vector<std::vector<Object>> projectGeometry;  // outlives `shots`
+    // Stable addresses, because a Shot points into these and they grow once per
+    // member of a union corpus - see buildProjectShots().
+    std::vector<std::unique_ptr<std::vector<Object>>> projectGeometry;  // outlives `shots`
+    std::vector<std::unique_ptr<std::vector<std::vector<Object>>>> projectAnim;  // ... so does this
+    std::vector<std::unique_ptr<std::vector<EmitterBag>>> projectEmit;  // ... and this
     std::vector<Shot> shots;
-    if (!cfg.projectDir.empty()) {
+    ProjectBlss pb;
+    // The corpus SOURCES, in order. One entry is the ordinary
+    // `--blss-train <projectDir>`; several is the union corpus.
+    std::vector<std::string> sources = cfg.projectDirs;
+    if (sources.empty() && !cfg.projectDir.empty()) sources.push_back(cfg.projectDir);
+    std::vector<std::string> groupNames;   // one per LOADED member
+    std::vector<int> groupShots;           // ...and how many shots it gave
+    bool jitterSeen = false, jitterConflict = false;
+    for (const std::string& dir : sources) {
+        // THE BESTIARY AS A UNION MEMBER, spelled `bestiary` where a directory
+        // would go. It is not a project and there is nothing on disk to point
+        // at, but the question "is the built-in corpus worth adding to a
+        // cross-project training set" is exactly a leave-one-project-out
+        // question with the bestiary as one more group - and answering it any
+        // other way means two runs whose training sets differ in more than the
+        // one thing being tested.
+        if (dir == "bestiary" || dir == "BESTIARY") {
+            const size_t before = shots.size();
+            std::vector<Shot> b = buildShots(cfg, mats);
+            if (!cfg.packageSplit)
+                for (Shot& s : b)
+                    for (Object& o : s.objs) {
+                        o.part.clear();
+                        o.part.emplace_back(o.lo, o.hi);
+                    }
+            for (Shot& s : b) {
+                s.group = static_cast<int>(groupNames.size());
+                shots.push_back(std::move(s));
+            }
+            groupNames.push_back("bestiary");
+            groupShots.push_back(static_cast<int>(shots.size() - before));
+            continue;
+        }
         std::string err;
+        ProjectBlss mine;
         const std::vector<ProjectScene> scenes =
-            loadProject(cfg.projectDir, &err, cfg.verbose);
-        if (!err.empty())
-            std::printf("[blss] project: %s\n", err.c_str());
+            loadProject(dir, &err, cfg.verbose, cfg.animated, &mine, cfg.shotPlan);
+        if (!err.empty()) std::printf("[blss] project: %s\n", err.c_str());
         if (scenes.empty()) {
+            if (sources.size() > 1) {
+                // A union corpus NEVER falls back: a member that quietly became
+                // the bestiary would put procedural content into a table whose
+                // whole claim is which project the frames came from.
+                std::printf("[blss] union member '%s' has no drawable scene - DROPPED\n",
+                            dir.c_str());
+                continue;
+            }
             // The documented fallback: a project that will not load, or that
             // has nothing to draw, still produces a corpus - just not its own.
             std::printf(
                 "[blss] project '%s' has no drawable scene - falling back to the "
                 "procedural bestiary\n",
-                cfg.projectDir.c_str());
-        } else {
-            shots = buildProjectShots(cfg, mats, projectGeometry, scenes);
+                dir.c_str());
+            continue;
         }
+        // THE SAMPLER HAS TO BE ONE SAMPLER. A union corpus renders every member
+        // through one blss::setJitter(), so members that disagree would be two
+        // incomparable distributions in one table. First member wins and the
+        // disagreement is said out loud.
+        if (jitterSeen && mine.jitter != pb.jitter) jitterConflict = true;
+        if (!jitterSeen) pb = mine;
+        jitterSeen = true;
+        // THE RENDERER DRAWS NO EMITTERS, AND A PROJECT THAT HAS THEM MUST BE
+        // TOLD SO HERE, where its ground truth is about to be manufactured.
+        //
+        // The emitters exist in this file only for the COVERAGE COUNTER
+        // (billboardOf / emitterCentres / countEmitter, the --blss-coverage
+        // path); renderScene() takes geometry and has no blending at all. So on
+        // a project whose overdraw IS its particles the truth images are bare
+        // sky and flat ground, and every PSNR in the table describes a frame the
+        // game never displays.
+        //
+        // MEASURED, 2026-08-09, and the example this comment used to name was
+        // the wrong one. `examples/upscaler-lab` reads `headroom=+1.058` today,
+        // so it is no longer the scene with the confidently wrong verdict; the
+        // scene that IS, is `examples/showcase`:
+        //
+        //   --blss-eval      headroom=+0.006 -> "THIS SCENE WILL NOT BENEFIT."
+        //   --blss-coverage  15.24 coverages, of which 14.57 are the emitters
+        //                    and 0.67 the geometry - 95.6 % of the frame
+        //
+        // i.e. the sentence the window quotes verbatim is a confident statement
+        // about 4.4 % of what the game draws. On upscaler-lab the split is
+        // 71.65 emitter against 0.98 geometry, 98.7 %.
+        //
+        // Drawing them is a real piece of work and is filed in docs/backlog.md
+        // rather than half-landed, and the blocker is NOT the rasteriser: an
+        // emitter bag contributes no BagProxy on the console either
+        // (`frustumCulling_None` -> no bbox -> `addBagSphere` at radius 0 ->
+        // `addBag` rejects the empty box), so drawing particles would move every
+        // LABEL while leaving all six input channels describing the geometry
+        // alone. Until the engine describes an emitter bag, the honest thing is
+        // that no number leaves this tool without the caveat attached - and
+        // attached to the VERDICT, not only to a warning sixty lines above it,
+        // which is what `CorpusInfo::emitters` is for.
+        int liveEmitters = 0;
+        for (const ProjectScene& s : scenes)
+            for (const SceneEmitter& e : s.emitter)
+                if (e.enabled) ++liveEmitters;
+        corpusEmitters += liveEmitters;
+        if (liveEmitters > 0)
+            std::printf(
+                "[blss] WARNING: '%s' has %d enabled emitter(s) and the corpus renderer draws "
+                "NONE of them.\n"
+                "[blss]          Its ground truth is the scene without its particles, so every "
+                "PSNR and every\n"
+                "[blss]          verdict below describes a frame the game does not display. "
+                "Use --blss-coverage\n"
+                "[blss]          for a project whose overdraw is its emitters "
+                "(docs/backlog.md).\n",
+                dir.c_str(), liveEmitters);
+        const size_t before = shots.size();
+        buildProjectShots(cfg, mats, projectGeometry, projectAnim, projectEmit, scenes,
+                          static_cast<int>(groupNames.size()), dir, shots);
+        groupNames.push_back(dir);
+        groupShots.push_back(static_cast<int>(shots.size() - before));
     }
     if (shots.empty()) {
         shots = buildShots(cfg, mats);
@@ -1727,38 +2264,190 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
                 }
     }
 
+    // THE SAMPLER THIS CORPUS WILL BE FITTED AGAINST, resolved here and never
+    // again: before the first frame is rendered, after the project (if any) has
+    // said how it will be built. `--no-jitter` wins over the project, the
+    // project wins over the default, and the bestiary - which has no project to
+    // ask - keeps jitter on, because that is the configuration every fold table
+    // on docs/neural-upscaler.md was measured with.
+    //
+    // It has to be said out loud for the same reason `--tile` does: two runs of
+    // this tool that differ only in the sampler produce two incomparable tables,
+    // and nothing in blss.net records which one it was.
+    const bool wantJitter =
+        cfg.jitter >= 0 ? cfg.jitter != 0 : (pb.found ? pb.jitter : true);
+    setJitter(wantJitter);
+    if (jitterConflict && cfg.jitter < 0)
+        std::printf(
+            "[blss] WARNING: the union members do NOT agree about blssJitter and this run "
+            "renders all of them at '%s' (the first member's). Pass --jitter/--no-jitter to "
+            "say which sampler you meant - a table mixing the two is two experiments.\n",
+            pb.jitter ? "on" : "off");
+    if (cfg.verbose && cfg.still)
+        std::printf(
+            "[blss] STILL FIXTURE (--still): every frame of a shot is the shot's FIRST "
+            "camera and FIRST pose, so only the jitter phase advances. This is the host "
+            "twin of the console's frozen-camera experiment and it is a METRIC fixture, "
+            "not a corpus - do not train on it, and read only the period-2 table.\n");
+    if (cfg.verbose && cfg.proxyBudget)
+        std::printf(
+            "[blss] PROXY BUDGET ON (--proxy-budget): a bag gets at most as many proxies "
+            "as it covers tiles, capped at %d and merged consecutively. THE ENGINE'S "
+            "TYRA_BLSS_PROXY_BUDGET IS 0 - this run describes the frame more coarsely "
+            "than the console does, which is a MEASUREMENT and not a twin.\n",
+            kMaxProxiesPerBag);
+    if (cfg.verbose && cfg.emitterProxy)
+        std::printf(
+            "[blss] EMITTER PROXY ON (--emitter-proxy): each enabled emitter contributes "
+            "ONE bag proxy - the box over its modelled pool, grown by the widest quad. "
+            "THE ENGINE'S TYRA_BLSS_EMITTER_PROXY IS 0, so this run describes a frame "
+            "the console does not. And the renderer still draws no particles, so a PSNR "
+            "from this run prices the DESCRIPTION against a particle-free truth - read "
+            "--features and a console BLSSFEAT through --probe, not the dB.\n");
+    // THE SAMPLER IS ANNOUNCED IN BOTH DIRECTIONS, and the reason is the eighth
+    // entry of "measured is not optimised" (docs/neural-upscaler.md): this page
+    // carried a row whose margins were taken jitter-off and whose ceiling was
+    // taken jitter-on, and nothing in either run said which. `--tile` and
+    // `--scale` have had an announcement line since they became sweepable;
+    // blssJitter became the third such knob and did not get one, so a jitter-ON
+    // run printed nothing at all.
+    if (cfg.verbose && !wantJitter)
+        std::printf(
+            "[blss] sub-pixel jitter OFF%s - both phases sample the same "
+            "position, so the temporal pass sees a genuine still frame and the "
+            "quincunx supersample is gone.\n",
+            cfg.jitter >= 0 ? " (--no-jitter)" : " (the project's blssJitter)");
+    else if (cfg.verbose)
+        std::printf(
+            "[blss] sub-pixel jitter ON%s - the two phases are a quincunx pair, so the "
+            "temporal pass has a genuine second sample to fuse. A table taken here is NOT "
+            "comparable with one taken at --no-jitter.\n",
+            cfg.jitter >= 0 ? " (--jitter)"
+                            : (pb.found ? " (the project's blssJitter)"
+                                        : " (the bestiary has no project to ask)"));
+
     // Frames spread round-robin over the shots, remainder to the first ones. A
     // shot that got a single frame would have no history at all and teach the
     // temporal channel nothing, so with fewer frames than shots the tail shots
     // are simply not rendered rather than degenerating.
+    //
+    // EXPLICIT COUNTS FIRST (Shot::frames, from the project's training-shot
+    // plan), then the rest share what is left. Every shot asking for 0 is the
+    // old behaviour exactly, which is what a default plan produces - so this
+    // does not move a single published number.
     const int shotCount = (int)shots.size();
     std::vector<int> perShot((size_t)shotCount, 0);
-    if (cfg.frames < shotCount) {
+    int asked = 0, freeShots = 0;
+    for (const Shot& s : shots) {
+        if (s.frames > 0) asked += s.frames;
+        else ++freeShots;
+    }
+    if (asked > cfg.frames) {
+        // NEVER DROP A SHOT SILENTLY. The window prints the per-shot counts it
+        // expects, so a clamp nobody announced makes its preview a lie - and a
+        // shot that got zero frames is a fold that does not exist.
+        std::printf(
+            "blss: the shot plan asks for %d explicit frame(s) and --frames is %d - scaling the "
+            "explicit counts down to fit. Raise --frames to %d to get the plan as authored.\n",
+            asked, cfg.frames, asked + freeShots);
+        int given = 0, k = 0;
+        for (int i = 0; i < shotCount; ++i)
+            if (shots[(size_t)i].frames > 0) {
+                // Proportional, floor, at least one frame each - a shot the
+                // author named explicitly must still be shot.
+                int n = (int)((long long)shots[(size_t)i].frames * cfg.frames / asked);
+                if (n < 1) n = 1;
+                perShot[(size_t)i] = n;
+                given += n;
+                ++k;
+            }
+        (void)k;
+        // Whatever the floor left over goes to the shots that asked for nothing,
+        // and if there is nothing left they get nothing - which the line above
+        // has already said out loud.
+        int rest = cfg.frames - given;
+        for (int i = 0; i < shotCount && rest > 0; ++i)
+            if (shots[(size_t)i].frames <= 0) {
+                perShot[(size_t)i] = 1;
+                --rest;
+            }
+    } else if (cfg.frames < shotCount) {
         for (int i = 0; i < cfg.frames; ++i) perShot[(size_t)i] = 1;
     } else {
-        const int base = cfg.frames / shotCount, rem = cfg.frames % shotCount;
-        for (int i = 0; i < shotCount; ++i) perShot[(size_t)i] = base + (i < rem ? 1 : 0);
+        const int spare = cfg.frames - asked;
+        const int base = freeShots > 0 ? spare / freeShots : 0;
+        int rem = freeShots > 0 ? spare % freeShots : 0;
+        for (int i = 0; i < shotCount; ++i) {
+            if (shots[(size_t)i].frames > 0) {
+                perShot[(size_t)i] = shots[(size_t)i].frames;
+                continue;
+            }
+            perShot[(size_t)i] = base + (rem > 0 ? 1 : 0);
+            if (rem > 0) --rem;
+        }
+    }
+    // A shot with no frames is a fold that does not exist and a row the window
+    // will not find. Say which ones and why, once.
+    {
+        int starved = 0;
+        for (int i = 0; i < shotCount; ++i)
+            if (perShot[(size_t)i] <= 0) ++starved;
+        if (starved)
+            std::printf(
+                "blss: %d of %d shot(s) got NO frames at --frames %d - they are not in this "
+                "corpus and there is no fold for them.\n",
+                starved, shotCount, cfg.frames);
     }
 
     if (cfg.verbose) {
-        size_t proxies = 0;
+        size_t proxies = 0, animParts = 0;
         for (const Shot& s : shots)
             for (const Object& o : s.geometry())
                 if (o.proxy) proxies += o.part.size();
+        for (const auto& scene : projectAnim)
+            for (const auto& poses : *scene)
+                if (!poses.empty()) {
+                    animParts += 1;
+                    proxies += poses[0].part.size();
+                }
+        std::string source = "procedural bestiary";
+        if (groupNames.size() == 1) source = groupNames[0];
+        else if (groupNames.size() > 1)
+            source = "UNION of " + std::to_string(groupNames.size()) + " project(s)";
         std::printf(
             "[blss] corpus: %s, %d frame(s) over %d shot(s), %dx%d out, %dx%d low, "
             "%dx supersample, %dx%d tiles, seed 0x%X\n",
-            projectGeometry.empty() ? "procedural bestiary" : cfg.projectDir.c_str(),
+            source.c_str(),
             cfg.frames, shotCount, outW, outH, lowW, lowH, ss, cols, rows, cfg.seed);
+        // WHICH MEMBER CONTRIBUTED WHAT, because frames are spread evenly over
+        // SHOTS: a member with twice the scenes gets twice the frames, and a
+        // union mean nobody can decompose is a mean about its largest member.
+        if (groupNames.size() > 1)
+            for (size_t g = 0; g < groupNames.size(); ++g)
+                std::printf("[blss]   group %zu  %-40s %2d shot(s)\n", g, groupNames[g].c_str(),
+                            groupShots[g]);
         // How finely the frame can be described AT ALL - the one number the
         // console's own instrument prints next to its feature spread, and the
         // one that was 2 on the day this feature was found running on a
         // distribution nothing had measured.
-        std::printf("[blss] %zu bag proxy(ies) over %s, %s\n", proxies,
+        // With the budget on this is the UNCAPPED count - the cap is per frame
+        // and per camera, so there is no one number for it here. The per-frame
+        // count is what --blss-eval --features reports.
+        std::printf("[blss] %zu bag proxy(ies)%s over %s, %s\n", proxies,
+                    cfg.proxyBudget ? " before the budget" : "",
                     projectGeometry.empty() ? "the bestiary"
-                                            : "the project's scenes",
+                                            : "the project scenes",
                     cfg.packageSplit ? "one per VU1 package (the engine's split)"
                                      : "one per object (--no-package-split)");
+        // Said out loud because for its whole life this corpus rendered NEITHER
+        // the pixels nor the proxies of an animated model, while the console
+        // rendered both - so "0 animated part(s)" on a project that has them is
+        // the signature of that bug coming back.
+        if (!projectAnim.empty())
+            std::printf(
+                "[blss] %zu animated part(s), posed per console frame (their proxies "
+                "are in the count above)\n",
+                animParts);
     }
 
     // THE WORK LIST, in the order the serial loop produced it: shot 0's frames,
@@ -1780,6 +2469,11 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     std::vector<double> shotMs((size_t)shotCount, 0.0);
     std::mutex report;
     int done = 0, reported = -1;
+    // HOW MANY PROXIES A FRAME ACTUALLY CARRIES, which the build-time count
+    // above cannot say once the budget is on (the cap is per camera). It is the
+    // number the console's own BLSSGRID line reports, so the two are directly
+    // comparable - which is the whole point of having it.
+    size_t bagTotal = 0;
 
     parallelFrames((int)jobs.size(), cfg.threads, [&](int j, RenderScratch& sc) {
         const FrameJob& job = jobs[(size_t)j];
@@ -1788,18 +2482,49 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         const int i = job.i, n = job.n;
         const auto ts = std::chrono::steady_clock::now();
 
-        const float t = n > 1 ? (float)i / (float)(n - 1) : 0.0f;
-        const float tPrev = n > 1 ? (float)(i - 1) / (float)(n - 1) : 0.0f;
+        // `--still` freezes the shot at its first camera: t and tPrev are both
+        // 0, so `prev` below is `cur` by construction, every reprojection offset
+        // is zero and the only thing that still advances between consecutive
+        // frames of this shot is the jitter phase. See CorpusConfig::still.
+        const float t = cfg.still ? 0.0f : (n > 1 ? (float)i / (float)(n - 1) : 0.0f);
+        const float tPrev = cfg.still ? 0.0f : (n > 1 ? (float)(i - 1) / (float)(n - 1) : 0.0f);
         const Pinhole cur = cameraAt(shot, t);
         // Frame 0 has no predecessor: prev == cur makes every reprojection
         // offset zero and prevLow its own render, which is exactly what the
         // console holds on a scene cut.
         const Pinhole prev = i > 0 ? cameraAt(shot, tPrev) : cur;
 
+        // THE FRAME'S POSE, and its predecessor's. Frame index IS console frame
+        // index (blssscene.hpp, kAnimFps), so this is a lookup and not an
+        // evaluation - which is what keeps the loop a pure function of j. Frame
+        // 0 reuses its own pose for the predecessor, the same way it reuses its
+        // own camera: on a scene cut the console's history is this frame.
+        std::vector<const Object*> animNow, animPrev;
+        if (shot.animShared) {
+            animNow.reserve(shot.animShared->size());
+            animPrev.reserve(shot.animShared->size());
+            for (const std::vector<Object>& poses : *shot.animShared) {
+                if (poses.empty()) continue;
+                const int last = (int)poses.size() - 1;
+                // ...and it freezes the ANIMATION too, which is the half that
+                // makes the period-2 metric readable: a camera-derived warp
+                // cannot compensate a deforming mesh, so a moving model is a
+                // difference the metric charges to the artefact.
+                const int now = cfg.still ? 0 : std::min(i, last);
+                const int was = cfg.still ? 0 : std::min(i > 0 ? i - 1 : 0, last);
+                animNow.push_back(&poses[(size_t)now]);
+                animPrev.push_back(&poses[(size_t)was]);
+            }
+        }
+
         CorpusFrame& cf = out[(size_t)j];
         cf.shot = job.shot;
         cf.shotName = shot.name;
         cf.moveName = shot.moveName;
+        cf.group = shot.group;
+        cf.groupName = shot.group < (int)groupNames.size()
+                           ? groupNames[(size_t)shot.group]
+                           : std::string();
         Frame& fr = cf.frame;
         fr.cols = cols, fr.rows = rows;
         fr.outW = outW, fr.outH = outH;
@@ -1811,28 +2536,30 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // a checkerboard at the horizon - but it is the same definition the
         // oracle and psnr() are measured against, and 16 samples per output
         // pixel is far past what the console will ever see.
-        renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, sc.big, sc.zb);
+        renderScene(geo, mats, cur, outW * ss, outH * ss, 0.0f, 0.0f, sc.big, sc.zb, &animNow);
         cf.truth = ss > 1 ? boxDown(sc.big, ss) : sc.big;
         // The "no BLSS" baseline: full resolution, one sample, no jitter.
-        renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, sc.zb);
+        renderScene(geo, mats, cur, outW, outH, 0.0f, 0.0f, cf.native, sc.zb, &animNow);
         // What the console actually has: the jittered low-res target. The
         // jitter is in LOW-RES pixels and this render's pixels ARE low-res
         // pixels, so it goes straight in as the raster offset.
         renderScene(geo, mats, cur, lowW, lowH, jitterX(fr.phase), jitterY(fr.phase),
-                    fr.low, sc.zb);
+                    fr.low, sc.zb, &animNow);
         // ...and the predecessor's, RE-RENDERED rather than carried over from
         // the previous iteration - that carry is the only thing that made this
         // loop serial. Same camera, same jitter phase, same pure function, so
         // the same image: see the determinism note above.
         if (i > 0)
             renderScene(geo, mats, prev, lowW, lowH, jitterX((i - 1) % kJitterPhases),
-                        jitterY((i - 1) % kJitterPhases), fr.prevLow, sc.zb);
+                        jitterY((i - 1) % kJitterPhases), fr.prevLow, sc.zb, &animPrev);
         else
             fr.prevLow = fr.low;
 
         // ...and what the EE knows ABOUT it: one bag per drawn object, from
         // the unjittered display-resolution projection.
-        const std::vector<BagProxy> bags = bagList(geo, mats, cur, outW, outH);
+        const std::vector<BagProxy> bags =
+            bagList(geo, mats, cur, outW, outH, &animNow, cfg.proxyBudget,
+                    cfg.emitterProxy ? shot.emitShared : nullptr);
         const std::vector<TileStats> stats = accumulate(cols, rows, outW, outH, bags);
         // History size is the DISPLAY size: the runtime's history is the other
         // display framebuffer (docs/blss-reconstruction.md section 6), so one
@@ -1856,6 +2583,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // label, so neither can move the corpus.
         std::lock_guard<std::mutex> lock(report);
         shotMs[(size_t)job.shot] += ms;
+        bagTotal += bags.size();
         ++done;
         if (!cfg.verbose) return;
         const int pct = done * 20 / (int)jobs.size();  // a line every 5%
@@ -1878,10 +2606,353 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         const double s = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - t0)
                              .count();
-        std::printf("[blss] corpus ready: %zu frame(s), %zu tile sample(s), %.1f s\n",
-                    out.size(), out.size() * (size_t)(cols * rows), s);
+        std::printf("[blss] corpus ready: %zu frame(s), %zu tile sample(s), %.1f proxies/frame,"
+                    " %.1f s\n",
+                    out.size(), out.size() * (size_t)(cols * rows),
+                    out.empty() ? 0.0 : (double)bagTotal / (double)out.size(), s);
     }
     return out;
+}
+
+// ============================================================== coverage =====
+//
+// "Will this scene get FASTER" is one number - how many times over the scene
+// paints the screen - and the contract is in blsscorpus.hpp. What follows is
+// the counter, the emitter model, and the walk that drives them.
+
+namespace {
+
+// A counted draw: world positions, triangles, and the console's own submission
+// test. No materials, no UVs, no colours - none of them change a fragment
+// COUNT, and skipping them means the estimator never decodes a PNG, which is
+// most of what makes it seconds rather than minutes.
+struct CovMesh {
+    std::vector<V3> p;
+    std::vector<int> idx;
+    float viewDist = 0.0f;
+    V3 centre{};
+};
+
+CovMesh covOf(const SceneMesh& sm) {
+    CovMesh m;
+    m.p.reserve(sm.vert.size());
+    for (const SceneVert& v : sm.vert) m.p.push_back({v.p[0], v.p[1], v.p[2]});
+    m.idx = sm.idx;
+    m.viewDist = sm.viewDist;
+    m.centre = {sm.centre[0], sm.centre[1], sm.centre[2]};
+    return m;
+}
+
+// FRAGMENTS OF ONE PROJECTED TRIANGLE, clamped to the target - the same exact
+// span solve renderScene does, with the inner pixel loop deleted. A count is a
+// sum of span LENGTHS, so a sprite covering the whole screen costs one division
+// per scanline instead of 57 344 depth compares; that is the single reason a
+// 3 000-billboard haze bank can be counted inside a window.
+uint64_t countTri(float ax, float ay, float bx, float by, float cx2, float cy2, int rw,
+                  int rh) {
+    float x[3] = {ax, bx, cx2}, y[3] = {ay, by, cy2};
+    float det = (x[1] - x[0]) * (y[2] - y[0]) - (x[2] - x[0]) * (y[1] - y[0]);
+    if (det < 0.0f) {  // double-sided, exactly like the rasteriser above
+        std::swap(x[1], x[2]);
+        std::swap(y[1], y[2]);
+        det = -det;
+    }
+    if (det < 1e-7f) return 0;
+
+    int x0 = (int)std::floor(std::min(x[0], std::min(x[1], x[2])) - 0.5f);
+    int x1 = (int)std::ceil(std::max(x[0], std::max(x[1], x[2])) + 0.5f);
+    int y0 = (int)std::floor(std::min(y[0], std::min(y[1], y[2])) - 0.5f);
+    int y1 = (int)std::ceil(std::max(y[0], std::max(y[1], y[2])) + 0.5f);
+    x0 = std::max(x0, 0), y0 = std::max(y0, 0);
+    x1 = std::min(x1, rw - 1), y1 = std::min(y1, rh - 1);
+    if (x0 > x1 || y0 > y1) return 0;
+
+    const float ea[3] = {-(y[1] - y[0]), -(y[2] - y[1]), -(y[0] - y[2])};
+    const float eb[3] = {x[1] - x[0], x[2] - x[1], x[0] - x[2]};
+    const float ec[3] = {(y[1] - y[0]) * x[0] - (x[1] - x[0]) * y[0],
+                         (y[2] - y[1]) * x[1] - (x[2] - x[1]) * y[1],
+                         (y[0] - y[2]) * x[2] - (x[0] - x[2]) * y[2]};
+    uint64_t n = 0;
+    for (int py = y0; py <= y1; ++py) {
+        const float yc = (float)py + 0.5f;
+        float lo = (float)x0 + 0.5f, hi = (float)x1 + 0.5f;
+        bool empty = false;
+        for (int e = 0; e < 3; ++e) {
+            const float k = eb[e] * yc + ec[e];
+            if (ea[e] > 1e-12f)
+                lo = std::max(lo, -k / ea[e]);
+            else if (ea[e] < -1e-12f)
+                hi = std::min(hi, -k / ea[e]);
+            else if (k < 0.0f) {
+                empty = true;
+                break;
+            }
+        }
+        if (empty) continue;
+        int xs = (int)std::ceil(lo - 0.5f);
+        int xe = (int)std::floor(hi - 0.5f);
+        xs = std::max(xs, x0), xe = std::min(xe, x1);
+        if (xs <= xe) n += (uint64_t)(xe - xs + 1);
+    }
+    return n;
+}
+
+// A triangle soup under one camera. `viewDist` is the console's own submission
+// test, applied here for the same reason bagList applies it: a bag the game
+// never submits costs no fill.
+uint64_t countMesh(const CovMesh& m, const Pinhole& cam, int rw, int rh) {
+    if (m.viewDist > 0.0f) {
+        const V3 d{m.centre.x - cam.pos[0], m.centre.y - cam.pos[1], m.centre.z - cam.pos[2]};
+        if (dot(d, d) > m.viewDist * m.viewDist) return 0;
+    }
+    const float sxScale = 0.5f * (float)rw / cam.tanHalfFovX;
+    const float syScale = 0.5f * (float)rh / cam.tanHalfFovY;
+    const float cx = 0.5f * (float)rw, cy = 0.5f * (float)rh;
+    uint64_t n = 0;
+    for (size_t f = 0; f + 2 < m.idx.size(); f += 3) {
+        CVert in[3];
+        for (int k = 0; k < 3; ++k) {
+            const V3& src = m.p[(size_t)m.idx[f + k]];
+            const V3 rel{src.x - cam.pos[0], src.y - cam.pos[1], src.z - cam.pos[2]};
+            in[k].vx = rel.x * cam.right[0] + rel.y * cam.right[1] + rel.z * cam.right[2];
+            in[k].vy = rel.x * cam.up[0] + rel.y * cam.up[1] + rel.z * cam.up[2];
+            in[k].w = rel.x * cam.fwd[0] + rel.y * cam.fwd[1] + rel.z * cam.fwd[2];
+        }
+        CVert poly[4];
+        const int pn = clipNear(in, poly);
+        if (pn == 0) continue;
+        float sx[4], sy[4];
+        for (int k = 0; k < pn; ++k) {
+            const float iw = 1.0f / poly[k].w;
+            sx[k] = poly[k].vx * iw * sxScale + cx;
+            sy[k] = -poly[k].vy * iw * syScale + cy;
+        }
+        for (int fan = 0; fan + 2 < pn; ++fan)
+            n += countTri(sx[0], sy[0], sx[fan + 1], sy[fan + 1], sx[fan + 2], sy[fan + 2], rw,
+                          rh);
+    }
+    return n;
+}
+
+// One emitter's fill under one camera: `count` camera-facing quads, which is
+// exactly what the VU1 billboard program expands each centre into.
+uint64_t countEmitter(const std::vector<V3>& centres, const CovBillboard& b, const Pinhole& cam,
+                      int rw, int rh) {
+    const V3 right{cam.right[0], cam.right[1], cam.right[2]};
+    const V3 up{cam.up[0], cam.up[1], cam.up[2]};
+    CovMesh q;
+    q.p.reserve(centres.size() * 4);
+    q.idx.reserve(centres.size() * 6);
+    for (const V3& c : centres) {
+        const V3 rw2 = right * b.halfW, uh = up * b.halfH;
+        const int base = (int)q.p.size();
+        q.p.push_back(c - rw2 - uh);
+        q.p.push_back(c + rw2 - uh);
+        q.p.push_back(c + rw2 + uh);
+        q.p.push_back(c - rw2 + uh);
+        const int t[6] = {base, base + 1, base + 2, base, base + 2, base + 3};
+        q.idx.insert(q.idx.end(), t, t + 6);
+    }
+    return countMesh(q, cam, rw, rh);
+}
+
+// One job of the count: which shot, which frame within it.
+struct CovJob {
+    int shot = 0, frame = 0, frames = 1;
+};
+
+}  // namespace
+
+CoverageReport measureCoverage(const CoverageConfig& cfg, const std::atomic<bool>* cancel) {
+    CoverageReport rep;
+    // Echoed before any early return: a caller pricing a FAILED report gets the
+    // raster it asked about rather than a zero that reads as "no screen".
+    rep.outW = cfg.outW;
+    rep.outH = cfg.outH;
+    if (cfg.projectDir.empty()) {
+        rep.err = "no project directory";
+        return rep;
+    }
+    std::string err;
+    const std::vector<ProjectScene> scenes =
+        loadProject(cfg.projectDir, &err, cfg.verbose, /*animated=*/true, nullptr);
+    if (!err.empty()) {
+        rep.err = err;
+        return rep;
+    }
+    if (scenes.empty()) {
+        rep.err = "the project loads but has nothing to draw";
+        return rep;
+    }
+    if (cancel && cancel->load()) {
+        rep.err = "cancelled";
+        return rep;
+    }
+
+    // The raster keeps the OUTPUT's aspect, so the projection is the console's
+    // and only the pixel pitch differs - which a ratio cannot see.
+    const int rw = std::max(32, cfg.raster);
+    const int rh = std::max(16, (int)std::lround((double)rw * (double)cfg.outH / (double)cfg.outW));
+    const double pixels = (double)rw * (double)rh;
+    const int perShot = std::max(1, cfg.framesPerShot);
+
+    // Flatten the project into (geometry, emitters, shots) once. The shots of
+    // one scene share its geometry, exactly as buildProjectShots arranges it.
+    struct CovScene {
+        std::vector<CovMesh> mesh;
+        std::vector<std::vector<CovMesh>> anim;   // [part][pose]
+        std::vector<std::vector<V3>> emitCentre;  // [emitter]
+        std::vector<CovBillboard> emitBill;
+    };
+    std::vector<CovScene> geo;
+    geo.reserve(scenes.size());
+    struct CovShot {
+        int scene = 0;
+        const SceneShot* shot = nullptr;
+    };
+    std::vector<CovShot> shots;
+    for (size_t si = 0; si < scenes.size(); ++si) {
+        const ProjectScene& ps = scenes[si];
+        CovScene cs;
+        cs.mesh.reserve(ps.mesh.size());
+        for (const SceneMesh& sm : ps.mesh) {
+            if (sm.cutout) rep.sawCutout = true;
+            cs.mesh.push_back(covOf(sm));
+        }
+        for (const AnimMesh& am : ps.anim) {
+            if (am.pose.empty()) continue;
+            rep.sawAnimated = true;
+            std::vector<CovMesh> poses;
+            poses.reserve(am.pose.size());
+            for (const SceneMesh& sm : am.pose) poses.push_back(covOf(sm));
+            cs.anim.push_back(std::move(poses));
+        }
+        for (const SceneEmitter& e : ps.emitter) {
+            // A disabled emitter starts hidden and draws nothing until a flow
+            // node shows it, so it is not fill - but it is a reason the number
+            // could be wrong later, which the report carries.
+            if (!e.enabled) {
+                rep.sawDisabledEmitter = true;
+                continue;
+            }
+            cs.emitCentre.push_back(emitterCentres(e));
+            cs.emitBill.push_back(billboardOf(e));
+            ++rep.emitters;
+            rep.billboards += (int)cs.emitCentre.back().size();
+        }
+        rep.triangles += ps.triangles();
+        geo.push_back(std::move(cs));
+        for (const SceneShot& ss : ps.shot)
+            if (ss.keys() >= 1) shots.push_back({(int)si, &ss});
+    }
+    rep.scenes = (int)scenes.size();
+    if (shots.empty()) {
+        rep.err = "the project has no camera move to measure";
+        return rep;
+    }
+
+    std::vector<CovJob> jobs;
+    jobs.reserve(shots.size() * (size_t)perShot);
+    for (size_t s = 0; s < shots.size(); ++s)
+        for (int f = 0; f < perShot; ++f) jobs.push_back({(int)s, f, perShot});
+    // Per-job slots, written by the job that owns them: which worker computes
+    // job i is a function of the core count and nothing else touches job i, so
+    // the answer does not depend on the machine (blsscorpus' parallelFrames
+    // rule, and for the same reason - a number that moved with the core count
+    // would be one nobody could reproduce).
+    std::vector<double> jobGeom(jobs.size(), 0.0), jobEmit(jobs.size(), 0.0);
+
+    const auto camOf = [&](const CovShot& cs, int f) {
+        Shot s;
+        s.move = Move::Path;
+        s.pathEye = cs.shot->eye;
+        s.pathLook = cs.shot->look;
+        s.ease = cs.shot->ease;
+        s.fovDeg = cs.shot->fovDeg > 5.0f ? cs.shot->fovDeg : 60.0f;
+        const float t = perShot > 1 ? (float)f / (float)(perShot - 1) : 0.5f;
+        return cameraAt(s, t);
+    };
+
+    const auto body = [&](size_t i) {
+        if (cancel && cancel->load()) return;
+        const CovJob& j = jobs[i];
+        const CovShot& cs = shots[(size_t)j.shot];
+        const CovScene& g = geo[(size_t)cs.scene];
+        const Pinhole cam = camOf(cs, j.frame);
+        uint64_t frags = 0;
+        for (const CovMesh& m : g.mesh) frags += countMesh(m, cam, rw, rh);
+        for (const std::vector<CovMesh>& poses : g.anim) {
+            const size_t pose = std::min((size_t)j.frame, poses.size() - 1);
+            frags += countMesh(poses[pose], cam, rw, rh);
+        }
+        jobGeom[i] = (double)frags / pixels;
+        uint64_t ef = 0;
+        for (size_t e = 0; e < g.emitCentre.size(); ++e)
+            ef += countEmitter(g.emitCentre[e], g.emitBill[e], cam, rw, rh);
+        jobEmit[i] = (double)ef / pixels;
+    };
+
+    int workers = cfg.threads > 0 ? cfg.threads : (int)std::thread::hardware_concurrency();
+    if (workers < 1) workers = 1;
+    if (workers > 32) workers = 32;
+    if (workers > (int)jobs.size()) workers = (int)jobs.size();
+    if (workers <= 1) {
+        for (size_t i = 0; i < jobs.size(); ++i) body(i);
+    } else {
+        const auto run = [&](int w) {
+            for (size_t i = (size_t)w; i < jobs.size(); i += (size_t)workers) body(i);
+        };
+        std::vector<std::thread> pool;
+        pool.reserve((size_t)workers - 1);
+        for (int w = 1; w < workers; ++w) pool.emplace_back(run, w);
+        run(0);
+        for (std::thread& t : pool) t.join();
+    }
+    if (cancel && cancel->load()) {
+        rep.err = "cancelled";
+        return rep;
+    }
+
+    rep.shots.resize(shots.size());
+    for (size_t s = 0; s < shots.size(); ++s) {
+        rep.shots[s].scene = scenes[(size_t)shots[s].scene].name;
+        rep.shots[s].name = shots[s].shot->name;
+        rep.shots[s].move = shots[s].shot->move;
+    }
+    std::vector<double> all;
+    all.reserve(jobs.size());
+    for (size_t i = 0; i < jobs.size(); ++i) {
+        CoverageShot& cs = rep.shots[(size_t)jobs[i].shot];
+        cs.geom += jobGeom[i];
+        cs.emit += jobEmit[i];
+        cs.peak = std::max(cs.peak, jobGeom[i] + jobEmit[i]);
+        ++cs.frames;
+        all.push_back(jobGeom[i] + jobEmit[i]);
+        rep.geomMean += jobGeom[i];
+        rep.emitMean += jobEmit[i];
+    }
+    for (CoverageShot& cs : rep.shots)
+        if (cs.frames > 0) {
+            cs.geom /= (double)cs.frames;
+            cs.emit /= (double)cs.frames;
+        }
+    rep.frames = (int)jobs.size();
+    rep.geomMean /= (double)jobs.size();
+    rep.emitMean /= (double)jobs.size();
+    rep.mean = rep.geomMean + rep.emitMean;
+    std::sort(all.begin(), all.end());
+    // Nearest-rank p95, floored at the last sample - with 30-odd frames the
+    // interpolated variants differ by less than the model's own uncertainty and
+    // "the 95th percentile is one of the frames you rendered" is easier to
+    // defend than a number that is not.
+    const size_t k = std::min(all.size() - 1, (size_t)std::ceil(0.95 * (double)all.size()) - 1);
+    rep.p95 = all[k];
+    rep.ok = true;
+    if (cfg.verbose)
+        std::printf("[blss] coverage: %.1f full-screen coverages (geometry %.1f + emitters %.1f), "
+                    "p95 %.1f, %d frame(s)\n",
+                    rep.mean, rep.geomMean, rep.emitMean, rep.p95, rep.frames);
+    return rep;
 }
 
 }  // namespace blss

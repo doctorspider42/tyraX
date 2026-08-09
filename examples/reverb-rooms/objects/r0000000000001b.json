@@ -1,0 +1,1 @@
+{"id": "r0000000000001b", "name": "chamber-tick", "type": "sound", "position": [-27, 1.2, 17], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "sound": {"path": "res/sfx/knock.wav", "autoplay": true, "range": 30.0, "interval": 2.0, "onPlayer": false, "reverb": false}}

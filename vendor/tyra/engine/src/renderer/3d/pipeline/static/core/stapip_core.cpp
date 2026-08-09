@@ -13,6 +13,7 @@
 #include "renderer/3d/pipeline/static/core/stapip_core.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
+#include "debug/frame_profile.hpp"
 
 // #define TYRA_RENDERER_VERBOSE_LOG 1
 
@@ -233,8 +234,13 @@ void StaPipCore::render(StaPipBag* bag) {
   // discs - has no describable screen box: it wraps the near plane, so its
   // proxy is "the whole frame, at the nearest representable depth" and it
   // flattens every channel it touches. See PipelineInfoBag::blssProxy.
+  // wantsProxies(), NOT isEnabled(): in BLSS' PLAIN mode there is no network
+  // to describe the frame to, so the whole branch below - and the world
+  // bounding sphere it shares with the light pick - must not run at all. The
+  // entry points are inert there anyway, but "inert" still pays two sqrtf and
+  // a texel-area lookup per bag, and `proxy` is 2.34 ms of a 4.60 ms bill.
   const bool blssOn =
-      rendererCore->blss.isEnabled() && bag->info->blssProxy;
+      rendererCore->blss.wantsProxies() && bag->info->blssProxy;
   const bool wantsLightPick = !bag->lighting && bag->info->dynLightPick;
 
   const M4x4& m = *bag->info->model;
@@ -279,12 +285,26 @@ void StaPipCore::render(StaPipBag* bag) {
   // The packages this bag is about to be split into already carry their own
   // axis-aligned boxes - cached, and computed for frustum classification
   // whether or not BLSS is on - so the grid gets the corpus' granularity for
-  // the cost of walking a vector. Bags with no bbox (frustumCulling != Precise
-  // - particle billboards) fall back to the bounding-sphere proxy, which for
-  // them means contributing nothing at all: without a bbox the sphere is the
-  // model translation at radius 0 and addBag rejects the empty box. That is
-  // the behaviour those bags already had, not a new hole.
+  // the cost of walking a vector. Bags with no bbox (frustumCulling != Precise)
+  // fall back to the bounding-sphere proxy, which for them means contributing
+  // nothing at all: without a bbox the sphere is the model translation at
+  // radius 0 and addBag rejects the empty box.
+  //
+  // THAT SILENCE IS NOT HARMLESS FOR ONE BAG SHAPE, and it is the one the
+  // straddle rule and the blssProxy opt-out cannot help with. A particle
+  // emitter runs frustumCulling None deliberately (VU1 culls per quad), so it
+  // has never contributed a proxy - while on the fixtures BLSS is measured on
+  // the emitters are 95-99 % of the frame's fill. The network therefore chose
+  // its kernels over fire, fog and rain entirely from the geometry BEHIND
+  // them. TYRA_BLSS_EMITTER_PROXY is the sixth twin rule that closes it; it
+  // ships at 0, because turning it on moves every label and needs a refit.
   if (blssOn) {
+#if TYRA_FRAME_PROFILE
+    // Charged to FrameProfile::tBlssProxy, which beginScene clears - so the
+    // "extra scene submission" term is READ rather than inferred by
+    // subtracting everything else from the A/B difference.
+    const u32 fpP0 = FrameProfile::ticks();
+#endif
     // texDetail is the minification proxy - texels per screen pixel - so BLSS
     // gets the raw texel area and finishes the ratio once it knows the screen
     // footprint it just computed. Untextured bags carry no texture aliasing.
@@ -302,6 +322,21 @@ void StaPipCore::render(StaPipBag* bag) {
     // the corpus trained the network on a real spread. See
     // RendererCoreBlss::kFeatures.
 
+#if TYRA_BLSS_EMITTER_PROXY
+    // THE SIXTH RULE: an emitter bag describes itself from the centres it is
+    // about to submit. It is the one bag shape that reaches here with no
+    // package bbox BY DESIGN rather than by omission - a billboard bag runs
+    // frustumCulling None because VU1 culls per quad - so without this branch
+    // it falls to the radius-0 sphere below and addBag rejects it. On the
+    // fixtures this feature is measured on that silence is 95-99 % of the
+    // frame's fill. See RendererCoreBlss::addBagBillboard for the box, and the
+    // BLSS header for why it is one box and not one per VU1 package.
+    if (bag->billboard != nullptr) {
+      rendererCore->blss.addBagBillboard(
+          mvp, bag->vertices, bag->count, bag->texture->coordinates,
+          bag->billboard->right, bag->billboard->up, texelArea);
+    } else
+#endif
     if (bbox != nullptr) {
       // bbox is non-null only for Precise frustum culling, and the assert
       // above makes that imply TyraMVP - so `mvp` below really is the
@@ -316,8 +351,18 @@ void StaPipCore::render(StaPipBag* bag) {
         // has more. Merging by vertex range (not by space) can only ENLARGE a
         // box, never move it, so the worst case degrades toward the whole-bag
         // proxy instead of lying about where the geometry is.
+#if TYRA_BLSS_PROXY_BUDGET
+        // THE PROXY BUDGET (twin switch - see the BLSS header). The cap is the
+        // number of grid tiles this bag's whole box covers, so a bag the grid
+        // can only resolve into four tiles is described by four boxes instead
+        // of thirty-two. The main bbox is the one the frustum classification
+        // above already fetched.
+        const u32 cap = static_cast<u32>(rendererCore->blss.proxyBudget(
+            mvp, (*bbox->getMainBBox())[0], (*bbox->getMainBBox())[7]));
+#else
         const u32 cap =
             static_cast<u32>(RendererCoreBlss::kMaxProxiesPerBag);
+#endif
         const u32 group = partsCount <= cap ? 1u : (partsCount + cap - 1) / cap;
         for (u32 i = 0; i < partsCount; i += group) {
           const u32 end = i + group < partsCount ? i + group : partsCount;
@@ -339,6 +384,9 @@ void StaPipCore::render(StaPipBag* bag) {
     } else {
       rendererCore->blss.addBagSphere(worldCenter, worldRadius, texelArea);
     }
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tBlssProxy += FrameProfile::ticks() - fpP0;
+#endif
   }
 
   qbufferRenderer.sendObjectData(bag, &mvp, texBuffers);

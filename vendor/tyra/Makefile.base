@@ -19,7 +19,10 @@ IRXEMBEDDEDEXT	:= irx-em
 CFLAGS      += -D_EE -Wall -O3
 LINKFLAGS	+= -O3 -Wl,-zmax-page-size=128
 ASFLAGS		+= -O3
-LIB         += -lstdc++ -ldma -lpacket2 -lgraph -ldraw -lmath3d -lpng -ldebug -lz -lpad -lkbd -lmouse -laudsrv -lpatches -lcdvd -lmc
+# TyraX: -lps2snd is the EE-side RPC stub library for libsd (SPU2 registers) -
+# the SPU2 hardware reverb, AudioReverb. It rides the ps2snd.irx the engine
+# embeds; audsrv keeps talking to libsd on the IOP side as before.
+LIB         += -lstdc++ -ldma -lpacket2 -lgraph -ldraw -lmath3d -lpng -ldebug -lz -lpad -lkbd -lmouse -laudsrv -lps2snd -lpatches -lcdvd -lmc
 INC         += -I$(PS2DEV)/ps2sdk/ee/include -I$(PS2DEV)/ps2sdk/common/include -I$(PS2DEV)/ps2sdk/ports/include
 
 #---------------------------------------------------------------------------------

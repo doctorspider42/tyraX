@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 
 #include "blss.hpp"  // kFeatureNames - read-only, never edited here
@@ -33,12 +34,165 @@ const char* kindName(Kind k) {
     switch (k) {
         case Kind::Train: return "--blss-train";
         case Kind::Eval: return "--blss-eval";
+        case Kind::Headroom: return "--blss-eval (no network)";
         case Kind::Cv: return "--blss-eval --cv";
         case Kind::Features: return "--blss-eval --features";
         case Kind::Emit: return "--blss-emit";
         case Kind::None: break;
     }
     return "";
+}
+
+// ------------------------------------------------------------------- cost ---
+//
+// MEASURED, on this branch, on examples/procedural at 512x448, on one machine
+// with 24 hardware threads - from the tool's own `blss: timing` line where it
+// prints one and from the wall clock where it does not:
+//
+//   --blss-train  36 frames, 100 epochs, --threads 1 : corpus 2.7 s, oracle 11.6 s, fit 0.4 s
+//   --blss-train 156 frames, 400 epochs, every core  : corpus 3.3 s, oracle  3.9 s, fit 7.4 s
+//   --blss-eval  156 frames, --threads 1             : corpus 13.4 s, eval 138.0 s
+//   --blss-eval  156 frames, --threads 6             : corpus  5.6 s, eval  46.6 s
+//   --blss-eval  156 frames, every core              : corpus  3.3 s, eval  39.1 s
+//   --blss-eval  156 frames, NET-FREE, every core    : corpus  3.6 s, eval  39.5 s
+//   --blss-eval --cv  36 frames, 100 epochs, 2 folds :  6 s
+//   --blss-eval --cv  36 frames, 100 epochs, 6 folds :  9 s
+//   --blss-eval --cv 156 frames, 400 epochs, 6 folds : 50 s
+//
+// (Net-free evaluates one method row fewer and is not measurably cheaper, so
+// one constant covers both.)
+//
+// Three things those numbers say that are not obvious from the code, and each
+// is why one of the constants below exists.
+//
+// THE FIT IS SEQUENTIAL and at the shipped defaults it is the largest phase of
+// a training run - each Adam step reads the weights the previous one wrote, so
+// `--threads` cannot touch it.
+//
+// THE TWO PARALLEL PHASES SCALE VERY DIFFERENTLY. A corpus worker owns ~30 MB
+// of raster scratch, so the render is memory-bandwidth bound and saturates at
+// about 4x however many cores are thrown at it (3.5x measured at 24 threads
+// here; 3.95x measured at 6 cores in docs/neural-upscaler.md - the same ceiling
+// reached from both ends). The oracle's LABELLING pass is coordinate descent
+// over one tile at a time and scales nearly linearly (12.9x at 24 threads,
+// 5.25x at 6 in the docs).
+//
+// AND `--blss-eval` IS NOT `--blss-train` MINUS THE FIT - it is ten times
+// slower than that, and it scales quite differently. Evaluation closes the
+// temporal loop (every frame's history is the previous frame's real composite,
+// which is what the console has), so the unit of parallelism is a SHOT RUN
+// rather than a frame: a corpus of six camera moves has about six independent
+// chains however many cores are watching. Measured here, 156 frames: 138.0 s at
+// one thread, 46.6 at six, 39.1 at twenty-four - a ceiling around 3.6x, where
+// the labelling pass reaches 12.9x on the same machine. A thirteen-shot
+// bestiary would go further and the model does not try to predict that; it
+// takes the six-move project's ceiling, which errs toward over-quoting the
+// wait, which is the right direction to be wrong in.
+//
+// This is an ESTIMATE, the window says "about", and humanDuration() rounds. It
+// is calibrated on one machine and one project; a scene with ten times the
+// triangles renders its corpus proportionally slower. Treat a factor of two as
+// within tolerance and never print it to the second.
+namespace {
+constexpr double kCorpusPerFrame = 0.075;      // s, one thread
+constexpr double kOraclePerFrame = 0.32;       // s, one thread, threaded labelling
+constexpr double kEvalPerFrame = 0.885;        // s, one thread, ALL the method rows
+constexpr double kCvFoldEvalPerFrame = 0.008;  // s, one fold's own evaluation
+constexpr double kFitPerFrameEpoch = 1.15e-4;  // s, sequential
+// Loading the project, walking its scenes into triangles, reading materials.
+constexpr double kStartup = 2.5;
+// The two ceilings, both measured rather than guessed - see above.
+constexpr double kCorpusMaxSpeedup = 4.0;
+constexpr double kEvalMaxSpeedup = 3.6;
+
+double parallelCorpus(int cores) {
+    const double n = (double)std::clamp(cores, 1, 32);
+    return std::clamp(1.0 + 0.60 * (n - 1.0), 1.0, kCorpusMaxSpeedup);
+}
+double parallelOracle(int cores) {
+    return std::pow((double)std::clamp(cores, 1, 32), 0.8);
+}
+double parallelEval(int cores) {
+    return std::min(std::pow((double)std::clamp(cores, 1, 32), 0.6), kEvalMaxSpeedup);
+}
+}  // namespace
+
+Cost estimate(Kind kind, int frames, int epochs, int cores, int seeds, int folds, int shots) {
+    Cost c;
+    c.cores = std::clamp(cores, 1, 32);
+    frames = std::max(1, frames);
+    epochs = std::max(0, epochs);
+    const double corpus1 = frames * kCorpusPerFrame / parallelCorpus(c.cores);
+    const double oracle1 = frames * kOraclePerFrame / parallelOracle(c.cores);
+    const double fit1 = (double)frames * epochs * kFitPerFrameEpoch;
+
+    switch (kind) {
+        case Kind::Train:
+            c.corpora = c.trainings = 1;
+            c.corpus = kStartup + corpus1;
+            c.oracle = oracle1;
+            c.fit = fit1;
+            break;
+        case Kind::Eval:
+        case Kind::Headroom:
+            c.corpora = 1;
+            c.trainings = 0;
+            c.corpus = kStartup + corpus1;
+            // Its own parallel model: the chains are shot runs, not frames.
+            c.oracle = frames * kEvalPerFrame / parallelEval(c.cores);
+            c.fit = 0.0;
+            break;
+        case Kind::Features:
+            // The channel report labels the corpus once and correlates; no
+            // recurrent evaluation, so it is a training run minus the fit.
+            c.corpora = 1;
+            c.trainings = 0;
+            c.corpus = kStartup + corpus1;
+            c.oracle = oracle1;
+            c.fit = 0.0;
+            break;
+        case Kind::Cv: {
+            // Per --cv-seeds: one corpus render and one labelling. Then one
+            // TRAINING per fold on top of that, which is what makes this the
+            // expensive button in the window - and the one that never said so.
+            const int s = std::max(1, seeds);
+            const int f = folds > 0 ? folds : std::max(1, shots);
+            c.corpora = s;
+            c.trainings = s * f;
+            c.corpus = kStartup + corpus1 * s;
+            c.oracle = oracle1 * s;
+            // A fold trains on all but one shot, so ~(f-1)/f of the samples,
+            // and then evaluates the net it just fitted on both splits.
+            const double share = f > 1 ? (double)(f - 1) / (double)f : 1.0;
+            c.fit = fit1 * share * c.trainings +
+                    (double)c.trainings * frames * kCvFoldEvalPerFrame;
+            break;
+        }
+        case Kind::Emit:
+        case Kind::None: break;
+    }
+    c.total = c.corpus + c.oracle + c.fit;
+    return c;
+}
+
+std::string humanDuration(double seconds) {
+    char buf[64];
+    if (seconds <= 0.0) return "no time at all";
+    if (seconds < 90.0) {
+        // Round to 5 s so two neighbouring frame counts do not read as a
+        // precision this model does not have.
+        const int s = std::max(5, (int)(seconds / 5.0 + 0.5) * 5);
+        std::snprintf(buf, sizeof(buf), "about %d seconds", s);
+        return buf;
+    }
+    if (seconds < 3600.0) {
+        const int m = (int)(seconds / 60.0 + 0.5);
+        std::snprintf(buf, sizeof(buf), "about %d minute%s", m, m == 1 ? "" : "s");
+        return buf;
+    }
+    const double h = seconds / 3600.0;
+    std::snprintf(buf, sizeof(buf), "about %.1f hours", h);
+    return buf;
 }
 
 namespace {
@@ -206,16 +360,33 @@ bool phaseOf(const std::string& line, Kind kind, int epochs, Phase& out) {
     }
     if (t.rfind("blss: seed 0x", 0) == 0) {
         out.progress = -1.0f;
-        out.status = "cross-validating: " + t.substr(6) +
-                     " (the fold loop prints nothing until it is done)";
+        out.status = "cross-validating: " + t.substr(6);
         return true;
+    }
+    // "[blss] fold 3 of 13" - one line per fold as it LANDS. The trainer's own
+    // verbosity is off inside a fold (crossValidateOnce sets tc.verbose = false),
+    // so the epoch line never fires here and this is the only progress the loop
+    // emits. The count is completion order, not the fold index - folds run in
+    // parallel - which is exactly what a bar wants and not what a label wants,
+    // so the status says how many are done rather than naming one.
+    if (t.rfind("[blss] fold ", 0) == 0) {
+        const std::vector<std::string> tok = tokenize(t);
+        double done = 0, total = 0;
+        if (tok.size() > 4 && asNumber(tok[2], done) && asNumber(tok[4], total) && total > 0) {
+            // The fold loop owns everything after labelling (0.62).
+            out.progress = 0.62f + 0.37f * (float)(done / total);
+            out.status = "cross-validating, " + std::to_string((int)done) + " of " +
+                         std::to_string((int)total) + " fold(s) done";
+            return true;
+        }
+        return false;
     }
     if (t.rfind("blss: final loss", 0) == 0 || t.rfind("blss: wrote", 0) == 0) {
         out.progress = 1.0f;
         out.status = t.substr(6);
         return true;
     }
-    if (kind == Kind::Eval && t.rfind("half-res + ", 0) == 0) {
+    if ((kind == Kind::Eval || kind == Kind::Headroom) && t.rfind("half-res + ", 0) == 0) {
         out.progress = -1.0f;
         out.status = "evaluating: " + t.substr(11, 24);
         return true;
@@ -439,33 +610,81 @@ const EvalRow* rowNamed(const EvalSplit& sp, const char* prefix) {
 EvalSummary summarise(const EvalTable& t) {
     EvalSummary s;
     double wsum = 0;
+    int splitsUsed = 0, splitsWithNet = 0;
     for (const EvalSplit& sp : t.splits) {
         const EvalRow* bil = rowNamed(sp, "bilinear");
         const EvalRow* net = rowNamed(sp, "BLSS");
         const EvalRow* orc = rowNamed(sp, "oracle");
-        // All three or none: a summary built from a split that is missing its
-        // baseline would be comparing rows from different frame sets.
-        if (!bil || !net || !orc) continue;
+        const EvalRow* nat = rowNamed(sp, "native");
+        // The BASELINE and the CEILING or nothing: a summary built from a split
+        // that is missing either would be comparing rows from different frame
+        // sets. The BLSS row is optional, because a net-free `--blss-eval` does
+        // not produce one and the ceiling is still the answer to "will this
+        // scene benefit" - see EvalSummary::haveNet.
+        if (!bil || !orc) continue;
         // A caption whose frame count did not parse still weighs something -
         // one - rather than dropping the split out of the mean silently.
         const double w = sp.frames > 0 ? (double)sp.frames : 1.0;
         s.bilinear += w * bil->psnr;
-        s.net += w * net->psnr;
         s.oracle += w * orc->psnr;
-        s.netPasses += w * net->passes;
         s.oraclePasses += w * orc->passes;
+        if (nat) s.native += w * nat->psnr;
+        if (net) {
+            s.net += w * net->psnr;
+            s.netPasses += w * net->passes;
+            ++splitsWithNet;
+        }
         s.frames += sp.frames;
         wsum += w;
+        ++splitsUsed;
     }
     if (wsum <= 0.0) return s;
     s.bilinear /= wsum;
-    s.net /= wsum;
     s.oracle /= wsum;
-    s.netPasses /= wsum;
+    s.native /= wsum;
     s.oraclePasses /= wsum;
-    s.netMargin = s.net - s.bilinear;
     s.oracleMargin = s.oracle - s.bilinear;
+    // All splits or none: a mean over the held-out rows plus a net figure taken
+    // from only one of them would be two different frame sets in one sentence.
+    s.haveNet = splitsWithNet == splitsUsed;
+    if (s.haveNet) {
+        s.net /= wsum;
+        s.netPasses /= wsum;
+        s.netMargin = s.net - s.bilinear;
+    } else {
+        s.net = s.netPasses = s.netMargin = 0.0;
+    }
     s.ok = true;
+    return s;
+}
+
+EvalSummary parseVerdictLine(const std::string& text) {
+    EvalSummary s;
+    // The LAST such line wins - a run prints one, but a log the window has been
+    // appending to across two runs must answer about the newer one.
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        if (line.rfind("[blss] verdict", 0) != 0) continue;
+        EvalSummary v;
+        bool any = false;
+        for (const std::string& tok : tokenize(line)) {
+            const size_t eq = tok.find('=');
+            if (eq == std::string::npos) continue;
+            const std::string key = tok.substr(0, eq);
+            double val = 0;
+            if (!asNumber(tok.substr(eq + 1), val)) continue;
+            if (key == "headroom") { v.oracleMargin = val; any = true; }
+            else if (key == "passes") v.oraclePasses = val;
+            else if (key == "bilinear") v.bilinear = val;
+            else if (key == "oracle") v.oracle = val;
+            else if (key == "native") v.native = val;
+        }
+        // `headroom` is the one field the verdict cannot be built without.
+        if (!any) continue;
+        v.ok = true;
+        v.haveNet = false;
+        s = v;
+    }
     return s;
 }
 
@@ -692,6 +911,620 @@ FeatureTable parseFeatures(const std::string& text) {
             out.shots.push_back("shot" + std::to_string(i));
     }
     return out;
+}
+
+// ----------------------------------------------------------- parse: probe ---
+
+namespace {
+bool isFeatureName(const std::string& n) {
+    for (int c = 0; c < blss::kFeatures; ++c)
+        if (n == blss::kFeatureNames[c]) return true;
+    return false;
+}
+
+// "0.000/0.412/1.000" and "0.000..1.000" - the two composite cells of the probe
+// table. Split rather than tokenized, because the tool prints them as ONE
+// whitespace-free field on purpose (a slash-separated triple is what fits the
+// column) and splitting on the separator is the only reading that stays right
+// when a value is negative or four digits wide.
+bool split3(const std::string& s, char sep, double& a, double& b, double& c) {
+    const size_t i = s.find(sep);
+    if (i == std::string::npos) return false;
+    const size_t j = s.find(sep, i + 1);
+    if (j == std::string::npos) return false;
+    return asNumber(s.substr(0, i), a) && asNumber(s.substr(i + 1, j - i - 1), b) &&
+           asNumber(s.substr(j + 1), c);
+}
+bool split2(const std::string& s, const char* sep, double& a, double& b) {
+    const size_t i = s.find(sep);
+    if (i == std::string::npos) return false;
+    return asNumber(s.substr(0, i), a) && asNumber(s.substr(i + std::strlen(sep)), b);
+}
+}  // namespace
+
+ProbeTable parseProbe(const std::string& text) {
+    ProbeTable out;
+    bool inSection = false;
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        if (line.empty()) continue;
+        // The tool's own banner. Anchoring on it rather than on "a line whose
+        // first token is a channel name" is what keeps the channel table above
+        // (which starts identically) out of this one.
+        if (line.rfind("A MEASURED CONSOLE VECTOR", 0) == 0) {
+            inSection = true;
+            out.rows.clear();
+            continue;
+        }
+        if (!inSection) continue;
+        const std::vector<std::string> tok = tokenize(line);
+        if (tok.empty() || !isFeatureName(tok[0])) continue;
+        ProbeRow r;
+        r.name = tok[0];
+        if (tok.size() < 8 || isDash(tok[1])) {
+            r.given = false;
+            r.verdict = "not in the probe";
+            ++out.missing;
+            out.rows.push_back(r);
+            continue;
+        }
+        if (!split3(tok[1], '/', r.lo, r.mid, r.hi)) continue;
+        if (!asNumber(tok[2], r.spread)) continue;
+        if (!split2(tok[3], "..", r.corpusLo, r.corpusHi)) continue;
+        if (!asPercent(tok[4], r.pct) || !asPercent(tok[5], r.supp) ||
+            !asPercent(tok[6], r.band))
+            continue;
+        r.given = true;
+        r.verdict = join(tok, 7, tok.size());
+        // THE TOOL OWNS THE THRESHOLDS. A second copy of "under 1% support is
+        // extrapolation" here would be a second answer to the question this
+        // whole table exists to settle, and the two would drift the first time
+        // either moved - so the flags are read off the words it printed.
+        r.outOfRange = r.verdict.find("OUT OF RANGE") != std::string::npos;
+        r.noSupport = r.verdict.find("no support") != std::string::npos;
+        r.constant = r.verdict.find("CONSTANT") != std::string::npos;
+        out.outOfRange += r.outOfRange ? 1 : 0;
+        out.tails += r.noSupport ? 1 : 0;
+        out.constants += r.constant ? 1 : 0;
+        out.rows.push_back(r);
+    }
+    return out;
+}
+
+ProbeVerdict probeVerdict(const ProbeTable& t) {
+    ProbeVerdict v;
+    if (!t.ok()) {
+        v.headline = "No console vector has been placed yet.";
+        v.why = "Run the game with debug view 2 on, then read its log back here.";
+        return v;
+    }
+    char b[512];
+    if (t.outOfRange > 0) {
+        v.level = ProbeVerdict::Level::Mismatch;
+        std::snprintf(b, sizeof(b),
+                      "THE CONSOLE IS FEEDING THIS NETWORK INPUTS IT NEVER SAW: %d channel(s) "
+                      "outside the corpus' range.",
+                      t.outOfRange);
+        v.headline = b;
+        v.why = "A value outside the range the corpus covered is not interpolation, it is "
+                "extrapolation from a 12-unit hidden layer - the network's answer there is "
+                "whatever its weights happen to extend to. This is the exact shape of the "
+                "out-of-distribution result: fitted on one distribution, run on another - a "
+                "bestiary-only net averages -0.34 dB over seven real projects and -1.09 at "
+                "worst. Add shots that cover the content the console is drawing, and re-train.";
+        return v;
+    }
+    if (t.tails > 0 || t.constants > 0 || t.missing > 0) {
+        v.level = ProbeVerdict::Level::Thin;
+        // Only the categories that actually fired. "0 channel(s) with under 1%
+        // of the corpus behind them" is a sentence that makes a reader hunt for
+        // a problem that is not there, in a verdict whose whole job is to say
+        // which problem IS there.
+        std::string parts;
+        const auto add = [&](int n, const char* what) {
+            if (n <= 0) return;
+            char one[160];
+            std::snprintf(one, sizeof(one), "%d channel(s) %s", n, what);
+            parts += (parts.empty() ? "" : ", ");
+            parts += one;
+        };
+        add(t.tails, "with under 1% of the corpus behind them");
+        add(t.constants, "constant across the whole frame");
+        add(t.missing, "absent from the line");
+        std::snprintf(b, sizeof(b), "IN RANGE, BUT THINLY TAUGHT: %s.", parts.c_str());
+        v.headline = b;
+        v.why.clear();
+        if (t.tails > 0)
+            v.why += "1% of the tiles is 1% of the gradient, so a value with no support was "
+                     "barely taught even though it is representable. ";
+        if (t.constants > 0)
+            v.why += "A channel that is CONSTANT across the console's whole frame is a "
+                     "different problem: the network is making no per-tile decision from it at "
+                     "all there, whatever the corpus taught. ";
+        if (t.missing > 0)
+            v.why += "A channel absent from the line was not measured - check the BLSSFEAT line "
+                     "is complete, or that the build is not older than the channel. ";
+        return v;
+    }
+    v.level = ProbeVerdict::Level::Matches;
+    v.headline = "Every channel the console produced is inside what this corpus taught.";
+    v.why = "That is the strongest statement this instrument can make, and it is about ONE "
+            "frame - the one the game last logged. Probe the parts of the game that look "
+            "different from each other, not just the first screen.";
+    return v;
+}
+
+std::string lastFeatLine(const std::string& logText) {
+    std::string best;
+    for (const std::string& raw : splitLines(logText)) {
+        if (raw.find("BLSSFEAT") == std::string::npos) continue;
+        const std::string line = trimmed(raw);
+        if (!line.empty()) best = line;
+    }
+    return best;
+}
+
+// --------------------------------------------------- is the corpus any good ---
+
+const char* channelPurpose(const std::string& name) {
+    if (name == "motion")
+        return "how far a tile moved since the last frame - whether the history is usable at "
+               "all";
+    if (name == "depth") return "how near the tile's surface is";
+    if (name == "depthGrad")
+        return "how sharply depth changes across the tile - where silhouettes are";
+    if (name == "edgeDens")
+        return "how much geometric edge runs through the tile - where the aliasing is";
+    if (name == "texDetail")
+        return "how hard the texture is being minified - the channel that predicts TEXTURE "
+               "aliasing";
+    if (name == "coverage") return "how much of the tile any geometry covered at all";
+    return "";
+}
+
+namespace {
+// A channel that does not MOVE is a channel the network's weights cannot use,
+// whatever else is true of it. 0.02 is the same number the Inputs tab has
+// always coloured its sd column at.
+constexpr double kFlatSd = 0.02;
+// ...and one whose sd is essentially zero is not merely flat, it is a constant:
+// the net has one fewer input than the topology says.
+constexpr double kDeadSd = 0.005;
+// Against its clamp on half the corpus. Measured precedent: the shot the
+// bestiary net has always lost on is the one where depth spends the whole shot
+// pinned at 1.0, and 58.6% of ALL bestiary tiles read it there.
+constexpr double kPinnedPct = 50.0;
+// NO CHANNEL PREDICTS ANYTHING. The correlations are importance-weighted
+// against the oracle's own answer, so when every one of them is inside the
+// noise the oracle is asking for the SAME weights everywhere - which means
+// there is nothing per-tile to learn, whatever the channels look like.
+// Measured: examples/showcase peaks at 0.021 over all 18 (channel, output)
+// pairs, examples/upscaler-lab at 0.253.
+constexpr double kDeadCorr = 0.05;
+}  // namespace
+
+CorpusHealth corpusHealth(const FeatureTable& t) {
+    CorpusHealth h;
+    if (!t.ok()) {
+        // THE REFUSAL. An unmeasured corpus must never render as a healthy one,
+        // which is the same standard the speed verdict's "TOO CLOSE TO CALL"
+        // holds itself to.
+        h.headline = "Not measured - so this cannot tell you whether the corpus is any good.";
+        h.why = "Report the input channels and it will say, in one line, whether a network "
+                "fitted to these frames can learn anything.";
+        return h;
+    }
+    h.ok = true;
+    h.shots = (int)t.shots.size();
+    double peakCorr = 0.0;
+    for (const FeatureRow& r : t.rows) {
+        const std::string why = channelPurpose(r.name);
+        peakCorr = std::max({peakCorr, std::fabs(r.rPoint), std::fabs(r.rTemporal),
+                             std::fabs(r.rSharpen)});
+        CorpusFinding f;
+        f.channel = r.name;
+        if (r.sd < kDeadSd && r.at0 >= 99.0) {
+            f.level = CorpusFinding::Level::Fatal;
+            f.what = r.name + " is 0 on every tile of this corpus (" + why +
+                     "). The network cannot learn a channel that never varies - it has one "
+                     "fewer input than its topology says.";
+            f.fix = r.name == "texDetail"
+                        ? "Your corpus has no textured surfaces. Put textured geometry in the "
+                          "shots, or expect this net to generalise badly to anything textured."
+                        : "Add shots over content where this varies, or accept that the net is "
+                          "deciding from five inputs.";
+            ++h.dead;
+        } else if (r.sd < kDeadSd && r.at1 >= 99.0) {
+            f.level = CorpusFinding::Level::Fatal;
+            f.what = r.name + " is pinned at its clamp on every tile (" + why +
+                     "), so it is a constant and the network cannot use it.";
+            f.fix = "Add shots where this is not saturated - for depth that means content "
+                    "further away than a few units, for coverage it means frames with sky or "
+                    "empty tiles in them.";
+            ++h.dead;
+        } else if (r.at1 >= kPinnedPct) {
+            f.level = CorpusFinding::Level::Warn;
+            char b[64];
+            std::snprintf(b, sizeof(b), "%.0f%%", r.at1);
+            f.what = r.name + " sits against its clamp on " + b + " of the corpus' tiles (" +
+                     why + "), so on most of the corpus it carries no information.";
+            f.fix = "A saturated feature is a feature the network does not have. Aim some shots "
+                    "at content that does not saturate it.";
+            ++h.pinned;
+        } else if (r.sd < kFlatSd) {
+            f.level = CorpusFinding::Level::Warn;
+            char b[64];
+            std::snprintf(b, sizeof(b), "%.3f", r.sd);
+            f.what = r.name + " barely moves across the whole corpus (sd " + b + "; " + why +
+                     ").";
+            f.fix = "Add shots whose content differs in this respect, or the net will decide "
+                    "as if the channel were a bias.";
+            ++h.flat;
+        } else {
+            continue;
+        }
+        h.findings.push_back(std::move(f));
+    }
+    // A channel that is the same number in every camera move cannot tell the
+    // shots apart, which is the one thing it exists to do.
+    for (const FeatureShotRow& r : t.perShot) {
+        if (r.spread >= kFlatSd || r.means.size() < 2) continue;
+        bool alreadyNamed = false;
+        for (const CorpusFinding& f : h.findings) alreadyNamed |= (f.channel == r.name);
+        if (alreadyNamed) continue;
+        CorpusFinding f;
+        f.level = CorpusFinding::Level::Note;
+        f.channel = r.name;
+        char b[64];
+        std::snprintf(b, sizeof(b), "%.3f", r.spread);
+        f.what = r.name + " reads almost the same in every camera move (spread " + b +
+                 "), so it cannot tell your shots apart.";
+        f.fix = "Not fatal - it still varies WITHIN a shot - but a shot that differs in this "
+                "channel would teach the net more than another angle on the same content.";
+        h.findings.push_back(std::move(f));
+        ++h.blind;
+    }
+    if (h.shots > 0 && h.shots < 4) {
+        CorpusFinding f;
+        f.level = CorpusFinding::Level::Warn;
+        f.what = "Only " + std::to_string(h.shots) +
+                 " camera move(s) in the whole corpus. Neighbouring frames of one move are near "
+                 "duplicates, so this is a much smaller sample than the frame count suggests.";
+        f.fix = "Add training shots, or turn more of the six automatic moves back on.";
+        h.findings.push_back(std::move(f));
+        ++h.pinned;
+    }
+
+    char b[512];
+    // ORDER MATTERS: "nothing correlates" outranks every per-channel finding,
+    // because a corpus whose oracle asks for the same answer everywhere has
+    // nothing to teach no matter how healthy its inputs look.
+    if (peakCorr < kDeadCorr) {
+        h.verdict = CorpusHealth::Verdict::Unusable;
+        h.headline = "THERE IS NOTHING HERE TO LEARN. Do not fit a network to this corpus.";
+        std::snprintf(b, sizeof(b),
+                      "No input channel correlates with what the oracle asked for above "
+                      "%.3f (the strongest of all %d channel-output pairs). The oracle wants "
+                      "essentially the SAME weights in every tile of every frame, so a "
+                      "per-tile network has no decision to make - it can only add fill. Check "
+                      "the headroom verdict above: a corpus that looks like this normally "
+                      "belongs to a scene whose oracle ceiling is near zero.",
+                      peakCorr, (int)t.rows.size() * 3);
+        h.why = b;
+        return h;
+    }
+    if (h.dead > 0) {
+        h.verdict = CorpusHealth::Verdict::Unusable;
+        std::snprintf(b, sizeof(b),
+                      "DO NOT SHIP A NET FITTED TO THIS CORPUS: %d of the %d input channels are "
+                      "constant.",
+                      h.dead, (int)t.rows.size());
+        h.headline = b;
+        h.why = "A constant channel is a channel the network does not have, and the console "
+                "will feed it a value the corpus never contained. That is exactly how a net "
+                "comes to average -0.34 dB - worse than leaving the upscaler off - over seven "
+                "real projects, and -1.09 dB on the worst of them.";
+        return h;
+    }
+    if (h.pinned > 0 || h.flat > 0) {
+        h.verdict = CorpusHealth::Verdict::Thin;
+        std::snprintf(b, sizeof(b),
+                      "TRAINABLE, BUT THIN: %d channel(s) saturated and %d that barely move.",
+                      h.pinned, h.flat);
+        h.headline = b;
+        h.why = "The net will fit, and it will decide from fewer inputs than it has. Probe a "
+                "real console frame against this corpus before shipping it - a channel that is "
+                "pinned here and not pinned on the console is the mismatch that costs decibels.";
+        return h;
+    }
+    h.verdict = CorpusHealth::Verdict::Good;
+    std::snprintf(b, sizeof(b), "Every input channel varies and none is saturated, over %d "
+                                "camera move(s).",
+                  h.shots);
+    h.headline = b;
+    h.why = "That is a statement about the CORPUS, not about the scene: it says the network "
+            "has something to learn from, not that there is headroom to win. The headroom "
+            "verdict above answers the second question.";
+    return h;
+}
+
+// ------------------------------------------ did the plan reach the tool ---
+
+std::vector<CorpusScene> parseCorpusScenes(const std::string& text) {
+    std::vector<CorpusScene> out;
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        // "[blss]   scene 'vale': 50 mesh(es) + 5 animated part(s), 7724 triangle(s), 6 shot(s)"
+        if (line.rfind("[blss]", 0) != 0) continue;
+        const size_t at = line.find("scene '");
+        if (at == std::string::npos) continue;
+        const size_t close = line.find('\'', at + 7);
+        if (close == std::string::npos) continue;
+        CorpusScene s;
+        s.name = line.substr(at + 7, close - at - 7);
+        const std::vector<std::string> tok = tokenize(line.substr(close));
+        for (size_t i = 1; i < tok.size(); ++i) {
+            double v = 0;
+            if (tok[i].rfind("shot(s)", 0) == 0 && asNumber(tok[i - 1], v)) s.shots = (int)v;
+            if (tok[i].rfind("triangle(s)", 0) == 0 && asNumber(tok[i - 1], v))
+                s.triangles = (size_t)v;
+        }
+        if (s.shots > 0) out.push_back(std::move(s));
+    }
+    return out;
+}
+
+// -------------------------------------------------------------- will it be faster ---
+
+SpeedEstimate speedFrom(double coverages, double rasterPx, bool network) {
+    SpeedEstimate e;
+    if (!(coverages >= 0.0)) return e;  // NaN-safe
+    // A raster of zero reaches here from a FAILED coverage report; fall back to
+    // the common case rather than dividing the whole model by nothing.
+    if (!(rasterPx > 0.0)) rasterPx = fill::kRasterPxPal;
+    e.ok = true;
+    e.network = network;
+    e.coverages = coverages;
+    e.rasterPx = rasterPx;
+    e.passMs = fill::passMs(rasterPx);
+    e.breakEven = fill::breakEven(rasterPx, network);
+    e.fillMs = coverages * e.passMs;
+    // The ONE place the mode's bill enters, so `savedMs`, `breakEven` and the
+    // two multipliers below cannot end up priced against different modes.
+    const double cost = fill::eeCostMs(network) + fill::kCompositeGsMs;
+    e.savedMs = fill::kSavedFraction * e.fillMs - cost;
+    if (e.savedMs <= 0.0) {
+        e.band = SpeedEstimate::Band::Loss;
+        return e;  // lo/hi stay 1.0: a slowdown is stated in ms, not as a ratio
+    }
+    e.band = coverages < e.breakEven * 1.5 ? SpeedEstimate::Band::Marginal
+                                           : SpeedEstimate::Band::Win;
+    // The GS-bound limit: the whole frame is fill, so the whole frame shrinks
+    // to what survives plus what BLSS costs. Nothing can beat this.
+    const double onAllFill = fill::kKeptFraction * e.fillMs + cost;
+    e.hi = onAllFill > 1e-6 ? e.fillMs / onAllFill : 1.0;
+    // ...and the other end: fill is 60 % of the frame, the rest is EE work BLSS
+    // does not touch. That fraction is an assumption and is named wherever this
+    // range is printed; it is worth knowing that on the one scene where both
+    // arms were measured (upscaler-lab, 1.63x at 58.7 blended-pass equivalents)
+    // the outcome landed exactly on this end of the range.
+    const double totalOff = e.fillMs / 0.60;
+    const double totalOn = totalOff - e.savedMs;
+    e.lo = totalOn > 1e-6 ? totalOff / totalOn : e.hi;
+    if (e.lo > e.hi) std::swap(e.lo, e.hi);
+    return e;
+}
+
+// ------------------------------------------------------------- one answer ---
+
+namespace {
+std::string msText(double ms) {
+    char b[48];
+    std::snprintf(b, sizeof(b), "%.1f ms", ms < 0 ? -ms : ms);
+    return b;
+}
+std::string rangeText(const SpeedEstimate& s) {
+    char b[64];
+    std::snprintf(b, sizeof(b), "%.1f-%.1fx", s.lo, s.hi);
+    return b;
+}
+}  // namespace
+
+Recommendation recommend(const EvalSummary& quality, bool haveQuality, const SpeedEstimate& speed,
+                         bool haveSpeed, bool network) {
+    Recommendation r;
+    // PLAIN MODE HAS NO PICTURE HALF, so the quality measurement stops being a
+    // term of the verdict. It is not discarded - the oracle margin is still the
+    // most interesting thing a reader could learn there - but it describes what
+    // the OTHER reconstruction could add, and a verdict that said "turn it on
+    // for the picture" about a mode with no network in it would be a confident
+    // wrong answer of exactly the kind this function exists to prevent.
+    const bool measuredQ = haveQuality && quality.ok;
+    const bool q = measuredQ && network;
+    const bool s = haveSpeed && speed.ok;
+    if (!measuredQ && !s) {
+        r.headline = "Nothing has been measured yet.";
+        r.why = "The two buttons above answer the two halves: whether the picture has anything "
+                "to gain, and whether the frame will get shorter.";
+        return r;
+    }
+    // Plain mode with only the picture measured has nothing to say at all: the
+    // ceiling belongs to the other reconstruction and the speed half - the only
+    // half that decides anything here - has not been run.
+    if (!q && !s) {
+        r.verdict = Recommendation::Verdict::Mixed;
+        r.headline = "Plain mode is a SPEED decision, and the speed half is unmeasured.";
+        char b[256];
+        std::snprintf(b, sizeof(b),
+                      "The %+.2f dB ceiling measured above is what a NETWORK could capture here; "
+                      "plain mode does not run one. Press 'Will the frame get faster?'.",
+                      quality.oracleMargin);
+        r.why = b;
+        return r;
+    }
+    const bool headroom = q && quality.oracleMargin >= kNoHeadroomDb;
+    // THREE SPEED STATES, NOT TWO, and the middle one is the reason this
+    // function exists rather than an `if (savedMs > 0)` in the draw call. A
+    // scene estimated at 15 coverages against an 11.5 break-even saves about
+    // 1.7 ms - which is the same order as the things the count admits it cannot
+    // see (the sky dome alone is ~1 coverage = 0.6 ms of fill), so "TURN IT ON
+    // FOR THE SPEED" there is a confident wrong answer, and a confident wrong
+    // answer is worse than a range. examples/showcase is exactly that scene -
+    // measured at 15.24 by --blss-coverage - and is what caught it.
+    //
+    // The band is `< 1.5 x breakEven`, i.e. DERIVED, so re-measuring the model
+    // moves it: the 2026-08-09 calibration took break-even from 13 to 11.5 and
+    // with it the band's ceiling from 3.0 ms of saving to 2.55 ms. Worth
+    // knowing, because a tighter model narrowing its own honesty band is
+    // exactly how a better measurement turns into a more confident wrong
+    // answer. showcase still lands here (1.32 x break-even), which is the
+    // check that mattered.
+    const bool win = s && speed.band == SpeedEstimate::Band::Win;
+    const bool loss = s && speed.band == SpeedEstimate::Band::Loss;
+    const bool close = s && speed.band == SpeedEstimate::Band::Marginal;
+
+    if (q && s) {
+        if (!headroom && loss) {
+            r.verdict = Recommendation::Verdict::Off;
+            r.headline = "LEAVE IT OFF. There is no picture to gain and no time to gain.";
+        } else if (!headroom && close) {
+            r.verdict = Recommendation::Verdict::Mixed;
+            r.headline = "TOO CLOSE TO CALL, and there is no picture to gain either.";
+        } else if (!headroom && win) {
+            r.verdict = Recommendation::Verdict::SpeedOnly;
+            r.headline = "TURN IT ON FOR THE SPEED, not for the picture.";
+        } else if (headroom && loss) {
+            r.verdict = Recommendation::Verdict::QualityOnly;
+            r.headline = "ONLY IF YOU CAN AFFORD " + msText(speed.savedMs) +
+                         " A FRAME - the picture improves, the frame gets longer.";
+        } else if (headroom && close) {
+            r.verdict = Recommendation::Verdict::Mixed;
+            r.headline = "WORTH IT FOR THE PICTURE; the speed is too close to call.";
+        } else {
+            r.verdict = Recommendation::Verdict::On;
+            r.headline = "TURN IT ON. The picture has room and the frame gets shorter.";
+        }
+    } else if (s && !network) {
+        // PLAIN MODE: one term, so one sentence, and no hedging about a picture
+        // half that does not exist. The picture is plain bilinear either way -
+        // the same picture a degenerate network already produces - so the whole
+        // question is whether the reduced raster pays for the redirect.
+        r.verdict = win    ? Recommendation::Verdict::SpeedOnly
+                    : close ? Recommendation::Verdict::Mixed
+                            : Recommendation::Verdict::Off;
+        r.headline = win ? "TURN IT ON. Plain mode makes this frame shorter."
+                    : close
+                        ? "TOO CLOSE TO CALL - plain mode is near this scene's break-even."
+                        : "LEAVE IT OFF. Even without the network there is too little fill here.";
+    } else if (s) {
+        r.verdict = win ? Recommendation::Verdict::SpeedOnly : Recommendation::Verdict::Mixed;
+        r.headline = win    ? "The frame should get shorter - the picture half is unmeasured."
+                     : close ? "The speed is too close to call - and the picture half is "
+                               "unmeasured."
+                             : "The frame will get LONGER - and the picture half is unmeasured.";
+    } else {
+        r.verdict = Recommendation::Verdict::Mixed;
+        r.headline = headroom
+                         ? "The picture has room - whether the frame gets shorter is unmeasured."
+                         : "The picture has nothing to gain - the speed half is unmeasured.";
+    }
+
+    // The two facts, always in the same order and always with their units, so
+    // the sentence above can be checked against them.
+    std::string why;
+    if (q) {
+        char b[192];
+        std::snprintf(b, sizeof(b), "Picture: the oracle ceiling is %+.2f dB at %.2f passes%s. ",
+                      quality.oracleMargin, quality.oraclePasses,
+                      headroom ? "" : " - indistinguishable from plain bilinear");
+        why += b;
+    } else if (measuredQ) {
+        // The measurement is still reported in plain mode, labelled as what it
+        // is: an argument for the OTHER mode, not a fact about this one.
+        char b[256];
+        std::snprintf(b, sizeof(b),
+                      "Picture: unchanged - plain mode IS the bilinear baseline. (A network "
+                      "here could reach %+.2f dB above it, at %.2f passes and the neural EE "
+                      "bill.) ",
+                      quality.oracleMargin, quality.oraclePasses);
+        why += b;
+    }
+    if (s) {
+        char b[320];
+        if (win)
+            std::snprintf(b, sizeof(b),
+                          "Speed: about %.0f full-screen coverages against a %.1f break-even, so "
+                          "roughly %s off the GS - %s if the frame is mostly fill.",
+                          speed.coverages, speed.breakEven, msText(speed.savedMs).c_str(),
+                          rangeText(speed).c_str());
+        else if (close)
+            std::snprintf(b, sizeof(b),
+                          "Speed: about %.0f full-screen coverages against a %.1f break-even - "
+                          "only %s a frame either way, which is inside what this count admits it "
+                          "cannot see. It is a FLOOR, so the console is likelier to land above "
+                          "the line than below it.",
+                          speed.coverages, speed.breakEven, msText(speed.savedMs).c_str());
+        else
+            std::snprintf(b, sizeof(b),
+                          "Speed: about %.0f full-screen coverages, below the %.1f break-even, so "
+                          "the frame gets about %s LONGER.",
+                          speed.coverages, speed.breakEven, msText(speed.savedMs).c_str());
+        why += b;
+    }
+    r.why = why;
+    return r;
+}
+
+// -------------------------------------------------------------- net source ---
+
+namespace {
+// `key=value` out of the announce line. The values are single tokens except
+// `path`, which is a file path and may hold spaces - and the default's is
+// literally "(built into the editor)". So a value runs to the next " <key>=" or
+// to the end of the line, which is what makes both cases one rule.
+std::string announceField(const std::string& line, const char* key) {
+    const std::string needle = std::string(" ") + key + "=";
+    const size_t at = line.find(needle);
+    if (at == std::string::npos) return "";
+    const size_t b = at + needle.size();
+    static const char* const kKeys[] = {" path=", " corpus=", " scale=", " jitter="};
+    size_t e = line.size();
+    for (const char* k : kKeys) {
+        const size_t n = line.find(k, b);
+        if (n != std::string::npos && n < e) e = n;
+    }
+    return trimmed(line.substr(b, e - b));
+}
+}  // namespace
+
+std::string NetSource::label() const {
+    if (!ok) return "";
+    if (kind == "default") return "the net that ships with the editor";
+    if (kind == "project") return "this project's own " + path;
+    return "the net given on the command line (" + path + ")";
+}
+
+NetSource parseNetSource(const std::string& text) {
+    NetSource s;
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        if (line.rfind("[blss] net source=", 0) == 0) {
+            // The LAST one wins. A --cv run announces per fold, and the reader
+            // is being told which net the tables on screen came from.
+            s = NetSource{};
+            s.ok = true;
+            s.kind = announceField(line, "source");
+            s.path = announceField(line, "path");
+            s.corpus = announceField(line, "corpus");
+            s.scale = announceField(line, "scale");
+            s.jitter = announceField(line, "jitter");
+        } else if (line.rfind("[blss] net REFUSED: ", 0) == 0) {
+            s.refused.push_back(line.substr(20));
+        } else if (line.rfind("[blss] net warning: ", 0) == 0) {
+            s.warnings.push_back(line.substr(20));
+        }
+    }
+    return s;
 }
 
 // ------------------------------------------------------------------ errors ---

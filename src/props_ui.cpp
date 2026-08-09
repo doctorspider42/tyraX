@@ -320,7 +320,22 @@ void App::drawPropertiesWindow() {
             o.primDetail = clampPrimDetail(o.type, detail);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
-        ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
+        ImGui::TextDisabled("(%d tris)",
+                            primTriangleCount(o.type, o.primDetail, o.primRings));
+        // Cylinders get a second tessellation axis, because Detail alone only
+        // adds vertices AROUND the shape - see the tooltip.
+        if (o.type == PrimitiveType::Cylinder) {
+            if (ImGui::Checkbox("Vertical rings", &o.primRings)) committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Subdivide the side along the axis too (one ring per four "
+                    "segments).\nTurn this on when something lights the "
+                    "cylinder from above or below: without\nrings the side is "
+                    "one quad tall at any Detail, so a lamp overhead bakes "
+                    "into\nfull-height diagonal stripes that more Detail only "
+                    "makes narrower.\nLeave it off otherwise - the rings are "
+                    "then triangles nothing shades.");
+        }
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -853,6 +868,7 @@ void App::drawPropertiesWindow() {
         ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
         ImGui::BulletText("A mirror / portal / camera feed's target list");
         ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        ImGui::BulletText("A reverb room for the sound effects (below)");
         // What references it, so deleting/resizing one is not a guess.
         std::vector<std::string> users;
         for (const SceneObject& t : project_.objects())
@@ -883,6 +899,86 @@ void App::drawPropertiesWindow() {
             for (size_t i = 0; i < caught.size(); ++i)
                 list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
             ImGui::SetTooltip("%s", list.c_str());
+        }
+
+        ImGui::SeparatorText("Reverb zone");
+        if (ImGui::Checkbox("This area is a room for the sound effects",
+                            &o.reverbZone))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Sound effects played while the player stands inside this box\n"
+                "go through the SPU2's hardware reverb unit. Costs no EE time -\n"
+                "the sound chip does the mixing. Music stays dry.");
+        if (o.reverbZone) {
+            {
+                const std::vector<ReverbPresetInfo>& presets = reverbPresets();
+                if (o.reverbPreset < 0 || o.reverbPreset >= (int)presets.size())
+                    o.reverbPreset = 1;
+                if (ImGui::BeginCombo("Preset",
+                                      presets[o.reverbPreset].label)) {
+                    for (int i = 0; i < (int)presets.size(); ++i) {
+                        if (ImGui::Selectable(presets[i].label,
+                                              i == o.reverbPreset)) {
+                            o.reverbPreset = i;
+                            committed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", presets[i].desc);
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::SliderFloat("Amount", &o.reverbAmount, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How wet the effects get, 0..1. This is the one value that\n"
+                    "moves smoothly - entering and leaving the box ramps it, so\n"
+                    "two overlapping zones sharing a preset cross-fade.");
+            if (reverbUsesEcho(o.reverbPreset)) {
+                ImGui::SliderInt("Delay", &o.reverbDelay, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Time between repeats. Echo/Delay only.");
+                ImGui::SliderInt("Feedback", &o.reverbFeedback, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How much of each repeat feeds the next - how many times\n"
+                        "it echoes before dying. Echo/Delay only.");
+            }
+            // No "why is Delay missing" paragraph here: each preset's own
+            // entry in the combo says whether it reads them.
+            ImGui::DragInt("Priority", &o.reverbPriority, 0.1f, -100, 100);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Overlapping zones do not mix - the console has ONE reverb\n"
+                    "unit. The highest priority inside wins, so a closet placed\n"
+                    "inside a hall needs a higher number than the hall.");
+
+            // The count is the useful glance - how the transitions behave
+            // is a paragraph, and a paragraph belongs behind a (?).
+            int zones = 0;
+            for (const SceneObject& t : project_.objects())
+                if (t.type == PrimitiveType::Area && t.reverbZone) ++zones;
+            ImGui::TextDisabled("%d reverb zone%s in this scene", zones,
+                                zones == 1 ? "" : "s");
+            if (zones > 1)
+                prefHelp(
+                    "Crossing into another zone cross-fades, whatever presets\n"
+                    "the two use: the console has two reverb units and the\n"
+                    "game hands the incoming room the free one.\n"
+                    "\n"
+                    "Only TWO rooms can be live at once, so a third entered\n"
+                    "while a fade is still running waits for the first to\n"
+                    "finish leaving - it waits rather than glitching.\n"
+                    "\n"
+                    "A sound is heard in the room it STARTED in: a reverb unit\n"
+                    "is per sound-chip core, so a voice is committed the "
+                    "moment\nit plays. Carry a long sound out of a hall and "
+                    "its tail\ncomes with you.");
         }
     }
 
@@ -1424,6 +1520,28 @@ void App::drawPropertiesWindow() {
         }
         ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reverb (rooms affect this sound)", &o.soundReverb))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "On: this emitter is heard through whatever reverb zone the\n"
+                "player is standing in (docs/reverb.md).\n"
+                "Off: it stays dry everywhere - a UI beep, a voice line, or a\n"
+                "sample that was recorded with its own room already on it.\n"
+                "The send is one bit per voice in hardware, so there is no\n"
+                "per-emitter wet amount - only the zone's own.");
+        ImGui::DragInt("Priority", &o.soundPriority, 0.1f, -10, 10);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which emitters win when more of them are audible than the\n"
+                "sound chip has voices (docs/sound.md). Eight emitters can be\n"
+                "heard at once; a ninth has to lose a channel, and the one\n"
+                "that loses is the lowest priority - among equals, the\n"
+                "quietest.\n"
+                "0 is ordinary ambience. Raise it for the one sound a scene\n"
+                "cannot afford to drop (an alarm, a boss loop, a hint the\n"
+                "player is waiting on).");
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"
@@ -2198,6 +2316,8 @@ void App::drawMultiProperties() {
         if (d != primary.primDetail)
             for (auto* p : objs) p->primDetail = clampPrimDetail(p->type, d);
         if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+        if (primary.type == PrimitiveType::Cylinder)
+            multiCheck("Vertical rings", &SceneObject::primRings);
     }
 
     // --- solid geometry fields ---
@@ -2241,7 +2361,18 @@ void App::drawMultiProperties() {
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         multiCombo("Effect", &SceneObject::emitterKind, kinds, 6);
         multiDragF("Particle size", &SceneObject::emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
-        multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f, "%.2f");
+        // Opacity only exists for the kinds that read it - fog (peak alpha =
+        // Opacity x 60) and custom (x 128); fire/smoke/sparks/rain have fixed
+        // peak alphas, and the value is not even stored for them. Offering the
+        // slider there was an edit that went nowhere, which is the same bug the
+        // single-object inspector already avoids by asking the kind first.
+        bool allOpacityKind = true;
+        for (auto* p : objs)
+            allOpacityKind =
+                allOpacityKind && (p->emitterKind == 2 || p->emitterKind == 5);
+        if (allOpacityKind)
+            multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f,
+                       "%.2f");
         multiCheck("Enabled", &SceneObject::emitterEnabled);
         multiCheck("Follow player", &SceneObject::emitterFollowPlayer);
     }

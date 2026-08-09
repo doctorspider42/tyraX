@@ -1,11 +1,30 @@
-# Reliable window capture via GDI CopyFromScreen -- one shot, or a whole
-# SEQUENCE collapsed into a single contact sheet.
+# Reliable window capture -- one shot, or a whole SEQUENCE collapsed into a
+# single contact sheet.
 # PCSX2's built-in F8 screenshot is flaky when triggered via SendKeys; this is not.
 # Usage:
 #   powershell -File screenshot-window.ps1 -ProcessName pcsx2-qt -OutFile C:\path\shot.png
 #   powershell -File screenshot-window.ps1 -ProcessName tyrax-editor -OutFile shot.png
 #   powershell -File screenshot-window.ps1 -OutFile shot.png -Auto        # render area only
+#   powershell -File screenshot-window.ps1 -OutFile shot.png -Auto -PrintWindow   # occluded OK
 #   powershell -File screenshot-window.ps1 -Watch C:\path\w -Auto -Every 1 -For 20 -Tile 224
+#
+# TWO capture back-ends, and the choice matters more than it looks:
+#
+#   default        GDI CopyFromScreen.  Reads the SCREEN, so it captures
+#                  whatever is physically on those pixels -- an occluded window
+#                  captures as whatever covers it, SILENTLY and plausibly.  The
+#                  script raises the window first and warns when that failed,
+#                  but raising steals focus, which is not always allowed.
+#   -PrintWindow   PrintWindow(PW_RENDERFULLCONTENT).  Asks the window to draw
+#                  ITSELF, so it works while the window is fully covered, needs
+#                  no focus and moves nothing on the user's desktop.  It can
+#                  come back blank on renderers that refuse to redraw on demand,
+#                  so this script MEASURES the result and says so rather than
+#                  handing back a black picture.
+#
+# Rule of thumb: `-PrintWindow` whenever a human is at the machine or anything
+# might be in front of the window; the GDI default when the window is clear and
+# you want the proven `-Watch` path.
 #
 # `-Watch DIR` samples the window on an interval, keeps the full-resolution
 # frames on disk as DIR\frameNN.png, and reports ONE downscaled contact sheet
@@ -23,6 +42,12 @@
 # own geometry is always available.
 param(
     [string]$ProcessName = 'pcsx2-qt',
+    # Parallel worktree sessions each run their own PCSX2, and -ProcessName
+    # takes whichever it finds FIRST -- which silently captures somebody else's
+    # game.  Select the pid off the -elf path when more than one is up:
+    #   Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'" |
+    #       Where-Object CommandLine -like '*<project>*'
+    [int]$ProcessId = 0,
     [Parameter(ParameterSetName = 'Shot', Mandatory = $true, Position = 0)][string]$OutFile,
     [Parameter(ParameterSetName = 'Watch', Mandatory = $true)][string]$Watch,
     # Geometry (both modes).  -Area X,Y,W,H is relative to the window's
@@ -32,6 +57,9 @@ param(
     [switch]$Client,
     [switch]$Trim,
     [switch]$NoActivate,
+    # Capture the window's OWN content instead of the screen pixels in front of
+    # it.  Implies -NoActivate: PrintWindow raises nothing and steals no focus.
+    [switch]$PrintWindow,
     # Sampling (-Watch only).
     [Parameter(ParameterSetName = 'Watch')][double]$Every = 1.0,
     [Parameter(ParameterSetName = 'Watch')][int]$Count = 8,
@@ -71,6 +99,11 @@ public class Win32Shot {
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hWnd, ref POINT pt);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWnd, EnumProc cb, IntPtr p);
+    // The occlusion-proof back-end: the window renders itself into our DC, so
+    // nothing has to be visible, in front, or focused.  Flag 2 is
+    // PW_RENDERFULLCONTENT, which is what reaches DirectComposition/GPU
+    // surfaces -- without it a hardware-accelerated child prints as black.
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);
     public delegate bool EnumProc(IntPtr hWnd, IntPtr param);
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
@@ -99,8 +132,11 @@ public class Win32Shot {
     // so the biggest visible child IS the render area -- no motion needed.
     static RECT best;
     static long bestArea;
+    // The HWND behind the winning rect, kept because PrintWindow addresses a
+    // WINDOW, not a screen rectangle: printing the parent can miss a GPU child.
+    public static IntPtr bestHwnd;
     public static int[] BiggestChild(IntPtr parent) {
-        best = new RECT(); bestArea = 0;
+        best = new RECT(); bestArea = 0; bestHwnd = IntPtr.Zero;
         EnumChildWindows(parent, new EnumProc(Consider), IntPtr.Zero);
         if (bestArea <= 0) return null;
         return new int[] { best.Left, best.Top, best.Right - best.Left, best.Bottom - best.Top };
@@ -110,7 +146,7 @@ public class Win32Shot {
         RECT r = new RECT();
         GetWindowRect(h, out r);
         long a = (long)(r.Right - r.Left) * (long)(r.Bottom - r.Top);
-        if (a > bestArea) { bestArea = a; best = r; }
+        if (a > bestArea) { bestArea = a; best = r; bestHwnd = h; }
         return true;
     }
 
@@ -154,12 +190,59 @@ public class Win32Shot {
 # scaled-up crop of the window's top-left corner.
 [Win32Shot]::SetProcessDPIAware() | Out-Null
 
+# Set when -PrintWindow selected a target; everything below keeps working in
+# SCREEN coordinates either way, so -Auto / -Area / -Client / -Trim are shared.
+$script:PwHwnd = [IntPtr]::Zero
+$script:PwOrigin = @(0, 0)
+$script:PwSize = @(0, 0)
+$script:PwChecked = $false
+
 function Grab([int]$x, [int]$y, [int]$w, [int]$h) {
+    if ($script:PwHwnd -ne [IntPtr]::Zero) { return GrabPrint $x $y $w $h }
     $bmp = New-Object System.Drawing.Bitmap $w, $h
     $gfx = [System.Drawing.Graphics]::FromImage($bmp)
     $gfx.CopyFromScreen($x, $y, 0, 0, $bmp.Size)
     $gfx.Dispose()
     return $bmp
+}
+
+# Print the whole target window, then crop to the requested screen rect.  Two
+# reasons not to print a sub-rect directly: PrintWindow has no such parameter,
+# and going through the full bitmap keeps this path's coordinates identical to
+# the GDI one, so a rect read off a GDI capture still means the same thing.
+function GrabPrint([int]$x, [int]$y, [int]$w, [int]$h) {
+    $fw = $script:PwSize[0]
+    $fh = $script:PwSize[1]
+    $full = New-Object System.Drawing.Bitmap $fw, $fh
+    $gfx = [System.Drawing.Graphics]::FromImage($full)
+    $hdc = $gfx.GetHdc()
+    $ok = [Win32Shot]::PrintWindow($script:PwHwnd, $hdc, 2)   # PW_RENDERFULLCONTENT
+    $gfx.ReleaseHdc($hdc)
+    $gfx.Dispose()
+    # A renderer that refuses to redraw on demand hands back a black rectangle,
+    # and a black rectangle is a plausible-looking screenshot of a game that has
+    # not booted yet.  Say it ONCE, loudly, instead of letting it read as a
+    # finding -- this is the failure mode that pays for the GDI path's survival.
+    if (-not $script:PwChecked) {
+        $script:PwChecked = $true
+        $box = [Win32Shot]::ContentBox((BitmapBytes $full), $fw, $fh, 10)
+        if (-not $ok -or -not $box) {
+            Write-Warning ("PrintWindow returned nothing but black for hwnd {0} (returned {1}). " -f $script:PwHwnd, $ok +
+                           "This renderer will not draw on demand: drop -PrintWindow and let the script " +
+                           "raise the window instead (which needs it uncovered, and steals focus).")
+        }
+    }
+    $lx = $x - $script:PwOrigin[0]
+    $ly = $y - $script:PwOrigin[1]
+    if ($lx -eq 0 -and $ly -eq 0 -and $w -eq $fw -and $h -eq $fh) { return $full }
+    $crop = New-Object System.Drawing.Bitmap $w, $h
+    $cg = [System.Drawing.Graphics]::FromImage($crop)
+    $cg.DrawImage($full, (New-Object System.Drawing.Rectangle 0, 0, $w, $h),
+                  (New-Object System.Drawing.Rectangle $lx, $ly, $w, $h),
+                  [System.Drawing.GraphicsUnit]::Pixel)
+    $cg.Dispose()
+    $full.Dispose()
+    return $crop
 }
 
 function BitmapBytes($bmp) {
@@ -225,20 +308,33 @@ function TokenEstimate([double]$w, [double]$h) {
 
 # -- pick the window and the rect ------------------------------------------
 
-$proc = Get-Process $ProcessName -ErrorAction SilentlyContinue |
-    Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
-if (-not $proc) { throw "No window found for process '$ProcessName'." }
+if ($ProcessId -gt 0) {
+    $proc = Get-Process -Id $ProcessId -ErrorAction Stop
+    if ($proc.MainWindowHandle -eq 0) { throw "Process $ProcessId has no main window." }
+} else {
+    $all = @(Get-Process $ProcessName -ErrorAction SilentlyContinue |
+             Where-Object { $_.MainWindowHandle -ne 0 })
+    if ($all.Count -eq 0) { throw "No window found for process '$ProcessName'." }
+    if ($all.Count -gt 1) {
+        Write-Warning ("{0} '{1}' windows are open; capturing pid {2}. Pass -ProcessId to pick one " -f
+                       $all.Count, $ProcessName, $all[0].Id +
+                       "(parallel worktrees each run their own PCSX2, and the wrong one looks like a screenshot).")
+    }
+    $proc = $all[0]
+}
 $hwnd = $proc.MainWindowHandle
 
 # Bring to front so the capture isn't occluded by other windows -- and say so
 # when it did not work, because a silent capture of somebody else's window is
 # the worst failure this script has (it looks like a screenshot).
-if (-not $NoActivate) {
+if (-not $NoActivate -and -not $PrintWindow) {
     $raised = [Win32Shot]::Raise($hwnd)
     Start-Sleep -Milliseconds 400
     if (-not $raised -and [Win32Shot]::GetForegroundWindow() -ne $hwnd) {
-        Write-Warning ("'{0}' did not come to the front: the capture may show whatever covers it. " -f $ProcessName +
-                       "Move it out from under the other windows, or pass -NoActivate if it is already clear.")
+        Write-Warning ("'{0}' did not come to the front: the capture WILL show whatever covers it, " -f $ProcessName +
+                       "for every frame, without looking wrong.  Pass -PrintWindow to read the window's " +
+                       "own content instead, move it out from under the other windows, or pass " +
+                       "-NoActivate if it is already clear.")
     }
 }
 
@@ -276,6 +372,29 @@ if ($Area) {
     $rect = @(($wrect.Left + $a[0]), ($wrect.Top + $a[1]), $a[2], $a[3])
     $origin = 'given'
 }
+# Pick what PrintWindow addresses, once the rect is final.  Prefer the render
+# child -- PW_RENDERFULLCONTENT on a top-level window does not always reach a
+# GPU-composited child -- but only while the rect actually lies inside it, so a
+# main-window-relative -Area still prints the window that contains it.
+if ($PrintWindow) {
+    $target = $hwnd
+    $torigin = @($wrect.Left, $wrect.Top)
+    $tsize = @(($wrect.Right - $wrect.Left), ($wrect.Bottom - $wrect.Top))
+    $childRect = [Win32Shot]::BiggestChild($hwnd)
+    if ($childRect -and [Win32Shot]::bestHwnd -ne [IntPtr]::Zero -and
+        $rect[0] -ge $childRect[0] -and $rect[1] -ge $childRect[1] -and
+        ($rect[0] + $rect[2]) -le ($childRect[0] + $childRect[2]) -and
+        ($rect[1] + $rect[3]) -le ($childRect[1] + $childRect[3])) {
+        $target = [Win32Shot]::bestHwnd
+        $torigin = @($childRect[0], $childRect[1])
+        $tsize = @($childRect[2], $childRect[3])
+    }
+    $script:PwHwnd = $target
+    $script:PwOrigin = $torigin
+    $script:PwSize = $tsize
+    $origin = "$origin, printwindow"
+}
+
 if ($Trim) {
     $probe = Grab $rect[0] $rect[1] $rect[2] $rect[3]
     $box = [Win32Shot]::ContentBox((BitmapBytes $probe), $probe.Width, $probe.Height, 10)

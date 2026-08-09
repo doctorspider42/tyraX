@@ -32,15 +32,24 @@ contains code TyraX did not write:
   copyright Sandro Sobczyński and the Tyra contributors. Every generated game
   links it.
 - **PS2SDK** ([ps2dev/ps2sdk](https://github.com/ps2dev/ps2sdk)) — Academic Free
-  License v2.0. Every generated game links it, and projects using positional
-  audio also include a modified `audsrv` module derived from it.
+  License v2.0. Every generated game links it.
+- **PS2SDK's `audsrv`** — **GNU Library GPL v2**, and the exception to the line
+  above: every file of that module says so, where the rest of the SDK says AFL.
+  Every generated game with any sound includes it, forked in-tree at
+  [`vendor/tyra/audsrv`](vendor/tyra/audsrv/README.md).
 
 Those are not TyraX's rights to waive, so their terms follow your game.
 
-**This is not a problem for a commercial closed-source release.** Both are
-*attribution* licenses, not copyleft. Neither obliges you to publish your source,
-neither restricts commercial use, and neither reaches your own game logic, art,
-audio or level design. What they ask is that the credit travels with the binary.
+**This is still fine for a commercial closed-source release**, but the two
+licenses ask for different things and it is worth knowing which is which.
+Apache-2.0 and AFL-2.0 are *attribution* licenses: ship the credit and you are
+done. The LGPL on `audsrv` is a **library** copyleft — it does not reach your
+game code, art, audio or levels, and it does not oblige you to publish your
+source, but it does ask that `audsrv`'s own source stay available and that
+someone holding your binary be able to relink it against a modified copy.
+TyraX carries that source in its public repository, which is what satisfies it
+for a game built here; if you ship a game built from a private fork of the
+editor, keep that directory public. None of the three restricts commercial use.
 
 ## How to comply, concretely
 

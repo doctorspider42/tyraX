@@ -646,6 +646,11 @@ std::string objectJson(const SceneObject& o) {
           o.primDetail != defaultPrimDetail(o.type))
              ? ", \"detail\": " + std::to_string(o.primDetail)
              : "") +
+        // cylinders only, and only when ON - a project that never asked for
+        // axial rings round-trips byte-identically to how it always did
+        ((o.type == PrimitiveType::Cylinder && o.primRings)
+             ? ", \"rings\": true"
+             : "") +
         // 0 = unlimited (default) stays implicit
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
@@ -719,6 +724,14 @@ std::string objectJson(const SceneObject& o) {
                 ", \"size\": " + fmtFloat(o.emitterSize) +
                 ", \"enabled\": " + (o.emitterEnabled ? "true" : "false") +
                 ", \"followPlayer\": " + (o.emitterFollowPlayer ? "true" : "false");
+        // Opacity is written for the kinds whose codegen READS it: fog
+        // (alpha = emitOpacity * 60) and custom (* 128). The other four have
+        // hardcoded peak alphas (fire 90, smoke 40, sparks 110, rain 70), so
+        // the field means nothing there and writing it would add a key to
+        // every emitter in every project for no effect. Fog used to have no
+        // line of its own here and fell past the custom-only block below, so
+        // the slider the inspector offers it was lost on every save.
+        if (k == 2) json += ", \"opacity\": " + fmtFloat(o.emitterOpacity);
         if (k == 5) {  // custom physics block only where it means something
             json += ", \"speed\": " + fmtFloat(o.emitterSpeed) +
                     ", \"spread\": " + fmtFloat(o.emitterSpread) +
@@ -736,7 +749,12 @@ std::string objectJson(const SceneObject& o) {
                 "\", \"autoplay\": " + (o.soundAuto ? "true" : "false") +
                 ", \"range\": " + fmtFloat(o.soundRange) +
                 ", \"interval\": " + fmtFloat(o.soundInterval) +
-                ", \"onPlayer\": " + (o.soundOnPlayer ? "true" : "false") + " }";
+                ", \"onPlayer\": " + (o.soundOnPlayer ? "true" : "false") +
+                ", \"reverb\": " + (o.soundReverb ? "true" : "false") +
+                (o.soundPriority != 0
+                     ? ", \"priority\": " + std::to_string(o.soundPriority)
+                     : std::string()) +
+                " }";
     }
     if (o.type == PrimitiveType::PointLight) {
         json += ", \"light\": { \"brightness\": " + fmtFloat(o.lightBright) +
@@ -760,6 +778,15 @@ std::string objectJson(const SceneObject& o) {
     if (!o.catchArea.empty()) {
         json += ", \"catchArea\": \"" + jsonEscape(o.catchArea) + "\"";
         if (o.catchAreaLive) json += ", \"catchAreaLive\": true";
+    }
+    // Reverb zone (Area only); omitted entirely unless the box is one, so an
+    // ordinary area's file does not change shape.
+    if (o.type == PrimitiveType::Area && o.reverbZone) {
+        json += ", \"reverb\": { \"preset\": " + std::to_string(o.reverbPreset) +
+                ", \"amount\": " + fmtFloat(o.reverbAmount) +
+                ", \"delay\": " + std::to_string(o.reverbDelay) +
+                ", \"feedback\": " + std::to_string(o.reverbFeedback) +
+                ", \"priority\": " + std::to_string(o.reverbPriority) + " }";
     }
     if (o.type == PrimitiveType::Mirror) {
         json += ", \"mirror\": { \"opacity\": " + fmtFloat(o.mirrorOpacity) +
@@ -1325,6 +1352,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.showProfiler ? "true" : "false") << ",\n"
          << "    \"showAreas\": "
          << (p.settings.showAreas ? "true" : "false") << ",\n"
+         << "    \"showCollision\": "
+         << (p.settings.showCollision ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
@@ -1426,9 +1455,13 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"blssEnabled\": " << (p.settings.blssEnabled ? "true" : "false")
          << ",\n"
          << "    \"blssScale\": " << p.settings.blssScale << ",\n"
+         << "    \"blssNetwork\": "
+         << (p.settings.blssNetwork ? "true" : "false") << ",\n"
          << "    \"blssSharpen\": " << fmtFloat(p.settings.blssSharpen) << ",\n"
          << "    \"blssTemporal\": "
          << (p.settings.blssTemporal ? "true" : "false") << ",\n"
+         << "    \"blssJitter\": "
+         << (p.settings.blssJitter ? "true" : "false") << ",\n"
          << "    \"blssDebugView\": " << p.settings.blssDebugView << ",\n"
          << "    \"fogEnabled\": " << (p.settings.fogEnabled ? "true" : "false")
          << ",\n"
@@ -2326,6 +2359,359 @@ static void writeVuSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// The neural upscaler's training-shot plan (docs/neural-upscaler.md). Written
+// ONLY when something has been authored: a default plan is what the trainer has
+// always done, so an untouched project's .tyra keeps its exact previous shape
+// and every fold table published against it stays reproducible.
+//
+// The automatic moves are written as a NAME list rather than a bool array, so
+// the order in the enum is free to grow without a file written today meaning
+// something else tomorrow - the same reason `inputCodes()` is append-only and
+// the menu display modes are stored explicitly.
+static void writeBlssShotsSection(std::ostream& json, const Project& p) {
+    const BlssShotPlan& pl = p.blssShots;
+    if (pl.isDefault()) return;
+    json << "\"blssShots\": { \"takes\": " << (pl.authoredTakes ? "true" : "false")
+         << ", \"auto\": [";
+    bool first = true;
+    for (int i = 0; i < kBlssAutoMoveCount; ++i) {
+        if (!pl.autoMove[i]) continue;
+        json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\"";
+        first = false;
+    }
+    json << "]";
+    // Per-move frame counts, only for the moves that ask for one.
+    bool anyFrames = false;
+    for (int i = 0; i < kBlssAutoMoveCount; ++i) anyFrames = anyFrames || pl.autoFrames[i] > 0;
+    if (anyFrames) {
+        json << ", \"autoFrames\": {";
+        first = true;
+        for (int i = 0; i < kBlssAutoMoveCount; ++i) {
+            if (pl.autoFrames[i] <= 0) continue;
+            json << (first ? "" : ", ") << "\"" << blssAutoMoveName(i) << "\": " << pl.autoFrames[i];
+            first = false;
+        }
+        json << "}";
+    }
+    if (!pl.shots.empty()) {
+        json << ", \"shots\": [";
+        for (size_t i = 0; i < pl.shots.size(); ++i) {
+            const BlssShot& s = pl.shots[i];
+            json << (i ? ",\n      " : "\n      ") << "{ \"name\": \"" << jsonEscape(s.name)
+                 << "\", \"scene\": \"" << jsonEscape(s.scene) << "\"";
+            if (!s.camera.empty()) json << ", \"camera\": \"" << jsonEscape(s.camera) << "\"";
+            if (!s.cameraTo.empty())
+                json << ", \"cameraTo\": \"" << jsonEscape(s.cameraTo) << "\"";
+            json << ", \"eye\": [" << fmtFloat(s.eye[0]) << ", " << fmtFloat(s.eye[1]) << ", "
+                 << fmtFloat(s.eye[2]) << "], \"look\": [" << fmtFloat(s.look[0]) << ", "
+                 << fmtFloat(s.look[1]) << ", " << fmtFloat(s.look[2]) << "]";
+            if (s.move)
+                json << ", \"move\": true, \"eye2\": [" << fmtFloat(s.eye2[0]) << ", "
+                     << fmtFloat(s.eye2[1]) << ", " << fmtFloat(s.eye2[2]) << "], \"look2\": ["
+                     << fmtFloat(s.look2[0]) << ", " << fmtFloat(s.look2[1]) << ", "
+                     << fmtFloat(s.look2[2]) << "]";
+            if (s.fovDeg != 60.0f) json << ", \"fov\": " << fmtFloat(s.fovDeg);
+            if (s.frames > 0) json << ", \"frames\": " << s.frames;
+            if (!s.enabled) json << ", \"off\": true";
+            json << " }";
+        }
+        json << "\n    ]";
+    }
+    json << " }";
+}
+
+// --- World Facts (docs/world-facts.md) ---------------------------------------
+// One section carrying all four collections, because they only mean anything
+// together: a query over facts that are not there, or a rule over a query that
+// is not, is not a state a collaboration peer should ever be handed.
+
+static void writeFactCondition(std::ostream& json, const facts::Condition& c) {
+    json << "{ \"kind\": \"" << facts::conditionKindKey(c.kind) << "\"";
+    if (c.kind == facts::Condition::Kind::Compare) {
+        json << ", \"fact\": \"" << jsonEscape(c.fact) << "\", \"cmp\": \""
+             << facts::cmpKey(c.cmp) << "\"";
+        if (!c.rhsFact.empty())
+            json << ", \"rhsFact\": \"" << jsonEscape(c.rhsFact) << "\"";
+        else
+            json << ", \"value\": " << fmtFloat(c.value);
+    } else if (c.kind == facts::Condition::Kind::Query) {
+        json << ", \"query\": \"" << jsonEscape(c.query) << "\"";
+    } else if (!c.children.empty()) {
+        json << ", \"children\": [";
+        for (size_t i = 0; i < c.children.size(); ++i) {
+            json << (i ? ", " : "");
+            writeFactCondition(json, c.children[i]);
+        }
+        json << "]";
+    }
+    json << " }";
+}
+
+static void readBlssShotsSection(const json::Value& root, Project& out) {
+    out.blssShots = BlssShotPlan();
+    const json::Value* v = root.find("blssShots");
+    if (!v || v->type != json::Value::Type::Object) return;
+    if (const json::Value* t = v->find("takes")) out.blssShots.authoredTakes = t->boolOr(true);
+    // An absent "auto" key would mean "every move", but the key is always
+    // written when the section is - and an EMPTY list is a legitimate choice
+    // (shoot only what I authored), so the two must not be confused.
+    if (const json::Value* a = v->find("auto"); a && a->type == json::Value::Type::Array) {
+        for (int i = 0; i < kBlssAutoMoveCount; ++i) out.blssShots.autoMove[i] = false;
+        for (const json::Value& e : a->arr) {
+            const std::string name = e.stringOr("");
+            for (int i = 0; i < kBlssAutoMoveCount; ++i)
+                if (name == blssAutoMoveName(i)) out.blssShots.autoMove[i] = true;
+        }
+    }
+    if (const json::Value* f = v->find("autoFrames"); f && f->type == json::Value::Type::Object)
+        for (int i = 0; i < kBlssAutoMoveCount; ++i)
+            if (const json::Value* n = f->find(blssAutoMoveName(i)))
+                out.blssShots.autoFrames[i] = std::max(0, (int)n->numberOr(0.0));
+    const json::Value* arr = v->find("shots");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        BlssShot s;
+        if (const json::Value* x = e.find("name")) s.name = x->stringOr("");
+        if (const json::Value* x = e.find("scene")) s.scene = x->stringOr("");
+        if (const json::Value* x = e.find("camera")) s.camera = x->stringOr("");
+        if (const json::Value* x = e.find("cameraTo")) s.cameraTo = x->stringOr("");
+        const auto vec3 = [&](const char* key, float dst[3]) {
+            const json::Value* x = e.find(key);
+            if (!x || x->type != json::Value::Type::Array) return;
+            for (size_t k = 0; k < x->arr.size() && k < 3; ++k)
+                dst[k] = (float)x->arr[k].numberOr(0.0);
+        };
+        vec3("eye", s.eye);
+        vec3("look", s.look);
+        if (const json::Value* x = e.find("move")) s.move = x->boolOr(false);
+        vec3("eye2", s.eye2);
+        vec3("look2", s.look2);
+        if (const json::Value* x = e.find("fov")) s.fovDeg = (float)x->numberOr(60.0);
+        if (s.fovDeg < 5.0f || s.fovDeg > 175.0f) s.fovDeg = 60.0f;
+        if (const json::Value* x = e.find("frames")) s.frames = std::max(0, (int)x->numberOr(0.0));
+        if (const json::Value* x = e.find("off")) s.enabled = !x->boolOr(false);
+        out.blssShots.shots.push_back(std::move(s));
+    }
+}
+
+static void readFactCondition(const json::Value& v, facts::Condition& out) {
+    out = facts::Condition();
+    if (v.type != json::Value::Type::Object) return;
+    if (const json::Value* x = v.find("kind"))
+        out.kind = facts::conditionKindFromKey(x->stringOr("all"));
+    if (const json::Value* x = v.find("fact")) out.fact = x->stringOr("");
+    if (const json::Value* x = v.find("cmp"))
+        out.cmp = facts::cmpFromKey(x->stringOr("ge"));
+    if (const json::Value* x = v.find("value"))
+        out.value = (float)x->numberOr(0.0);
+    if (const json::Value* x = v.find("rhsFact")) out.rhsFact = x->stringOr("");
+    if (const json::Value* x = v.find("query")) out.query = x->stringOr("");
+    if (const json::Value* kids = v.find("children");
+        kids && kids->type == json::Value::Type::Array) {
+        for (const json::Value& k : kids->arr) {
+            facts::Condition c;
+            readFactCondition(k, c);
+            out.children.push_back(std::move(c));
+        }
+    }
+}
+
+static void writeFactsSection(std::ostream& json, const Project& p) {
+    if (p.facts.empty() && p.factQueries.empty() && p.factRules.empty() &&
+        p.factScenarios.empty())
+        return;
+    json << "\"facts\": [";
+    for (size_t i = 0; i < p.facts.size(); ++i) {
+        const facts::Fact& f = p.facts[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(f.id)
+             << "\", \"name\": \"" << jsonEscape(f.name) << "\", \"type\": \""
+             << facts::typeKey(f.type) << "\", \"persist\": \""
+             << facts::persistKey(f.persist) << "\"";
+        if (f.scope != facts::Scope::World)
+            json << ", \"scope\": \"" << facts::scopeKey(f.scope) << "\"";
+        if (f.type == facts::Type::Position)
+            json << ", \"pos\": [" << fmtFloat(f.pos[0]) << ", "
+                 << fmtFloat(f.pos[1]) << ", " << fmtFloat(f.pos[2]) << "]";
+        else if (f.value != 0.0f)
+            json << ", \"default\": " << fmtFloat(f.value);
+        if (!f.options.empty()) {
+            json << ", \"options\": [";
+            for (size_t k = 0; k < f.options.size(); ++k)
+                json << (k ? ", " : "") << "\"" << jsonEscape(f.options[k])
+                     << "\"";
+            json << "]";
+        }
+        if (!f.computed.empty())
+            json << ", \"computed\": \"" << jsonEscape(f.computed) << "\"";
+        if (!f.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(f.desc) << "\"";
+        json << " }";
+    }
+    json << (p.facts.empty() ? "]" : "\n  ]");
+
+    json << ",\n  \"factQueries\": [";
+    for (size_t i = 0; i < p.factQueries.size(); ++i) {
+        const facts::Query& q = p.factQueries[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(q.name) << "\"";
+        if (!q.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(q.desc) << "\"";
+        json << ", \"when\": ";
+        writeFactCondition(json, q.root);
+        json << " }";
+    }
+    json << (p.factQueries.empty() ? "]" : "\n  ]");
+
+    json << ",\n  \"factRules\": [";
+    for (size_t i = 0; i < p.factRules.size(); ++i) {
+        const facts::Rule& r = p.factRules[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(r.name) << "\", \"policy\": \""
+             << facts::policyKey(r.policy) << "\"";
+        if (!r.enabled) json << ", \"off\": true";
+        if (!r.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(r.desc) << "\"";
+        json << ", \"when\": ";
+        writeFactCondition(json, r.when);
+        json << ", \"then\": [";
+        for (size_t k = 0; k < r.then.size(); ++k) {
+            const facts::RuleAction& a = r.then[k];
+            json << (k ? ", " : "") << "{ \"do\": \""
+                 << facts::actionKindKey(a.kind) << "\", \"target\": \""
+                 << jsonEscape(a.target) << "\"";
+            if (a.kind != facts::RuleAction::Kind::ToggleFact)
+                json << ", \"value\": " << fmtFloat(a.value);
+            json << " }";
+        }
+        json << "] }";
+    }
+    json << (p.factRules.empty() ? "]" : "\n  ]");
+
+    json << ",\n  \"factScenarios\": [";
+    for (size_t i = 0; i < p.factScenarios.size(); ++i) {
+        const facts::Scenario& s = p.factScenarios[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"name\": \""
+             << jsonEscape(s.name) << "\"";
+        if (!s.desc.empty())
+            json << ", \"desc\": \"" << jsonEscape(s.desc) << "\"";
+        json << ", \"values\": [";
+        for (size_t k = 0; k < s.values.size(); ++k) {
+            const facts::ScenarioValue& v = s.values[k];
+            json << (k ? ", " : "") << "{ \"fact\": \"" << jsonEscape(v.fact)
+                 << "\", \"value\": " << fmtFloat(v.value);
+            if (v.pos[0] != 0.0f || v.pos[1] != 0.0f || v.pos[2] != 0.0f)
+                json << ", \"pos\": [" << fmtFloat(v.pos[0]) << ", "
+                     << fmtFloat(v.pos[1]) << ", " << fmtFloat(v.pos[2]) << "]";
+            json << " }";
+        }
+        json << "] }";
+    }
+    json << (p.factScenarios.empty() ? "]" : "\n  ]");
+}
+
+static void readFactsSection(const json::Value& root, Project& out) {
+    out.facts.clear();
+    out.factQueries.clear();
+    out.factRules.clear();
+    out.factScenarios.clear();
+
+    if (const json::Value* arr = root.find("facts");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Fact f;
+            if (const json::Value* x = e.find("id")) f.id = x->stringOr("");
+            if (const json::Value* x = e.find("name")) f.name = x->stringOr("");
+            if (f.name.empty()) continue;
+            if (const json::Value* x = e.find("type"))
+                f.type = facts::typeFromKey(x->stringOr("bool"));
+            if (const json::Value* x = e.find("persist"))
+                f.persist = facts::persistFromKey(x->stringOr("session"));
+            if (const json::Value* x = e.find("scope"))
+                f.scope = facts::scopeFromKey(x->stringOr("world"));
+            if (const json::Value* x = e.find("default"))
+                f.value = (float)x->numberOr(0.0);
+            if (const json::Value* x = e.find("pos");
+                x && x->type == json::Value::Type::Array)
+                for (size_t a = 0; a < 3 && a < x->arr.size(); ++a)
+                    f.pos[a] = (float)x->arr[a].numberOr(0.0);
+            if (const json::Value* x = e.find("options");
+                x && x->type == json::Value::Type::Array)
+                for (const json::Value& o : x->arr)
+                    f.options.push_back(o.stringOr(""));
+            if (const json::Value* x = e.find("computed"))
+                f.computed = x->stringOr("");
+            if (const json::Value* x = e.find("desc")) f.desc = x->stringOr("");
+            out.facts.push_back(std::move(f));
+        }
+    }
+
+    if (const json::Value* arr = root.find("factQueries");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Query q;
+            if (const json::Value* x = e.find("name")) q.name = x->stringOr("");
+            if (q.name.empty()) continue;
+            if (const json::Value* x = e.find("desc")) q.desc = x->stringOr("");
+            if (const json::Value* x = e.find("when")) readFactCondition(*x, q.root);
+            out.factQueries.push_back(std::move(q));
+        }
+    }
+
+    if (const json::Value* arr = root.find("factRules");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Rule r;
+            if (const json::Value* x = e.find("name")) r.name = x->stringOr("");
+            if (r.name.empty()) continue;
+            if (const json::Value* x = e.find("desc")) r.desc = x->stringOr("");
+            if (const json::Value* x = e.find("policy"))
+                r.policy = facts::policyFromKey(x->stringOr("rising"));
+            if (const json::Value* x = e.find("off")) r.enabled = !x->boolOr(false);
+            if (const json::Value* x = e.find("when")) readFactCondition(*x, r.when);
+            if (const json::Value* acts = e.find("then");
+                acts && acts->type == json::Value::Type::Array) {
+                for (const json::Value& a : acts->arr) {
+                    facts::RuleAction ra;
+                    if (const json::Value* x = a.find("do"))
+                        ra.kind = facts::actionKindFromKey(x->stringOr("set"));
+                    if (const json::Value* x = a.find("target"))
+                        ra.target = x->stringOr("");
+                    if (const json::Value* x = a.find("value"))
+                        ra.value = (float)x->numberOr(0.0);
+                    r.then.push_back(std::move(ra));
+                }
+            }
+            out.factRules.push_back(std::move(r));
+        }
+    }
+
+    if (const json::Value* arr = root.find("factScenarios");
+        arr && arr->type == json::Value::Type::Array) {
+        for (const json::Value& e : arr->arr) {
+            facts::Scenario s;
+            if (const json::Value* x = e.find("name")) s.name = x->stringOr("");
+            if (s.name.empty()) continue;
+            if (const json::Value* x = e.find("desc")) s.desc = x->stringOr("");
+            if (const json::Value* vals = e.find("values");
+                vals && vals->type == json::Value::Type::Array) {
+                for (const json::Value& v : vals->arr) {
+                    facts::ScenarioValue sv;
+                    if (const json::Value* x = v.find("fact"))
+                        sv.fact = x->stringOr("");
+                    if (const json::Value* x = v.find("value"))
+                        sv.value = (float)x->numberOr(0.0);
+                    if (const json::Value* x = v.find("pos");
+                        x && x->type == json::Value::Type::Array)
+                        for (size_t a = 0; a < 3 && a < x->arr.size(); ++a)
+                            sv.pos[a] = (float)x->arr[a].numberOr(0.0);
+                    if (!sv.fact.empty()) s.values.push_back(std::move(sv));
+                }
+            }
+            out.factScenarios.push_back(std::move(s));
+        }
+    }
+}
+
 static void readVuSection(const json::Value& root, Project& out) {
     out.vu = VuSettings();
     const json::Value* v = root.find("vu");
@@ -2412,6 +2798,8 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
+        case Section::Facts: writeFactsSection(ss, p); break;
+        case Section::BlssShots: writeBlssShotsSection(ss, p); break;
         case Section::Count: break;  // not a section
     }
     return ss.str();
@@ -2437,6 +2825,8 @@ const char* sectionName(Section s) {
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
         case Section::VuPrograms: return "vu";
+        case Section::Facts: return "facts";
+        case Section::BlssShots: return "blssShots";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -2542,6 +2932,178 @@ void ensureProjectId(Project& p) {
     if (p.projectId.empty()) p.projectId = newObjectId();
 }
 
+void ensureFactIds(Project& p) {
+    std::set<std::string> seen;
+    for (facts::Fact& f : p.facts) {
+        if (f.id.empty() || seen.count(f.id)) f.id = newObjectId();
+        seen.insert(f.id);
+    }
+}
+
+namespace {
+
+// Every flow node whose STRING param is a fact name, found through the
+// registry rather than a hardcoded list - so a fact node added tomorrow is
+// covered by the rename and the usage scan today.
+bool nodeNamesFact(const FlowNode& n) {
+    const FlowNodeType* t = flowNodeType(n.type);
+    return t && t->strKind == FlowParamKind::FactName;
+}
+bool nodeNamesQuery(const FlowNode& n) {
+    const FlowNodeType* t = flowNodeType(n.type);
+    return t && t->strKind == FlowParamKind::FactQueryName;
+}
+
+void pushUnique(std::vector<std::string>& v, const std::string& s) {
+    for (const std::string& e : v)
+        if (e == s) return;
+    v.push_back(s);
+}
+
+// Walks every graph in the project (scene objects and prefab members alike -
+// a prefab carries its members' graphs, so a fact used only inside one is
+// still used).
+template <typename Fn>
+void forEachGraphNode(const Project& p, Fn&& fn) {
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        for (const SceneObject& o : p.scenes[si].objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                fn(p.scenes[si].name, o.name, n);
+    for (const Prefab& pf : p.prefabs)
+        for (const SceneObject& o : pf.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                fn("prefab " + pf.name, o.name, n);
+}
+
+template <typename Fn>
+void forEachGraphNodeMut(Project& p, Fn&& fn) {
+    for (SceneData& sc : p.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& n : o.flowGraph.nodes) fn(n);
+    for (Prefab& pf : p.prefabs)
+        for (SceneObject& o : pf.objects)
+            for (FlowNode& n : o.flowGraph.nodes) fn(n);
+}
+
+// Does this condition tree mention the fact anywhere in it (as either side of
+// a comparison)? Query leaves are NOT followed - a query that uses the fact is
+// reported as a user in its own right, which is the more useful answer.
+bool conditionMentionsFact(const facts::Condition& c, const std::string& name) {
+    if (c.kind == facts::Condition::Kind::Compare)
+        return c.fact == name || c.rhsFact == name;
+    for (const facts::Condition& ch : c.children)
+        if (conditionMentionsFact(ch, name)) return true;
+    return false;
+}
+
+bool conditionMentionsQuery(const facts::Condition& c, const std::string& name) {
+    if (c.kind == facts::Condition::Kind::Query) return c.query == name;
+    for (const facts::Condition& ch : c.children)
+        if (conditionMentionsQuery(ch, name)) return true;
+    return false;
+}
+
+void renameInCondition(facts::Condition& c, const std::string& from,
+                       const std::string& to, bool query) {
+    if (query) {
+        if (c.kind == facts::Condition::Kind::Query && c.query == from)
+            c.query = to;
+    } else if (c.kind == facts::Condition::Kind::Compare) {
+        if (c.fact == from) c.fact = to;
+        if (c.rhsFact == from) c.rhsFact = to;
+    }
+    for (facts::Condition& ch : c.children) renameInCondition(ch, from, to, query);
+}
+
+}  // namespace
+
+FactUsage factUsage(const Project& p, const std::string& factName) {
+    FactUsage u;
+    if (factName.empty()) return u;
+
+    forEachGraphNode(p, [&](const std::string& scene, const std::string& obj,
+                            const FlowNode& n) {
+        if (nodeNamesFact(n) && n.str == factName)
+            pushUnique(u.graphs, scene + " / " + obj);
+    });
+    for (const facts::Query& q : p.factQueries)
+        if (conditionMentionsFact(q.root, factName)) pushUnique(u.queries, q.name);
+    for (const facts::Rule& r : p.factRules) {
+        bool used = conditionMentionsFact(r.when, factName);
+        for (const facts::RuleAction& a : r.then)
+            if (a.kind != facts::RuleAction::Kind::SendEvent &&
+                a.target == factName)
+                used = true;
+        if (used) pushUnique(u.rules, r.name);
+    }
+    for (const facts::Scenario& s : p.factScenarios)
+        for (const facts::ScenarioValue& v : s.values)
+            if (v.fact == factName) pushUnique(u.scenarios, s.name);
+    // A computed fact whose query reads this one depends on it too - the
+    // indirection is exactly what makes it easy to miss by hand.
+    for (const facts::Fact& f : p.facts) {
+        if (!f.isComputed()) continue;
+        const int qi = facts::queryIndexOf(p.factQueries, f.computed);
+        if (qi < 0) continue;
+        std::vector<std::string> reads;
+        facts::conditionFacts(p.factQueries[(size_t)qi].root, p.factQueries,
+                              reads);
+        for (const std::string& r : reads)
+            if (r == factName) pushUnique(u.computed, f.name);
+    }
+    return u;
+}
+
+FactUsage queryUsage(const Project& p, const std::string& queryName) {
+    FactUsage u;
+    if (queryName.empty()) return u;
+
+    forEachGraphNode(p, [&](const std::string& scene, const std::string& obj,
+                            const FlowNode& n) {
+        if (nodeNamesQuery(n) && n.str == queryName)
+            pushUnique(u.graphs, scene + " / " + obj);
+    });
+    for (const facts::Query& q : p.factQueries)
+        if (q.name != queryName && conditionMentionsQuery(q.root, queryName))
+            pushUnique(u.queries, q.name);
+    for (const facts::Rule& r : p.factRules)
+        if (conditionMentionsQuery(r.when, queryName)) pushUnique(u.rules, r.name);
+    for (const facts::Fact& f : p.facts)
+        if (f.computed == queryName) pushUnique(u.computed, f.name);
+    return u;
+}
+
+void renameFactRefs(Project& p, const std::string& from, const std::string& to) {
+    if (from.empty() || to.empty() || from == to) return;
+    forEachGraphNodeMut(p, [&](FlowNode& n) {
+        if (nodeNamesFact(n) && n.str == from) n.str = to;
+    });
+    for (facts::Query& q : p.factQueries)
+        renameInCondition(q.root, from, to, false);
+    for (facts::Rule& r : p.factRules) {
+        renameInCondition(r.when, from, to, false);
+        for (facts::RuleAction& a : r.then)
+            if (a.kind != facts::RuleAction::Kind::SendEvent && a.target == from)
+                a.target = to;
+    }
+    for (facts::Scenario& s : p.factScenarios)
+        for (facts::ScenarioValue& v : s.values)
+            if (v.fact == from) v.fact = to;
+}
+
+void renameFactQueryRefs(Project& p, const std::string& from,
+                         const std::string& to) {
+    if (from.empty() || to.empty() || from == to) return;
+    forEachGraphNodeMut(p, [&](FlowNode& n) {
+        if (nodeNamesQuery(n) && n.str == from) n.str = to;
+    });
+    for (facts::Query& q : p.factQueries)
+        renameInCondition(q.root, from, to, true);
+    for (facts::Rule& r : p.factRules) renameInCondition(r.when, from, to, true);
+    for (facts::Fact& f : p.facts)
+        if (f.computed == from) f.computed = to;
+}
+
 const char* inputRoleName(int role) {
     switch (role) {
         case InputAction::RoleJump: return "jump";
@@ -2564,6 +3126,128 @@ const char* inputRoleName(int role) {
         case InputAction::RoleMoveRight: return "move-right";
         default: return "";
     }
+}
+
+// --- the neural upscaler's training-shot plan --------------------------------
+
+const char* blssAutoMoveName(int move) {
+    switch ((BlssAutoMove)move) {
+        case BlssAutoMove::Walk: return "walk";
+        case BlssAutoMove::Pan: return "pan";
+        case BlssAutoMove::Orbit: return "orbit";
+        case BlssAutoMove::Whip: return "whip";
+        case BlssAutoMove::Pitch: return "pitch";
+        case BlssAutoMove::Strafe: return "strafe";
+        default: return "";
+    }
+}
+
+// The twin of the `s.move = "..."` literals in blssscene.cpp's autoShots(). It
+// is here rather than there because the window has to LABEL a move the same way
+// the tool's own per-shot table does, and a second spelling would make the two
+// tables un-joinable by eye.
+const char* blssAutoMoveKind(int move) {
+    switch ((BlssAutoMove)move) {
+        case BlssAutoMove::Walk: return "dolly-forward";
+        case BlssAutoMove::Pan: return "pan";
+        case BlssAutoMove::Orbit: return "orbit";
+        case BlssAutoMove::Whip: return "whip";
+        case BlssAutoMove::Pitch: return "pitch-up";
+        case BlssAutoMove::Strafe: return "dolly-lateral";
+        default: return "";
+    }
+}
+
+const char* blssAutoMoveWhy(int move) {
+    switch ((BlssAutoMove)move) {
+        case BlssAutoMove::Walk:
+            return "What the player sees for most of the running time - forward from the "
+                   "player start.";
+        case BlssAutoMove::Pan:
+            return "A yaw sweep from one standpoint: the same content at every reprojection "
+                   "offset a stick can produce.";
+        case BlssAutoMove::Orbit:
+            return "The only move that sweeps silhouettes across the whole tile grid.";
+        case BlssAutoMove::Whip:
+            return "Eased, so the angular velocity peaks mid-shot: history that is fine, "
+                   "history that is useless, and both transitions.";
+        case BlssAutoMove::Pitch:
+            return "Sweeps coverage from 1 to nearly 0, which is what makes the empty-tile "
+                   "case a moving target rather than a corner.";
+        case BlssAutoMove::Strafe:
+            return "Real parallax - near geometry sliding across far, which a tile's single "
+                   "representative depth cannot reproject.";
+        default: return "";
+    }
+}
+
+int blssShotScene(const Project& p, const BlssShot& s) {
+    if (p.scenes.empty()) return -1;
+    if (s.scene.empty()) return 0;
+    for (size_t i = 0; i < p.scenes.size(); ++i)
+        if (p.scenes[i].name == s.scene) return (int)i;
+    return -1;
+}
+
+std::string blssShotLabel(const Project& p, const BlssShot& s, int index) {
+    if (!s.name.empty()) return s.name;
+    const int si = blssShotScene(p, s);
+    const std::string scene = si >= 0 ? p.scenes[(size_t)si].name : std::string("?");
+    return scene + " shot " + std::to_string(index + 1);
+}
+
+bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
+                     float eyeB[3], float lookB[3], float* fovDeg) {
+    if (!s.enabled) return false;
+    const int si = blssShotScene(p, s);
+    if (si < 0) return false;
+    const SceneData& sc = p.scenes[(size_t)si];
+    float fov = s.fovDeg;
+    // A Camera object gives both the standpoint and the aim, which is the whole
+    // reason the field exists: the author has already placed the camera where
+    // the player stands, and re-typing its numbers into this shot would be a
+    // second copy that goes stale the moment the camera is nudged.
+    const auto fromCamera = [&](const std::string& name, float eye[3], float look[3]) {
+        for (const SceneObject& o : sc.objects) {
+            if (o.type != PrimitiveType::Camera || o.name != name) continue;
+            float fwd[3];
+            seqCameraForward(o.rotation, fwd);
+            for (int k = 0; k < 3; ++k) {
+                eye[k] = o.position[k];
+                look[k] = eye[k] + fwd[k];
+            }
+            fov = o.cameraFov;
+            return true;
+        }
+        return false;
+    };
+    if (!s.camera.empty()) {
+        if (!fromCamera(s.camera, eyeA, lookA)) return false;
+    } else {
+        for (int k = 0; k < 3; ++k) eyeA[k] = s.eye[k], lookA[k] = s.look[k];
+    }
+    // The second key. A `cameraTo` that names nothing is the same class of
+    // mistake as a `camera` that does - drop the shot rather than shoot half
+    // of it, because a move that silently became a still is a corpus that
+    // silently stopped covering the motion the author asked for.
+    if (s.move) {
+        if (!s.cameraTo.empty()) {
+            if (!fromCamera(s.cameraTo, eyeB, lookB)) return false;
+        } else {
+            for (int k = 0; k < 3; ++k) eyeB[k] = s.eye2[k], lookB[k] = s.look2[k];
+        }
+    } else {
+        for (int k = 0; k < 3; ++k) eyeB[k] = eyeA[k], lookB[k] = lookA[k];
+    }
+    // A key whose eye and look-at coincide has no direction at all, and the
+    // corpus would normalise a zero vector.
+    const auto degenerate = [](const float e[3], const float l[3]) {
+        const float d[3] = {l[0] - e[0], l[1] - e[1], l[2] - e[2]};
+        return d[0] * d[0] + d[1] * d[1] + d[2] * d[2] < 1e-8f;
+    };
+    if (degenerate(eyeA, lookA) || degenerate(eyeB, lookB)) return false;
+    if (fovDeg) *fovDeg = fov;
+    return true;
 }
 
 void ensureTextIcons(Project& p) {
@@ -2831,6 +3515,7 @@ std::string create(Project& out, const std::string& name, const std::string& par
     ensureProjectId(out);
     ensureObjectIds(out);
     ensureInputActions(out);
+    ensureFactIds(out);
     ensureSaveMenu(out);
     ensureTextIcons(out);
     // A fresh project's USE prompt is TEXT carrying the button glyph, so it says
@@ -3609,6 +4294,9 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         o.primDetail = defaultPrimDetail(o.type);
         if (const auto* v = jo.find("detail"))
             o.primDetail = clampPrimDetail(o.type, (int)v->numberOr(o.primDetail));
+        // No key = off, which is what every project written before axial rings
+        // existed means: the classic single-quad cylinder side.
+        if (const auto* v = jo.find("rings")) o.primRings = v->boolOr(false);
         if (const auto* v = jo.find("drawDistance")) {
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
@@ -3722,6 +4410,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = em->find("grow")) o.emitterGrow = (float)v->numberOr(1);
             if (const auto* v = em->find("opacity"))
                 o.emitterOpacity = (float)v->numberOr(0.6);
+            if (o.emitterOpacity < 0.0f) o.emitterOpacity = 0.0f;
+            if (o.emitterOpacity > 1.0f) o.emitterOpacity = 1.0f;
             if (const auto* v = em->find("dieOnGround"))
                 o.emitterDieOnGround = v->type == json::Value::Type::Bool && v->boolean;
         }
@@ -3736,6 +4426,31 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.soundInterval < 0.0f) o.soundInterval = 0.0f;
             if (const auto* v = sn->find("onPlayer"))
                 o.soundOnPlayer = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = sn->find("reverb"))
+                o.soundReverb = !(v->type == json::Value::Type::Bool && !v->boolean);
+            if (const auto* v = sn->find("priority"))
+                o.soundPriority = (int)v->numberOr(0.0);
+        }
+        // Reverb zone (Area). The key only exists on a zone, so its presence
+        // IS the flag - an area saved before this feature simply isn't one.
+        if (const auto* rv = jo.find("reverb");
+            rv && rv->type == json::Value::Type::Object) {
+            o.reverbZone = true;
+            if (const auto* v = rv->find("preset")) o.reverbPreset = (int)v->numberOr(1.0);
+            if (o.reverbPreset < 0 || o.reverbPreset > 9) o.reverbPreset = 1;
+            if (const auto* v = rv->find("amount"))
+                o.reverbAmount = (float)v->numberOr(0.5);
+            if (o.reverbAmount < 0.0f) o.reverbAmount = 0.0f;
+            if (o.reverbAmount > 1.0f) o.reverbAmount = 1.0f;
+            if (const auto* v = rv->find("delay")) o.reverbDelay = (int)v->numberOr(64.0);
+            if (o.reverbDelay < 0) o.reverbDelay = 0;
+            if (o.reverbDelay > 127) o.reverbDelay = 127;
+            if (const auto* v = rv->find("feedback"))
+                o.reverbFeedback = (int)v->numberOr(64.0);
+            if (o.reverbFeedback < 0) o.reverbFeedback = 0;
+            if (o.reverbFeedback > 127) o.reverbFeedback = 127;
+            if (const auto* v = rv->find("priority"))
+                o.reverbPriority = (int)v->numberOr(0.0);
         }
         if (const auto* lt = jo.find("light")) {
             if (const auto* v = lt->find("brightness"))
@@ -4005,6 +4720,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showProfiler"))
             st.showProfiler = v->boolOr(false);
         if (const auto* v = s->find("showAreas")) st.showAreas = v->boolOr(false);
+        if (const auto* v = s->find("showCollision"))
+            st.showCollision = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
@@ -4197,10 +4914,29 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.blssScale = (int)v->numberOr(0.0);
         if (st.blssScale < 0) st.blssScale = 0;
         if (st.blssScale > 1) st.blssScale = 1;
+        // PLAIN MODE, and it reads like blssTemporal rather than like
+        // blssJitter: absent means the NETWORK, which is the only thing a
+        // project saved before this key existed can have meant. There is no
+        // "the old behaviour was harmful" argument here - the reconstruction a
+        // legacy BLSS project shipped with is the one it was trained for.
+        if (const auto* v = s->find("blssNetwork"))
+            st.blssNetwork = !(v->type == json::Value::Type::Bool && !v->boolean);
         if (const auto* v = s->find("blssSharpen"))
             st.blssSharpen = clamp01((float)v->numberOr(0.5));
         if (const auto* v = s->find("blssTemporal"))
             st.blssTemporal = !(v->type == json::Value::Type::Bool && !v->boolean);
+        // NOT the "absent means what it always did" rule the keys around it
+        // use, and the difference is deliberate. The jitter is the confirmed
+        // cause of the screen shake (project.hpp), so a project saved before
+        // this key existed - which is every project that ever shook - opens
+        // with it OFF rather than keeping the behaviour it was saved with.
+        // The one direction this can move a legacy project is "stops
+        // flickering"; there is no configuration it makes worse, and a project
+        // that wants the samples back says so explicitly and gets a rewritten
+        // key on the next save. A malformed value lands on the default too,
+        // for the same reason.
+        if (const auto* v = s->find("blssJitter"))
+            st.blssJitter = (v->type == json::Value::Type::Bool && v->boolean);
         if (const auto* v = s->find("blssDebugView"))
             st.blssDebugView = (int)v->numberOr(0.0);
         if (st.blssDebugView < 0) st.blssDebugView = 0;
@@ -5294,6 +6030,14 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
         case Section::VuPrograms: readVuSection(root, p); break;
+        // A peer's catalog arrives whole; a fact that reached them without an
+        // id (hand-edited .tyra, an older editor) must get one here or the
+        // next save writes a save-key that is not there.
+        case Section::Facts:
+            readFactsSection(root, p);
+            ensureFactIds(p);
+            break;
+        case Section::BlssShots: readBlssShotsSection(root, p); break;
         case Section::Count: return false;  // not a section
     }
     return true;
@@ -5458,6 +6202,12 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readPrefabsSection(root, out);
     readVuSection(root, out);
+    readFactsSection(root, out);
+    // A fact's id is what a player's save file is keyed by, so a
+    // catalog authored before ids existed gets them before anything
+    // can be written - the ensureObjectIds contract.
+    ensureFactIds(out);
+    readBlssShotsSection(root, out);
 
     // Migrate projects authored before the Ambience Editor: sky/lighting/fog
     // used to live in Preferences (global + per-scene overrides). Fold them
@@ -5782,6 +6532,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
+    fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
     // Cast shadow feeds the build-time AO bake (occluder tables + textures);
     // a live edit of it cannot show without a rebuild.
@@ -5838,8 +6589,10 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.emitterLife), fnvMixF(h, o.emitterGrow);
     fnvMixF(h, o.emitterOpacity);
     fnvMixS(h, o.soundPath);
-    fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0));
+    fnvMix(h, (o.soundAuto ? 1 : 0) | (o.soundOnPlayer ? 2 : 0) |
+                  (o.soundReverb ? 4 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
+    fnvMix(h, (unsigned)o.soundPriority);
     fnvMixF(h, o.cameraFov);
     // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));
@@ -5849,6 +6602,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // live one additionally bakes its candidate list and an area index.
     fnvMixS(h, o.catchArea);
     fnvMix(h, o.catchAreaLive ? 1 : 0);
+    // A reverb zone bakes into REVERB_ZONES at build time - the box itself
+    // moves live (it is read from the object table), but changing the preset
+    // or the amount needs a rebuild.
+    fnvMix(h, (o.reverbZone ? 1 : 0) | ((uint64_t)o.reverbPreset << 1));
+    fnvMixF(h, o.reverbAmount);
+    fnvMix(h, (uint64_t)o.reverbDelay | ((uint64_t)o.reverbFeedback << 8) |
+                  ((uint64_t)(o.reverbPriority & 0xFFFF) << 16));
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMixF(h, o.animSpeed);
@@ -6233,6 +6993,11 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "inc\\scripts\\credits.gen.hpp" ||
             f.relativePath == "src\\gen\\credits.gen.cpp" ||
             f.relativePath == "inc\\terrain_heights.gen.hpp" ||
+            // World Facts store. Same reasoning as the scroller pair above:
+            // flow_graph.gen.cpp and both game templates include it
+            // unconditionally, so every existing project needs it refreshed
+            // rather than written once at creation.
+            f.relativePath == "inc\\facts.gen.hpp" ||
             f.relativePath == "inc\\nav_data.gen.hpp" ||
             f.relativePath == "inc\\scripts\\navigation.gen.hpp" ||
             f.relativePath == "src\\gen\\navigation.gen.cpp" ||

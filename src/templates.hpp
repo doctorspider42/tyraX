@@ -159,6 +159,12 @@ struct SaveSizeInfo {
     int valuesBytes = 0;
     int textsBytes = 0;
     int objectsBytes = 0;
+    // World Facts (docs/world-facts.md). `facts` counts the catalog entries
+    // that ride a slot - checkpoint- and save-lived, computed and
+    // scene-scoped ones excluded because they have nothing to store - and
+    // each row is an id plus three floats.
+    int facts = 0;
+    int factsBytes = 0;
     int payloadBytes = 0;  // the slot file: sum above, 64-byte aligned
     int iconSysBytes = 0;  // icon.sys, written once per card
     int iconIcnBytes = 0;  // list.icn, written once per card
@@ -170,7 +176,11 @@ struct SaveSizeInfo {
     // this small (a 128-byte slot still eats 1 KB), which is the whole point
     // of reporting it separately from the byte breakdown.
     int cardClusterBytes = 0;    // the cluster size the rounding used
-    int cardFootprintBytes = 0;  // directory + 3 slots + icon.sys + list.icn
+    // The PROFILE is a file of its own beside the slots, so it costs its own
+    // cluster - 0 when the catalog declares no profile-lived fact.
+    int profileFacts = 0;
+    int profileBytes = 0;
+    int cardFootprintBytes = 0;  // directory + slots + icons + profile
 };
 SaveSizeInfo saveSizeInfo(const Project& p);
 

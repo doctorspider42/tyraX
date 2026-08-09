@@ -17,6 +17,8 @@
 #include "aigen.hpp"
 #include "aisupport.hpp"
 #include "blss.hpp"  // the neural upscaler's headless trainer / eval / emitter
+#include "blss_ui.hpp"     // the measured speed model (fill::) + speedFrom()
+#include "blsscorpus.hpp"  // blss::measureCoverage - the overdraw counter
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
@@ -734,6 +736,172 @@ static int bakeGiFromCli(int argc, char** argv) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
     }
+    return 0;
+}
+
+// tyrax-editor --blss-coverage <projectDir> [--frames N] [--raster N]
+//                                           [--threads N] [--out WxH] [--verbose]
+//
+// HOW MUCH FILL A PROJECT ASKS THE GS FOR, headless - the speed half of "should
+// I turn BLSS on", which until now existed ONLY as a button in the Neural
+// Upscaler window.
+//
+// That is why this verb exists, and the reason is not convenience. The hardware
+// calibration on 2026-08-09 (docs/profiling.md) worked back from five measured
+// load points to `examples/upscaler-lab`'s true fill and wanted to compare it
+// against what the estimator says - and could not, because the estimator was
+// reachable only by clicking a button in a GUI. So the round that MEASURED the
+// model had to quote `kAnchorCoverages` as recorded rather than re-derive it,
+// and wrote down that whoever owns the estimator should print its own figure
+// before rescaling anything. A number nobody can re-run is a number nobody can
+// check; this makes the estimate as falsifiable as `--blss-eval`'s tables.
+//
+// IN-PROCESS like the window's button, and for the same reason the window gives:
+// `blss::measureCoverage` IS the public API here, there is nothing in an
+// anonymous namespace to re-implement, and it takes about a second - so unlike
+// --blss-train/--blss-eval there is no second answer to keep honest.
+//
+// The output is script-parseable: every line a tool should read starts `[blss]`
+// and is `key=value` pairs, the same shape `--blss-eval`'s verdict line uses.
+// The human table underneath is what makes those lines falsifiable.
+static int blssCoverageFromCli(int argc, char** argv) {
+    if (argc < 3 || argv[2][0] == '-') {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --blss-coverage <projectDir> [--frames N] "
+                     "[--raster N] [--threads N] [--out WxH] [--verbose]\n");
+        return 2;
+    }
+    blss::CoverageConfig cfg;
+    cfg.projectDir = argv[2];
+    // The PROJECT'S own raster by default, so the coverages are per the frame
+    // the console will present rather than per a nominal 512x448 - the same
+    // resolution App::blssStartCoverage passes, or the verb and the window
+    // would answer slightly different questions.
+    // ...and the project's own RECONSTRUCTION, for the same reason: plain mode
+    // (ProjectSettings::blssNetwork false) pays a seventh of the neural EE bill,
+    // so the verdict below is against a break-even four times lower. A CLI that
+    // priced every project as neural would tell a plain project at 5 coverages
+    // to leave the feature off when it is a clear win.
+    bool network = true;
+    {
+        Project p;
+        if (project::load(p, argv[2]).empty()) {
+            const DisplayModeInfo& dm =
+                project::displayModeInfo(project::bootDisplayMode(p.settings));
+            cfg.outW = dm.bufW;
+            cfg.outH = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
+            network = p.settings.blssNetwork;
+        }
+    }
+    for (int i = 3; i < argc; ++i) {
+        const std::string a = argv[i];
+        const auto next = [&](int def) {
+            return i + 1 < argc ? std::atoi(argv[++i]) : def;
+        };
+        if (a == "--frames") cfg.framesPerShot = std::max(1, next(cfg.framesPerShot));
+        else if (a == "--raster") cfg.raster = std::max(32, next(cfg.raster));
+        else if (a == "--threads") cfg.threads = std::max(0, next(0));
+        else if (a == "--verbose") cfg.verbose = true;
+        else if (a == "--out" && i + 1 < argc) {
+            int w = 0, h = 0;
+            if (std::sscanf(argv[++i], "%dx%d", &w, &h) == 2 && w > 0 && h > 0)
+                cfg.outW = w, cfg.outH = h;
+        } else {
+            std::fprintf(stderr, "blss: unknown argument '%s'\n", a.c_str());
+            return 2;
+        }
+    }
+
+    const auto t0 = std::chrono::steady_clock::now();
+    const blss::CoverageReport rep = blss::measureCoverage(cfg, nullptr);
+    const double secs =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    if (!rep.ok) {
+        std::fprintf(stderr, "blss: %s\n",
+                     rep.err.empty() ? "the coverage estimate produced nothing" : rep.err.c_str());
+        return 1;
+    }
+
+    std::printf("blss: %d scene(s), %zu shot(s), %d frame(s), %zu triangle(s), %d emitter(s) "
+                "/ %d billboard(s) at %dx%d output, %d raster, %.1fs\n",
+                rep.scenes, rep.shots.size(), rep.frames, rep.triangles, rep.emitters,
+                rep.billboards, cfg.outW, cfg.outH, cfg.raster, secs);
+    std::printf("\n  %-14s %-16s %-8s %8s %8s %8s %7s\n", "scene", "camera move", "kind",
+                "geometry", "emitters", "total", "worst");
+    for (const blss::CoverageShot& s : rep.shots)
+        std::printf("  %-14.14s %-16.16s %-8.8s %8.2f %8.2f %8.2f %7.2f\n", s.scene.c_str(),
+                    s.name.c_str(), s.move.c_str(), s.geom, s.emit, s.geom + s.emit, s.peak);
+    std::printf("  %-14s %-16s %-8s %8.2f %8.2f %8.2f %7.2f\n", "", "-- all shots --", "",
+                rep.geomMean, rep.emitMean, rep.mean, rep.p95);
+
+    // The derived verdict, from the SAME pure function the window draws
+    // (blssui::speedFrom) rather than arithmetic restated here - a CLI with its
+    // own copy of the model is exactly the second answer this feature has spent
+    // its whole life avoiding.
+    // Priced at the raster the coverages were counted per, which the report
+    // echoes back: one full-screen pass is per PIXEL, so a 512x512 project pays
+    // 14.3 % more per coverage than a 512x448 one and its break-even is 11.4
+    // rather than 13.1. The single scalar this replaces was a 576i measurement
+    // quoted at every resolution.
+    const blssui::SpeedEstimate sp =
+        blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH, network);
+    const char* band = sp.band == blssui::SpeedEstimate::Band::Win      ? "win"
+                       : sp.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
+                                                                          : "loss";
+    std::printf("\nblss: %.2f coverages against a %.1f break-even at %dx%d, %s mode -> %s%.2f ms "
+                "a frame (%s)\n",
+                rep.mean, sp.breakEven, rep.outW, rep.outH, network ? "neural" : "plain",
+                sp.savedMs >= 0 ? "+" : "", sp.savedMs, band);
+    // The OTHER mode's line, always, because it is one project setting away and
+    // the two answers can disagree about the verdict entirely.
+    {
+        const blssui::SpeedEstimate other =
+            blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH, !network);
+        std::printf("blss: in %s mode the same scene is a %.1f break-even -> %s%.2f ms (%s)\n",
+                    network ? "plain" : "neural", other.breakEven,
+                    other.savedMs >= 0 ? "+" : "", other.savedMs,
+                    other.band == blssui::SpeedEstimate::Band::Win        ? "win"
+                    : other.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
+                                                                          : "loss");
+    }
+    if (sp.band == blssui::SpeedEstimate::Band::Win)
+        std::printf("blss: roughly %.2f-%.2fx, the ends being 'the frame is 60%% fill' and "
+                    "'the frame is nothing but fill'\n", sp.lo, sp.hi);
+    else if (sp.band == blssui::SpeedEstimate::Band::Marginal)
+        std::printf("blss: NO MULTIPLIER IS QUOTED - %.2f ms is smaller than what this count "
+                    "admits it cannot see\n", sp.savedMs);
+
+    // What the count could not see. Every one of these can only make the real
+    // figure BIGGER, which is what makes the estimate a floor rather than a
+    // guess - and a caller reading the machine lines below is entitled to the
+    // same caveats the window prints under its answer.
+    std::printf("blss: not counted - the sky dome (~1 more coverage); particle lifetimes and "
+                "drift%s%s%s.\n"
+                "blss: the HUD, the menus and the post effects are neither counted nor reduced. "
+                "A FLOOR, not a measurement.\n",
+                rep.sawCutout ? "; alpha-tested cutouts, counted here as solid" : "",
+                rep.sawDisabledEmitter ? "; emitters that start disabled" : "",
+                rep.sawAnimated ? "" : "; nothing animated was found");
+
+    // --- the machine-readable half -----------------------------------------
+    for (const blss::CoverageShot& s : rep.shots)
+        std::printf("[blss] coverage shot scene=%s name=%s move=%s geom=%.4f emit=%.4f "
+                    "total=%.4f peak=%.4f frames=%d\n",
+                    s.scene.c_str(), s.name.c_str(), s.move.c_str(), s.geom, s.emit,
+                    s.geom + s.emit, s.peak, s.frames);
+    std::printf("[blss] coverage mean=%.4f p95=%.4f geom=%.4f emit=%.4f scenes=%d shots=%zu "
+                "frames=%d triangles=%zu emitters=%d billboards=%d cutout=%d animated=%d "
+                "disabledEmitter=%d\n",
+                rep.mean, rep.p95, rep.geomMean, rep.emitMean, rep.scenes, rep.shots.size(),
+                rep.frames, rep.triangles, rep.emitters, rep.billboards, rep.sawCutout ? 1 : 0,
+                rep.sawAnimated ? 1 : 0, rep.sawDisabledEmitter ? 1 : 0);
+    std::printf("[blss] coverage verdict coverages=%.4f fillMs=%.4f savedMs=%.4f breakEven=%.4f "
+                "lo=%.4f hi=%.4f band=%s anchorCoverages=%.4f passMs=%.4f raster=%dx%d "
+                "perMpx=%.4f network=%d eeMs=%.4f\n",
+                sp.coverages, sp.fillMs, sp.savedMs, sp.breakEven, sp.lo, sp.hi, band,
+                blssui::fill::kAnchorCoverages, sp.passMs, rep.outW, rep.outH,
+                blssui::fill::kPassMsPerMpx, network ? 1 : 0,
+                blssui::fill::eeCostMs(network));
     return 0;
 }
 
@@ -2648,6 +2816,8 @@ int main(int argc, char** argv) {
         return blss::evalMain(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--blss-emit") == 0)
         return blss::emitMain(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--blss-coverage") == 0)
+        return blssCoverageFromCli(argc, argv);
     if (argc > 1 && (std::strcmp(argv[1], "--help") == 0 || std::strcmp(argv[1], "-h") == 0)) {
         std::printf(
             "tyrax-editor [projectDir]                 open the GUI\n"
@@ -2724,6 +2894,12 @@ int main(int argc, char** argv) {
             "  --blss-emit [-i blss.net] [-o inc/blss_net.gen.hpp]\n"
             "                                          bake a net into the C++ "
             "the game compiles (no -o: stdout)\n"
+            "  --blss-coverage <projectDir> [--frames N] [--raster N] [--threads "
+            "N] [--out WxH]\n"
+            "                                          how much FILL the scenes "
+            "ask the GS for, against the\n"
+            "                                          measured break-even: the "
+            "speed half of 'turn it on?'\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"

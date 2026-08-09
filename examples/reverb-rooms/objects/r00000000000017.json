@@ -1,0 +1,1 @@
+{"id": "r00000000000017", "name": "zone-pipe", "type": "area", "position": [29, 3, 16], "rotation": [0, 0, 0], "scale": [10, 12, 28], "color": [0.9, 0.7, 0.2], "physics": false, "reverb": {"preset": 9, "amount": 0.8, "delay": 64, "feedback": 64, "priority": 0}}

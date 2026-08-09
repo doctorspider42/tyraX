@@ -166,12 +166,67 @@ The neural upscaler trains and measures headlessly too
 TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [-o out.net]
 TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
 TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
+TYRAX --blss-coverage <projectDir> [--frames N] [--raster N] [--threads N]
+                                   [--out WxH] [--verbose]
 ```
 
-**Verify a change to either parallel phase with `--threads`, not by reading the
-code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render
-and the oracle, and it is a wall-clock knob and nothing else: the same `--seed`
-must write a byte-identical `blss.net` at any thread count. So the check is two
+**`--blss-coverage` is the SPEED half of "should this project have BLSS on"**,
+and the headless twin of the window's *Will the frame get faster?* button — same
+`blss::measureCoverage`, same verdict arithmetic, in-process, about a second. It
+prints per-shot and overall mean/p95 coverages with the **geometry/emitter
+split**, the derived verdict, and machine-readable `[blss] coverage …` lines.
+Use the project's own raster (the default) or the verb and the button answer
+slightly different questions. It also reads the project's **reconstruction mode**
+(`blssNetwork`) and prices the verdict for it — plain mode's EE bill is a
+seventh of the neural one, so the same coverage count lands against a **2.6**
+break-even instead of a 13.1 one — and prints the OTHER mode's line beside it,
+because the two verdicts routinely disagree and the switch is one setting away. It exists because the round that *measured* the
+speed model could not re-derive the estimator's own figure — it was a button in
+a GUI — and **a number nobody can re-run is a number nobody can check.** Its
+first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass
+equivalents on `examples/upscaler-lab`), and that gap has since been **located**
+rather than closed: it is a constant scale error in the emitter term, not the
+unit and not the camera. Walked under the fixture's own parked gameplay camera -
+authored as a training vantage, which is what makes the check possible - it reads
+**78.99**, i.e. HIGHER than the six-move mean, and the counted-to-measured ratio
+holds at 1.35 / 1.26 / 1.27 / 1.36 with the haze stepped 6 / 4 / 2 / 0 banks. So
+read its output as an overdraw **index** that over-states its scale by about a
+third, not as milliseconds: docs/neural-upscaler.md, "The overdraw count is an
+INDEX", and docs/profiling.md, "Calibrating the speed model against hardware".
+
+**Eight flags measure a configuration no project can currently ask for, and each
+prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the
+ENGINE is generic, it is `blssScale` that can only name 2x2 and 1x2),
+`--act-table N`, `--no-anim`, `--still` (freeze each shot at one camera and one
+pose so only the jitter phase advances — the period-2 metric's fixture, refused
+by `--blss-train` and by `--cv`), `--proxy-budget` (the fifth twin-contract
+rule, off on both sides), **`--emitter-proxy`** (the SIXTH twin-contract rule —
+give each enabled particle emitter a bag proxy; also off on both sides, the
+engine's half being `TYRA_BLSS_EMITTER_PROXY`. Mind what it does and does not
+change: it makes the six channels DESCRIBE the particles, and the corpus
+renderer still DRAWS none, so a PSNR from an `--emitter-proxy` run prices the
+description against a particle-free truth. Read `--features` and a console
+`BLSSFEAT` line through `--probe`, not the dB) and `--ignore-shot-plan` (do not
+read the project's
+training-shot plan — six automatic moves, takes on, an equal frame share, which
+is how a table taken before the plan existed stays runnable). A table of decibels
+whose configuration is not written down is a table nobody can reproduce, which is
+how this feature published five wrong numbers — and a **sixth**: the row that set
+the "fit the project you ship" rule had its ceiling measured at jitter ON and its
+margins at jitter OFF. The sampler is announced in both directions now.
+
+**Several positionals is a UNION corpus, and `bestiary` is a member.**
+`--blss-eval <a> <b> bestiary --cv --cv-groups` is **leave-one-PROJECT-out**: the
+held-out shot's whole project is removed from the training set, which is the only
+form of "can I ship one net" that means anything. Plain `--cv` holds out one shot
+and trains on eleven other moves of the same scene. See docs/neural-upscaler.md,
+"Can one net ship for every project?".
+
+**Verify a change to any parallel phase with `--threads`, not by reading the
+code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render,
+the oracle and `--blss-eval`'s per-method loop, and it is a wall-clock knob and
+nothing else: the same `--seed` must write a byte-identical `blss.net` **and a
+character-identical eval table** at any thread count. So the check is two
 runs and `md5sum` —
 
 ```bash
@@ -188,13 +243,21 @@ its `blss.net` matches too. Every measured table in `docs/neural-upscaler.md`
 came off a seeded run, so a thread-dependent result would silently unmake all of
 them. On 6 cores that run is ~68 s at `--threads 1` and ~18 s at auto; use
 `--frames 78 --epochs 200` for a faster smoke check (still deterministic, just a
-different net). `--blss-train` ends with `blss: timing - corpus X, oracle Y,
-fit Z`, and the per-shot corpus lines report **cpu ms, not wall ms** — summing
-them will not give you the wall clock of a threaded run.
+different net). **All three verbs end with a `blss: timing` phase line** —
+`corpus X, oracle Y, fit Z` for `--blss-train`, `corpus X, eval Y` for
+`--blss-eval`, `corpus X, oracle Y, folds Z` for `--cv` — and the per-shot corpus
+lines report **cpu ms, not wall ms**: summing them will not give you the wall
+clock of a threaded run.
 
 `--blss-eval <projectDir>` is also the "should this project have the feature on
 at all" check: the **oracle** row is the scene's ceiling, and on some scenes it
-is +0.00 dB. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
+is +0.00 dB. **It needs no trained net for that** — with no `-i` and no
+`blss.net` to find it runs net-free, drops the `BLSS (trained)` row and still
+prints the verdict, exit 0. (So `-i` IS required when you are checking twin
+parity, which is a claim about that row.) Two lines are printed for a caller
+rather than a reader: `[blss] verdict headroom=… passes=… bilinear=… oracle=…
+native=…` from every `--blss-eval`, and `[blss] fold k of n` from `--cv` as each
+fold lands. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
 
 VU1 microprogram work has its own layer, faster than everything below
 (`docs/vu-framework.md`):
@@ -599,16 +662,58 @@ Notes:
   frame up — see tyra-engine-dev), so grep `bin/log.txt` for the banner rather
   than screenshotting for assert text; the running editor also pops that dump in
   a copyable dialog. (A screenshot still shows *where* the game froze.)
+  **On a ps2link deploy there is no `bin/log.txt` at all** — the generated
+  `main.cpp` logs to the EE console there instead (a host: write per line is a
+  network round trip), and ps2link forwards it to `ps2client`. So the game's log
+  is the `[ps2] …` lines of the runner output: the Output panel in the GUI, plain
+  stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
+  the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
+  EE's stdout was buffered and never flushed) — rebuild before believing silence.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
-  script — a GDI capture that works reliably:
+  script, which has **two capture back-ends** — and picking the wrong one is how
+  a whole run becomes fiction, so read this before the flags:
 
   ```powershell
   powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
-      -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
+      -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png              # GDI (default)
+  powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
+      -ProcessName pcsx2-qt -PrintWindow -Auto -OutFile <scratchpad>\shot.png
   ```
+
+  | | default (GDI `CopyFromScreen`) | `-PrintWindow` |
+  |---|---|---|
+  | reads | the SCREEN | the window's own content |
+  | occluded window | **captures whatever covers it, silently** | works, fully covered |
+  | focus | raises the window first (steals it) | raises nothing, moves nothing |
+  | fails by | looking perfectly fine | coming back black — and saying so |
+
+  **Use `-PrintWindow` whenever a human is at the machine, whenever anything
+  might be in front of the window, and whenever you must not steal focus** —
+  which on this repo's constraints is most of the time. Use the GDI default when
+  the window is demonstrably clear and you want the exact path every `-Watch`
+  number below was measured on. The default is still GDI for one reason: a
+  renderer that refuses to redraw on demand prints black, and no flag can make
+  that window's pixels appear — whereas GDI's hazard is at least fixable by
+  uncovering the window. So the script MEASURES the first `-PrintWindow` grab and
+  warns once if it is entirely black, rather than handing back a plausible
+  screenshot of a game that looks like it never booted. It never falls back to
+  GDI on its own: a silent switch to the unsafe path is the bug this exists to
+  prevent.
+
+  Verified on PCSX2 v2.3.205 (software renderer, `examples/upscaler-lab`):
+  `-PrintWindow -Auto` captures the render child (958x965, `-Trim` → 958x828)
+  during live 50 FPS gameplay **without the window ever coming to the front**,
+  drives the whole `-Watch` path unchanged, and on an unoccluded window returns
+  the same rect and the same picture as the GDI arm.
 
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
+
+  **`-ProcessId <pid>` picks WHICH instance.** `-ProcessName` takes the first
+  match, and with parallel worktree sessions each running their own PCSX2 that
+  silently captures somebody else's game (the script now warns when more than one
+  window matches). Select the pid off the `-elf` path:
+  `Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'" | Where-Object CommandLine -like '*<project>*'`.
 
   **To WATCH the game over time, use `-Watch DIR`** — the Windows twin of
   `wayland-control.py watch` (below), with the same flag names, the same output
@@ -619,7 +724,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -642,14 +747,21 @@ Notes:
     status-bar noise the whole window carries (87 px in one second here) — a
     clean instrument, so any non-zero row means the game.
   - **A GDI grab reads the SCREEN, so an occluded window captures whatever is on
-    top of it** — silently, and for every frame of a long run. This bit during
-    development: a plain `SetForegroundWindow` from a background shell does
-    nothing at all (the same trap as synthetic input above), and the "PCSX2
-    screenshot" came back as another application's window. The script now raises
-    the window with the ALT-tap + `AttachThreadInput` trick, VERIFIES
-    `GetForegroundWindow` and **warns** when it still failed — if you see that
-    warning the frames are worthless, so uncover the window, or pass
-    `-NoActivate` when it is already clear and you do not want the focus stolen.
+    top of it** — silently, and for every frame of a long run. This has now bitten
+    twice. First during development: a plain `SetForegroundWindow` from a
+    background shell does nothing at all (the same trap as synthetic input
+    above), and the "PCSX2 screenshot" came back as another application's window.
+    The script answered that by raising the window with the ALT-tap +
+    `AttachThreadInput` trick, VERIFYING `GetForegroundWindow` and **warning**
+    when it still failed. Then it bit again in the field, the expensive way: with
+    the owner sitting at the machine an agent captured **their browser instead of
+    the emulator** and did not notice, because a wrong-window capture is a
+    perfectly good-looking PNG. **That is what `-PrintWindow` is for** (see the
+    table above) — it reads the window's own content, so nothing has to be in
+    front and nothing gets raised. Reach for it by default when a human is
+    present; keep `-NoActivate` for the case where the window is already clear
+    and you merely do not want the focus stolen, and remember that `-NoActivate`
+    alone removes the raise **without** removing the hazard.
   - `-Area X,Y,W,H` is **window-relative** — the coordinates you read straight
     off a capture — and it is deliberately NOT cached the way Linux caches
     `area.txt`: the window may have moved since the last run, and its geometry is
@@ -952,14 +1064,54 @@ Notes:
   [docs/gs-vram.md](../../../docs/gs-vram.md). A `--build --run` also kills
   every other PCSX2 instance, and parallel worktree sessions run their own —
   when several are up, `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs
-  whichever it finds first, so check the window title in the capture (or
-  select the process by `MainWindowTitle`) before trusting a screenshot.
+  whichever it finds first (it warns, but the frames are already wrong), so pass
+  **`-ProcessId <pid>`** with the pid whose `-elf` path is your project. Note
+  that when another agent's session is live you cannot use `--build --run` at
+  all: build with plain `--build` and launch PCSX2 yourself on `bin/<name>.elf`
+  (`-logfile <path>` keeps your emulog out of theirs).
   For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
-  GS load.
+  GS load. **For a real A/B in milliseconds** — an engine change, a feature that
+  claims to make frames shorter — the same page's *frame-timing rig* is the
+  instrument: engine counters behind `TYRA_FRAME_PROFILE` (default 0, so a
+  shipped build carries nothing) and a once-a-second `FRAMETIME` line with
+  mean/median/p95, plus a raw per-frame dump so two runs can be compared as
+  PAIRED samples. Three rules from it that generalise: drive the camera from a
+  **frame index in an object script**, not `--pad` (whose driver refreshes off
+  the host wall clock, so the two runs never show the same view); turn Live
+  Link / Live Debugger / Live Logic / Remote Pad / Time Machine **off** (a
+  debug build polls `livepad.bin` through HostFs every frame); and **run the
+  page's GS fill calibration before quoting any PCSX2 number about GS cost** —
+  measured, PCSX2 under-reports fill by **76x**.
+- **Testing whether a picture is STILL needs a period-2 test, not a diff** — and
+  **three** instruments in a row got this wrong before it stuck, so the full
+  rules live in docs/profiling.md, "The stability gate". The short form, each
+  clause paid for: freeze the camera **and every emitter** (on
+  `examples/upscaler-lab` the running particles change more between frames than
+  the artefact does, and they bury it); point it at **textured** content (a
+  quarter-pixel resample cannot change an untextured box, so a minimal fixture
+  measures clean and truthfully and tells you nothing); capture **back to back**
+  rather than on a stride (an even stride lands on the same phase forever);
+  **never `-Trim`** and take the crop once (trimming black borders re-registers
+  a shifted picture to an identical image, so a displacement becomes invisible
+  by construction); report a **cross-correlation lag** as well as a pixel count;
+  and cluster by pairwise difference — two balanced clusters, near-zero within
+  and large between, IS the alternation. Then check the verdict against a
+  labelled A/B/C where you already know the answer, rather than against a
+  threshold you chose.
+  And on Windows **select the PCSX2 instance by the
+  project on its command line** (`Get-CimInstance Win32_Process ... CommandLine
+  -like "*<project>*"`, then `-ProcessId` that pid) — `-ProcessName pcsx2-qt`
+  takes the first one it finds, and with parallel worktrees running that silently
+  captures somebody else's game and looks exactly like a screenshot. **A GDI grab
+  reads the SCREEN**, so an occluded PCSX2 captures as whatever is on top of it
+  and yields a plausible, entirely fictional "stable" table — capture with
+  **`-PrintWindow`**, which cannot see anything but the window itself, and diff
+  frame 0 of one arm against frame 0 of another before believing any of it.
+
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess
   at project paths — their projects live wherever they put them, and a blind
@@ -1279,7 +1431,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL

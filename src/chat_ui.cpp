@@ -504,6 +504,7 @@ bool App::applyChatObjectProp(SceneData& sc, SceneObject& o,
         o.primDetail = clampPrimDetail(o.type, (int)num((float)o.primDetail));
         return true;
     }
+    if (key == "rings") { o.primRings = boolean(o.primRings); return true; }
     if (key == "drawDistance") {
         o.drawDistance = std::max(0.0f, num(o.drawDistance));
         return true;

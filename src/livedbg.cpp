@@ -10,11 +10,11 @@ namespace livedbg {
 namespace {
 
 constexpr uint32_t kSnapMagic = 0x42445854;  // "TXDB" little-endian
-constexpr uint32_t kSnapVersion = 4;  // v4 appends stats + the flush map
+constexpr uint32_t kSnapVersion = 5;  // v5 appends the World Facts ring
 constexpr int kMaxFlushMap = 64;
 constexpr int kSnapHeader = 64;
 constexpr uint32_t kCmdMagic = 0x43445854;  // "TXDC"
-constexpr uint32_t kCmdVersion = 1;
+constexpr uint32_t kCmdVersion = 2;  // v2 appends fact overrides
 constexpr int kCmdHeader = 32;
 constexpr uint32_t kFooterXor = 0x5A5A5A5AU;
 
@@ -102,7 +102,10 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
     // people's consoles right now, and refusing it would blank the whole
     // Debugger over a tail it simply does not have.
     const uint32_t ver = rd<uint32_t>(b + 4);
-    if (ver != 3 && ver != kSnapVersion) return false;
+    // v3 and v4 are still accepted for the same reason v3 was: a game built
+    // before the block exists is running on somebody's console right now, and
+    // blanking the whole Debugger over a tail it does not have helps no one.
+    if (ver != 3 && ver != 4 && ver != kSnapVersion) return false;
 
     Snapshot s;
     s.seq = rd<uint32_t>(b + 8);
@@ -217,6 +220,27 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
         fi.program = rd<uint16_t>(p + 6);
         s.flushes.push_back(fi);
     }
+    if (ver >= 5) {
+        if (p + 2 > bytes.data() + bytes.size()) return false;
+        const int factCount = (int)rd<uint16_t>(p);
+        p += 2;
+        if (factCount < 0 || factCount > kMaxFactEvents) return false;
+        if (p + (size_t)factCount * 12 + 4 > bytes.data() + bytes.size())
+            return false;
+        s.factEvents.reserve((size_t)factCount);
+        for (int i = 0; i < factCount; ++i, p += 12) {
+            FactEvent fe;
+            fe.slot = (int)rd<uint16_t>(p + 0);
+            fe.src = (int)rd<int16_t>(p + 2);
+            // The game sends an AGE in frames; absolute numbers are rebuilt
+            // from the header's counter, exactly like the node event ring.
+            const uint32_t age = rd<uint16_t>(p + 4);
+            fe.frame = s.frame >= age ? s.frame - age : 0;
+            fe.value = rd<float>(p + 8);
+            s.factEvents.push_back(fe);
+        }
+    }
+
     if (rd<uint32_t>(p) != (s.seq ^ kFooterXor)) return false;
 
     out = std::move(s);
@@ -238,7 +262,20 @@ bool Command::sameStateAs(const Command& o) const {
            stepFrames == o.stepFrames && breakpoints == o.breakpoints &&
            fire == o.fire && fireAndRun == o.fireAndRun &&
            captureVu == o.captureVu && vuFlush == o.vuFlush &&
-           measureRam == o.measureRam && watchObjects == o.watchObjects;
+           measureRam == o.measureRam && watchObjects == o.watchObjects &&
+           sameFactSets(o);
+}
+
+bool Command::sameFactSets(const Command& o) const {
+    if (factSets.size() != o.factSets.size()) return false;
+    for (size_t i = 0; i < factSets.size(); ++i) {
+        const FactSet& a = factSets[i];
+        const FactSet& b = o.factSets[i];
+        if (a.slot != b.slot || a.isPosition != b.isPosition) return false;
+        for (int k = 0; k < 3; ++k)
+            if (a.v[k] != b.v[k]) return false;
+    }
+    return true;
 }
 
 std::vector<unsigned char> encodeCommand(const Command& c) {
@@ -257,6 +294,11 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     if (c.captureVu && c.vuFlush >= 0)
         flags |= 16u | ((uint32_t)(c.vuFlush & 0xFFFF) << 8);
     if (c.measureRam) flags |= 32u;
+    // Fact overrides ride the top byte: the header is full at 32 bytes and a
+    // count capped at kMaxFactSets has nowhere better to live. A game built
+    // before they existed reads those bits as 0, i.e. "no overrides".
+    const size_t factCount = std::min(c.factSets.size(), (size_t)kMaxFactSets);
+    flags |= (uint32_t)(factCount & 0xFFu) << 24;
     put32(v, flags);
     put32(v, (uint32_t)(int32_t)c.stepFrames);
     put32(v, (uint32_t)(int32_t)c.breakpoints.size());
@@ -265,6 +307,17 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     for (uint16_t k : c.breakpoints) put16(v, k);
     for (uint16_t k : c.fire) put16(v, k);
     for (uint16_t k : c.watchObjects) put16(v, k);
+    for (size_t i = 0; i < factCount; ++i) {
+        const FactSet& f = c.factSets[i];
+        put16(v, (uint16_t)f.slot);
+        v.push_back(f.isPosition ? 1 : 0);
+        v.push_back(0);  // pad to a 4-byte boundary for the floats
+        for (int k = 0; k < 3; ++k) {
+            uint32_t bits;
+            std::memcpy(&bits, &f.v[k], 4);
+            put32(v, bits);
+        }
+    }
     put32(v, c.seq ^ kFooterXor);
     return v;
 }

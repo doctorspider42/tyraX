@@ -2,6 +2,7 @@
 #pragma once
 
 #include "scene_data.hpp"
+#include "facts.gen.hpp"  // FactSaveRow + FACT_SAVE_MAX
 
 namespace Lighting {
 
@@ -16,7 +17,12 @@ constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // "TYSV"
 // v3: the objects array is sized by the save-flagged object
 // count (SAVE_OBJECT_MAX), not the scene size - older, larger
 // slot files fail the size/version check and read as empty.
-constexpr int SAVE_VERSION = 3;
+// v4: the World Facts block. Unlike every block above it, the
+// rows are keyed by the fact's own id and NOT by position, so
+// renaming, reordering or deleting a fact leaves an existing
+// card readable - the rows that still match are restored and the
+// rest are ignored (docs/world-facts.md "Saving").
+constexpr int SAVE_VERSION = 4;
 
 // Runtime state of one save-flagged object (SceneObjectData.saveState).
 struct SaveObjectState {
@@ -40,7 +46,32 @@ struct alignas(64) SaveGameData {
   char texts[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1][SAVE_TEXT_LEN];
   int objectCount;
   SaveObjectState objects[SAVE_OBJECT_MAX];
+  int factCount;
+  FactSaveRow facts[FACT_SAVE_MAX];
 };
+
+// The PROFILE: facts declared with profile persistence, in one
+// file per card outside the save slots and shared by all of them
+// - unlocks, a best time, 'has seen the intro'. Its own tiny
+// payload rather than a slot, because it is written whenever a
+// profile fact moves and must never cost a slot-sized transfer.
+struct alignas(64) SaveProfileData {
+  unsigned int magic;
+  int version;
+  int factCount;
+  FactSaveRow facts[FACT_PROFILE_MAX];
+  // Padded to a full 1 KiB memory-card CLUSTER. A card allocates
+  // in clusters and the libmc RPC transfers by DMA, and a 64-byte
+  // payload did not round-trip: the write reported success and the
+  // next boot read a full-size block of something else back (magic
+  // mismatch, so it was correctly rejected - which reads as 'the
+  // profile does not persist'). The slot payload is kilobytes and
+  // never hit this.
+  char pad[1024 - (int)sizeof(unsigned int) - 2 * (int)sizeof(int) -
+           FACT_PROFILE_MAX * (int)sizeof(FactSaveRow)];
+};
+bool profileWrite(const SaveProfileData& data);
+bool profileRead(SaveProfileData& out);
 
 // Loads the BIOS memory card modules once (sio2man is already
 // resident - the engine loads it for the pads).
@@ -54,6 +85,14 @@ bool saveSlotUsed(int slot);
 bool saveWrite(int slot, const SaveGameData& data);
 bool saveRead(int slot, SaveGameData& out);
 
+// Asynchronous write: Begin copies the payload and starts the
+// libmc chain, Poll drives it one step per frame and returns true
+// the frame it is finished (*okOut = whether the slot was
+// written). Busy is the guard against starting a second one.
+bool saveWriteBegin(int slot, const SaveGameData& data);
+bool saveWritePoll(bool* okOut);
+bool saveWriteBusy();
+
 // Copies the editor-baked save icon (save/icon.sys + list.icn,
 // shipped next to the ELF) into SAVE_MC_DIR so the PS2 browser
 // shows the game's title and icon. Runs once per boot when the
@@ -63,5 +102,42 @@ void saveEnsureIcons();
 // hud/save-busy.png sprite size ("checking memory card" warning)
 constexpr int SAVE_BUSY_W = 512;
 constexpr int SAVE_BUSY_H = 128;
+
+// Save Editor behaviour. SAVE_MENU_CHECKPOINT: the in-game menu
+// writes the last checkpoint instead of a live snapshot.
+// SAVE_ASYNC: writes are stepped one libmc call per frame while
+// the game keeps running, with the spinner instead of the
+// "checking memory card" overlay (loads stay blocking).
+constexpr bool SAVE_MENU_CHECKPOINT = false;
+constexpr bool SAVE_ASYNC = false;
+constexpr bool SAVE_SPINNER = true;
+constexpr int SAVE_SPINNER_FRAMES = 8;
+constexpr int SAVE_SPINNER_CELL_W = 32;
+constexpr int SAVE_SPINNER_CELL_H = 32;
+// The sheet the game loads, cwd-relative (the Makefile copies
+// res/ into bin/). A picked image that failed validation is not
+// here - spinnerInfo falls back to the built-in.
+constexpr const char* SAVE_SPINNER_TEX = "hud/save-spinner.png";
+// Frames each cell is held for - the sheet is walked at 50/HOLD
+// cells a second, which is a calm spin rather than a blur.
+constexpr int SAVE_SPINNER_HOLD = 4;
+constexpr int SAVE_SPINNER_CORNER = 3;  // 0 TL, 1 TR, 2 BL, 3 BR
+constexpr float SAVE_SPINNER_MARGIN = 20.0F;
+constexpr float SAVE_SPINNER_SCALE = 1.0F;
+
+// The slot Commit Checkpoint's "autosave" mode writes, and the
+// one its "next free slot" mode never picks. -1 = none set, in
+// which case an autosave commit does nothing at all.
+constexpr int SAVE_AUTOSAVE_SLOT = -1;
+// The save menu is a GameMenu (Tools > Menu Editor), so its panel,
+// font, colours and placement come from MENUS[SAVE_MENU_INDEX].
+// Its ROWS are the slots: the panel bakes SAVE_SLOTS_PER_PAGE
+// blank rows and the game draws the labels, which is what lets a
+// project have more slots than fit on one screen.
+constexpr int SAVE_MENU_INDEX = 0;
+constexpr int SAVE_SLOTS_PER_PAGE = 3;
+constexpr int SAVE_PAGES = 1;
+// (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:
+// the flow graph writes them and does not include this header.)
 
 }  // namespace Lighting

@@ -15,6 +15,9 @@ inline void hit(int) {}
 inline bool halted() { return false; }
 inline bool forced(int) { return false; }
 inline void timer(int, int) {}
+inline void factWrite(int, float, int) {}
+inline void factWritePos(int, float, float, float, int) {}
+inline void applyFactOverrides() {}
 inline void tickFromLoop(ScriptContext&) {}
 inline void tickFromScript(ScriptContext&) {}
 

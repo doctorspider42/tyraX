@@ -162,6 +162,14 @@ will not show.
   the runtime rescales so the panel keeps its physical size. Do not "fix" a
   1080i complaint by changing sizes - check the Menu Editor's *Preview in* list
   first, which shows the panel in each supported mode.
+- **Widescreen is handled too, and must not be handled twice.** 16:9 on the PS2
+  is anamorphic - the same framebuffer stretched by the TV - and the runtime
+  cancels that stretch for menu panels, so a panel keeps its authored
+  proportions on 4:3 and 16:9 alike. There is no 16:9 sheet and there must not
+  be one: the player can flip the aspect from the DISPLAY menu while the game
+  runs. If a panel looks too narrow in 16:9, it is covering the same physical
+  width as before on a wider screen - move or widen it, do not stretch it. The
+  Menu Editor's *Aspect* control shows both cases without touching the project.
 - **Row content is not style.** A row's label, action, class, icon, description
   and "enabled when" save value live in the `.tyra` (Menu Editor > Content), not
   in the sheet. Changing what a row DOES is a project edit, not a style edit.

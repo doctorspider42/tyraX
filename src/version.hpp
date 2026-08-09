@@ -16,8 +16,72 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.12.0 (the upscaler without the upscaler): BLSS gains a PLAIN mode -
+// ProjectSettings::blssNetwork, format v12 - which keeps the reduced raster and
+// the VRAM it hands back and deletes everything between: no bag proxies, no
+// reprojection, no feature grid, no MLP, and one full-screen sprite instead of
+// the Gouraud grid. It exists because on every project measured the trained net
+// already asks for NOTHING (all three outputs under the deadzone, BLSSFILL
+// 1.00 passes) while the frame pays the full EE bill to find that out. MINOR
+// because a new mode appears in the editor and in the generated game; the
+// default is unchanged, so an existing project regenerates byte for byte.
+//
+// 1.11.0 (the feature grid can describe particles): the SIXTH rule of the BLSS
+// twin contract. An emitter bag used to contribute no proxy at all - a
+// billboard bag runs frustumCulling None, so StaPipCore had no package bbox,
+// fell to a radius-0 sphere and addBag threw it away, and bagList() only walked
+// geometry - so on examples/upscaler-lab the network chose its kernels over
+// 98.7 % of the frame's fill from the geometry behind it. Now an emitter is
+// described by one box: the AABB over the centres it submits, grown by the
+// widest quad they expand into. BOTH HALVES SHIP OFF (TYRA_BLSS_EMITTER_PROXY
+// and --emitter-proxy), so no fold table and no shipped net moves; MINOR
+// because --emitter-proxy is a new verb-level capability, not because anything
+// changed by default. Measured before the flip and not after: it works
+// (147 -> 224 of 224 covered tiles, texDetail finally reports puff.png) and it
+// costs (coverage becomes a CONSTANT, +0.88 ms of EE, break-even 13.1 -> 15.3),
+// so it stays off. The spatial-split follow-up this line used to point at has
+// since been implemented on both twins, measured and REJECTED - it leaves all
+// 224 tiles covered and both channels constant for another +1.18 ms - because a
+// partition of a solid region is a tiling of it, and an emitter's pool is
+// always solid. docs/blss-reconstruction.md section 2 and docs/backlog.md.
+//
+// 1.10.3 (three things that were wrong, none of them a new capability): a FOG
+// emitter's Opacity survives a save (format v11 - it was written only inside
+// the custom block, so the one non-custom kind that reads the value reloaded
+// at the 0.6 default and the game was built with it); --blss-train and
+// --blss-emit print ABSOLUTE paths for the net, its .meta and the emitted
+// header; and an --blss-eval run on a project with enabled emitters ends in
+// NO VERDICT rather than a confident sentence about a frame the corpus does
+// not render. PATCH by this file's own rule, the 1.10.1 precedent: nothing new
+// appears in the editor, three wrong behaviours become right. A format bump
+// does not force MINOR - the two numbers are independent by design, and the
+// semver is informational.
+//
+// 1.10.2 (the corpus says what it does not draw): a project with enabled
+// emitters gets a warning from --blss-train / --blss-eval, because the corpus
+// renderer draws none of them and the PSNR table therefore describes a frame
+// the game never displays - on examples/upscaler-lab, measured at 1.63x on real
+// hardware, it printed "THIS SCENE WILL NOT BENEFIT". Drawing them is filed in
+// docs/backlog.md; this is the caveat, not the fix.
+//
+// 1.10.1 (two things hardware testing found, both fixes rather than features):
+// `--blss-train <projectDir>` writes its net into the PROJECT instead of the
+// current directory, so the documented "train, then rebuild" flow stops
+// silently rebuilding with the shipped default; and the GS fill price is per
+// PIXEL rather than one scalar measured at 512x512, which moves the published
+// break-even to 13.1 coverages at an ordinary PAL raster. PATCH by this file's
+// own rule - no capability appears, two published numbers become right.
+//
+// 1.10.0 (the neural upscaler, docs/neural-upscaler.md): the BLSS branch and
+// main both climbed from 1.3.0 while they were apart and both arrived at 1.9.x
+// - a collision, since 1.9.0 on one side names the widescreen/World Facts set
+// and on the other the upscaler's last patch. The merge takes the MINOR above
+// both rather than picking a side: the tree now carries a feature main did not
+// have, which is what MINOR means, and a number that is strictly greater than
+// either parent is the only one that keeps "which editor wrote this file"
+// answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 7
+#define TYRAX_VERSION_MINOR 13
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -45,19 +109,104 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Purely additive with safe defaults - an empty `style` IS the old look, byte
 // for byte (checked by diffing the baked panels of every example against the
 // previous baker), so no migration step.
-// v4 (the neural upscaler, docs/neural-upscaler.md): ProjectSettings gains
+// v4 (SPU2 reverb, docs/reverb.md): an Area's reverb zone (the "reverb" object
+// on an Area: preset / amount / delay / feedback / priority) and the sound
+// emitter's "reverb" send flag. Purely additive - an older file has no zones,
+// which reads as a dry game exactly as it was - so no migration step. (This
+// was authored as v3 on its own branch and renumbered on the merge: menu
+// stylesheets took that number first.)
+// v5 (sound priority, docs/sound.md): a sound emitter's "priority" - who
+// keeps one of the eight emitter voices when more emitters are audible than
+// there are channels. Purely additive and it defaults to 0, which is what
+// every emitter in an older file gets, so the ranking then falls back to
+// loudness alone - no migration step. (The Play Sound node's matching
+// Priority parameter is a flow-node param and rides the existing num array,
+// which needs no format bump of its own.)
+// v6 (collision-box overlay, docs/collision-boxes.md):
+// ProjectSettings::showCollision - the debug-profile preference that draws
+// every collider's box in the running game, next to showAreas. Purely additive
+// and it defaults to false, which is what every older file gets and what the
+// game did before, so no migration step.
+// v7 (World Facts, docs/world-facts.md): the "facts" section - the declared
+// fact catalog, the named queries over it, the reaction rules and the saved
+// test scenarios. Purely additive: a project with no facts writes no section
+// and behaves exactly as it did, so no migration step. A fact's `id` is
+// stamped by project::ensureFactIds on load, which is what lets a player's
+// save survive renames and reordering later. (Authored as v4 on its own branch
+// and renumbered TWICE on the way in - the reverb and sound-priority bumps took
+// 4 and 5, then the collision-box overlay landed on main and took 6. A branch
+// that lives a while renumbers rather than argues; the number means "what the
+// file may contain", and only main gets to say which is which.)
+// v8 (the neural upscaler, docs/neural-upscaler.md): ProjectSettings gains
 // blssEnabled / blssScale / blssSharpen / blssTemporal / blssDebugView, the
 // project-wide BLSS group. Purely additive - blssEnabled defaults to false, so
 // an older file opens as "no upscaler", which is exactly what it was, and the
 // codegen is byte-identical while the flag is off. No migration step.
-// v5 (frame pacing, docs/frame-pacing.md): ProjectSettings::tripleBuffering.
-// Purely additive - it defaults to false, which is the double-buffered
-// present every project had, and the codegen is byte-identical while it is
-// off. No migration step.
-// v6 (frame extrapolation, docs/frame-extrapolation.md):
-// ProjectSettings::frameExtrapolation. Purely additive - it defaults to
-// false, which is what every project did before, and the codegen is
-// byte-identical while it is off. No migration step.
-inline constexpr int kFormatVersion = 6;
+// v9 (the upscaler's jitter kill switch): ProjectSettings gains blssJitter,
+// the +-1/4-pixel per-frame raster jitter that is the confirmed cause of the
+// screen shake (docs/neural-upscaler.md, "The oscillation"). Purely additive,
+// and since 2026-08-08 it defaults to FALSE - so a file saved before the key
+// existed opens with the jitter OFF rather than with the behaviour it was
+// saved with. That is the one deliberate exception to "an older file opens
+// byte-identical" in this list, and it is deliberate because the behaviour it
+// declines to preserve is a visibly shaking picture. Nothing else about the
+// project changes and no migration step is needed: the codegen difference is
+// one constant, and a project that wants the samples back sets the key.
+// v10 (the upscaler's training-shot plan, docs/neural-upscaler.md): Project
+// gains blssShots - which of the six automatic camera moves the corpus shoots,
+// how many frames each gets, whether Cutscene Director takes join, and the
+// author's own vantages (typed, grabbed from the viewport, or bound to a placed
+// Camera object). Purely additive, and additive in a stronger sense than the
+// entries above: a DEFAULT plan writes nothing at all, so every project saved
+// before the key existed round-trips byte-identically and every published fold
+// table stays reproducible. No migration step.
+// (v8-v10 were authored as v4-v6 on the upscaler's branch and renumbered on
+// this merge - reverb, sound priority, the collision-box overlay and World
+// Facts had taken 4 through 7 on main while it was away. Three numbers for one
+// branch rather than one, because each was a separate landing with its own
+// meaning and the list is what an older editor's refusal is read against; two
+// features may never share a number. Nothing on disk changes: every one of them
+// is additive, so a project written at the old v6 opens at v10 unchanged and no
+// migration step is needed for the renumber either - a file claiming 6 now
+// means "collision-box overlay", which a BLSS-less project is.)
+// v11 (a fog emitter's Opacity is stored): save() wrote "opacity" only inside
+// the custom (kind 5) block, but FOG reads it too - peak alpha = opacity x 60 -
+// and the inspector offers it there, so an authored 0.3 came back 0.6 on the
+// next load and the game was built with 0.6. It is now written for fog as well;
+// the other four kinds have hardcoded peak alphas and still store nothing.
+// Additive, and NO migration step - deliberately, because there is nothing to
+// transform: the file never held the value, so 0.6 (the reader's default) is
+// not a guess at what the author meant, it is exactly what that file has always
+// meant to both codegen and the viewport. A step could only invent a number.
+// The author's 0.3 was destroyed by the save that dropped it and no migration
+// can bring it back; what the bump buys is that an older editor now refuses the
+// file instead of dropping the key on ITS next save, which is the whole job of
+// this number.
+// v12 (the upscaler's plain mode, docs/neural-upscaler.md):
+// ProjectSettings::blssNetwork - false renders at the reduced raster and blows
+// it back up with one bilinear pass, with no network, no bag proxies, no
+// reprojection and no feature grid. Purely additive and it defaults to TRUE,
+// which is the only thing a project saved before the key existed can have
+// meant: the reconstruction it shipped with is the one its blss.net was fitted
+// for. So an older file opens as the neural mode it already was and regenerates
+// byte for byte, and no migration step is needed. (Note the deliberate contrast
+// with v9's blssJitter, which does NOT preserve what it was saved with - that
+// exception was bought by a visibly shaking picture, and there is no equivalent
+// argument here.)
+// v13 (frame pacing + frame extrapolation, docs/frame-pacing.md and
+// docs/frame-extrapolation.md): ProjectSettings::tripleBuffering, which decides
+// whether the renderer presents from a vblank interrupt instead of stalling the
+// EE on vsync, and ProjectSettings::frameExtrapolation, which makes the
+// generated game present one synthesised frame after each rendered one. Both
+// purely additive and both default to false - which is exactly what every
+// project did before - so an older file opens unchanged and regenerates byte
+// for byte while they are off. No migration step.
+// (Authored as v5 and v6 on the frame-pacing branch and renumbered to ONE
+// number on this merge, the same way v8-v10 above were: the upscaler had taken
+// 4 through 12 while this branch was away. They collapse into one entry rather
+// than two because they landed as one feature set with one meaning - "the
+// pacing work" - which is the test this list applies. Nothing on disk changes;
+// both are additive, so a project written at the old v6 opens at v13 unchanged.)
+inline constexpr int kFormatVersion = 13;
 
 }  // namespace version

@@ -1,0 +1,23 @@
+# Blender MTL File: 'Cottage_FREE.blend'
+# Material Count: 1
+#
+# The map_Kd line is the ONLY edit TyraX made to the shipped .mtl, and it is the
+# reason this example exists in the shape it does: BLSS's texDetail channel is
+# the fraction of a tile covered by a material carrying a texture, and it is
+# identically zero over an untextured project - the documented cause of the
+# -0.40 dB result a bestiary-trained net scored on examples/procedural. The
+# cottage's diffuse is what makes that channel non-zero here.
+#
+# Kd is 1 1 1 rather than the shipped 0.8: the map modulates it, and 0.8 only
+# darkens the texture.
+
+newmtl Cottage_FREE
+Ns 225.000000
+Ka 1.000000 1.000000 1.000000
+Kd 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.0 0.0 0.0
+Ni 1.000000
+d 1.000000
+illum 2
+map_Kd Cottage_Clean_Base_Color512.png

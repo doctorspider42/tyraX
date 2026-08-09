@@ -18,6 +18,56 @@
 #include "renderer/core/3d/renderer_core_3d.hpp"
 #include "renderer/models/color.hpp"
 
+/**
+ * THE PROXY BUDGET, and it is a TWIN SWITCH - one number in two files, moved in
+ * the same commit or not at all, exactly like TYRA_BLSS_ACT_TABLE.
+ *
+ * 0 = a bag is described by up to kMaxProxiesPerBag boxes however small it is
+ * on screen (what has shipped so far).
+ * 1 = the cap becomes the number of GRID TILES the bag's whole box covers, so a
+ * distant terrain chunk landing in four tiles is described by four boxes
+ * instead of twenty. RendererCoreBlss::proxyBudget states the exact rule.
+ *
+ * It changes WHAT THE CONSOLE DESCRIBES, so `bagOf()` / `bagList()` in the
+ * editor's src/blsscorpus.cpp must cut identically before this may go to 1 -
+ * otherwise the network is trained against a frame description the machine no
+ * longer produces, which is the exact failure docs/blss-reconstruction.md
+ * exists to prevent and which this feature has already paid for once.
+ */
+#ifndef TYRA_BLSS_PROXY_BUDGET
+#define TYRA_BLSS_PROXY_BUDGET 0
+#endif
+
+/**
+ * EMITTER BAGS DESCRIBE THEMSELVES - the sixth rule of the twin contract, and
+ * the same kind of switch as the two above: one number in two files, moved in
+ * the same commit or not at all.
+ *
+ * 0 = a particle emitter contributes NO proxy at all (what has shipped so far).
+ * A billboard bag runs `frustumCulling = None`, so StaPipCore has no package
+ * bbox for it, falls back to addBagSphere(modelTranslation, radius 0) and
+ * addBag() rejects the empty box at `x1 <= x0`. Nothing describes it.
+ * 1 = the bag is described by ONE box: the AABB over the particle centres it is
+ * about to submit, grown by the widest quad those centres expand into.
+ * RendererCoreBlss::addBagBillboard states the exact rule.
+ *
+ * Why it matters more than its one line suggests: on `examples/upscaler-lab`
+ * the emitters are 71.65 of 72.63 counted coverages (98.7 %) and on
+ * `examples/showcase` 14.57 of 15.24 (95.6 %), so with this at 0 the network
+ * chooses its kernels over fire, fog and rain ENTIRELY FROM THE GEOMETRY
+ * BEHIND THEM. All six channels describe the opaque scene while the picture is
+ * mostly particles.
+ *
+ * It changes WHAT THE CONSOLE DESCRIBES, therefore the network's labels,
+ * therefore every published fold table and the shipped resources/blss-default.
+ * net. `bagList()` in the editor's src/blsscorpus.cpp (`--emitter-proxy`) must
+ * cut identically before this may go to 1, and flipping it is a decision that
+ * comes with a refit.
+ */
+#ifndef TYRA_BLSS_EMITTER_PROXY
+#define TYRA_BLSS_EMITTER_PROXY 0
+#endif
+
 namespace Tyra {
 
 /**
@@ -54,6 +104,13 @@ namespace Tyra {
  * buffer shrinks to the raster size at the same time (672 KB back at 2x2, see
  * RendererCoreGS::allocateVramBuffers). Nothing at all when it is off - VRAM
  * and the packet are allocated by configure().
+ *
+ * PLAIN MODE (configure()'s `network` = false) keeps the raster redirect and
+ * the VRAM arithmetic EXACTLY as above and deletes everything between them:
+ * the bag feed, the tile accumulators, the reprojection, the feature grid, the
+ * MLP and 472 of the grid's 476 vertices, leaving beginScene / endScene / one
+ * full-screen textured quad. It is the mode to reach for whenever the trained
+ * net asks for nothing, and it draws the identical picture when it does.
  */
 class RendererCoreBlss {
  public:
@@ -172,9 +229,42 @@ class RendererCoreBlss {
    * reduced raster scale. Call ONCE from the game's init, before the first
    * frame uploads any texture - the low-res target lives in the permanent
    * VRAM region under the texture heap's floor.
+   *
+   * `jitter` (TyraX): the +-1/4-pixel raster jitter that alternates every
+   * frame - the temporal-supersampling half of the feature, and the documented
+   * cause of the period-2 "bob" (docs/neural-upscaler.md, "The oscillation").
+   * Jittered sampling is SUPPOSED to make every frame a different image, and
+   * the only thing entitled to fuse the phases back together is the temporal
+   * accumulator; when the fill term culls the temporal pass there is nothing
+   * left doing it and the alternation reaches the screen. false = a pure
+   * spatial upscale, stable by construction. Defaulted so previously generated
+   * games keep their historical behaviour.
+   *
+   * `network` (TyraX): PLAIN MODE - the reduced raster with NO reconstruction
+   * at all (docs/neural-upscaler.md, "Plain mode"). false means the whole
+   * decision machinery is not merely idle but ABSENT: no bag proxies are fed
+   * (StaPipCore asks wantsProxies() and skips the branch outright), no tile
+   * accumulators are cleared, no reprojection, no feature grid, no MLP, and the
+   * composite is ONE full-screen quad instead of the Gouraud grid.
+   *
+   * It exists because a trained net very often chooses NOTHING - all three
+   * outputs quantise below the deadzone, BLSSFILL reports 1.00 passes, and the
+   * composite is already a single bilinear pass - while the frame still pays
+   * the whole EE bill to reach that conclusion. Plain mode pays the raster
+   * redirect and that one pass and no more, which is what moves the break-even
+   * from 13.1 full-screen coverages to 2.6 at an ordinary PAL raster (the
+   * numbers are in blssui::fill:: and docs/profiling.md). Read BLSSFILL under
+   * debugView 2 before assuming a given project is in that case: on
+   * examples/upscaler-lab's own net it is 1.58 passes, all of it temporal.
+   *
+   * The picture is the base pass and only the base pass, i.e. exactly what a
+   * degenerate network already produces. `jitter` is FORCED OFF here and that
+   * is not a policy choice made twice: the only thing that can fuse two jitter
+   * phases is the temporal pass, and in plain mode there is none - jittered
+   * sampling with nothing to fuse it is the period-2 bob and nothing else.
    */
   void configure(int scaleX, int scaleY, float sharpen, bool temporal,
-                 int debugView);
+                 int debugView, bool jitter = true, bool network = true);
 
   /** The trained weights (123 at the shipped kFeatures = 6, kHidden = 12),
    * emitted into the
@@ -188,6 +278,18 @@ class RendererCoreBlss {
               const float* b2);
 
   bool isEnabled() const { return enabled; }
+  /** False in PLAIN MODE - see configure()'s `network`. */
+  bool usesNetwork() const { return useNet; }
+  /**
+   * THE ONE QUESTION THE BAG FEED ASKS, and it must be asked instead of
+   * isEnabled(). Every addBag* entry point below is already inert in plain
+   * mode, but "inert" is not "free": StaPipCore computes a world bounding
+   * sphere (two sqrtf) and a texel area per bag before it calls, and that work
+   * exists ONLY to describe a frame to a network that is not there. The
+   * measured `proxy` term is 2.34 ms of a 4.60 ms bill - by far the largest
+   * single item - so the caller's gate has to be this, not enabled.
+   */
+  bool wantsProxies() const { return enabled && useNet; }
   int getLowResW() const { return lowW; }
   int getLowResH() const { return lowH; }
 
@@ -268,7 +370,101 @@ class RendererCoreBlss {
   void addBagBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
                  const float& texelArea);
 
+  /**
+   * THE PROXY FOR A PARTICLE EMITTER - the sixth rule of the twin contract
+   * (docs/blss-reconstruction.md section 2), gated by TYRA_BLSS_EMITTER_PROXY
+   * at the CALL SITE in StaPipCore so a build with the switch off carries not
+   * one extra instruction.
+   *
+   * A billboard bag hands VU1 one CENTRE per particle plus a 2x2 basis weight
+   * qword `(m00, m01, m10, m11)` per particle, and VU1 expands each centre into
+   *
+   *     corner = C +- (R*m00 + U*m01) +- (R*m10 + U*m11)
+   *
+   * with the bag's own `right`/`up` carried through the SAME `mvp` as the
+   * centres (stapip_billboard_{c,t}_vu1.vclpp). So in the space this function
+   * projects from, the union of every quad is contained in the AABB over the
+   * centres grown per axis by
+   *
+   *     e.axis = |R.axis| * (max|m00| + max|m10|)
+   *            + |U.axis| * (max|m01| + max|m11|)
+   *
+   * with the four maxima taken over the bag's own particles. That bound is
+   * TIGHT for the ordinary emitter (m01 = m10 = 0, so it is exactly the quad's
+   * half-width along R and half-height along U) and conservative by at most
+   * sqrt(2) for the one kind that rotates its quads (fog's per-puff swirl).
+   * Both passes are over memory the EE has just written, and it is one box, so
+   * the whole feed for an emitter is `count` qword pairs and one projection.
+   *
+   * ONE BOX PER BAG, NOT ONE PER VU1 PACKAGE, and that is a twin decision
+   * rather than a saving. Geometry splits per package because both halves can
+   * agree on which vertices land in which package - the vertex order is the
+   * authored order and it is the same on both machines. A particle pool's
+   * order is its SPAWN order, an artefact of a simulation the corpus does not
+   * run (it has no dt - see docs/backlog.md), so any sub-bag split would put
+   * different particles in each box on each side. The AABB of a SET does not
+   * depend on the order of the set, which is exactly what makes one box per
+   * bag statable as a rule both halves can meet.
+   *
+   * `centres` and `params` must both hold `count` entries (the vertex slot and
+   * the texture bag's `coordinates` slot of the same bag). `texelArea` is the
+   * emitter material's texel count, 0 for an untextured emitter, and is turned
+   * into section 2's minification ratio by addBagBox() exactly as for geometry.
+   * Inert unless called inside the beginScene/endScene bracket, and ignored
+   * under a foreign view.
+   */
+  void addBagBillboard(const M4x4& mvp, const Vec4* centres, const u32& count,
+                       const Vec4* params, const Vec4& right, const Vec4& up,
+                       const float& texelArea);
+
+  /**
+   * HOW MANY BOXES THIS BAG IS WORTH DESCRIBING WITH - the twin rule, and the
+   * only lever left on the proxy feed that is not a micro-optimisation.
+   *
+   * The rule, in the terms docs/blss-reconstruction.md section 2 uses:
+   *
+   *   Project the bag's WHOLE object-space AABB through `mvp` exactly as
+   *   addBagBox() projects a package box - eight corners, the twelve-edge near
+   *   clip, the straddle rule, the screen clamp - and count the tiles of its
+   *   tile range, `(tx1 - tx0 + 1) * (ty1 - ty0 + 1)`, with the same clamps and
+   *   the same -0.001F addBag() uses. The per-bag proxy cap is that count,
+   *   clamped to `1 .. kMaxProxiesPerBag`; a whole box that describes nothing
+   *   keeps the full cap. Consecutive parts then merge into `ceil(parts / cap)`
+   *   groups exactly as they already do above the fixed cap.
+   *
+   * Why the tile count is the right budget: a proxy's ONLY effect is on the
+   * tiles its screen bbox overlaps, and the grid resolves nothing finer than a
+   * tile. Twenty boxes landing in four tiles are summed into those four tiles
+   * either way; the extra sixteen buy a slightly tighter per-tile `wNear` and
+   * cost sixteen projections plus sixteen tile updates. The fidelity loss is
+   * bounded by the mechanism the fixed cap already documents - merging by
+   * vertex range can only ENLARGE a box, never move it - so the worst case
+   * degrades toward the whole-bag proxy rather than lying about where the
+   * geometry is. And the budget is never 0, so no bag stops being described: a
+   * rule that could empty a bag would hand its tiles `coverage = 0`, which the
+   * network reads as "nothing here".
+   *
+   * Returns kMaxProxiesPerBag - i.e. changes nothing - when BLSS is off or the
+   * call is outside the scene bracket.
+   */
+  int proxyBudget(const M4x4& mvp, const Vec4& objMin,
+                  const Vec4& objMax) const;
+
  private:
+  /**
+   * The shared geometry of addBagBox() and proxyBudget(): an object-space AABB
+   * through `mvp`, near-clipped, reduced to a CLAMPED screen bbox and a w range
+   * written into `out[6]` as {x0, y0, x1, y1, wNear, wFar}. Returns false for a
+   * box that describes nothing - wholly behind the eye, wholly off screen, or
+   * straddling the eye while still filling the frame.
+   *
+   * One implementation on purpose: the budget must count the tiles of exactly
+   * the box the accumulator would have seen, or the two halves of the rule
+   * disagree about what a bag covers.
+   */
+  bool projectBox(const M4x4& mvp, const Vec4& objMin, const Vec4& objMax,
+                  float* out) const;
+
   /** A pinhole camera - the only form reprojection needs (docs section 3). */
   struct Pinhole {
     float pos[3] = {0.0F, 0.0F, 0.0F};
@@ -312,8 +508,38 @@ class RendererCoreBlss {
   qword_t* emitPassState(qword_t* q, int srcVram, int srcBufW, int texW,
                          int texH, bool linear, u64 alpha, bool textured);
   qword_t* emitGrid(qword_t* q, int pass);
+  /**
+   * PLAIN MODE's whole composite: the base pass as ONE CELL of the grid - four
+   * vertices instead of emitGrid(q, 0)'s 476.
+   *
+   * It is the same picture, and the equality is a property of the packet
+   * rather than a hope. Pass 0's UV is u(x) = (x << 4) / scaleX + jitter, a
+   * LINEAR function of the output pixel; the grid samples it at every 32-pixel
+   * corner and lets the rasteriser interpolate between them, and this samples
+   * it at the four screen corners and lets the SAME rasteriser interpolate
+   * between those - same PRIM flags, same vertex order, same diagonal, same
+   * gradient (an exact 16/scaleX per pixel), same bilinear filter, same region
+   * clamp, same opaque blend, same constant vertex colour.
+   *
+   * Checked rather than argued: on examples/upscaler-lab, parked camera, every
+   * emitter hidden, a neural build whose network asks for nothing and a plain
+   * build are BYTE-IDENTICAL over 811 426 compared pixels in all nine
+   * cross-pairings of three captures each (docs/neural-upscaler.md, "Plain mode
+   * draws the same picture").
+   */
+  qword_t* emitBaseQuad(qword_t* q);
+  /** The texture/blend state both composites hand back - see the .cpp. */
+  qword_t* emitCompositeRestore(qword_t* q);
   /** 0..255 alpha byte of a pass at a grid corner (docs section 6). */
   u8 cornerAlpha(int pass, int corner) const;
+
+  /**
+   * Would this pass draw a single cell? emitGrid already skips a cell whose
+   * four corners are all alpha 0; this asks the same question of the whole
+   * grid BEFORE the corner UVs are built and before the pass' state block is
+   * emitted. Point and sharpen measure 0 % occupancy at the shipped deadzone.
+   */
+  bool passHasAlpha(int pass) const;
   /**
    * The three weight -> alpha-byte scales, in output order (wA, wC, wD):
    * 128, kTemporalMax, sharpen * 128. One definition, because cornerAlpha()
@@ -333,6 +559,10 @@ class RendererCoreBlss {
   void* vramRebuildUser = nullptr;
 
   bool enabled = false;
+  // PLAIN MODE's flag. Defaults true so an embedder calling the six-argument
+  // configure() - and every generated game built before plain mode existed -
+  // keeps the reconstruction it always had.
+  bool useNet = true;
   bool allocated = false;
   bool inScene = false;
   int scaleX = 1, scaleY = 1;
@@ -347,12 +577,31 @@ class RendererCoreBlss {
   int cols = 0, rows = 0;   // tile counts
   int cornerCols = 0, cornerRows = 0;
 
+  bool jitterOn = true;     // TyraX: the kill switch - see configure()
   int phase = 0;            // jitter phase, alternating every frame
-  int jitter16X = 0;        // this frame's jitter in 1/16 px (+-4)
+  int jitter16X = 0;        // this frame's jitter in 1/16 px (+-4, or 0)
   int jitter16Y = 0;
 
   // --- the feature-spread instrument (debugView >= 2) -------------------
   int proxies = 0;      // bag proxies accumulated this frame (reset per frame)
+  /**
+   * TILE UPDATES this frame - the sum over proxies of the tiles each one
+   * touched, i.e. how many times addBag()'s inner body ran. `proxies` alone
+   * cannot price the feed: a distant package box costs one tile and a near
+   * terrain chunk costs sixty, and it is this number, not the proxy count,
+   * that FrameProfile::tBlssAccum is proportional to. Reported by BLSSGRID so
+   * "ms per tile update" is a division rather than an estimate.
+   */
+  int proxyTiles = 0;
+  /**
+   * BOXES PROJECTED this frame - how many times addBagBox() ran, accepted or
+   * not. It is NOT `proxies`: a box wholly behind the eye, wholly off screen,
+   * or dropped by the straddle rule pays the full eight-corner projection and
+   * then returns, so the gap between these two columns is work the frame did
+   * to describe nothing. Without it the projection half of the feed cannot be
+   * priced at all - `proxies` counts only what survived.
+   */
+  int proxyCalls = 0;
   int logFrame = 0;     // frames since the last spread line
   // The widest proxy of the frame, by tiles touched - the one that decides
   // whether the feature grid describes anything.
@@ -381,12 +630,29 @@ class RendererCoreBlss {
   float dMax[kMaxTiles];
 
   // --- per-tile stats + features + outputs -----------------------------
-  float tCover[kMaxTiles];
-  float tDepth[kMaxTiles];  // depthMean, already 1/w
-  float tDetail[kMaxTiles];
-  float tEdge[kMaxTiles];
-  float tDepthMin[kMaxTiles];
-  float tDepthMax[kMaxTiles];
+  //
+  // FIVE ARRAYS THAT USED TO LIVE HERE ARE GONE. tCover / tDetail / tEdge were
+  // written by finishTileStats and then COPIED, unchanged, into feat[][5] / [4]
+  // / [3] by buildFeatures; tDepthMin / tDepthMax existed only to be subtracted
+  // from each other one function later. finishTileStats writes the three
+  // straight into `feat` now and reduces the depth pair to `tGrad` on the spot,
+  // which removes a 224-tile pass and 4.4 KB of per-frame working set. Every
+  // expression is unchanged and in the same order, so the network's inputs are
+  // bit-identical - proved on hardware, not asserted.
+  //
+  // **It is a simplification, NOT a speed-up, and the measurement says so.**
+  // The work does not disappear, it MOVES: `feat` 0.190 -> 0.141 ms and
+  // `reproj` 0.275 -> 0.310, for a net +0.014 ms. The pass that was deleted was
+  // very nearly free, because 224 floats is 896 bytes and the EE's data cache
+  // had no trouble with it - the cache story this comment used to tell was a
+  // guess, and it was wrong. See docs/profiling.md, "The last terms in the
+  // composite", for the numbers and for why nothing else here is worth taking.
+  float tDepth[kMaxTiles];  // depthMean, already 1/w; buildReproj reads it
+  // (depthMax - depthMin) * kDepthRef, the tile's own near/far spread - the
+  // floor of the depthGrad channel, ready to compare against its neighbours.
+  float tGrad[kMaxTiles];
+  // [0] motion, [1] depth, [2] depthGrad, [3] edgeDens, [4] texDetail,
+  // [5] coverage. finishTileStats fills 1/3/4/5; buildFeatures fills 0 and 2.
   float feat[kMaxTiles][kFeatures];
   float outW_A[kMaxTiles];  // wA per tile
   float outW_C[kMaxTiles];  // wC per tile

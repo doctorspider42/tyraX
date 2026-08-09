@@ -517,6 +517,11 @@ const std::vector<ObjectProp>& objectProps() {
         {"detail", "number",
          "tessellation: radial segments (sphere/cylinder/cone) or subdivisions "
          "per edge (box)"},
+        {"rings", "bool",
+         "cylinders: also subdivide the side along the axis (one ring per four "
+         "segments). Needed when a light sits above or below the cylinder - "
+         "without it the side is one quad tall at any detail and the light "
+         "bakes into full-height diagonal stripes"},
         {"drawDistance", "number", "not drawn past this distance; 0 = unlimited"},
         {"castShadow", "bool", "darkens nearby surfaces (baked contact shadow)"},
         {"bakedLighting", "bool", "may take a per-texel lightmap (off = relights "

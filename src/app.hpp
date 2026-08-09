@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <array>
 #include <map>
 #include <memory>
 #include <set>
@@ -15,6 +16,7 @@
 #include "aichat.hpp"  // the AI Assistant window's conversation + tool table
 #include "aigen.hpp"
 #include "blss_ui.hpp"  // the Neural Upscaler window's job + parsed tables
+#include "blsscorpus.hpp"  // blss::CoverageReport - the speed half of the answer
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
@@ -675,41 +677,178 @@ private:
     // every verb through blssCommonArgs().
     void drawBlssCorpusChoice();
     void drawBlssCorpusReminder();
+    // THE HAPPY PATH, and it is above the tabs because it is the only question
+    // most people have: one button that runs the NET-FREE `--blss-eval` on this
+    // project and answers "will this scene benefit" in plain language. It needs
+    // no trained network, which is the whole point - the window used to tell
+    // people to run Evaluate first, and Evaluate could not run without a net
+    // that only Train could produce.
+    void drawBlssHappyPath();
+    // THE OTHER HALF OF THE HAPPY PATH: will the scene get FASTER. BLSS trades
+    // GS fill for EE work at a measured price, so the answer is entirely a
+    // question about overdraw - and blss::measureCoverage() counts a project's
+    // own overdraw in about a second. Unlike every other verb in this window
+    // this runs IN-PROCESS on a worker thread rather than as a subprocess:
+    // there is no CLI verb behind it, it touches no file, and a second is not
+    // worth a process. `blssCoverageTick` is the poll (called from blssPoll, so
+    // a run that ends while the window is shut still lands).
+    void blssStartCoverage();
+    void blssCoverageTick();
+    // ONE ANSWER, not two tables: the quality ceiling and the speed estimate
+    // combined, in the window's own voice, including the case that occurs on
+    // most scenes - no headroom AND below the break-even, so leave it off.
+    void drawBlssAnswer();
+    // The per-shot coverage breakdown, behind a collapsing header. A project
+    // whose mean is 15 because one scene is 30 and another is 1 has been told
+    // something useful only if it can see that.
+    void drawBlssCoverageDetail();
+    // The net's recorded command line against the project's CURRENT settings.
+    // A blss.net stores no settings at all, so the `.args` sidecar is the only
+    // place "this was trained with --sharpen 0.5 and the project now says 0.80"
+    // can be noticed - everywhere else the mismatch is silent and just worse.
+    void drawBlssProvenanceDrift();
+    // WHICH OF THE TWO NETS THIS PROJECT SHIPS, as a control rather than a
+    // status line. codegen's order is the project's own `blss.net` else the net
+    // embedded in the editor, so the choice is a fact about ONE file - and the
+    // switch is therefore a reversible RENAME (`blss.net.off`), never a delete.
+    // It replaces the line that used to read "none - the game will be built
+    // with RANDOM weights", which stopped being reachable the moment a default
+    // shipped and was this feature's worst footgun while it was.
+    void drawBlssNetSource();
+    void blssSetNetAside(bool aside);
     // "Will this scene benefit at all?" - the answer --blss-eval already
     // contains and used to bury in a table. Reads the oracle row, which is the
     // scene's own ceiling: on examples/showcase it is +0.00 dB, and no network
-    // can beat a bound of zero.
-    void drawBlssVerdict();
+    // can beat a bound of zero. `compact` drops the explanatory paragraphs for
+    // the header, where the same verdict has to sit above six tabs.
+    void drawBlssVerdict(const blssui::EvalSummary& sum, bool compact);
+    // bilinear | BLSS | the amplified difference, click-through to Compare.
+    void drawBlssVerdictThumbs();
     void drawBlssOutput(float height);
     void drawBlssTrainTab();
     void drawBlssEvalTab();
     void drawBlssCvTab();
     void drawBlssImagesTab();
     void drawBlssFeaturesTab();
+    // WHAT THE CORPUS IS ALLOWED TO SEE (Project::blssShots). The six automatic
+    // moves are a guess derived from the scene's bounds; this is where the
+    // author says which of them survive and adds vantages of their own, aimed
+    // where the player will actually stand. The plan is .tyra data, so the
+    // trainer reads it out of the project rather than off a command line.
+    void drawBlssShotsTab();
+    // The shot list the corpus will shoot, as the window understands it -
+    // resolved through project::blssResolveShot, which is also what the corpus
+    // loader calls, so the preview cannot describe a different frame from the
+    // one that gets rendered.
+    void drawBlssShotPlanPreview();
+    // The DISTRIBUTION PROBE as a workflow instead of a chore: turn on debug
+    // view 2, run the game, and let the editor find the BLSSFEAT line in the
+    // project's own log rather than making somebody grep for it and paste it
+    // into a CLI. Under ps2link the game writes NO bin/log.txt at all
+    // (templates.cpp sets writeLogsToFile = !ps2link), so the runner's own
+    // [ps2] stream is the second source and the panel says which it used.
+    void drawBlssProbeTab();
+    // Fills blssProbeLine_ from the freshest source that has one. Returns the
+    // human description of where it came from, or "" when nothing was found.
+    std::string blssFindFeatLine();
+    void blssRunProbe();
+    // "Is this corpus good enough to train on" - the third verdict, next to
+    // "will the picture improve" and "will the frame get faster". `compact`
+    // drops the per-channel findings for the header block.
+    void drawBlssHealth(bool compact);
     // Picks up a finished run. Called every frame from drawUI, NOT from the
     // window body, so a training run that ends while the tab is shut still
     // lands - the giBakerPoll rule.
     void blssPoll();
     void blssStart(blssui::Kind kind, const std::vector<std::string>& args, int epochs);
+    // Pressed from the Train tab AND from the verdict, so the argument list is
+    // built once - two copies is how one of them stops passing --all-shots.
+    void blssStartTraining();
+    void blssRestoreTrainDefaults();
+    // The four tabs each carry their own frame count and are only comparable
+    // when they agree; this says so when they have drifted.
+    void drawBlssFrameDrift(int mine);
     std::vector<std::string> blssCommonArgs() const;
     std::string blssNetPath() const;
     void blssRefreshNetStatus();
     static void blssWriteNetSidecar(const std::string& netPath, const std::string& command);
     void blssReloadImages();
     void blssReleaseImages();
+    // The amplified |A-B| view of the Compare tab, built on the CPU from the
+    // two loaded PNGs. A 0.4 dB gap is invisible side by side and obvious at
+    // 8x, which is why this is the one view worth adding.
+    void blssRebuildDiff();
+    // How many camera moves the corpus is expected to have - 13 for the
+    // bestiary, six per scene for a project. Only the cross-validation cost
+    // estimate needs it (its fold count defaults to one per shot).
+    int blssExpectedShots() const;
+    // How much GS VRAM the reduced render hands back on THIS project's raster,
+    // and the honest answer for 1x2, which is "nothing".
+    std::string blssVramLine(const ProjectSettings& s) const;
     // THE BUILD'S OWN INTERLOCK, mirrored live. blssClashes() in templates.cpp
     // emits an #error for each of these, so the dialog and the build must
     // answer alike; this is the ONE mirror, called by both Project >
     // Preferences (staged settings) and the BLSS window (live ones).
+    //
+    // It carries the NAMES now, not four bools. "A Set Depth Of Field flow node
+    // turns it on at runtime" is not actionable on a ten-scene project - the
+    // walk in blssClashesFor() has the scene and the object in hand and used to
+    // throw both away - so each clash is a list of what caused it, and each
+    // entry can be selected and framed.
+    struct BlssClashRef {
+        int scene = -1;
+        int object = -1;  // -1 when the clash is a property of the scene itself
+        std::string label;  // "scene > object", or just the scene name
+    };
     struct BlssClash {
-        bool dof = false, dofNode = false, portals = false, split = false;
-        bool any() const { return dof || dofNode || portals || split; }
+        std::vector<BlssClashRef> dof, dofNode, portals, split;
+        bool any() const {
+            return !dof.empty() || !dofNode.empty() || !portals.empty() || !split.empty();
+        }
     };
     BlssClash blssClashesFor(const ProjectSettings& staged) const;
-    void drawBlssClashWarning(const BlssClash&);
+    // `informational` styles the block as a note rather than a warning, for the
+    // case that matters most: someone EVALUATING whether to turn the feature on
+    // has to be able to see what would stop them before they turn it on.
+    void drawBlssClashWarning(const BlssClash&, bool informational);
+    // Switch to that scene, select that object and put the camera pivot on it.
+    void blssSelectClash(const BlssClashRef&);
     // The five project settings and their tooltips, drawn from one place by
     // both Preferences and the window. Returns true when something changed.
     bool drawBlssSettings(ProjectSettings& s);
+
+    // Tools > World Facts (facts_ui.cpp, docs/world-facts.md): the fact
+    // catalog, the named queries over it, the reaction rules, the saved test
+    // scenarios and the live World Blackboard. Its own TU (the prefab_ui.cpp
+    // precedent) - it is a self-contained subsystem and app.cpp is already the
+    // build's critical path.
+    void drawWorldFactsWindow();
+    void drawFactCatalogTab();
+    void drawFactQueriesTab();
+    void drawFactRulesTab();
+    void drawFactScenariosTab();
+    void drawFactBlackboardTab();
+    // The recursive condition editor, shared by queries and rules. Returns
+    // true when the tree changed. `depth` guards the nesting the UI draws.
+    bool drawFactCondition(facts::Condition& c, int depth, const char* id);
+    // A fact / query picker, the paramCombo idiom - used by the condition
+    // editor, the rule actions, the scenarios AND the flow-graph node params,
+    // so every place a fact is named offers the same list.
+    bool factCombo(const char* id, std::string& value, bool positionsToo);
+    bool factQueryCombo(const char* id, std::string& value);
+    // The catalog's Name field plus its completion dropdown - the whole
+    // widget in one place, because the popup and the field have to agree
+    // about focus and about which candidate is highlighted.
+    void drawFactNameField(facts::Fact& f);
+    // The value widget for one fact, chosen from its declared type (a checkbox
+    // for a yes/no, a combo of option names for a one-of-several). One
+    // function so the catalog, the rules, the scenarios and the blackboard
+    // cannot each invent their own idea of what a fact's value looks like.
+    bool factValueWidget(const char* id, const facts::Fact& f, float* v3);
+    // Live values for the Why? explanation and the blackboard: the running
+    // game's, or the catalog defaults when nothing is attached.
+    bool factLiveValue(const std::string& name, float* out3) const;
+    void factPushOverrides();
 
     // Tools > VU Programs (vu_ui.cpp, docs/vu-authoring.md).
     void drawVuProgramsWindow();
@@ -1241,6 +1380,23 @@ private:
     std::vector<int> selection_;
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
+    // Click cycling: clicking the same spot again walks the objects stacked
+    // under the cursor (Viewport::pickAll order) instead of re-selecting the
+    // front one, which is the only way to reach something enclosed by or
+    // hidden behind another with the mouse alone. The candidate list is
+    // captured when the cycle STARTS and then walked - selecting something
+    // moves the orbit pivot (View > Orbit around selected object), so
+    // re-picking on the second click would ask a different camera a different
+    // question. pickCycleLast_ is what the previous click at that spot chose;
+    // the selection is not the anchor, because it may have been changed from
+    // the outliner in between.
+    ImVec2 pickCyclePos_{-1e9f, -1e9f};
+    std::vector<int> pickCycle_;
+    int pickCycleLast_ = -1;
+    // Resolves a viewport click into an object index (-1 = empty space),
+    // advancing the cycle. `cycled` reports that this click stepped through
+    // the stack rather than starting a new pick.
+    int viewportPick(float u, float v, ImVec2 mouse, bool* cycled);
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1339,6 +1495,33 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    // Tools > World Facts (docs/world-facts.md). Project-wide like Prefabs, so
+    // the window is a tabbed list with an index and nothing about it is per
+    // scene.
+    bool showWorldFacts_ = false;
+    int factSel_ = -1;        // selected catalog row
+    int factQuerySel_ = -1;   // selected query
+    int factRuleSel_ = -1;    // selected rule
+    int factScenarioSel_ = -1;
+    std::string factFilter_;  // catalog search box
+    // The name a rename is being typed over, so renameFactRefs can retarget
+    // every reference when the field commits - the objRenameFrom_ idiom.
+    std::string factRenameFrom_, factQueryRenameFrom_;
+    // Name-completion dropdown state. It lives here rather than in the draw
+    // function because every part of it is read a FRAME LATER than it is
+    // written: the InputText eats Enter itself, so the accept has to be
+    // decided before the field is submitted, from what was true last frame.
+    std::vector<std::string> factNameSuggest_;  // full strings to complete to
+    int factNameSuggestSel_ = -1;    // highlighted row, -1 = none
+    bool factNameSuggestOpen_ = false;
+    bool factNameSuggestHover_ = false;  // the list was hovered last frame
+    bool factNameActive_ = false;    // the field had keyboard focus last frame
+    bool factNameCaretEnd_ = false;  // put the caret past the accepted text
+    bool factNameRefocus_ = false;   // hand the keyboard back after an accept
+    // Manual blackboard overrides, keyed by fact name. Held here rather than
+    // in the Command so the list survives a game restart and can be edited
+    // while nothing is running.
+    std::map<std::string, std::array<float, 3>> factOverrides_;
     bool showVuPrograms_ = false;
     // Rebuilt every frame the VU window is open (milliseconds), so the
     // listing, the budget bar and the simulation are one answer rather than
@@ -1526,6 +1709,11 @@ private:
     // provenance is a sidecar this editor writes next to the net it trained;
     // a net newer than its sidecar reports "unknown" rather than a stale one.
     bool blssNetPresent_ = false;
+    // ...and whether a net this window set ASIDE is waiting to come back. The
+    // net-source radio is the only writer of `blss.net.off`; without this the
+    // "project's own net" option would go permanently dead the moment the
+    // shipped default was selected.
+    bool blssNetAside_ = false;
     bool blssNetArgsStale_ = false;
     size_t blssNetBytes_ = 0;
     std::string blssNetWhen_, blssNetArgs_;
@@ -1565,18 +1753,87 @@ private:
     int blssFeatFrames_ = 156;
     // Parsed out of the last run of each kind - never computed here.
     blssui::EvalTable blssEval_;
+    // THE VERDICT'S NUMBERS, from the last Evaluate or "will this scene
+    // benefit" run. Taken from the tool's own machine-readable `[blss] verdict`
+    // line when it is there and re-derived from the parsed table when it is
+    // not, so an older binary still answers.
+    blssui::EvalSummary blssSummary_;
+    // WHICH NET PRODUCED THE TABLE ON SCREEN, from the run's own announce line
+    // rather than from the file system. With a default shipping, "I evaluated
+    // my project" and "I evaluated the editor's net on my project" are one
+    // keystroke apart, and until the line existed they looked identical.
+    blssui::NetSource blssNetSource_;
     blssui::CvTable blssCv_;
     blssui::FeatureTable blssFeat_;
-    // The comparison PNGs --blss-eval --dump wrote, as GL textures.
+    // The third verdict - "is this corpus good enough to train on" - derived
+    // once from blssFeat_ when a report lands, not per frame, for the same
+    // reason blssSpeed_ is: a sentence a reader is going to quote must not
+    // shimmer between two roundings. Unknown until a report exists, and
+    // deliberately not reassuring while it is.
+    blssui::CorpusHealth blssHealth_;
+    // A CONSOLE frame placed in that corpus. Parsed from the same
+    // `--features` run (the tool prints the probe table under the channel
+    // table), so a run without --probe leaves it empty, which is correct.
+    blssui::ProbeTable blssProbe_;
+    blssui::ProbeVerdict blssProbeVerdict_;
+    // The BLSSFEAT line being probed, and where it came from - the project's
+    // bin/log.txt, the runner's [ps2] stream, or the user's own paste.
+    char blssProbeLine_[2048] = {};
+    std::string blssProbeSource_, blssProbeNote_;
+    // What the corpus loader SAID it found, per scene, out of the last run's
+    // output. It is how an author tells "the trainer honoured my shot plan"
+    // from "the trainer is still shooting its six defaults", which is otherwise
+    // invisible: a plan the tool ignores looks exactly like a plan it obeys.
+    std::vector<blssui::CorpusScene> blssScenes_;
+    // Training shots: which row of Project::blssShots is being edited.
+    int blssShotSel_ = -1;
+    // "Look through this shot" - the editor camera parked at a training
+    // vantage. Held as state rather than pushed once, because drawUI CLEARS the
+    // viewport's camera override on every frame nothing claims it (app.cpp,
+    // the look-through camera branch), so a one-shot push lasts one frame.
+    bool blssLookThrough_ = false;
+    float blssLookEye_[3] = {0.0f, 0.0f, 0.0f};
+    float blssLookAt_[3] = {0.0f, 0.0f, 1.0f};
+    float blssLookFov_ = 60.0f;
+    // THE SPEED HALF. `blssCov_` is the UI's copy and is only ever written by
+    // blssCoverageTick after the worker has finished (the version bump is the
+    // handover, the Runner/giBaker idiom); `blssCovOut_` is the worker's own
+    // slot and must not be read while it runs.
+    blss::CoverageReport blssCov_, blssCovOut_;
+    std::thread blssCovThread_;
+    std::atomic<bool> blssCovRunning_{false};
+    std::atomic<bool> blssCovCancel_{false};
+    std::atomic<uint64_t> blssCovVersion_{0};
+    uint64_t blssCovSeen_ = 0;
+    double blssCovStarted_ = 0.0, blssCovSeconds_ = 0.0;
+    // The estimate, derived from blssCov_ once per finished run rather than per
+    // frame - blssui::speedFrom is pure and cheap, but the verdict text is what
+    // a reader quotes and it must not flicker between two roundings.
+    blssui::SpeedEstimate blssSpeed_;
+    // Which tab to force open next frame (-1 = leave it alone). The verdict's
+    // thumbnails are click-through to Compare, and a strip that showed the
+    // pictures but could not get you to them would be decoration.
+    int blssTabSelect_ = -1;
+    // The comparison PNGs --blss-eval --dump wrote, as GL textures. The PIXELS
+    // are kept as well, because the difference view is computed from them on
+    // the CPU - ~900 KB each at 512x448, nine of them.
     struct BlssImage {
         std::string label, tip, path;
         unsigned tex = 0;
         int w = 0, h = 0;
+        std::vector<unsigned char> px;  // RGBA, w*h*4
     };
     std::vector<BlssImage> blssImages_;
     bool blssImagesDirty_ = true;
     int blssImgA_ = 0, blssImgB_ = 0, blssImgMode_ = 0;
     float blssWipe_ = 0.5f, blssZoom_ = 1.0f;
+    // |A-B| amplified. Rebuilt when the pair or the amplification changes, and
+    // never per frame - it is a full-image CPU pass.
+    unsigned blssDiffTex_ = 0;
+    int blssDiffW_ = 0, blssDiffH_ = 0;
+    int blssDiffA_ = -1, blssDiffB_ = -1;
+    float blssDiffAmp_ = 8.0f, blssDiffAmpBuilt_ = -1.0f;
+    double blssDiffPeak_ = 0.0, blssDiffMean_ = 0.0;  // the honest scale of the gap
 
     bool showTreeGenerator_ = false;
     treegen::Params treeParams_;
@@ -1758,6 +2015,13 @@ private:
     int menuPreviewContentH_ = 0;  // drawn part (layout cached at bake time)
     bool menuPreviewClipped_ = false;  // content hit the 512px texture cap
     int menuPreviewMode_ = 0;      // 0 = panel 1:1, 1 = TV PAL, 2 = TV NTSC
+    // Preview aspect: 0 = follow the project (Preferences > Widescreen), 1 =
+    // force 4:3, 2 = force 16:9 - the safe-area overlay's Aspect control, for
+    // the same reason. Widescreen is anamorphic, so it changes what a baked
+    // panel looks like without changing a single pixel of it, and checking the
+    // other case must not mean editing the project. Shared by both preview
+    // surfaces: it is a question about the menu, not about the window.
+    int menuPreviewAspect_ = 0;
     std::string menuPreviewKey_;  // serialized menu the texture was baked from
 
     // Color grading (Tools > Color Grading): selected preset + whether the
@@ -2302,6 +2566,10 @@ private:
     // walkable grid, recomputed only when its inputs change (same signature
     // trick as the projected decals). Session state, not persisted.
     bool showNavOverlay_ = false;
+    // Collision-box overlay (View > Collision boxes, docs/collision-boxes.md):
+    // the volume the game blocks the player and the camera boom with. Session
+    // state like the other view toggles - the viewport is told each frame.
+    bool showCollisionBoxes_ = false;
     navmesh::NavGrid navGrid_;
     uint64_t navOverlaySig_ = 0;
     uint64_t navOverlayVersion_ = 0;
@@ -2655,6 +2923,7 @@ private:
     uint32_t dbgSnapPrevFrame_ = 0;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
+    std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
     void livedbgTick();
     void drawDebuggerWindow();
 

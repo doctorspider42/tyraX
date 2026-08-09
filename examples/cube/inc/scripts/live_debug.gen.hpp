@@ -36,6 +36,20 @@ bool forced(int key);
  * frame per Delay node with its current counter; 0 = not armed. */
 void timer(int key, int framesLeft);
 
+/** A World Fact changed (docs/world-facts.md). `src` is WHO changed it - an
+ * instrumented node's key, or -(rule + 1) for the fact rule engine - which is
+ * what lets the blackboard's history say "Set Fact in Main / Door" rather than
+ * just showing a number that moved. Called only from the fact store's
+ * factWrite(), which already compared old against new, so every call here is
+ * a real change. */
+void factWrite(int slot, float v, int src);
+void factWritePos(int slot, float x, float y, float z, int src);
+
+/** The editor's manual overrides, applied once per frame after the graphs and
+ * rules have run - so what the author typed wins over what the world computed
+ * for exactly the frame they typed it, and the world takes over again. */
+void applyFactOverrides();
+
 /** Per-frame pump. The generated loop calls tickFromLoop() before anything
  * reads halted(); tickFromScript() is the fallback for projects that took
  * ownership of terrain_game.cpp (it does nothing once the loop hook is seen).

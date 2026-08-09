@@ -18,6 +18,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -32,15 +33,96 @@ struct ReprojField;  // defined below, referenced by the feature builders
 // 512x448: coarse enough that the per-tile MLP is free (224 evaluations) and
 // the Gouraud weight field is smooth over 32 px, fine enough to separate a
 // foliage silhouette from the sky next to it.
+//
+// THIS IS THE SHIPPED VALUE AND THE ONLY ONE THE ENGINE CAN RUN. It is a
+// compile-time constant on the twin (RendererCoreBlss::kTile), so anything
+// other than 32 here is a MEASUREMENT configuration, not a shipping one -
+// changing it for real means changing both sides in one commit.
 constexpr int kTile = 32;
 
-// The upscale factors the runtime supports. Scale2x2 quarters the 3D fill;
-// Scale1x2 halves only the height, which keeps horizontal detail (and matches
-// what the PS2's own InterlacedField mode already does to the raster).
-enum class Scale { X2Y2, X1Y2 };
+// ...and the value THIS RUN uses, so `--tile N` can sweep it without a rebuild.
+//
+// It is a global rather than a parameter because kTile reaches WeightField::
+// sample(), ReprojField::sample() and the oracle's innermost loop, none of
+// which has a config to thread it through, and because a per-call tile size
+// would be a second place for the two producers to disagree. Set it ONCE, from
+// the CLI, before any corpus is built; nothing below reads it lazily and no
+// worker thread ever writes it.
+//
+// SWEPT, AND 32 STAYS - the measurement is in docs/neural-upscaler.md
+// ("The tile size, swept"). 64 quarters the inference (224 tiles -> 56) and the
+// packet build (255 corners -> 72) and costs more quality than the fold spread
+// can absorb, while making the frame draw MORE fill, not less: a lit cell is
+// four times the area, so the same decision buys four times the pixels.
+namespace detail {
+extern int gTile;
+}
+inline int tileSize() { return detail::gTile; }
+// Rejects anything that is not a positive power of two (the grid, the corner
+// averaging and the engine's 12.4 UV arithmetic all assume the tile divides
+// the frame; a non-power-of-two that happens to divide 512x448 would still be
+// a size the console cannot be configured to). Returns false and leaves the
+// tile alone when it refuses.
+bool setTileSize(int px);
 
-inline int scaleX(Scale s) { return s == Scale::X2Y2 ? 2 : 1; }
-inline int scaleY(Scale) { return 2; }
+// THE UPSCALE FACTOR, AND IT IS A PAIR OF INTEGERS RATHER THAN A MENU.
+//
+// It was `enum class Scale { X2Y2, X1Y2 }` with a `scaleY()` that returned a
+// literal 2, i.e. the host could express exactly two configurations. THE ENGINE
+// NEVER HAD THAT RESTRICTION: RendererSettings::setRasterScale(sx, sy) takes
+// arbitrary positive ints and every derived size divides through it, and
+// RendererCoreBlss::configure() only clamps them to >= 1. So the two-item menu
+// was a HOST limit standing in front of a generic runtime, and the only thing
+// that could not be measured because of it was whether going below half
+// resolution is worth anything - which is now `--scale WxH`.
+//
+// The two named constants stay, spelled exactly as they were, because
+// templates.cpp writes `blss::Scale::X1Y2` into the generated game and the
+// project's `blssScale` int still means "0 = 2x2, 1 = 1x2". Nothing about the
+// shipped configuration moves here; what moves is what the tool can measure.
+//
+// SWEPT, AND 2x2 STAYS - docs/neural-upscaler.md, "Below half resolution,
+// swept", carries the tables. Three things it found, because they are the
+// reasons not to reach for this knob:
+//
+//  - THE NETWORK DOES NOT DEGRADE, THE PICTURE DOES. The held-out margin over
+//    each scale's OWN bilinear is flat across the sweep (+0.33 at 2x2, +0.45 at
+//    4x4, 30 fold-runs each) and so is the oracle's ceiling (+1.02 -> +0.99),
+//    while the ABSOLUTE PSNR falls up to 2.6 dB - eight times the whole margin.
+//  - THE SPEED PRIZE DIMINISHES AND THE MEMORY PRIZE DOES NOT. Every term of
+//    the 5.02 ms EE bill is an output-resolution quantity (the 16x14 grid, the
+//    net, the proxies, the 255-corner packet), so break-even moves only
+//    ~12.6 -> ~10.0 coverages, while VRAM returned goes 448 -> 784 KB.
+//  - 2x4 IS THE WORST OF THE TWO 1/8 MODES, NOT THE BEST. It has identical fill
+//    and identical VRAM to 4x2 and measures 1.25 dB below it, so the "vertical
+//    detail is already compromised by interlace" intuition is refuted.
+struct Scale {
+    int x = 2, y = 2;
+
+    constexpr Scale() = default;
+    constexpr Scale(int sx, int sy) : x(sx < 1 ? 1 : sx), y(sy < 1 ? 1 : sy) {}
+
+    // The two the project format can currently express. Declared here and
+    // defined below because a class cannot hold a static member of its own
+    // (still incomplete) type inline.
+    static const Scale X2Y2;  // blssScale 0 - the shipped default
+    static const Scale X1Y2;  // blssScale 1 - half height only
+};
+inline const Scale Scale::X2Y2{2, 2};
+inline const Scale Scale::X1Y2{1, 2};
+
+inline constexpr bool operator==(Scale a, Scale b) { return a.x == b.x && a.y == b.y; }
+inline constexpr bool operator!=(Scale a, Scale b) { return !(a == b); }
+
+inline constexpr int scaleX(Scale s) { return s.x; }
+inline constexpr int scaleY(Scale s) { return s.y; }
+
+// "2x2", for the header lines and the announcements. A table of decibels whose
+// raster scale is not on the page is a table nobody can reproduce.
+std::string scaleName(Scale s);
+// "4x4" / "2x4" -> Scale. Returns false and leaves `out` alone on anything that
+// is not two positive integers separated by an 'x'.
+bool parseScale(const std::string& text, Scale* out);
 
 // The two sub-pixel jitter phases, in LOW-RES pixels. For a 2x2 upscale these
 // are exactly two of the four output-pixel centres inside one low-res pixel, so
@@ -48,9 +130,55 @@ inline int scaleY(Scale) { return 2; }
 // pair, not an approximation. Quantised to sixteenths because that is what the
 // GS XYOFFSET register stores (12.4 fixed point), so the console can reproduce
 // these offsets bit-exactly: -4/16 and +4/16.
+//
+// AND THE QUINCUNX IS A PROPERTY OF 2x2, NOT OF THE JITTER. The offset is
+// +-4/16 of a LOW-RES pixel at every raster scale, on both twins - the engine
+// writes a literal `phase == 0 ? -4 : 4` into XYOFFSET and divides nothing by
+// scaleX/scaleY - so what those offsets MEAN moves with the scale:
+//
+//   scale   output px per low-res px   what +-1/4 low-res px lands on
+//   2x2     2 x 2  = 4 sub-positions   +-1/2 output px: two of the four centres
+//   4x4     4 x 4  = 16                +-1 whole output px, and 1/4 and 3/4 of
+//                                      a low-res pixel are not among the four
+//                                      output-pixel centres {1/8,3/8,5/8,7/8}
+//
+// So at 4x the two phases are neither a quincunx nor even aligned to the output
+// grid, and a one-frame-deep history could cover 2 of 16 sub-positions at best.
+// That is an argument, not a measurement; the measurement is in
+// docs/neural-upscaler.md ("Below half resolution") and it agrees - every scale
+// below 2x2 is a jitter-off mode.
+//
+// JITTER IS A MODE NOW, NOT A CONSTANT, and the reason is a hardware
+// measurement rather than a preference: with jitter on, a frozen camera on real
+// PS2 hardware leaves 30.8% of the picture alternating between two images every
+// frame (amplitude 1.42/255), and with it off that falls to the noise floor
+// (0.03/255, identical to BLSS off). The project setting is `blssJitter`
+// (ProjectSettings, format v5, default true) and codegen bakes it into the
+// generated game.
+//
+// This is the host twin of it. A net fitted against the jittered sampler and
+// run in a jitter-off build is fitted to a distribution the console does not
+// produce - the same class of mismatch as the whole-bag proxy and the animated
+// models - so `--blss-train <projectDir>` follows the PROJECT's own setting and
+// `--no-jitter` forces it off for the bestiary. With it off both phases are the
+// same zero offset, so the corpus renders one image per camera position, the
+// composite's sampling undoes nothing, and the temporal pass sees a genuine
+// still frame instead of a two-phase alternation.
+//
+// Set ONCE, before any corpus is rendered, and never afterwards - see gTile.
+namespace detail {
+extern bool gJitter;
+}
+inline bool jitterEnabled() { return detail::gJitter; }
+void setJitter(bool on);
+
 constexpr int kJitterPhases = 2;
-inline float jitterX(int phase) { return phase == 0 ? -0.25f : 0.25f; }
-inline float jitterY(int phase) { return phase == 0 ? -0.25f : 0.25f; }
+inline float jitterX(int phase) {
+    return detail::gJitter ? (phase == 0 ? -0.25f : 0.25f) : 0.0f;
+}
+inline float jitterY(int phase) {
+    return detail::gJitter ? (phase == 0 ? -0.25f : 0.25f) : 0.0f;
+}
 
 // ---------------------------------------------------------------- features ---
 
@@ -281,6 +409,38 @@ inline void applyDeadzone(float w[kOutputs], float sharpen,
     }
 }
 
+// WHICH QUANTITY THE FLICKER PENALTY CHARGES FOR. Two forms, and the second
+// exists because the first was measured to be unfixable in its own terms - see
+// kFlickerWeight below for the measurement and docs/neural-upscaler.md
+// ("The oscillation") for the hardware numbers that forced the rewrite.
+enum class FlickerForm {
+    // MSE between the output and the reprojected history. THE ORIGINAL, AND IT
+    // IS MINIMISED BY out == history - by the picture FREEZING, which is free on
+    // near-static training shots and is ghosting on an orbit or a dolly. Kept
+    // reachable (`--flicker-form lag1`) because its sweep is recorded below and
+    // setting a weight to zero is not the same as deleting the term.
+    //
+    // It is also structurally blind to the artefact: a lag-1 difference cannot
+    // tell "alternating between two images" from "moving smoothly", and the
+    // measured artefact is period 2.
+    Lag1,
+    // The PERIOD-2 ALTERNATION AMPLITUDE the candidate weights would leave in a
+    // steady state, gated on reprojection confidence. Derived in blss.cpp above
+    // altAmplitude(); the short version is that the temporal pass is an
+    // exponential accumulator over two alternating jitter phases, so its
+    // stationary alternation has a closed form in the candidate's own alpha
+    // bytes and the phase pair the frame already holds. It charges for the bob
+    // and for nothing else, it cannot be paid by freezing (freezing is not
+    // expressible - the only ways down are fusing the phases or not amplifying
+    // them), and it is switched off wherever the history is not trustworthy.
+    Period2,
+};
+
+// The shipped form. Period2 is the default because Lag1 was measured to buy no
+// stability at any weight (kFlickerWeight, measurement (b)) while the console
+// went on bobbing.
+constexpr FlickerForm kFlickerForm = FlickerForm::Period2;
+
 // How hard the oracle is penalised for a frame that differs from the previous
 // one, relative to how hard it is penalised for differing from the truth.
 //
@@ -321,16 +481,109 @@ inline void applyDeadzone(float w[kOutputs], float sharpen,
 // against the reprojected history, which is minimised by out == history, i.e. by
 // FREEZING - free on near-static shots, ghosting on an orbit or a dolly. It does
 // not distinguish "stable because the jitter got fused" from "stable because
-// nothing moved".
+// nothing moved". AND IT IS BLIND TO THE ARTEFACT ON TOP OF THAT: a lag-1
+// quantity cannot separate "alternating between two images" from "moving
+// smoothly", and the bob is period 2. That is the most likely reason the old
+// flicker column reported an improvement while the television bobbed.
 //
-// What replaced it is the fill term: charging for kernels culls the point and
-// sharpen passes, which are exactly the two that alternate with the jitter, so
-// stability now comes out of the cost model for free (flicker 21.49 -> 21.01
-// training, 27.12 -> 26.62 held-out, at fill 0 -> 6 with this weight at zero).
-// If the console still oscillates, `--flicker-weight` is the knob and the
-// numbers above are its price - but fix the FORM first: gate the penalty on
-// reprojection confidence so it cannot be paid by freezing.
+// TWO BELIEFS THAT WERE HELD HERE AND ARE NOW DISPROVEN ON HARDWARE. Both used
+// to be written down as the reason the term could stay at zero:
+//
+//   (i) "the fill term replaced it - charging for kernels culls the point and
+//       sharpen passes, which are exactly the two that alternate with the
+//       jitter, so stability comes out of the cost model for free". IT DID NOT.
+//       With the fill term in and a project-trained net, a frozen camera on real
+//       PS2 hardware leaves 30.8% of the picture alternating every frame at
+//       1.42/255, against a 0.03/255 floor with the jitter off. The mechanism
+//       the belief missed is in altAmplitude() (blss.cpp): the accumulator is
+//       the ONLY thing that damps the base pass's own phase difference, the fill
+//       term culls the accumulator too, and the sharpen pass is applied AFTER
+//       the accumulator so no amount of temporal weight damps it at all.
+//
+//  (ii) "it bobs because the trained net puts 0% weight on temporal, so nothing
+//       fuses the two phases". ALSO WRONG: examples/upscaler-lab's net puts
+//       73.7% temporal occupancy on the screen and bobs at the same magnitude.
+//       Occupancy is not retention - a cell drawn at alpha 20 is drawn, and
+//       (1-c)/(1+c) at c = 20/128 is 0.73, i.e. it removes a quarter of the
+//       alternation and keeps three.
+//
+// So the form was fixed rather than the weight, and FlickerForm::Period2 is what
+// `--flicker-weight` charges for now. `--flicker-form lag1` still reaches the
+// term measured above.
+//
+// (c) AND THE NEW FORM WAS SWEPT TOO, AND IT IS ALSO A BAD TRADE - which is the
+// measurement that closes this question rather than moving it. Full account in
+// docs/neural-upscaler.md ("The trade curve"); the summary is that the weight
+// which restores stability costs more than the cure it is competing with.
+// examples/upscaler-lab, --cv --cv-seeds 5, 120 frames, 400 epochs, decay 1e-4,
+// fill 16, deadzone 8, jitter ON except the last row - 30 fold-runs per row.
+// "alt" is the fraction of gated pixels alternating by >= 2/255; its floor (the
+// native render, which has no alternation to have) is 12.4%:
+//
+//     weight    0    0.05   0.2   0.5   1.5     2     3     4     5   | OFF, 0
+//     margin +0.61  +0.62 +0.63 +0.61 +0.55 +0.48 +0.44 +0.35 +0.29   |  +0.33
+//     sd      0.51   0.52  0.53  0.55  0.85  1.01  1.13  1.32  1.40   |   0.34
+//     below   1/30   1/30  0/30  0/30  6/30  6/30 12/30 15/30 15/30   |   2/30
+//     passes  1.73   1.73  1.73  1.72  1.73  1.74  1.74  1.75  1.75   |   1.65
+//     alt    14.8%  14.8% 14.9% 14.9% 14.9% 14.9% 14.4% 13.0% 12.4%   |  12.3%
+//
+// Read it in this order. The alternation reaches the jitter-off floor ONLY at
+// weight 5, and at weight 5 the margin is +0.29 against the +0.33 that turning
+// the jitter off buys for nothing. Mean passes never moves (1.73 -> 1.75), so
+// none of this is a fill trade. What moves is the SPREAD: sd 0.51 -> 1.40 and
+// folds below plain bilinear 1/30 -> 15/30, i.e. at the setting that fixes the
+// bob, half the content is worse off than not running the feature. And below
+// 1.5 the knob does nothing at all - it has no cheap setting.
+//
+// The form change was still worth making and this is its evidence: at the same
+// weight 0.2, lag1 loses 11 folds of 30 to bilinear and period2 loses none, at
+// the same margin. It did not change the verdict.
 constexpr float kFlickerWeight = 0.0f;
+
+// WHETHER THE HISTORY EXISTS AT ALL in this tile - the only per-tile test the
+// period-2 term still applies, and the story of why it is not more than that is
+// the useful half.
+//
+// The period-2 model reads the previous frame's low-res render, reprojected, as
+// "the same content at the other jitter phase". That reading is true exactly
+// when the reprojection is: on a disocclusion, on a silhouette, or under a
+// reprojection long enough that the tile's single depth cannot describe it, the
+// two samples are different CONTENT and their difference is not an alternation
+// amplitude at all. Charging for it there would teach the oracle to buy temporal
+// weight where temporal weight ghosts - the old term's failure mode arriving by
+// a new route. So a gate was designed, and it read:
+//
+//   conf = coverage >= kMinCoverage ? (1 - motion) * (1 - depthGrad) : 0
+//
+// on the reasoning that `motion` at 1.0 puts the history a whole tile away and
+// `depthGrad` at 1.0 is a full-range depth step, i.e. a silhouette. Both
+// readings are correct about what the channels MEAN and wrong about what they
+// CONTAIN. On examples/upscaler-lab (`--blss-eval --features`, 5376 tiles):
+//
+//     motion     49.1% of tiles at EXACTLY 1.0
+//     depthGrad  41.0% at exactly 1.0
+//     coverage   66.8% at 1.0
+//
+// so that product is ZERO on most of the frame - and zero specifically on the
+// moving, geometrically busy part, which is where the console's difference image
+// lights up and the flat sky stays black. A gate built out of saturated channels
+// is a gate that is always shut, and the term would have swept as "buys
+// nothing", which is the same non-answer --flicker-weight already gave twice.
+// (It is the same defect as the open `depth` item in docs/neural-upscaler.md:
+// these channels are clamped ratios and they spend most of their time at the
+// clamp.)
+//
+// What remains here is the one test that is not a proxy for something else: a
+// tile with no geometry in it has no history to reproject. Outliers are handled
+// where they belong instead - kAltClamp (blss.cpp) bounds the charge AND
+// flattens its gradient, so a disocclusion costs a constant and therefore buys
+// the oracle nothing. A per-SAMPLE test on top of this drops any pixel whose
+// reprojected position leaves the frame, where there is no history to have
+// fused.
+//
+// This is host-only arithmetic: the objective has no engine twin (see
+// docs/blss-reconstruction.md, "What is NOT part of this contract").
+float reprojConfidence(const Features& f);
 
 // What one full-screen composite pass costs the oracle, in the same units as
 // the error it is trading against: mean squared 8-bit level over the region.
@@ -397,7 +650,10 @@ constexpr float kFillWeight = 16.0f;
 // `--flicker-weight` and `--fill-weight` so the two can be swept jointly
 // without a rebuild; the defaults are the swept-and-chosen configuration.
 struct Objective {
-    float flicker = kFlickerWeight;  // vs the reprojected history: stability
+    float flicker = kFlickerWeight;  // the stability term's weight
+    // WHICH stability quantity that weight buys - and the distinction is the
+    // whole term, not a variant. See FlickerForm.
+    FlickerForm flickerForm = kFlickerForm;
     float fill = kFillWeight;        // per full-screen pass drawn: cost
 };
 
@@ -479,6 +735,93 @@ std::vector<Features> buildFeatures(int cols, int rows,
                                     const std::vector<TileStats>& stats,
                                     const ReprojField& reproj);
 
+// ------------------------------------------------------------- activations ---
+
+// THE TRANSCENDENTALS, AND WHY THEY ARE A TABLE.
+//
+// The net evaluates 12 tanh + 3 logistic per tile, and the engine builds with
+// no -ffast-math (vendor/tyra/Makefile.base), so on the console that is
+// 12 tanhf + 3 expf + 3 fdiv per tile - 3 360 libm calls per frame at 224
+// tiles. Every one of those results is then thrown away down to a BYTE:
+// cornerAlpha() truncates the output to 0..128 and the deadzone snaps anything
+// at or below alpha 8 to zero. Full libm precision is computed and discarded.
+//
+// ONE TABLE SERVES BOTH, because logistic(z) == (1 + tanh(z/2)) / 2 exactly.
+// So the whole activation budget is 15 table lookups: no libm, and no divide
+// either - the logistic's `1 / (1 + e)` is gone, not merely cheapened.
+//
+// A TABLE IS THE RIGHT SHAPE FOR A TWIN, and that is the argument for it over
+// a polynomial. A minimax polynomial has to be *matched* between two compilers
+// - same coefficients, same association order, same FMA contraction decisions -
+// and any mismatch is a silent drift in the objective the network was fitted
+// against. A table of integers is the same integers on both sides or it is
+// visibly not, and the reconstruction from an integer is exact: an int16 -> float
+// conversion and a multiply by 2^-15 are both exactly representable, so the
+// activation step contributes ZERO divergence between the twins. (The MACs
+// around it are float and remain subject to whatever the EE FPU does, exactly
+// as they already are - the table does not fix that and does not claim to.)
+//
+// The exact definition, index mapping, clamping and rounding rule are written
+// down in docs/blss-reconstruction.md section 5, which is the contract the
+// engine implements against. Do not paraphrase it here; change it there.
+//
+// OFF BY DEFAULT AFTER MEASURING, and the measurement is on the upscaler page:
+// at 512 entries the cross-validated held-out margin is indistinguishable from
+// libm's, so the table costs nothing. It ships off because the ENGINE TWIN DOES
+// NOT EXIST YET - a host that fits against a table while the console evaluates
+// libm is the twin drift this whole file is arranged to prevent. Turn it on in
+// the same commit as RendererCoreBlss's copy, never before.
+constexpr float kActRange = 4.0f;   // table domain: a is clamped to [-4, +4]
+constexpr int kActScale = 32768;    // entries are round(tanh(a) * 32768), Q15
+// WHAT THE CONSOLE RUNS - the host twin of the engine's TYRA_BLSS_ACT_TABLE
+// (vendor/tyra/.../renderer_core_blss.cpp). `detail::gActN` below is a different
+// number with a similar name and confusing them is a real trap: gActN is the
+// HOST's live setting, moved by `--act-table` for a measurement and 0 in any
+// process that never ran a BLSS verb, whereas this is a property of the game
+// being built. A bake asking "was this net fitted against the activations the
+// console evaluates" must compare against THIS one; asking gActN in a
+// `--refresh-gen` process compares against 0 and warns about every net there is.
+constexpr int kEngineActTable = 512;
+
+namespace detail {
+extern int gActN;              // 0 = libm; otherwise the table has gActN+1 entries
+extern const float* gActTab;   // gActN+1 dequantised entries, or null
+}
+
+// Build (or drop) the table. `n` is the number of INTERVALS - the table holds
+// n+1 entries, both endpoints included - and 0 restores std::tanh / std::exp.
+// Must be a positive even number so the midpoint entry is exactly tanh(0) = 0
+// and the table is odd-symmetric; returns false and changes nothing otherwise.
+bool setActTable(int n);
+// FNV-1a over the table's int16 entries, little-endian. THE CONTRACT'S
+// CHECKSUM: both twins generate the table from the formula in the math doc, and
+// this is how they check that their two libms rounded every entry the same way
+// rather than assuming it. 0 when the table is off.
+uint32_t actTableHash();
+// The table as C++ the engine can paste (`--blss-emit-table`), exploiting
+// tanh's odd symmetry so only the upper half is spelled out.
+std::string emitActTable();
+
+// tanh and the logistic, through the table when one is built. Both twins call
+// exactly these two.
+inline float actTanh(float a) {
+    const int n = detail::gActN;
+    if (n <= 0) return std::tanh(a);
+    if (a <= -kActRange) return detail::gActTab[0];
+    if (a >= kActRange) return detail::gActTab[n];
+    // Nearest entry, no interpolation: the reconstruction is then a table value
+    // EXACTLY, which is what makes the activation step twin-identical. Rounding
+    // (rather than truncating) the index halves the worst-case error for free.
+    const float x = (a + kActRange) * (static_cast<float>(n) / (2.0f * kActRange));
+    return detail::gActTab[static_cast<int>(x + 0.5f)];
+}
+inline float actLogistic(float z) {
+    if (detail::gActN <= 0) return 1.0f / (1.0f + std::exp(-z));
+    // logistic(z) = (1 + tanh(z/2)) / 2, exactly. Both constants are powers of
+    // two, so this costs one multiply and one multiply-add and loses nothing.
+    return 0.5f + 0.5f * actTanh(0.5f * z);
+}
+
 // ----------------------------------------------------------------- network ---
 
 // MLP kFeatures -> kHidden -> kOutputs, tanh hidden, logistic outputs. At the
@@ -503,6 +846,110 @@ struct Net {
 // blss.net: "BLSS" + u32 version + the floats in declaration order.
 bool save(const Net&, const std::string& path, std::string* err = nullptr);
 bool load(Net&, const std::string& path, std::string* err = nullptr);
+// The same bytes, from memory - the built-in default net is embedded in the
+// editor rather than shipped as a loose file (see defaultNet()).
+bool loadMemory(Net&, const unsigned char* data, size_t n, std::string* err = nullptr);
+
+// --------------------------------------------------------------- provenance ---
+//
+// A `blss.net` IS 500 BYTES OF FLOATS AND SAYS ALMOST NOTHING ABOUT ITSELF.
+// `kNetVersion` in its header answers exactly one question - "can these bytes be
+// read into this Net" - and load() refuses when it cannot. Everything else that
+// decides whether a net is the RIGHT net is invisible in the file: the corpus it
+// saw, the raster scale it was fitted at, whether the sampler jittered, which
+// activation table the oracle's labels were computed against. A net fitted at
+// jitter ON and baked into a project that ships jitter OFF loads perfectly,
+// composites perfectly, and is measurably worse (-0.48 dB against -0.85, the two
+// arms of the retracted row in docs/neural-upscaler.md) with nothing anywhere
+// saying so. That was tolerable while every net was trained by the person who
+// baked it, ten seconds earlier. It stops being tolerable the moment a DEFAULT
+// net ships: nobody trained it, nobody remembers its corpus, and it outlives
+// several editor versions.
+//
+// WHY A SIDECAR AND NOT A FILE HEADER. The obvious fix is more header. It was
+// refused because the net file's bytes are a published reproducibility anchor:
+// this feature's determinism contract, its shot-plan compatibility check and its
+// thread-count check are all "does this command still write md5 X"
+// (`e069f286ea0c524999bfd9dac769608c` for the shot plan,
+// `6b2fba90d0f059f055134a55df478c8e` for --threads). Adding a byte to the file
+// invalidates every one of those, silently, and the next person to run the check
+// learns nothing except that it fails. So the weights keep their format to the
+// byte and the provenance goes NEXT TO them, in `<net>.meta` - a deterministic
+// key/value text file, no timestamp (the chatAge precedent: the mtime is already
+// there and a clock in the file is a diff nobody wants), so re-running the
+// training command reproduces both files byte for byte and CI can diff them.
+//
+// The price is honest and worth stating: a sidecar can be separated from its net
+// by a copy. `present` is false then, which readers report as "unknown
+// provenance" - a WARNING, not an error, because a net trained by an older
+// binary is in exactly that state and must keep working.
+struct Provenance {
+    bool present = false;  // was a sidecar found and parsed
+    uint32_t netVersion = 0;
+    int features = 0, hidden = 0, outputs = 0, tile = 0;
+    int actTable = -1;   // -1 = not recorded
+    Scale scale{0, 0};   // {0,0} = not recorded
+    int jitter = -1;     // 0 / 1, -1 = not recorded
+    float sharpen = -1;  // the oracle's unsharp strength; < 0 = not recorded
+    int frames = 0, epochs = 0, shots = 0;
+    uint32_t seed = 0;
+    std::string corpus;   // the positional list, verbatim and in order
+    std::string command;  // the whole invocation, so it can be re-run
+    // NOTE what is deliberately NOT here: the editor version and a timestamp.
+    // Both were written once and both were removed, for the same reason - this
+    // file must be byte-reproducible from `command` or the CI check that guards
+    // the shipped default ("re-run it and diff") cannot fire. A semver bump for
+    // an unrelated feature would otherwise dirty resources/blss-default.net.meta
+    // while the 500 bytes next to it are unchanged, which is a diff that teaches
+    // nothing and trains people to ignore the one that matters. Which editor
+    // wrote a net is recoverable from git; whether it is the right net is not,
+    // and that is what the fields above are for.
+};
+
+// `<netPath>.meta`.
+std::string provenancePath(const std::string& netPath);
+// What THIS binary would fit: topology, tile and activation table taken from the
+// compiled-in constants, everything else left at "not recorded" for the caller
+// to fill in from its own options.
+Provenance currentProvenance();
+bool writeProvenance(const Provenance&, const std::string& netPath, std::string* err = nullptr);
+// Never fails: a missing or unparsable sidecar comes back with `present` false.
+Provenance readProvenance(const std::string& netPath);
+Provenance parseProvenance(const char* text, size_t n);
+std::string formatProvenance(const Provenance&);
+
+// What a CONSUMER is about to run the net in. -1 / {0,0} means "do not care".
+// `actTable` is the ACTIVATIONS THAT WILL EVALUATE IT - kEngineActTable for a
+// bake, `detail::gActN` for a host measurement - and never the other one.
+struct NetExpect {
+    Scale scale{0, 0};
+    int jitter = -1;
+    int actTable = -1;
+};
+
+// Two lists, and the split is the whole point of having them. `fatal` is a net
+// that cannot be used as loaded - the sidecar says a topology these weights are
+// not; `warn` is a net that will run and was fitted for a different
+// configuration than the one it is about to be run in. Both name the field, the
+// recorded value and the expected one, because "provenance mismatch" on its own
+// sends the reader back to the file.
+struct NetIssues {
+    std::vector<std::string> fatal;
+    std::vector<std::string> warn;
+    bool ok() const { return fatal.empty() && warn.empty(); }
+};
+NetIssues checkProvenance(const Provenance&, const NetExpect&);
+
+// THE NET THAT SHIPS WITH THE EDITOR (resources/blss-default.net, embedded).
+// Fitted on seven example projects AND the bestiary - the union corpus is the
+// whole result, see docs/neural-upscaler.md "Can one net ship for every
+// project?" - so a project with no `blss.net` of its own builds with a network
+// that was measured to be a tie with per-project training rather than with the
+// random weights it used to get. Returns false only when the embedded asset
+// cannot be read into THIS binary's Net, which is what happens when kNetVersion
+// or the topology moves and resources/blss-default.net was not refitted.
+bool defaultNet(Net&, std::string* err = nullptr);
+Provenance defaultProvenance();
 
 // The C++ the generated game compiles: a BLSS_NET_* constant table plus the
 // forward pass. Returns the file body (templates.cpp writes it).
@@ -534,6 +981,10 @@ struct Image {
 
 bool writePng(const Image&, const std::string& path);
 bool readPng(Image&, const std::string& path);
+// ...and from memory, because an animated model's texture is EMBEDDED in the
+// .glb and never exists as a file on the host. The build writes it out next to
+// the ELF; the corpus decodes the same bytes without a temp file.
+bool readPngMemory(Image&, const unsigned char* data, size_t n);
 
 // Box-downsample by an integer factor - how the supersampled ground truth is
 // resolved, and the only place in this file that is allowed to be prettier than
@@ -634,6 +1085,25 @@ struct Occupancy {
 };
 Occupancy occupancy(const WeightField&, float sharpen);
 
+// ------------------------------------------------------------------- the bob ---
+
+// THE FROZEN-CAMERA PROBE IS NOT HERE, and the reason is worth a paragraph
+// because it is the first thing the next person will reach for.
+//
+// The hardware experiment that found the bob froze the camera and compared
+// consecutive fields, so the obvious host twin is a Frame holding BOTH jitter
+// phases of ONE pose. The corpus cannot supply that: it renders frame N at
+// phase N&1 from camera N, so the only "other phase" any Frame owns is
+// `prevLow`, which is a different pose as well as a different phase. Adding the
+// second render is a change to blss::generate() (blsscorpus.cpp), not to this
+// file.
+//
+// What stands in for it is MOTION COMPENSATION - period2Alternation() below
+// warps the two predecessors into the current view before differencing, which
+// removes the camera and leaves the phase. That is a weaker instrument than
+// freezing (it carries the warp's own resampling error), and the `native` row of
+// its table is exactly that residual, printed so every other row can be read
+// against it.
 // ------------------------------------------------------------------ oracle ---
 
 // Per tile, the (wA, wC, wD) that minimise MSE against `truth` under
@@ -698,11 +1168,21 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 
 // ------------------------------------------------------------- CLI entries ---
 
-// TRAIN ON YOUR OWN PROJECT. Both entry points take an optional POSITIONAL
-// project directory:
+// TRAIN ON YOUR OWN PROJECT. Both entry points take POSITIONAL project
+// directories - one, or several, or the word `bestiary` for the built-in
+// procedural corpus:
 //
 //   tyrax-editor --blss-train <projectDir> [-o blss.net] ...
 //   tyrax-editor --blss-eval  <projectDir> --cv ...
+//   tyrax-editor --blss-train <a> <b> bestiary --all-shots -o default.net
+//   tyrax-editor --blss-eval  <a> <b> bestiary --cv --cv-groups --cv-seeds 3
+//
+// SEVERAL IS A UNION CORPUS, and it is what the question "can one net ship for
+// every project" needed and nobody had. Frames are still spread evenly over
+// SHOTS (so a member with more scenes gets more frames - the header says how
+// many each contributed), a member that will not load is DROPPED loudly rather
+// than falling back to the bestiary, and the sampler is resolved ONCE for the
+// whole corpus with a warning when the members disagree about blssJitter.
 //
 // With it, the corpus is the project's own scenes - real geometry, real
 // materials, real terrain, walked and orbited and whipped by cameras derived
@@ -721,13 +1201,16 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 // per VU1 package - see CorpusConfig::packageSplit. It exists to reproduce the
 // fold tables measured before the split, not to ship.
 //
-// `--threads N` (0 = every core) bounds the two parallel phases: the corpus
-// renderer and the oracle. IT MOVES THE WALL CLOCK AND NOTHING ELSE - both hand
-// item i to a fixed worker that may touch only item i - and `--threads 1`
-// against `--threads N` producing byte-identical blss.net files is how that is
+// `--threads N` (0 = every core) bounds the parallel phases: the corpus
+// renderer, the oracle, and --blss-eval's per-method evaluation loop. IT MOVES
+// THE WALL CLOCK AND NOTHING ELSE - each hands item i to a fixed worker that may
+// touch only item i - and `--threads 1` against `--threads N` producing
+// byte-identical blss.net files and character-identical tables is how that is
 // checked rather than believed. The FIT is sequential SGD and ignores it, which
-// is why --blss-train now prints its three phases separately: on a project
+// is why --blss-train prints its three phases separately: on a project
 // corpus at the shipped defaults the fit is the largest of the three.
+// --blss-eval and --cv print the same kind of line, because that is how anyone
+// checks a claim that one of them got faster.
 //
 // --blss-train [<projectDir>] [-o blss.net] [--frames N] [--epochs N]
 //              [--weight-decay W] [--dump <dir>] [--all-shots] [--threads N]
@@ -735,12 +1218,58 @@ int trainMain(int argc, char** argv);
 // --blss-eval [<projectDir>] [-i blss.net] [--frames N] [--dump <dir>]
 //             [--deadzone A] [--deadzone-sweep a,b,c]
 //
+// `-i` IS OPTIONAL, AND THAT IS THE POINT OF THIS VERB. The row that answers
+// "should this project have the upscaler on at all" is the ORACLE row - the best
+// any per-tile weighting can reach under the exact GS composite - and no part of
+// it involves a trained network. This entry point used to load blss.net FIRST
+// and bail with "cannot open blss.net", which made the first step the settings
+// panel prescribes ("evaluate your project before turning this on") impossible
+// to perform on a fresh project. Now a missing DEFAULT net drops the
+// `half-res + BLSS (trained)` row and nothing else; only an EXPLICIT `-i` that
+// cannot be opened is an error.
+//
+// Two lines exist for a caller rather than a reader, and both are printed
+// unconditionally so nothing has to be inferred from the table's shape:
+//
+//   [blss] verdict headroom=<dB> passes=<f> bilinear=<dB> oracle=<dB> native=<dB>
+//       Every --blss-eval, net or not. `headroom` is the oracle's margin over
+//       plain bilinear - the scene's CEILING, under +0.10 dB meaning there is
+//       nothing to reconstruct - and `passes` is what the oracle pays for it.
+//       Frame-weighted over both splits, the same arithmetic blssui::summarise()
+//       does on the parsed table.
+//   [blss] fold <k> of <n>
+//       --cv only, as each fold finishes (completion order - folds run in
+//       parallel). The fold loop turns the trainer's verbosity off and otherwise
+//       prints nothing until the table at the end, so a progress bar driven off
+//       this tool used to go blank for minutes.
+//
 // `--deadzone A` overrides kDeadzoneAlpha for the run, and `--deadzone-sweep`
 // measures a whole list of them inside ONE --cv run. Both are cheap because the
 // deadzone is an INFERENCE knob: it never reaches the labels, so N deadzones
 // cost N evaluations of the same trained folds rather than N trainings.
 //
 // Two modes train their own nets and therefore ignore -i:
+//
+//   --cv-groups   (with two or more <projectDir> positionals)
+//       LEAVE-ONE-PROJECT-OUT. The held-out set is still ONE shot - a fold row
+//       has to be one kind of content or it says nothing - but the TRAINING set
+//       loses the whole project that shot belongs to, so no camera move of the
+//       scored project is in it. That distinction is the whole experiment:
+//       plain --cv asks "does this generalise to a seventh camera move of a
+//       scene it has already seen", which is what every project-corpus number
+//       this feature published was, and --cv-groups asks "does this generalise
+//       to a project it has NEVER seen", which is the only form of "can I ship
+//       one net" that means anything. A per-project summary is printed under
+//       the fold table with each project's oracle CEILING next to its margin,
+//       because most example projects have no ceiling and their rows are ties
+//       however they read.
+//
+//       The answer, measured (docs/neural-upscaler.md, "Can one net ship for
+//       every project?"): YES, and only for a corpus that is the bestiary AND
+//       real projects. The bestiary alone is -0.34 dB over seven projects and
+//       -1.09 at worst; real projects alone degenerate to bilinear; the two
+//       together score +0.29 dB on a held-out project against its own net's
+//       +0.31, at fold sds of 0.37 and 0.34.
 //
 //   --cv [--cv-seeds N] [--cv-folds N]
 //       LEAVE-ONE-SHOT-OUT CROSS-VALIDATION, and it is the number to quote for

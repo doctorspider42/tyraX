@@ -70,6 +70,577 @@ the verification, and any fact worth reusing belongs in the relevant
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
+  - **DONE: plain mode - the reduced raster with no network at all**
+    (`ProjectSettings::blssNetwork`, format v12, docs/neural-upscaler.md
+    "Plain mode"). The network is nearly the whole EE bill (`proxy` 2.34 +
+    `reproj` 0.28 + `feat` 0.19 + `net` 0.78 of 4.60), and a net that asks
+    for nothing still costs every millisecond of it. Plain deletes the bag
+    feed, the reprojection, the feature grid, the MLP and 472 of the grid's
+    476 vertices, keeps the raster, the VRAM saving and the build interlock,
+    and takes break-even from **13.1 full-screen coverages to 2.6** at
+    512x448. Byte-identical picture, measured: 0 differing pixels of 811 426
+    over nine cross-pairings against a build whose net asks for nothing.
+    **What is still owed: one console run.** The 0.52 ms bill is arithmetic
+    over hardware terms (begin 0.41 + end 0.10 survive; the four deleted
+    terms read exactly 0.000 in PCSX2, which is the half an emulator can
+    settle) rather than a hardware measurement of the mode, because
+    192.168.100.150 answered `reset` with 0 and nothing else for the whole
+    round. docs/profiling.md, "Plain mode's EE bill".
+  - **Switching BLSS on and off at runtime - NOT BUILT, and the arithmetic is
+    why.** Asked for as a comparison and debugging tool: flip the feature every
+    N frames and an A/B has no scene or camera variance at all, which is what
+    docs/profiling.md recommends and what this branch has never been able to
+    do (every measurement it has published needed two builds and paired
+    frames). It is a good idea and it is filed rather than dropped.
+
+    **The obstacle.** `RendererCoreBlss::configure()` re-lays the whole
+    permanent GS VRAM region and evicts every texture, because the z buffer's
+    SIZE follows the raster and z is allocated third, long before a generated
+    game's `init()` runs. That is safe at the top of `init()` and nowhere
+    else, which is exactly what codegen says out loud.
+
+    **The way through, and its price.** Allocate both layouts up front - a
+    display-sized z AND the low-res target - so a switch touches no
+    allocation. Checked against `allocateVramBuffers` + `RendererCoreGSVRam::
+    getSize` (width to a multiple of 64, `width*height` words at 32bpp, page-
+    aligned to 2048) at 512x448 output, 2x2:
+
+    | layout | permanent | texture heap |
+    |---|---|---|
+    | native (2 frame + z 512x448) | 688 128 w = 2 688 KB | **1 408 KB** |
+    | BLSS baked (z 256x224 + target) | 573 440 w = 2 240 KB | **1 856 KB** (+448) |
+    | both layouts resident | 745 472 w = 2 912 KB | **1 184 KB** (-224) |
+
+    The +448 KB row is not arithmetic on its own: the running game reports
+    `VRAMSTAT ... freeMB=0.75708` with BLSS off and `1.19458` with it on,
+    a difference of exactly **0.4375 MB = 448 KB**, and the two reconstruction
+    modes report the identical figure. So the toggle would cost **672 KB of
+    texture VRAM against a baked BLSS build and 224 KB against native** - it
+    gives up the whole memory win and then some, out of a budget
+    docs/gs-vram.md puts at ~1.33 MB. Correct framing if it is ever built: a
+    project setting, **off by default**, documented with that cost.
+
+    **Why it is filed and not built, beyond the memory.** (1) It requires
+    relaxing the one invariant this feature has already paid catastrophically
+    for - `zBuffer.mask` is DERIVED from the z allocation, and the round that
+    set it by hand one statement before the rebuild that cleared it again
+    stamped depth across the texture heap and deleted every 4-bit palettised
+    texture in the game. A live per-frame mask is that invariant made
+    conditional. (2) `blssClashes()` would still have to refuse depth of
+    field, portals and split view, because the BLSS half of the toggle still
+    has no display-resolution depth - so the projects most likely to want an
+    A/B are exactly the ones it cannot serve. (3) `needsBufferRealloc()` keys
+    on the raster scale, so every toggle would ask for the rebuild the design
+    exists to avoid; it has to be decoupled from the allocation. (4) The
+    measurement it buys is now much cheaper without it: **plain mode makes the
+    interesting comparison a build-time one**, and the paired-build method
+    works - an object script that pins the camera and hides every emitter
+    gives frames that are byte-identical between captures, which is a cleaner
+    instrument than an in-run flip (no history buffer to invalidate, no
+    settling frames to discard on each side of the switch).
+
+    **What would have to be checked if it is built**, all of which assume
+    BLSS-ness is fixed for a frame today: the post-fx bracket and
+    `getRasterTarget()`, the HUD path's z masking, the interlaced-field Y bias
+    (applied by `composite()` and deliberately not by `beginScene()`),
+    `hasPrev` across a switch, and the projection rebuild
+    (`core3D->setFov`). And it wants hardware: PCSX2's renderers mask GS
+    raster-window bugs that a real console shows.
+  - **DONE, and it answers "can one net ship for every project": YES, if the
+    bestiary and real projects are in the SAME corpus.** Leave-one-PROJECT-out
+    (`--cv-groups`, new) over seven projects chosen by oracle ceiling, 18
+    fold-runs each, jitter off, 12 frames/shot. On `examples/upscaler-lab` - the
+    only example with a ceiling big enough to discriminate (+0.72 dB; 12 of the
+    32 examples are under +0.10 and cannot tell two nets apart at all) - a net
+    that has NEVER seen it scores **+0.29 dB against its own net's +0.31**, fold
+    sds 0.37 and 0.34. The two arms that fail: the **bestiary alone** is a
+    lottery (-0.34 dB mean over seven projects, **-1.09 worst**), and **projects
+    alone** degenerate - at deadzone 0 that net asks for 2.15 passes and scores
+    -0.10 dB with 22/42 folds below bilinear, and only the shipped deadzone
+    turns it into plain bilinear. `--standardise` re-run at six channels is
+    still worse (-0.05 vs +0.03, and `material-lab` -0.59). Mechanism, shown
+    with `--features`/`--probe`: `texDetail` is identically zero on five of the
+    seven projects and it is the bestiary's most oracle-correlated channel, so
+    the probe reports `band 0.0 %` - none of the training corpus lies inside the
+    frame's own band. **Also retracted: the -0.40/+0.06/+0.77 row that set the
+    "fit the project you ship" rule had its ceiling measured at jitter ON and
+    its margins at jitter OFF** (+0.773 vs +0.345 on the same scene today); the
+    sampler is announced in both directions now. Full account in
+    docs/neural-upscaler.md, "Can one net ship for every project?".
+
+    **DONE: the default net ships and it is the fallback.**
+    `resources/blss-default.net` (+ its `.meta`), fitted on the seven screened
+    projects AND the bestiary with `--all-shots --frames 660 --no-jitter`
+    (12 frames/shot over 55 shots, 39 s on six cores, md5
+    `879146bdee7f3b183c05985012753649`) and embedded into the editor by
+    `cmake/embed_binary.cmake`. `templates.cpp` bakes the project's own
+    `blss.net` if it has one, the shipped default if it does not, and the random
+    initialisation only when the embedded asset cannot be read at all - so the
+    window's "the game will be built with RANDOM weights" is no longer a state
+    any project reaches. Both the generated header and the boot log name the net
+    they got. Provenance is a `<net>.meta` SIDECAR written by `--blss-train`
+    (topology, `kNetVersion`, tile, activation table, scale, jitter, sharpen,
+    corpus, the exact command) rather than a longer file header, because the net
+    file's bytes are a published reproducibility anchor - `e069f286…` still
+    reproduces after the change. The loader refuses a topology/tile/version
+    mismatch and warns on scale / jitter / activation table. Also re-run and
+    closed: the 39-fold bestiary table at the shipped activations
+    (+0.42 -> **+0.41 dB**, sd 0.34, 3 of 39 below bilinear, 1.79 passes, proxy
+    count unchanged at 1 217).
+
+    **STILL OWED, and it is one CI job**: rebuild `resources/blss-default.net`
+    whenever the corpus, the topology or `blss::kNetVersion` moves. The check is
+    `tyrax-editor --blss-emit --act-table 0 -o <tmp>` from a directory with no
+    `blss.net` - it loads the embedded net, runs its `.meta` against the
+    compiled-in constants and exits non-zero when this build cannot read it -
+    plus a diff of the `.meta` against a re-run of the `command` line recorded
+    inside it (the sidecar carries no timestamp precisely so that diff is
+    meaningful). Two window items are also owed and belong to the BLSS panel, not
+    here: a *Use the shipped default* / *Train on this project* choice with the
+    default's provenance on screen, and the four stale strings in
+    `drawBlssSettings` listed in docs/neural-upscaler.md.
+  - **DONE (corpus half): the training-shot plan is honoured by the trainer.**
+    `blssscene::loadProject` now gates the six automatic moves on
+    `Project::blssShots`, appends the author's own vantages, and carries a
+    per-shot frame count that `generate()` honours (explicit counts first, the
+    rest share the remainder; over-budget is scaled with a printed line, and a
+    starved shot is reported rather than dropped in silence).
+    `--ignore-shot-plan` reproduces the old behaviour. **Compatibility is
+    checked, not asserted**: a default plan writes nothing to the `.tyra` and
+    `--blss-train examples/procedural --all-shots --frames 72 --no-jitter` still
+    writes md5 `e069f286ea0c524999bfd9dac769608c`. Found on the way: a Cutscene
+    take **displaces** an automatic move rather than adding to one, so
+    `examples/upscaler-lab` has never had a `strafe` shot - the only move with
+    real parallax. The per-scene line now prints
+    `N shot(s) (a take, b authored, c automatic)` so that is visible, and a
+    non-default plan lifts the 6-shot cap.
+  - **DONE, and it reverses the feature's verdict: BLSS WINS 3.4x on a
+    GS-bound scene, on real hardware.** `examples/upscaler-lab` measures
+    **530 ms with BLSS off against 157 ms with it on** (d = +373 ms, 95 % CI
+    [+369, +377], n = 262 paired frames) for **5.95 ms of EE**. The old verdict
+    - "it saves nothing, the frames are EE-bound" - came from one low-fill
+    fixture plus a **discriminator that does not work**: `drain ~ 0` does not
+    mean EE-bound, because GS backpressure stalls the EE inside the submission.
+    Break-even is ~13 full-screen coverages (BLSS keeps 25.9 % of the fill -
+    `blssScale 0` is quarter-area, not half). Four bit-identical EE cuts landed
+    with it, worth **1.96 ms on hardware** (7.92 -> 5.95), and the activation
+    table another **1.14** (-> 5.02). See profiling.md.
+  - **DONE - `examples/upscaler-lab` re-tuned against hardware.** It ran at
+    **1.9 FPS** with BLSS off because it had been tuned against PCSX2, which
+    under-reports GS fill by 76x. Now 6 banks x 32 billboards instead of
+    12 x 256: **52.86 ms off / 32.98 ms on = 18.9 -> 30.3 FPS, 1.60x**,
+    n = 1024 paired frames. It cannot go faster in the BLSS-on arm than ~40 FPS
+    - the scene's non-haze floor is 24.8 ms with BLSS on - and thinning the haze
+    further only shrinks the win.
+  - **DONE, and the answer is no: BLSS CAN go below half resolution and should
+    not, except on one axis for one reason.** `blssScale` offered 2x2 and 1x2
+    because the HOST could not express anything else - `blss::Scale` was a
+    two-member enum whose `scaleY()` returned a literal 2 - while the engine has
+    always been generic (`setRasterScale(sx, sy)` takes any positive pair).
+    `--scale WxH` sweeps it now. `examples/upscaler-lab`, `--cv --cv-seeds 5`,
+    120 frames, 30 fold-runs per row, jitter off; the 2x2 row reproduces the
+    published +0.33 / sd 0.34 / 2 of 30 / 1.65 passes exactly:
+
+    | scale | margin over its own bilinear | sd | below bil | passes | absolute dB | VRAM back |
+    |---|---|---|---|---|---|---|
+    | 2x2 | +0.33 | 0.34 | 2/30 | 1.65 | **26.98** | 448 KB |
+    | 4x2 | +0.37 | 0.31 | 0/30 | 1.70 | **26.00** | 672 KB |
+    | 2x4 | +0.47 | 0.38 | 0/30 | 1.75 | **24.76** | 672 KB |
+    | 4x4 | +0.45 | 0.34 | 0/30 | 1.76 | **24.35** | 784 KB |
+
+    **The network does not degrade - the picture does.** The margin and the
+    oracle's ceiling (+1.02 / +0.99 / +1.05 / +0.99) are flat across the sweep, so
+    a per-tile kernel decision is worth the same at 4x as at 2x; but the absolute
+    PSNR drops up to 2.6 dB, which is EIGHT TIMES the whole trained margin. Fill
+    given back through the composite is real and negligible (+0.11 pass on
+    upscaler-lab, +0.30 on procedural = 0.065-0.18 ms). Break-even moves only
+    ~12.6 -> ~10.0 coverages because the 5.02 ms EE bill is an
+    output-resolution quantity and does not move at all; **VRAM returned rises
+    75 %**, which is the only real argument for any of this.
+
+    **The "2x4 is the sweet spot, vertical detail is already compromised by
+    interlace" hypothesis is REFUTED.** 4x2 and 2x4 are the same pixel count, the
+    same fill and the same 672 KB, and on the fixture with headroom 4x2 is
+    **1.25 dB better**. `2x4` should never ship. `4x2` is the one worth exposing,
+    for a VRAM-bound project only; `4x4` only for a project whose textures do not
+    fit at all. Engine side needs **nothing** - it is `blssScale` (a third value),
+    templates.cpp's ternary, the window's combo, and a `blssJitter` interlock,
+    because +-4/16 of a LOW-RES pixel stops being an output-pixel centre below
+    2x2. Full account and the second fixture in docs/neural-upscaler.md
+    ("Below half resolution, swept").
+  - **DONE (host half): the PROXY BUDGET, the twin contract's fifth rule.**
+    `--proxy-budget` caps a bag's proxy count at the tiles its whole box covers
+    (`cap = clamp(tiles, 1, 32)`, `group = ceil(parts / cap)`, the existing
+    consecutive merge) in `bagList()` - per FRAME, because the cap is
+    camera-dependent. **It ships OFF, matching the engine's
+    `TYRA_BLSS_PROXY_BUDGET = 0`**; the two move in one commit or not at all,
+    because a host describing a frame with 122 proxies while the console uses 187
+    is exactly the drift that had this net fitted to bounding spheres for eleven
+    commits. **Measured, it costs nothing**: upscaler-lab 187.2 -> 121.8
+    proxies/frame (-35 %) for +0.33 -> +0.34 dB at the same sd 0.34, the same
+    2/30 below bilinear, the same 1.65 passes and the same occupancy;
+    procedural 281.7 -> 219.5 (-22 %) for -0.04 -> -0.04. The only feature channel
+    that moves is `coverage`, 0.693 -> 0.695, which is the same channel and the
+    same direction the engine reported (0.631 -> 0.638). **Ready for the paired
+    flip whenever the engine side wants it.**
+  - **OWED - re-run that hardware A/B against the jitter-OFF build.** The example
+    shipped `blssJitter: true` when the 52.86/32.98 pair was measured and ships
+    `false` since 2026-08-09 (its net is retrained to match). The re-run was
+    attempted the same day and did not complete: the console stopped answering
+    `ps2client` and dropped off the LAN, which needs a power cycle at the
+    machine. Nothing was adjusted in its place - the published figure is
+    labelled as the jitter-on timing everywhere it appears. **Attempted a second
+    time on 2026-08-09 and lost the console the same way** - it answered ping at
+    the start of the session, booted the fixture once, and was then gone from the
+    ARP table entirely. Two rig traps found on that attempt are written up in
+    docs/profiling.md: `--build` deletes `bin/ps2link.run` (without it the game
+    logs to `bin/log.txt` over `host:` INSIDE the measurement), and `taskkill`
+    without `/F` will not close `ps2client`. The jitter changes
+    *where* the half-res raster samples, not how much of it there is, and the
+    retrained net asks for the same 1.76 passes, so the number is expected to
+    hold; that is exactly the prediction the re-run is for. Rig: set
+    `TYRA_FRAME_PROFILE 1` in
+    `vendor/tyra/engine/inc/debug/frame_profile.hpp`, then the protocol in
+    docs/profiling.md (fixture reusable at `%TEMP%\tyra-editor-test\ulabhw`).
+  - **The activation table is still one decision away**, and it is a TWO-LINE
+    commit that must move both twins at once: `TYRA_BLSS_ACT_TABLE` 0 -> 512 in
+    `vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp`, and
+    `int actTable = 0;` -> `512` at `src/blss.cpp:1429`, then a `--blss-eval -i`
+    parity run. Worth 2.11 ms in PCSX2 but only **~1.5 ms on hardware** (the
+    emulator over-weights libm). The engine half was landed, hashed and DEAD
+    until 2026-08-08 - `runNet` never called it; it does now.
+  - **DONE, and the answer is a floor: the composite's LAST two terms are not
+    worth optimising.** `reproj` (0.275) + `feat` (0.190) was the only part of
+    the EE bill nobody had opened. Disassembled first, on the method that found
+    `tanhf`/`expf` and `floorf`: **`sqrtf` is a bare `sqrt.s`** on the R5900 and
+    `buildFeatures` has **zero `jal` and zero `div.s`** - the libm-round-trip
+    seam is exhausted, and the three previous wins were all the same win. Two
+    bit-identical changes landed anyway (fuse the tile-stat pass into
+    `finishTileStats`, hoist `buildReproj`'s per-column/row screen ray) and are
+    worth **+0.017 ms of a 4.60 ms bill** - a simplification, not a speed-up.
+    They also **price a divide**: ~565 fewer `div.s` a frame is 0.007 ms, which
+    is the number that disposes of every remaining arithmetic idea here. Bill
+    **4.60 -> 4.58 ms**, break-even unchanged at 11.5 coverages. Full account and
+    the fixture trap it exposed (`proxy` differs 0.051 ms between two runs of the
+    IDENTICAL ELF; `BLSSGRID`'s proxy count is the guard) in docs/profiling.md,
+    "The last terms in the composite". **What is left on the EE is `proxy`
+    (2.34) and it is the twin-contract item below.**
+  - **The next EE cut is twin-contract work, and the ENGINE HALF IS NOW WRITTEN
+    AND SWITCHED OFF.** The bag-proxy feed is the largest remaining EE term on
+    hardware (2.69 ms). The rule that makes it cheaper is the **proxy budget**:
+    cap a bag's proxies at the number of grid TILES its whole box covers, since
+    the grid resolves nothing finer than a tile - stated exactly in
+    docs/blss-reconstruction.md section 2 and implemented behind
+    `TYRA_BLSS_PROXY_BUDGET` (0 = today's fixed cap of 32). **What is owed is the
+    host half**: `bagOf()` / `bagList()` in `src/blsscorpus.cpp` must apply the
+    same cap - the same projection of the whole object AABB, the same tile
+    arithmetic, the same `ceil(parts / cap)` - and then the switch flips on both
+    sides in ONE commit. Measured with it on: 198 proxies -> 116, 262 projections
+    -> 174, and the only feature channel that moves is `coverage` (0.631 ->
+    0.638). A screen-area floor was considered and rejected: it can empty a
+    distant bag entirely, which hands its tiles `coverage = 0`.
+  - **DONE: `kPassMs` was per 512x512 and is now per PIXEL** (landed
+    2026-08-09, both halves). `FrameProfile::gsFillProbe` sized its calibration
+    sprite from the CURRENT FRAMEBUFFER and said nothing about it, and the
+    fixture that measured it ran PAL 576i, so **0.5872 ms was per 262 144 px** -
+    while a coverage out of `blss::measureCoverage` is per the PROJECT'S own
+    raster (512x448 = 229 376 px on `examples/upscaler-lab`, 448x448 on a
+    progressive one). The probe hands its raster back (`outW`/`outH`) and the
+    generated `GSFILL` line carries `raster=WxH` and a mode-independent
+    `perMpx=`, so the constant cannot be read against the wrong resolution
+    again - and **both rasters were measured on one console back to back**:
+    512x512 -> **0.5896**, 512x448 -> **0.5174**, `perMpx` agreeing to 0.3 %,
+    i.e. the cost is pure per-pixel.
+    The estimator now says so: `fill::kPassMsPerMpx` (2.2524, the mean of the
+    two points, reproducing both to 0.2 %) plus `fill::passMs(rasterPx)`,
+    `breakEven(rasterPx)` and `speedFrom(coverages, rasterPx)`;
+    `CoverageReport` echoes back the `outW`/`outH` it counted at so the window
+    and `--blss-coverage` cannot price the same scene differently. Break-even
+    is **13.1** coverages at 512x448 and **11.4** at 512x512 - measured both
+    ways through the CLI - and every page that quoted a bare 11.5 now names
+    the raster (README.md, docs/neural-upscaler.md, docs/profiling.md,
+    examples/upscaler-lab/README.md, the skills).
+    **The residual is NOT explained by any of this, and that is the check that
+    keeps it honest**: the over-read was measured with both instruments on the
+    same fixture at the same resolution, so a per-raster correction moves both
+    sides of that comparison and cancels - about **26 %** of over-read
+    survives it. That remainder is still the modelled emitter term (a counted
+    haze coverage costs 0.436 ms), i.e. the magnified 128-square puff being
+    cheaper per pixel than the probe's 1:1 framebuffer blit, and only a
+    console settles it. **The camera theory of that gap is dead** - measured
+    under the fixture's own parked gameplay camera the counter reads **78.99**,
+    above the 72.63 six-move mean, not the ~57.7 the theory predicted; the
+    ratio to hardware is constant (1.35 / 1.26 / 1.27 / 1.36) at 6 / 4 / 2 / 0
+    haze banks, i.e. proportional and not a modelling error in where the puffs
+    are. Tables in docs/neural-upscaler.md, "The overdraw count is an INDEX".
+  - **The proxy feed's own measurements are owed on hardware.** Everything in the
+    round above was taken in PCSX2 (the console was off the LAN), which this repo
+    admits for COUNTS and bit-identity and refuses for attribution. Owed: the
+    pre/post `proxy=total/accum` A/B for the landed `floorf` cut, the same for
+    the budget once its twin lands, and the restated break-even. Projection, not
+    a measurement: ~4.25 ms of EE and ~11 coverages against today's measured 5.02
+    and 13.
+  - **DONE: `--blss-train <projectDir>` writes `blss.net` into the PROJECT.
+    It used to write it into the current directory** - `CliOpts::netPath` and
+    `outPath` both defaulted to the literal `"blss.net"` (`src/blss.cpp`) - and
+    `--blss-eval <projectDir>` read it from there too, so the flow the generated
+    header and the docs both prescribe ("`--blss-train <projectDir> --all-shots`
+    then rebuild") trained a net the build never picked up unless you happened to
+    have `cd`-ed into the project first; `blssBake` looks for
+    `<projectDir>/blss.net`. Found the hard way on 2026-08-09: the net landed in
+    the repo root, the rebuild's boot log still said "the editor's built-in
+    default network" - telling the exact truth - and the run had to be redone.
+    Fixed by resolving the default against the project when there is EXACTLY ONE
+    project positional, on the read side as well as the write; an explicit
+    `-i`/`-o` still wins, and the bestiary and the union corpus keep the
+    cwd-relative default because a net fitted on several projects belongs to
+    none of them. **The diagnostic half landed on 2026-08-09**: `--blss-train`
+    did NOT print an absolute path - it printed `outPath` as given, and
+    `lexically_normal()` only normalises - so from a foreign cwd it still
+    reported `examples/showcase/blss.net`, which names a different file from
+    every directory and is exactly the ambiguity that cost the hardware round.
+    `blss::displayPath` (`weakly_canonical`, because the net does not exist yet
+    when the message is formatted, falling back to `absolute` and then to the
+    plain string, because a net that was fitted and written but could not be
+    pretty-printed is still a fitted net) now spells the net, its `.meta`
+    sidecar and both `--blss-emit` outputs absolutely.
+    Verified four ways from a foreign cwd: the net lands in the project and not
+    in the cwd, `--blss-eval` reports `net source=project` where it used to say
+    `default`, the bestiary still writes `./blss.net`, `-o` still wins - and the
+    bytes are untouched, `examples/procedural` at 72 frames `--no-jitter` still
+    md5 `e069f286ea0c524999bfd9dac769608c`. Why it survived so long: the BLSS
+    window runs its job with cwd = the project AND passes `-o`, so the two
+    spellings named one file and only the shell could ever see the bug.
+  - **The corpus renderer draws no emitters, so the QUALITY half of the feature
+    is blind to the scenes the SPEED half exists for. The tools now SAY so
+    (2026-08-09); drawing them is still owed and is not small.**
+    `blsscorpus.cpp` models emitters only in the coverage counter
+    (`billboardOf` / `emitterCentres` / `countEmitter`, the
+    `--blss-coverage` path); `renderScene()` takes geometry and materials and
+    has no emitter parameter at all.
+
+    **How bad it is, measured 2026-08-09 on this tree** (jitter off, 2x2,
+    shipped defaults). The scene that prints the confidently wrong sentence is
+    `examples/showcase`, NOT `examples/upscaler-lab` - the earlier version of
+    this entry named the wrong one, and both of its numbers for it were stale:
+
+    | project | `--blss-eval` | `--blss-coverage` geom + emit | emitter share |
+    |---|---|---|---|
+    | `examples/showcase` | `headroom=+0.006` -> "WILL NOT BENEFIT" | 15.24 = 0.67 + **14.57** | **95.6 %** |
+    | `examples/upscaler-lab` | `headroom=+1.058` at 1.38 passes | 72.63 = 0.98 + **71.65** | **98.7 %** |
+
+    `upscaler-lab` reads a +1.06 dB ceiling today, so it no longer contradicts
+    the speed verb; the retracted claims are its `+0.000` / "WILL NOT BENEFIT"
+    and its "3 072 billboards" (it has **11 emitters and 568 billboards**).
+    `showcase` is the live case: a near-zero ceiling measured on **4.4 %** of
+    the frame's fill, quoted verbatim by the BLSS window.
+
+    **Landed 2026-08-09, because a silently wrong verdict is worse than a
+    missing one:** the WARNING (from d240ef7a) now reaches the ANSWER as well
+    as the top of the run. A project with any enabled emitter and a ceiling
+    under +0.10 dB prints **`NO VERDICT:`** with the count and a pointer to
+    `--blss-coverage` instead of "THIS SCENE WILL NOT BENEFIT", and the
+    machine-readable line carries **`emitters=N`** (appended - that line is
+    parsed key=value with unknown keys ignored; the TABLES above it are read by
+    column position and must never gain a column). Verified: `showcase` prints
+    NO VERDICT, `procedural` is unchanged with `emitters=0`, and the anchor
+    `--blss-train examples/procedural --all-shots --frames 72 --no-jitter` is
+    still md5 `e069f286ea0c524999bfd9dac769608c` at `--threads 1` and at auto.
+    It is a caveat, not a fix.
+
+    **THE BLOCKER WAS THE ENGINE, AND HALF OF IT IS NOW GONE - BEHIND A SWITCH
+    THAT SHIPS OFF (2026-08-09).** An emitter bag used to contribute **no
+    BagProxy at all** on the console: `buildParticles` sets
+    `frustumCulling = None` (templates.cpp), so `stapip_core.cpp` had no bbox,
+    fell to `addBagSphere(modelTranslation, radius = 0)`, and `addBag` rejected
+    it at `x1 <= x0`; the corpus agreed by accident, because `bagList()` only
+    walked geometry.
+
+    The **sixth rule of the twin contract** closes that
+    (docs/blss-reconstruction.md section 2, measured up on the upscaler page):
+    an emitter bag is described by ONE box - the AABB over the centres it is
+    about to submit, grown per axis by `|R.axis|*(max|m00|+max|m10|) +
+    |U.axis|*(max|m01|+max|m11|)` - and `--emitter-proxy` makes `bagList()`
+    build the same box from the modelled pool `--blss-coverage` already uses.
+    **`TYRA_BLSS_EMITTER_PROXY` and `--emitter-proxy` are both 0**, and the
+    measurement is why:
+
+    - it works - `upscaler-lab` goes 198 -> 207 proxies, 147 -> **224 of 224**
+      covered tiles, and `texDetail` stops describing the crates and starts
+      describing `puff.png` (0.466 -> 0.211);
+    - the twin checker works too, which is the part that unblocks everything
+      else here: a console `BLSSFEAT` line probed against the matching corpus
+      arm reads 96.9 % support on `coverage` against 67.9 % for the
+      deliberately mismatched arm, so the two halves can now be caught drifting;
+    - **and `coverage` becomes a CONSTANT** - `1.000/1.000/1.000` in every tile
+      - with `depthGrad` nearly so (spread 0.101), because one AABB over a haze
+      bank hands every tile the whole bank's depth range. That is the sky-dome
+      failure again, in the channel the rule was supposed to rescue;
+    - for **+0.88 ms of EE** (BLSS 3.21 -> 4.09 ms in PCSX2; `net` and `reproj`
+      grow too, because covering 224 tiles instead of 147 runs the MLP on all of
+      them) and **break-even 13.1 -> ~15.3 coverages** at 512x448.
+
+    **THE SPATIAL SPLIT WAS THE NAMED NEXT STEP AND IT IS NOW A MEASURED NO
+    (2026-08-09). CLOSED - do not re-open it without reading this.** The entry
+    used to say: bin an emitter's centres by their COORDINATES, take one AABB
+    per bin, each box then carries a *local* depth range, and it is
+    order-independent so unlike a split by pool slot it is still twinnable. All
+    of that is TRUE. It was implemented on both twins, measured, and removed;
+    the rule, the three design decisions and the full tables are in
+    docs/blss-reconstruction.md section 2, "A seventh rule that was measured and
+    rejected".
+
+    The result, on the console at a vantage where the one-box arm reproduced
+    this entry's own 207 proxies of 273 and 4.09 ms: **224 of 224 covered tiles
+    before and after**, `coverage` and `depthGrad` still `1.000/1.000/1.000`,
+    proxies 207 -> **241** of 310 projected, tile updates 2 636 -> **6 077**,
+    BLSS EE 4.07 -> **5.25 ms**, break-even ~15.3 -> **~18.2**. On the host the
+    share of tiles reading exactly 1.000 moves the WRONG way in both fixtures
+    (`coverage` 96.9 -> 98.4 %, `depthGrad` 87.8 -> 99.0 % on `upscaler-lab`).
+
+    Two reasons, and both generalise past this particular partition:
+    - **A partition of a solid region is a TILING of that region, and a tiling
+      has the same union.** `coverage` is decided by the union of the boxes, so
+      no spatial split can shrink it; `depthGrad` is a max over every bag
+      touching a tile, so a split along the view axis reunites the range and a
+      split across it leaves each cell its whole range. The premise needed the
+      pool to be CLUSTERED, and a Tyra emitter's pool never is - `updateParticles`
+      spawns uniformly over the emitter's own XZ rect and integrates one
+      velocity, and `emitterCentres` models the same box with a Halton pool.
+    - **The flat channel is the FIXTURE, not the description.** Strip
+      `upscaler-lab` to one small fire emitter and `coverage` reads 0.690 mean /
+      67.8 % at 1.000 in all three arms, identical to flag-off. On the shipped
+      fixture `--blss-coverage` counts 71.65 of 72.63 coverages as emitters, so
+      "covered, in every tile" is simply true there.
+
+    So the sixth rule's +0.88 ms is what an emitter proxy costs, and there is no
+    cheaper description waiting to be found. Both switches stay at 0 and no fold
+    table or shipped net changes. **If the emitter half is picked up again, the
+    open item is the one below, not this one.**
+
+    What has NOT changed: the corpus renderer still draws no particles. So an
+    `--emitter-proxy` run predicts a frame whose ground truth has none, and its
+    PSNR is the cost of the description (measured: -0.02 dB against a fold sd
+    of 0.20-0.27, i.e. nothing) rather than the benefit. The rest of this entry
+    is still owed.
+
+    So **drawing particles with BOTH switches still at 0 would move every LABEL
+    and not one INPUT.** All
+    six channels would still describe the opaque geometry alone while the truth
+    image became 96-99 % particles. On `showcase` the oracle would be re-fitted
+    against a frame whose predictors describe 4.4 % of it - not a harder
+    learning problem, an *unlearnable* one - and the net would fit whatever
+    geometry feature happened to correlate. That is worse than not drawing them,
+    and it is why the honest order was and remains: **engine describes emitter
+    bags first, corpus draws them second.** The first half is written and
+    measured now; it is not yet ON, so the constraint is unchanged in practice.
+
+    Two things that ordering fixes, and ONE OF THEM NOW WORKS:
+    - **the twin contract is checkable again** (2026-08-09). Its instrument is a
+      console `BLSSFEAT` line probed against the corpus distribution
+      (`--blss-eval --probe`), which compares FEATURE VECTORS - and with the two
+      emitter switches on, emitters finally produce one. Confirmed against a
+      deliberately MISMATCHED pairing, which loses a third of `coverage`'s
+      support and half of `depthGrad`'s reachable band. Every rule below can now
+      be transcribed and CHECKED rather than transcribed and hoped for;
+    - **`--blss-coverage`'s emitter model could stop being modelled.**
+      `billboardOf`/`emitterCentres` average the life curves and spread the pool
+      through a box; a real simulation would replace them - at the cost of
+      re-publishing every coverage number, so it is its own tail. Note they are
+      now SHARED with the proxy rule (one definition, two consumers), so a
+      change there moves the described boxes as well as the pixel estimate.
+
+    **The sixteen twin rules a correct particle corpus owes**, all read out of
+    `templates.cpp` `updateParticles` / the billboard `.vclpp` / the GS setup,
+    so this is an inventory rather than a research task. Note (2) and (4): the
+    earlier version of this entry prescribed **back-to-front sorting** and **"a
+    BagProxy matching what `StaPipBillboardBag` submits"**, and BOTH are wrong -
+    the console does not sort, and it submits nothing.
+    1. blending: GS `(Cs - Cd) * As >> 7 + Cd`, in a rasteriser whose stated
+       invariant is that it has none;
+    2. **draw order = emitter order then pool-slot order, NOT depth.** The
+       console iterates `particles` and submits each pool as one bag;
+    3. z-test GEQUAL **with z-write** (`PipelineZTest_Standard`), so particles
+       occlude each other in draw order;
+    4. **the bag's proxy follows `--emitter-proxy`** - no proxy with the switch
+       at 0 (the shipped state, and the exact console match), and the sixth
+       rule's single box with it at 1. This is the rule the entry has now got
+       backwards TWICE: it first prescribed "a BagProxy matching what
+       `StaPipBillboardBag` submits", then "no proxy, and that is free"; the
+       truth is that it is a switch and both halves have to read it;
+    5. alpha test `!= 0` with `AFAIL = KEEP_ALL` (a zero-alpha particle writes
+       nothing at all, not even z);
+    6. MODULATE with TCC = RGBA, so `As = At * Af >> 7` for the textured
+       emitters (`upscaler-lab`'s haze is `puff.png`, RGBA32 by a per-asset
+       quality override) - and the product can exceed 128;
+    7. per-quad **`clipw` cull against the +-2048 px raster window: any corner
+       out drops the WHOLE quad**, which a 9-unit haze puff near the eye hits;
+    8. corner = `C +- (R*m00 + U*m01) +- (R*m10 + U*m11)`, STs
+       `(0,1)(1,1)(1,0)(0,0)`;
+    9. the camera basis `right = normalise(fwd.z, 0, -fwd.x)`,
+       `up = (-rz*fwd.y, rz*fwd.x - rx*fwd.z, rx*fwd.y)`; rain uses world-up;
+    10. per-kind spawn, velocity, lifetime for six kinds;
+    11. per-kind size and alpha curves (peak alpha: fire 90, smoke 40, fog
+        `opacity*60`, sparks 110, rain 70, custom `opacity*128`) and fire's
+        colour ramp;
+    12. fog's per-particle swirl (rotation by index and age);
+    13. rain's terrain fall distance and custom's die-on-ground, i.e. a
+        `terrainHeightAt` twin (`heightAtWorld` in blssscene.cpp already is one);
+    14. `emitFollow`, which makes the spawn box camera-relative;
+    15. the LCG `prand` with seed `12345 + runtimeIndex * 7919`, its exact
+        consumption order, and the staggered first respawn;
+    16. **a fixed `dt` the console does not have.** `g_frameDt` is real elapsed
+        time - on `upscaler-lab` that is 33 ms with BLSS on and 53 ms off, so
+        the two arms of the feature's own A/B do not even simulate the same
+        particle field. The corpus would have to invent one (1/50 s is the
+        defensible choice, and `AnimMesh`'s per-console-frame pose table is the
+        precedent).
+
+    **The tail, and it is smaller than this entry used to claim.**
+    `resources/blss-default.net` is fitted on `upscaler-lab material-lab
+    endless-runner cube save-points procedural endless-scroller bestiary` - of
+    those eight members exactly **one** (`upscaler-lab`) has any emitter, ~6 of
+    55 shots. `showcase` is NOT a member. So the refit blast radius is ~11 % of
+    the corpus, not "seven projects several of which have emitters". It still
+    has to be one commit: refit the default, regenerate the `.meta`, re-run the
+    published fold tables, or the CI check that reproduces the net from its
+    recorded command fails, correctly.
+
+    Until then: treat a PSNR for a particle-heavy project as NOT MEASURED, read
+    the speed verdict instead, and pin the vantage (`blssShots`) before quoting
+    anything at all.
+  - **A FOG emitter loses its Opacity on save/load - authored 0.3 comes back
+    0.6, and the fog is silently twice as dense.** Found while inventorying the
+    emitter parameters above; NOT fixed here because `src/project.cpp` was
+    outside this change's ownership.
+
+    `project::save()` writes the emitter's `opacity` **only inside the
+    `if (k == 5)` custom-physics block** (`src/project.cpp`, the `"emitter": {`
+    writer), while the loader reads `opacity` for every kind and defaults it to
+    **0.6**, and codegen emits `o.emitterOpacity` for every kind
+    (`src/templates.cpp`, the `SCENE_OBJECTS` writer). Fog is the one non-custom
+    kind that USES it - `alpha = d.emitOpacity * 60.0F` in `updateParticles` -
+    so a fog emitter is the case where the round trip loses data. Kinds 0/1/3/4
+    ignore the field, and kind 5 saves it, which is why this has survived.
+
+    Symptom sequence: set a fog emitter's Opacity to 0.3, the viewport preview
+    obeys it (`viewport.cpp` reads the same field), save, reopen - the value
+    reads 0.6 and the built game gets 0.6. Fix is one line (write `opacity`
+    outside the `k == 5` block) plus a thought about whether existing projects
+    need a migration: they cannot be distinguished from ones authored at the
+    default, so the honest answer is probably "no migration, note it in the
+    format-version entry".
+
+    It does NOT break the BLSS twin: the corpus and the generated game both read
+    the same lossy `.tyra`, so they agree with each other and are equally wrong
+    about what the author typed.
+  - **The degenerate-net fast path is designed and unlanded.** When every output
+    is deadzoned (measured: `point 0 % / temporal 0 % / sharpen 0 %` on a real
+    project's own net) the composite is exactly one full-screen bilinear blit,
+    and pass 0's 16-row grid could be one sprite - worth the 0.31-0.56 ms of
+    `pkt`. It needs a guard for negative jitter (the grid clamps UV at 0, a
+    sprite would interpolate through it) and a frame-buffer comparison against
+    the strip, because sprite and triangle UV DDA are not obviously bit-equal.
   - **DONE: the corpus render is threaded, and DETERMINISM is what pays for it**
     (7d3dbf67). The oracle has been parallel per frame since 1b9c7a74; the corpus
     render was the last serial phase that could be parallel at all (7.2-7.7 s of
@@ -90,6 +661,63 @@ the verification, and any fact worth reusing belongs in the relevant
     (34%)** - each step reads the weights the previous one wrote, so `--threads`
     cannot touch it. Not worth a GPU at 6 seconds; if the cycle needs to be
     faster, the oracle's coordinate descent is still more than half of it.
+  - **DONE: the window answers "should I turn this on" in one click, and every
+    long button says what it costs.** The window was built by its author and read
+    like it: it told the user to "run the Evaluate tab before turning this on"
+    and Evaluate could not run without a `blss.net` that only Train could
+    produce. Above the tabs now: **`Will this scene benefit?`**, a NET-FREE
+    `--blss-eval` whose oracle row is the scene's ceiling, rendered as *THIS
+    SCENE WILL NOT BENEFIT* or *Headroom: +0.95 dB available at 1.22 passes* with
+    a *Train the network* button under it. Plus: an **ETA** on Train / Evaluate /
+    Cross-validate (`blssui::estimate`, calibrated against seven timed runs, all
+    within 17%); the Train tab down to **Frames and Epochs** with the six
+    research knobs behind an *Advanced* header, tooltips verbatim; clash warnings
+    that **name the scene and object** and carry a `Select it` button, and that
+    are shown whether the feature is on or off; a **live VRAM line** under the
+    Render scale combo computed for this project's own raster - which is how
+    "**1x2 hands back exactly nothing**" got written down for the first time
+    (z shrinks by precisely what the low-res target costs, at every output size);
+    a **difference view** (|A-B| x8) on the Compare tab with a three-thumbnail
+    strip under the verdict; and the smaller ones - 123 weights instead of 500
+    bytes, a retrain warning when the net's `.args` sidecar disagrees with the
+    project's sharpen or scale, *Restore defaults* covering every field, and a
+    warning when the four tabs' frame counts drift apart. Driven end to end with
+    `--ui-script` on two fixtures and screenshotted; the arithmetic additionally
+    checked from a host-only harness. Still unseen: the finished cross-validation
+    table and the error banner.
+  - **DONE: `--blss-eval` is 4.6x faster, `--cv` 1.23x, and all of it is
+    BIT-EXACT.** That was the other half of the item above - the TRAIN cycle got
+    threaded, the EVALUATE cycle did not, and a plain `--blss-eval` was ~80% one
+    serial oracle. Three changes, `examples/showcase`, 156 frames, `--threads 8`,
+    minimum of alternating repeats: 89.8 -> 19.5 s and 48.3 -> 39.3 s. (1)
+    `evalRecurrent` runs in parallel over
+    **shot runs** - the temporal chain only ever resets where the shot id changes
+    - with the workers producing per-frame values and the sums folded in serially
+    in corpus order, so no accumulator sees a different sequence of addends. (2)
+    `--cv` computes its two bilinear rows **once per corpus**: an all-zero weight
+    field never reads the history, so a frame's bilinear PSNR is a constant, and
+    every fold used to re-composite eleven training shots as well as its own to
+    rediscover it - that is the whole of the `--cv` row, 19% of the run. (3) the
+    oracle stops sweeping `wD` at `--sharpen 0`, where all nine candidates
+    quantise to `aD = 0` - ~16% of such an evaluation (16.1 -> 14.0 s over 26
+    frames at `--threads 1`) and nothing at the default 0.5, which is why it does
+    not show in the two numbers above. Proven by diff: the eval and fold
+    tables are character-identical to the pre-change binary's, and `--threads 1`
+    vs `8` vs auto still write md5 `24cb12467edb034df24a7e66b505b384` on that
+    project, the same as before the change.
+
+    **Also DONE, and it is a bug fix rather than an optimisation: `--blss-eval`
+    runs NET-FREE.** The settings panel has told users to evaluate their project
+    "before turning this on" since it shipped, and that was impossible - the verb
+    loaded `blss.net` first and bailed with "cannot open blss.net", so a fresh
+    project could not perform its own documented first step. The load-bearing row
+    is the ORACLE, which involves no network at all. A missing DEFAULT net now
+    just drops the trained row (exit 0); only an explicit `-i` that cannot be
+    opened is still an error. `--blss-eval` also prints the verdict itself, in
+    the window's own words, plus `[blss] verdict headroom=… passes=… bilinear=…
+    oracle=… native=…` for a caller, and `--cv` prints `[blss] fold k of n` so a
+    progress bar over the fold loop can be a real fraction. All three verbs now
+    end with a `blss: timing` phase line.
   - **DONE, AND THE PRESCRIBED FIX WAS REFUTED BEFORE IT WAS WRITTEN: make the
     raster-redirect brackets nest.** `RendererCoreEnvMap::end()`, the camera
     feed and `RendererCoreShadowMap::end()` restored FRAME/SCISSOR/ZBUF/XYOFFSET
@@ -164,13 +792,34 @@ the verification, and any fact worth reusing belongs in the relevant
     just the weight**: MSE against the reprojected history is minimised by the picture
     FREEZING, which is free on the near-static training shots and is ghosting on
     the held-out orbit and dolly - it cannot tell "stable because the jitter got
-    fused" from "stable because nothing moved". If this is picked up again, gate
-    the penalty on reprojection confidence FIRST.
+    fused" from "stable because nothing moved".
 
-    **What delivered the stability instead was the fill term** (next entry), by
-    culling the point and sharpen passes - which are exactly the two that
-    alternate with the jitter. At flicker 0, moving fill 0 -> 6 took flicker from
-    21.49 to 21.01 (training) and 27.12 to 26.62 (held out) at no quality cost.
+    **CLOSED 2026-08-09: the form was fixed as prescribed, swept, and it is
+    ALSO a bad trade - so do not pick this up a fourth time.**
+    `--flicker-form period2` charges for the stationary period-2 alternation the
+    candidate weights would leave, derived in closed form, which freezing cannot
+    pay for. Nine weights x 30 fold-runs on `examples/upscaler-lab` with the
+    jitter ON: the alternation reaches the jitter-off floor only at weight 5,
+    where the margin is **+0.29 against the +0.33 that turning the jitter off
+    buys for free**, and where **15 folds of 30 lose to plain bilinear**
+    (sd 0.51 -> 1.40). Mean passes never moves (1.73 -> 1.75), so it is not a fill
+    trade - what it costs is generalisation. Below weight 1.5 the knob does
+    nothing at all. Curve, metric and the two ways the metric had to be fixed
+    before it could judge anything: docs/neural-upscaler.md ("The trade curve").
+
+    **The prescribed gate was itself wrong, and that is the transferable part:**
+    `(1 - motion) * (1 - depthGrad)` looks threshold-free and is exactly ZERO on
+    most of the frame, because `motion` reads 1.0 on 49.1% of `upscaler-lab`'s
+    tiles and `depthGrad` on 41.0%. A gate built out of saturated channels is a
+    gate that is always shut. Outliers are clamped instead.
+
+    **RETRACTED: "what delivered the stability instead was the fill term"** (it
+    used to say so here, by culling the point and sharpen passes). The fill term
+    culls the TEMPORAL pass too, and the accumulator is the only thing that damps
+    the phase difference at all - so it makes the bob worse, not better. The
+    flicker numbers it was read off (21.49 -> 21.01 training, 27.12 -> 26.62 held
+    out) are a lag-1 metric, which cannot see a period-2 artefact. What delivered
+    the stability is turning the jitter off.
 
     The earlier **"lock the jitter phase to the field parity" theory stays
     REFUTED**, and the reason is worth keeping: a blending deinterlacer was
@@ -181,12 +830,27 @@ the verification, and any fact worth reusing belongs in the relevant
     comes from - and the temporal accumulator was not fusing it. Nothing about
     interlacing or field parity is involved.
 
-    **STILL OPEN, and it is now the only open half of this item: nobody has
-    watched the emulator since the fill term landed.** Every console observation
-    on record was taken from a net trained by the old fill-blind objective. The
-    host's flicker metric improved with the retune; whether the picture is still
-    bobbing on a television is UNVERIFIED in both directions. That is a
-    twenty-minute PCSX2 boot and it gates the feature.
+    **The "nobody has watched the emulator" half is ANSWERED**: a human was shown
+    three builds and called the jitter-on one "like an earthquake" while the other
+    two were byte-identical over 40 captures. The bob is real, the jitter is the
+    cause, and turning it off is the cure.
+
+    **The INSTRUMENT is DONE too (2026-08-09): `--still`.** It was the fixture and
+    not the objective. Every frame of a shot now uses the shot's FIRST camera and
+    FIRST pose, so only the jitter phase advances - the reprojection becomes the
+    identity (the warp gate keeps **100 %** of the frame instead of 29.6 %) and
+    the animation freezes with it. On the ANIMATED corpus the metric's floor goes
+    **2.614 -> 0.095** levels while the artefact reads **4.434**, i.e. 47x the
+    floor instead of below it, and `--still --no-anim` reproduces `--still` to
+    within 0.004 - so **`--no-anim` is no longer a prerequisite for reading this
+    column**. It also put numbers on three things that were only derived: the
+    temporal pass alone takes the bob 4.434 -> 0.263 (17x, which is
+    `(1-c)/(1+c)`, and is why a fill term that culls it makes the bob WORSE), the
+    sharpen pass makes it worse than doing nothing (6.062) because it lands after
+    the accumulator, and the shipped objective's oracle leaves 0.979 where an
+    all-temporal composite leaves 0.263 - that gap IS what accuracy-plus-fill
+    trades away. It is a FIXTURE, not a corpus: `--blss-train` and `--cv` refuse
+    it, because every frame of a shot is the same frame.
   - **DONE: charge the oracle for the fill it asks for.** `--fill-weight`,
     now **16**, charged as a STEP on the quantised alpha byte (a weight rounding
     to alpha 1 costs a whole pass and buys nothing, so a smooth penalty would
@@ -266,7 +930,12 @@ the verification, and any fact worth reusing belongs in the relevant
     invariant holds.
 
     What makes it safe is one invariant, and it is the thing to keep: **
-    `zBuffer.mask` is 0 only INSIDE the low-res bracket.** Every
+    `zBuffer.mask` is 0 only INSIDE the low-res bracket** - DERIVED in
+    `allocateVramBuffers` from the allocation, never assigned by a caller.
+    `configure()` used to set it one statement before the rebuild that cleared
+    it again, and the depth that then leaked past the allocation deleted every
+    4-bit palettised texture in the scene (docs/blss-reconstruction.md
+    section 6). Every
     `draw_enable_tests` / `draw_setup_environment` in the engine reads that one
     field, so the 2D/HUD/post-fx half of the frame - full-screen sprites at
     z = 0xFFFFFFFF, which would otherwise stamp 448 rows at a 512 stride -
@@ -349,6 +1018,120 @@ the verification, and any fact worth reusing belongs in the relevant
     `src/blss.hpp` and docs/neural-upscaler.md. If a photometric channel is ever
     wanted back, the honest form is an EDITOR BAKE into the bag, not a run-time
     sample.
+  - **DONE, AND IT IS THE WORST RESULT THIS FEATURE HAS PRODUCED: a BLSS frame
+    has been timed on a real PS2.** The page's standing caveat - "no BLSS frame
+    has ever been timed, in the emulator or on hardware" - is retired. There is
+    a rig now (docs/profiling.md, "Timing a frame that BLSS is in"): COP0
+    counters behind `TYRA_FRAME_PROFILE` (default 0, a shipped `libtyra.a`
+    carries none of it), read at `beginFrame` and immediately before the vsync
+    wait so the number is sub-frame WORK at a locked 50 Hz, plus a fairness
+    fence so the BLSS-off arm is drained at the same point as BLSS' own three
+    brackets. Output is one `FRAMETIME` line a second plus a raw per-frame dump
+    for PAIRED statistics, driven by a frame-INDEXED script camera so frame k of
+    run A is the same view as frame k of run B.
+
+    **The calibration gate says PCSX2 cannot measure this feature.** K
+    full-screen textured blended sprites per frame, K = 0/2/4/8/16, each with
+    its own draw_finish: real PS2 **0.5872 ms** per pass, PCSX2 **0.0077 ms** -
+    both perfectly linear, so PCSX2 under-reports GS fill by **76x** and is
+    timing its emulated GIF, not a raster. No emulator GS number about a feature
+    that trades fill for fill is admissible.
+
+    **On hardware, BLSS cost +9.83 ms per frame and saved nothing.** 1000 frames
+    per arm after a 150-frame warm-up, two runs per arm, all four cross-pairings
+    within 0.02 ms: mean(d) = -9.83 ms, 95% CI [-9.85, -9.81], n = 924 paired
+    frames. 9.42 -> 19.25 ms mean, 0 -> 158 frames over the 20 ms PAL budget.
+    Where it went: composite 5.41 ms of which **5.10 ms is EE** (reprojection +
+    MLP + the ~5 700-qword packet), `beginScene` 0.45 ms, and ~3.9 ms of extra
+    scene submission from the per-package bag proxies. What it saved: nothing,
+    because `drain` read **0.02 ms in both arms** and the half-res scene's GS
+    overhang was **0.03 ms**. The frame is EE-bound, so halving the raster
+    cannot shorten it. A second fixture built specifically to be GS-bound (no
+    terrain, sixteen nested cubes around the camera) read the same 0.02 ms:
+    untextured opaque geometry is too cheap per pixel to overtake a ~9 ms EE
+    frame. **This is the wrong scene for the feature - but nothing in the
+    generated-game runtime has been shown to be the right one**, and that is now
+    the question this feature stands or falls on. Next: find or build a scene
+    whose `drain` is non-zero on hardware (textured, alpha-blended, high
+    overdraw), and cut the 5.10 ms composite EE half, which is a cost BLSS pays
+    on every scene whether or not there is fill to save.
+  - **DONE, AND IT IS STILL BROKEN: the oscillation was re-measured and it is
+    still there; there is a kill switch now.** The fill term culls the point and
+    sharpen passes - the two that alternate with the jitter - which was the
+    reason to hope, and it is not enough: on a real project's scenes it culls
+    the **temporal** pass too, and the temporal accumulator is the only thing
+    entitled to fuse the two jitter phases. Measured on a static camera with a
+    project-trained net: **30.8 % of the picture alternates between two images
+    every frame** (amplitude 1.42/255), against 0.05 % for BLSS off. The test
+    had to be built to see it at all - the documented reason this survived is a
+    sampler with an EVEN frame stride landing on one jitter phase every time -
+    so it freezes the camera, samples off the frame clock, and tests for a
+    period-2 signature (two balanced clusters) rather than for "did it change".
+
+    **`blssJitter`** (ProjectSettings, default false, format version 9) pins the
+    offset to 0; the picture then measures indistinguishable from the BLSS-off
+    control. Two things it still needs: **a UI control** (the setting is
+    hand-edited in the `.tyra` today - `src/blss_window.cpp` and
+    `App::drawPreferencesModal` both draw `drawBlssSettings`, so it goes in
+    there), and **the host twin**. `src/blss.cpp`'s oracle and corpus always
+    model the jittered sampler, so a net trained today and run with the jitter
+    off is being run out of distribution - the flag has to reach the trainer
+    before jitter-off is a supported configuration rather than an escape hatch.
+
+    **Re-confirmed independently on `examples/upscaler-lab`'s fixture** (a
+    static scene, frozen camera, no particles, no animation, sampled at an ODD
+    0.34 s = 17-frame stride): BLSS off gives mean lag-1 **0.018 %** / max
+    0.052 %; BLSS on gives mean lag-1 **1.443 %** / max **1.755 %**, and the
+    picture takes only those two values - when the sampling phase aligns, lag-1
+    drops to 0.05 % and lag-2 rises to 1.75 %, the two states swapping roles.
+    That is a clean period-2 alternation at ~33x the still-picture floor. Note
+    this scene's project-trained net puts **72-78 % of its weight on the
+    temporal pass** (and 0 % on point and sharpen), i.e. the accumulator that is
+    supposed to fuse the two phases is doing most of the work here - and it
+    bobs anyway, so "the fill term culled temporal" is not the whole story.
+  - **BLOCKER, found by `examples/upscaler-lab`: with BLSS on, every TEXTURED
+    primitive and the textured terrain disappear.** Reproduced in a minimal
+    control (a fresh `--new` fpp project, one plain-coloured box, one box with a
+    `map_Kd` material, terrain with and without a terrain material): plain box
+    draws, textured box gone, textured terrain gone, untextured terrain draws,
+    textured *models* (`.tmdl`/`.tskl`) draw. BLSS off, all of it draws.
+    Independent of `textureQuant` (`4bit` and `none` both fail), of static
+    batching, of baked AO, of fog and of `blssTemporal`. `VRAMSTAT` shows the
+    textures resident and bound thousands of times a frame with `evict=0`, so
+    the pass IS submitted and its texture IS bound and nothing reaches the
+    low-res target - which is what the GS alpha test rejecting every fragment
+    looks like (StaPip draws with the "pass only when alpha != 0" cutout rule,
+    and the composite is a PATH3 pass; see the GS post-fx rule about restoring
+    ALPHA/TEST/TEX1/XYOFFSET). Until this is fixed BLSS cannot be enabled on any
+    project with a textured floor, which is most of them, and no fill A/B on
+    real content means anything. `examples/upscaler-lab` is the fixture and its
+    README carries the table.
+  - **The corpus cannot see the fill.** `blssscene` walks primitives, static
+    `.obj` and terrain chunks only (`blssscene.cpp:216-231`), and on the console
+    particle bags contribute no BLSS proxy at all - `stapip_core.cpp:282-286`
+    gives them no bbox, so the sphere fallback has radius 0 and is rejected. On
+    a scene whose overdraw IS particles (the case the feature exists for) the
+    net is therefore fitted on the static half and run on a frame dominated by
+    haze it has never seen. Either give billboard bags a proxy box, or say in
+    the docs that particle fill is out of distribution.
+  - **`TPL_RES_GITIGNORE` only reaches one directory level.** The baked-model
+    rules are `/models/*.tmdl` / `*.tskl` / `*.tanm`, so a project that keeps a
+    model in a SUBFOLDER of `res/models/` (which the Asset Browser encourages,
+    and which a multi-file Wavefront asset with its own `.mtl` and texture
+    practically requires) commits its bake. Found on
+    `examples/upscaler-lab`: `res/models/cottage/Cottage_FREE__ovrb564.tmdl`,
+    411 KB of derived data, would have gone in. The example carries a local
+    top-up; the template and the append-if-missing block in `refreshGenerated`
+    want `/models/**/*.tmdl` instead.
+  - **A `fog` emitter's `opacity` is silently dropped on save.**
+    `project.cpp:690` serialises the custom physics block - `speed`, `spread`,
+    `gravity`, `weight`, `life`, `grow`, **`opacity`**, `dieOnGround` - only for
+    `kind == "custom"` (5), but the READER at `:3661-3692` accepts `opacity` for
+    every kind and `templates.cpp:7876` uses it for `kind == 2` (fog) as the
+    density knob. So a fog emitter's opacity can be authored, is used by the
+    game, and does not survive a round trip. Either serialise `opacity` for fog
+    too or stop reading it there; the emitter panel is the third place to keep
+    in step.
   - **Bake a per-material UV-repeat constant.** `texDetail` is the texel-density
     proxy, and the engine can only supply `texW * texH` (`stapip_core.cpp`): it
     does not know how many times a material tiles over a surface. The corpus can,
@@ -454,11 +1237,46 @@ the verification, and any fact worth reusing belongs in the relevant
   still position themselves in the raw framebuffer instead of the logical
   512x448 space menus now scale from, so they are the remaining half of "the UI
   does not move when the display mode does" (the mechanism is there -
-  `Sprite::drawSize` plus the `project::displayModes` table). Also: a `close`
+  `Sprite::drawSize` plus the `project::displayModes` table). **The same split
+  now applies to WIDESCREEN**: menu panels cancel the anamorphic stretch
+  (docs/menu-styles.md "Widescreen", `RendererSettings::getWindowAspect()`) and
+  those three surfaces do not, so they still come out a third wider on 16:9.
+  Whether they SHOULD is a design question rather than a bug - a HUD pinned to
+  the screen edges is arguably meant to follow a wider frame, while a fixed-
+  aspect element (a radar, a portrait, an icon) is not - so the answer is
+  probably per element, not per surface, and it wants deciding before it is
+  coded. The save menu is the clear-cut half: it is a `GameMenu` that is drawn
+  by its own function and takes neither the resolution scale nor the aspect
+  compensation, which is simply inconsistent with every other menu. Also: a `close`
   transition is parsed and generated but the runtime only plays `open` and
   `cursor`; `description { area: right }` is laid out but untested on a wide
   panel; and a per-menu "bake crisp for mode X" would remove the 1.2x upscale
   softness at 1080i for a second texture's worth of VRAM.
+- **Sound priority and voice stealing** - DONE (docs/sound.md), all three steps
+  of `.claude/plans/sound-priority.md`: emitters rank by priority then loudness
+  instead of hashing their scene index into one of 8 slots, the audsrv fork
+  gained a forced play (so a pinned Play Sound channel cuts off, as its tip
+  always claimed), and both the node and the emitter carry a Priority. What the
+  brief could not settle stays open, and it is a listening question rather than
+  a code one: **does a forced restart over a live voice click?** If it does, the
+  fixes in order are a volume drop plus a play on the next frame, or a KOFF and
+  the ADSR release - both a frame of latency, so they are not worth paying
+  until someone hears the problem. The other half of that question is whether a
+  click is masked in practice (a gunshot stealing footsteps hides a lot; two
+  quiet voice lines do not).
+- **Reverb: a third room, and the tail of the cross-fade.** The two reverb
+  units are both in use now (docs/reverb.md): a room owns a bus and transitions
+  cross-fade across them. Two things were left where the chip runs out. A THIRD
+  room entered while a fade is still running waits for the first to finish
+  leaving (it waits rather than glitching, but it is a wait); and a sound is
+  committed to a bus when it starts, so a long sample carried between rooms
+  keeps the old room for its whole length rather than being re-routed. Both are
+  arguably correct behaviour, both are worth re-examining if a project trips
+  over them.
+- **Reverb on real hardware.** Everything in docs/reverb.md was measured in
+  PCSX2, which does emulate SPU2 reverb. Wanted: the same decay-tail
+  measurement on a console, plus a check that the `sceSdInit`-before-audsrv
+  ordering behaves there too.
 - **Save Editor: the checks only real hardware can make.** The feature is
   complete and builds, but three things cannot be proven from the host: the card
   failure feedback (a **full**, **absent** or **unformatted** card), and the icon

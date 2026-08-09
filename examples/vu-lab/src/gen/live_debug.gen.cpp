@@ -25,6 +25,7 @@
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
 #include "scripts/live_debug.gen.hpp"
+#include "facts.gen.hpp"  // the World Facts store, for the blackboard
 
 namespace Vu_lab {
 namespace livedbg {
@@ -34,10 +35,10 @@ namespace {
 const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
 
 const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
-const unsigned int SNAP_VERSION = 4U;  // v4 appends the stats + flush map
+const unsigned int SNAP_VERSION = 5U;  // v5 appends the fact block
 const int SNAP_HEADER = 64;
 const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
-const unsigned int CMD_VERSION = 1U;
+const unsigned int CMD_VERSION = 2U;  // v2 appends fact overrides
 const int CMD_HEADER = 32;
 const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
 
@@ -91,6 +92,33 @@ ObjSample watchRing[MAX_WATCH][OBJ_RING];
 int watchRingNext[MAX_WATCH] = {};
 int watchRingCount[MAX_WATCH] = {};
 
+// World Facts (docs/world-facts.md). The blackboard reads the live values out
+// of the watch table like any other variable; what needs state HERE is the
+// change history - a small ring of (slot, value, who, age) that answers "when
+// did this become true, and what did it" without the author having to guess
+// which graph to breakpoint. Positions ride the same ring as their X, which is
+// enough to see one move; the value itself is in the watch table.
+const int FACT_EVENTS = 128;
+struct FactEvent {
+  unsigned short slot;
+  short src;          // node key, or -(rule + 1)
+  unsigned int frame;
+  float value;
+};
+FactEvent factEv[FACT_EVENTS > 0 ? FACT_EVENTS : 1] = {};
+int factEvCount = 0, factEvNext = 0;
+// Manual overrides: the editor's "make it so" list, re-applied every frame it
+// stays in the command file. Not one-shot on purpose - a fact a rule rewrites
+// every frame would otherwise flicker back before anyone could see it.
+const int MAX_FACT_SET = 32;
+struct FactSet {
+  unsigned short slot;
+  unsigned char isPos;
+  float v[3];
+};
+FactSet factSets[MAX_FACT_SET > 0 ? MAX_FACT_SET : 1] = {};
+int factSetCount = 0;
+
 int lastScene = 0;  // for the crash report
 // VU1 packet capture state (the buffer + the tap live further down).
 bool vuCapArmed = false;   // set by a command, cleared once one is grabbed
@@ -126,7 +154,10 @@ unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
 // the chain - honest, but a heap storm nobody wants once per frame.
 bool ramMeasureWanted = false;
 unsigned int ramFreeKB = 0, ramFrame = 0;
-void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
+// __attribute__((unused)): the EE crash handler is opt-in (Preferences >
+// Build), and with it off nothing references this - it sits in an anonymous
+// namespace so the compiler drops it, but it would warn on the way past.
+void writeCrashReport(const Tyra::CrashInfo& ci) __attribute__((unused));  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
@@ -138,10 +169,13 @@ bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
 
 // One static snapshot buffer - the EE has no business allocating per flush.
-// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry.
+// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry; v5 adds 2 +
+// 12 per fact change. A buffer one entry short here is a stack smash on a
+// console, so every block that can grow is in this sum.
 unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
                       MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) +
-                      64 + 2 + MAX_FLUSHMAP * 8 + 4];
+                      64 + 2 + MAX_FLUSHMAP * 8 +
+                      2 + (FACT_EVENTS > 0 ? FACT_EVENTS : 1) * 12 + 4];
 
 inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -153,11 +187,29 @@ void readVar(ScriptContext& ctx, int i, float* out) {
     return;
   }
   const int s = i - FLOW_VARS;
-  if (ctx.saveValues && s < ctx.saveValueCount) out[0] = ctx.saveValues[s];
+  if (s < ctx.saveValueCount) {
+    if (ctx.saveValues) out[0] = ctx.saveValues[s];
+    return;
+  }
+  // World Facts share the watch table with everything else, in catalog order:
+  // scalars first, then positions. The editor builds the same order from
+  // facts::layoutOf, so a slot means the same thing on both ends.
+  int f = s - ctx.saveValueCount;
+  if (f < FACT_NUM_COUNT) {
+    out[0] = factNum[f];
+    return;
+  }
+  f -= FACT_NUM_COUNT;
+  if (f < FACT_POS_COUNT) {
+    out[0] = factPos[f][0];
+    out[1] = factPos[f][1];
+    out[2] = factPos[f][2];
+  }
 }
 
 void pollCommand() {
-  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 + 4];
+  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
+                        MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
   if (!f) return;  // no editor attached (or a shipped build)
   const size_t got = fread(c, 1, sizeof(c), f);
@@ -179,10 +231,15 @@ void pollCommand() {
   int watchLen;
   memcpy(&watchLen, c + 28, 4);
   if (watchLen < 0 || watchLen > MAX_WATCH) return;
-  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2 + 4))
-    return;
+  // Fact overrides ride the top byte of `flags`: the header is full, and a
+  // count that small has nowhere better to live. An editor that predates
+  // them sets those bits to 0, which reads as "no overrides".
+  int factc = (int)((flags >> 24) & 0xFFU);
+  if (factc > MAX_FACT_SET) return;
+  const int listLen = bpc * 2 + firec * 2 + watchLen * 2;
+  if (got != (size_t)(CMD_HEADER + listLen + factc * 16 + 4)) return;
   unsigned int foot;
-  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2, 4);
+  memcpy(&foot, c + CMD_HEADER + listLen + factc * 16, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
   cmdSeq = seq;
@@ -210,6 +267,15 @@ void pollCommand() {
         memcpy(&watchIdx[i], w + i * 2, 2);
         watchRingNext[i] = watchRingCount[i] = 0;
       }
+    }
+  }
+  {
+    const unsigned char* fs = c + CMD_HEADER + listLen;
+    factSetCount = factc;
+    for (int i = 0; i < factc; ++i, fs += 16) {
+      memcpy(&factSets[i].slot, fs, 2);
+      factSets[i].isPos = fs[2];
+      memcpy(factSets[i].v, fs + 4, 12);
     }
   }
   const bool halt = (flags & 1U) != 0;
@@ -355,6 +421,26 @@ void flush(ScriptContext& ctx) {
     put16(p + 6, flushMap[i].program);
   }
 
+  // --- v5: the World Facts change ring -------------------------------------
+  // Oldest first, each with its AGE in frames like the node events above, so
+  // the editor rebuilds absolute frame numbers from the header's counter.
+  put16(p, (unsigned short)factEvCount);
+  p += 2;
+  {
+    const int start = factEvCount == FACT_EVENTS ? factEvNext : 0;
+    for (int i = 0; i < factEvCount; ++i, p += 12) {
+      const FactEvent& e = factEv[(start + i) % FACT_EVENTS];
+      put16(p + 0, e.slot);
+      short src = e.src;
+      memcpy(p + 2, &src, 2);
+      unsigned int age = frameNo - e.frame;
+      if (age > 65535U) age = 65535U;
+      put16(p + 4, (unsigned short)age);
+      put16(p + 6, 0);
+      memcpy(p + 8, &e.value, 4);
+    }
+  }
+
   put32(p, outSeq ^ FOOTER_XOR);
   p += 4;
 
@@ -366,6 +452,11 @@ void flush(ScriptContext& ctx) {
 
 void tickImpl(ScriptContext& ctx) {
   lastScene = ctx.scene;
+  // The editor's manual fact overrides, re-asserted at the top of the frame so
+  // the graphs and rules that run after this SEE them. Re-applied every frame
+  // the command file still lists them, which is what makes overriding a fact a
+  // rule rewrites continuously actually visible.
+  applyFactOverrides();
   // Install the EE crash handler on the first tick (idempotent). This call is
   // ALSO what pulls the engine's crash-handler object out of libtyra.a - a
   // release build never reaches it, so it links none of it.
@@ -723,6 +814,36 @@ const bool g_pumpRegistered = []() {
 
 }  // namespace
 
+
+void factWrite(int slot, float v, int src) {
+  FactEvent& e = factEv[factEvNext];
+  e.slot = (unsigned short)slot;
+  e.src = (short)src;
+  e.frame = frameNo;
+  e.value = v;
+  factEvNext = (factEvNext + 1) % FACT_EVENTS;
+  if (factEvCount < FACT_EVENTS) ++factEvCount;
+}
+
+void factWritePos(int slot, float x, float y, float z, int src) {
+  (void)y;
+  (void)z;
+  // One ring entry per position write, carrying X: the point of the history
+  // is WHEN and BY WHAT, and the full value is a watch-table read away.
+  factWrite(FACT_NUM_COUNT + slot, x, src);
+}
+
+void applyFactOverrides() {
+  for (int i = 0; i < factSetCount; ++i) {
+    const FactSet& f = factSets[i];
+    if (f.isPos) {
+      if (f.slot < FACT_POS_COUNT)
+        for (int a = 0; a < 3; ++a) factPos[f.slot][a] = f.v[a];
+    } else if (f.slot < FACT_NUM_COUNT) {
+      factNum[f.slot] = f.v[0];
+    }
+  }
+}
 
 void hit(int key) {
   if (key < 0 || key >= NODES) return;
