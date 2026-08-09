@@ -13410,7 +13410,11 @@ void App::drawPreferencesModal() {
         "44.7 real frames a second became 25 real + 25 synthesised - animation\n"
         "and moving objects lost nearly half their updates to buy camera\n"
         "smoothness the scene already had. Check the game\'s FPS readout with\n"
-        "this off before turning it on.");
+        "this off before turning it on.\n\n"
+        "The generated game now GATES this per frame: it synthesises only\n"
+        "while the loop\'s work already overruns a field (two fields when\n"
+        "triple buffered), so leaving it on costs a fast scene nothing. Each\n"
+        "flip is logged to the game\'s bin/log.txt.");
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md

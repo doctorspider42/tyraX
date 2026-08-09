@@ -42,12 +42,13 @@ RendererCoreWarp::~RendererCoreWarp() {
 
 void RendererCoreWarp::init(RendererSettings* t_settings, RendererCoreGS* t_gs,
                             RendererCoreSync* t_sync, Path1* t_path1,
-                            RendererCoreBlss* t_blss) {
+                            RendererCoreBlss* t_blss, RendererCore2dBounds* t_core2d) {
   settings = t_settings;
   gs = t_gs;
   sync = t_sync;
   path1 = t_path1;
   blss = t_blss;
+  core2d = t_core2d;
   if (packet == nullptr)
     packet = packet2_create(kPacketQwords, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   updateGeometry();
@@ -98,6 +99,14 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
   // same numbers its own reprojection uses), else the single-plane fallback,
   // else nothing at all - which is rotation only, and correct rather than
   // merely safe.
+  // The region 2D drew into last frame, grown by one tile so the transition
+  // has somewhere to happen. Corners inside it keep their source pixel; over
+  // the next tile the warp fades in. A hard boundary would tear.
+  int kx0, ky0, kx1, ky1;
+  core2d->get2dBounds(&kx0, &ky0, &kx1, &ky1);
+  const bool keep = keepHud && kx1 >= kx0;
+  const float fade = static_cast<float>(kTile);
+
   const bool tileDepth = blss != nullptr && blss->hasTileDepth() &&
                          blss->getTileCols() == cols &&
                          blss->getTileRows() == rows;
@@ -161,6 +170,23 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
         const float sYp = dot3(rel, from.up) / (wPrev * from.tanHalfFovY);
         u = (sXp * 0.5F + 0.5F) * static_cast<float>(outW);
         v = (0.5F - sYp * 0.5F) * static_cast<float>(outH);
+      }
+
+      // Fade the warp out over the HUD: 0 inside the 2D region, ramping to 1
+      // one tile outside it. The HUD then sits exactly where it was drawn
+      // instead of being carried along with the world, which is what made it
+      // double and jitter at every turn.
+      if (keep) {
+        const float dxk = static_cast<float>(
+            px < kx0 ? kx0 - px : (px > kx1 ? px - kx1 : 0));
+        const float dyk = static_cast<float>(
+            py < ky0 ? ky0 - py : (py > ky1 ? py - ky1 : 0));
+        const float d = dxk > dyk ? dxk : dyk;
+        const float wgt = d >= fade ? 1.0F : d / fade;
+        if (wgt < 1.0F) {
+          u = static_cast<float>(px) + (u - static_cast<float>(px)) * wgt;
+          v = static_cast<float>(py) + (v - static_cast<float>(py)) * wgt;
+        }
       }
 
       // 12.4 fixed point, and the UV register's fields are 14 bits UNSIGNED -

@@ -83,7 +83,7 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   splitView.init(&settings, &gs, &sync, &path1);
   // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
   // buffer double/triple buffering already keeps.
-  warp.init(&settings, &gs, &sync, &path1, &blss);
+  warp.init(&settings, &gs, &sync, &path1, &blss, this);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -262,6 +262,7 @@ void RendererCore::beginFrame() {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
 #endif
+  beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -274,6 +275,7 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
 #endif
+  beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -325,6 +327,15 @@ void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
   postFx.portalMaskEnd(xy, z, count, clearR, clearG, clearB);
 }
 
+// Modified by TyraX: the 2D bounding box restarts here
+// (docs/frame-extrapolation.md).
+void RendererCore::beginFrameStamp() {
+  hud2dX0 = 1 << 20;
+  hud2dY0 = 1 << 20;
+  hud2dX1 = -1;
+  hud2dY1 = -1;
+}
+
 void RendererCore::endFrame() {
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
@@ -368,10 +379,16 @@ void RendererCore::endFrame() {
   // buffer rather than on the display, the vblank handler does the
   // presenting, and an overrunning frame costs one late field instead of an
   // idle one.
-  if (gs.getFrameBufferCount() < 3) {
-    if (isFrameLimitOn) graph_wait_vsync();
+  {  // Modified by TyraX: everything below is STALL, not the frame's cost.
+    u32 t0, t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+    if (gs.getFrameBufferCount() < 3) {
+      if (isFrameLimitOn) graph_wait_vsync();
+    }
+    gs.flipBuffers(isFrameLimitOn);
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    stallAccum += t1 - t0;
   }
-  gs.flipBuffers(isFrameLimitOn);
   hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
 }
 
@@ -388,10 +405,16 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // into the source image, and running them again would compound them on every
   // warped frame. Deliberately no beginFrame either - the warp covers every
   // pixel, so the clear would only be work.
-  if (gs.getFrameBufferCount() < 3) {
-    if (isFrameLimitOn) graph_wait_vsync();
+  {  // Modified by TyraX: the synthesised frame's present is stall too.
+    u32 t0, t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+    if (gs.getFrameBufferCount() < 3) {
+      if (isFrameLimitOn) graph_wait_vsync();
+    }
+    gs.flipBuffers(isFrameLimitOn);
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    stallAccum += t1 - t0;
   }
-  gs.flipBuffers(isFrameLimitOn);
   return true;
 }
 

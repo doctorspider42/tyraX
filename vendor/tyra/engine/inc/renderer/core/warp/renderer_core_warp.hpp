@@ -29,6 +29,14 @@ namespace Tyra {
  * upscaler's reprojection input (docs/blss-reconstruction.md) - it is the same
  * projection, run forwards.
  */
+/** What the warp needs from RendererCore to keep the HUD still: the screen
+ * rectangle the 2D path drew into last frame. An interface rather than the
+ * whole RendererCore, because RendererCore includes THIS header. */
+struct RendererCore2dBounds {
+  virtual ~RendererCore2dBounds() {}
+  virtual void get2dBounds(int* x0, int* y0, int* x1, int* y1) const = 0;
+};
+
 struct WarpCamera {
   Vec4 position = Vec4(0.0F, 0.0F, 0.0F, 1.0F);
   Vec4 forward = Vec4(0.0F, 0.0F, -1.0F, 0.0F);
@@ -79,7 +87,8 @@ class RendererCoreWarp {
   ~RendererCoreWarp();
 
   void init(RendererSettings* settings, RendererCoreGS* gs,
-            RendererCoreSync* sync, Path1* path1, RendererCoreBlss* blss);
+            RendererCoreSync* sync, Path1* path1, RendererCoreBlss* blss,
+            RendererCore2dBounds* core2d);
 
   /**
    * How the warp treats camera TRANSLATION, in world units. Rotation is exact
@@ -133,6 +142,16 @@ class RendererCoreWarp {
   // The neural upscaler, for its per-tile 1/w (see buildUVs). Optional: null,
   // off or in plain mode all mean "no depth", which degrades to rotation only.
   RendererCoreBlss* blss = nullptr;
+  RendererCore2dBounds* core2d = nullptr;
+
+ public:
+  /** Keep the region 2D drew into unwarped (TyraX, default on). The HUD is
+   * pixels in the source image, so without this the warp carries it along with
+   * the world and it doubles at every turn. */
+  void setKeepHud(const bool& on) { keepHud = on; }
+
+ private:
+  bool keepHud = true;
   packet2_t* packet = nullptr;
 
   float planeDistance = 0.0F;  // 0 = rotation only (see setPlaneDistance)

@@ -103,8 +103,37 @@ nearly half its world updates to buy motion it already had. Triple buffering
 changes this barely at all (24.25 -> 24.97) — the cap is the two presents, not
 the pacing.
 
-Making that decision automatically, per frame, is the obvious next step and is
-not done: see [backlog](backlog.md).
+**The generated game now makes that decision itself**, every frame
+(`TerrainGame::extrapolationWorthIt`), so the switch means "use it where it
+helps" rather than "use it always". It compares the loop's WORK against a
+threshold that depends on the buffering:
+
+| buffering | threshold | why |
+|---|---|---|
+| double | 1 field | the loop is quantised to whole fields anyway, so any overrun already buys a second, mostly idle field - the warp fits in it |
+| triple | 2 fields | no quantisation, so the loop is work-bound and a second present costs a real field unless the work already fills two |
+
+Work is the loop PERIOD minus everything the renderer spent stalled
+(`RendererCore::takeStallTicks`). Measuring the renderer's own span instead
+would miss a game that is slow in its scripts - they run outside
+beginFrame/endFrame, and a 25 ms script went unnoticed by exactly that bug while
+this was being written.
+
+The hysteresis is not decoration: switching the extra present on and off changes
+the very rate the decision is read from, so a single threshold oscillates. It
+takes 15% over to switch on, 5% under to switch off, and eight frames of
+agreement either way. Every flip logs a line - "the feature is on but nothing
+happens" and "the gate declined" are otherwise the same picture:
+
+```
+Frame extrapolation ON - frame work 13623251 EE ticks, threshold 11796480, field 5898240
+```
+
+Measured in both directions: `examples/showcase`, which renders faster than the
+gate's threshold, went back to **46.68 Hz** of world (from the 24.25 the
+ungated version cost it), and a fixture loaded to 46.2 ms per loop opened the
+gate and ran 19.5 Hz of world for ~39 presented, against 21.6 presented without
+it.
 
 ## The measurements
 
@@ -216,10 +245,21 @@ whether ITS restore values are right is an open question, and untested.
 
 ## Limits
 
-- **Dynamic objects freeze** for the warped frame. They are pixels in the source
+- **The HUD is kept out of the warp automatically.** Everything drawn through
+  the 2D path reports its screen rect (`RendererCore::note2dRect`, fed from
+  `Renderer2D::render`), and the warp fades itself out over that region - fully
+  still inside it, ramping back to the full warp one tile outside, so there is
+  no seam. The HUD therefore stays where it was drawn instead of being carried
+  along with the world, which is what made it double and jitter at every turn.
+  It is derived, not declared: no project has to describe its own HUD, and a
+  full-screen 2D overlay correctly disables the warp entirely. `setKeepHud`
+  turns it off. The cost is that the world visible *inside* the HUD region does
+  not move on a synthesised frame - unnoticeable behind opaque glyphs in a
+  corner, and the reason the region is what 2D touched rather than the glyphs.
+- **Dynamic objects still move with the camera.** They are pixels in the source
   image and the warp only knows about the camera, so a moving character is
-  carried along by the camera warp and does not advance. A game that cares
-  redraws them; the HUD is the same problem with the same answer.
+  carried along and does not advance. A game that cares redraws them; unlike the
+  HUD they are 3D, so the 2D-bounds trick does not reach them.
 - **Disocclusion at the frame edge stretches.** The source has no pixels for
   what just came into view, so the outermost cells clamp their last texels
   across the strip — a smear a few pixels wide at ordinary turn rates. This is

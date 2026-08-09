@@ -1225,6 +1225,13 @@ class TerrainGame : public Tyra::Game {
   // camera of the PREVIOUS rendered frame is what that motion is measured
   // against. Inert unless FRAME_EXTRAPOLATION.
   void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  unsigned int extrapolationMark = 0;
+  bool extrapolationSeeded = false;
   Tyra::WarpCamera warpPrev;
   bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
@@ -2469,6 +2476,13 @@ class TerrainGame : public Tyra::Game {
   // camera of the PREVIOUS rendered frame is what that motion is measured
   // against. Inert unless FRAME_EXTRAPOLATION.
   void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  unsigned int extrapolationMark = 0;
+  bool extrapolationSeeded = false;
   Tyra::WarpCamera warpPrev;
   bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
@@ -5780,7 +5794,70 @@ void TerrainGame::loop() {
   // presented frame from the one just finished, so the television keeps the
   // field rate while the world runs at half of it. Compiled away entirely
   // unless the project asked for it.
-  if (FRAME_EXTRAPOLATION) presentExtrapolatedFrame();
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
 }
 
 // Modified by TyraX: the extrapolated frame. There is no newer pad reading at
@@ -18852,7 +18929,70 @@ void TerrainGame::loop() {
   // presented frame from the one just finished, so the television keeps the
   // field rate while the world runs at half of it. Compiled away entirely
   // unless the project asked for it.
-  if (FRAME_EXTRAPOLATION) presentExtrapolatedFrame();
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
 }
 
 // Modified by TyraX: the extrapolated frame. There is no newer pad reading at

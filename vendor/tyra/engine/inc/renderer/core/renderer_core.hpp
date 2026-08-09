@@ -73,7 +73,7 @@ struct RendererCoreSpotLight {
   float softness = 3.0F;    // >=1; higher = sharper cone edge
 };
 
-class RendererCore {
+class RendererCore : public RendererCore2dBounds {
  public:
   RendererCore();
   ~RendererCore();
@@ -280,6 +280,48 @@ class RendererCore {
    */
   bool presentWarpFrame(const WarpCamera& from, const WarpCamera& to);
 
+  /**
+   * Modified by TyraX (docs/frame-extrapolation.md): EE cycles this renderer
+   * spent STALLED since the last call - waiting for vsync or for a free display
+   * buffer - and resets the counter.
+   *
+   * The caller subtracts it from its own loop period to get the loop's WORK,
+   * which is what the extrapolation gate decides on: synthesising is free only
+   * while the work already overruns a field, since the loop is then waiting out
+   * a second field anyway and the warp fits in the idle part. Below that the
+   * extra present forces a second field and HALVES the world rate - measured,
+   * 44.7 Hz down to 25 (see the doc).
+   *
+   * Measuring the STALL rather than the work is what makes it whole-loop: the
+   * game's own logic runs outside beginFrame/endFrame, so a renderer-side work
+   * clock would miss a game that is slow in its scripts - which is exactly how
+   * the first version of this gate failed to notice a 25 ms script.
+   */
+  u32 takeStallTicks() {
+    const u32 v = stallAccum;
+    stallAccum = 0;
+    return v;
+  }
+
+  /**
+   * Modified by TyraX: the screen rectangle everything drawn through the 2D
+   * path touched last frame, in display pixels; empty (x1 < x0) when nothing
+   * did. The frame warp keeps this region UNWARPED, because the HUD is pixels
+   * in the source image and carrying it along with the world is what makes it
+   * double and jitter. Derived rather than declared - the renderer already
+   * knows what 2D it drew, so no project has to describe its own HUD.
+   */
+  void get2dBounds(int* x0, int* y0, int* x1, int* y1) const override {
+    *x0 = hud2dX0; *y0 = hud2dY0; *x1 = hud2dX1; *y1 = hud2dY1;
+  }
+  /** Called by the 2D path per sprite (TyraX). */
+  void note2dRect(int x0, int y0, int x1, int y1) {
+    if (x0 < hud2dX0) hud2dX0 = x0;
+    if (y0 < hud2dY0) hud2dY0 = y0;
+    if (x1 > hud2dX1) hud2dX1 = x1;
+    if (y1 > hud2dY1) hud2dY1 = y1;
+  }
+
   void setFrameLimit(const bool& onoff) { isFrameLimitOn = onoff; }
 
   /** Get screen settings */
@@ -303,12 +345,16 @@ class RendererCore {
    */
   void rebuildPermanentBuffers();
   static void rebuildPermanentBuffersThunk(void* user);
+  void beginFrameStamp();  // Modified by TyraX
 
   bool isFrameLimitOn;
   // Modified by TyraX: has a real frame been presented yet? The warp samples
   // the previously finished display buffer, which before the first flip holds
   // whatever was in GS VRAM at boot.
   bool hasPresentedFrame = false;
+  // Modified by TyraX: see getLastFrameWorkTicks / get2dBounds.
+  u32 stallAccum = 0;
+  int hud2dX0 = 1 << 20, hud2dY0 = 1 << 20, hud2dX1 = -1, hud2dY1 = -1;
   // Which post fx passes already ran this frame (RendererCorePostFx::Pass
   // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier
   // has run once this frame (only needed before the first pass that draws).
