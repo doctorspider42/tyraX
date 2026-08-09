@@ -295,6 +295,15 @@ Developer design docs (internals, not user guides):
 - [GS VRAM residency](gs-vram.md) - where the 4 MB goes, what a texture
   really costs, the free-list texture heap and its eviction policy, the
   `VRAMSTAT` counters, and the measured before/after numbers.
+- [Frame extrapolation](frame-extrapolation.md) - synthesising an extra
+  presented frame by re-drawing the last one under a newer camera, so the world
+  can run at half the field rate: the reprojection (exact for rotation, a single
+  plane for translation), the measured 25 Hz world / 50 Hz picture, and what the
+  capture tools here could not verify.
+- [Frame pacing](frame-pacing.md) - the vsync cliff that halves the frame rate
+  when a frame overruns its field by a hair, the triple-buffered present that
+  removes it (a vblank interrupt latches `DISPFB`), what the third display
+  buffer costs in GS VRAM and why the engine refuses it in most display modes.
 - [BLSS reconstruction math](blss-reconstruction.md) - the twin contract
   between the neural upscaler's host trainer and its PS2 runtime: the exact
   sampling, blend equations, 8-bit truncation and grid vertex order both sides

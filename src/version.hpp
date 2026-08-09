@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.14.0 (the upscaler stops requiring a hacker): BLSS' user interface becomes
+// 1.17.0 (the upscaler stops requiring a hacker): BLSS' user interface becomes
 // two layers. Project > Preferences now asks the three questions a person
 // switching the feature on actually has to answer - use it, which
 // reconstruction, which raster - and states ONE LINE of verdict measured by
@@ -51,7 +51,44 @@
 // MINOR: a capability appears - the project's speed verdict is reachable from
 // Preferences, and project::blssUse() can now answer for a project default a
 // modal has not committed yet - while no default moves and the format does not
-// change (still v13, no migration step).
+// change (still v16 after the merge below, no migration step).
+//
+// (AUTHORED AS 1.14.0 AND RENUMBERED HERE. The frame-pacing branch reached
+// three landings of its own from the same 1.13.0 parent, and the earliest of
+// them - and every one of its three format numbers - was published before this
+// one. One number per landing, and the branch that arrives second renumbers:
+// the rule this file already applied to v8-v10 and to v14-v16 below. Nothing
+// else moves; this landing never claimed a format version, so there is no
+// on-disk consequence at all.)
+//
+// 1.16.0 (frame extrapolation, the ground plane): the synthesised frame takes
+// its depth from the FLOOR instead of a fixed distance -
+// ProjectSettings::frameExtrapolationGround, format v16. A view ray meets the
+// ground at w = h / -dir.y, so depth grows toward the horizon on its own and a
+// ray at or above it never meets the floor: the sky stops moving, which is the
+// worst artefact of a single plane. MINOR because a capability appears (the
+// third translation model, and the first analytic one); it is also the one
+// default in this file's history that does NOT preserve what an older file was
+// saved with, on the v9 blssJitter precedent - the behaviour it declines to
+// preserve is a picture whose horizon slides.
+//
+// 1.15.0 (frame extrapolation, the translation model as a control):
+// ProjectSettings::frameExtrapolationPlane and frameExtrapolationForce, format
+// v15, plus the Set Frame Extrapolation flow node and the numeric flow
+// parameter that can declare its own choices. The plane went to 0 - rotation
+// only - after the fixed 12 units read as a lens zoom, and the force switch
+// exists because the per-frame gate measures EE work and therefore stays shut
+// on a GS-bound scene that would still like to be tested. MINOR: capabilities
+// appear, both defaults reproduce what the previous version did.
+//
+// 1.14.0 (frame pacing and frame extrapolation, docs/frame-pacing.md and
+// docs/frame-extrapolation.md): ProjectSettings::tripleBuffering presents from
+// a vblank interrupt instead of stalling the EE on vsync, so a frame that
+// overruns its field by a hair is shown one field late rather than halving the
+// rate; ProjectSettings::frameExtrapolation makes the generated game present
+// one synthesised frame - the last rendered one, re-drawn under a newer camera
+// by the new renderer_core_warp - after each rendered one. Format v14. MINOR,
+// and both default to false, so an existing project regenerates byte for byte.
 //
 // 1.13.0 (the upscaler is a property of a SCENE): BLSS gains a per-scene
 // override - SceneOverrides::upscaler, format v13 - carrying blssEnabled and
@@ -166,7 +203,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_MINOR 17
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -288,6 +325,45 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // migration step to do: it could only write the inherited answer into every
 // scene, which is the same behaviour spelled out at the cost of never being able
 // to change a project default again.
-inline constexpr int kFormatVersion = 13;
+// v14 (frame pacing + frame extrapolation, docs/frame-pacing.md and
+// docs/frame-extrapolation.md): ProjectSettings::tripleBuffering, which decides
+// whether the renderer presents from a vblank interrupt instead of stalling the
+// EE on vsync, and ProjectSettings::frameExtrapolation, which makes the
+// generated game present one synthesised frame after each rendered one. Both
+// purely additive and both default to false - which is exactly what every
+// project did before - so an older file opens unchanged and regenerates byte
+// for byte while they are off. No migration step.
+// (Authored as v5 and v6 on the frame-pacing branch and renumbered to ONE
+// number on this merge, the same way v8-v10 above were: the upscaler had taken
+// 4 through 12 while this branch was away. They collapse into one entry rather
+// than two because they landed as one feature set with one meaning - "the
+// pacing work" - which is the test this list applies. Nothing on disk changes;
+// both are additive, so a project written at the old v6 opens at v14 unchanged.)
+// v15 (frame extrapolation, the translation model as a control):
+// ProjectSettings::frameExtrapolationPlane and frameExtrapolationForce. Both
+// additive and both default to what the previous version did - plane 0 is
+// rotation only, force off leaves the gate in charge - so an older file opens
+// unchanged and regenerates byte for byte. No migration step.
+// v16 (frame extrapolation, the ground plane):
+// ProjectSettings::frameExtrapolationGround. Additive, and it defaults to TRUE
+// - the one entry in this list that does not preserve what an older file was
+// saved with, deliberately: the fixed plane it replaces moves the sky, and the
+// ground plane is the same model with the horizon handled correctly. A project
+// that wants the old look sets the key false. NO migration step, on the v9
+// blssJitter precedent and for the same reason: a step could only write the
+// old constant back into every file, which is exactly the look the default was
+// changed to stop producing. The bump's job is done by an older editor now
+// refusing the file rather than dropping the key on its next save.
+
+// (This branch's three entries were authored as v13-v15 and renumbered to
+// v14-v16 on this merge: the upscaler's per-scene work took 13 while this
+// branch was away. Same rule as the v8-v10 renumber above - two features may
+// never share a number, and every one of these is additive, so nothing on
+// disk changes. Checked rather than assumed on the merge that brought them
+// here: all five keys are read behind a find() with the default the entry
+// names, none of them renames, moves or reinterprets an existing key, and
+// migrations::stepsFor therefore has nothing to register for any of the three
+// - which is what makes a v13 project open silently at v16.)
+inline constexpr int kFormatVersion = 16;
 
 }  // namespace version

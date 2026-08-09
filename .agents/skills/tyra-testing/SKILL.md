@@ -724,7 +724,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -1469,7 +1469,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL

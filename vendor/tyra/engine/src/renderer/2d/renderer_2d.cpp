@@ -42,6 +42,32 @@ void Renderer2D::render(const Sprite& sprite) {
 
   auto texBuffers = core->texture.useTexture(texture);
   core->texture.updateClutBuffer(texBuffers.clut);
+
+  // Modified by TyraX (docs/frame-extrapolation.md): record where 2D landed.
+  // The frame warp keeps this region unwarped, because the HUD is pixels in
+  // the source image and carrying it along with the world is what makes it
+  // double. Derived from what was actually drawn, so no project has to
+  // describe its own HUD - and MODE_REPEAT aside, a sprite's drawn size is
+  // its texture's unless drawSize overrides it.
+  {
+    float w = sprite.drawSize.x > 0.0F
+                  ? sprite.drawSize.x
+                  : (sprite.mode == MODE_REPEAT
+                         ? sprite.size.x
+                         : static_cast<float>(texture->getWidth())) *
+                        sprite.scale;
+    float h = sprite.drawSize.y > 0.0F
+                  ? sprite.drawSize.y
+                  : (sprite.mode == MODE_REPEAT
+                         ? sprite.size.y
+                         : static_cast<float>(texture->getHeight())) *
+                        sprite.scale;
+    core->note2dRect(static_cast<int>(sprite.position.x),
+                     static_cast<int>(sprite.position.y),
+                     static_cast<int>(sprite.position.x + w),
+                     static_cast<int>(sprite.position.y + h));
+  }
+
   core->renderer2D.render(sprite, texBuffers, texture);
 }
 

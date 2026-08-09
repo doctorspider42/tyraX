@@ -1021,6 +1021,47 @@ struct ProjectSettings {
     // via the Set Widescreen flow node.
     bool widescreen = false;
 
+    // Triple buffering (docs/frame-pacing.md): present through a vblank
+    // interrupt instead of stalling the EE on vsync, so a frame that misses
+    // its field by a little is shown one field late rather than halving the
+    // rate. Costs a THIRD full display buffer of GS VRAM - 0.875 MB of the
+    // ~1.08 MB texture heap at 512x448x32, half that in interlaced-field -
+    // so it is off by default and the engine falls back to two buffers when
+    // it does not fit. Decided at engine init; no runtime switch.
+    bool tripleBuffering = false;
+
+    // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
+    // frame the game presents a SYNTHESISED one, re-drawing it under the
+    // camera extrapolated from its own motion - so the world runs at half the
+    // field rate while the picture keeps it. Experimental: camera rotation
+    // reprojects exactly, translation is approximated by a single plane, and
+    // dynamic objects plus the HUD freeze for the synthesised frame.
+    bool frameExtrapolation = false;
+
+    // Frame extrapolation: how camera TRANSLATION is reprojected when no
+    // per-tile depth is available (i.e. the neural upscaler is off - with it
+    // on, its real depth wins and this is ignored). 0 = rotation only, the
+    // default: a walk in a straight line then reproduces the previous frame
+    // exactly. A positive distance assumes the world sits on one plane that far
+    // away, which moves the whole picture uniformly and reads as a lens ZOOM -
+    // wrong, but it is MOTION, and on some content that beats a duplicated
+    // frame. 12 is the value the first version shipped with. World units.
+    float frameExtrapolationPlane = 0.0f;
+
+    // Ignore the per-frame gate and always synthesise. The gate declines
+    // whenever the EE is not what is slow - a GS-bound scene can sit at 26 fps
+    // with the gate shut - so this is how a scene gets tested at all without
+    // placing a Set Frame Extrapolation node.
+    bool frameExtrapolationForce = false;
+
+    // Use the analytic GROUND plane instead of a fixed distance: a corner's
+    // view ray meets the floor at w = h / -dir.y, so depth grows toward the
+    // horizon on its own and anything at or above it does not move at all.
+    // Strictly better than a constant for a game with a floor, and free.
+    // Outranks frameExtrapolationPlane; the upscaler's real depth outranks
+    // both.
+    bool frameExtrapolationGround = true;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -1465,6 +1506,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
+           a.tripleBuffering == b.tripleBuffering &&
+           a.frameExtrapolation == b.frameExtrapolation &&
+           a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
+           a.frameExtrapolationForce == b.frameExtrapolationForce &&
+           a.frameExtrapolationGround == b.frameExtrapolationGround &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.showCollision == b.showCollision &&
@@ -2963,6 +3009,27 @@ std::vector<std::string> previewDisplayModes(const ProjectSettings& s);
 
 // One entry of displayModes() by key; an unknown key resolves to "interlaced".
 const DisplayModeInfo& displayModeInfo(const std::string& key);
+
+// Whether a third display buffer would actually fit in GS VRAM at the
+// project's boot display mode (docs/frame-pacing.md). The HOST TWIN of
+// RendererCoreGS::allocateVramBuffers' headroom check - the engine refuses the
+// buffer and stays double buffered when the numbers do not work, and without
+// this the editor would offer a setting whose failure only shows up in the
+// running game's log. Change one, change the other.
+//
+// It takes the PROJECT and not only the settings because the two things that
+// move the answer - whether the z buffer shrinks, and whether a BLSS low-res
+// target is allocated at all - are per-scene questions now (project::blssUse):
+// a project whose scenes disagree pins z at the full raster and gets none of
+// the saving. `s` is the staged settings, so the Preferences modal can ask
+// about a default it has not committed yet (the blssUse(p, defaults) idiom).
+struct TripleBufferFit {
+    bool fits = false;
+    int bufferWords = 0;  // what a third display buffer costs
+    int leftWords = 0;    // what would remain after taking it
+    int needWords = 0;    // what the rest of the renderer + textures need
+};
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s);
 
 // Creates the project directory, generates all Tyra game sources / build files
 // and the <name>.tyra project file. `preset` picks the starting content, and it

@@ -920,6 +920,7 @@ int RendererCoreBlss::proxyBudget(const M4x4& mvp, const Vec4& objMin,
 // this is a simplification and not a speed-up, because the work moves from
 // `feat` into this function rather than disappearing.
 void RendererCoreBlss::finishTileStats() {
+  tileDepthValid = true;  // Modified by TyraX (frame warp reads tDepth)
   const int n = cols * rows;
   for (int i = 0; i < n; i++) {
     const float acc = coverAcc[i];
@@ -1354,6 +1355,11 @@ void RendererCoreBlss::logFeatureSpread() {
 // --------------------------------------------------------------- section 1 ---
 void RendererCoreBlss::beginScene(const Color& clearColor) {
   if (!enabled) return;
+  // Modified by TyraX: the tile depths describe the frame that is about to be
+  // replaced, so they stop being valid HERE - this is what the header promises
+  // and it was never implemented, which left the frame warp reading the
+  // previous SCENE's parallax for one frame after a scene change.
+  tileDepthValid = false;
 #if TYRA_FRAME_PROFILE
   const u32 fpT0 = FrameProfile::ticks();
 #endif
@@ -1969,9 +1975,41 @@ void RendererCoreBlss::composite() {
     logFeatureSpread();
   }
 
-  const auto* hist = gs->getPreviousFrameBuffer();
+  // The last SCENE-rendered frame, never a synthesised one: this history is
+  // reprojected as if the scene drew it, and feeding an accumulator its own
+  // warped output compounds into a shake (docs/frame-extrapolation.md).
+  const auto* hist = gs->getPreviousRealFrameBuffer();
   const int histVram = static_cast<int>(hist->address);
   const int histBufW = static_cast<int>(hist->width);
+
+  // Modified by TyraX: ...and the OTHER half of that interlock, which only
+  // shows up when frame extrapolation runs DOUBLE buffered.
+  //
+  // With two display buffers and one synthesised frame per rendered one there
+  // are two flips per loop, so `context` comes back to where it started: every
+  // rendered frame is composited into the same buffer, and that buffer is the
+  // one that received the previous rendered frame - i.e. the history. Asking
+  // for the previous REAL frame is still the right question; the answer is
+  // just the target itself, and sampling a render target while writing it is
+  // feedback, not history. With three buffers the three indices are distinct
+  // by construction and this never fires.
+  //
+  // Dropping the pass is the honest degradation: the frame loses its temporal
+  // accumulation (passes 1, 2, 4 and 5 read the low-res target and are
+  // unaffected), which is a quality loss and not a wrong picture. Said once,
+  // because it is a property of the configuration and not of the frame.
+  const int targetVram = static_cast<int>(gs->getCurrentFrameBuffer()->address);
+  const bool histIsTarget = histVram == targetVram;
+  if (histIsTarget && !histAliasWarned) {
+    histAliasWarned = true;
+    TYRA_WARN(
+        "BLSS: the temporal history buffer IS this frame's render target, so "
+        "the temporal pass is skipped. This is frame extrapolation running "
+        "double buffered - the two flips per loop put every rendered frame "
+        "back into the same buffer. Turn on triple buffering (Project > "
+        "Preferences > Build) to get the temporal pass back, or turn frame "
+        "extrapolation off. docs/frame-extrapolation.md.");
+  }
 
 #if TYRA_FRAME_PROFILE
   // After the once-a-second log block above, which is host: file I/O and is
@@ -2004,7 +2042,7 @@ void RendererCoreBlss::composite() {
   // Pass 3 - the reprojected previous frame, lerped in by wC/2. The history is
   // the OTHER display framebuffer: already full resolution, one frame old, and
   // itself composited, so a static camera keeps accumulating samples.
-  if (temporal && hasPrev && passHasAlpha(2)) {
+  if (temporal && hasPrev && passHasAlpha(2) && !histIsTarget) {
     q = emitPassState(q, histVram, histBufW, outW, outH, true,
                       GS_SET_ALPHA(0, 1, 0, 1, 0), true);
     q = emitGrid(q, 2);

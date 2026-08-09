@@ -1222,6 +1222,91 @@ banner both, so a previously built ELF still reports.
   a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
   0.87 MB free and never evicts anything — if you are chasing a VRAM problem
   in a palettized project, measure before assuming there is one.
+- **"Restoring" a GS register nothing else writes is a GUESS, not a restore.**
+  `TEXA` and `COLCLAMP` are written by exactly one place in this engine (the
+  BLSS composite) - so a second pass that sets them has no previous value to put
+  back and can only assert what it believes the GS reset value to be. The frame
+  warp did that and got it wrong: every blend AFTER the pass inherited it, and
+  `examples/showcase` (bloom + film grain) came back with the whole picture
+  hue-shifted - orange sky olive, green grass orange, a cyan crate magenta -
+  while the geometry stayed perfect. It passed every earlier test because those
+  fixtures had **no post fx**, and with nothing blending a broken blend state is
+  invisible. The cure is not a better value: a pass that does not blend must not
+  write those registers at all. **Whenever a full-screen pass looks right on a
+  bare fixture and wrong in a real scene, diff the two on POST FX before
+  suspecting anything else** - and check what global state the pass leaves
+  behind, not just what it draws.
+- **Frame extrapolation: the IDENTITY warp is the test** (`renderer/core/warp/`,
+  `docs/frame-extrapolation.md`). `RendererCoreWarp` re-draws the last finished
+  frame under a newer camera as a textured grid, so a game can render its world
+  at half the field rate. When `from == to` the result must reproduce its source
+  EXACTLY, which is what makes the whole GS side falsifiable in one screenshot:
+  a wrong TEX0 binding, region clamp, UV encoding or strip vertex order all show
+  as tearing or garbage instead of a clean picture. Check that before checking
+  anything else. Two traps paid for here: **an overcounting NLOOP is as fatal as
+  an undercounting one** (the restore block claimed 4 registers and wrote 3, so
+  the GS read the next giftag as a register write and the game hung in
+  `draw_wait_finish` with no assert and a clean log); and **a degenerate camera
+  basis silently becomes an identity copy**, because every corner takes the
+  `wPrev < 1e-3` fallback - so "the warp does nothing" and "the caller passed a
+  bad basis" look identical. Note also what the tooling could NOT do: real and
+  warped frames alternate every field, and a Wayland compositor screencast is
+  not frame-accurate enough to isolate one of two images at 50 Hz - ten captures
+  of a deliberately marked warp frame came back byte-identical. If you need to
+  see a synthesised frame, build a game-side A/B rather than trusting a
+  screenshot.
+- **Triple buffering: "does it fit" is the WRONG question, and asking it that
+  way is a boot crash** (TyraX fork, `docs/frame-pacing.md`). The third display
+  buffer is a full one - 229 376 words at 512x448x32, 262 144 in `Pal576i` - and
+  at 512x512 three buffers plus z are **exactly** the whole 4 MB: the allocation
+  succeeds and the NEXT one fails, which is a live `Out of VRAM for post fx
+  buffers` assertion before the first frame (measured, that is how the guard was
+  written). What must survive the third buffer is everything `RendererCore::init`
+  still allocates AFTER `gs.init` - post fx ~12 288 words, the env-map target +
+  its z 32 768, the camera feed + its z 32 768, the projected-shadow slots a game
+  may claim later ~20 480 - plus a texture heap worth having, so
+  `allocateVramBuffers` checks for headroom (`kThirdBufferReserveWords +
+  kThirdBufferMinTextureWords`) and REFUSES rather than warns. The same
+  arithmetic is why the feature is in practice an `InterlacedField` one: the
+  full-height 32bpp modes have no room at all. **Any future permanent
+  allocation added to renderer init has to be added to that reserve**, or it
+  becomes the one that gets -1. **The upscaler's low-res target was exactly
+  that miss**: `blss.allocate()` runs LATER than this check (configure -> the
+  VRAM rebuild -> allocate), so it is in neither `getHeapWords()` nor the
+  reserve, and the guard was handing out the third buffer against 114 688 words
+  the scene was about to claim - a 128 KB texture heap instead of 576 KB at
+  512x448 1x2. It is subtracted explicitly now, from the live raster scale, and
+  so is its host twin `project::tripleBufferingFit`. **The rule generalises:
+  the reserve is a list of what is allocated after this line, and anything
+  allocated after it in a REBUILD counts too.**
+- **Frame extrapolation x the neural upscaler: the history tap needs TWO
+  guards, not one** (`docs/frame-extrapolation.md`). BLSS has no history buffer
+  - the other display buffer IS its temporal history - so a synthesised frame
+  landing there feeds an accumulator its own warped output. Guard one is
+  `getPreviousRealFrameBuffer()`: `flipBuffers` records `lastRealBuffer` and a
+  `synthetic` flip does not claim it, so both the warp and BLSS ask for the last
+  frame the SCENE drew. Guard two is the one that is easy to miss, because it is
+  the first guard working correctly and producing a useless answer: with **two**
+  display buffers, two flips per loop return `context` to where it started, so
+  every rendered frame is composited into the buffer that holds the previous
+  rendered frame - the history IS the render target. `composite()` compares the
+  addresses and drops the temporal pass with a one-shot warning; the other four
+  passes read the low-res target and are unaffected. With three buffers the
+  indices are distinct by construction and neither guard fires. **Any future
+  feature that adds a present without a render inherits both.**
+- **The vblank handler owns `DISPFB`, and the queue is lock-free ON PURPOSE.**
+  `RendererCoreGS::onVblank` runs in interrupt context and everything it touches
+  must stay interrupt-safe - `presentFrameBuffer` is GS privileged-register
+  stores and nothing else, so do not grow it into anything that allocates, DMAs
+  or logs. The three-slot queue needs no `DIntr()` because the handler only acts
+  when `pendingBuffer >= 0`: while the main thread has waited for -1 the handler
+  is inert and `displayedBuffer` cannot move under it, which is why
+  `flipBuffers` writes `context` FIRST and `pendingBuffer` LAST. The other
+  ordering rule is the `draw_finish` handshake before queueing - the GIF is
+  in-order, so FINISH is what proves the frame is fully rasterised; queueing
+  first puts a half-drawn frame on screen. And any path that moves buffer
+  addresses (`reinit`, `reallocateBuffers`) must `resetDisplayQueue()` first, or
+  a queued frame reaches DISPFB naming the old layout.
 - **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
   (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
   presents a frame each iteration is paced to 50/60 Hz, but a loop that draws

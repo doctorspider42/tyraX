@@ -39,11 +39,14 @@ RendererCore::RendererCore() {
 RendererCore::~RendererCore() {}
 
 void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
-                        bool widescreen) {
+                        bool widescreen, bool tripleBuffering) {
   settings.setVideoMode(videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
   settings.setDisplayMode(displayMode);
   settings.setWidescreen(widescreen);
+  // Same rule: gs.init decides how many display buffers to allocate from it
+  // (TyraX fork, docs/frame-pacing.md).
+  settings.setTripleBuffering(tripleBuffering);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
@@ -78,6 +81,9 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   blss.setVramRebuild(&RendererCore::rebuildPermanentBuffersThunk, this);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
+  // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
+  // buffer double/triple buffering already keeps.
+  warp.init(&settings, &gs, &sync, &path1, &blss, this);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -139,6 +145,10 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   // Re-derive the projection (and thus next frame's frustum planes) from
   // the new framebuffer size / aspect.
   renderer3D.setFov(renderer3D.getFov());
+
+  // Modified by TyraX: every display buffer just moved (or changed shape), so
+  // the frame the warp would sample as "last frame" no longer exists.
+  if (modeChanged) hasPresentedFrame = false;
 }
 
 // Modified by TyraX: GS hardware distance fog.
@@ -252,6 +262,7 @@ void RendererCore::beginFrame() {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
 #endif
+  beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -264,6 +275,7 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
 #endif
+  beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -315,6 +327,15 @@ void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
   postFx.portalMaskEnd(xy, z, count, clearR, clearG, clearB);
 }
 
+// Modified by TyraX: the 2D bounding box restarts here
+// (docs/frame-extrapolation.md).
+void RendererCore::beginFrameStamp() {
+  hud2dX0 = 1 << 20;
+  hud2dY0 = 1 << 20;
+  hud2dX1 = -1;
+  hud2dY1 = -1;
+}
+
 void RendererCore::endFrame() {
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
@@ -349,8 +370,52 @@ void RendererCore::endFrame() {
   }
 #endif
   texture.traceFrame();  // Modified by TyraX: GS VRAM residency report
-  if (isFrameLimitOn) graph_wait_vsync();
-  gs.flipBuffers();
+  // Modified by TyraX (docs/frame-pacing.md): with two buffers the frame
+  // limiter is this vsync wait - the EE cannot touch the other buffer until
+  // the finished one is on screen, so a frame that overruns its field by any
+  // margin at all waits out a whole second field and the rate halves.
+  //
+  // With three, the wait moves INSIDE flipBuffers: it blocks on a free
+  // buffer rather than on the display, the vblank handler does the
+  // presenting, and an overrunning frame costs one late field instead of an
+  // idle one.
+  {  // Modified by TyraX: everything below is STALL, not the frame's cost.
+    u32 t0, t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+    if (gs.getFrameBufferCount() < 3) {
+      if (isFrameLimitOn) graph_wait_vsync();
+    }
+    gs.flipBuffers(isFrameLimitOn);
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    stallAccum += t1 - t0;
+  }
+  hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md).
+bool RendererCore::presentWarpFrame(const WarpCamera& from,
+                                    const WarpCamera& to) {
+  // Nothing to warp before the first flip - the "previous" buffer is still
+  // whatever the GS powered up with.
+  if (!hasPresentedFrame) return false;
+
+  Threading::switchThread();
+  warp.draw(from, to);
+  // Deliberately NO applyPostFx: bloom, grain and grading are already baked
+  // into the source image, and running them again would compound them on every
+  // warped frame. Deliberately no beginFrame either - the warp covers every
+  // pixel, so the clear would only be work.
+  {  // Modified by TyraX: the synthesised frame's present is stall too.
+    u32 t0, t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+    if (gs.getFrameBufferCount() < 3) {
+      if (isFrameLimitOn) graph_wait_vsync();
+    }
+    gs.flipBuffers(isFrameLimitOn, /*synthetic=*/true);
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    stallAccum += t1 - t0;
+  }
+  return true;
 }
 
 }  // namespace Tyra

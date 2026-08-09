@@ -561,6 +561,16 @@ in the flow-graph editor in app.cpp → codegen in `flowGraphScript()`
 script class per object graph; object references resolve to indices at codegen;
 bool logic folds into inline C++ expressions.
 
+**A numeric parameter that is really a CHOICE** declares `.numChoices[i]` - a
+`'|'`-separated list of option labels in value order - and the editor draws a
+dropdown instead of a number field. The stored value is still `num[]`, so
+codegen, links and existing projects are untouched; it is purely how the
+parameter READS. Prefer it to a bare number for any small enum: the drawing code
+in `flowgraph_ui.cpp` otherwise branches on the label STRING (`"Loop"`,
+`"Channel"`, `"Times"`...), which is a heuristic a new node has no way to join,
+and `0.000` in a node body tells a reader nothing. A declared choice wins over
+every one of those heuristics.
+
 **A value a graph computes** rides the **number plane** (`FlowLinkNum`,
 `numIn`/`numOut`): a wired number REPLACES the target's `num[0]`, one
 convention for every consumer, mirroring `posIn` over X/Y/Z. Codegen resolves
@@ -686,6 +696,31 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 `OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
 
 **A project preference a SCENE can override** → one `bool` on `SceneOverrides` (+ its `operator==`, or undo drops it), a branch in `project::resolvedSettings`, and - the part that is easy to get wrong - a serializer that writes the flag and the scene-local values **only when the override is on**. `writeSceneVisuals` emits every other category whether it is active or not, so following that pattern would add a key to every existing project's `.tyra` and break `--resave` byte-identity; the neural upscaler's `"upscaler"` / `"blss"` pair is the worked example (see also the shot plan, where a default plan writes nothing at all). Everything downstream then reads `resolvedSettings` and never the raw field.
+**Two settings whose ANSWER lives in the engine** (docs/frame-pacing.md,
+docs/frame-extrapolation.md). `tripleBuffering` is the pattern worth copying:
+the engine can REFUSE it - a third display buffer that would starve post fx, the
+env map and the texture heap - and a setting whose failure only shows up in the
+running game's log is a bad setting, so `project::tripleBufferingFit` is a HOST
+TWIN of `RendererCoreGS::allocateVramBuffers`' headroom check and the
+Preferences dialog warns with the numbers, the way `blssClashes()` and its
+dialog mirror do. The two share the reserve constants **by convention, not by
+construction** - change one, change the other, and note that "the constants"
+means more than the two named numbers: the twin also has to know **what else the
+engine allocates before the check bites**. It shipped reading
+`s.blssEnabled` alone and missing both halves of the upscaler - that the low-res
+colour target is placed AFTER the layout and is in neither the reserve nor
+`getHeapWords()`, and that a project whose scenes MIX pins z at the full display
+raster and gets none of the shrink. Hence the signature is
+`tripleBufferingFit(const Project&, const ProjectSettings& staged)`: a
+per-scene setting can only be answered from the whole project (`blssUse(p,
+defaults)`, the staged-settings idiom the modal already uses), and a host twin
+that asks the project DEFAULT is a twin of nothing. `frameExtrapolation` is the
+reminder that a BEHAVIOUR switch lands in user-ownable sources:
+`presentExtrapolatedFrame` is emitted into `src/terrain_game.cpp` +
+`inc/terrain_game.hpp`, so it has two homes (one per game-cpp head) and its
+declaration two more (one per game-hpp template), and a project that took
+ownership of those never receives it - correct, not a bug, but it has to be said
+in the doc.
 
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog

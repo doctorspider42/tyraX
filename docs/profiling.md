@@ -126,15 +126,40 @@ different input, lights different tiles and draws a different amount of fill.
 The generated game's `updateFrameClock()` also clamps `dt` and stops tracking
 above ~200 FPS. So the rig reads **COP0 `Count` inside a vsync-locked frame**:
 once at the top of `RendererCore::beginFrame()` and once immediately before
-`if (isFrameLimitOn) graph_wait_vsync()`. Everything after that second read is
-idle, so what is left is the real sub-frame work — where a 22 ms → 17 ms
+the present wait at the end of `endFrame()`. Everything after that second read
+is idle, so what is left is the real sub-frame work — where a 22 ms → 17 ms
 improvement is fully visible at a locked 50 Hz.
+
+**Frame pacing and frame extrapolation both move what is on the other side of
+that read, and neither moves the read** (docs/frame-pacing.md,
+docs/frame-extrapolation.md). Say what each does to the numbers, because the
+line looks identical in all three configurations:
+
+- **Triple buffering** replaces the `graph_wait_vsync()` with a wait for a free
+  buffer *inside* `flipBuffers`. It is still after the second read, so
+  `tFrameWork` still means exactly what the table says. The renderer also
+  accumulates that wait as `RendererCore::takeStallTicks`, which is what the
+  extrapolation gate reads and what makes "the loop's period minus its stall"
+  the whole-loop work figure. `FRAMETIME` does not print it.
+- **Frame extrapolation** presents a synthesised frame from
+  `presentWarpFrame`, which runs **after `endFrame()` has returned**. So the
+  warp's own cost — the per-corner reprojection, the ~2 000-qword grid packet
+  and its GS raster — is in **no counter at all**, and `n`/`f` count *rendered*
+  frames only. On an extrapolating game the presented rate is therefore about
+  twice the rate `FRAMETIME` describes, and `FTRAW`'s per-frame ticks are a
+  sample of the rendered half. Quote both numbers or neither.
+
+Nothing here is a defect to fix by widening the bracket: `tFrameWork` is
+deliberately the cost of *producing a rendered frame*, and the synthesised one
+is not that. It does mean a before/after A/B of the extrapolation switch cannot
+be read off `work` alone — the gate's own `Frame extrapolation ON/OFF` log line
+and the game's FPS readout are the other half.
 
 ### The counters
 
 | Counter | Where | Meaning |
 |---|---|---|
-| `tFrameWork` | `beginFrame()` → just before the vsync wait | **the primary metric** — per-frame work, vsync idle excluded |
+| `tFrameWork` | `beginFrame()` → just before the present wait | **the primary metric** — per-frame work, present idle excluded |
 | `tDrain` | the fairness fence, `endFrame()` | GS overhang of the whole frame |
 | `tBlssBegin` | `RendererCoreBlss::beginScene` | raster redirect + clear + drain |
 | `tBlssEnd` | `RendererCoreBlss::endScene` | **GS overhang of the half-res scene** |

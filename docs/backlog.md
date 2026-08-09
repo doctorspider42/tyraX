@@ -22,6 +22,107 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **OWED: a hardware pass on the frame-pacing / neural-upscaler MERGE.** The
+  two features were merged onto one branch and verified as far as this machine
+  goes - clean editor build, `--vu-check`, idempotent `--refresh-gen`, the
+  `--blss-train` anchor unmoved at `e069f286ea0c524999bfd9dac769608c`, the
+  shipped default net still loading, four Docker builds (BLSS on / pacing on /
+  both on / both off) and PCSX2 boots. **The console at 192.168.100.150 was
+  unreachable for the whole session** (`Destination host unreachable` - not even
+  ICMP; it wants a power cycle nobody has done), so *nothing* below has been
+  seen on real hardware, and an emulator number is not a substitute for any of
+  it:
+  - the INTC vblank handler and the `DISPFB` latch (the pacing feature's whole
+    mechanism, and exactly what an emulator is friendlier about than a console);
+  - the frame warp's GIF packet on a real GS - PCSX2 is admissible for EE
+    aggregate and counts, never for GS fill (under-reported 76x) nor for
+    per-function attribution;
+  - **the third display buffer's headroom arithmetic**, which the merge changed:
+    it now subtracts the BLSS low-res target, which the engine's reserve never
+    named. Both the engine check and its host twin `project::tripleBufferingFit`
+    moved, and only the host half has been exercised;
+  - **the BLSS-history interlock's second half** - `composite()` dropping the
+    temporal pass when the history buffer is the render target
+    (docs/frame-extrapolation.md). Reasoned from the buffer arithmetic and
+    exercised as a build, never seen firing: the shipped default net asks for no
+    temporal weight, so the pass it drops is one that was not running anyway on
+    every project measured. A project with its own trained net is the fixture
+    this needs.
+- **OWED before this branch's PR: a merge of `origin/main`.** The branch was
+  0 behind when the PR #212 merge started and main landed two commits during
+  it - #211 (terrain wrap mode, which moves `renderer_core_gs.hpp`, the same
+  header the pacing work touches) and #213 (audsrv). `git merge-tree` predicts
+  conflicts in **`src/version.hpp`** and **`renderer_core_gs.hpp`**. Neither was
+  taken here, deliberately: the task was the #212 merge and a second unverified
+  merge at handover is worse than a named one. The version.hpp resolution is the
+  same shape as the one recorded there - one number per landing, the branch that
+  arrives second renumbers - and main gets to say which is which.
+- **The checked-in example projects were NOT regenerated for this merge**, and
+  deliberately. `--refresh-gen` is idempotent on them (checked on upscaler-lab,
+  showcase, script-demo, portals) but their committed `inc/font_data.gen.hpp`
+  differs by machine - the font atlas resolves to whatever TTF the box has - so
+  regenerating here would commit one machine's glyph metrics along with the four
+  new `FRAME_EXTRAPOLATION*` constants. Do it on a box whose fonts match the
+  ones the examples were last baked with, or decide the metrics are not worth
+  tracking and say so.
+
+- **Frame pacing follow-ups** (docs/frame-pacing.md, triple buffering landed
+  with the measurements in that page):
+  - **Triple buffering at 512x448, paid for by BLSS.** The neural upscaler
+    sizes the z buffer from the RASTER rather than the display buffer, which at
+    2x2 gives back 172 032 words - comfortably more than the 229 376 a third
+    display buffer costs. So the combination the VRAM guard refuses today
+    (full-height interlaced + triple) should fit with BLSS on. Unmeasured. The
+    "it is already accounted for by construction" note that used to be here was
+    HALF RIGHT and the other half was a real bug: `getHeapWords()` is indeed
+    read after z is placed, but the BLSS **low-res colour target** is allocated
+    later still (configure -> the VRAM rebuild -> allocate) and the 384 KB
+    reserve never named it, so the guard was offering the third buffer against
+    space the upscaler was about to take - 114 688 words at 512x448 1x2, i.e. a
+    128 KB texture heap instead of 576 KB. Both the engine check and
+    `project::tripleBufferingFit` subtract it now, and the host twin asks
+    `blssUse` rather than the project default (a MIXED project pins z at the
+    full raster and gets none of the saving). What is still owed is the
+    measurement, on hardware.
+  - **A hardware pass.** Everything in that page is PCSX2. The INTC vblank
+    handler and the `DISPFB` latch are exactly what an emulator is friendlier
+    about than a console.
+  - **Tell the game when the buffer count changed.** `setDisplayOutput` re-runs
+    the VRAM layout, so switching to a mode with no room silently drops to two
+    buffers - correct, but a menu that offers the mode cannot say so.
+  - **DONE: frame extrapolation** (docs/frame-extrapolation.md) - the engine
+    module and `RendererCore::presentWarpFrame` land here; measured 25 Hz world /
+    50 Hz picture, plus the project switch that wires it into the generated
+    loop (Preferences > Build). Still owed: a **frame-accurate way
+    to verify a synthesised frame** (see the doc - the compositor screencast
+    cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
+    objects and the HUD on top of a warped frame, and hardware.
+  - **BLSS makes examples/showcase lose its terrain.** With `blssEnabled` on,
+    the palettised ground renders as flat sky colour while untextured
+    primitives (trees, the crate) draw correctly - the exact signature the
+    branch's own z-mask comment describes (a zeroed CLUT zeroes its alpha, and
+    ATEST NOTEQUAL/AREF 0 then discards every fragment of 4-bit palettised
+    geometry). Reproduced with frame extrapolation OFF, so it is not the warp.
+    Found while wiring the warp to BLSS' per-tile depth; not diagnosed further.
+  - **Does the BLSS composite have the same TEXA/COLCLAMP bug?** The frame warp
+    shipped with a state block that WROTE those two registers and then
+    "restored" them to assumed GS reset values - which hue-shifted every scene
+    with post fx in it, because nothing else in the engine writes them and there
+    was no value to put back (docs/frame-extrapolation.md). The warp no longer
+    touches them. `RendererCoreBlss::composite` still does, and it has to (it
+    genuinely blends), so the open question is whether its restore VALUES are
+    right. Untested: check BLSS on a project with bloom and grain.
+  - **The guard band, and the DISPFB pan it would unlock.** Both the warp's edge
+    smear and the "free" 2D reprojection (`graph_set_framebuffer`'s last two
+    arguments are the DISPFB in-buffer offset; the engine passes `0, 0`
+    everywhere, so a shifted re-present costs two register writes in the vblank
+    handler) need a framebuffer WIDER than the display window. That means
+    splitting the physical raster from the displayed one and widening the
+    frustum to match - and `M4x4::perspective` takes the raster size as its
+    scale, so the widened fov/aspect breaks the "frustum planes are independent
+    of the raster scale" invariant BLSS' host/console parity rests on. Costed
+    and deliberately deferred, not forgotten.
+
 - **Neural upscaler (BLSS) follow-ups** (docs/neural-upscaler.md,
   docs/blss-reconstruction.md). The proof of concept shipped: half-res 3D
   render, sub-pixel `XYOFFSET` jitter, a 6-12-3 MLP trained on the host and

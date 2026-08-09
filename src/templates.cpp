@@ -449,6 +449,12 @@ int main(int argc, char** argv) {
     options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
+  // Triple buffering (Preferences > Build > Triple buffering, docs/
+  // frame-pacing.md): present from a vblank interrupt instead of stalling
+  // the EE on vsync, so a frame that overruns its field is shown one field
+  // late instead of halving the frame rate. Costs a third display buffer of
+  // GS VRAM; the engine reports and stays double buffered if it does not fit.
+  options.tripleBuffering = {{TRIPLE_BUFFERING}};
   // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
@@ -526,6 +532,29 @@ constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 // Experimental (Preferences > Build > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
+
+// Experimental (Preferences > Build > Frame extrapolation,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = {{FRAME_EXTRAPOLATION}};
+
+// Frame extrapolation, translation model (Preferences > Build): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = {{FRAME_EXTRAPOLATION_PLANE}};
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = {{FRAME_EXTRAPOLATION_FORCE}};
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = {{FRAME_EXTRAPOLATION_GROUND}};
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -1205,6 +1234,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -2442,6 +2487,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -5747,6 +5808,163 @@ void TerrainGame::loop() {
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -18756,6 +18974,163 @@ void TerrainGame::loop() {
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -19841,6 +20216,11 @@ struct ScriptContext {
   // timer runs out (a mode the TV can't display would otherwise strand the
   // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
   // The game applies and resets all three.
+  // Frame extrapolation (docs/frame-extrapolation.md), written by the Set
+  // Frame Extrapolation flow node: -1 = leave alone, 0 = off, 1 = on (still
+  // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
+  // latches it and clears it back to -1.
+  int frameExtrapolation = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
@@ -24621,6 +25001,14 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION}}",
+                   st.frameExtrapolation ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_PLANE}}",
+                   floatLit(st.frameExtrapolationPlane));
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_FORCE}}",
+                   st.frameExtrapolationForce ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_GROUND}}",
+                   st.frameExtrapolationGround ? "true" : "false");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
@@ -24638,6 +25026,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
+    s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
+                   st.tripleBuffering ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
@@ -28802,6 +29192,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
                   << ";\n";
+            } else if (n.type == "SetFrameExtrapolation") {
+                int m = (int)(n.num[0] + 0.5f);
+                if (m < 0) m = 0;
+                if (m > 2) m = 2;
+                c << pad << "ctx.frameExtrapolation = " << m << ";\n";
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";

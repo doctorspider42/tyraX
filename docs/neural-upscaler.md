@@ -4635,6 +4635,17 @@ Occupancy is a count of grid cells, not a millisecond.
   representative depth per tile. Disocclusion inside a tile ghosts; the net
   learns to distrust history where `depthGrad` is high, which mitigates it
   rather than fixing it.
+- **The temporal pass is dropped when the history buffer IS the render
+  target**, which is what happens with
+  [frame extrapolation](frame-extrapolation.md) running double buffered: the
+  two flips per loop put every rendered frame back into the same buffer.
+  `composite()` compares the addresses and skips pass 3 with a one-shot warning
+  rather than sampling what it is writing. Passes 1, 2, 4 and 5 read the
+  low-res target and are unaffected, so the picture is correct and only the
+  accumulation is lost — turn triple buffering on to get it back. The two
+  features are otherwise compatible, and the warp reads this feature's per-tile
+  `1/w` to reproject translation with real parallax; the whole interaction is
+  written up in that page.
 - **FIXED — it is a per-scene setting now**, and the half that matters is the
   build interlock: one portal anywhere used to refuse the build for every scene
   in the project. See [Per scene](#per-scene). Still **no flow-graph control**

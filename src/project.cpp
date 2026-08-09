@@ -129,6 +129,60 @@ const DisplayModeInfo& displayModeInfo(const std::string& key) {
     return displayModes()[0];
 }
 
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
+    // GS VRAM in words (1 word = 4 bytes); buffers are page aligned (2048).
+    const int kVramWords = 1048576;
+    const int kPage = 2048;
+    // The reserve the engine checks against: everything RendererCore::init
+    // still allocates after gs.init (post fx, env map + z, camera feed + z,
+    // the projected-shadow slots) plus a texture floor. Keep these two equal to
+    // kThirdBufferReserveWords / kThirdBufferMinTextureWords in the engine.
+    const int kNeed = 98304 + 65536;
+    auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
+
+    const DisplayModeInfo& d = displayModeInfo(bootDisplayMode(s));
+    const int w = d.bufW;
+    const int h = d.halfHeight ? d.logicalH / 2 : d.logicalH;
+    const int bufferWords = pageUp(w * h);  // PSMCT32: one word per pixel
+
+    // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
+    // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
+    // scene") - blssUse is. `s` is the staged settings the Preferences modal
+    // has not committed yet, which is exactly what the two-argument overload
+    // exists for.
+    const BlssUse u = blssUse(p, s);
+    const int sx = s.blssScale == 0 ? 2 : 1;
+    const int sy = 2;
+
+    // The z buffer follows the RASTER, which the neural upscaler shrinks -
+    // which is exactly what can make room for the third buffer. But a MIXED
+    // project pins z at the FULL display raster (RendererCoreGS::setZRasterScale
+    // via configure()'s eighth argument), so it gets none of that back; this
+    // used to read the project default alone and promised a third buffer such
+    // a project cannot have.
+    const bool zShrinks = u.any && !u.mixed;
+    const int zWords = pageUp(zShrinks ? (w / sx) * (h / sy) : w * h);
+
+    // The low-res colour target, which exists whenever the upscaler is on
+    // ANYWHERE (configure() is given the widest configuration the run takes).
+    // It is allocated after the engine's own headroom check, so both sides have
+    // to subtract it by hand - keep this equal to the blssWords block in
+    // RendererCoreGS::allocateVramBuffers.
+    int lowWords = 0;
+    if (u.any) {
+        const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
+        lowWords = pageUp(lowBufW * (h / sy));
+    }
+
+    TripleBufferFit f;
+    f.bufferWords = bufferWords;
+    f.needWords = kNeed;
+    f.leftWords =
+        kVramWords - (2 * bufferWords + zWords + lowWords) - bufferWords;
+    f.fits = f.leftWords >= kNeed;
+    return f;
+}
+
 std::string bootDisplayMode(const ProjectSettings& s) {
     if (s.displayMode == "interlaced" && s.palFullHeight && s.videoSystem != "ntsc")
         return "pal576";
@@ -1366,6 +1420,18 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                        }() +
                        "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
+         << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
+         << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
+         << (p.settings.frameExtrapolationPlane != 0.0f
+                 ? "    \"frameExtrapolationPlane\": " +
+                       fmtFloat(p.settings.frameExtrapolationPlane) + ",\n"
+                 : "")
+         << (p.settings.frameExtrapolationForce
+                 ? "    \"frameExtrapolationForce\": true,\n"
+                 : "")
+         << (!p.settings.frameExtrapolationGround
+                 ? "    \"frameExtrapolationGround\": false,\n"
+                 : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -4726,6 +4792,16 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("palFullHeight"))
             st.palFullHeight = v->boolOr(false);
+        if (const auto* v = s->find("tripleBuffering"))
+            st.tripleBuffering = v->boolOr(false);
+        if (const auto* v = s->find("frameExtrapolation"))
+            st.frameExtrapolation = v->boolOr(false);
+        if (const auto* v = s->find("frameExtrapolationPlane"))
+            st.frameExtrapolationPlane = (float)v->numberOr(0.0);
+        if (const auto* v = s->find("frameExtrapolationForce"))
+            st.frameExtrapolationForce = v->boolOr(false);
+        if (const auto* v = s->find("frameExtrapolationGround"))
+            st.frameExtrapolationGround = v->boolOr(true);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))

@@ -13352,6 +13352,133 @@ void App::drawPreferencesModal() {
             "whatever this resolves to on the player's console. (Field\n"
             "rendering has no full-height variant yet.)");
     }
+    ImGui::Checkbox("Triple buffering", &prefSettings_.tripleBuffering);
+    prefHelp(
+        "How a frame that misses its vsync deadline is paid for. Off, the\n"
+        "EE waits for the next vsync before presenting, so a frame taking\n"
+        "20.4 ms on a 20 ms PAL field waits out a whole second field and\n"
+        "the rate halves - 49 fps of work is shown as 25. On, a finished\n"
+        "frame is queued and a vblank interrupt presents it, so it is one\n"
+        "field late instead, and the EE spends the wait rendering: the\n"
+        "same work runs at ~49 fps.\n\n"
+        "Costs a THIRD display buffer of GS VRAM - 0.875 MB of the\n"
+        "~1.08 MB texture budget at 512x448, about half that in\n"
+        "interlaced-field. Check the game's VRAMSTAT log line before\n"
+        "shipping it: when the buffer does not fit the engine says so and\n"
+        "stays double buffered, so this can never break a build.");
+    // The engine refuses a third buffer that would starve the rest of the
+    // renderer, and until this line the only way to find that out was the
+    // running game's log. project::tripleBufferingFit is the host twin of that
+    // check - same numbers, same answer.
+    if (prefSettings_.tripleBuffering) {
+        const auto fit = project::tripleBufferingFit(project_, prefSettings_);
+        if (!fit.fits) {
+            const auto& dm =
+                project::displayModeInfo(project::bootDisplayMode(prefSettings_));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
+            ImGui::TextWrapped(
+                "Will not fit in %s: a third buffer costs %.2f MB and would "
+                "leave %.2f MB, under the %.2f MB the rest of the renderer and "
+                "the texture heap need. The game will say so in its log and "
+                "stay double buffered. Try the interlaced-field display mode, "
+                "which halves every buffer.",
+                dm.label, fit.bufferWords / 262144.0f, fit.leftWords / 262144.0f,
+                fit.needWords / 262144.0f);
+            ImGui::PopStyleColor();
+        }
+    }
+    ImGui::Checkbox("Frame extrapolation (experimental)",
+                    &prefSettings_.frameExtrapolation);
+    prefHelp(
+        "Frame generation, PS2 style: after each rendered frame the game\n"
+        "presents a SYNTHESISED one, re-drawing it under the camera\n"
+        "extrapolated from its own motion. The world then simulates and\n"
+        "renders at HALF the field rate while the television still gets a\n"
+        "fresh picture every field - measured 25 Hz world / 50 Hz picture.\n"
+        "It costs no GS VRAM (the source is the display buffer that already\n"
+        "exists) and adds no latency.\n\n"
+        "Camera rotation reprojects exactly. Translation is approximated by\n"
+        "assuming the world sits on one plane, so strafing shears where\n"
+        "turning does not. Dynamic objects and the HUD FREEZE for the\n"
+        "synthesised frame, and the frame edge stretches where the source\n"
+        "has no pixels for what just came into view. Experimental - try it\n"
+        "on a scene before shipping it.\n\n"
+        "WHEN IT IS A LOSS: presenting twice per loop caps the world at HALF\n"
+        "the field rate (25 Hz on PAL, 30 on NTSC), so this only pays if the\n"
+        "game was already at or below that. Measured on the showcase example:\n"
+        "44.7 real frames a second became 25 real + 25 synthesised - animation\n"
+        "and moving objects lost nearly half their updates to buy camera\n"
+        "smoothness the scene already had. Check the game\'s FPS readout with\n"
+        "this off before turning it on.\n\n"
+        "The generated game now GATES this per frame: it synthesises only\n"
+        "while the loop\'s work already overruns a field (two fields when\n"
+        "triple buffered), so leaving it on costs a fast scene nothing. Each\n"
+        "flip is logged to the game\'s bin/log.txt.");
+    // The one interaction the two features have that neither switch shows.
+    // Extrapolation flips TWICE per loop, so with two display buffers every
+    // rendered frame is composited back into the same buffer - which is the
+    // buffer BLSS samples as its temporal history. The engine drops the
+    // temporal pass rather than sample its own render target (and says so in
+    // the game's log); this is where a person can still choose otherwise.
+    if (prefSettings_.frameExtrapolation) {
+        const auto bu = project::blssUse(project_, prefSettings_);
+        const bool tripled =
+            prefSettings_.tripleBuffering &&
+            project::tripleBufferingFit(project_, prefSettings_).fits;
+        if (bu.anyNetwork && prefSettings_.blssTemporal && !tripled) {
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
+            ImGui::TextWrapped(
+                "With the neural upscaler on and only two display buffers, the "
+                "two flips per loop put every rendered frame back into the "
+                "buffer BLSS reads as its temporal history - so the engine "
+                "skips the temporal pass rather than sample what it is "
+                "writing. The picture stays correct, the accumulation is lost. "
+                "Turn on triple buffering above to keep it (see "
+                "docs/frame-extrapolation.md).");
+            ImGui::PopStyleColor();
+        }
+    }
+    ImGui::BeginDisabled(!prefSettings_.frameExtrapolation);
+    ImGui::Checkbox("Ground plane (recommended)",
+                    &prefSettings_.frameExtrapolationGround);
+    prefHelp(
+        "Take the depth from the FLOOR instead of a fixed distance. A view\n"
+        "ray meets the ground at w = h / -dir.y, so depth grows toward the\n"
+        "horizon by itself and a ray at or above the horizon never meets it -\n"
+        "the sky then does not move at all, which is the worst artefact of a\n"
+        "fixed plane. Costs a few operations per grid corner and needs no\n"
+        "depth buffer. Ignored where the neural upscaler supplies real depth,\n"
+        "and it overrides the fixed distance below.");
+    ImGui::BeginDisabled(prefSettings_.frameExtrapolationGround);
+    ImGui::DragFloat("Translation plane", &prefSettings_.frameExtrapolationPlane,
+                     0.5f, 0.0f, 200.0f,
+                     prefSettings_.frameExtrapolationPlane <= 0.0f
+                         ? "rotation only"
+                         : "%.1f units");
+    prefHelp(
+        "How camera TRANSLATION is reprojected when the neural upscaler is\n"
+        "OFF (with it on, its real per-tile depth wins and this is ignored).\n\n"
+        "0 (default) = rotation only. Exact, but a walk in a straight line\n"
+        "then reproduces the previous frame EXACTLY - the synthesised frame\n"
+        "is a duplicate, which reads as judder.\n\n"
+        "A positive distance assumes the whole world sits on one plane that\n"
+        "far away. That moves the entire picture uniformly, which looks like\n"
+        "a lens ZOOM rather than parallax - geometrically wrong, but it IS\n"
+        "motion, and on some content that beats a duplicated frame. 12 is\n"
+        "what the first version shipped with. Worth trying both.");
+    ImGui::EndDisabled();
+    ImGui::Checkbox("Always synthesise (ignore the gate)",
+                    &prefSettings_.frameExtrapolationForce);
+    prefHelp(
+        "Skip the per-frame decision and always present a synthesised frame.\n\n"
+        "The gate measures EE work, so a scene held back by the GS rather\n"
+        "than the EE keeps it shut - examples/raytraced-mirror sits at 26 fps\n"
+        "with the gate never opening. This is how such a scene gets tested at\n"
+        "all without placing a Set Frame Extrapolation node. Expect it to\n"
+        "cost frames where the gate would have declined.");
+    ImGui::EndDisabled();
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md
