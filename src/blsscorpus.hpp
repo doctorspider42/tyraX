@@ -49,7 +49,12 @@ namespace blss {
 struct CorpusConfig {
     int outW = 512;               // output (display) resolution
     int outH = 448;
-    Scale scale = Scale::X2Y2;    // so the low-res render is outW/2 x outH/2
+    // The raster scale, arbitrary since `--scale WxH` (blss.hpp, struct Scale):
+    // the low-res render is outW/scale.x x outH/scale.y and everything below -
+    // the jitter, the reprojection field, the composite's sampling - reads it
+    // from here rather than assuming 2. It must DIVIDE outW/outH; generate()
+    // says so out loud when it does not.
+    Scale scale = Scale::X2Y2;
     int frames = 48;              // rendered frames; each yields cols*rows samples
     int supersample = 4;          // ground truth is rendered at 4x and box-resolved
     uint32_t seed = 0xB1557u;
@@ -86,6 +91,32 @@ struct CorpusConfig {
     // the jittered sampler then runs on frames the console never draws.
     // generate() resolves this into blss::setJitter() before the first frame.
     int jitter = -1;
+    // THE STILL FIXTURE - the host twin of the console's frozen-camera
+    // experiment, and a MEASUREMENT configuration rather than a corpus.
+    //
+    // The bob was found on hardware by freezing the camera and differencing
+    // consecutive fields: with one pose, the only thing left between frame N and
+    // frame N-1 is the jitter phase, so whatever alternates IS the artefact.
+    // period2Alternation() could not be given that. Every corpus frame comes
+    // from its own camera, so the metric has to motion-compensate two
+    // predecessors into the current view, and it carries the warp's own
+    // resampling error plus anything the warp cannot describe - which on a
+    // project with animated models is the models, since the reprojection field
+    // is camera-derived and no part of it knows a mesh deformed. Measured, that
+    // pushed the metric's own floor from 0.075 to 2.614 levels, i.e. 35x the
+    // artefact it is meant to resolve, and `--no-anim` was the only way to get a
+    // reading at all.
+    //
+    // With this on, every frame of a shot uses the shot's FIRST camera and its
+    // FIRST pose, and only the jitter phase advances. The warp becomes the
+    // identity, the animation contributes nothing to compensate, and the metric
+    // measures the alternation and nothing else - on the animated corpus, which
+    // is the one the network is actually trained on.
+    //
+    // It is NOT a training corpus and must never be used as one: a shot's frames
+    // are all the same frame, so the fit would see `shots` distinct examples
+    // repeated. generate() says so out loud.
+    bool still = false;
     // HOW MANY THREADS RENDER THE FRAMES. 0 = every core the machine has.
     //
     // It changes the WALL CLOCK AND NOTHING ELSE, and that is a requirement

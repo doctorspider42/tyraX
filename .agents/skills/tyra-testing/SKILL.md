@@ -168,6 +168,15 @@ TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
 TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
 ```
 
+**Five flags measure a configuration no project can currently ask for, and each
+prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the
+ENGINE is generic, it is `blssScale` that can only name 2x2 and 1x2),
+`--act-table N`, `--no-anim` and `--still` (freeze each shot at one camera and
+one pose so only the jitter phase advances — the period-2 metric's fixture,
+refused by `--blss-train` and by `--cv`). A table of decibels whose configuration is not written
+down is a table nobody can reproduce, which is how this feature published five
+wrong numbers.
+
 **Verify a change to any parallel phase with `--threads`, not by reading the
 code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render,
 the oracle and `--blss-eval`'s per-method loop, and it is a wall-clock knob and

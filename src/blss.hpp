@@ -65,13 +65,64 @@ inline int tileSize() { return detail::gTile; }
 // tile alone when it refuses.
 bool setTileSize(int px);
 
-// The upscale factors the runtime supports. Scale2x2 quarters the 3D fill;
-// Scale1x2 halves only the height, which keeps horizontal detail (and matches
-// what the PS2's own InterlacedField mode already does to the raster).
-enum class Scale { X2Y2, X1Y2 };
+// THE UPSCALE FACTOR, AND IT IS A PAIR OF INTEGERS RATHER THAN A MENU.
+//
+// It was `enum class Scale { X2Y2, X1Y2 }` with a `scaleY()` that returned a
+// literal 2, i.e. the host could express exactly two configurations. THE ENGINE
+// NEVER HAD THAT RESTRICTION: RendererSettings::setRasterScale(sx, sy) takes
+// arbitrary positive ints and every derived size divides through it, and
+// RendererCoreBlss::configure() only clamps them to >= 1. So the two-item menu
+// was a HOST limit standing in front of a generic runtime, and the only thing
+// that could not be measured because of it was whether going below half
+// resolution is worth anything - which is now `--scale WxH`.
+//
+// The two named constants stay, spelled exactly as they were, because
+// templates.cpp writes `blss::Scale::X1Y2` into the generated game and the
+// project's `blssScale` int still means "0 = 2x2, 1 = 1x2". Nothing about the
+// shipped configuration moves here; what moves is what the tool can measure.
+//
+// SWEPT, AND 2x2 STAYS - docs/neural-upscaler.md, "Below half resolution,
+// swept", carries the tables. Three things it found, because they are the
+// reasons not to reach for this knob:
+//
+//  - THE NETWORK DOES NOT DEGRADE, THE PICTURE DOES. The held-out margin over
+//    each scale's OWN bilinear is flat across the sweep (+0.33 at 2x2, +0.45 at
+//    4x4, 30 fold-runs each) and so is the oracle's ceiling (+1.02 -> +0.99),
+//    while the ABSOLUTE PSNR falls up to 2.6 dB - eight times the whole margin.
+//  - THE SPEED PRIZE DIMINISHES AND THE MEMORY PRIZE DOES NOT. Every term of
+//    the 5.02 ms EE bill is an output-resolution quantity (the 16x14 grid, the
+//    net, the proxies, the 255-corner packet), so break-even moves only
+//    ~12.6 -> ~10.0 coverages, while VRAM returned goes 448 -> 784 KB.
+//  - 2x4 IS THE WORST OF THE TWO 1/8 MODES, NOT THE BEST. It has identical fill
+//    and identical VRAM to 4x2 and measures 1.25 dB below it, so the "vertical
+//    detail is already compromised by interlace" intuition is refuted.
+struct Scale {
+    int x = 2, y = 2;
 
-inline int scaleX(Scale s) { return s == Scale::X2Y2 ? 2 : 1; }
-inline int scaleY(Scale) { return 2; }
+    constexpr Scale() = default;
+    constexpr Scale(int sx, int sy) : x(sx < 1 ? 1 : sx), y(sy < 1 ? 1 : sy) {}
+
+    // The two the project format can currently express. Declared here and
+    // defined below because a class cannot hold a static member of its own
+    // (still incomplete) type inline.
+    static const Scale X2Y2;  // blssScale 0 - the shipped default
+    static const Scale X1Y2;  // blssScale 1 - half height only
+};
+inline const Scale Scale::X2Y2{2, 2};
+inline const Scale Scale::X1Y2{1, 2};
+
+inline constexpr bool operator==(Scale a, Scale b) { return a.x == b.x && a.y == b.y; }
+inline constexpr bool operator!=(Scale a, Scale b) { return !(a == b); }
+
+inline constexpr int scaleX(Scale s) { return s.x; }
+inline constexpr int scaleY(Scale s) { return s.y; }
+
+// "2x2", for the header lines and the announcements. A table of decibels whose
+// raster scale is not on the page is a table nobody can reproduce.
+std::string scaleName(Scale s);
+// "4x4" / "2x4" -> Scale. Returns false and leaves `out` alone on anything that
+// is not two positive integers separated by an 'x'.
+bool parseScale(const std::string& text, Scale* out);
 
 // The two sub-pixel jitter phases, in LOW-RES pixels. For a 2x2 upscale these
 // are exactly two of the four output-pixel centres inside one low-res pixel, so
@@ -79,6 +130,23 @@ inline int scaleY(Scale) { return 2; }
 // pair, not an approximation. Quantised to sixteenths because that is what the
 // GS XYOFFSET register stores (12.4 fixed point), so the console can reproduce
 // these offsets bit-exactly: -4/16 and +4/16.
+//
+// AND THE QUINCUNX IS A PROPERTY OF 2x2, NOT OF THE JITTER. The offset is
+// +-4/16 of a LOW-RES pixel at every raster scale, on both twins - the engine
+// writes a literal `phase == 0 ? -4 : 4` into XYOFFSET and divides nothing by
+// scaleX/scaleY - so what those offsets MEAN moves with the scale:
+//
+//   scale   output px per low-res px   what +-1/4 low-res px lands on
+//   2x2     2 x 2  = 4 sub-positions   +-1/2 output px: two of the four centres
+//   4x4     4 x 4  = 16                +-1 whole output px, and 1/4 and 3/4 of
+//                                      a low-res pixel are not among the four
+//                                      output-pixel centres {1/8,3/8,5/8,7/8}
+//
+// So at 4x the two phases are neither a quincunx nor even aligned to the output
+// grid, and a one-frame-deep history could cover 2 of 16 sub-positions at best.
+// That is an argument, not a measurement; the measurement is in
+// docs/neural-upscaler.md ("Below half resolution") and it agrees - every scale
+// below 2x2 is a jitter-off mode.
 //
 // JITTER IS A MODE NOW, NOT A CONSTANT, and the reason is a hardware
 // measurement rather than a preference: with jitter on, a frozen camera on real

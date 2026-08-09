@@ -1790,6 +1790,18 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     const int ss = std::max(cfg.supersample, 1);
     const int sx = scaleX(cfg.scale), sy = scaleY(cfg.scale);
     const int lowW = std::max(outW / sx, 1), lowH = std::max(outH / sy, 1);
+    // The raster scale has to DIVIDE the output or the two twins are describing
+    // different frames: the engine allocates lowW = outW / scaleX and composites
+    // from it with `(px << 4) / scaleX`, so a remainder is a column of output
+    // pixels sampled off the end of the low-res target. Every scale worth
+    // sweeping divides both shipped output sizes (512 and 448 take 1, 2 and 4;
+    // Pal576i's 512x512 takes 1, 2, 4 and 8), so this fires only on a typo.
+    if (cfg.verbose && (outW % sx || outH % sy))
+        std::printf(
+            "[blss] WARNING: scale %s does not divide %dx%d - the low-res target is "
+            "%dx%d and %d x %d output pixel(s) sample past its edge. This "
+            "configuration is NOT a twin.\n",
+            scaleName(cfg.scale).c_str(), outW, outH, lowW, lowH, outW % sx, outH % sy);
 
     const auto t0 = std::chrono::steady_clock::now();
     Materials mats = buildMaterials(cfg);
@@ -1845,6 +1857,12 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     const bool wantJitter =
         cfg.jitter >= 0 ? cfg.jitter != 0 : (pb.found ? pb.jitter : true);
     setJitter(wantJitter);
+    if (cfg.verbose && cfg.still)
+        std::printf(
+            "[blss] STILL FIXTURE (--still): every frame of a shot is the shot's FIRST "
+            "camera and FIRST pose, so only the jitter phase advances. This is the host "
+            "twin of the console's frozen-camera experiment and it is a METRIC fixture, "
+            "not a corpus - do not train on it, and read only the period-2 table.\n");
     if (cfg.verbose && !wantJitter)
         std::printf(
             "[blss] sub-pixel jitter OFF%s - both phases sample the same "
@@ -1920,6 +1938,11 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     std::vector<double> shotMs((size_t)shotCount, 0.0);
     std::mutex report;
     int done = 0, reported = -1;
+    // HOW MANY PROXIES A FRAME ACTUALLY CARRIES, which the build-time count
+    // above cannot say once the budget is on (the cap is per camera). It is the
+    // number the console's own BLSSGRID line reports, so the two are directly
+    // comparable - which is the whole point of having it.
+    size_t bagTotal = 0;
 
     parallelFrames((int)jobs.size(), cfg.threads, [&](int j, RenderScratch& sc) {
         const FrameJob& job = jobs[(size_t)j];
@@ -1928,8 +1951,12 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         const int i = job.i, n = job.n;
         const auto ts = std::chrono::steady_clock::now();
 
-        const float t = n > 1 ? (float)i / (float)(n - 1) : 0.0f;
-        const float tPrev = n > 1 ? (float)(i - 1) / (float)(n - 1) : 0.0f;
+        // `--still` freezes the shot at its first camera: t and tPrev are both
+        // 0, so `prev` below is `cur` by construction, every reprojection offset
+        // is zero and the only thing that still advances between consecutive
+        // frames of this shot is the jitter phase. See CorpusConfig::still.
+        const float t = cfg.still ? 0.0f : (n > 1 ? (float)i / (float)(n - 1) : 0.0f);
+        const float tPrev = cfg.still ? 0.0f : (n > 1 ? (float)(i - 1) / (float)(n - 1) : 0.0f);
         const Pinhole cur = cameraAt(shot, t);
         // Frame 0 has no predecessor: prev == cur makes every reprojection
         // offset zero and prevLow its own render, which is exactly what the
@@ -1948,8 +1975,14 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             for (const std::vector<Object>& poses : *shot.animShared) {
                 if (poses.empty()) continue;
                 const int last = (int)poses.size() - 1;
-                animNow.push_back(&poses[(size_t)std::min(i, last)]);
-                animPrev.push_back(&poses[(size_t)std::min(i > 0 ? i - 1 : 0, last)]);
+                // ...and it freezes the ANIMATION too, which is the half that
+                // makes the period-2 metric readable: a camera-derived warp
+                // cannot compensate a deforming mesh, so a moving model is a
+                // difference the metric charges to the artefact.
+                const int now = cfg.still ? 0 : std::min(i, last);
+                const int was = cfg.still ? 0 : std::min(i > 0 ? i - 1 : 0, last);
+                animNow.push_back(&poses[(size_t)now]);
+                animPrev.push_back(&poses[(size_t)was]);
             }
         }
 
@@ -2013,6 +2046,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         // label, so neither can move the corpus.
         std::lock_guard<std::mutex> lock(report);
         shotMs[(size_t)job.shot] += ms;
+        bagTotal += bags.size();
         ++done;
         if (!cfg.verbose) return;
         const int pct = done * 20 / (int)jobs.size();  // a line every 5%
@@ -2035,8 +2069,10 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         const double s = std::chrono::duration<double>(
                              std::chrono::steady_clock::now() - t0)
                              .count();
-        std::printf("[blss] corpus ready: %zu frame(s), %zu tile sample(s), %.1f s\n",
-                    out.size(), out.size() * (size_t)(cols * rows), s);
+        std::printf("[blss] corpus ready: %zu frame(s), %zu tile sample(s), %.1f proxies/frame,"
+                    " %.1f s\n",
+                    out.size(), out.size() * (size_t)(cols * rows),
+                    out.empty() ? 0.0 : (double)bagTotal / (double)out.size(), s);
     }
     return out;
 }

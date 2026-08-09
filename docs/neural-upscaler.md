@@ -463,14 +463,30 @@ Every figure above is a `2×2` figure. At `1×2` the raster is 512×224 of a 512
 output, so the z buffer shrinks by 114 688 words — and the low-res colour target
 is 512×224 at 32bpp, which is *the same 114 688 words*. Both buffers are
 `width × height` at 32 bits per pixel, so at half the raster area the saving and
-the cost are the same number **by construction**, at every output size:
+the cost are the same number **by construction**, at every output size.
 
-| output | scale | z returned | low-res target | **net** |
-|---|---|---|---|---|
-| 512×448 | 2×2 | 672 KB | 224 KB | **+448 KB** |
-| 512×448 | **1×2** | 448 KB | 448 KB | **0** |
-| 512×512 (Pal576i) | 2×2 | 768 KB | 256 KB | **+512 KB** |
-| 512×512 (Pal576i) | **1×2** | 512 KB | 512 KB | **0** |
+**The general form, since the raster scale is now sweepable** (`--scale WxH`,
+[below](#below-half-resolution-swept)). Write `A = scaleX · scaleY` for the area
+divisor; both buffers are `outW·outH/A` words, so
+
+> **net words returned = outW · outH · (1 − 2/A)**
+
+— zero at `A = 2` (`1×2`), and everything above it is profit. The memory axis is
+the one that does *not* have diminishing returns:
+
+| output | scale | area | z returned | low-res target | **net** |
+|---|---|---|---|---|---|
+| 512×448 | **1×2** | 1/2 | 448 KB | 448 KB | **0** |
+| 512×448 | **2×2** (shipped) | 1/4 | 672 KB | 224 KB | **+448 KB** |
+| 512×448 | **4×2** or **2×4** | 1/8 | 784 KB | 112 KB | **+672 KB** |
+| 512×448 | **4×4** | 1/16 | 840 KB | 56 KB | **+784 KB** |
+| 512×512 (Pal576i) | **2×2** | 1/4 | 768 KB | 256 KB | **+512 KB** |
+| 512×512 (Pal576i) | **4×4** | 1/16 | 960 KB | 64 KB | **+896 KB** |
+
+`4×2` and `2×4` are **the same number of pixels**, so they return the same
+memory, cost the same fill, and differ *only* in the picture — which is what
+makes the choice between them a pure quality question and why the sweep below
+asks it directly.
 
 So `1×2` is a choice about *fill and picture*, never about memory, and the
 settings panel now says that on the line under the Render scale combo — computed
@@ -510,7 +526,8 @@ BEFORE turning this on") was impossible to perform on a fresh project. Now:
   for that net.
 
 Both verbs take `--frames N`, `--assets <dir>`, `--seed N`, `--sharpen K`,
-`--scale-1x2`, `--weight-decay W`, `--standardise`, `--threads N`
+`--scale WxH` (or `--scale-1x2`, the same setting spelled the old way),
+`--weight-decay W`, `--standardise`, `--threads N`
 ([below](#--threads-n-and-the-determinism-that-pays-for-it)), and the two weights
 of the oracle's objective — `--flicker-weight` (with `--flicker-form lag1|period2`,
 which picks *what* that weight charges for) and `--fill-weight`. **Sweep those two as
@@ -519,15 +536,17 @@ shipped defaults (`0` and `16`) are the result of such a sweep, recorded with it
 numbers in `src/blss.hpp`. Changing either changes the *labels*, so a change is
 only meaningful after a re-train:
 
-Three more take a configuration the **console cannot currently run**, and each
+Five more take a configuration **no project can currently ask for**, and each
 prints a line saying so, because a table of decibels whose configuration is not
 on the page is a table nobody can reproduce:
 
 | flag | what it measures | where its numbers are |
 |---|---|---|
 | `--tile N` | the decision tile edge; the engine's `kTile` is a compile-time constant | [The tile size, swept](#the-tile-size-swept) |
+| `--scale WxH` | the raster scale, any positive pair. The **engine is already generic** (`setRasterScale`); it is `blssScale`, an int with 0 = 2×2 and 1 = 1×2, that can only name two of them | [Below half resolution, swept](#below-half-resolution-swept) |
 | `--act-table N` | `tanh`/logistic from a shared table instead of libm, on the fit *and* the inference | [The transcendentals, as a table](#the-transcendentals-as-a-table) |
 | `--no-anim` | leaves the project's animated models out of the corpus, the way it worked before they were added | [The animated models the corpus was not drawing](#the-animated-models-the-corpus-was-not-drawing) |
+| `--still` | freezes each shot at one camera and one pose so only the jitter phase advances — the host twin of the console's frozen-camera experiment, and a **fixture for the period-2 table only** (it is refused by `--blss-train` and by `--cv`) | [The still fixture](#the-still-fixture-and-what-it-showed-the-metrics-floor-was) |
 
 ```bash
 tyrax-editor --blss-train --frames 84 --fill-weight 4 -o try.net
@@ -1216,7 +1235,7 @@ controls nobody could stand behind at the time.
 | Setting | Meaning |
 |---|---|
 | **Enabled** | render the 3D scene at reduced resolution and reconstruct |
-| **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so) |
+| **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so). **Two entries and not more, on purpose**: the tool can now sweep any raster scale (`--scale WxH`) and [going below half resolution was measured and declined](#below-half-resolution-swept) — the picture loses up to 2.6 dB for a break-even that barely moves |
 | **Sharpen strength** | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
 | **Temporal** | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
 | **Debug view** | three entries: **0** off, **1** tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen), **2** log the feature spread to the game's `bin/log.txt` and leave the picture alone — [the instrument](#the-instrument-that-found-it-and-it-stays-this-time) |
@@ -1715,6 +1734,254 @@ frame at 512 × 448, every quantity that scales with the grid:
 > table on this page re-measured. `HiDef1080i` (448 × 540) does not divide at 64
 > any more than it does at 32; see
 > [the math doc's Symbols](blss-reconstruction.md#symbols).
+
+### Below half resolution, swept
+
+**Can BLSS render at less than half resolution?** It always could — the
+restriction was the host, not the hardware. `RendererSettings::setRasterScale(sx,
+sy)` takes any positive pair and every derived size divides through it;
+`RendererCoreBlss::configure()` only clamps them to ≥ 1. What could not express
+anything else was `blss::Scale`, an enum of two members whose `scaleY()` returned
+a literal `2`, and `blssScale`, an int the loader clamps to `0..1`. So the
+question had never been asked, and `--scale WxH` asks it.
+
+The answer is **no, not by default — and the reason is not the one that was
+expected.** The network does not stop working at a bigger factor; the *picture*
+does.
+
+`examples/upscaler-lab`, `--blss-eval --cv --cv-seeds 5 --frames 120`, 6 shots ×
+5 seeds = **30 fold-runs per row**, 400 epochs, decay `1e-4`, fill 16, deadzone 8,
+jitter **off** (the project's own setting). The `2×2` row is the control: it
+reproduces [the trade curve's](#the-trade-curve) published jitter-off row —
++0.33, sd 0.34, 2/30, 1.65 passes — to the last digit, which is what says the
+generalisation did not change the shipped configuration.
+
+| scale | low raster | area | **margin over ITS OWN bilinear** | sd | below bilinear | passes | **absolute BLSS, dB** | vs `2×2` |
+|---|---|---|---|---|---|---|---|---|
+| **2×2** (shipped) | 256×224 | 1/4 | +0.33 | 0.34 | 2/30 | 1.65 | **26.98** | — |
+| **4×2** | 128×224 | 1/8 | +0.37 | 0.31 | **0/30** | 1.70 | **26.00** | **−0.97** |
+| **2×4** | 256×112 | 1/8 | +0.47 | 0.38 | **0/30** | 1.75 | **24.76** | **−2.22** |
+| **4×4** | 128×112 | 1/16 | +0.45 | 0.34 | **0/30** | 1.76 | **24.35** | **−2.63** |
+
+Read the last two columns against the fourth, because that contrast is the whole
+result:
+
+- **The margin does not decay.** Every scale beats its own bilinear by about the
+  same amount, and the two most aggressive ones lose *fewer* folds to it than the
+  shipped one does. The oracle agrees: the net-free ceiling
+  (`[blss] verdict headroom=`) reads **+1.023 / +0.994 / +1.048 / +0.990 dB**
+  across the four rows — flat to within its own noise. **A per-tile kernel
+  decision is worth the same at 4× as at 2×.** That was not obvious and it is the
+  one genuinely encouraging thing here.
+- **The picture falls off a cliff anyway.** The absolute held-out PSNR drops
+  1.0–2.6 dB, monotonically in area. The entire trained-net margin is +0.33 dB,
+  so **moving from `2×2` to `4×4` costs eight times what the whole feature buys.**
+  A relative win on a much worse image is still a much worse image.
+
+`examples/procedural`, same harness, is the replication and it agrees on the
+shape while having no margin of its own to speak of (as
+[already recorded](#the-second-project-could-not-confirm-it-and-says-so) — half
+its folds lose to bilinear at any setting, so read the last two columns only):
+
+| `examples/procedural` | margin | sd | below bilinear | passes | absolute BLSS | vs `2×2` |
+|---|---|---|---|---|---|---|
+| **2×2** | −0.04 | 0.09 | 15/30 | 1.16 | **31.40** | — |
+| **4×2** | −0.01 | 0.12 | 14/30 | 1.26 | **28.75** | −2.64 |
+| **2×4** | −0.01 | 0.04 | 19/30 | 1.21 | **28.90** | −2.49 |
+| **4×4** | +0.01 | 0.12 | 15/30 | 1.46 | **27.46** | −3.94 |
+
+#### `2×4` is the WORST of the two half-area modes, not the best
+
+The hypothesis going in was *"`2×4` is the sweet spot, because vertical detail is
+already compromised by interlace"*. **It is refuted on the fixture that can
+discriminate.** `4×2` and `2×4` are the same pixel count — identical fill,
+identical VRAM (672 KB), identical break-even — so the only thing separating them
+is the picture, and on `upscaler-lab` `4×2` is **1.25 dB better** (26.00 against
+24.76; on the net-free bilinear baselines, 25.63 against 24.29, a gap of 1.34 dB
+that owes nothing to the network). Throwing away horizontal resolution is
+markedly cheaper than throwing away vertical.
+
+A mechanism that fits: at 512×448 the frame is *already* sampled more finely
+vertically than horizontally. The corpus' projection is `tanHalfFovX = 0.577`,
+`tanHalfFovY = 0.433` — a 4:3 ratio against a 512:448 = 8:7 raster — so there are
+444 pixels per unit of horizontal tangent against **517** per unit of vertical.
+The vertical axis carries more resolvable detail per pixel row, so halving it
+destroys more.
+
+**That mechanism is a hypothesis, and the second fixture does not confirm it.**
+On `procedural` the two modes are within 0.15 dB of each other and the sign is
+*reversed* (`2×4` 28.90 against `4×2` 28.75). The projection is the same in both
+runs, so whatever separates them is content: `upscaler-lab` is layered haze
+billboards and textured architecture, `procedural` is untextured meshes with
+nothing high-frequency in either axis. **The honest statement is the measurement,
+not the theory: on the one fixture with real headroom, `4×2` strictly dominates
+`2×4`, and on the one without, the choice does not matter.** Anyone shipping a
+sub-half mode should run this on their own content rather than inherit either
+answer.
+
+#### The fill does come back — the network asks for it, and the deadzone eats it
+
+The worry was that at a bigger magnification plain bilinear is blurrier, so the
+`point` and `sharpen` kernels become worth their passes and the composite spends
+back what the raster saved. **The first half of that is exactly right and the
+second half does not happen**, and the reason is a knob that was tuned for
+another purpose entirely.
+
+`--deadzone-sweep 8,0` over the same 30 fold-runs, so both rows are the *same
+nets* — the deadzone is an inference knob and never reaches the labels
+(`upscaler-lab`; occupancy is a fraction of the screen):
+
+| scale | | passes | **point** | temporal | sharpen | margin | below bil |
+|---|---|---|---|---|---|---|---|
+| `2×2` | deadzone **8** (shipped) | 1.65 | **0.0 %** | 65.1 % | 0.0 % | +0.33 | 2/30 |
+| | deadzone 0 | 2.03 | **24.3 %** | 79.0 % | 0.0 % | +0.33 | 3/30 |
+| `4×2` | deadzone **8** | 1.70 | **0.0 %** | 69.5 % | 0.0 % | +0.37 | 0/30 |
+| | deadzone 0 | 2.32 | **52.4 %** | 79.1 % | 0.0 % | +0.36 | 0/30 |
+| `2×4` | deadzone **8** | 1.75 | **0.0 %** | 75.2 % | 0.0 % | +0.47 | 0/30 |
+| | deadzone 0 | 2.23 | **44.2 %** | 79.2 % | 0.0 % | +0.46 | 0/30 |
+| `4×4` | deadzone **8** | 1.76 | **0.0 %** | 76.2 % | 0.0 % | +0.45 | 0/30 |
+| | deadzone 0 | 2.29 | **50.2 %** | 79.1 % | 0.0 % | +0.44 | 0/30 |
+
+**The point channel is the prediction coming true.** Undeadzoned, the network's
+demand for nearest-neighbour more than doubles as the factor grows — 24.3 % of
+the screen at `2×2`, 44–52 % at 1/8 and 1/16 — which is precisely "plain bilinear
+is blurrier at 4×, so the crisp kernel is worth its pass".
+
+**And the shipped deadzone deletes all of it, for free, at every scale.** At
+alpha 8 the point occupancy is **0.0 % everywhere** and the margin does not move
+by more than 0.01 dB — inside a fold sd of 0.31–0.38 by a factor of thirty. So
+the extra kernel the bigger factor makes the net *want* is one it cannot cash:
+`kDeadzoneAlpha` was chosen to buy a whole pass for 0.02 dB on the bestiary (its
+sweep is in `src/blss.hpp`) and it turns out to generalise to the raster scale
+without being re-tuned. Sharpen never appears at any scale — the fill term had
+already taken it.
+
+What is left is the temporal pass spreading (65 % → 76 %), and that is the whole
+of the fill that actually comes back:
+
+| mean full-screen passes | `2×2` | `4×2` | `2×4` | `4×4` |
+|---|---|---|---|---|
+| `upscaler-lab` | 1.65 | 1.70 | 1.75 | **1.76** |
+| `procedural` | 1.16 | 1.26 | 1.21 | **1.46** |
+
+At the calibrated **0.587 ms per full-screen blended textured pass**
+([profiling.md](profiling.md)) the worst of those, `procedural`'s +0.30 pass, is
+**0.18 ms** given back against a raster saving of eleven sixteenths of the
+scene's 3D fill. On `upscaler-lab` it is +0.11 pass, **0.065 ms**. Nothing here
+is a fill trade — **but it would have been at deadzone 0**, where `4×2` pays 2.32
+passes against `2×2`'s 2.03 and buys nothing for the difference.
+
+#### What the speed actually buys, and why the memory is the real argument
+
+The EE bill does **not** move with the raster scale, by construction: the tile
+grid is 16×14 at *output* resolution, the net is one evaluation per tile, the
+proxies are projected into output pixels, and the composite's packet is the same
+255 corners. Every term in the 5.02 ms is an output-resolution quantity. (By
+construction — **not measured**; no hardware has run any scale but `2×2`.)
+
+So the saving is only the raster fill, and the raster fill is already three
+quarters gone at `2×2`. Extending the page's own break-even model
+(`0.741 × 0.587 × C > 5.02 + 0.46 ms`, i.e. C > 12.6 — the "**about 13**" this
+page quotes) to an area divisor `A`, the fill kept becomes `1/A` and the
+inequality `(1 − 1/A) × 0.587 × C > 5.48 ms`:
+
+| scale | area | fill kept | **break-even, coverages** | VRAM returned |
+|---|---|---|---|---|
+| **2×2** | 1/4 | 25.9 % (measured; 25 % geometric) | **~12.6** | **448 KB** |
+| **4×2** / **2×4** | 1/8 | 12.5 % | **~10.7** | **672 KB** |
+| **4×4** | 1/16 | 6.25 % | **~10.0** | **784 KB** |
+
+(All three are derived, not measured — the only *measured* point on that line is
+`2×2`. And the 0.46 ms composite term does grow slightly with the scale, by the
++0.11 pass above, which is another 0.065 ms and inside the rounding.)
+
+**The speed axis has sharply diminishing returns and the memory axis has none.**
+Quadrupling the upscale factor moves break-even by 21 % — because at `2×2` three
+quarters of the fill is *already* saved and the fixed 5.02 ms is untouched —
+while VRAM returned rises **75 %**, on a console with 4 MB of it where the
+texture heap has ~1.7 MB free. Anyone reaching for a bigger factor should be
+doing it because textures do not fit, never because the frame is slow.
+
+#### Jitter stops meaning anything below `2×2`, and the rows above are jitter-off
+
+Every row here was measured with the jitter **off**, which is what
+`upscaler-lab` and every shipped example set. That is the right default for a
+second reason at these scales, and it is structural rather than measured: the
+engine writes a literal `±4/16` of a **low-res** pixel into `XYOFFSET` at every
+raster scale (`renderer_core_blss.cpp`, `jitter16X`), so what the offset *means*
+moves with the scale. At `2×2` it is ±½ an output pixel — two of the four output
+pixel centres inside one low-res pixel, a genuine quincunx. At `4×4` there are
+**16** sub-positions, the two phases reach 2 of them, and ±¼ of a low-res pixel
+does not even land on an output pixel centre (those are at ⅛, ⅜, ⅝, ⅞).
+
+**That argument is now measured, and it is exactly right.** Same harness with
+`--jitter` forced on — the `2×2` row reproduces
+[the trade curve's](#the-trade-curve) published jitter-on figure (+0.61, sd 0.51,
+1/30, 1.73 passes) to the digit:
+
+| | jitter **OFF** | jitter **ON** | what the jitter is worth |
+|---|---|---|---|
+| `2×2` | +0.33 (sd 0.34) | **+0.61** (sd 0.51) | **+0.28 dB** |
+| `4×4` | +0.45 (sd 0.34) | **+0.45** (sd 0.26) | **+0.00 dB** |
+
+**The quincunx bonus is worth a quarter of a decibel at `2×2` and nothing at all
+at `4×4`** — two of sixteen sub-positions, sampled off the output grid, carry no
+information the reconstruction can use. So a sub-half mode gives up the *only*
+thing the jitter was ever paying for, while keeping the bob it costs.
+
+**Do not enable `blssJitter` on a sub-half mode**, and if a sub-half mode ever
+ships, the project settings should interlock the two the way `blssClashes`
+already interlocks depth of field. This is the rare case where the interlock
+costs the user nothing: the setting it disables has been measured to be worth
+zero there.
+
+#### The recommendation
+
+**Ship `2×2` as the default, unchanged.** Nothing measured here moves it.
+
+- **`4×2` is the only sub-half mode worth exposing**, and only for a project that
+  is **VRAM-bound rather than fill-bound**: it hands back 672 KB instead of
+  448 KB (+50 %) for about **1 dB** on the fixture with headroom — the only
+  sub-half mode whose cost is inside the ~1 dB the feature's own ceiling is
+  worth. It also lost **no** folds to plain bilinear, against `2×2`'s 2 of 30.
+- **`2×4` should never ship.** Same fill, same memory, **1.25 dB worse**. There
+  is no configuration in which it is the right answer, and the interlace
+  intuition that recommends it is wrong.
+- **`4×4` is for one situation only**: a project whose textures do not fit at
+  all. 784 KB back, ~2.6 dB gone — nearly eight times the trained margin.
+- **`1×2` still returns nothing** ([above](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so))
+  and is a picture choice only.
+
+**What the engine side would need — nothing.** `setRasterScale` is generic and
+`configure()` already clamps to ≥ 1, so a sub-half mode is a *project format and
+codegen* change, not a renderer one:
+
+| where | what |
+|---|---|
+| `src/project.hpp` / `project.cpp` | `blssScale` gains a third value (`2 = 4×2`); the loader's `if (st.blssScale > 1) st.blssScale = 1;` becomes `> 2 … = 2`. No format bump is needed — an older editor reading a `2` clamps it to `1×2`, which degrades gracefully rather than corrupting |
+| `src/templates.cpp` | the `blssScale == 1 ? X1Y2 : X2Y2` ternary gains its third arm, and `BLSS_SCALE_X/Y` follow automatically |
+| `src/blss_window.cpp`, `App::blssVramLine` | the Render scale combo gains the entry, the VRAM line already computes from `(sx, sy)`, and `--scale-1x2` in the window's argument builder becomes `--scale WxH` |
+| project settings interlock | `blssJitter` forced off whenever `scaleX·scaleY > 4` — see the jitter note above |
+| **the engine** | **nothing.** `RendererCoreBlss` is already generic in `scaleX`/`scaleY` |
+
+Divisibility is clean where it matters: 512/4 = 128 and 448/4 = 112, Pal576i's
+512/4 = 128, HiDef1080i's 448/4 = 112 and 540/4 = 135. The corpus prints a
+warning when a scale does not divide the output, because a remainder means output
+pixels sampling past the edge of the low-res target — the two twins describing
+different frames.
+
+> **`--scale 1x1` is the generalisation's own self-test, and it passes exactly.**
+> With no reduction at all the composite must degenerate to the render it sampled
+> — `(x + 0.5)/1` is the pixel centre, so the bilinear base tap is that pixel and
+> nothing else. It does: on `examples/upscaler-lab` the `half-res + bilinear` row
+> comes out **identical to `native full-res` in every column and every per-shot
+> figure** (28.308 dB, flicker 19.47, and 28.590 / 28.026 per shot), and the
+> period-2 table reads 0.000 on both. A sampling generalisation that was off by
+> half a texel anywhere could not produce that. (The oracle still finds +0.90 dB
+> of headroom at `1×1`, which is not a contradiction: the truth is supersampled,
+> so the temporal kernel can beat a one-sample render even when there is nothing
+> to upscale — the same reason
+> [`native` is not a ceiling](#how-to-read-these-tables-and-what-not-to-read-into-them).)
 
 ### The transcendentals, as a table
 
@@ -2450,6 +2717,62 @@ threshold and the same convention the console capture reported its 16.3 %
 against. It pins jitter-off to the native floor on the animated corpus too, which
 the mean does not.
 
+#### The still fixture, and what it showed the metric's floor was
+
+**FIXED (2026-08-09). The limitation above was the fixture, not the objective,
+and `--still` removes it — the animated corpus no longer needs `--no-anim` at
+all.** This page prescribed the fix and then had to be told it was a change to
+`blss::generate()`; it is one, and it is eleven lines: every frame of a shot uses
+the shot's **first camera and first pose**, so the only thing that advances
+between consecutive frames is the jitter phase. That makes the reprojection the
+**identity**, which makes the warp gate keep **100 % of the frame** instead of
+29.6 %, and it freezes the animation, which is what was contaminating the
+measurement in the first place. It is the console's frozen-camera experiment,
+exactly rather than approximately.
+
+`examples/upscaler-lab`, 30 frames, `--still`, held-out split, **animated**
+(8-bit levels, and every gate column is now identical because there is no warp
+to gate):
+
+| `--still` | jitter **ON** | jitter **OFF** | ratio |
+|---|---|---|---|
+| `native full-res` — the floor | **0.095** | **0.095** | — |
+| half-res + point | 6.268 | 0.069 | 91× |
+| half-res + **bilinear** | **4.434** | **0.055** | **81×** |
+| half-res + temporal | **0.263** | 0.058 | 4.5× |
+| half-res + sharpen | 6.062 | 0.068 | 89× |
+| half-res + oracle | 0.979 | 0.055 | 18× |
+
+Four things that fall out, and the first is the point of the exercise:
+
+- **The floor was the fixture.** 2.614 levels with the camera moving,
+  **0.095** with it still — on the *same animated corpus*. The artefact is now
+  **47× the floor** (4.434 against 0.095) where before it sat *below* it. And
+  `--still --no-anim` reads **6.264 / 4.432 / 0.263 / 6.058 / 0.977** — the same
+  numbers to within 0.004, so **with the camera frozen the animation contributes
+  nothing** and the `--no-anim` workaround is retired. The mean level is a
+  readable statistic again; the "fraction above 2/255" convention stays as the
+  thing the console capture is directly comparable to, not as a crutch.
+- **The temporal pass is what fuses the phases, measured rather than derived.**
+  4.434 → **0.263**, a 17× reduction, from turning one kernel on. That is
+  [`altAmplitude()`'s](#the-new-term-and-why-freezing-is-not-expressible-in-it)
+  `(1−c)/(1+c)` with a number attached, and it confirms the mechanism that
+  retracted "the fill term fixed the bob": **a fill term that culls the temporal
+  pass makes the bob worse**, because that pass is the only thing damping it.
+- **Sharpen is worse than doing nothing, also as derived.** 6.062 against
+  bilinear's 4.434 — the unsharp mask lands *after* the accumulator, so it is
+  divided by `(1+c)` and no more. Point (6.268) amplifies it too.
+- **The oracle leaves 0.979 where an all-temporal composite leaves 0.263.** With
+  `--flicker-weight 0` the oracle is optimising accuracy and fill and nothing
+  else, so that gap is exactly what the shipped objective trades away in
+  stability — the quantity [the trade curve](#the-trade-curve) was trying to
+  price with a much blunter instrument.
+
+`--still` is a **fixture, not a corpus**: every frame of a shot is the same
+frame, so `--blss-train` and `--blss-eval --cv` both refuse it outright rather
+than fitting a net to `shots` distinct examples repeated. Read the period-2 table
+and nothing else from it.
+
 #### The trade curve
 
 `examples/upscaler-lab`, `--blss-eval --cv --cv-seeds 5`, 120 frames over 6
@@ -2516,15 +2839,35 @@ fraction is 0.5 % against a 0.3 % floor — there is almost no bob in it to remo
 and no margin to trade. It joins `examples/showcase` on the list of fixtures that
 [cannot answer this kind of question](#how-to-read-these-tables-and-what-not-to-read-into-them).
 
-**And this contradicts a number already on this page**, which said `procedural`
-scores +0.77 with the jitter on and +0.33 without it. That figure and this one
-are not the same measurement — this is 5-seed leave-one-shot-out over 120 frames
-with the objective and deadzone above — but the gap is far too large to be a
-configuration detail, and one of the two is wrong. **The old number is the one
-without a stated fold sd**, which on this page has been the losing side of that
-argument every previous time. Flagged rather than resolved: nothing in this
-section depends on `procedural`, and the conclusion above rests entirely on
-`upscaler-lab`.
+> **RESOLVED (2026-08-09), and the flag was the error rather than either
+> number.** This paragraph used to say the table above "contradicts a number
+> already on this page, which said `procedural` scores +0.77 with the jitter on
+> and +0.33 without it… one of the two is wrong". **Neither is wrong. They are
+> not the same quantity, and the flag also misattributed a third figure.**
+>
+> - **+0.77 is an ORACLE CEILING**, not a network's score — the upper-bound row
+>   of [the project-net table](#training-on-your-own-project), 72 frames, jitter
+>   on. Re-measured with `--blss-eval examples/procedural --frames 72 --jitter`
+>   it reads **`headroom=+0.773 passes=1.20`**, reproducing the published
+>   +0.77 / 1.20 to three digits and the pass count.
+> - **−0.04 is a TRAINED NET's cross-validated held-out margin**, jitter off. The
+>   page already carried its sibling and always has:
+>   [six camera moves over one scene read −0.17 dB, 9 of 18 fold-runs below
+>   bilinear](#training-on-your-own-project). An upper bound and an
+>   out-of-distribution margin are separated by exactly the gap the network fails
+>   to close, which on this project is most of it.
+> - **The jitter accounts for the rest.** `procedural`'s oracle ceiling is
+>   **+0.773** with the jitter on and **+0.345** with it off (72 frames;
+>   +0.937 / +0.382 at 120), the same near-halving `upscaler-lab` shows
+>   (+1.73 → +1.06). The flag's "+0.33 without it" is not a `procedural` number
+>   at all — it is `upscaler-lab`'s jitter-off row **in the table above this
+>   one**, which `procedural`'s +0.345 sits close enough to to be mistaken for.
+>
+> **What was actually missing was the configuration, not the correctness**: an
+> oracle ceiling quoted without its sampler, next to a margin quoted without its
+> row. Both are stated now. The conclusion of this section is unchanged and still
+> rests entirely on `upscaler-lab`; what changes is that `procedural`'s numbers
+> are no longer under suspicion.
 
 **So the default stays `--flicker-weight 0`, and `blssJitter` stays off.** The
 knob, both forms, the metric and this table all ship, because the whole reason
@@ -2653,17 +2996,19 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
   is a *different* one — something that fuses the two phases without asking the
   oracle to pay for it, e.g. a jitter pattern the composite can undo exactly, or
   a temporal pass the fill term is not allowed to cull.
-- **The stability metric has a fixture problem, and it is the honest limit of
-  everything above.** `period2Alternation()` discriminates jitter on from jitter
-  off only under `--no-anim`: the reprojection field is camera-derived, so the
-  four animated parts of `examples/upscaler-lab` are never compensated and their
-  pixels raise the metric's own floor from **0.075 to 2.614** levels. The network
-  must be trained on the animated corpus, so the two cannot be the same run, and
-  every stability number here is therefore read off the *fraction* of gated
-  pixels above 2/255 rather than the mean level. The clean fix is a **still
-  fixture** — one pose rendered at both jitter phases, which is a change to
-  `blss::generate()` in `blsscorpus.cpp` and would make the host twin of the
-  console's frozen-camera experiment exact instead of approximate.
+- **CLOSED (2026-08-09): the stability metric's fixture problem.** It was the
+  fixture and not the objective, exactly as this bullet predicted, and the fix is
+  the one it prescribed: **`--still`** freezes each shot at one camera and one
+  pose so only the jitter phase advances (`blss::generate()`, eleven lines). The
+  warp becomes the identity — the gate keeps **100 %** of the frame instead of
+  29.6 % — and the animation freezes with it. The metric's floor on the
+  **animated** corpus goes **2.614 → 0.095** levels while the artefact reads
+  4.434, so it is now 47× the floor instead of below it, and `--still --no-anim`
+  reproduces `--still` to within 0.004 levels: **`--no-anim` is retired as a
+  prerequisite for reading this column.** Full table and the three mechanisms it
+  confirmed at
+  [The still fixture](#the-still-fixture-and-what-it-showed-the-metrics-floor-was).
+  It is a fixture and not a corpus, so `--blss-train` and `--cv` refuse it.
 - **Fix the depth channel's saturation.** This is the most promising item left
   and it has a measurement behind it: `depth` is a clamped `1/w` against
   `kDepthRef = 8`, **58.8 % of all corpus tiles read it at exactly 1.0**, and the

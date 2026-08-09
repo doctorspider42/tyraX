@@ -52,6 +52,25 @@ bool setTileSize(int px) {
     return true;
 }
 
+std::string scaleName(Scale s) {
+    return std::to_string(s.x) + "x" + std::to_string(s.y);
+}
+
+bool parseScale(const std::string& text, Scale* out) {
+    // "4x4", "2x4", "1x2". Deliberately strict - a silently misread scale is a
+    // table measured on a configuration nobody can name, which is the exact
+    // failure this feature has published five times.
+    const size_t x = text.find_first_of("xX");
+    if (x == std::string::npos || x == 0 || x + 1 >= text.size()) return false;
+    const std::string a = text.substr(0, x), b = text.substr(x + 1);
+    if (a.find_first_not_of("0123456789") != std::string::npos) return false;
+    if (b.find_first_not_of("0123456789") != std::string::npos) return false;
+    const int sx = std::atoi(a.c_str()), sy = std::atoi(b.c_str());
+    if (sx < 1 || sy < 1 || sx > 16 || sy > 16) return false;
+    if (out) *out = Scale(sx, sy);
+    return true;
+}
+
 namespace {
 // The table itself, in both forms. The int16 half IS the contract (it is what
 // the engine spells out as literals and what the hash is taken over); the float
@@ -1505,6 +1524,10 @@ struct CliOpts {
     // worked before they were added. The console draws and describes them, so
     // this is a reproduction switch, not a setting - see CorpusConfig::animated.
     bool animated = true;
+    // `--still`: freeze each shot at its first camera and first pose so only the
+    // jitter phase advances - the host twin of the console's frozen-camera
+    // experiment. A FIXTURE FOR THE PERIOD-2 TABLE ONLY; see CorpusConfig::still.
+    bool still = false;
     // `--no-jitter` / `--jitter`: -1 = follow the project's own blssJitter (and
     // on for the bestiary). NOT a sweep knob like --tile: the console really can
     // be built either way, and on hardware the jittered build is the one that
@@ -1517,6 +1540,12 @@ struct CliOpts {
     // and the first frame of a shot has none at all).
     int frames = 156;
     int epochs = 400;
+    // --scale WxH: the raster scale, arbitrary now (blss.hpp, struct Scale).
+    // A SWEEP KNOB above the two the project format can express: the ENGINE is
+    // generic (setRasterScale takes any positive pair), but `blssScale` is an
+    // int with 0 = 2x2 and 1 = 1x2, so anything else measures a configuration
+    // the console could run and no project can currently ASK for. `--scale-1x2`
+    // is the same setting spelled the old way and stays reachable.
     Scale scale = Scale::X2Y2;
     float sharpen = 0.5f;
     uint32_t seed = 0xB1557u;
@@ -1673,9 +1702,19 @@ CliOpts parseCli(int argc, char** argv) {
             o.threads = std::clamp(std::atoi(next("0").c_str()), 0, 32);
         else if (a == "--tile") o.tile = std::atoi(next("32").c_str());
         else if (a == "--act-table") o.actTable = std::atoi(next("512").c_str());
+        // `--scale-1x2` is the shipped mode's own flag and stays. `--scale WxH`
+        // is the SWEEP knob - see CliOpts::scale.
         else if (a == "--scale-1x2") o.scale = Scale::X1Y2;
+        else if (a == "--scale") {
+            const std::string want = next("2x2");
+            if (!parseScale(want, &o.scale))
+                std::printf(
+                    "blss: --scale '%s' refused (want WxH, two integers 1..16, e.g. 4x4)\n",
+                    want.c_str());
+        }
         else if (a == "--no-package-split") o.packageSplit = false;
         else if (a == "--no-anim") o.animated = false;
+        else if (a == "--still") o.still = true;
         else if (a == "--no-jitter") o.jitter = 0;
         else if (a == "--jitter") o.jitter = 1;
         // The only positional argument: the project to train on. Taken as the
@@ -1812,6 +1851,21 @@ void applySweepKnobs(const CliOpts& o) {
                 o.tile, kTile, kTile);
         }
     }
+    // The raster scale is not a global - it rides in CorpusConfig and Frame -
+    // but it is announced here for the same reason the two above are: a fold
+    // table measured at 4x4 and a fold table measured at 2x2 are two different
+    // experiments and nothing in blss.net records which one it was.
+    if (o.scale != Scale::X2Y2) {
+        const bool projectCanAsk = o.scale == Scale::X1Y2;
+        std::printf(
+            "blss: RASTER SCALE %s (shipped is %s)%s\n", scaleName(o.scale).c_str(),
+            scaleName(Scale::X2Y2).c_str(),
+            projectCanAsk
+                ? " - the project setting blssScale 1."
+                : " - a MEASUREMENT configuration: the engine's setRasterScale() takes it,\n"
+                  "      but `blssScale` is an int with 0 = 2x2 and 1 = 1x2, so no project can"
+                  " ask for it yet.");
+    }
     if (o.actTable > 0) {
         if (!setActTable(o.actTable)) {
             std::printf("blss: --act-table %d refused (must be a positive even count)\n",
@@ -1836,6 +1890,7 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.projectDir = o.projectDir;
     cc.packageSplit = o.packageSplit;
     cc.animated = o.animated;
+    cc.still = o.still;
     cc.jitter = o.jitter;
     cc.threads = o.threads;
     if (o.threads > 0)
@@ -3017,6 +3072,18 @@ int featureReport(const CliOpts& o) {
 int trainMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
     applySweepKnobs(o);
+    // --still is a fixture for the period-2 metric, not a corpus: every frame of
+    // a shot is the SAME frame, so a fit would see `shotCount` distinct examples
+    // repeated `frames/shotCount` times and report a training loss that means
+    // nothing. Refused rather than warned - a net written out of this run would
+    // be indistinguishable from a real one on disk.
+    if (o.still) {
+        std::printf(
+            "blss: --still is a MEASUREMENT fixture and cannot be trained on - every "
+            "frame of a shot is one frozen pose. Use it with --blss-eval and read the "
+            "period-2 table.\n");
+        return 1;
+    }
     const std::string outPath = o.outPath.empty() ? o.netPath : o.outPath;
     // Cheap, and it fails here rather than three commands later inside a Docker
     // PS2 build: a net whose weights cannot be spelled as C++ literals is not a
@@ -3095,6 +3162,16 @@ int trainMain(int argc, char** argv) {
 int evalMain(int argc, char** argv) {
     const CliOpts o = parseCli(argc, argv);
     applySweepKnobs(o);
+    // --cv trains a net per fold, so it inherits --still's refusal for the same
+    // reason --blss-train does: a fold whose training side is a handful of
+    // frozen poses repeated is not a fold. The period-2 table --still exists for
+    // is printed by the plain evaluation below.
+    if (o.cv && o.still) {
+        std::printf(
+            "blss: --still cannot be combined with --cv - every fold would train on "
+            "frozen poses. Drop --cv and read the period-2 table.\n");
+        return 1;
+    }
     // Two diagnostics that train their OWN nets and therefore ignore -i: the
     // cross-validation table (which is the honest answer to "does this
     // generalise", the single split being one draw) and the input-channel

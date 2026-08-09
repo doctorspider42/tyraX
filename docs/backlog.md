@@ -46,6 +46,42 @@ the verification, and any fact worth reusing belongs in the relevant
     n = 1024 paired frames. It cannot go faster in the BLSS-on arm than ~40 FPS
     - the scene's non-haze floor is 24.8 ms with BLSS on - and thinning the haze
     further only shrinks the win.
+  - **DONE, and the answer is no: BLSS CAN go below half resolution and should
+    not, except on one axis for one reason.** `blssScale` offered 2x2 and 1x2
+    because the HOST could not express anything else - `blss::Scale` was a
+    two-member enum whose `scaleY()` returned a literal 2 - while the engine has
+    always been generic (`setRasterScale(sx, sy)` takes any positive pair).
+    `--scale WxH` sweeps it now. `examples/upscaler-lab`, `--cv --cv-seeds 5`,
+    120 frames, 30 fold-runs per row, jitter off; the 2x2 row reproduces the
+    published +0.33 / sd 0.34 / 2 of 30 / 1.65 passes exactly:
+
+    | scale | margin over its own bilinear | sd | below bil | passes | absolute dB | VRAM back |
+    |---|---|---|---|---|---|---|
+    | 2x2 | +0.33 | 0.34 | 2/30 | 1.65 | **26.98** | 448 KB |
+    | 4x2 | +0.37 | 0.31 | 0/30 | 1.70 | **26.00** | 672 KB |
+    | 2x4 | +0.47 | 0.38 | 0/30 | 1.75 | **24.76** | 672 KB |
+    | 4x4 | +0.45 | 0.34 | 0/30 | 1.76 | **24.35** | 784 KB |
+
+    **The network does not degrade - the picture does.** The margin and the
+    oracle's ceiling (+1.02 / +0.99 / +1.05 / +0.99) are flat across the sweep, so
+    a per-tile kernel decision is worth the same at 4x as at 2x; but the absolute
+    PSNR drops up to 2.6 dB, which is EIGHT TIMES the whole trained margin. Fill
+    given back through the composite is real and negligible (+0.11 pass on
+    upscaler-lab, +0.30 on procedural = 0.065-0.18 ms). Break-even moves only
+    ~12.6 -> ~10.0 coverages because the 5.02 ms EE bill is an
+    output-resolution quantity and does not move at all; **VRAM returned rises
+    75 %**, which is the only real argument for any of this.
+
+    **The "2x4 is the sweet spot, vertical detail is already compromised by
+    interlace" hypothesis is REFUTED.** 4x2 and 2x4 are the same pixel count, the
+    same fill and the same 672 KB, and on the fixture with headroom 4x2 is
+    **1.25 dB better**. `2x4` should never ship. `4x2` is the one worth exposing,
+    for a VRAM-bound project only; `4x4` only for a project whose textures do not
+    fit at all. Engine side needs **nothing** - it is `blssScale` (a third value),
+    templates.cpp's ternary, the window's combo, and a `blssJitter` interlock,
+    because +-4/16 of a LOW-RES pixel stops being an output-pixel centre below
+    2x2. Full account and the second fixture in docs/neural-upscaler.md
+    ("Below half resolution, swept").
   - **OWED - re-run that hardware A/B against the jitter-OFF build.** The example
     shipped `blssJitter: true` when the 52.86/32.98 pair was measured and ships
     `false` since 2026-08-09 (its net is retrained to match). The re-run was
@@ -294,16 +330,22 @@ the verification, and any fact worth reusing belongs in the relevant
     two were byte-identical over 40 captures. The bob is real, the jitter is the
     cause, and turning it off is the cure.
 
-    **What is still open here is the INSTRUMENT, not the objective.**
-    `period2Alternation()` only separates jitter on from jitter off under
-    `--no-anim`: the reprojection field is camera-derived, so animated geometry is
-    never compensated and raises the metric's own floor from 0.075 to 2.614
-    levels on the animated corpus. The clean fix is a **still fixture** - one pose
-    rendered at BOTH jitter phases, which is a change to `blss::generate()` in
-    `src/blsscorpus.cpp` and would make the host twin of the console's
-    frozen-camera experiment exact instead of approximate. Until then, read the
-    *fraction* of gated pixels above 2/255 rather than the mean level; that
-    statistic does pin jitter-off to the native floor on both corpora.
+    **The INSTRUMENT is DONE too (2026-08-09): `--still`.** It was the fixture and
+    not the objective. Every frame of a shot now uses the shot's FIRST camera and
+    FIRST pose, so only the jitter phase advances - the reprojection becomes the
+    identity (the warp gate keeps **100 %** of the frame instead of 29.6 %) and
+    the animation freezes with it. On the ANIMATED corpus the metric's floor goes
+    **2.614 -> 0.095** levels while the artefact reads **4.434**, i.e. 47x the
+    floor instead of below it, and `--still --no-anim` reproduces `--still` to
+    within 0.004 - so **`--no-anim` is no longer a prerequisite for reading this
+    column**. It also put numbers on three things that were only derived: the
+    temporal pass alone takes the bob 4.434 -> 0.263 (17x, which is
+    `(1-c)/(1+c)`, and is why a fill term that culls it makes the bob WORSE), the
+    sharpen pass makes it worse than doing nothing (6.062) because it lands after
+    the accumulator, and the shipped objective's oracle leaves 0.979 where an
+    all-temporal composite leaves 0.263 - that gap IS what accuracy-plus-fill
+    trades away. It is a FIXTURE, not a corpus: `--blss-train` and `--cv` refuse
+    it, because every frame of a shot is the same frame.
   - **DONE: charge the oracle for the fill it asks for.** `--fill-weight`,
     now **16**, charged as a STEP on the quantised alpha byte (a weight rounding
     to alpha 1 costs a whole pass and buys nothing, so a smooth penalty would
