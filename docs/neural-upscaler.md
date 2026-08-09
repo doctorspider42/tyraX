@@ -21,9 +21,12 @@ rasteriser and no pixel shaders at all.
 > scene's fill survives** — measured, not assumed (see
 > [profiling.md](profiling.md), "The re-tuned demo"). So the trade is
 > ~74 % of your GS fill against 5.02 ms of EE, and at the calibrated
-> **0.587 ms per full-screen alpha-blended textured pass** break-even is
+> **2.2524 ms per megapixel of full-screen alpha-blended textured pass**
+> (0.5174 ms at 512×448, 0.5896 at 512×512) break-even is
 >
-> > **a scene rasterising more than about 13 full-screen coverages.**
+> > **a scene rasterising more than about 13 full-screen coverages**
+> > (13.1 at 512×448, 11.4 at 512×512 — the price is per pixel, so the
+> > break-even moves with the display mode).
 >
 > Above that line the feature is a large win. Below it, it is a straight loss of
 > about 4 ms. Both halves are measured on hardware, on the same afternoon, with
@@ -883,9 +886,19 @@ shipping configuration.
 ### Training on your own project
 
 ```bash
-tyrax-editor --blss-train <projectDir> --all-shots -o <projectDir>/blss.net
-tyrax-editor --blss-eval  <projectDir> -i <projectDir>/blss.net
+tyrax-editor --blss-train <projectDir> --all-shots
+tyrax-editor --blss-eval  <projectDir>
 ```
+
+**The net lands next to the project's `.tyra`**, which is where
+`templates::blssBake()` looks for it, so "train, then rebuild" works from any
+directory. Until 2026-08-09 both verbs defaulted to a bare `blss.net` resolved
+against the **current** directory, so unless you had `cd`-ed into the project
+first the trainer wrote its net somewhere the build never reads, the rebuild
+went on baking the shipped default, and the boot log said so in a line nobody
+read. The explicit `-o` / `-i` above were the workaround; they still override,
+and a bestiary or multi-project corpus still writes to the current directory
+because a net fitted on several projects belongs to none of them.
 
 Both entry points take an optional **positional project directory**, and with one
 the corpus is the project's own scenes — real geometry, real materials, real
@@ -1265,10 +1278,22 @@ That is 14 of the ~30 points. The rest (a counted haze coverage costs
 being cheaper per pixel than the probe's 1:1 framebuffer blit — texture cache,
 and only a console settles that.
 
-**Nothing has been rescaled.** Expressing `kPassMs` per pixel is the honest fix
-and it moves `breakEven()` (11.5 → 13.1 at 512×448) and every published figure
-that quotes it, across pages this feature does not own; it is written down and
-owed. What the window says instead is what the count *is*: an overdraw **index**
+**That half is now rescaled** (2026-08-09). `kPassMsPerMpx` replaces the single
+`kPassMs` scalar: both rasters were measured back to back on one console
+(0.5896 ms at 512×512, 0.5174 at 512×448, `perMpx` agreeing to 0.3 %), so the
+price is per **pixel** and `breakEven()`, `speedFrom()` and `--blss-coverage`
+all take the raster the coverages were counted at. Break-even is **13.1**
+coverages at 512×448 and **11.4** at 512×512 — quote it with its raster or not
+at all, because the single 11.5 this page used to print was a 576i number
+applied to every project, i.e. 14 % optimistic for the common case.
+
+**It closes none of the residual above, and that is the cross-check worth
+keeping.** The over-read was measured with both instruments looking at the same
+fixture at the same resolution, so a per-raster correction moves both sides of
+that comparison equally and cannot explain any of it: the remaining ~26 % is
+still the modelled emitter term, still the magnified-puff-versus-1:1-blit
+question, and still only a console can settle it. What the window says about the
+count is therefore unchanged: it is an overdraw **index**
 that tracks the console's fill and over-states its scale by about a third, stated
 next to the spread of the moves it averaged and next to the *Training shots* tab,
 where the player's own vantage can be added to that set (`project::blssResolveShot`

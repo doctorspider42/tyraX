@@ -221,34 +221,40 @@ the verification, and any fact worth reusing belongs in the relevant
     -> 174, and the only feature channel that moves is `coverage` (0.631 ->
     0.638). A screen-area floor was considered and rejected: it can empty a
     distant bag entirely, which hands its tiles `coverage = 0`.
-  - **`kPassMs` is per 512x512, not per pixel. HALF LANDED 2026-08-09; the
-    estimator's half is still owed.** `FrameProfile::gsFillProbe` sized its
-    calibration sprite from the CURRENT FRAMEBUFFER and said nothing about it,
-    and the fixture that measured it ran PAL 576i, so **0.5872 ms is per
-    262 144 px** - while a coverage out of `blss::measureCoverage` is per the
-    PROJECT'S own raster (512x448 = 229 376 px on `examples/upscaler-lab`,
-    448x448 on a progressive one).
-    **Landed:** the probe now hands its raster back (`outW`/`outH`) and the
+  - **DONE: `kPassMs` was per 512x512 and is now per PIXEL** (landed
+    2026-08-09, both halves). `FrameProfile::gsFillProbe` sized its calibration
+    sprite from the CURRENT FRAMEBUFFER and said nothing about it, and the
+    fixture that measured it ran PAL 576i, so **0.5872 ms was per 262 144 px** -
+    while a coverage out of `blss::measureCoverage` is per the PROJECT'S own
+    raster (512x448 = 229 376 px on `examples/upscaler-lab`, 448x448 on a
+    progressive one). The probe hands its raster back (`outW`/`outH`) and the
     generated `GSFILL` line carries `raster=WxH` and a mode-independent
     `perMpx=`, so the constant cannot be read against the wrong resolution
     again - and **both rasters were measured on one console back to back**:
     512x512 -> **0.5896**, 512x448 -> **0.5174**, `perMpx` agreeing to 0.3 %,
-    i.e. the cost is pure per-pixel. So the 512x448 figure is now a
-    MEASUREMENT (0.5174), not the 0.5138 the arithmetic predicted, and
-    `breakEven()` moves **11.5 -> 13.1**. docs/profiling.md carries both.
-    **Still owed:** `kPassMs` in `src/blss_ui.hpp` expressed per PIXEL times the
-    report's own output size - `speedFrom(coverages)` takes only a scalar, so it
-    means a signature change reaching `main.cpp` - plus the published figures
-    that quote the old break-even (the example README, README.md). Land that as
-    its own commit, not as a side effect. The REST of the gap (a counted haze
-    coverage costs 0.436 ms) is the puff fragment being cheaper per pixel than the
-    probe's 1:1 framebuffer blit and only a console settles it. **The camera
-    theory of that gap is dead** - measured under the fixture's own parked
-    gameplay camera the counter reads **78.99**, above the 72.63 six-move mean,
-    not the ~57.7 the theory predicted; the ratio to hardware is constant
-    (1.35 / 1.26 / 1.27 / 1.36) at 6 / 4 / 2 / 0 haze banks, i.e. proportional
-    and not a modelling error in where the puffs are. Tables in
-    docs/neural-upscaler.md, "The overdraw count is an INDEX".
+    i.e. the cost is pure per-pixel.
+    The estimator now says so: `fill::kPassMsPerMpx` (2.2524, the mean of the
+    two points, reproducing both to 0.2 %) plus `fill::passMs(rasterPx)`,
+    `breakEven(rasterPx)` and `speedFrom(coverages, rasterPx)`;
+    `CoverageReport` echoes back the `outW`/`outH` it counted at so the window
+    and `--blss-coverage` cannot price the same scene differently. Break-even
+    is **13.1** coverages at 512x448 and **11.4** at 512x512 - measured both
+    ways through the CLI - and every page that quoted a bare 11.5 now names
+    the raster (README.md, docs/neural-upscaler.md, docs/profiling.md,
+    examples/upscaler-lab/README.md, the skills).
+    **The residual is NOT explained by any of this, and that is the check that
+    keeps it honest**: the over-read was measured with both instruments on the
+    same fixture at the same resolution, so a per-raster correction moves both
+    sides of that comparison and cancels - about **26 %** of over-read
+    survives it. That remainder is still the modelled emitter term (a counted
+    haze coverage costs 0.436 ms), i.e. the magnified 128-square puff being
+    cheaper per pixel than the probe's 1:1 framebuffer blit, and only a
+    console settles it. **The camera theory of that gap is dead** - measured
+    under the fixture's own parked gameplay camera the counter reads **78.99**,
+    above the 72.63 six-move mean, not the ~57.7 the theory predicted; the
+    ratio to hardware is constant (1.35 / 1.26 / 1.27 / 1.36) at 6 / 4 / 2 / 0
+    haze banks, i.e. proportional and not a modelling error in where the puffs
+    are. Tables in docs/neural-upscaler.md, "The overdraw count is an INDEX".
   - **The proxy feed's own measurements are owed on hardware.** Everything in the
     round above was taken in PCSX2 (the console was off the LAN), which this repo
     admits for COUNTS and bit-identity and refuses for attribution. Owed: the
@@ -256,19 +262,28 @@ the verification, and any fact worth reusing belongs in the relevant
     the budget once its twin lands, and the restated break-even. Projection, not
     a measurement: ~4.25 ms of EE and ~11 coverages against today's measured 5.02
     and 13.
-  - **`--blss-train <projectDir>` writes `blss.net` into the CURRENT DIRECTORY,
-    not into the project** (`CliOpts::netPath` / `outPath` default to the literal
-    `"blss.net"`, `src/blss.cpp`), and `--blss-eval <projectDir>` reads it from
-    there too. So the flow the generated header and the docs both prescribe -
-    "`tyrax-editor --blss-train <projectDir> --all-shots` then rebuild" - trains
-    a net the build never picks up unless you happen to have `cd`-ed into the
-    project first; `blssBake` looks for `<projectDir>/blss.net`. Found the hard
-    way on 2026-08-09: the net landed in the repo root, the rebuild's boot log
-    still said "the editor's built-in default network", and the run had to be
-    redone. It also silently pollutes whatever directory you ran from. The fix is
-    to default the path to `projectDir/blss.net` whenever a project positional is
-    present (and to keep the bare-corpus case writing to the cwd), plus a line in
-    the train output saying where the file went. `src/blss.cpp`.
+  - **DONE: `--blss-train <projectDir>` writes `blss.net` into the PROJECT.
+    It used to write it into the current directory** - `CliOpts::netPath` and
+    `outPath` both defaulted to the literal `"blss.net"` (`src/blss.cpp`) - and
+    `--blss-eval <projectDir>` read it from there too, so the flow the generated
+    header and the docs both prescribe ("`--blss-train <projectDir> --all-shots`
+    then rebuild") trained a net the build never picked up unless you happened to
+    have `cd`-ed into the project first; `blssBake` looks for
+    `<projectDir>/blss.net`. Found the hard way on 2026-08-09: the net landed in
+    the repo root, the rebuild's boot log still said "the editor's built-in
+    default network" - telling the exact truth - and the run had to be redone.
+    Fixed by resolving the default against the project when there is EXACTLY ONE
+    project positional, on the read side as well as the write; an explicit
+    `-i`/`-o` still wins, and the bestiary and the union corpus keep the
+    cwd-relative default because a net fitted on several projects belongs to
+    none of them. `--blss-train` already printed the absolute path it wrote.
+    Verified four ways from a foreign cwd: the net lands in the project and not
+    in the cwd, `--blss-eval` reports `net source=project` where it used to say
+    `default`, the bestiary still writes `./blss.net`, `-o` still wins - and the
+    bytes are untouched, `examples/procedural` at 72 frames `--no-jitter` still
+    md5 `e069f286ea0c524999bfd9dac769608c`. Why it survived so long: the BLSS
+    window runs its job with cwd = the project AND passes `-o`, so the two
+    spellings named one file and only the shell could ever see the bug.
   - **The corpus renderer draws no emitters, so the QUALITY half of the feature
     is blind to the scenes the SPEED half exists for.** `blsscorpus.cpp` models
     emitters only in the coverage counter (`billboardOf` / `emitterCentres`, the

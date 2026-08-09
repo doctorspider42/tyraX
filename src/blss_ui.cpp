@@ -1276,13 +1276,18 @@ std::vector<CorpusScene> parseCorpusScenes(const std::string& text) {
 
 // -------------------------------------------------------------- will it be faster ---
 
-SpeedEstimate speedFrom(double coverages) {
+SpeedEstimate speedFrom(double coverages, double rasterPx) {
     SpeedEstimate e;
     if (!(coverages >= 0.0)) return e;  // NaN-safe
+    // A raster of zero reaches here from a FAILED coverage report; fall back to
+    // the common case rather than dividing the whole model by nothing.
+    if (!(rasterPx > 0.0)) rasterPx = fill::kRasterPxPal;
     e.ok = true;
     e.coverages = coverages;
-    e.breakEven = fill::breakEven();
-    e.fillMs = coverages * fill::kPassMs;
+    e.rasterPx = rasterPx;
+    e.passMs = fill::passMs(rasterPx);
+    e.breakEven = fill::breakEven(rasterPx);
+    e.fillMs = coverages * e.passMs;
     e.savedMs = fill::kSavedFraction * e.fillMs - (fill::kEeCostMs + fill::kCompositeGsMs);
     if (e.savedMs <= 0.0) {
         e.band = SpeedEstimate::Band::Loss;

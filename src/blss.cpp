@@ -2014,6 +2014,33 @@ CliOpts parseCli(int argc, char** argv) {
         }
         else std::printf("blss: ignoring unknown argument '%s'\n", a.c_str());
     }
+    // A NET BELONGS TO THE PROJECT IT WAS FITTED ON, so the default path is
+    // resolved against that project and not against the current directory.
+    //
+    // This is a real bug being fixed, not a tidy-up, and it cost a hardware
+    // round: `--blss-train <projectDir>` wrote `./blss.net` while
+    // `templates::blssBake()` reads `<projectDir>/blss.net`, so the documented
+    // "train, then rebuild" flow trained a network, put it somewhere the build
+    // never looks, and silently kept baking the shipped default - with a boot
+    // log that said `network = the editor's built-in default` and was telling
+    // the exact truth nobody thought to read. The read side had the same
+    // asymmetry: `--blss-eval <projectDir>` reported `net source=default` for a
+    // project that had a perfectly good net sitting next to its `.tyra`.
+    //
+    // It was invisible from the BLSS window because that job runs with cwd =
+    // the project directory AND passes an explicit `-o`, so both spellings
+    // named one file. Only the shell has ever been able to see it.
+    //
+    // Exactly one project positional, because that is when "the project's net"
+    // has a referent. A union corpus (`--blss-train a b bestiary`) fits a net
+    // that belongs to none of its members - writing it into the first one would
+    // be a guess - and the bestiary alone has no project at all; both keep the
+    // old cwd-relative default, which is what the published commands for them
+    // already pair with an explicit `-o`. An explicit `-i`/`-o` always wins.
+    if (o.projectDirs.size() == 1 && !o.netGiven) {
+        o.netPath =
+            (std::filesystem::path(o.projectDir) / "blss.net").lexically_normal().string();
+    }
     return o;
 }
 

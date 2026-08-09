@@ -427,13 +427,36 @@ namespace fill {
 // for a week, and the break-even computed off that was ~70 % too pessimistic.
 constexpr double kKeptFraction = 0.2452;
 constexpr double kSavedFraction = 1.0 - kKeptFraction;  // 0.7548, fitted
-// One full-screen alpha-blended textured pass on hardware, its own draw_finish.
-// THE UNIT `coverages` IS COUNTED IN - and it is per 512x512, not per pixel:
-// the probe that measured it sizes its sprite from the framebuffer and ran in a
-// PAL 576i fixture. See kAnchorCoverages for what that costs (14.3 % of a 34 %
-// over-read at 512x448), for the two theories of the rest that measurement has
-// already falsified, and for why nothing here has been rescaled.
-constexpr double kPassMs = 0.587;
+// ONE FULL-SCREEN ALPHA-BLENDED TEXTURED PASS, PER MEGAPIXEL. The unit
+// `coverages` is counted in is a fraction of ONE SCREEN, so its price depends
+// on how big that screen is, and this used to be a single scalar measured at
+// one resolution and then read against every other.
+//
+// MEASURED BACK TO BACK ON ONE CONSOLE, 2026-08-09 (docs/profiling.md, "The
+// calibration gate"), by sweeping the gate at both rasters in one session so
+// nothing but the pixel count differs:
+//
+//   512x512 (PAL 576i, 0.262144 Mpx)   0.5896 ms   ->  2.2492 ms/Mpx
+//   512x448 (ordinary PAL, 0.229376)   0.5174 ms   ->  2.2556 ms/Mpx
+//
+// The two agree to 0.28 %, which is the finding: the cost is PURELY per-pixel,
+// with no measurable per-pass overhead to carry separately. This constant is
+// their mean and reproduces both to within 0.2 % (0.5905 and 0.5167).
+//
+// The old scalar was 0.587, i.e. a 512x512 figure - `FrameProfile::gsFillProbe`
+// sizes its sprite from the CURRENT framebuffer and the calibration fixture ran
+// 576i - and it was then priced against coverages counted per the project's own
+// 512x448 raster for a year. That is 14.3 % of the over-read documented in
+// kAnchorCoverages, and only 14.3 % of it: see there for the residual, which
+// this correction explains none of.
+constexpr double kPassMsPerMpx = 2.2524;
+// The two rasters worth naming. `kRasterPxPal` is what an ordinary project
+// presents and is the default every entry point below assumes when a caller
+// genuinely has no raster to hand.
+constexpr double kRasterPxPal = 512.0 * 448.0;
+constexpr double kRasterPx576i = 512.0 * 512.0;
+// One full-screen pass at a given raster.
+inline double passMs(double rasterPx) { return kPassMsPerMpx * rasterPx / 1.0e6; }
 // BLSS' EE bill as shipped: proxy 2.34 + reproj 0.28 + feat 0.19 + net 0.78 +
 // pkt 0.50 + begin 0.41 + end 0.10.
 constexpr double kEeCostMs = 4.60;
@@ -482,22 +505,29 @@ constexpr double kCompositeGsMs = 0.50;
 // position or a wrong puff size could not hold a constant ratio over three
 // different bank subsets; a wrong PRICE PER COVERAGE does, and does.
 //
-// And part of that price is arithmetic rather than hypothesis: kPassMs was
-// measured by FrameProfile::gsFillProbe, which sizes its sprite from the CURRENT
-// FRAMEBUFFER, in a fixture running PAL 576i - so 0.5872 ms is per 512x512 =
-// 262 144 px, while a coverage out of measureCoverage is per the project's own
-// raster, 512x448 = 229 376 px for this fixture. Same ns/px, 14.3 % fewer
-// pixels: 0.5138 ms. That is 14 of the ~30 points. The rest (a counted haze
-// coverage costs 33.79 / 77.45 = 0.436 ms) is the puff fragment being cheaper
-// than the probe's: a 128-square texture magnified across the screen against a
-// 1:1 framebuffer blit, i.e. texture cache, which only a console can settle.
+// PART OF THAT PRICE WAS ARITHMETIC, AND THAT PART IS NOW FIXED. `kPassMs` was
+// a single scalar measured by FrameProfile::gsFillProbe, which sizes its sprite
+// from the CURRENT FRAMEBUFFER, in a fixture running PAL 576i - so 0.587 ms was
+// per 512x512 = 262 144 px, while a coverage out of measureCoverage is per the
+// project's own raster, 512x448 = 229 376 px for this fixture. Same ns/px,
+// 14.3 % fewer pixels. The gate is per RASTER now and both points have been
+// measured on one console (see kPassMsPerMpx), so the price is per pixel and
+// this class of error is gone: breakEven() moved 11.5 -> 13.1 at 512x448 and
+// stays 11.4 at 512x512, which is the figure the old scalar was right about.
 //
-// NOTHING HAS BEEN RESCALED HERE. Expressing kPassMs per PIXEL is the honest
-// fix and it moves breakEven() (11.5 -> 13.1 at 512x448) and every published
-// figure that quotes it, in a page this file does not own - so it is written
-// down and owed, not applied. The UI says what the count is instead: an
-// overdraw INDEX that tracks the console's fill and over-states its scale by
-// about a third, which is what the headroom above the break-even has to absorb.
+// THE RESIDUAL IS UNTOUCHED BY THAT, AND THAT IS THE POINT OF SAYING SO. The
+// over-read on this fixture, which runs at 512x512, was never affected by the
+// resolution error at all - both instruments were at 512x512 there - so the
+// ~26 % that remains under its own camera is entirely the emitter term: a
+// counted haze coverage costs 33.79 / 77.45 = 0.436 ms against the probe's
+// 0.590, i.e. the puff fragment is cheaper than the probe's - a 128-square
+// texture magnified across the screen against a 1:1 framebuffer blit, i.e.
+// texture cache, which only a console can settle. Do not read the per-raster
+// fix as having closed the gap; it corrected a different scene's arithmetic and
+// left this one's diagnosis exactly where it was.
+//
+// The UI still calls the count an overdraw INDEX that over-states its scale by
+// about a quarter, which is what the headroom above the break-even absorbs.
 constexpr double kAnchorCoverages = 58.7;
 constexpr double kAnchorSpeedup = 1.63;
 constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;
@@ -505,11 +535,19 @@ constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;
 // the low-res target costs precisely what the z-buffer saves.
 constexpr int kVramBackKb2x2 = 448;
 
-// 0.7548 x 0.587 x C > 4.60 + 0.50: 11.5 full-screen coverages. DERIVED rather
-// than written down, so a millisecond taken off the EE bill moves it - which is
-// exactly what this round's re-measurement did (13 -> 11.5).
-inline double breakEven() {
-    return (kEeCostMs + kCompositeGsMs) / (kSavedFraction * kPassMs);
+// 0.7548 x passMs(raster) x C > 4.60 + 0.50. DERIVED rather than written down,
+// so a millisecond taken off the EE bill moves it - which is exactly what an
+// earlier round's re-measurement did (13 -> 11.5) - and now so does the RASTER:
+//
+//   512x448 (ordinary PAL)   13.1 full-screen coverages
+//   512x512 (PAL 576i)       11.4
+//
+// QUOTE THE BREAK-EVEN WITH ITS RASTER OR NOT AT ALL. The single 11.5 this
+// used to print was a 576i number applied to every project, i.e. 14 % optimistic
+// for the common case - it told a scene sitting at 12 coverages that BLSS would
+// pay for itself when it would not.
+inline double breakEven(double rasterPx = kRasterPxPal) {
+    return (kEeCostMs + kCompositeGsMs) / (kSavedFraction * passMs(rasterPx));
 }
 }  // namespace fill
 
@@ -525,7 +563,13 @@ inline double breakEven() {
 struct SpeedEstimate {
     bool ok = false;
     double coverages = 0;   // what went in
-    double fillMs = 0;      // coverages x kPassMs: the scene's own GS bill
+    // The raster the coverages were counted per, and the price of one
+    // full-screen pass at it. Carried so a caller PRINTS the resolution its
+    // break-even belongs to instead of quoting a bare number that is only right
+    // for one display mode.
+    double rasterPx = fill::kRasterPxPal;
+    double passMs = 0;
+    double fillMs = 0;      // coverages x passMs: the scene's own GS bill
     double savedMs = 0;     // net of BLSS' EE cost; negative = the frame gets longer
     double breakEven = 0;
     // Speedup multipliers. `hi` assumes the frame is ENTIRELY fill (the
@@ -536,7 +580,11 @@ struct SpeedEstimate {
     enum class Band { Loss, Marginal, Win };
     Band band = Band::Loss;
 };
-SpeedEstimate speedFrom(double coverages);
+// `rasterPx` is the display raster the coverages were counted per - pass
+// `CoverageReport::outW * outH`, which measureCoverage echoes back for exactly
+// this. It defaults to the ordinary PAL raster so a caller that genuinely has
+// no screen to name still gets the common case rather than a 576i one.
+SpeedEstimate speedFrom(double coverages, double rasterPx = fill::kRasterPxPal);
 
 // ------------------------------------------------------------- one answer ---
 

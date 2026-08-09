@@ -2559,6 +2559,10 @@ struct CovJob {
 
 CoverageReport measureCoverage(const CoverageConfig& cfg, const std::atomic<bool>* cancel) {
     CoverageReport rep;
+    // Echoed before any early return: a caller pricing a FAILED report gets the
+    // raster it asked about rather than a zero that reads as "no screen".
+    rep.outW = cfg.outW;
+    rep.outH = cfg.outH;
     if (cfg.projectDir.empty()) {
         rep.err = "no project directory";
         return rep;

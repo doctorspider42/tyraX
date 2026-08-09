@@ -1636,7 +1636,13 @@ void App::blssCoverageTick() {
     blssCov_ = blssCovOut_;
     // The estimate is derived ONCE, here, rather than per frame: a verdict a
     // reader is going to quote must not shimmer between two roundings.
-    blssSpeed_ = blssCov_.ok ? blssui::speedFrom(blssCov_.mean) : blssui::SpeedEstimate{};
+    // Priced at the raster the report was COUNTED at, which it echoes back -
+    // a coverage is a fraction of one screen and one full-screen pass costs
+    // 14.3 % more at 512x512 than at 512x448, so the break-even moves with the
+    // display mode (13.1 against 11.4).
+    blssSpeed_ = blssCov_.ok ? blssui::speedFrom(blssCov_.mean,
+                                                 (double)blssCov_.outW * blssCov_.outH)
+                             : blssui::SpeedEstimate{};
     if (blssCov_.ok)
         statusMessage_ = "BLSS: coverage estimate finished";
     else if (!blssCov_.err.empty())
@@ -1694,7 +1700,7 @@ void App::drawBlssCoverageDetail() {
             ImGui::TableNextColumn();
             ImGui::Text("%.1f", s.emit);
             ImGui::TableNextColumn();
-            const bool over = s.peak >= blssui::fill::breakEven();
+            const bool over = s.peak >= blssSpeed_.breakEven;
             ImGui::TextColored(over ? ImVec4(0.45f, 0.85f, 0.45f, 1.0f)
                                     : ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
                                "%.1f", s.peak);
@@ -1966,8 +1972,8 @@ void App::drawBlssAnswer() {
             "    On the one fixture where both instruments have run, this count reads about "
             "1.3x the hardware's\n    blended-pass equivalents - at every load from 1.5 to 79 "
             "coverages, so it is proportional. Read it\n    as an overdraw index against the "
-            "%.1f break-even, not as milliseconds.",
-            blssui::fill::breakEven());
+            "%.1f break-even at this project's %dx%d raster, not as milliseconds.",
+            blssSpeed_.breakEven, blssCov_.outW, blssCov_.outH);
         drawBlssCoverageDetail();
     }
     if (haveQ && !haveS)

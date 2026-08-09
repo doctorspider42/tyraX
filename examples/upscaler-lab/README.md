@@ -12,8 +12,12 @@ pass costs **0.587 ms** on a real PS2 (the sheet's 8 pixels/clock at 147.456 MHz
 predicts ~194 us — a third of it, and the measured number is the one that
 counts). BLSS keeps **24.5 %** of the scene's fill — *fitted* over five hardware
 load points, not assumed from the quarter-area raster — and costs **4.60 ms of
-EE + 0.50 ms of composite fill**, so break-even is `0.7548 * 0.587 * D > 5.10`,
-i.e. **11.5 full-screen coverages**. So overdraw is the target, not triangles —
+EE + 0.50 ms of composite fill**, so break-even is
+`0.7548 * 0.5174 * D > 5.10`, i.e. **13.1 full-screen coverages at this
+project's 512×448 raster** (11.4 at 512×512 — one full-screen pass is priced
+per PIXEL, measured 2.2524 ms/Mpx, so the line moves with the display mode; the
+bare "11.5" this README used to print was a 576i figure). So overdraw is the
+target, not triangles —
 and a triangle has to exceed ~288 px before its halved version is still
 fill-bound at all.
 
@@ -203,7 +207,7 @@ fill model, because they differ in nothing but particle count:
   because the haze is the only thing BLSS is paid to remove. 6 x 32 is the
   compromise: both arms watchable, the win still 1.63x, and the scene still
   **58.7 blended-pass equivalents** of fill — comfortably above the
-  **11.5-coverage** break-even.
+  **13.1-coverage** break-even at this project's raster.
 
 ### Five load points, and the speed model fitted on them
 

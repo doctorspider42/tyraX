@@ -592,10 +592,13 @@ Eight things here that were paid for, and that any edit must keep:
   is") held. Keep both tables, labelled. Break-even is **13.1 full-screen
   coverages at 512x448** (`0.7548 x 0.5174 x C > 4.60 + 0.50`) and **11.5 at
   512x512** - same formula, different pass price - so quote the break-even WITH
-  its raster or not at all. `breakEven()` and `--blss-coverage` still print the
-  11.5, because `kPassMs` is one scalar and has deliberately NOT been rescaled
-  (docs/backlog.md); that figure is right for a 576i project and 14 % optimistic
-  for an ordinary PAL one. BLSS keeps about a quarter of the fill,
+  its raster or not at all. `breakEven()` and `--blss-coverage` PRINT the right
+  one now (2026-08-09): `kPassMs` became `kPassMsPerMpx` (2.2524) plus
+  `passMs(rasterPx)`, `speedFrom` takes the raster, and `CoverageReport` echoes
+  back the `outW`/`outH` it counted at - 13.1 at 512x448, 11.4 at 512x512. The
+  single scalar was right for a 576i project and 14 % optimistic for an ordinary
+  PAL one. It changes nothing about the coverage over-read, whose two
+  instruments shared one fixture at one resolution. BLSS keeps about a quarter of the fill,
   because `blssScale 0` is `Scale::X2Y2` - half in *each* axis, a quarter of the
   pixels, NOT half the fill, which is what the ~22 figure had assumed. The
   retention term is now FITTED on hardware over five load points (0.7548 saved,
@@ -665,8 +668,12 @@ Eight things here that were paid for, and that any edit must keep:
   native 45.543), i.e. bilinear IS optimal there and zero passes is the correct
   and cheapest answer. Training a project net changed frame time by **+0.03 ms
   (1.00x)** - the leave-one-project-out tie holds on hardware. Two traps this
-  cost: `--blss-train <projectDir>` writes `blss.net` into the **cwd**, not the
-  project, so the rebuild silently keeps using the default; and the corpus
+  cost, and both are now closed: `--blss-train <projectDir>` wrote `blss.net`
+  into the **cwd** and not the project, so the rebuild silently kept using the
+  default (FIXED 2026-08-09 - a single project positional defaults the path to
+  `<projectDir>/blss.net` on the read side as well as the write; the BLSS
+  window never saw it because it runs with cwd = the project AND passes `-o`);
+  and the corpus
   RENDERER draws no emitters, so a PSNR number for a billboard-heavy scene
   describes a frame the game never displays (both in docs/backlog.md).
 - **The bob is the JITTER, and the per-field bias is NOT part of it.** The

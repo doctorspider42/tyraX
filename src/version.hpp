@@ -24,9 +24,16 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.10.1 (two things hardware testing found, both fixes rather than features):
+// `--blss-train <projectDir>` writes its net into the PROJECT instead of the
+// current directory, so the documented "train, then rebuild" flow stops
+// silently rebuilding with the shipped default; and the GS fill price is per
+// PIXEL rather than one scalar measured at 512x512, which moves the published
+// break-even to 13.1 coverages at an ordinary PAL raster. PATCH by this file's
+// own rule - no capability appears, two published numbers become right.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 10
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

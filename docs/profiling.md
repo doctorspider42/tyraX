@@ -311,9 +311,14 @@ separate switch.
 > arithmetic predicts from it (the arithmetic is right to 0.7 %; the residual is
 > the published constant having been 0.4 % low to begin with). It moves the
 > break-even from 11.5 to **13.1** full-screen coverages at 512×448:
-> `0.7548 × 0.5174 × C > 4.60 + 0.50`. The estimator's own `kPassMs`
-> (`src/blss_ui.hpp`) still carries one scalar rather than a per-pixel figure —
-> that half is tracked in `docs/backlog.md` and is a twin-side change.
+> `0.7548 × 0.5174 × C > 4.60 + 0.50`. **The estimator carries the per-pixel
+> figure now** (2026-08-09): `fill::kPassMsPerMpx` = 2.2524 with
+> `fill::passMs(rasterPx)`, and `breakEven()` / `speedFrom()` /
+> `--blss-coverage` all take the raster the coverages were counted at
+> (`CoverageReport` echoes back its own `outW`/`outH`). It prints **13.1** at
+> 512×448 and **11.4** at 512×512 — so quote a break-even WITH its raster,
+> and note that this correction cancels out of the coverage over-read, whose
+> two instruments were both at one resolution.
 
 ### Getting the log off real hardware
 

@@ -268,6 +268,16 @@ struct CoverageReport {
     std::string err;
     int scenes = 0, frames = 0;
     size_t triangles = 0;
+    // THE RASTER THESE COVERAGES ARE PER, echoed back from the config. A
+    // coverage is a fraction of one screen, so turning it into milliseconds
+    // needs to know how big that screen is - the per-pass price is per PIXEL
+    // (blssui::fill::kPassMsPerMpx) and 512x512 costs 14.3 % more than the
+    // 512x448 an ordinary PAL project presents. It rides on the report rather
+    // than being re-derived by each consumer because the window and
+    // `--blss-coverage` would otherwise each have their own idea of the raster
+    // a number was measured at, which is the mistake that produced the single
+    // scalar this replaces.
+    int outW = 0, outH = 0;
     // Means and 95th percentiles over every frame of every shot. `mean` and
     // `p95` are the sum of the two halves; the halves are carried because the
     // honest sentence about them is different.

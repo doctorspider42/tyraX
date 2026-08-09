@@ -831,12 +831,20 @@ static int blssCoverageFromCli(int argc, char** argv) {
     // (blssui::speedFrom) rather than arithmetic restated here - a CLI with its
     // own copy of the model is exactly the second answer this feature has spent
     // its whole life avoiding.
-    const blssui::SpeedEstimate sp = blssui::speedFrom(rep.mean);
+    // Priced at the raster the coverages were counted per, which the report
+    // echoes back: one full-screen pass is per PIXEL, so a 512x512 project pays
+    // 14.3 % more per coverage than a 512x448 one and its break-even is 11.4
+    // rather than 13.1. The single scalar this replaces was a 576i measurement
+    // quoted at every resolution.
+    const blssui::SpeedEstimate sp =
+        blssui::speedFrom(rep.mean, (double)rep.outW * rep.outH);
     const char* band = sp.band == blssui::SpeedEstimate::Band::Win      ? "win"
                        : sp.band == blssui::SpeedEstimate::Band::Marginal ? "marginal"
                                                                           : "loss";
-    std::printf("\nblss: %.2f coverages against a %.1f break-even -> %s%.2f ms a frame (%s)\n",
-                rep.mean, sp.breakEven, sp.savedMs >= 0 ? "+" : "", sp.savedMs, band);
+    std::printf("\nblss: %.2f coverages against a %.1f break-even at %dx%d -> %s%.2f ms a "
+                "frame (%s)\n",
+                rep.mean, sp.breakEven, rep.outW, rep.outH, sp.savedMs >= 0 ? "+" : "",
+                sp.savedMs, band);
     if (sp.band == blssui::SpeedEstimate::Band::Win)
         std::printf("blss: roughly %.2f-%.2fx, the ends being 'the frame is 60%% fill' and "
                     "'the frame is nothing but fill'\n", sp.lo, sp.hi);
@@ -869,9 +877,11 @@ static int blssCoverageFromCli(int argc, char** argv) {
                 rep.frames, rep.triangles, rep.emitters, rep.billboards, rep.sawCutout ? 1 : 0,
                 rep.sawAnimated ? 1 : 0, rep.sawDisabledEmitter ? 1 : 0);
     std::printf("[blss] coverage verdict coverages=%.4f fillMs=%.4f savedMs=%.4f breakEven=%.4f "
-                "lo=%.4f hi=%.4f band=%s anchorCoverages=%.4f passMs=%.4f\n",
+                "lo=%.4f hi=%.4f band=%s anchorCoverages=%.4f passMs=%.4f raster=%dx%d "
+                "perMpx=%.4f\n",
                 sp.coverages, sp.fillMs, sp.savedMs, sp.breakEven, sp.lo, sp.hi, band,
-                blssui::fill::kAnchorCoverages, blssui::fill::kPassMs);
+                blssui::fill::kAnchorCoverages, sp.passMs, rep.outW, rep.outH,
+                blssui::fill::kPassMsPerMpx);
     return 0;
 }
 
