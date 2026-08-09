@@ -3243,6 +3243,14 @@ struct BlssUse {
     bool mixed = false;       // the scenes do not all resolve alike
 };
 BlssUse blssUse(const Project& p);
+// The same answer for a project DEFAULT that is not (yet) `p.settings` - what
+// Project > Preferences is staging while the modal is open. It exists because
+// that dialog now states what mixing costs (docs/neural-upscaler.md, "What it
+// costs"), and it has to state it about the settings the reader is editing
+// rather than about the ones on disk; computing "does this project mix"
+// separately there would have been a second answer to the question this
+// function exists to be the only one of.
+BlssUse blssUse(const Project& p, const ProjectSettings& defaults);
 
 // Fold the editable ranges onto a cycle / one of its keys. Called by the
 // .tyra reader (a hand-edited file is not to be trusted) and by the Ambience

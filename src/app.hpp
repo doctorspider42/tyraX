@@ -806,16 +806,51 @@ private:
             return !dof.empty() || !dofNode.empty() || !portals.empty() || !split.empty();
         }
     };
-    BlssClash blssClashesFor(const ProjectSettings& staged) const;
+    // `assumeProjectDefaultOn` walks the scenes that INHERIT the project default
+    // as though it were on, which is the question a reader of a switched-off
+    // project is asking. False - the default - answers the BUILD's question
+    // verbatim, and that is the one this mirrors.
+    BlssClash blssClashesFor(const ProjectSettings& staged,
+                             bool assumeProjectDefaultOn = false) const;
     // `informational` styles the block as a note rather than a warning, for the
     // case that matters most: someone EVALUATING whether to turn the feature on
     // has to be able to see what would stop them before they turn it on.
     void drawBlssClashWarning(const BlssClash&, bool informational);
     // Switch to that scene, select that object and put the camera pivot on it.
     void blssSelectClash(const BlssClashRef&);
-    // The five project settings and their tooltips, drawn from one place by
-    // both Preferences and the window. Returns true when something changed.
-    bool drawBlssSettings(ProjectSettings& s);
+    // HOW MUCH OF THE UPSCALER GOES ON SCREEN, and it is the whole shape of
+    // this feature's UI (docs/neural-upscaler.md, "Two layers"). ONE definition
+    // of the settings, one copy of every tooltip, one mirror of the build
+    // interlock - and a parameter deciding how far down the block runs, the
+    // drawBlssVerdict(compact) / drawBlssHealth(compact) idiom.
+    //
+    // `Essentials` is what somebody deciding whether to switch the feature ON
+    // has to answer - use it, which reconstruction, which raster - plus the one
+    // line of verdict that says whether this project is on the right side of
+    // the break-even. `Everything` adds the four knobs that only mean anything
+    // to somebody FITTING a network (sharpen, temporal, jitter, the debug view)
+    // and the long-form prose, and it is what the window's Project settings tab
+    // draws.
+    //
+    // The split is recent and it is a consequence of plain mode: until that
+    // landed, BLSS MEANT "fit a network to your scene" and the whole window was
+    // the feature. It is not the mainstream path any more - plain mode's
+    // break-even is 2.6 coverages against the neural path's 13.1, a trained net
+    // ships embedded, and on every project measured that net chooses nothing -
+    // so the ordinary interaction is a checkbox, a mode and one line to read.
+    enum class BlssDetail { Essentials, Everything };
+    bool drawBlssSettings(ProjectSettings& s, BlssDetail detail = BlssDetail::Everything);
+    // The speed estimate priced for `s` rather than for the committed project.
+    // One function, because the Preferences dialog must re-price live when the
+    // reader flips the reconstruction (the two modes' break-evens are more than
+    // four times apart) and blssCoverageTick() must not answer differently.
+    // A pure function of blssCov_ and the mode, so it cannot shimmer.
+    blssui::SpeedEstimate blssSpeedFor(const ProjectSettings& s) const;
+    // The one-line verdict for the Essentials layer: the button that measures,
+    // the headline and the two facts behind it. Carries the honesty rules
+    // wholesale by going through blssui::recommend() rather than deciding
+    // anything of its own - a simpler UI must not become a more confident one.
+    void drawBlssSpeedAnswer(const ProjectSettings& staged);
 
     // Tools > World Facts (facts_ui.cpp, docs/world-facts.md): the fact
     // catalog, the named queries over it, the reaction rules, the saved test

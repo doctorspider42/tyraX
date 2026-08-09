@@ -1265,18 +1265,28 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     return r;
 }
 
-BlssUse blssUse(const Project& p) {
+BlssUse blssUse(const Project& p) { return blssUse(p, p.settings); }
+
+BlssUse blssUse(const Project& p, const ProjectSettings& defaults) {
     BlssUse u;
     bool first = true;
     bool e0 = false, n0 = false;
     for (const SceneData& sc : p.scenes) {
-        const ProjectSettings r = resolvedSettings(p, sc);
-        u.any |= r.blssEnabled;
-        u.anyNative |= !r.blssEnabled;
-        u.anyNetwork |= (r.blssEnabled && r.blssNetwork);
+        // resolvedSettings() reaches these two fields through exactly this
+        // branch and nothing else touches them on the way out (the ambience
+        // overlay owns sky/light/fog and no more), so resolving them here
+        // against the supplied defaults IS what that function would do - and it
+        // is the only way to answer for settings a modal has not committed yet.
+        const bool en =
+            sc.overrides.upscaler ? sc.settings.blssEnabled : defaults.blssEnabled;
+        const bool nw =
+            sc.overrides.upscaler ? sc.settings.blssNetwork : defaults.blssNetwork;
+        u.any |= en;
+        u.anyNative |= !en;
+        u.anyNetwork |= (en && nw);
         if (first) {
-            e0 = r.blssEnabled, n0 = r.blssNetwork, first = false;
-        } else if (r.blssEnabled != e0 || (r.blssEnabled && r.blssNetwork != n0)) {
+            e0 = en, n0 = nw, first = false;
+        } else if (en != e0 || (en && nw != n0)) {
             u.mixed = true;
         }
     }

@@ -954,6 +954,44 @@ Notes:
   offsets between them give you whether the layout stayed self-similar
   (PROGRESS 233 measures both to under 0.1%).
 
+  **`wheel` is also how you reach a widget below a long modal's fold - and it
+  keeps scrolling for far longer than the step takes.** ImGui trickles queued
+  input ONE EVENT PER FRAME (`io.ConfigInputTrickleEventQueue`), so a
+  `wheel X -19` hands the window nineteen notches over the following nineteen
+  frames *at least*, and a `frames 10` after it is not enough: the view is still
+  moving when the next `click` computes its target, the window slides out from
+  under it, and the click lands on whatever arrives there instead. It reports
+  SUCCESS - the item existed when it was looked up - so this reads as "the button
+  does nothing" and costs an hour. Measured driving *Project > Preferences* to its
+  BLSS block: at `frames 10` the view moved another 300 px between the `dump` and
+  the click and the button was never pressed; at `frames 90` two consecutive dumps
+  agree and the click lands. So: **`frames 60`-`90` after any `wheel`, then `dump`
+  TWICE and require the rects to agree** before clicking anything. The same
+  trickle applies to `text`, which is why the chat recipe below needs its
+  `frames 5`.
+
+  **Two more `--ui-script` traps, both about a label being an id.** A label with
+  an APOSTROPHE cannot be named at all - the tokenizer opens a quoted run on a
+  single quote at a token boundary, so `'Will this project's frames get shorter?'`
+  parses as two tokens and the step dies with *"click needs one target"*; a button
+  that has to be scripted must not have one (that is why the Preferences verdict
+  button reads *Will the frames get shorter?*). And **the same label in two
+  different windows is legal in ImGui and ambiguous to `find`**, which takes the
+  first match - a bare `click Mode` with both *Project Preferences* and the BLSS
+  window open pressed the wrong one and then failed on the option that never
+  appeared. Qualify as `'Project Preferences/Mode'`. The same rule catches
+  `click Project`, which matches the Project PANEL'S DOCK TAB long before the menu
+  bar; the menu is `'##MainMenuBar/Project'`.
+
+  **On Windows PowerShell 5.1, put the script in DOUBLE quotes and its targets in
+  SINGLE ones** - not the other way round. Native-command argument passing
+  re-parses the string and eats embedded `"`, so
+  `TYRAX --ui-script $P 'click "Remote Pad"'` reaches the editor as
+  `click Remote Pad` and fails; `"click 'Remote Pad'"` survives intact. Both
+  spellings are equally valid to the tokenizer, so this costs nothing - but it is
+  the same class of mangling as the `Start-Process -ArgumentList` trap in the
+  `--pad` bullet above, and it fails with the same unhelpful message.
+
   Two things about the node canvases specifically (PROGRESS 247, which needed a
   screenshot of a node tooltip). **A node's param widgets register only while
   its window is the FRONT tab.** Behind another tab the window is drawn with

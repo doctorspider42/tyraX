@@ -239,10 +239,15 @@ the verification, and any fact worth reusing belongs in the relevant
     compiled-in constants and exits non-zero when this build cannot read it -
     plus a diff of the `.meta` against a re-run of the `command` line recorded
     inside it (the sidecar carries no timestamp precisely so that diff is
-    meaningful). Two window items are also owed and belong to the BLSS panel, not
+    meaningful). One window item is also owed and belongs to the BLSS panel, not
     here: a *Use the shipped default* / *Train on this project* choice with the
-    default's provenance on screen, and the four stale strings in
-    `drawBlssSettings` listed in docs/neural-upscaler.md.
+    default's provenance on screen. (The four stale strings in
+    `drawBlssSettings` this used to list alongside it are **gone** - three of
+    them were in the unconditional inline paragraphs the
+    [two-layer split](neural-upscaler.md#two-layers-and-why-the-reduction-is-correct-now)
+    deleted, and the fourth said the game would be built with RANDOM weights,
+    which stopped being true of any project when the default net started
+    shipping.)
   - **DONE (corpus half): the training-shot plan is honoured by the trainer.**
     `blssscene::loadProject` now gates the six automatic moves on
     `Project::blssShots`, appends the author's own vantages, and carries a

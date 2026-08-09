@@ -16,6 +16,43 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.14.0 (the upscaler stops requiring a hacker): BLSS' user interface becomes
+// two layers. Project > Preferences now asks the three questions a person
+// switching the feature on actually has to answer - use it, which
+// reconstruction, which raster - and states ONE LINE of verdict measured by
+// blss::measureCoverage in about a second, with no network, no training and
+// nothing written to disk. Everything else - Train, Evaluate, Cross-validate,
+// Compare, Inputs, Training shots, Console probe - is behind an "Advanced..."
+// button and is UNCHANGED IN SUBSTANCE. None of that instrumentation is
+// deleted: every performance and quality number this feature has published came
+// out of it, and removing it would make the feature unfalsifiable. It simply
+// stops being what a user meets.
+//
+// The reduction is a consequence of plain mode and would have been wrong before
+// it. Until 1.12.0, BLSS MEANT "fit a network to your scene", so the window had
+// to be the whole feature. It is not the mainstream path any more: plain mode's
+// break-even is 2.6 full-screen coverages against the neural path's 13.1, a
+// trained default network ships embedded in the editor so no project is built
+// with random weights, and on every project measured that net chooses nothing
+// anyway (all three outputs 0.000, one bilinear pass). So training is genuinely
+// advanced, and the ordinary interaction is a checkbox, a mode and a sentence.
+//
+// A SIMPLER UI MUST NOT BECOME A MORE CONFIDENT ONE, which is the specific
+// failure this had to avoid: the one-line verdict goes through the same
+// blssui::speedFrom() / blssui::recommend() the window's own answer does, so
+// "TOO CLOSE TO CALL" still quotes no multiplier when the estimate is inside
+// what the counter cannot see, the picture half is still named as UNMEASURED
+// rather than assumed absent, and the emitter share is still labelled estimated
+// rather than counted. The dialog also states, once and where it is being done,
+// what MIXING costs: a project whose scenes disagree pins the z buffer at the
+// full display raster and gives up the memory saving (measured free heap at
+// 512x512: 0.375 MB native, 0.875 MB uniform, 0.125 MB mixed).
+//
+// MINOR: a capability appears - the project's speed verdict is reachable from
+// Preferences, and project::blssUse() can now answer for a project default a
+// modal has not committed yet - while no default moves and the format does not
+// change (still v13, no migration step).
+//
 // 1.13.0 (the upscaler is a property of a SCENE): BLSS gains a per-scene
 // override - SceneOverrides::upscaler, format v13 - carrying blssEnabled and
 // blssNetwork. A scene with a portal can refuse the upscaler while the scene
@@ -129,7 +166,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 13
+#define TYRAX_VERSION_MINOR 14
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

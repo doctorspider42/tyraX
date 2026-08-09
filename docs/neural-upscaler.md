@@ -1551,16 +1551,73 @@ to stdout). The network is 123 floats, so it is a header, not an asset.
 
 ## Using it
 
-**Everything below is reachable from *Tools ▸ Neural Upscaler (BLSS)*** — training,
-evaluation, cross-validation, the comparison renders, the channel report and the
-emit step, none of which used to exist outside a terminal. The five project
-settings live there too, on a *Project settings* tab, and are mirrored in
-*Project ▸ Preferences ▸ Neural upscaler (BLSS)*. Off by default.
+The interface is **two layers**, and which one you meet depends on what you are
+trying to do. *Project ▸ Preferences ▸ Neural upscaler (BLSS)* asks the three
+questions that decide whether to ship the feature and states one line of verdict
+about your own scenes. *Tools ▸ Neural Upscaler (BLSS)* — behind an
+`Advanced…` button in that block — is everything else: training, evaluation,
+cross-validation, the comparison renders, the channel report, the console probe
+and the emit step. Off by default.
 
-**Start with the one button above the tabs — `Will this scene benefit?`** It
-needs no trained network and it is the only step that can tell you not to bother.
-Everything else in the window is worth doing only after it says there is
-headroom.
+### Two layers, and why the reduction is correct *now*
+
+**Layer 1 — Preferences.** What a user has to decide, and nothing else:
+
+| control | question it answers |
+|---|---|
+| **Use the upscaler** | does the 3D scene render smaller? (the project default; a scene can override it) |
+| **Mode** | Plain or Neural — what blows it back up |
+| **Render scale** | `2×2` or `1×2`, with the live GS-VRAM line under it |
+| **Will the frames get shorter?** | one line of verdict, measured, about a second |
+
+…plus the [clash block](#the-project-settings) naming the scenes that would
+refuse the build and the local remedy for each, the note saying how many scenes
+override the setting themselves, [what mixing costs](#what-it-costs) when they
+disagree, and `Advanced…`.
+
+**Layer 2 — the window, unchanged in substance.** Training, Evaluate,
+Cross-validate, Compare, Inputs, Training shots, Console probe, and the same
+settings block one level deeper with the four network knobs under a *Tuning the
+network* heading. **None of that instrumentation was deleted, deliberately.**
+Every performance and quality number on this page came out of it; removing it
+would make the feature unfalsifiable. It simply stopped being what a user meets
+when they want to switch the feature on.
+
+**The split would have been wrong a month ago and is right now**, and that is
+the whole argument for it. Until [plain mode](#plain-mode--the-reduced-raster-without-the-network)
+landed, BLSS *meant* "fit a network to your scene", so the window had to be the
+feature. It is not the mainstream path any more:
+
+- plain mode's break-even is **2.6** full-screen coverages against the neural
+  path's **13.1**, so most scenes with any overdraw want plain;
+- a **trained default network ships embedded in the editor**
+  ([the net that ships](#the-net-that-ships)), so a project with no net of its
+  own is no longer built with random weights;
+- on every project measured, that net **chooses nothing anyway** — all three
+  outputs quantise under the deadzone, `BLSSFILL` reports 1.00 passes.
+
+So the ordinary interaction is: tick a box, pick plain, read one line. Training
+is genuinely advanced.
+
+**A simpler UI must not become a more confident one**, which is the specific
+failure this had to avoid. The Preferences verdict is produced by the *same*
+`blssui::speedFrom()` / `blssui::recommend()` the window's own answer goes
+through — pure functions of their inputs, living beside the parsers in
+`blss_ui.cpp` precisely so a harness can walk every branch
+([Evaluate answers the question in words](#evaluate-answers-the-question-in-words-before-the-table))
+— so every refusal to reassure survives the reduction verbatim: **TOO CLOSE TO
+CALL** with no multiplier quoted when the estimate is inside what the counter
+cannot see, the picture half named as **unmeasured** rather than assumed absent,
+and the emitter share labelled **estimated** rather than counted. It states the
+speed half and nothing about quality, because quality needs a corpus render and
+[cannot be claimed at all on a project with emitters](#the-corpus-renderer-draws-no-emitters).
+
+**Start with `Will the frames get shorter?`.** It runs
+[`blss::measureCoverage`](#the-overdraw-count-is-an-index-and-the-camera-theory-of-its-gap-is-dead)
+in-process, takes about a second, needs no network and no training, and writes
+nothing. It re-prices live when you change the **Mode** — the two break-evens
+are more than four times apart, so a verdict frozen at the mode the count
+finished under would be wrong by a factor of five the moment the combo moved.
 
 ### The window
 
@@ -1577,8 +1634,12 @@ says so; it never invents a row.
 
 #### The header: one button that answers the only question most people have
 
-Above the tabs, under the corpus switch, is **`Will this scene benefit?`** — one
-click, no network needed, and it is worth more than every tab under it.
+Above the tabs, under the corpus switch, is **`Will the picture improve?`** — one
+click, no network needed, and it is worth more than every tab under it. (It is
+one of three now — the other two are `Will the frame get faster?`, whose
+Preferences twin is described in [Two layers](#two-layers-and-why-the-reduction-is-correct-now),
+and `Is the corpus good enough?` — and their combined answer is drawn under
+them.)
 
 It runs `--blss-eval` **with no `-i`**, which needs no `blss.net` at all
 ([net-free evaluation](#what-blss-eval-prints-for-a-machine-to-read)), and states
@@ -1975,62 +2036,47 @@ controls nobody could stand behind at the time.
 
 ### The project settings
 
-| Setting | Meaning |
-|---|---|
-| **Enabled** | render the 3D scene at reduced resolution and reconstruct |
-| **Scale** | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so). **Two entries and not more, on purpose**: the tool can now sweep any raster scale (`--scale WxH`) and [going below half resolution was measured and declined](#below-half-resolution-swept) — the picture loses up to 2.6 dB for a break-even that barely moves |
-| **Reconstruction** | **Neural** (the per-tile network) or **Plain** — one bilinear pass, no network, 0.52 ms of EE instead of 4.60 and a break-even of 2.6 coverages instead of 13.1, with the VRAM saving and the picture unchanged whenever the network asks for nothing. [Plain mode](#plain-mode--the-reduced-raster-without-the-network). Its own switch rather than a third value of the two rows above, because it is a third question: *Enabled* asks whether the raster shrinks, *Scale* by how much, this asks what blows it back up. Picking Plain greys the four rows below it — every one of them is a knob on the network |
-| **Sharpen strength** | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
-| **Temporal** | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
-| **Debug view** | three entries: **0** off, **1** tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen), **2** log the feature spread to the game's `bin/log.txt` and leave the picture alone — [the instrument](#the-instrument-that-found-it-and-it-stays-this-time) |
+There are seven, and **three of them are in Preferences and four are not**. The
+split is the whole point of [the two layers](#two-layers-and-why-the-reduction-is-correct-now):
+the first three decide whether to ship the feature, the last four tune a network,
+and a user who never trains one never sees them.
 
-Ticking **Enabled** also puts two notes under the checkbox, and both are there
-because a user should not have to discover them from a broken build.
+| Setting | Layer | Meaning |
+|---|---|---|
+| **Use the upscaler** | Preferences | render the 3D scene at reduced resolution and reconstruct. The project **default** — a scene can [override it](#per-scene) |
+| **Mode** | Preferences | **Plain** — one bilinear pass, no network, 0.52 ms of EE instead of 4.60 and a break-even of 2.6 coverages instead of 13.1, with the VRAM saving and the picture unchanged whenever the network asks for nothing ([plain mode](#plain-mode--the-reduced-raster-without-the-network)) — or **Neural**, the per-tile network. Its own switch rather than a third value of the row above, because it is a third question: *use it* asks whether the raster shrinks, *scale* by how much, this asks what blows it back up. Picking Plain greys the four network rows |
+| **Render scale** | Preferences | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so). **Two entries and not more, on purpose**: the tool can now sweep any raster scale (`--scale WxH`) and [going below half resolution was measured and declined](#below-half-resolution-swept) — the picture loses up to 2.6 dB for a break-even that barely moves |
+| **Sharpen strength** | window | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
+| **Temporal reuse** | window | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
+| **Sub-pixel jitter** | window | the samples the temporal pass averages. Not a runtime switch — flipping it makes an existing `blss.net` stale |
+| **Debug view** | window | three entries: **0** off, **1** tint the frame by the winning kernel per tile (red = point, green = temporal, blue = sharpen), **2** log the feature spread to the game's `bin/log.txt` and leave the picture alone — [the instrument](#the-instrument-that-found-it-and-it-stays-this-time) |
 
-The **standing** one no longer leads with a bestiary decibel, and that was the
-point of rewriting it. It used to open with **+0.40 dB / 5 of 39** — a number
-about a corpus nobody ships, one re-run stale
-([+0.42 dB / 3 of 39](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
-is what this page measures), and the *first* thing a user read. It now opens with
-the three facts that decide anything: a bestiary-trained net measured **−0.40 dB
-on a real project**, the same trainer fitted to that project's own scenes
-measured **+0.06** against a ceiling of **+0.77**, and **some scenes have no
-ceiling at all** — on `examples/showcase` the oracle itself is +0.02 dB, which
-the window's Evaluate tab will tell you in one line. The bestiary figure is still
-in the tooltip, further down, labelled as a number about the bestiary. It ends
-where it always did — except that the ending is now a measurement rather than an
-absence: a BLSS frame on a real PS2 cost **+9.83 ms and saved nothing**
-([profiling.md](profiling.md#timing-a-frame-that-blss-is-in)).
+Both layers draw the block from **one function** (`App::drawBlssSettings`, with a
+`BlssDetail` parameter deciding how far down it runs), so there is one copy of
+every widget, one copy of every tooltip and one mirror of the build interlock. A
+tooltip is one string whose long half is *appended* at the window's level rather
+than rewritten, so the short and the long form cannot disagree about a number.
 
-> These are **strings in `drawBlssSettings`, not computed values**, so they have
-> to be edited whenever a table on this page is. **Four known drifts today**, all
-> in the window's copy and none in the numbers below:
->
-> 1. the tooltip quotes the fold spread as **sd 0.40**; the re-run in
->    [Measured](#the-out-of-distribution-number-and-how-to-get-one-that-means-something)
->    reads **0.34**;
-> 2. the standing note's three facts are the **−0.40 / +0.06 / +0.77** row, which
->    is [retracted](#first-the-040-db-re-measured-and-the-ceiling-next-to-it-was-a-different-sampler) —
->    it had two samplers in it. At one sampler the same scene reads
->    −0.48 / −0.00 / +0.345;
-> 3. the bestiary radio button's subtitle carries that same **−0.40 dB**; the
->    generalised figure is **−0.34 dB mean over seven projects, −1.09 at worst**,
->    and the actionable sentence is that the bestiary belongs *in* a corpus, not
->    *as* one;
-> 4. **"Project network: none — the game will be built with RANDOM weights"** is
->    no longer true of any project: the bake falls back to
->    [the net that ships](#the-net-that-ships).
->
-> They are listed rather than fixed here because they are UI text, and this page
-> is not where UI text lives.
+**The prose that used to sit inline is gone, and the four drifts recorded here
+went with it.** This section used to list four numbers that had gone stale in
+`drawBlssSettings`' unconditional `TextColored` paragraphs — a `sd 0.40` that had
+been re-measured at 0.34, a retracted `−0.40 / +0.06 / +0.77` row that had two
+samplers in it, the same −0.40 on the bestiary radio button, and a *"the game
+will be built with RANDOM weights"* line that stopped being true of any project
+when [the default net](#the-net-that-ships) started shipping. They were listed
+rather than fixed because they were UI text. The reduction deleted the paragraphs
+that carried three of them outright; what survives is in tooltips, opt-in, and
+carries the figures this page measures.
 
-The **conditional** one lists whichever of **depth of field / portals /
+#### The clash block
+
+Under the three controls is whichever of **depth of field / portals /
 split-screen** *this project actually uses* — the pattern is "warn only about the
 conflict you really have". Since `332f3193` the build refuses the same
 combination, so the dialog and the build must agree, and the dialog asks the
 build's four questions verbatim (`blssClashes()` in `src/templates.cpp` is the
-source of truth; the dialog mirrors it because it has to answer for the *staged*
-settings, live, while the modal is open):
+source of truth; `App::blssClashesFor` mirrors it because it has to answer for
+the *staged* settings, live, while the modal is open):
 
 | the dialog warns when | it used to |
 |---|---|
@@ -2041,6 +2087,38 @@ settings, live, while the modal is open):
 
 Reflections, camera feeds and projected shadows are **not** on that list; they
 nest correctly now.
+
+Each cause is named with its **scene**, its numbers and a `Select it` /
+`Go to the scene` button, because "a `Set Depth Of Field` flow node turns it on
+at runtime" is not actionable on a ten-scene project and the walk that found it
+had the scene and the object in hand.
+
+> **The informational form was unreachable, and that is worth knowing because it
+> looked correct.** The block is styled as a *warning* when a scene resolves the
+> upscaler on ("the BUILD WILL REFUSE this project") and as a *note* when none
+> does ("if you turn this on, the build will refuse it") — and the reader who
+> most needs it is the second one. But `blssClashesFor` skips any scene that
+> resolves the upscaler **off**, correctly, since such a scene cannot clash — so
+> on a project with the feature off it came back empty and the note was never
+> drawn at all. It takes an `assumeProjectDefaultOn` flag now, set exactly when
+> the caller is about to label the block informational: scenes that *inherit* the
+> default are walked as though it were on, while a scene that **explicitly**
+> overrides to off is still skipped, because turning the project default on does
+> not turn that scene on. With the flag false it answers the build's question
+> verbatim, which is the property that makes it a mirror rather than a second
+> interlock.
+
+#### What mixing costs, said where mixing is done
+
+When the scenes disagree, Preferences states the price in the block itself —
+0.375 MB free texture heap native, 0.875 MB upscaled throughout, **0.125 MB
+mixed** at 512×512 ([the measurement](#what-it-costs)) — because that is the one
+cost of the per-scene switch and it is invisible everywhere else. It is asked of
+the **staged** settings, so ticking the box can flip the line while the modal is
+still open: `project::blssUse(p, defaults)` is the overload that answers "does
+this project mix" for a project default the modal has not committed yet, and it
+is the same function codegen and the build interlock read, so none of them can
+decide it differently.
 
 ## Measured
 

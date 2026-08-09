@@ -22,7 +22,11 @@ and a triangle has to exceed ~288 px before its halved version is still
 fill-bound at all.
 
 The editor will tell you where a scene sits on that line before you build
-anything: *Tools > Neural Upscaler (BLSS)* > **Will the frame get faster?**, or
+anything, and you no longer have to open the window for it: *Project >
+Preferences > Neural upscaler (BLSS)* > **Will the frames get shorter?** states
+the verdict in one line beside the three settings that decide whether to ship the
+feature. The same measurement is *Tools > Neural Upscaler (BLSS)* > **Will the
+frame get faster?** — where it comes with the picture half beside it — or
 headlessly `tyrax-editor --blss-coverage <this folder>`. It reads **72.23
 coverages** here (p95 93.32) — **0.96 of geometry and 71.27 of haze**.
 

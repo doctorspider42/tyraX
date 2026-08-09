@@ -13740,25 +13740,42 @@ void App::drawPreferencesModal() {
              "if any, tiles across it - set the tiling on the material's\n"
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
-    // The neural upscaler (docs/neural-upscaler.md). Project-wide and baked at
-    // build time, like custom screen effects: no per-scene override, no flow
-    // node. Off by default and honest about the trade in every tooltip.
+    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
+    // decisions a person switching the feature on has to make, and nothing
+    // else. What a user meets here is a checkbox, a mode, a raster and one line
+    // saying which side of the measured break-even this project falls on; the
+    // training, evaluation, cross-validation and instrumentation are behind the
+    // Advanced button and stay exactly as they were.
     //
-    // The widgets, the tooltips AND the build-interlock warning live in
-    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws exactly the
-    // same block. They used to be inlined here, which made this dialog the one
-    // mirror of templates.cpp's blssClashes(); a second window would have made
-    // it two mirrors, and two mirrors of an interlock drift the day either is
-    // touched. The staged settings go in, so the warning answers for what the
-    // modal will apply and not for what is on disk.
+    // The reduction is a consequence of plain mode rather than a tidy-up. Until
+    // that landed BLSS MEANT "fit a network to your scene", so the window had to
+    // be the whole feature - but plain mode's break-even is 2.6 coverages
+    // against the neural path's 13.1, a trained net ships embedded in the
+    // editor, and on every project measured that net chooses nothing anyway. So
+    // training is genuinely advanced, and the ordinary interaction is three
+    // controls and a sentence.
+    //
+    // The widgets, the tooltips AND the build-interlock warning still live in
+    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
+    // block one level deeper. They were inlined here once, which made this
+    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
+    // would have made it two mirrors, and two mirrors of an interlock drift the
+    // day either is touched. The staged settings go in, so both the warning and
+    // the verdict answer for what the modal will apply and not for what is on
+    // disk.
     ImGui::SeparatorText("Neural upscaler (BLSS)");
-    drawBlssSettings(prefSettings_);
-    if (ImGui::SmallButton("Open Tools > Neural Upscaler (BLSS)")) showBlss_ = true;
+    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0))) showBlss_ = true;
     prefHelp(
-        "Train the network, cross-validate it, look at the pictures it makes\n"
-        "and at what its input channels look like - everything --blss-train,\n"
-        "--blss-eval and --blss-emit do, without a terminal, on a worker that\n"
-        "leaves the editor usable.");
+        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
+        "cross-validate it, look at the pictures it makes and at what its input\n"
+        "channels look like, and place a console-measured feature vector inside\n"
+        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
+        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
+        "usable.\n"
+        "\n"
+        "None of it is needed to USE the feature. A trained network ships with\n"
+        "the editor, and in the plain mode above there is no network at all.");
 
     ImGui::SeparatorText("AI navigation");
     ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
@@ -14575,24 +14592,42 @@ void App::drawScenePreferencesModal() {
     // Project > Preferences because one project ships one net and its
     // provenance records the scale and the sampler that net was fitted for.
     category("Neural upscaler (BLSS)", ov.upscaler, [&] {
-        ImGui::Checkbox("Reconstruct from a reduced-resolution render",
-                        &s.blssEnabled);
+        // THE SAME TWO CONTROLS, WORDED THE SAME WAY, as the Essentials layer of
+        // Project > Preferences (drawBlssSettings). A per-scene override is a
+        // mechanism users already know from the five categories above it, and
+        // the one thing that would make it feel like a new one is asking the
+        // same question in different words - this said "Reconstruct from a
+        // reduced-resolution render" while Preferences said "Use the upscaler".
+        // Identical labels in two different windows are not an ImGui ID clash
+        // (a window is the scope), and `--ui-script` reaches either by naming
+        // its window.
+        ImGui::Checkbox("Use the upscaler", &s.blssEnabled);
         ImGui::BeginDisabled(!s.blssEnabled);
-        ImGui::Checkbox("Reconstruct with the neural network", &s.blssNetwork);
+        {
+            int mode = s.blssNetwork ? 1 : 0;
+            const char* modeNames[] = {
+                "Plain - one bilinear pass, no network (far cheaper)",
+                "Neural - a network picks a reconstruction per 32x32 tile"};
+            ImGui::SetNextItemWidth(scaled(360));
+            if (ImGui::Combo("Mode", &mode, modeNames, 2)) s.blssNetwork = mode == 1;
+        }
         ImGui::EndDisabled();
         ImGui::TextDisabled(
-            "Everything else about the upscaler - the scale, the jitter, the\n"
-            "sharpen and temporal knobs - stays in Project > Preferences: one\n"
-            "project ships one blss.net and it was fitted for one of each.");
+            "Everything else about the upscaler - the render scale, the jitter,\n"
+            "the sharpen and temporal knobs - stays in Project > Preferences:\n"
+            "one project ships one blss.net and it was fitted for one of each.");
         // The whole point of the per-scene setting, said where the decision is
-        // made: a scene that clashes can drop the upscaler on its own.
-        if (project_.scenes.size() > 1 && !project_.settings.blssEnabled &&
-            s.blssEnabled && ov.upscaler)
+        // made: a scene that clashes can drop the upscaler on its own. What
+        // mixing COSTS is stated in Project > Preferences, which is the one
+        // place that can see every scene at once and therefore the only place
+        // that can tell whether this project mixes at all.
+        if (project_.scenes.size() > 1 && ov.upscaler &&
+            s.blssEnabled != project_.settings.blssEnabled)
             ImGui::TextDisabled(
-                "The project default is OFF, so this turns it on for this scene\n"
-                "alone. Mixing costs the z-buffer saving: a project whose scenes\n"
-                "disagree keeps the low-res target as overhead (224 KB at 2x2 on\n"
-                "a 512x448 output) instead of trading it for 672 KB of z.");
+                "The project default is %s, so this scene disagrees with it.\n"
+                "A project whose scenes disagree gives up the memory saving -\n"
+                "Project > Preferences says what that costs, measured.",
+                project_.settings.blssEnabled ? "ON" : "OFF");
     }, "Override the upscaler for this scene");
 
     ImGui::EndChild();

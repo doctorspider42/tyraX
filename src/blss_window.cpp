@@ -247,7 +247,8 @@ bool splitFrames(const std::vector<PlannedShot>& plan, int budget, std::vector<i
 
 // --- the five project settings, drawn from ONE place -------------------------
 
-App::BlssClash App::blssClashesFor(const ProjectSettings& staged) const {
+App::BlssClash App::blssClashesFor(const ProjectSettings& staged,
+                                   bool assumeProjectDefaultOn) const {
     // THESE ARE THE BUILD'S OWN CONDITIONS. blssClashes() in src/templates.cpp
     // emits a #error into inc/scene_data.hpp for each of them, so the build
     // REFUSES the combination - this is the early warning that stops someone
@@ -297,8 +298,22 @@ App::BlssClash App::blssClashesFor(const ProjectSettings& staged) const {
         // that is doing no harm. Resolved against the STAGED project default,
         // which is what project::resolvedSettings would use if the modal's
         // edits were already committed.
-        if (!(sc.overrides.upscaler ? sc.settings.blssEnabled : staged.blssEnabled))
-            continue;
+        //
+        // ...EXCEPT WHEN THE QUESTION IS "WHAT IF I TURNED IT ON", which is the
+        // one the reader of a switched-off project has. `assumeProjectDefaultOn`
+        // walks the scenes that INHERIT the default as though it were on, and
+        // that is not a second interlock: with it false this answers the
+        // build's question verbatim, and the caller passes it exactly when it
+        // is about to label the block informational. Without it the whole
+        // informational branch was unreachable - a project with the feature off
+        // has no scene resolving on, so blssClashesFor() came back empty and a
+        // person deciding whether to switch it on was shown nothing at all,
+        // which is the state that block was written to fix. A scene that
+        // EXPLICITLY overrides to off is still skipped: turning the project
+        // default on does not turn that scene on, so it genuinely cannot clash.
+        const bool on = sc.overrides.upscaler ? sc.settings.blssEnabled
+                                              : (assumeProjectDefaultOn || staged.blssEnabled);
+        if (!on) continue;
         const auto ref = [&](int obj, const std::string& what) {
             BlssClashRef r;
             r.scene = (int)si;
@@ -514,28 +529,155 @@ std::string App::blssVramLine(const ProjectSettings& s) const {
     return buf;
 }
 
-bool App::drawBlssSettings(ProjectSettings& s) {
-    // ONE definition of the five settings and their tooltips, drawn by both
-    // Project > Preferences (against the staged prefSettings_) and this window
-    // (against the live project). Two copies of this block is how a warning
-    // regresses on one side only.
-    bool changed = false;
-    if (ImGui::Checkbox("Reconstruct from a reduced-resolution render", &s.blssEnabled))
-        changed = true;
+// THE SPEED HALF, PRICED FOR SETTINGS THAT MAY NOT BE COMMITTED YET. The two
+// reconstructions' break-evens are more than four times apart, so a Preferences
+// dialog whose reader has just flipped Plain/Neural must re-price rather than
+// echo whatever the last measurement was priced at. Pure in (blssCov_, mode),
+// so re-deriving it every frame cannot make the answer shimmer.
+blssui::SpeedEstimate App::blssSpeedFor(const ProjectSettings& s) const {
+    if (!blssCov_.ok) return blssui::SpeedEstimate{};
+    // The raster the report was COUNTED at, echoed back on the report itself -
+    // never re-derived from the display mode, or the window and this would each
+    // have their own idea of the screen a number was measured against.
+    return blssui::speedFrom(blssCov_.mean, (double)blssCov_.outW * blssCov_.outH, s.blssNetwork);
+}
+
+// ONE LINE OF VERDICT, and the rule it exists under is that a SIMPLER UI MUST
+// NOT BECOME A MORE CONFIDENT ONE. Everything decided here is decided by
+// blssui::recommend() over blssui::speedFrom(), the same pure functions the
+// window's own answer goes through, so all three refusals to reassure survive
+// the reduction verbatim: "TOO CLOSE TO CALL" with no multiplier quoted when
+// the estimate is inside what the counter admits it cannot see, the picture
+// half named as UNMEASURED rather than assumed absent, and the emitter share
+// stated as estimated rather than counted.
+void App::drawBlssSpeedAnswer(const ProjectSettings& staged) {
+    const ImVec4 bad(1.0f, 0.45f, 0.35f, 1.0f), warn(1.0f, 0.75f, 0.35f, 1.0f),
+        good(0.45f, 0.85f, 0.45f, 1.0f);
+    // NO APOSTROPHE IN THE LABEL, and it is not a style preference: an ImGui
+    // label IS its id and it is what `--ui-script` targets, whose tokenizer
+    // opens a quoted run on a single quote at a token boundary - so a button
+    // called "Will this project's frames get shorter?" cannot be named by a
+    // script at all. It is also deliberately NOT the window's own "Will the
+    // frame get faster?": both can be on screen at once (this modal over that
+    // window) and `find` takes the first match.
+    ImGui::BeginDisabled(blssCovRunning_.load() || !hasProject_);
+    if (ImGui::Button("Will the frames get shorter?", ImVec2(scaled(280.0f), 0)))
+        blssStartCoverage();
+    ImGui::EndDisabled();
     prefHelp(
-        "Renders the 3D SCENE at reduced resolution into its own GS target,\n"
-        "then reconstructs the display buffer from it: a small neural network\n"
-        "trained on the host picks, per 32x32 screen tile, how much crisp\n"
-        "point sampling, previous frame and sharpening to blend. The HUD,\n"
-        "the menus, the text and every post effect still draw at FULL\n"
-        "resolution, so 2D stays crisp.\n"
+        "Counts how many times over this project's own scenes paint the screen\n"
+        "and puts that against the break-even measured on a real PS2. About a\n"
+        "second, no network, no training, nothing written to disk.\n"
         "\n"
-        "A TRAINED NETWORK SHIPS WITH THE EDITOR, so a project with no\n"
-        "blss.net is built with that one rather than with random weights. It\n"
-        "was fitted on seven example projects AND the built-in bestiary (55\n"
-        "shots) and measured leave-one-PROJECT-out at +0.29 dB on a project it\n"
-        "has never seen, against +0.31 dB for that project's own net - a tie\n"
-        "inside fold sds of 0.37 and 0.34.\n"
+        "BLSS trades GS fill for EE work: it keeps 24.5 % of the scene's fill\n"
+        "and costs EE plus one composite pass. Where the line falls depends\n"
+        "entirely on the Reconstruction above - 13.1 full-screen coverages for\n"
+        "the neural mode against 2.6 for plain, at an ordinary PAL raster - so\n"
+        "the verdict re-prices the moment you change it.\n"
+        "\n"
+        "It is a FLOOR rather than a measurement: the sky dome, particle\n"
+        "lifetimes and anything a flow node turns on are not in it, and every\n"
+        "one of them can only make the real figure bigger. Read it as an\n"
+        "overdraw INDEX - on the one fixture where both instruments have run it\n"
+        "reads about 1.3x the console's blended-pass equivalents, at every load\n"
+        "from 1.5 to 79 coverages.\n"
+        "\n"
+        "It walks the project AS SAVED, not the unsaved edits in front of you -\n"
+        "it loads the scenes from disk the way the trainer and the build do. Save\n"
+        "first if you have just moved something that changes what the screen\n"
+        "paints. (The settings above are read live, so switching the mode\n"
+        "re-prices the answer without re-counting anything.)\n"
+        "\n"
+        "The same numbers without the GUI: `tyrax-editor --blss-coverage`.\n"
+        "Tools > Neural Upscaler (BLSS) adds the PICTURE half - whether there is\n"
+        "anything here to reconstruct at all - which this button does not ask.");
+    if (blssCovRunning_.load()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("counting overdraw... %.0f s", blssCovSeconds_);
+        return;
+    }
+    if (!blssCov_.ok) {
+        if (!blssCov_.err.empty())
+            ImGui::TextColored(warn, "    %s", blssCov_.err.c_str());
+        else
+            ImGui::TextDisabled(
+                "    Not measured. Until it is, whether this pays for itself on\n"
+                "    YOUR scenes is unknown - it is a large win on a frame with\n"
+                "    real overdraw and a straight loss on one without.");
+        return;
+    }
+    const blssui::SpeedEstimate sp = blssSpeedFor(staged);
+    // NO QUALITY TERM AT ALL HERE, and that is deliberate rather than an
+    // omission: the picture half needs a corpus render, it cannot state a
+    // verdict at all on a project with emitters (the corpus draws none), and
+    // inventing one from a coverage count would be exactly the confident wrong
+    // answer this feature has published five of. `recommend` is told so, and
+    // says "the picture half is unmeasured" in its own words.
+    const blssui::Recommendation rec =
+        blssui::recommend(blssui::EvalSummary{}, false, sp, true, staged.blssNetwork);
+    ImVec4 col = warn;
+    switch (rec.verdict) {
+        case blssui::Recommendation::Verdict::Off: col = bad; break;
+        case blssui::Recommendation::Verdict::SpeedOnly: col = good; break;
+        default: col = warn; break;  // Mixed is amber; a green "too close" reads as a yes
+    }
+    ImGui::TextColored(col, "    %s", rec.headline.c_str());
+    ImGui::TextWrapped("    %s", rec.why.c_str());
+    // The two halves of the count, because one is COUNTED and the other is
+    // MODELLED and a reader is entitled to know which is which.
+    ImGui::TextDisabled(
+        "    Mean %.1f coverages at this project's %dx%d raster, p95 %.1f -\n"
+        "    geometry %.1f counted plus emitters %.1f ESTIMATED. A floor: the\n"
+        "    sky dome and particle drift are not in it, and only the console\n"
+        "    settles it.",
+        blssCov_.mean, blssCov_.outW, blssCov_.outH, blssCov_.p95, blssCov_.geomMean,
+        blssCov_.emitMean);
+}
+
+bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
+    // ONE definition of the settings and their tooltips, drawn by both Project >
+    // Preferences (Essentials, against the staged prefSettings_) and this window
+    // (Everything, against the live project). Two copies of this block is how a
+    // warning regresses on one side only - which is the same argument that put
+    // the clash interlock in one function, and it now has to survive a UI that
+    // shows two different amounts of itself.
+    //
+    // `full` gates the LONG-FORM half of a tooltip and the inline prose, never
+    // the widgets a decision needs. A tooltip is therefore still one string with
+    // one lead paragraph, appended to rather than rewritten - so the short and
+    // the long form cannot disagree about a number.
+    const bool full = detail == BlssDetail::Everything;
+    const auto help = [&](const char* lead, const char* rest) {
+        if (!full || !rest || !*rest) {
+            prefHelp(lead);
+            return;
+        }
+        prefHelp((std::string(lead) + "\n\n" + rest).c_str());
+    };
+    bool changed = false;
+    if (ImGui::Checkbox("Use the upscaler", &s.blssEnabled)) changed = true;
+    help(
+        "Renders the 3D SCENE smaller and blows it back up to fill the display\n"
+        "buffer. The HUD, the menus, the text and every post effect still draw\n"
+        "at FULL resolution, so 2D stays crisp.\n"
+        "\n"
+        "It trades GS fill for EE work, so it is a large win on a frame with\n"
+        "real overdraw and a straight loss on one without - press the button\n"
+        "below and it will tell you which yours is. It also hands back GS VRAM,\n"
+        "because the z-buffer follows the smaller raster.\n"
+        "\n"
+        "Depth of field, portals and split-screen cannot be combined with it and\n"
+        "the BUILD REFUSES the pair, naming the scene. Anything this project\n"
+        "already uses is listed below, before you turn it on.\n"
+        "\n"
+        "This is the project DEFAULT; a scene can override it in Scene > Scene\n"
+        "Preferences > Neural upscaler (BLSS).",
+        "A TRAINED NETWORK SHIPS WITH THE EDITOR, so a project with no blss.net\n"
+        "is built with that one rather than with random weights. It was fitted\n"
+        "on seven example projects AND the built-in bestiary (55 shots) and\n"
+        "measured leave-one-PROJECT-out at +0.29 dB on a project it has never\n"
+        "seen, against +0.31 dB for that project's own net - a tie inside fold\n"
+        "sds of 0.37 and 0.34.\n"
         "\n"
         "Training on your own scenes still reaches the highest number of all\n"
         "(+0.41 dB in distribution, which is what the console runs) and takes\n"
@@ -546,75 +688,180 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "bestiary and real projects together.\n"
         "\n"
         "AND SOME SCENES HAVE NOTHING TO WIN. On examples/showcase the ORACLE\n"
-        "itself - the best any per-tile weighting can do - scores +0.02 dB at\n"
+        "itself - the best any per-tile weighting can do - scores +0.00 dB at\n"
         "1.00 passes: soft ground texture, low-poly props, nothing that\n"
-        "aliases. Run the window's Evaluate tab on your project BEFORE turning\n"
-        "this on; it says so in one line.\n"
+        "aliases. The Evaluate tab says so in one line, and on a project with\n"
+        "particle emitters it refuses to say it at all, because the corpus\n"
+        "renderer draws none of them.\n"
         "\n"
-        "On the built-in corpus, held out shot by shot, it is +0.41 dB (13\n"
-        "shots x 3 seeds = 39 fold-runs, sd 0.34, 3 of the 39 below bilinear,\n"
-        "re-run at the activation table that ships) - but that is a number\n"
-        "about the bestiary, not about your game.\n"
-        "\n"
-        "IT HAS A REGIME, AND BOTH SIDES OF IT ARE MEASURED. The feature costs\n"
-        "4.60 ms of EE per frame and keeps only 24.5 % of the scene's GS fill\n"
-        "(the render is half in EACH axis, so a quarter of the pixels). At the\n"
-        "calibrated 0.587 ms per full-screen blended textured pass that is\n"
-        "break-even at 11.5 full-screen coverages. Both numbers are FITTED over\n"
-        "five load points on hardware, not assumed. On a real PS2:\n"
+        "IT HAS A REGIME, AND BOTH SIDES OF IT ARE MEASURED. In the neural mode\n"
+        "it costs 4.60 ms of EE per frame and keeps only 24.5 % of the scene's\n"
+        "GS fill (the render is half in EACH axis, so a quarter of the pixels).\n"
+        "At the calibrated 2.2524 ms per full-screen blended textured megapixel\n"
+        "that is break-even at 13.1 full-screen coverages on a 512x448 raster -\n"
+        "and at 2.6 in plain mode. Both terms are FITTED over five load points\n"
+        "on hardware, not assumed. On a real PS2:\n"
         "  examples/upscaler-lab, 58.7 coverages: 52.95 -> 32.42 ms, 1.63x\n"
         "    (that fixture's geometry as of 2026-08-09 - its fill is unchanged\n"
         "     since, its EE is ~4 ms cheaper, and the re-run is owed)\n"
         "  blssrig, a handful of coverages:       9.42 -> 19.25 ms, a loss\n"
-        "'Will the frame get faster?' in Tools > Neural Upscaler (BLSS)\n"
-        "estimates YOUR scene's overdraw and says which side of that line it\n"
-        "falls on. No emulator number is admissible here - PCSX2 under-reports\n"
-        "GS fill by 76x.\n"
-        "\n"
-        "VRAM it gives back: the z-buffer shrinks with the render, which\n"
-        "returns more than the reduced-resolution target costs - 448 KB at 2x2\n"
-        "on a 512x448 output, and EXACTLY ZERO at 1x2, where the low-res target\n"
-        "costs precisely what the z-buffer saves. Fill it costs back: 0.50 ms\n"
-        "of composite, measured on hardware, and up to five full-screen passes\n"
-        "when the network asks for every kernel everywhere.\n"
+        "No emulator number is admissible here - PCSX2 under-reports GS fill by\n"
+        "76x.\n"
         "\n"
         "Reflections, camera feeds and projected shadows work with it - they\n"
-        "used to switch it off in the middle of the frame. Depth of field,\n"
-        "portals and split-screen do not, and the BUILD REFUSES the pair: the\n"
-        "generated scene_data.hpp carries an #error naming the feature and the\n"
-        "scene it is in. The warning below is the same check, live.\n"
+        "used to switch it off in the middle of the frame.\n"
         "\n"
-        "Train the network in Tools > Neural Upscaler (BLSS), or with\n"
-        "'tyrax-editor --blss-train' in the project directory. Check it with\n"
-        "cross-validation, never with one split. Without a blss.net the game\n"
-        "is built with the net the editor ships and says which one it got in\n"
-        "its boot log.");
-    if (s.blssEnabled)
-        ImGui::TextColored(
-            ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-            "    A trained net ships with the editor, so this builds with that one until\n"
-            "    you train your own: +0.29 dB on a project it has never seen against\n"
-            "    +0.31 for that project's own net. Retraining here is worth a fraction of\n"
-            "    a dB on a scene that HAS a ceiling - and some scenes have none at all, on\n"
-            "    examples/showcase the oracle itself is +0.02 dB. Tools > Neural Upscaler\n"
-            "    (BLSS) answers 'will this scene benefit' in one line before you spend\n"
-            "    anything. On a frame with too little fill it also measured 9.83 ms a frame\n"
-            "    SLOWER (9.42 -> 19.25), and textured primitives and terrain can vanish\n"
-            "    with it on - both are open work.");
-    // Per-scene note (docs/neural-upscaler.md, "Per scene"): this checkbox is
-    // the project DEFAULT. Said here because the setting stopped being the
+        "Train the network in this window, or with 'tyrax-editor --blss-train'\n"
+        "in the project directory. Check it with cross-validation, never with\n"
+        "one split. Without a blss.net the game is built with the net the editor\n"
+        "ships and says which one it got in its boot log.");
+
+    ImGui::BeginDisabled(!s.blssEnabled);
+    {
+        // THE MODE, and it is the second question rather than the fifth. Until
+        // plain mode landed this sat under four network knobs, which put the
+        // one setting that decides whether the feature is for fog demos or for
+        // ordinary scenes below four settings that only exist for fog demos.
+        int mode = s.blssNetwork ? 1 : 0;
+        const char* modeNames[] = {
+            "Plain - one bilinear pass, no network (far cheaper)",
+            "Neural - a network picks a reconstruction per 32x32 tile"};
+        ImGui::SetNextItemWidth(scaled(520));
+        if (ImGui::Combo("Mode", &mode, modeNames, 2)) {
+            s.blssNetwork = mode == 1;
+            changed = true;
+        }
+        help(
+            "WHAT BLOWS THE REDUCED RENDER BACK UP, and it decides what this\n"
+            "feature costs by a factor of nine.\n"
+            "\n"
+            "Plain is one full-screen bilinear pass and nothing else. The scene\n"
+            "still renders at the reduced raster and the z-buffer still shrinks\n"
+            "with it, so the VRAM saving is UNCHANGED - it comes from the raster,\n"
+            "not from the network. Break-even: 2.6 coverages.\n"
+            "\n"
+            "Neural runs the trained MLP: per 32x32 output tile it chooses how\n"
+            "much crisp point sampling, reprojected previous frame and sharpening\n"
+            "to blend, and the frame pays 4.60 ms of EE to decide that against\n"
+            "plain mode's 0.52. Break-even: 13.1 coverages.\n"
+            "\n"
+            "MOST SCENES WANT PLAIN. On every project measured so far the trained\n"
+            "net already asks for nothing - all three outputs quantise under the\n"
+            "deadzone, BLSSFILL reports 1.00 passes, and the composite IS a single\n"
+            "bilinear pass. The picture is the same one either way; the frame just\n"
+            "stops paying to work that out.",
+            "The neural bill in full: the bag proxies (2.34 ms), the reprojection\n"
+            "(0.28), the feature grid (0.19), the MLP (0.78) and a 476-vertex\n"
+            "Gouraud packet (0.50), plus the 0.41 + 0.10 raster redirect that both\n"
+            "modes pay. Plain deletes the first five and collapses the packet to\n"
+            "one quad, which leaves 0.52 ms - and that floor is bigger than it\n"
+            "looks: it is two GS round trips, i.e. the price of rendering small at\n"
+            "all, and no amount of deleting decision machinery touches it.\n"
+            "\n"
+            "Pick Neural when the window's 'Will the picture improve?' reports a\n"
+            "real oracle ceiling AND the scene has enough fill to pay 13\n"
+            "coverages. Otherwise Plain: same picture, whole VRAM saving, and it\n"
+            "wins on any scene with meaningful overdraw.\n"
+            "\n"
+            "Plain mode also forces the sub-pixel jitter off. Nothing but the\n"
+            "temporal pass can fuse two jitter phases, and plain mode has no\n"
+            "temporal pass - jitter without one is the period-2 bob and nothing\n"
+            "else.");
+
+        int scale = s.blssScale == 1 ? 1 : 0;
+        // Deliberately no resolution in these labels. They used to read "(256x224
+        // of a PAL 512x448 frame)", which is a different frame from the one most
+        // projects boot in - and now sits directly above a line that states this
+        // project's real numbers, so the two would contradict each other.
+        const char* names[] = {
+            "2x2 - quarter the pixels",
+            "1x2 - half height only (keeps horizontal detail; cheaper to reconstruct)"};
+        ImGui::SetNextItemWidth(scaled(420));
+        if (ImGui::Combo("Render scale", &scale, names, 2)) {
+            s.blssScale = scale;
+            changed = true;
+        }
+        help(
+            "How much of the frame the GS actually rasterises. 2x2 quarters\n"
+            "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
+            "own interlaced-field mode already does to the raster - softer\n"
+            "vertically, untouched horizontally.\n"
+            "The z-buffer is allocated at THIS size, which is where the VRAM\n"
+            "saving comes from - the line under this combo works it out for\n"
+            "the display mode THIS project boots in, rather than quoting a\n"
+            "measurement taken at some other resolution.",
+            "Train the network at the scale you ship - the Train tab follows\n"
+            "this setting. A blss.net is a bare list of floats and records nothing\n"
+            "about how it was trained, so a mismatch costs quality without\n"
+            "saying anything - which is what the .meta sidecar beside it exists\n"
+            "to catch.");
+        // THE NUMBER FOR THIS PROJECT, live, under the control that decides it.
+        {
+            const std::string vram = blssVramLine(s);
+            if (!vram.empty()) {
+                if (s.blssScale == 1)
+                    // 1x2's saving is exactly zero and that is worth colour: it
+                    // is the one setting whose headline benefit is absent, and
+                    // neither the UI nor the docs ever said so.
+                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", vram.c_str());
+                else
+                    ImGui::TextDisabled("%s", vram.c_str());
+            }
+        }
+    }
+    ImGui::EndDisabled();
+
+    // THE ONE LINE THAT DECIDES IT, and it is above the per-scene notes and the
+    // clash block because it is the question the reader came with. Drawn whether
+    // the feature is on or off: somebody deciding whether to switch it on is
+    // exactly who needs it, which is the same argument that moved the clash
+    // block out of `if (s.blssEnabled)`.
+    //
+    // ESSENTIALS ONLY, because the window already answers it above the tabs -
+    // and answers it BETTER, with the picture half beside it. A second button
+    // running the same measurement, on screen at the same time as the first,
+    // would be two labels for one action and one more thing for `--ui-script`
+    // to pick the wrong one of.
+    if (!full) {
+        ImGui::Spacing();
+        drawBlssSpeedAnswer(s);
+        ImGui::Spacing();
+    }
+
+    // Per-scene note (docs/neural-upscaler.md, "Per scene"): the checkbox above
+    // is the project DEFAULT. Said here because the setting stopped being the
     // whole answer, and a reader looking at "off" while one scene has it on
     // would otherwise be reading a lie.
-    {
+    if (hasProject_) {
         int overriding = 0;
-        if (hasProject_)
-            for (const SceneData& sc : project_.scenes) overriding += sc.overrides.upscaler ? 1 : 0;
+        for (const SceneData& sc : project_.scenes) overriding += sc.overrides.upscaler ? 1 : 0;
         if (overriding > 0)
             ImGui::TextDisabled(
-                "    %d of this project's %d scenes override this in Scene > Scene\n"
-                "    Preferences > Neural upscaler and ignore the setting above.",
+                "    %d of this project's %d scenes answer the two questions above\n"
+                "    themselves, in Scene > Scene Preferences > Neural upscaler\n"
+                "    (BLSS), and ignore what is set here.",
                 overriding, (int)project_.scenes.size());
+        // WHAT MIXING COSTS, SAID ONCE, WHERE IT IS BEING DONE. A project whose
+        // scenes disagree pins the z buffer at the full display raster for the
+        // whole run - so the low-res target stays resident through the native
+        // scenes as pure overhead instead of being traded for a smaller z. It is
+        // the one price of the per-scene switch and it is invisible everywhere
+        // else. Asked of the STAGED defaults, so ticking the box above can flip
+        // this line while the modal is still open.
+        const project::BlssUse use = project::blssUse(project_, s);
+        if (use.mixed)
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                "    THIS PROJECT MIXES: some scenes upscale and some render at\n"
+                "    the full raster, so the z-buffer is pinned at the display\n"
+                "    size for the whole run and the memory saving is given up.\n"
+                "    Measured free texture heap at 512x512: 0.375 MB native,\n"
+                "    0.875 MB upscaled throughout, 0.125 MB mixed - i.e. 0.25 MB\n"
+                "    WORSE than never turning it on. Nothing else about mixing\n"
+                "    costs anything: zero evictions over ~1200 scene switches,\n"
+                "    and a native scene renders pixel-identical.");
     }
+
     // ALWAYS, not only when the feature is on. The person who most needs to
     // know that this project uses depth of field is the one deciding whether to
     // tick the box above; drawing it only for `s.blssEnabled` meant the answer
@@ -629,114 +876,26 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         if (hasProject_)
             for (const SceneData& sc : project_.scenes)
                 anyOn |= sc.overrides.upscaler ? sc.settings.blssEnabled : s.blssEnabled;
-        drawBlssClashWarning(blssClashesFor(s), !anyOn);
+        // With nothing on, ask the hypothetical - "what would refuse the build
+        // if you ticked the box above" - and say so in the block's own wording.
+        drawBlssClashWarning(blssClashesFor(s, /*assumeProjectDefaultOn=*/!anyOn), !anyOn);
     }
 
+    // EVERYTHING BELOW IS THE NETWORK'S, and a reader who never opens this
+    // window never sees it. Four knobs and a debug view that are meaningless
+    // without a training run behind them: the Essentials layer stops here.
+    if (!full) return changed;
+
+    ImGui::SeparatorText("Tuning the network");
     ImGui::BeginDisabled(!s.blssEnabled);
     {
-        int scale = s.blssScale == 1 ? 1 : 0;
-        // Deliberately no resolution in these labels. They used to read "(256x224
-        // of a PAL 512x448 frame)", which is a different frame from the one most
-        // projects boot in - and now sits directly above a line that states this
-        // project's real numbers, so the two would contradict each other.
-        const char* names[] = {
-            "2x2 - quarter the pixels",
-            "1x2 - half height only (keeps horizontal detail; cheaper to reconstruct)"};
-        ImGui::SetNextItemWidth(scaled(420));
-        if (ImGui::Combo("Render scale", &scale, names, 2)) {
-            s.blssScale = scale;
-            changed = true;
-        }
-        prefHelp(
-            "How much of the frame the GS actually rasterises. 2x2 quarters\n"
-            "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
-            "own interlaced-field mode already does to the raster - softer\n"
-            "vertically, untouched horizontally.\n"
-            "The z-buffer is allocated at THIS size, which is where the VRAM\n"
-            "saving comes from - the line under this combo works it out for\n"
-            "the display mode THIS project boots in, rather than quoting a\n"
-            "measurement taken at some other resolution.\n"
-            "Train the network at the scale you ship - the Train tab follows\n"
-            "this setting. A blss.net is a bare list of floats and records nothing\n"
-            "about how it was trained, so a mismatch costs quality without\n"
-            "saying anything.");
-        // THE NUMBER FOR THIS PROJECT, live, under the control that decides it.
-        {
-            const std::string vram = blssVramLine(s);
-            if (!vram.empty()) {
-                if (s.blssScale == 1)
-                    // 1x2's saving is exactly zero and that is worth colour: it
-                    // is the one setting whose headline benefit is absent, and
-                    // neither the UI nor the docs ever said so.
-                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", vram.c_str());
-                else
-                    ImGui::TextDisabled("%s", vram.c_str());
-            }
-        }
-
-        // THE MODE, directly under the raster it shares. Above the four knobs
-        // below it on purpose: every one of them is a knob on the network, so a
-        // reader who picks Plain here should see them go grey rather than tune
-        // four settings that do nothing.
-        {
-            int mode = s.blssNetwork ? 0 : 1;
-            const char* modeNames[] = {
-                "Neural - a network picks a reconstruction per 32x32 tile",
-                "Plain - one bilinear pass, no network (far cheaper, same picture "
-                "when the net chooses nothing)"};
-            ImGui::SetNextItemWidth(scaled(560));
-            if (ImGui::Combo("Reconstruction", &mode, modeNames, 2)) {
-                s.blssNetwork = mode == 0;
-                changed = true;
-            }
-            prefHelp(
-                "WHAT BLOWS THE REDUCED RENDER BACK UP, and it is the setting that\n"
-                "decides whether this feature is for fog demos or for ordinary\n"
-                "scenes.\n"
-                "\n"
-                "Neural runs the trained MLP: per 32x32 output tile it chooses how\n"
-                "much crisp point sampling, reprojected previous frame and\n"
-                "sharpening to blend, and the frame pays 4.60 ms of EE to decide\n"
-                "that - the bag proxies (2.34), the reprojection, the feature grid,\n"
-                "the MLP and a 476-vertex Gouraud packet.\n"
-                "\n"
-                "Plain runs none of it. The scene still renders at the reduced\n"
-                "raster, the z-buffer still shrinks with it (the VRAM saving is\n"
-                "UNCHANGED - it comes from the raster, not from the network), and\n"
-                "the display buffer is one full-screen bilinear pass.\n"
-                "\n"
-                "WHY PLAIN IS THE HONEST DEFAULT FOR MOST SCENES. On every project\n"
-                "measured so far the trained net already asks for nothing: all\n"
-                "three outputs quantise under the deadzone, BLSSFILL reports 1.00\n"
-                "passes, and the composite IS a single bilinear pass. The picture\n"
-                "is the same one either way - the frame just stops paying to work\n"
-                "that out.\n"
-                "\n"
-                "What it is worth, at this project's raster:\n"
-                "     EE a frame        neural 4.60 ms     plain 0.61 ms\n"
-                "     break-even        neural 13.1        plain 2.9 coverages\n"
-                "The floor plain mode cannot go below is the raster redirect\n"
-                "itself - two GS round-trips, 0.51 ms - which is a cost of\n"
-                "rendering small and not of the network.\n"
-                "\n"
-                "Pick Neural when 'Is there a picture to gain?' above reports a\n"
-                "real oracle ceiling AND the scene has enough fill to pay 13\n"
-                "coverages. Otherwise Plain: it is the same picture, it keeps the\n"
-                "whole VRAM saving, and it wins on any scene with meaningful\n"
-                "overdraw.\n"
-                "\n"
-                "Plain mode also forces the sub-pixel jitter off. Nothing but the\n"
-                "temporal pass can fuse two jitter phases, and plain mode has no\n"
-                "temporal pass - jitter without one is the period-2 bob and\n"
-                "nothing else.");
-            if (!s.blssNetwork)
-                ImGui::TextColored(
-                    ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-                    "    No blss.net is baked into the build and the four settings below do\n"
-                    "    nothing - the sharpen, temporal, jitter and debug-view knobs are all\n"
-                    "    knobs on the network. Training and evaluating still work: they answer\n"
-                    "    what the NEURAL mode would be worth on this scene.");
-        }
+        if (!s.blssNetwork)
+            ImGui::TextColored(
+                ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
+                "    Plain mode: no blss.net is baked into the build and the four settings below\n"
+                "    do nothing - sharpen, temporal, jitter and the debug view are all knobs on\n"
+                "    the network. Training and evaluating still work: they answer what the\n"
+                "    NEURAL mode would be worth on this scene.");
 
         ImGui::BeginDisabled(!s.blssNetwork);
         ImGui::SetNextItemWidth(scaled(120));
@@ -1178,6 +1337,15 @@ void App::blssPoll() {
     // The in-process half, polled from here for the same reason the subprocess
     // half is: a run that finishes while the window is shut still has to land.
     blssCoverageTick();
+    // THE PRICE IS RE-DERIVED EVERY FRAME, and it has to be, because the mode
+    // it is priced for is edited in this very window: the two reconstructions'
+    // break-evens are 13.1 and 2.6 at an ordinary PAL raster, so a verdict
+    // frozen at whatever the mode was when the count finished is wrong by a
+    // factor of five the moment somebody flips the combo. It is a pure function
+    // of (blssCov_, mode) - no rounding drift, no shimmer, nothing measured -
+    // and it is the SAME function Project > Preferences prices its own staged
+    // answer with, so the two windows cannot price one scene two ways.
+    blssSpeed_ = blssSpeedFor(project_.settings);
     // A different project means different everything: the net beside it, the
     // images it dumped, the tables measured against it. Detected here rather
     // than in the window body so the window cannot be opened onto the previous
@@ -1494,7 +1662,10 @@ void App::drawBlssWindow() {
         }
         if (ImGui::BeginTabItem("Project settings", nullptr, flag(kTabSettings))) {
             ImGui::Spacing();
-            if (drawBlssSettings(project_.settings)) commitChange();
+            // EVERYTHING, because this is the advanced layer. Project >
+            // Preferences draws the same block at BlssDetail::Essentials - the
+            // three decisions and the verdict, without the network's knobs.
+            if (drawBlssSettings(project_.settings, BlssDetail::Everything)) commitChange();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -1745,10 +1916,8 @@ void App::blssCoverageTick() {
     // very different side of a very different break-even; pricing both modes
     // with one constant is the same class of error as pricing two rasters with
     // one pass cost was.
-    blssSpeed_ = blssCov_.ok ? blssui::speedFrom(blssCov_.mean,
-                                                 (double)blssCov_.outW * blssCov_.outH,
-                                                 project_.settings.blssNetwork)
-                             : blssui::SpeedEstimate{};
+    // The estimate itself is re-derived every frame in blssPoll() - see there
+    // for why - so nothing about it is settled here.
     if (blssCov_.ok)
         statusMessage_ = "BLSS: coverage estimate finished";
     else if (!blssCov_.err.empty())
