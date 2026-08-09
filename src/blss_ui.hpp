@@ -428,9 +428,11 @@ namespace fill {
 constexpr double kKeptFraction = 0.2452;
 constexpr double kSavedFraction = 1.0 - kKeptFraction;  // 0.7548, fitted
 // One full-screen alpha-blended textured pass on hardware, its own draw_finish.
-// THE UNIT `coverages` IS COUNTED IN - see kAnchorCoverages for the 23.7 % gap
-// between it and what `--blss-coverage` reports, and why the material-weighting
-// theory of that gap is falsified.
+// THE UNIT `coverages` IS COUNTED IN - and it is per 512x512, not per pixel:
+// the probe that measured it sizes its sprite from the framebuffer and ran in a
+// PAL 576i fixture. See kAnchorCoverages for what that costs (14.3 % of a 34 %
+// over-read at 512x448), for the two theories of the rest that measurement has
+// already falsified, and for why nothing here has been rescaled.
 constexpr double kPassMs = 0.587;
 // BLSS' EE bill as shipped: proxy 2.34 + reproj 0.28 + feat 0.19 + net 0.78 +
 // pkt 0.50 + begin 0.41 + end 0.10.
@@ -453,12 +455,49 @@ constexpr double kCompositeGsMs = 0.50;
 // 13.93 gap. So there is no counter to teach - and nobody should start on the
 // weighted-coverage work in blsscorpus.cpp that this comment used to promise.
 //
-// THE LIVE EXPLANATION IS THE CAMERA. The hardware A/B ran the fixture's own
-// gameplay camera; the estimator averages six synthetic corpus shots spanning
-// 36.2 to 88.4 coverages, and one camera at 57.7 sits inside that spread. That
-// is a difference of VANTAGE, not of unit, and it would mean there is no
-// counter bug at all. Walk the coverage under the fixture's own camera before
-// rescaling anything.
+// THE CAMERA EXPLANATION IS ALSO FALSIFIED, and by the experiment that was
+// owed. It said the two instruments were looking at different frames - hardware
+// at the fixture's own gameplay camera, the estimator at a mean over six
+// synthetic moves spanning 36.2 to 88.4 - so a single camera near 57.7 would
+// have meant no counter bug at all. Measured 2026-08-09 with the shot plan the
+// window now authors (a still vantage at the parked FPP standpoint the A/B
+// sampled, eye (0, 1.8, 27) looking -Z, the plan's automatic moves switched off):
+//
+//   the fixture's own parked camera   78.99   (geometry 0.91 + emitters 78.09)
+//   its Cutscene Director tour        85.64
+//   the six-move mean                 72.63
+//
+// The game's own camera reads HIGHER than the corpus average, not lower. So the
+// over-read is real, it is bigger than recorded (34.6 % under the camera the
+// console actually ran), and the mechanism is not the vantage.
+//
+// WHERE IT IS, AND WHY IT IS NOT THE COUNTER'S GEOMETRY. Two measurements
+// locate it. (1) With the six haze banks switched off, that same camera counts
+// 1.55 coverages of geometry plus fire/smoke/rain against the hardware's <= 1.14
+// for the same content - the COUNTED half is right, and the whole residual is
+// the emitter term, which is modelled rather than counted. (2) Stepping the
+// banks 6/4/2/0 exactly as the hardware rig did gives 78.99 / 46.82 / 19.55 /
+// 1.55 counted against 58.70 / 37.17 / 15.40 / 1.14 measured - a ratio of
+// 1.35 / 1.26 / 1.27 / 1.36 across a fifty-fold range of load. A wrong pool
+// position or a wrong puff size could not hold a constant ratio over three
+// different bank subsets; a wrong PRICE PER COVERAGE does, and does.
+//
+// And part of that price is arithmetic rather than hypothesis: kPassMs was
+// measured by FrameProfile::gsFillProbe, which sizes its sprite from the CURRENT
+// FRAMEBUFFER, in a fixture running PAL 576i - so 0.5872 ms is per 512x512 =
+// 262 144 px, while a coverage out of measureCoverage is per the project's own
+// raster, 512x448 = 229 376 px for this fixture. Same ns/px, 14.3 % fewer
+// pixels: 0.5138 ms. That is 14 of the ~30 points. The rest (a counted haze
+// coverage costs 33.79 / 77.45 = 0.436 ms) is the puff fragment being cheaper
+// than the probe's: a 128-square texture magnified across the screen against a
+// 1:1 framebuffer blit, i.e. texture cache, which only a console can settle.
+//
+// NOTHING HAS BEEN RESCALED HERE. Expressing kPassMs per PIXEL is the honest
+// fix and it moves breakEven() (11.5 -> 13.1 at 512x448) and every published
+// figure that quotes it, in a page this file does not own - so it is written
+// down and owed, not applied. The UI says what the count is instead: an
+// overdraw INDEX that tracks the console's fill and over-states its scale by
+// about a third, which is what the headroom above the break-even has to absorb.
 constexpr double kAnchorCoverages = 58.7;
 constexpr double kAnchorSpeedup = 1.63;
 constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;

@@ -221,6 +221,27 @@ the verification, and any fact worth reusing belongs in the relevant
     -> 174, and the only feature channel that moves is `coverage` (0.631 ->
     0.638). A screen-area floor was considered and rejected: it can empty a
     distant bag entirely, which hands its tiles `coverage = 0`.
+  - **`kPassMs` is per 512x512, not per pixel, and expressing it properly is
+    owed.** `FrameProfile::gsFillProbe` sizes its calibration sprite from the
+    CURRENT FRAMEBUFFER and the fixture that measured it ran PAL 576i, so
+    **0.5872 ms is per 262 144 px** - while a coverage out of
+    `blss::measureCoverage` is per the PROJECT'S own raster (512x448 = 229 376 px
+    on `examples/upscaler-lab`, 448x448 on a progressive one). Same ns/px, 14.3 %
+    fewer pixels: **0.5138 ms**, which is 14 points of the 34 % the counter
+    over-reads there. The fix is `kPassMs` per PIXEL times the report's own
+    output size - but `speedFrom(coverages)` takes only a scalar, so it means a
+    signature change reaching `main.cpp`, and it moves `breakEven()` **11.5 ->
+    13.1** at 512x448 plus every published figure that quotes it (docs/profiling.md,
+    the example README, README.md). Land it as its own commit, with the two docs
+    it invalidates, not as a side effect. The REST of the gap (a counted haze
+    coverage costs 0.436 ms) is the puff fragment being cheaper per pixel than the
+    probe's 1:1 framebuffer blit and only a console settles it. **The camera
+    theory of that gap is dead** - measured under the fixture's own parked
+    gameplay camera the counter reads **78.99**, above the 72.63 six-move mean,
+    not the ~57.7 the theory predicted; the ratio to hardware is constant
+    (1.35 / 1.26 / 1.27 / 1.36) at 6 / 4 / 2 / 0 haze banks, i.e. proportional
+    and not a modelling error in where the puffs are. Tables in
+    docs/neural-upscaler.md, "The overdraw count is an INDEX".
   - **The proxy feed's own measurements are owed on hardware.** Everything in the
     round above was taken in PCSX2 (the console was off the LAN), which this repo
     admits for COUNTS and bit-identity and refuses for attribution. Owed: the

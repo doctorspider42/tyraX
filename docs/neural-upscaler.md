@@ -1209,6 +1209,72 @@ silent and simply worse:
 It fires for the sharpen strength, the render scale, and a command line with no
 project directory in it (i.e. a bestiary-trained net about to ship).
 
+#### The overdraw count is an INDEX, and the camera theory of its gap is dead
+
+*Will the frame get faster?* counts how many times over a project's scenes paint
+the screen (`blss::measureCoverage`, headless twin `--blss-coverage`) and puts
+that against the hardware break-even. On `examples/upscaler-lab` it reads
+**72.63** where the five-point hardware fit implies **58.70** blended-pass
+equivalents — an over-read that has now had two explanations and lost both.
+
+The first was that the counter prices an opaque untextured fragment as the
+blended textured pass `kPassMs` was calibrated on; that was falsified in the
+round that measured it (geometry is 0.98 of the 72.63 against a measured ceiling
+of ≤1.14, and re-weighting moves the total by 0.49 against a 13.93 gap).
+
+The second was **the camera**: hardware ran the fixture's own gameplay camera
+while the estimator averages six synthetic corpus moves spanning 36.2 to 88.4,
+so a single camera near 57.7 would have meant no counter bug at all. The
+training-shot plan made that testable — an authored still vantage at the parked
+FPP standpoint the A/B sampled, eye `(0, 1.8, 27)` looking −Z, every automatic
+move switched off — and it came out the other way:
+
+| what the coverage is taken over | counted |
+|---|---|
+| the fixture's own parked camera (what the console A/B ran) | **78.99** |
+| its Cutscene Director tour | 85.64 |
+| the six-move corpus mean | 72.63 |
+| *the hardware fit's blended-pass equivalents* | *58.70* |
+
+**The game's own camera reads higher than the corpus average, not lower.** So the
+over-read is real and larger than recorded — 34.6 % under the camera that was
+actually measured — and vantage is not the mechanism.
+
+Two more measurements say where it *is*. Switching the six haze banks off leaves
+that same camera counting **1.55** coverages of geometry plus fire/smoke/rain
+against the hardware's **≤1.14** for the same content: the *counted* half is
+right, and the whole residual is the emitter term, which is modelled rather than
+counted. And stepping the banks 6/4/2/0 exactly as the hardware rig did:
+
+| haze banks | counted | hardware | ratio |
+|---|---|---|---|
+| 6 | 78.99 | 58.70 | 1.35 |
+| 4 | 46.82 | 37.17 | 1.26 |
+| 2 | 19.55 | 15.40 | 1.27 |
+| 0 | 1.55 | 1.14 | 1.36 |
+
+A constant ratio across a fifty-fold range of load is not a wrong pool position
+or a wrong puff size — those could not hold their ratio over three different bank
+subsets. It is a wrong **price per coverage**, and part of that price is
+arithmetic rather than hypothesis: `FrameProfile::gsFillProbe` sizes its sprite
+from the current framebuffer and the calibration fixture ran PAL 576i, so
+0.5872 ms is per **512×512**, while a coverage out of `measureCoverage` is per
+the project's own raster — 512×448 here, **14.3 % fewer pixels**, i.e. 0.5138 ms.
+That is 14 of the ~30 points. The rest (a counted haze coverage costs
+33.79 / 77.45 = **0.436 ms**) is a 128²-texture puff magnified across the screen
+being cheaper per pixel than the probe's 1:1 framebuffer blit — texture cache,
+and only a console settles that.
+
+**Nothing has been rescaled.** Expressing `kPassMs` per pixel is the honest fix
+and it moves `breakEven()` (11.5 → 13.1 at 512×448) and every published figure
+that quotes it, across pages this feature does not own; it is written down and
+owed. What the window says instead is what the count *is*: an overdraw **index**
+that tracks the console's fill and over-states its scale by about a third, stated
+next to the spread of the moves it averaged and next to the *Training shots* tab,
+where the player's own vantage can be added to that set (`project::blssResolveShot`
+is read by the count and by the trainer alike, so a row in the per-move table is a
+frame the corpus really renders).
+
 #### Every long-running button says what it costs
 
 Train, Evaluate and — above all — Cross-validate are minutes to tens of minutes,
@@ -1343,6 +1409,32 @@ it — `drawBlssVerdict(summary, compact)`. The window prefers the machine-reada
 `[blss] verdict` line for the ceiling when it is present and falls back to
 re-deriving it from the parsed table when it is not, so an older binary still
 answers.
+
+#### The tabs get a floor, because the tables are the point
+
+The window is three bands — header, tab strip, the tool's raw output — and until
+2026-08-09 the tabs got whatever the other two left over. That is backwards, and
+it broke the tab this window exists for. Measured with `--ui-script` on a 1080p
+screen (1017 px of work area, a 1060×820 window, 791 px of body): once a coverage
+answer renders the header is **514 px**, the output pane takes its 150, and the
+tab child comes out **111 px**. At that height the Evaluate tab's own controls —
+the *Network* field, *Frames*, the deadzone, *Run the evaluation* — are submitted
+**below the child's bottom edge**: not visible, not clickable, and `dump` lists
+them with rects outside their own window, so a scripted click on one reports
+success while landing on whatever is really at those coordinates. That is how it
+survived a scripted check, and it is why the previous round could not screenshot
+the tab's own net-source line.
+
+Both other bands are bounded now and the tabs get the floor. The output pane may
+take at most 35 % of the body (it was 70 % of whatever the header left). What
+remains is split tabs-first — at least 60 % of it, capped at 420 px — and the
+header takes the rest inside an `AutoResizeY` child with a size constraint, so it
+is unchanged while it fits and **scrolls** past the cap when an answer makes it
+tall. Its top, which is the part with the controls in it — the net source, the
+corpus switch, the three question buttons — stays exactly where it was. Same
+fixture after the change: header 246 px, tabs **366 px**, every Evaluate control
+inside the child, the child taking the mouse wheel, and the net-source line plus
+the whole held-out table readable by scrolling within the tab.
 
 #### The picture goes under the verdict, and the difference view is the point
 

@@ -8,6 +8,7 @@
 // templates.cpp's blssClashes() and one set of tooltips, not two.
 
 #include <algorithm>
+#include <cfloat>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -1319,11 +1320,41 @@ void App::drawBlssWindow() {
         blssRefreshNetStatus();
     }
 
-    drawBlssHeader();
-
-    const float outMax = std::max(scaled(60.0f), ImGui::GetContentRegionAvail().y * 0.7f);
+    // THE THREE BANDS, AND WHICH OF THEM MAY GROW. This window is a header, a
+    // tab strip and the tool's raw output, and until now the tabs got whatever
+    // the other two left - which is the wrong way round, because the tabs are
+    // where the TABLES are and reading them is the entire point of the window.
+    //
+    // Measured at a 1600x900 window (791 px of body, i.e. TIGHTER than the
+    // 1017 px work area of a 1080p screen): the header is 514 px once a
+    // coverage answer renders, the output pane takes its 150, and the tab child
+    // came out **111 px**. At that height the Evaluate tab's own controls - the
+    // Network field, Frames, the deadzone, *Run the evaluation* - are submitted
+    // BELOW the child's bottom edge, so they are neither visible nor clickable
+    // (`--ui-script` reports rects outside the child and a click on one lands on
+    // whatever is really there, which is how this survived a scripted check).
+    //
+    // So both of the other bands are now bounded and the tabs get a FLOOR.
+    const float body = ImGui::GetContentRegionAvail().y;
+    const float outGap = scaled(14.0f);  // the splitter plus its two spacings
+    // The output pane is the raw stdout every table is parsed out of - worth
+    // having on screen, never worth two thirds of the window. It was 70 % of
+    // what the header left over.
+    const float outMax = std::max(scaled(60.0f), body * 0.35f);
     const float outH = std::clamp(blssOutputH_, scaled(60.0f), outMax);
-    ImGui::BeginChild("blsstabs", ImVec2(0, -(outH + scaled(14.0f))), false);
+    const float rest = std::max(scaled(120.0f), body - outH - outGap);
+    // What is left is split header/tabs, tabs first. The header's own content
+    // grows by a screenful the moment an answer renders, so it is CAPPED and
+    // scrolls past the cap; its top - the net source, the corpus switch and the
+    // three question buttons - stays where it was.
+    const float tabsMin = std::min(scaled(420.0f), rest * 0.60f);
+    const float headMax = std::max(scaled(90.0f), rest - tabsMin);
+    ImGui::SetNextWindowSizeConstraints(ImVec2(0.0f, 0.0f), ImVec2(FLT_MAX, headMax));
+    ImGui::BeginChild("blsshdr", ImVec2(0.0f, 0.0f), ImGuiChildFlags_AutoResizeY);
+    drawBlssHeader();
+    ImGui::EndChild();
+
+    ImGui::BeginChild("blsstabs", ImVec2(0, -(outH + outGap)), false);
     if (ImGui::BeginTabBar("blsstabbar")) {
         // A click on a verdict thumbnail (or on "Train the network" under the
         // headroom answer) has to be able to take the reader to the tab that
@@ -1673,7 +1704,10 @@ void App::drawBlssCoverageDetail() {
     ImGui::TextDisabled(
         "    %d frame(s) over %zu camera move(s), %zu triangle(s). Counted at a quarter-linear\n"
         "    raster - a coverage is a ratio, so the answer is the same to two decimals at "
-        "512x448.",
+        "512x448.\n"
+        "    These rows ARE the shot plan: switch a move off, or add the player's own vantage,\n"
+        "    on the Training shots tab and this table follows - the count and the trainer read\n"
+        "    one plan (project::blssResolveShot), so a row here is a frame the corpus renders.",
         blssCov_.frames, blssCov_.shots.size(), blssCov_.triangles);
 }
 
@@ -1750,10 +1784,17 @@ void App::drawBlssHappyPath() {
         "both real fill.\n"
         "\n"
         "IT IS A FLOOR, not a measurement. What it cannot see is listed under the\n"
-        "answer; the console is the only thing that settles it. It also counts a\n"
-        "blended textured fragment and an opaque untextured one as ONE unit, so\n"
-        "a scene whose overdraw is opaque geometry is over-priced by it - the\n"
-        "counted figure is a coverage, not yet a blended-pass equivalent.\n"
+        "answer; the console is the only thing that settles it.\n"
+        "\n"
+        "AND IT IS AN INDEX, NOT MILLISECONDS. On examples/upscaler-lab - the one\n"
+        "scene whose fill has also been measured on hardware - the count reads\n"
+        "about 1.3x the console's blended-pass equivalents, and it holds that\n"
+        "ratio at 1.5, 20, 47 and 79 coverages, so it tracks the real fill and\n"
+        "over-states its scale. Two things about it are already known: 0.587 ms\n"
+        "was calibrated on a 512x512 buffer while a coverage here is per the\n"
+        "project's own raster (512x448 = 14 % fewer pixels), and a magnified 128\n"
+        "square puff is cheaper per pixel than the probe's 1:1 framebuffer blit.\n"
+        "The headroom above the break-even is what the answer is really about.\n"
         "\n"
         "Run it without the GUI with `tyrax-editor --blss-coverage <projectDir>`.\n"
         "Same function, same numbers, machine-readable [blss] lines.");
@@ -1894,6 +1935,39 @@ void App::drawBlssAnswer() {
             "estimated). A FLOOR, not\n    a measurement - see below for what it could not "
             "see. Only the console settles it.",
             blssCov_.mean, blssCov_.p95, blssCov_.geomMean, blssCov_.emitMean);
+        // WHOSE FRAME IS THIS. The headline is a mean over the corpus' camera
+        // moves, and on a scene with real overdraw those moves disagree wildly -
+        // this fixture's own six span 36 to 88. A mean over them is nobody's
+        // frame, and it was quietly read as one for a week: the hardware A/B ran
+        // the game's own camera and the estimator answered about six synthetic
+        // ones, and the two numbers were compared as though they described the
+        // same picture. So say which cameras, say the spread, and point at the
+        // tab where the player's own vantage can be added to the set.
+        if (!blssCov_.shots.empty()) {
+            double lo = blssCov_.shots.front().geom + blssCov_.shots.front().emit, hi = lo;
+            for (const blss::CoverageShot& s : blssCov_.shots) {
+                const double t = s.geom + s.emit;
+                lo = std::min(lo, t);
+                hi = std::max(hi, t);
+            }
+            ImGui::TextDisabled(
+                "    Averaged over the corpus' %zu camera move(s), whose own totals run %.1f to "
+                "%.1f - so the mean is\n    no single camera's frame. To put the vantage the "
+                "player actually stands at into that set, add it\n    under Training shots > "
+                "Your own vantages; the count walks the same plan the trainer does.",
+                blssCov_.shots.size(), lo, hi);
+        }
+        // ...AND WHAT ONE COUNTED COVERAGE IS WORTH, measured rather than
+        // assumed. See the kAnchorCoverages block in blss_ui.hpp: the count
+        // tracks the console's fill proportionally and over-reads it by about a
+        // third, so it is an overdraw INDEX and the break-even it is held
+        // against carries that much slack.
+        ImGui::TextDisabled(
+            "    On the one fixture where both instruments have run, this count reads about "
+            "1.3x the hardware's\n    blended-pass equivalents - at every load from 1.5 to 79 "
+            "coverages, so it is proportional. Read it\n    as an overdraw index against the "
+            "%.1f break-even, not as milliseconds.",
+            blssui::fill::breakEven());
         drawBlssCoverageDetail();
     }
     if (haveQ && !haveS)

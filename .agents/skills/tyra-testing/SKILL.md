@@ -180,9 +180,15 @@ slightly different questions. It exists because the round that *measured* the
 speed model could not re-derive the estimator's own figure — it was a button in
 a GUI — and **a number nobody can re-run is a number nobody can check.** Its
 first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass
-equivalents on `examples/upscaler-lab`) and that disagreement is open, so read
-its output as an estimate with a known 24 % question mark, not as a measurement:
-docs/profiling.md, "Calibrating the speed model against hardware".
+equivalents on `examples/upscaler-lab`), and that gap has since been **located**
+rather than closed: it is a constant scale error in the emitter term, not the
+unit and not the camera. Walked under the fixture's own parked gameplay camera -
+authored as a training vantage, which is what makes the check possible - it reads
+**78.99**, i.e. HIGHER than the six-move mean, and the counted-to-measured ratio
+holds at 1.35 / 1.26 / 1.27 / 1.36 with the haze stepped 6 / 4 / 2 / 0 banks. So
+read its output as an overdraw **index** that over-states its scale by about a
+third, not as milliseconds: docs/neural-upscaler.md, "The overdraw count is an
+INDEX", and docs/profiling.md, "Calibrating the speed model against hardware".
 
 **Seven flags measure a configuration no project can currently ask for, and each
 prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the

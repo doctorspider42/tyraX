@@ -22,20 +22,32 @@ anything: *Tools > Neural Upscaler (BLSS)* > **Will the frame get faster?**, or
 headlessly `tyrax-editor --blss-coverage <this folder>`. It reads **72.63
 coverages** here (p95 94.39) — **0.98 of geometry and 71.65 of haze**.
 
-**Those two instruments do not agree, and the disagreement is open.** Working
-back from the hardware fit, this scene's true fill is 34.46 ms = **58.7**
-blended-pass equivalents, so the estimator reads **23.7 % high** and one
-*counted* coverage here actually costs **0.474 ms**, not 0.587. The obvious
-explanation — that the counter prices opaque geometry as if it were a blended
-puff — is **falsified**: geometry is 0.98 of the 72.63 against a measured
-ceiling of ≤1.14, so it is not over-priced, and re-weighting it moves the total
-by 0.49 against a 13.93 gap. The live hypothesis is that the two are looking at
-different frames: hardware ran this fixture's *own* camera, the estimator
-averages six synthetic corpus shots spanning 36.2 to 88.4 coverages, and one
-camera at 57.7 sits inside that spread. See `docs/profiling.md`, "Calibrating
-the speed model against hardware", for the experiment that settles it. The
-emitter term is why this is a discrepancy of 24 % rather than of two orders of
-magnitude: a count taken from geometry alone reads this scene as **one** coverage.
+**Those two instruments do not agree, and the gap is now LOCATED rather than
+open.** Working back from the hardware fit, this scene's true fill is 34.46 ms =
+**58.7** blended-pass equivalents. Two explanations of the difference have been
+measured and both are dead. It is not the unit — geometry is 0.98 of the 72.63
+against a measured ceiling of ≤1.14, and re-weighting it moves the total by 0.49
+against a 13.93 gap. And it is not the **camera**: walked under this fixture's
+*own* parked gameplay camera (the standpoint the console A/B sampled, authored as
+a training vantage — eye `(0, 1.8, 27)` looking −Z) the estimator reads **78.99**,
+and under the Cutscene tour **85.64**, i.e. *above* the six-move mean of 72.63
+rather than near the 57.7 that theory predicted.
+
+What it is, is a constant scale error in the modelled emitter term. With the haze
+banks stepped 6 / 4 / 2 / 0 exactly as the hardware rig stepped them, the counter
+reads 78.99 / 46.82 / 19.55 / 1.55 against 58.70 / 37.17 / 15.40 / 1.14 measured
+— a ratio of 1.35 / 1.26 / 1.27 / 1.36 across a fifty-fold range of load, which
+no error in where the puffs are or how big they are could hold. Fourteen of those
+points are arithmetic: `FrameProfile::gsFillProbe` sizes its calibration sprite
+from the current framebuffer and the fixture that measured 0.5872 ms ran PAL 576i,
+so that figure is per **512×512**, while a coverage here is per this project's own
+**512×448** — 14.3 % fewer pixels, i.e. 0.5138 ms. The rest (a counted haze
+coverage costs 0.436 ms) is a magnified 128² puff being cheaper per pixel than the
+probe's 1:1 framebuffer blit, and only a console settles that. Nothing has been
+rescaled; the tables are in `docs/neural-upscaler.md`, "The overdraw count is an
+INDEX". The emitter term is why this is a discrepancy of a third rather than of
+two orders of magnitude: a count taken from geometry alone reads this scene as
+**one** coverage.
 
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
