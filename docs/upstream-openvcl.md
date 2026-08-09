@@ -4,8 +4,13 @@ TyraX builds its VU1 microcode with [openvcl](https://github.com/ps2dev/openvcl)
 as an alternative to Sony's unlicensed `vcl` — the whole reason being that a
 publishable toolchain image cannot contain `vcl` (see
 [toolchain-image.md](toolchain-image.md), "Licensing of the published image"). This
-page is the part of that work that belongs to openvcl rather than to us: two bugs with
-a fix, one bug without one, one calibration mistake of our own, and the density flags.
+page is the part of that work that belongs to openvcl rather than to us: **ten defects**,
+one calibration mistake of our own, and the density flags. Every defect is written up with
+the mechanism - what the code believed and why that is wrong - and all but section 4 with a
+reproducer that fires on the stock commit below. Several need no flags at all, so they are
+reachable from a plain `make` - section 10 is demonstrated that way above, and the fork's
+`test/regress/` marks each such case in `cases.tsv`, so running that suite against an
+unmodified checkout is how to see which.
 
 Nothing here has been submitted, and no pull request is open. Everything is against
 upstream commit `a5867c3daf03828806ee966aca4116622da3f671`.
@@ -335,20 +340,79 @@ case runs without the emitter exemption in play, so the latency tracker holds th
 own and the test passes. The emitter half is only reachable when the tracker's wait is not the
 binding constraint.
 
-## 10. Twenty-one flags, all off by default
+## 10. Pre-decrement addressing emits post-increment, and the output will not assemble
+
+`Token.cpp` parses `(--base)` correctly - it sets the `PREDEC` modifier bit - and then, in the
+branch that turns modifiers into argument flags, sets the wrong one:
+
+```cpp
+if( hasModifier( POSTINC, modifiers ) )
+{
+    ...
+    argument.setFlags( argument.flags() | Argument::POSTINC );
+}
+else if( hasModifier( PREDEC, modifiers ) )
+{
+    ...
+    argument.setFlags( argument.flags() | Argument::POSTINC );   // <- PREDEC
+}
+```
+
+`Argument::PREDEC` is therefore never set on any argument in the program. The emitter's `--`
+branch is unreachable dead code, and every `lqd`/`sqd` against a pre-decremented base is written
+out as a post-increment.
+
+**Reproducer** - stock `a5867c3`, no flags:
+
+```
+    lqd     v0, (--ptr)
+    lqd     v1, (--ptr)
+```
+
+```
+$ openvcl predec.vcl
+    nop                             lqd VF01, (VI02++)
+    nop                             lqd VF02, (VI02++)
+
+$ dvp-as predec.vsm -o predec.o
+predec.vsm:8: Error: bad instruction `lqd VF01,(VI02++)'
+predec.vsm:9: Error: bad instruction `lqd VF02,(VI02++)'
+```
+
+So this is not a silent miscompile - the operand form `dvp-as` accepts for `lqd`/`sqd` is
+`(--VIxx)` or `(VIxx++)` but not the one it is handed here, and the build fails at the assembler.
+It is total, though: **no source using pre-decrement addressing can be built at all**, in any
+released version.
+
+Fix: set `Argument::PREDEC` in the second branch.
+
+**Why nobody has hit it.** The construct has zero uses in everything we could measure: 70 real
+microprograms from a shipping engine, 1360 generated stress programs, 3780 narrowed variants, and
+every example in this repository contain not one `(--base)`. Post-increment, which shares the
+operand path and works, has 363 sites. A bug can be both total and invisible.
+
+## 11. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
-engine: the resident VU1 program set went from 3072 instructions to **1970**, against SCE's
-2028 and a ceiling of 2042, without changing what any program computes (pixel-identical
-frames in PCSX2). Over the engine's whole corpus of 25 it is 3874 words against SCE's 3982,
-and over the 45 a project can generate, 9202 against 9264 - **under Sony on all three**.
-Upstream may or may not want them; the measurements are in
+engine: the resident VU1 program set went from 3072 instructions to **1998**, against SCE's
+2028 and a ceiling of 2042. Over the engine's whole corpus of 25 it is **3908** words against
+SCE's 3982, and over the 45 a project can generate, **9242** against 9264 - under Sony on all
+three. Upstream may or may not want them; the measurements are in
 [toolchain-image.md](toolchain-image.md).
 
-What they do NOT buy is speed. On a VU1-bound scene in PCSX2, with only the assembler
-different, openvcl runs about **26% slower** than Sony's `vcl`, and the flag that flipped the
-last size corpus did not move a single frame. The cause is the FMAC read-after-write
-interlock, not size - see "Measured on the console" in that file.
+**Two of those numbers used to be smaller, and that was the bug.** An earlier revision of this
+page reported 1970 / 3874 / 9202 and called it a win. It was a build that had *deleted*
+instructions the source contained - the CLIP dead-write defect in section 4 - so it was
+smaller because it computed the wrong thing. The lesson is worth passing on with the flags: on
+this target, a size figure is only meaningful next to evidence that the program still computes
+what it used to, because the most effective way to make a VU1 program smaller is to break it.
+
+The same revision reported openvcl running about **26% slower** than Sony's `vcl` on a
+VU1-bound scene and blamed the FMAC read-after-write interlock. That was the same defect
+measured from the other end: the deleted `clipw` made the clipper take a different path.
+With it fixed, the two assemblers are at parity on the scenes that can see a difference at
+all - 100.4 against 99.5 FPS on one, 87.84 against 87.38 on another, each with a
+known-bad third arm proving the scene registers a regression when there is one.
 
 The table below lists the four this section was originally written about. The full twenty-one,
 grouped by what they do, are in the fork's own README at
