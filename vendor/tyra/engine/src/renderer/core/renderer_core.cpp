@@ -411,7 +411,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
     if (gs.getFrameBufferCount() < 3) {
       if (isFrameLimitOn) graph_wait_vsync();
     }
-    gs.flipBuffers(isFrameLimitOn);
+    gs.flipBuffers(isFrameLimitOn, /*synthetic=*/true);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
   }

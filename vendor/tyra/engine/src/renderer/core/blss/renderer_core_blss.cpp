@@ -1903,7 +1903,10 @@ void RendererCoreBlss::composite() {
     logFeatureSpread();
   }
 
-  const auto* hist = gs->getPreviousFrameBuffer();
+  // The last SCENE-rendered frame, never a synthesised one: this history is
+  // reprojected as if the scene drew it, and feeding an accumulator its own
+  // warped output compounds into a shake (docs/frame-extrapolation.md).
+  const auto* hist = gs->getPreviousRealFrameBuffer();
   const int histVram = static_cast<int>(hist->address);
   const int histBufW = static_cast<int>(hist->width);
 

@@ -202,6 +202,7 @@ void RendererCoreGS::allocateVramBuffers() {
   // neighbour on screen, in both modes - programDisplay() presents exactly
   // this buffer, and the first flip derives the free slot from the pair.
   displayedBuffer = context ^ 1;
+  lastRealBuffer = context ^ 1;
   pendingBuffer = -1;
 
   // The handler IS the third buffer's present path, so the two are decided
@@ -595,12 +596,13 @@ void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
   draw_wait_finish();
 }
 
-void RendererCoreGS::flipBuffers(bool throttle) {
+void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // --- Two buffers: the stock path, unchanged. RendererCore::endFrame has
   // already waited for vsync, so presenting here lands in the vertical blank
   // and the EE owns the other buffer the moment this returns.
   if (bufferCount < 3) {
     presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
+    if (!synthetic) lastRealBuffer = context;  // Modified by TyraX
     context ^= 1;
     displayedBuffer = context ^ 1;
     emitDrawTargetSwitch(context);
@@ -632,6 +634,7 @@ void RendererCoreGS::flipBuffers(bool throttle) {
   // would let the handler put a half-drawn frame on screen.
   emitDrawTargetSwitch(next);
 
+  if (!synthetic) lastRealBuffer = finished;  // Modified by TyraX
   context = next;
   pendingBuffer = finished;  // hands ownership to the interrupt handler
 }

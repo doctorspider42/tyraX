@@ -105,6 +105,21 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
   int kx0, ky0, kx1, ky1;
   core2d->get2dBounds(&kx0, &ky0, &kx1, &ky1);
   const bool keep = keepHud && kx1 >= kx0;
+  if (keep) {
+    // SNAP THE REGION OUT TO WHOLE CELLS FIRST, and this is the whole trick.
+    // The warp field is interpolated across a cell from its four corners, so
+    // "hold the corners inside the rect still" does nothing for a HUD SMALLER
+    // than a cell: a 86x16 status line sits inside one 32-pixel cell whose
+    // corners are all outside it, every one of them gets a partial weight, and
+    // the interpolation drags the text anyway - measured as rect 16,16..102,32
+    // on a 32-pixel grid, i.e. not one corner fully inside. Growing the region
+    // to the cells it touches makes every corner around it exactly identity,
+    // and the fade then starts one cell further out.
+    kx0 = (kx0 / kTile) * kTile;
+    ky0 = (ky0 / kTile) * kTile;
+    kx1 = ((kx1 + kTile - 1) / kTile) * kTile;
+    ky1 = ((ky1 + kTile - 1) / kTile) * kTile;
+  }
   const float fade = static_cast<float>(kTile);
 
   const bool tileDepth = blss != nullptr && blss->hasTileDepth() &&
@@ -314,7 +329,10 @@ void RendererCoreWarp::draw(const WarpCamera& from, const WarpCamera& to) {
   // Never race the tail of the 3D render that produced the source image.
   if (path1 != nullptr && path1->isVU1Configured()) sync->align3D();
 
-  const auto* src = gs->getPreviousFrameBuffer();
+  // The last SCENE-rendered frame. Right after endFrame that is also the
+  // newest finished one, but asking for it explicitly means a second warp in a
+  // row can never compound its own output.
+  const auto* src = gs->getPreviousRealFrameBuffer();
   const int srcVram = static_cast<int>(src->address);
   const int srcBufW = static_cast<int>(src->width);
 

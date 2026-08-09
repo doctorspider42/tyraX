@@ -79,7 +79,23 @@ class RendererCoreGS {
    * costing a full extra field of EE stall, so 20.4 ms of work on PAL
    * presents at ~49 fps rather than collapsing to 25.
    */
-  void flipBuffers(bool throttle);
+  void flipBuffers(bool throttle, bool synthetic = false);
+
+  /**
+   * Modified by TyraX (docs/frame-extrapolation.md): the last buffer holding a
+   * frame the SCENE actually rendered, never a synthesised one.
+   *
+   * getPreviousFrameBuffer() means "newest finished", which is what the warp
+   * itself wants - right after endFrame that IS the real frame. But anything
+   * accumulating over time must not be fed its own output back: the neural
+   * upscaler samples the previous frame as temporal history and reprojects it
+   * as if the scene had drawn it, so handing it a WARPED frame every other
+   * flip feeds displaced pixels into an accumulator that assumes they are not,
+   * and the error compounds into a visible shake. Ask for this one instead.
+   */
+  framebuffer_t* getPreviousRealFrameBuffer() {
+    return &frameBuffers[lastRealBuffer];
+  }
 
   /**
    * Modified by TyraX: INTERRUPT CONTEXT - called from the INTC vblank
@@ -243,6 +259,9 @@ class RendererCoreGS {
    */
   volatile s32 pendingBuffer = -1;
   volatile s32 displayedBuffer = 1;
+  // Modified by TyraX: which buffer last received a SCENE-rendered frame (see
+  // getPreviousRealFrameBuffer). Synthesised frames never claim it.
+  s32 lastRealBuffer = 1;
   /** INTC handler id from AddIntcHandler, -1 when not installed. */
   s32 vblankHandlerId = -1;
   // Modified by TyraX (BLSS): the raster redirect currently open, if any.
