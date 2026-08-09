@@ -13416,6 +13416,17 @@ void App::drawPreferencesModal() {
         "triple buffered), so leaving it on costs a fast scene nothing. Each\n"
         "flip is logged to the game\'s bin/log.txt.");
     ImGui::BeginDisabled(!prefSettings_.frameExtrapolation);
+    ImGui::Checkbox("Ground plane (recommended)",
+                    &prefSettings_.frameExtrapolationGround);
+    prefHelp(
+        "Take the depth from the FLOOR instead of a fixed distance. A view\n"
+        "ray meets the ground at w = h / -dir.y, so depth grows toward the\n"
+        "horizon by itself and a ray at or above the horizon never meets it -\n"
+        "the sky then does not move at all, which is the worst artefact of a\n"
+        "fixed plane. Costs a few operations per grid corner and needs no\n"
+        "depth buffer. Ignored where the neural upscaler supplies real depth,\n"
+        "and it overrides the fixed distance below.");
+    ImGui::BeginDisabled(prefSettings_.frameExtrapolationGround);
     ImGui::DragFloat("Translation plane", &prefSettings_.frameExtrapolationPlane,
                      0.5f, 0.0f, 200.0f,
                      prefSettings_.frameExtrapolationPlane <= 0.0f
@@ -13432,6 +13443,7 @@ void App::drawPreferencesModal() {
         "a lens ZOOM rather than parallax - geometrically wrong, but it IS\n"
         "motion, and on some content that beats a duplicated frame. 12 is\n"
         "what the first version shipped with. Worth trying both.");
+    ImGui::EndDisabled();
     ImGui::Checkbox("Always synthesise (ignore the gate)",
                     &prefSettings_.frameExtrapolationForce);
     prefHelp(

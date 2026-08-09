@@ -1054,6 +1054,14 @@ struct ProjectSettings {
     // placing a Set Frame Extrapolation node.
     bool frameExtrapolationForce = false;
 
+    // Use the analytic GROUND plane instead of a fixed distance: a corner's
+    // view ray meets the floor at w = h / -dir.y, so depth grows toward the
+    // horizon on its own and anything at or above it does not move at all.
+    // Strictly better than a constant for a game with a floor, and free.
+    // Outranks frameExtrapolationPlane; the upscaler's real depth outranks
+    // both.
+    bool frameExtrapolationGround = true;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -1495,6 +1503,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.frameExtrapolation == b.frameExtrapolation &&
            a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
            a.frameExtrapolationForce == b.frameExtrapolationForce &&
+           a.frameExtrapolationGround == b.frameExtrapolationGround &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.showCollision == b.showCollision &&

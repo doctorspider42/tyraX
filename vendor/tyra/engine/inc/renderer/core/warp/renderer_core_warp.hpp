@@ -113,6 +113,28 @@ class RendererCoreWarp {
   const float& getPlaneDistance() const { return planeDistance; }
 
   /**
+   * The GROUND plane, which is a strictly better guess than a fixed distance
+   * for anything with a floor under it - and free.
+   *
+   * A fixed plane moves every pixel as if it were the same distance away,
+   * including the horizon and the sky, which should not move at all. A ground
+   * plane is ANALYTIC instead: a corner's view ray meets the floor at
+   * w = h / -dir.y, so depth grows toward the horizon on its own and a ray
+   * pointing at or above it never meets the floor - `1/w` is then 0 and that
+   * part of the picture only rotates. Near ground moves, distant ground moves
+   * less, sky does not move: parallax, from one number.
+   *
+   * `groundY` is the world height of the floor under the camera; pass the
+   * terrain height there. Takes effect only when no per-tile depth is
+   * available (the neural upscaler wins where it exists) and outranks
+   * setPlaneDistance.
+   */
+  void setGroundPlane(const bool& on, const float& groundY) {
+    groundPlane = on;
+    groundLevel = groundY;
+  }
+
+  /**
    * Draw the last finished frame into the buffer currently being rendered to,
    * reprojected from the camera it was rendered with (`from`) to a newer one
    * (`to`). Covers every pixel, so it needs no clear.
@@ -155,6 +177,8 @@ class RendererCoreWarp {
   packet2_t* packet = nullptr;
 
   float planeDistance = 0.0F;  // 0 = rotation only (see setPlaneDistance)
+  bool groundPlane = false;    // see setGroundPlane
+  float groundLevel = 0.0F;
 
   int outW = 0, outH = 0;
   int cols = 0, rows = 0, cornerCols = 0, cornerRows = 0;

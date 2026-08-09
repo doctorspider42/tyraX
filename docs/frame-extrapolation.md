@@ -194,20 +194,43 @@ It pairs naturally with [triple buffering](frame-pacing.md), but does not need
 it: with two buffers each of the two presents waits for its own vsync, which
 reaches the same 25 Hz world / 50 Hz picture (measured both ways).
 
-## Getting the zoom back on purpose
+## The ground plane
 
-The single-plane translation model — the one that reads as a lens zoom — is a
-**setting**, not a deleted version: *Preferences > Build > Translation plane*.
-0 (the default) is rotation only; **12** is exactly what the first version
-shipped with. It only applies while the neural upscaler is off, since real
-per-tile depth wins over a guessed plane wherever it exists.
+Confirmed on real hardware: the single-plane model looks **better** than
+rotation-only, even though it is geometrically wrong. Rotation-only is exact,
+and on a straight walk that exactness makes the synthesised frame a pixel-perfect
+DUPLICATE, which reads as judder; a wrong motion beat no motion. That result is
+what the default now follows.
 
-It is worth having both because "geometrically wrong" and "looks worse" are not
-the same claim. Rotation-only is exact, and on a straight walk that exactness
-means the synthesised frame is a pixel-perfect DUPLICATE — which reads as
-judder. The plane moves the whole picture uniformly, which is wrong, but it is
-motion. Which one wins is a question about content and about a real display, and
-it is not settled here.
+But a fixed plane has one artefact worth removing for free: it moves the horizon
+and the sky, which should not move at all. So the default translation model is
+now the **ground plane**, which is analytic rather than guessed. A corner's view
+ray meets the floor at
+
+```
+w = h / -dir.y          (h = eye height above the floor)
+1/w = -dir.y / h
+```
+
+so depth grows toward the horizon by itself, and a ray at or above the horizon
+never meets the floor — `1/w` is 0 there and that part of the picture only
+rotates. Near ground moves, distant ground moves less, sky stays put: parallax
+from one number, no depth buffer, a few operations per grid corner.
+
+The eye height comes from the terrain under the camera. In a scene with **no**
+terrain `terrainHeightAtScene` answers a deep but finite void, so the eye height
+is enormous, `1/w` collapses to ~0 and the warp degrades to rotation only —
+which is the right answer when there is no floor.
+
+Precedence: the neural upscaler's real per-tile depth, then the ground plane,
+then the fixed distance, then rotation only.
+
+## Getting the fixed plane back on purpose
+
+The fixed-distance plane is still there: turn *Ground plane* off and set
+*Translation plane* — **12** is what the first version shipped with. It moves the
+whole picture uniformly, sky included, which is what the ground plane exists to
+avoid; keep it for a scene with no meaningful floor, or to A/B the two.
 
 **Always synthesise (ignore the gate)** is next to it, and exists because the
 gate measures EE work: a scene held back by the GS rather than the EE keeps it

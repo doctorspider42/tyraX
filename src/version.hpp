@@ -98,7 +98,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_MINOR 15
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -229,6 +229,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // additive and both default to what the previous version did - plane 0 is
 // rotation only, force off leaves the gate in charge - so an older file opens
 // unchanged and regenerates byte for byte. No migration step.
-inline constexpr int kFormatVersion = 14;
+// v15 (frame extrapolation, the ground plane):
+// ProjectSettings::frameExtrapolationGround. Additive, and it defaults to TRUE
+// - the one entry in this list that does not preserve what an older file was
+// saved with, deliberately: the fixed plane it replaces moves the sky, and the
+// ground plane is the same model with the horizon handled correctly. A project
+// that wants the old look sets the key false.
+inline constexpr int kFormatVersion = 15;
 
 }  // namespace version

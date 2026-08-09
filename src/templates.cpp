@@ -552,6 +552,10 @@ constexpr float FRAME_EXTRAPOLATION_PLANE = {{FRAME_EXTRAPOLATION_PLANE}};
 // so a GS-bound scene keeps it shut; this is how such a scene gets tested.
 constexpr bool FRAME_EXTRAPOLATION_FORCE = {{FRAME_EXTRAPOLATION_FORCE}};
 
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = {{FRAME_EXTRAPOLATION_GROUND}};
+
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
 // distance (staggered per object). 0 = off. Playback time is unaffected.
@@ -5904,6 +5908,13 @@ bool TerrainGame::extrapolationWorthIt() {
 void TerrainGame::presentExtrapolatedFrame() {
   auto& rcore = engine->renderer.core;
   rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
   Tyra::WarpCamera cur;
   cur.position = cameraPosition;
   float fx = cameraLookAt.x - cameraPosition.x;
@@ -19063,6 +19074,13 @@ bool TerrainGame::extrapolationWorthIt() {
 void TerrainGame::presentExtrapolatedFrame() {
   auto& rcore = engine->renderer.core;
   rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
   Tyra::WarpCamera cur;
   cur.position = cameraPosition;
   float fx = cameraLookAt.x - cameraPosition.x;
@@ -24879,6 +24897,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    floatLit(st.frameExtrapolationPlane));
     s = replaceAll(s, "{{FRAME_EXTRAPOLATION_FORCE}}",
                    st.frameExtrapolationForce ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_GROUND}}",
+                   st.frameExtrapolationGround ? "true" : "false");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");

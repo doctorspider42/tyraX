@@ -126,6 +126,11 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
                          blss->getTileCols() == cols &&
                          blss->getTileRows() == rows;
   const float planeInvW = planeDistance > 0.0F ? 1.0F / planeDistance : 0.0F;
+  // Height of the eye above the floor, for the ground-plane model. Below the
+  // floor (or sitting on it) there is no sensible intersection, so it falls
+  // back to whatever setPlaneDistance asked for.
+  const float eyeH = to.position.y - groundLevel;
+  const bool useGround = groundPlane && eyeH > 0.01F;
 
   for (int j = 0; j < cornerRows; j++) {
     const int py = j * kTile > outH ? outH : j * kTile;
@@ -150,6 +155,17 @@ void RendererCoreWarp::buildUVs(const WarpCamera& from, const WarpCamera& to) {
       // contributes 0 by construction (no coverage, no depth), which reads as
       // "infinitely far" and is exactly right for sky.
       float cInvW = planeInvW;
+      if (useGround) {
+        // Where this ray meets the floor: w = h / -dir.y, so 1/w = -dir.y / h.
+        // dir.y >= 0 is the horizon and everything above it - no intersection,
+        // 1/w = 0, rotation only. That is what keeps the sky still, which is
+        // the single worst artefact of a fixed plane.
+        cInvW = dir.y < -1e-4F ? (-dir.y / eyeH) : 0.0F;
+        // A corner looking almost straight down would put the floor in the
+        // camera's lap; cap it so one grid cell cannot swing wildly.
+        const float cap = 1.0F / 0.5F;
+        if (cInvW > cap) cInvW = cap;
+      }
       if (tileDepth) {
         float sum = 0.0F;
         int n = 0;

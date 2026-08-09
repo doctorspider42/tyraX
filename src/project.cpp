@@ -1346,6 +1346,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.frameExtrapolationForce
                  ? "    \"frameExtrapolationForce\": true,\n"
                  : "")
+         << (!p.settings.frameExtrapolationGround
+                 ? "    \"frameExtrapolationGround\": false,\n"
+                 : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -4714,6 +4717,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.frameExtrapolationPlane = (float)v->numberOr(0.0);
         if (const auto* v = s->find("frameExtrapolationForce"))
             st.frameExtrapolationForce = v->boolOr(false);
+        if (const auto* v = s->find("frameExtrapolationGround"))
+            st.frameExtrapolationGround = v->boolOr(true);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))
