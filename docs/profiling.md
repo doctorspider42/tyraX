@@ -514,20 +514,34 @@ d > 0 means BLSS made the frame shorter.**
 pairing** (2 048 pooled frames per arm). The four cross-pairings span **0.014 ms**
 against an effect of 19.9. A **1.60x** speedup, in a scene a person can look at.
 
-> **Measured with `blssJitter` on, and the fixture now ships it off**
-> (2026-08-09 — see `examples/upscaler-lab`). The re-run against the jitter-off
-> build has now been attempted **twice** and has not completed either time, for
-> the same reason both times: the console stopped answering `ps2client` and
-> dropped off the LAN, which needs a power cycle at the machine. On the second
-> attempt (2026-08-09) it answered ping at the start of the session, booted the
-> fixture once, and was then gone from the ARP table entirely. The number above is therefore the jitter-**on** timing, and it is
-> left standing rather than adjusted, because the alternative was to publish an
-> estimate as a measurement. The jitter changes *where* the half-res raster
-> samples rather than how much of it there is, and the retrained net asks for the
-> same 1.76 passes, so it is expected to carry over — that expectation is what
-> the re-run exists to test, not something it may assume.
+> **The table above is the jitter-ON timing. The fixture ships jitter OFF, and
+> the re-run has now LANDED (2026-08-09, real hardware) — the prediction held.**
+> The re-run had failed twice before, both times because the console dropped off
+> the LAN mid-session; on the third attempt it stayed up for eleven deploys.
+> Same fixture, same protocol, same window (frames 550–1611, parked in both arms
+> — the off arm parks at ~350 and the on arm at ~450), **two runs per arm and all
+> four cross-pairings**:
 >
-> **Two rig facts the second attempt paid for, so the third does not have to.**
+> | arm | mean | median | p95 | max | FPS |
+> |---|---|---|---|---|---|
+> | BLSS **off** | **52.95** | 53.11 | 54.52 | 55.38 | **18.9** |
+> | BLSS **on**, jitter **off** | **32.42** | 32.36 | 33.07 | 33.94 | **30.8** |
+>
+> **d = +20.53 ms, 95 % CI [+20.46, +20.61], sd 1.12, n = 1024 per pairing**
+> (2 048 pooled per arm); the four cross-pairings span **0.010 ms**. A **1.63x**
+> speedup, against **1.60x** with the jitter on.
+>
+> So the prediction — "the timing holds, because the retrained net asks for the
+> same passes and the jitter moves *where* the raster samples rather than how
+> much of it there is" — is **confirmed, and slightly beaten**. The off arm is
+> unchanged (52.95 vs 52.86, well inside run-to-run drift) and the BLSS arm got
+> **0.56 ms faster** (32.42 vs 32.98). `BLSSFILL` reads `passes = 1.56` on the
+> shipped jitter-off build, the same figure the pre-change build logged, which is
+> the substance of the prediction: the net did not start asking for more fill.
+> The extra 0.56 ms is the jitter arithmetic itself coming out of the raster
+> setup, and it is not large enough to be worth chasing further.
+>
+> **Two rig facts the earlier attempts paid for, so nobody pays again.**
 > A plain `tyrax-editor --build` **deletes `bin/ps2link.run`** (`runner.cpp:350`,
 > so a leftover PS2 marker cannot confuse a PCSX2 run) — and without that marker
 > the generated game decides it is *not* under ps2link, sets `writeLogsToFile`,
@@ -579,6 +593,12 @@ and does not transfer per-function. **BLSS' EE bill on hardware is now
 `proxy` 2.69 + `reproj` 0.28 + `feat` 0.19 + `net` 0.79 + `pkt` 0.55 +
 `begin` 0.41 + `end` 0.11 = 5.02 ms**, and `proxy` is now more than half of it.
 
+> **Superseded.** The `floorf` cut has since taken this to **4.60 ms** on
+> hardware and the fill-retention factor has been measured rather than assumed,
+> which moves break-even from 13 coverages to **11.5**. See "Both EE cuts, priced
+> on hardware" and "Calibrating the speed model against hardware" below; quote
+> those, not this paragraph.
+
 ### The EE floor, and whether the EE cost still matters
 
 With everything above applied, the EE cost of BLSS on this fixture is
@@ -604,6 +624,11 @@ is
 
 > 0.741 x 0.587 x C > 5.02 + 0.46 ms, i.e. **a scene rasterising more than about
 > 13 full-screen coverages.**
+
+(**That line has since been re-measured too**: with the `floorf` cut in and the
+retention factor fitted on hardware rather than assumed, it is
+`0.7548 x 0.5872 x C > 4.60 + 0.50`, i.e. **11.5 coverages**. The paragraph below
+is still the right way to think about it; only the number moved.)
 
 The old figure on this line was **22**, computed off the wrong resolution factor
 and the pre-table EE bill. `upscaler-lab` as first built rasterised on the order
@@ -646,12 +671,13 @@ counter puts the projection at 1.01 ms against the accumulator's 0.79. Both
 halves are dominated by their **per-proxy fixed costs**, not by per-tile work.
 The 64 boxes that are projected and then rejected (24 %) are pure loss.
 
-> **Everything in this section is PCSX2**, because the console was off the LAN
+> **Everything in this section was PCSX2**, because the console was off the LAN
 > for the whole session — the same failure as the owed jitter A/B above. That is
 > admissible for the **counts**, which are scene facts and transfer exactly, and
 > for **bit-identity**, which is a property of the code. It is **not** admissible
-> for attribution — this page's own rule — so the hardware figures are owed, not
-> reported.
+> for attribution — this page's own rule — so the hardware figures were owed.
+> **They have since been paid: see "Both EE cuts, priced on hardware" below**,
+> which supersedes every attribution figure in this section.
 
 **What came off, each on its own counter:**
 
@@ -735,20 +761,192 @@ GS, and **`emitGrid`'s skip rule is what the host's cost model is fitted to**
 (blss-reconstruction.md §6). A twin-contract risk for a fifth of the prize is the
 wrong trade while `proxy` is unfinished.
 
-**The break-even, restated — and it has NOT moved yet.** It is still **~13
-full-screen coverages**, because that figure comes from a *measured* hardware EE
-bill of 5.02 ms and nothing in this round has been measured on hardware. What the
-round buys, if the emulator's deltas carry over at all, is 0.7–0.8 ms — the
-`floorf` cut (ceiling 0.25, less on hardware) plus the budget's 23 % of `proxy` —
-which would put the bill near **4.25 ms** and break-even at
+**The break-even was left as a PROJECTION by this round** — "about 11
+coverages", off an EE bill projected near 4.25 ms — and the page said in terms
+that it must not be quoted as one. The next section replaces it with a
+measurement.
 
-> 0.741 × 0.587 × C > 4.25 + 0.46, i.e. **about 11 coverages**
+### Both EE cuts, priced on hardware (2026-08-09)
 
-**and that is a projection, not a measurement, and must not be quoted as one.**
-The run that settles it is four arms on the fixture at
-`%TEMP%\tyra-editor-test\ulabhw` — pre-cut and post-cut, BLSS on, paired on the
-`f=` window key — plus the owed jitter-off A/B, and all of it needs the console
-back on the LAN.
+Both cuts above were PCSX2-only, and this page's own rule is that **PCSX2 does
+not transfer per-function attribution** — it ranked `net` above `proxy` where
+hardware ranks the reverse. So both were re-measured on the console, each
+against its own switch in one code base rather than against a different build:
+`TYRA_BLSS_FLOORF_LIBM` (a temporary switch, added and removed in the measuring
+session) restores newlib's `floorf`, and `TYRA_BLSS_PROXY_BUDGET` was forced on
+locally. Fixture `examples/upscaler-lab` at `%TEMP%\tyra-editor-test\ulabhw`,
+BLSS on, the parked six-bank region (frames 600–2559), **two runs per arm, all
+four cross-pairings, paired on the `f=` window key — 160 paired 50-frame
+windows per row.** Sign: **d > 0 = the cut saved time.**
+
+| term | libm `floorf` | inline `floorToInt` | d (95 % CI) |
+|---|---|---|---|
+| `proxy` | 2.499 | **2.336** | **+0.164** [+0.162, +0.165] |
+| …of which `accum` | 0.989 | **0.838** | **+0.151** [+0.150, +0.153] |
+| `pkt` | 0.560 | **0.500** | **+0.060** [+0.060, +0.060] |
+| `reproj` / `feat` / `net` / `begin` / `end` | — | — | **0.000 ± 0.001** |
+| **BLSS EE bill** | **4.824** | **4.597** | **+0.227** [+0.225, +0.229] |
+| whole-frame `work` | 32.677 | 32.312 | +0.365 [+0.357, +0.373] |
+
+**PCSX2 called this one almost exactly right**, which is worth recording next to
+the case where it did not: the emulator predicted `proxy` −0.17, `accum` −0.17
+and `pkt` −0.08, and hardware paid −0.164, −0.151 and −0.060. The stated
+"−0.25 ms is a ceiling on hardware" held, and hardware collected **91 %** of it.
+The lesson is not "PCSX2 transfers after all" — it is that a libm cut in code
+the emulator executes the same number of times transfers, while a libm cut whose
+*cost per call* the emulator gets wrong (`tanhf`/`expf`, where it over-predicted
+2.11 against a real 1.14) does not. **`accum` moved by 92 % of `proxy`'s total**,
+which is exactly where the four `floorf` calls live, so the attribution is the
+mechanism and not a coincidence.
+
+Note the whole frame moved **more** than the counters attribute (+0.365 vs
++0.227). The counters bracket the call sites; the register spills a real call
+forces on the enclosing loops land outside them. Quote **+0.227** as the
+attributable figure and treat the cut as worth at least that.
+
+The proxy budget, measured the same way (and **still shipping at 0** — the host
+twin in `src/blsscorpus.cpp` does not cut the same way yet, and flipping one side
+alone silently invalidates every trained net):
+
+| term | budget off (shipped) | budget on | d (95 % CI) |
+|---|---|---|---|
+| `proxy` | 2.336 | **1.907** | **+0.429** [+0.427, +0.430] |
+| …of which `accum` | 0.838 | **0.624** | **+0.214** [+0.212, +0.215] |
+| everything else | — | — | **0.000 ± 0.003** |
+| **BLSS EE bill** | **4.597** | **4.167** | **+0.429** [+0.427, +0.432] |
+
+**Bit-identity was proved on hardware, not asserted**, and it needed a fixture
+change to be provable at all. Under `blssDebugView 2` the four channels are
+compared across builds — but the parked fixture still runs rain, two campfires
+and their smoke, and those are **dt-driven**, so two runs at two frame rates put
+them in different places and a byte comparison fails for a reason that has
+nothing to do with the code under test. The sweep script therefore ends in a
+segment that hides **every** emitter, giving a genuinely still scene. There,
+across **44 paired 1 Hz samples**, `BLSSWORST` / `BLSSFEAT` / `BLSSOUT` /
+`BLSSFILL` are **byte-identical** between the libm and inline builds — one
+distinct value each, in both builds — and `BLSSGRID` is identical in every
+column (`16x14 tiles, 147 covered, 198 proxy(ies) of 262 projected, scale 2x2`)
+except the tile-update counter, which this page already records as a non-identity
+channel and which spans **exactly the same 1464–1474** in both. The budget arm
+differs in exactly one place, as designed: `coverage` 0.631 → 0.638.
+
+**THE EE BILL AND THE BREAK-EVEN, FROM HARDWARE.** The shipped build's bill is
+`proxy` 2.34 + `reproj` 0.28 + `feat` 0.19 + `net` 0.78 + `pkt` 0.50 +
+`begin` 0.41 + `end` 0.10 = **4.60 ms**, plus the composite's own fill, measured
+in the same runs at **0.50 ms**. With the fill-retention factor measured rather
+than assumed (0.7548 — see the next section), break-even is
+
+> 0.7548 × 0.5872 × C > 4.60 + 0.50, i.e. **11.5 full-screen coverages**
+
+replacing the projected "about 11" and the earlier measured **13**. With the
+proxy budget on it would be **10.5**. Each millisecond off the bill is still
+worth about **2.3** coverages.
+
+### Calibrating the speed model against hardware (2026-08-09)
+
+The editor predicts a project's speedup before building, from
+`saved ≈ 0.741 × (the scene's fill time)` and a 5.02 ms cost
+(`fill::` in `src/blss_ui.hpp`). Against the single hardware point that existed,
+**the model over-predicted badly**: at the anchor's ~75 coverages it says
+27.1 ms saved and the console measured 19.88. One point cannot say whether the
+retention term, the cost or the fill estimate is at fault, so the UI quoted a
+1.6–2.6x range with named assumptions. This round replaces that with a fit.
+
+**The knob.** `examples/upscaler-lab`'s Square/Circle flow graph turned out to be
+useless for this: `SetParticles` is a single global switch, all emitters on or
+all off, so it can remove the fill but not *vary* it — and a pad-driven toggle
+would need the Remote Pad preference on, which is per-frame HostFs I/O inside the
+thing being measured. Instead a **frame-indexed object script** steps the six
+haze banks by index, so segment *k* of the BLSS-off run shows the same load as
+segment *k* of the BLSS-on run and the samples stay paired. The camera is not
+touched, so frames 0–2047 remain the published fixture exactly and the jitter A/B
+window above comes out of the same runs.
+
+**A script's own frame counter and the rig's `f=` index are the same number** —
+checked, not assumed: the script logs each transition with its counter, and the
+step in `work` lands in exactly the `FRAMETIME` window that spans it (the
+transition at script frame 2560 shows as 53.0 → 44.4 → 39.4 across `f=2500`,
+`f=2550`, `f=2600`). So segment boundaries can be quoted straight as FTRAW frame
+indices, with no offset to hunt for. Do not take that for granted in a fixture
+with a loading screen that renders frames before the first `update()`.
+
+**The segment that makes the fit separable, and why it is not optional.** An
+emitter that is hidden skips its simulation *and* its fill (`updateParticles`
+bails on `!o.visible`), so stepping the bank count moves EE cost and GS fill
+**together** and the slope conflates them — which is exactly the flaw in the
+two-point model this section replaces. `emitSize` is read live inside the
+per-particle loop, so one extra segment puts all six banks back at
+`emitSize 0.05`: every particle still simulated, still submitted, raster area
+gone. **seg4 − seg3 is the haze's EE cost alone; seg0 − seg4 is its fill alone.**
+
+Two runs per arm, all four cross-pairings, 384 frames per segment after a
+128-frame settle:
+
+| segment | haze | BLSS off | BLSS on | saved (95 % CI) |
+|---|---|---|---|---|
+| seg0 | 6 banks (192) | 53.19 | 32.31 | **+20.88** [+20.78, +20.97] |
+| seg1 | 4 banks (128) | 40.39 | 28.81 | **+11.58** [+11.49, +11.67] |
+| seg2 | 2 banks (64) | 27.46 | 25.67 | **+1.79** [+1.75, +1.84] |
+| seg3 | 0 banks | 18.93 | 23.52 | **−4.59** [−4.61, −4.57] |
+| seg4 | 192, `emitSize 0.05` | 19.40 | 24.03 | **−4.63** [−4.66, −4.60] |
+
+The separation: the haze's **EE cost is 0.47 ms** (off arm) / 0.51 (on arm) for
+192 particles, and its **fill is 33.79 ms** — so EE is **1.4 %** of the load
+being varied. seg4 and seg3 give the *same* `saved` to within 0.04 ms, which is
+the internal check that the tiny particles really did stop rasterising while
+still costing both arms the same EE.
+
+**The fit**, over a 0.7–34 ms fill range:
+
+> **saved(ms) = 0.7548 × (scene fill, ms) − 5.10**,
+> residuals −0.094 / +0.148 / +0.006 / −0.060, **RMS 0.093 ms**
+
+- **The retention term is right — if anything the model is 2 % conservative.**
+  Measured **0.7548** against the model's 0.741, i.e. BLSS keeps 24.5 % of the
+  fill, not 25.9 %. (The old 25.9 % came from a slope ratio that included the
+  particles' EE cost in both arms, which biases it toward 1; that is the term
+  the seg4 trick removes.)
+- **The cost term is right too**: the fit's intercept, 5.10 ms, is the
+  independently-counted 4.60 + 0.50 to two decimals. Two instruments, one number.
+- **So the model's physics is sound and its INPUT is what is wrong.** Fed the
+  scene's *true* fill it predicts every level within 0.9 ms:
+
+  | haze | true fill | measured saved | old model (0.741 / 5.48) | fitted |
+  |---|---|---|---|---|
+  | 6 banks | 34.46 | +20.88 | +20.06 | +20.91 |
+  | 4 banks | 21.82 | +11.58 | +10.69 | +11.37 |
+  | 2 banks | 9.04 | +1.79 | +1.22 | +1.73 |
+  | 0 banks | 0.67 | −4.59 | −4.98 | −4.59 |
+
+  **The whole 7 ms over-prediction is the coverage estimate.** Working back from
+  the measurement, this scene's total fill is **34.46 ms = 58.7 full-screen
+  blended-textured passes**, against the anchor's **75**. `coverages × 0.587 ms`
+  over-states it by **28 %**; the effective cost of one *counted* coverage here is
+  **0.459 ms**, not 0.587. The mechanism is the one this page already records —
+  0.587 is the calibrated cost of a *blended textured* pass, and an opaque
+  untextured one is a fraction of that, so an estimator that counts terrain,
+  cottages and blended puffs alike in one "coverage" unit necessarily over-prices
+  the frame.
+
+**What this is worth to a caller.** The estimator lives in `src/blss_ui.hpp` /
+`src/blss_window.cpp`, which this round does not own, so the numbers are recorded
+here rather than applied: `kSavedFraction` 0.741 → **0.7548**, `kEeCostMs` 5.02 →
+**4.60**, `kCompositeGsMs` 0.46 → **0.50**, `breakEven()` ~13 → **11.5**,
+`kAnchorCoverages` 75 → **58.7**, `kAnchorSpeedup` 1.60 → **1.63**,
+`kAnchorOffMs`/`kAnchorOnMs` 52.86/32.98 → **52.95 / 32.42**. The one that
+matters is the anchor: **the fill model is fine and the coverage counter reads
+28 % high**, so recalibrating the counter (or the ms-per-counted-coverage) is
+what collapses the published 1.6–2.6x range, not touching the 0.741.
+
+**What is still owed on this.** The 75 is `kAnchorCoverages` as recorded, not a
+number this round re-derived — the coverage estimator is GUI-only, with no
+headless verb, so it could not be re-run against the fixture here. Whoever owns
+it should print the estimator's own coverage figure for `examples/upscaler-lab`
+and confirm it against the 58.7 measured above before rescaling anything; if the
+estimator now reports something other than 75, the ratio moves with it. And this
+is **one scene**. The slope is fitted over five points on a single fixture whose
+variable load is alpha-blended billboards; a scene whose overdraw is opaque
+geometry may well retain a different fraction, and nothing here measures that.
 
 ### The stability gate (period-2 / the "bob")
 

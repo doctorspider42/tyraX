@@ -283,6 +283,21 @@ become 116 and 262 projections become 174**, `coverage` mean moves **0.631 →
 0.638**, and `depth`, `depthGrad`, `edgeDens`, `texDetail`, the covered-tile
 count, `BLSSWORST` and `BLSSFILL`'s `passes = 1.56` do not move at all.
 
+**Confirmed on REAL HARDWARE, 2026-08-09**, on a fixture segment where every
+emitter is hidden so the scene is genuinely still (see profiling.md, "the
+bit-identity segment"): **198 proxies → 115, 262 projections → 173** (the
+emulator said 116/174 — a one-proxy scene-state difference, not a rule
+difference), covered tiles identical at **147**, `coverage` **0.631 → 0.638**,
+and `BLSSOUT`, `BLSSFILL` and `BLSSWORST` **byte-identical across 44 paired
+1 Hz samples**. So the description really does cost one channel and 0.007 of
+its range. What the emulator could not price is what it buys, and hardware now
+does: **`proxy` 2.336 → 1.907 ms, the EE bill 4.597 → 4.167, d = +0.429 ms
+[+0.427, +0.432]** over 160 paired windows, with `reproj`/`feat`/`net`/`pkt`/
+`begin`/`end` all flat to three decimals. That is **41 % of the feed for 0.007
+of one input's range**, and it lowers break-even by a full coverage — but the
+switch still **ships at 0** until `src/blsscorpus.cpp` cuts the same way, and
+the two halves still move in one commit or not at all.
+
 **A box that straddles the eye AND still fills the frame after clipping is
 dropped, by both producers.** Its bbox is the frame by construction and its
 `wNear` is the clip constant, not a measurement, so it hands every tile it
