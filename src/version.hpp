@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 6
+#define TYRAX_VERSION_MINOR 7
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -54,6 +54,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Purely additive - it defaults to false, which is the double-buffered
 // present every project had, and the codegen is byte-identical while it is
 // off. No migration step.
-inline constexpr int kFormatVersion = 5;
+// v6 (frame extrapolation, docs/frame-extrapolation.md):
+// ProjectSettings::frameExtrapolation. Purely additive - it defaults to
+// false, which is what every project did before, and the codegen is
+// byte-identical while it is off. No migration step.
+inline constexpr int kFormatVersion = 6;
 
 }  // namespace version

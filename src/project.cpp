@@ -129,6 +129,38 @@ const DisplayModeInfo& displayModeInfo(const std::string& key) {
     return displayModes()[0];
 }
 
+TripleBufferFit tripleBufferingFit(const ProjectSettings& s) {
+    // GS VRAM in words (1 word = 4 bytes); buffers are page aligned (2048).
+    const int kVramWords = 1048576;
+    const int kPage = 2048;
+    // The reserve the engine checks against: everything RendererCore::init
+    // still allocates after gs.init (post fx, env map + z, camera feed + z,
+    // the projected-shadow slots) plus a texture floor. Keep these two equal to
+    // kThirdBufferReserveWords / kThirdBufferMinTextureWords in the engine.
+    const int kNeed = 98304 + 65536;
+    auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
+
+    const DisplayModeInfo& d = displayModeInfo(bootDisplayMode(s));
+    const int w = d.bufW;
+    const int h = d.halfHeight ? d.logicalH / 2 : d.logicalH;
+    const int bufferWords = pageUp(w * h);  // PSMCT32: one word per pixel
+    // The z buffer follows the RASTER, which the neural upscaler shrinks -
+    // which is exactly what can make room for the third buffer.
+    int rw = w, rh = h;
+    if (s.blssEnabled) {
+        if (s.blssScale == 0) { rw = w / 2; rh = h / 2; }
+        else { rh = h / 2; }
+    }
+    const int zWords = pageUp(rw * rh);
+
+    TripleBufferFit f;
+    f.bufferWords = bufferWords;
+    f.needWords = kNeed;
+    f.leftWords = kVramWords - (2 * bufferWords + zWords) - bufferWords;
+    f.fits = f.leftWords >= kNeed;
+    return f;
+}
+
 std::string bootDisplayMode(const ProjectSettings& s) {
     if (s.displayMode == "interlaced" && s.palFullHeight && s.videoSystem != "ntsc")
         return "pal576";
@@ -1279,6 +1311,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                        "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
+         << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -3953,6 +3986,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.palFullHeight = v->boolOr(false);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
+        if (const auto* v = s->find("frameExtrapolation"))
+            st.frameExtrapolation = v->boolOr(false);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))

@@ -136,7 +136,11 @@ LOG: GS buffers: frame 512x224 x3, z 512x224 at 229376
 ```
 
 `x2` there means the engine refused — the soft-error line above it says with
-which numbers.
+which numbers. The editor asks the same question before you ever
+build: `project::tripleBufferingFit` is the host twin of that check, and the
+Preferences checkbox warns in the dialog when the current display mode has no
+room. **Change one, change the other** — the two agree on the reserve
+constants by convention, not by construction.
 
 ## Limits
 

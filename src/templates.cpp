@@ -533,6 +533,15 @@ constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
 
+// Experimental (Preferences > Build > Frame extrapolation,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = {{FRAME_EXTRAPOLATION}};
+
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
 // distance (staggered per object). 0 = off. Playback time is unaffected.
@@ -1199,6 +1208,13 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -2403,6 +2419,13 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -5349,6 +5372,69 @@ void TerrainGame::loop() {
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * 0.5F,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * 0.5F,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * 0.5F, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * 0.5F;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * 0.5F;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * 0.5F;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -17854,6 +17940,69 @@ void TerrainGame::loop() {
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * 0.5F,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * 0.5F,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * 0.5F, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * 0.5F;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * 0.5F;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * 0.5F;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -23375,6 +23524,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION}}",
+                   st.frameExtrapolation ? "true" : "false");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");

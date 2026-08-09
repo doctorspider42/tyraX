@@ -53,8 +53,10 @@ sheared away from it.
 
 ## The measurements
 
-Fixture: the fpp preset, interlaced-field, PAL, triple buffering on, with a
-script calling `presentWarpFrame` once per game loop.
+Fixture: the fpp preset, interlaced-field, PAL, triple buffering on. Measured
+twice — once with a script calling `presentWarpFrame` by hand, then again
+through the generated `FRAME_EXTRAPOLATION` hook, which reached 25.31 Hz for the
+same 50.4 presented.
 
 | | before | with extrapolation |
 |---|---|---|
@@ -89,7 +91,25 @@ the EE); until then this page does not claim it.
 
 Nothing here has been on real hardware.
 
-## Using it
+## Turning it on
+
+*Project > Preferences > Build > **Frame extrapolation (experimental)*** - off
+by default, saved in the `.tyra` only when on, so an existing project's file and
+its generated code are byte-identical until you tick it.
+
+The generated game then presents one synthesised frame after each rendered one
+(`TerrainGame::presentExtrapolatedFrame`, guarded by the `FRAME_EXTRAPOLATION`
+constant, so it compiles away entirely when off). Since there is no newer pad
+reading at that point in the loop, it estimates where the camera will be from
+the motion it just made, carried **half a step** further - the synthesised frame
+is displayed one field later, and one field is half a loop period once the world
+is running at half the field rate.
+
+It pairs naturally with [triple buffering](frame-pacing.md), but does not need
+it: with two buffers each of the two presents waits for its own vsync, which
+reaches the same 25 Hz world / 50 Hz picture (measured both ways).
+
+## Calling it yourself
 
 ```cpp
 // After endFrame() of a normal frame: sample the pad again, work out where the
@@ -133,9 +153,11 @@ source is the display buffer double buffering already keeps.
 - **Interlaced-field is an approximation.** The source is the other field's
   image, half a scan line away. The per-field `XYOFFSET` bias is applied, but
   the warp does not otherwise model the field offset.
-- **No editor switch yet.** This is an engine API a game calls. Wiring it to a
-  project preference and into the generated game loop is the follow-up (see
-  [backlog](backlog.md)).
+- **A project that OWNS its game sources does not get the generated hook.**
+  `presentExtrapolatedFrame` is emitted into `src/terrain_game.cpp` and
+  `inc/terrain_game.hpp`, which are user-ownable: delete their marker line and
+  they stop being regenerated, switch included. Such a project calls
+  `presentWarpFrame` itself - which is what the switch generates anyway.
 
 ## Where it lives
 

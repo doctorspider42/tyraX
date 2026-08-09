@@ -40,8 +40,8 @@ the verification, and any fact worth reusing belongs in the relevant
     buffers - correct, but a menu that offers the mode cannot say so.
   - **DONE: frame extrapolation** (docs/frame-extrapolation.md) - the engine
     module and `RendererCore::presentWarpFrame` land here; measured 25 Hz world /
-    50 Hz picture. Still owed: **a project preference + the generated game loop**
-    (it is an engine API a game must call by hand today), a **frame-accurate way
+    50 Hz picture, plus the project switch that wires it into the generated
+    loop (Preferences > Build). Still owed: a **frame-accurate way
     to verify a synthesised frame** (see the doc - the compositor screencast
     cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
     objects and the HUD on top of a warped frame, and hardware.

@@ -158,15 +158,17 @@ void RendererCoreGS::allocateVramBuffers() {
     if (left < kThirdBufferReserveWords + kThirdBufferMinTextureWords) {
       // Not a warning: a third buffer here boots into an assert or a scene
       // with no textures, so the honest answer is to not take it.
+      // One complete sentence per argument: the log writes each on its own
+      // line, so an interpolated number splits a phrase in half.
       TYRA_SOFT_ERROR(
           "Triple buffering: not enough GS VRAM at this display mode - "
-          "staying double buffered. A third ",
-          static_cast<int>(frameBuffers[0].width), "x",
-          static_cast<int>(frameBuffers[0].height),
-          " buffer costs ", bufferWords, " words and would leave ", left,
-          ", under the ", kThirdBufferReserveWords + kThirdBufferMinTextureWords,
-          " the renderer's remaining buffers and the texture heap need. The "
-          "interlaced-field display mode halves every buffer and has room.");
+          "staying double buffered.",
+          "Words a third display buffer costs:", bufferWords,
+          "Words it would leave:", left,
+          "Words the rest of the renderer and the texture heap need:",
+          kThirdBufferReserveWords + kThirdBufferMinTextureWords,
+          "The interlaced-field display mode halves every buffer and has "
+          "room. The buffer count is also in the GS buffers line above.");
     } else {
       frameBuffers[2] = frameBuffers[0];
       frameBuffers[2].address = vram.allocateBuffer(

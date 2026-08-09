@@ -636,6 +636,22 @@ the generated copy is derived from that preset, so they normally agree).
 same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 `OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
 
+**Two settings whose ANSWER lives in the engine** (docs/frame-pacing.md,
+docs/frame-extrapolation.md). `tripleBuffering` is the pattern worth copying:
+the engine can REFUSE it - a third display buffer that would starve post fx, the
+env map and the texture heap - and a setting whose failure only shows up in the
+running game's log is a bad setting, so `project::tripleBufferingFit` is a HOST
+TWIN of `RendererCoreGS::allocateVramBuffers`' headroom check and the
+Preferences dialog warns with the numbers, the way `blssClashes()` and its
+dialog mirror do. The two share the reserve constants **by convention, not by
+construction** - change one, change the other. `frameExtrapolation` is the
+reminder that a BEHAVIOUR switch lands in user-ownable sources:
+`presentExtrapolatedFrame` is emitted into `src/terrain_game.cpp` +
+`inc/terrain_game.hpp`, so it has two homes (one per game-cpp head) and its
+declaration two more (one per game-hpp template), and a project that took
+ownership of those never receives it - correct, not a bug, but it has to be said
+in the doc.
+
 **New project preference** (travels with the `.tyra`, part of the game) →
 `ProjectSettings` → save/load in project.cpp → the *Project* Preferences dialog
 (`drawPreferencesModal`) in app.cpp → usually a constant baked into

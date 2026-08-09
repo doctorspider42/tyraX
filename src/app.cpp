@@ -13205,6 +13205,44 @@ void App::drawPreferencesModal() {
         "interlaced-field. Check the game's VRAMSTAT log line before\n"
         "shipping it: when the buffer does not fit the engine says so and\n"
         "stays double buffered, so this can never break a build.");
+    // The engine refuses a third buffer that would starve the rest of the
+    // renderer, and until this line the only way to find that out was the
+    // running game's log. project::tripleBufferingFit is the host twin of that
+    // check - same numbers, same answer.
+    if (prefSettings_.tripleBuffering) {
+        const auto fit = project::tripleBufferingFit(prefSettings_);
+        if (!fit.fits) {
+            const auto& dm =
+                project::displayModeInfo(project::bootDisplayMode(prefSettings_));
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
+            ImGui::TextWrapped(
+                "Will not fit in %s: a third buffer costs %.2f MB and would "
+                "leave %.2f MB, under the %.2f MB the rest of the renderer and "
+                "the texture heap need. The game will say so in its log and "
+                "stay double buffered. Try the interlaced-field display mode, "
+                "which halves every buffer.",
+                dm.label, fit.bufferWords / 262144.0f, fit.leftWords / 262144.0f,
+                fit.needWords / 262144.0f);
+            ImGui::PopStyleColor();
+        }
+    }
+    ImGui::Checkbox("Frame extrapolation (experimental)",
+                    &prefSettings_.frameExtrapolation);
+    prefHelp(
+        "Frame generation, PS2 style: after each rendered frame the game\n"
+        "presents a SYNTHESISED one, re-drawing it under the camera\n"
+        "extrapolated from its own motion. The world then simulates and\n"
+        "renders at HALF the field rate while the television still gets a\n"
+        "fresh picture every field - measured 25 Hz world / 50 Hz picture.\n"
+        "It costs no GS VRAM (the source is the display buffer that already\n"
+        "exists) and adds no latency.\n\n"
+        "Camera rotation reprojects exactly. Translation is approximated by\n"
+        "assuming the world sits on one plane, so strafing shears where\n"
+        "turning does not. Dynamic objects and the HUD FREEZE for the\n"
+        "synthesised frame, and the frame edge stretches where the source\n"
+        "has no pixels for what just came into view. Experimental - try it\n"
+        "on a scene before shipping it.");
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md

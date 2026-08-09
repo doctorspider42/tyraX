@@ -958,6 +958,14 @@ struct ProjectSettings {
     // it does not fit. Decided at engine init; no runtime switch.
     bool tripleBuffering = false;
 
+    // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
+    // frame the game presents a SYNTHESISED one, re-drawing it under the
+    // camera extrapolated from its own motion - so the world runs at half the
+    // field rate while the picture keeps it. Experimental: camera rotation
+    // reprojects exactly, translation is approximated by a single plane, and
+    // dynamic objects plus the HUD freeze for the synthesised frame.
+    bool frameExtrapolation = false;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -1336,6 +1344,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.palFullHeight == b.palFullHeight &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.tripleBuffering == b.tripleBuffering &&
+           a.frameExtrapolation == b.frameExtrapolation &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
@@ -2696,6 +2705,20 @@ std::vector<std::string> previewDisplayModes(const ProjectSettings& s);
 
 // One entry of displayModes() by key; an unknown key resolves to "interlaced".
 const DisplayModeInfo& displayModeInfo(const std::string& key);
+
+// Whether a third display buffer would actually fit in GS VRAM at the
+// project's boot display mode (docs/frame-pacing.md). The HOST TWIN of
+// RendererCoreGS::allocateVramBuffers' headroom check - the engine refuses the
+// buffer and stays double buffered when the numbers do not work, and without
+// this the editor would offer a setting whose failure only shows up in the
+// running game's log. Change one, change the other.
+struct TripleBufferFit {
+    bool fits = false;
+    int bufferWords = 0;  // what a third display buffer costs
+    int leftWords = 0;    // what would remain after taking it
+    int needWords = 0;    // what the rest of the renderer + textures need
+};
+TripleBufferFit tripleBufferingFit(const ProjectSettings& s);
 
 // Creates the project directory, generates all Tyra game sources / build files
 // and the <name>.tyra project file. `preset` picks the starting content, and it
