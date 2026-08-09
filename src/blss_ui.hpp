@@ -398,35 +398,63 @@ std::vector<CorpusScene> parseCorpusScenes(const std::string& text);
 // -------------------------------------------------------------- will it be faster ---
 
 // THE MEASURED SPEED MODEL, in one place, with its provenance attached. Every
-// one of these came off a real PS2 on 2026-08-08 (docs/profiling.md, "The
-// re-tuned demo" and "The EE floor") and NOT off PCSX2, which under-reports GS
+// one of these came off a real PS2 and NOT off PCSX2, which under-reports GS
 // fill by 76x and is why this feature published a 3.37x headline nobody could
 // run. They are constants rather than settings because a knob here would let a
 // reader tune the verdict until it said what they wanted.
+//
+// CALIBRATED AGAINST FIVE LOAD POINTS, TWO RUNS PER ARM, on 2026-08-09
+// (docs/profiling.md, "Calibrating the speed model against hardware"). A
+// frame-indexed script stepped `examples/upscaler-lab`'s six haze banks so the
+// two arms stay paired, and a final segment shrank every particle to
+// `emitSize 0.05` - every particle still simulated and submitted, raster area
+// gone - which is what SEPARATES the emitters' EE cost from their fill and is
+// the reason the retention term below is measured rather than inferred from a
+// slope ratio that had EE in both arms. The fit over a 0.7-34 ms fill range:
+//
+//   saved(ms) = 0.7548 x (scene fill, ms) - 5.10,  residual RMS 0.093 ms
+//
+// Two independent confirmations came out of it. The retention term was RIGHT -
+// 0.7548 measured against the 0.741 assumed, i.e. the shipped model was 2 %
+// conservative - and the fit's intercept, 5.10 ms, reproduces the
+// independently-counted 4.60 EE + 0.50 composite fill to two decimals. Two
+// instruments, one number: the model's physics is sound and it was its INPUT
+// that was wrong (see kAnchorCoverages).
 namespace fill {
 // What survives the reduced render. `blssScale 0` is Scale::X2Y2 - half in EACH
-// axis - so a quarter of the pixels; the measured slope is 0.259 and the extra
-// 0.9 % is measurement. This page said "half" for a week, and the break-even
-// computed off that was ~70 % too pessimistic.
-constexpr double kKeptFraction = 0.259;
-constexpr double kSavedFraction = 1.0 - kKeptFraction;
+// axis - so a quarter of the pixels; the fitted slope says 24.52 % survives, so
+// the extra 0.5 % over a clean quarter is measurement. This page said "half"
+// for a week, and the break-even computed off that was ~70 % too pessimistic.
+constexpr double kKeptFraction = 0.2452;
+constexpr double kSavedFraction = 1.0 - kKeptFraction;  // 0.7548, fitted
 // One full-screen alpha-blended textured pass on hardware, its own draw_finish.
+// THE UNIT `coverages` IS COUNTED IN - see kAnchorCoverages for what that costs
+// an estimator that counts an opaque untextured fragment as the same thing.
 constexpr double kPassMs = 0.587;
-// BLSS' EE bill with the activation table in: proxy 2.69 + reproj 0.28 +
-// feat 0.19 + net 0.79 + pkt 0.55 + begin 0.41 + end 0.11.
-constexpr double kEeCostMs = 5.02;
-// ...and the fill the composite itself adds back, measured on hardware.
-constexpr double kCompositeGsMs = 0.46;
-// The one scene where both ends of this model have been measured.
-constexpr double kAnchorCoverages = 75.0;
-constexpr double kAnchorSpeedup = 1.60;
-constexpr double kAnchorOffMs = 52.86, kAnchorOnMs = 32.98;
+// BLSS' EE bill as shipped: proxy 2.34 + reproj 0.28 + feat 0.19 + net 0.78 +
+// pkt 0.50 + begin 0.41 + end 0.10.
+constexpr double kEeCostMs = 4.60;
+// ...and the fill the composite itself adds back, measured in the same runs.
+constexpr double kCompositeGsMs = 0.50;
+// THE ONE SCENE WHERE BOTH ENDS OF THIS MODEL HAVE BEEN MEASURED, and the
+// number that moved most. Working back from the five-point fit,
+// `examples/upscaler-lab`'s true fill is 34.46 ms, which at kPassMs is 58.7
+// blended-pass equivalents - not the 75 the fragment counter reports. The
+// counter is the term that over-predicts, not the model: `coverages x 0.587`
+// over-states this frame by 28 %, because 0.587 ms is the cost of a BLENDED
+// TEXTURED pass and an opaque untextured fragment costs a fraction of that.
+// So this anchor is stated in blended-pass equivalents and the counter is
+// being taught to produce them (blsscorpus.cpp).
+constexpr double kAnchorCoverages = 58.7;
+constexpr double kAnchorSpeedup = 1.63;
+constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;
 // VRAM handed back at 2x2 on a 512x448 output, and it is EXACTLY ZERO at 1x2 -
 // the low-res target costs precisely what the z-buffer saves.
 constexpr int kVramBackKb2x2 = 448;
 
-// 0.741 x 0.587 x C > 5.02 + 0.46: about 13 full-screen coverages. Derived
-// rather than written down, so a millisecond taken off the EE bill moves it.
+// 0.7548 x 0.587 x C > 4.60 + 0.50: 11.5 full-screen coverages. DERIVED rather
+// than written down, so a millisecond taken off the EE bill moves it - which is
+// exactly what this round's re-measurement did (13 -> 11.5).
 inline double breakEven() {
     return (kEeCostMs + kCompositeGsMs) / (kSavedFraction * kPassMs);
 }

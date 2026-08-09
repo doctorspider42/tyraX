@@ -1295,8 +1295,8 @@ SpeedEstimate speedFrom(double coverages) {
     // ...and the other end: fill is 60 % of the frame, the rest is EE work BLSS
     // does not touch. That fraction is an assumption and is named wherever this
     // range is printed; it is worth knowing that on the one scene where both
-    // arms were measured (upscaler-lab, 1.60x at ~75 coverages) the outcome
-    // landed exactly on this end of the range.
+    // arms were measured (upscaler-lab, 1.63x at 58.7 blended-pass equivalents)
+    // the outcome landed exactly on this end of the range.
     const double totalOff = e.fillMs / 0.60;
     const double totalOn = totalOff - e.savedMs;
     e.lo = totalOn > 1e-6 ? totalOff / totalOn : e.hi;
@@ -1333,11 +1333,20 @@ Recommendation recommend(const EvalSummary& quality, bool haveQuality, const Spe
     const bool headroom = q && quality.oracleMargin >= kNoHeadroomDb;
     // THREE SPEED STATES, NOT TWO, and the middle one is the reason this
     // function exists rather than an `if (savedMs > 0)` in the draw call. A
-    // scene estimated at 15 coverages against a ~13 break-even saves about
-    // 1 ms - which is smaller than the things the count admits it cannot see,
-    // so "TURN IT ON FOR THE SPEED" there is a confident wrong answer, and a
-    // confident wrong answer is worse than a range. examples/showcase is
-    // exactly that scene and is what caught it.
+    // scene estimated at 15 coverages against an 11.5 break-even saves about
+    // 1.7 ms - which is the same order as the things the count admits it cannot
+    // see (the sky dome alone is ~1 coverage = 0.6 ms of fill), so "TURN IT ON
+    // FOR THE SPEED" there is a confident wrong answer, and a confident wrong
+    // answer is worse than a range. examples/showcase is exactly that scene -
+    // measured at 15.24 by --blss-coverage - and is what caught it.
+    //
+    // The band is `< 1.5 x breakEven`, i.e. DERIVED, so re-measuring the model
+    // moves it: the 2026-08-09 calibration took break-even from 13 to 11.5 and
+    // with it the band's ceiling from 3.0 ms of saving to 2.55 ms. Worth
+    // knowing, because a tighter model narrowing its own honesty band is
+    // exactly how a better measurement turns into a more confident wrong
+    // answer. showcase still lands here (1.32 x break-even), which is the
+    // check that mattered.
     const bool win = s && speed.band == SpeedEstimate::Band::Win;
     const bool loss = s && speed.band == SpeedEstimate::Band::Loss;
     const bool close = s && speed.band == SpeedEstimate::Band::Marginal;
@@ -1390,20 +1399,20 @@ Recommendation recommend(const EvalSummary& quality, bool haveQuality, const Spe
         char b[320];
         if (win)
             std::snprintf(b, sizeof(b),
-                          "Speed: about %.0f full-screen coverages against a ~%.0f break-even, so "
+                          "Speed: about %.0f full-screen coverages against a %.1f break-even, so "
                           "roughly %s off the GS - %s if the frame is mostly fill.",
                           speed.coverages, speed.breakEven, msText(speed.savedMs).c_str(),
                           rangeText(speed).c_str());
         else if (close)
             std::snprintf(b, sizeof(b),
-                          "Speed: about %.0f full-screen coverages against a ~%.0f break-even - "
+                          "Speed: about %.0f full-screen coverages against a %.1f break-even - "
                           "only %s a frame either way, which is inside what this count admits it "
                           "cannot see. It is a FLOOR, so the console is likelier to land above "
                           "the line than below it.",
                           speed.coverages, speed.breakEven, msText(speed.savedMs).c_str());
         else
             std::snprintf(b, sizeof(b),
-                          "Speed: about %.0f full-screen coverages, below the ~%.0f break-even, so "
+                          "Speed: about %.0f full-screen coverages, below the %.1f break-even, so "
                           "the frame gets about %s LONGER.",
                           speed.coverages, speed.breakEven, msText(speed.savedMs).c_str());
         why += b;

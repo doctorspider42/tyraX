@@ -542,11 +542,12 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "but that is a number about the bestiary, not about your game.\n"
         "\n"
         "IT HAS A REGIME, AND BOTH SIDES OF IT ARE MEASURED. The feature costs\n"
-        "5.02 ms of EE per frame and keeps only 25.9 % of the scene's GS fill\n"
+        "4.60 ms of EE per frame and keeps only 24.5 % of the scene's GS fill\n"
         "(the render is half in EACH axis, so a quarter of the pixels). At the\n"
         "calibrated 0.587 ms per full-screen blended textured pass that is\n"
-        "break-even at about 13 full-screen coverages. On a real PS2:\n"
-        "  examples/upscaler-lab, ~75 coverages: 52.86 -> 32.98 ms, 1.60x\n"
+        "break-even at 11.5 full-screen coverages. Both numbers are FITTED over\n"
+        "five load points on hardware, not assumed. On a real PS2:\n"
+        "  examples/upscaler-lab, 58.7 coverages: 52.95 -> 32.42 ms, 1.63x\n"
         "  blssrig, a handful of coverages:       9.42 -> 19.25 ms, a loss\n"
         "'Will the frame get faster?' in Tools > Neural Upscaler (BLSS)\n"
         "estimates YOUR scene's overdraw and says which side of that line it\n"
@@ -556,7 +557,7 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "VRAM it gives back: the z-buffer shrinks with the render, which\n"
         "returns more than the reduced-resolution target costs - 448 KB at 2x2\n"
         "on a 512x448 output, and EXACTLY ZERO at 1x2, where the low-res target\n"
-        "costs precisely what the z-buffer saves. Fill it costs back: 0.46 ms\n"
+        "costs precisely what the z-buffer saves. Fill it costs back: 0.50 ms\n"
         "of composite, measured on hardware, and up to five full-screen passes\n"
         "when the network asks for every kernel everywhere.\n"
         "\n"
@@ -1599,12 +1600,16 @@ void App::drawBlssHappyPath() {
         "and puts that against the MEASURED break-even.\n"
         "\n"
         "BLSS trades GS fill for EE work at a price both halves of which were\n"
-        "measured on a real PS2: it keeps 25.9 % of the scene's fill (the render\n"
-        "is half in EACH axis, so a quarter of the pixels) and costs 5.02 ms of\n"
-        "EE plus 0.46 ms of composite fill. At the calibrated 0.587 ms per\n"
-        "full-screen blended textured pass that is break-even at about 13\n"
-        "full-screen coverages. Above the line it is a large win; below it, a\n"
-        "straight loss of up to ~5.5 ms a frame.\n"
+        "measured on a real PS2: it keeps 24.5 % of the scene's fill (the render\n"
+        "is half in EACH axis, so a quarter of the pixels) and costs 4.60 ms of\n"
+        "EE plus 0.50 ms of composite fill. At the calibrated 0.587 ms per\n"
+        "full-screen blended textured pass that is break-even at 11.5 full-screen\n"
+        "coverages. Above the line it is a large win; below it, a straight loss\n"
+        "of up to ~5.1 ms a frame.\n"
+        "\n"
+        "The retention and the cost are FITTED over five hardware load points\n"
+        "(two runs per arm), not assumed: saved = 0.7548 x fill - 5.10 ms, with\n"
+        "a residual RMS of 0.093 ms.\n"
         "\n"
         "It walks the same scenes and the same camera moves the corpus uses and\n"
         "counts every fragment the rasteriser produces - the GS has no early-z\n"
@@ -1612,7 +1617,13 @@ void App::drawBlssHappyPath() {
         "both real fill.\n"
         "\n"
         "IT IS A FLOOR, not a measurement. What it cannot see is listed under the\n"
-        "answer; the console is the only thing that settles it.");
+        "answer; the console is the only thing that settles it. It also counts a\n"
+        "blended textured fragment and an opaque untextured one as ONE unit, so\n"
+        "a scene whose overdraw is opaque geometry is over-priced by it - the\n"
+        "counted figure is a coverage, not yet a blended-pass equivalent.\n"
+        "\n"
+        "Run it without the GUI with `tyrax-editor --blss-coverage <projectDir>`.\n"
+        "Same function, same numbers, machine-readable [blss] lines.");
 
     // THE THIRD QUESTION, and the one that catches what the other two cannot
     // see. "Will the picture improve" reads the oracle and "will the frame get
@@ -1723,21 +1734,22 @@ void App::drawBlssAnswer() {
             ImGui::TextWrapped(
                 "    Expect roughly %.1f-%.1fx, the two ends being 'the frame is 60 %% fill' "
                 "and 'the frame is nothing but fill'. Measured on examples/upscaler-lab: "
-                "1.60x at ~75 coverages (52.86 -> 32.98 ms, real PS2) - which landed on the "
-                "LOW end of its own range.",
-                sp.lo, sp.hi);
+                "1.63x at %.1f blended-pass equivalents (52.95 -> 32.42 ms, real PS2) - which "
+                "landed on the LOW end of its own range.",
+                sp.lo, sp.hi, blssui::fill::kAnchorCoverages);
         } else if (sp.band == blssui::SpeedEstimate::Band::Marginal) {
             ImGui::TextWrapped(
                 "    No speedup is quoted here on purpose: %.1f ms a frame is smaller than the "
                 "things this count cannot see, so any multiplier would be a decimal place "
-                "with nothing behind it. Break-even is ~%.0f coverages; the two hardware "
-                "points either side of it are examples/upscaler-lab at ~75 (1.60x) and "
-                "blssrig at a handful (-6.4 ms).",
-                sp.savedMs, sp.breakEven);
+                "with nothing behind it. Break-even is %.1f coverages; the two hardware "
+                "points either side of it are examples/upscaler-lab at %.1f (1.63x) and "
+                "blssrig at a handful (-5.1 ms).",
+                sp.savedMs, sp.breakEven, blssui::fill::kAnchorCoverages);
         } else {
             ImGui::TextWrapped(
                 "    The floor of that loss is %.1f ms - BLSS' own bill with no fill at all to "
-                "trade against it. Measured: blssrig, a terrain and six slabs, loses by 6.4 ms.",
+                "trade against it. Measured: blssrig, a terrain and six slabs, loses by 4.6 ms "
+                "of EE plus its composite.",
                 blssui::fill::kEeCostMs + blssui::fill::kCompositeGsMs);
         }
         ImGui::TextDisabled(
