@@ -2663,6 +2663,77 @@ compile that was excluded from every run without anyone asking why; and `--fmac-
 itself, which triggered bug 11 and is the only flag whose removal cleared it, with nothing
 systematically comparing its output against the same programs with it off.
 
+### Reading the residual instead of measuring it again
+
+The previous round's own instruction for this one was "read them one at a time rather than build
+another instrument", and that is what produced the twelfth bug. Twenty programs were read, not
+counted.
+
+**Bug 12 - FDIV and EFU latency is measured down the file, and a branch does not go down the
+file.** All twenty reachable residuals were the same shape and it is not a modelling artefact.
+`Q` has no hardware interlock: `div` writes it seven cycles after issue (thirteen for `rsqrt`), a
+read before then returns the previous quotient, and `waitq` is the instruction that would stall.
+openvcl schedules basic blocks in file order carrying one `VuLatencyTracker` and one running
+cycle count from block to block, and there is no predecessor reasoning anywhere in the compiler
+(`grep -i predecessor src/` finds only the register allocator's alias chain). So the distance
+from a `div` to a `mulq` at a LABEL is counted down the file - and a forward branch that jumps
+over the rows in between delivers the consumer early. In the twenty programs the gap comes out
+at 3 to 6 cycles where 7 are needed, and one `rsqrt` case at 9 where 13 are.
+
+The reproducer is twenty lines and the reference settles it: on the same source **Sony's `vcl`
+places the `mulq` at exactly cycle 7** on the taken edge, openvcl at cycle 6. The fix gives each
+block the skew between its fall-through entry cycle and the shortest path that reaches it, and
+pushes the outstanding Q/P ready cycles back by it. A backward edge can never win that maximum,
+so one pass in file order is exact.
+
+Zero cost on the 70 - **zero bytes moved**, words still 1998 / 3908 / 9242 from `nm`, `clipw` 7
+per clip program and `addaw` 3 per env-mapped one. On the generated corpora it moves 63 of 400,
+73 of 480 and 71 of 480 programs. The oracle's residual over the three corpora goes from **23 / 22 / 21**
+divergent programs to **1 / 2 / 2**, against Sony's **2 / 3 / 1** on the same runs - at or below
+the reference on all three. The five that remain are all still FDIV/EFU: two read `undef(P)` after
+an `esum`, three read the wrong quotient in shapes the entry skew does not reach, and in four of
+the five the consumer is PAIRED with another instruction rather than issued alone, which is the
+next thing to read.
+
+**Two instruments were killed by their own positive control before any of that.** A "stale Q
+read" detector on the emitted program alone reported seven violations in Sony's output; the first
+was that it counted `div q,...` - which names Q in position 0 and reads nothing from it - as a
+consumer. With that fixed it still reported seven, and the second reason is the one worth
+keeping: **the newest ISSUED division is not the one that feeds a consumer.** SCE deliberately
+issues a second `div` while the first is in flight and puts the first one's consumer between the
+two completions, so "gap since the last issue" is the wrong question. The value-DAG oracle
+already asks the right one. The detector was thrown away; no new instrument was needed.
+
+**The "unreachable" label was wrong for a quarter of what it covered.** `pd-cond.py` stops at the
+first policy that diverges and tags the finding with that trace's `infeasible` flag - which is
+sticky for the WHOLE trace, set as soon as any forced edge contradicts the source's own constant
+folding no matter where the divergence sits. Re-running every policy with each impossible edge
+*pinned* to the outcome the fold demands - so no trace is forced anywhere - **12 of the 46 turn
+out to diverge on a path that runs**, and two programs that were not divergent at all appear.
+Positive control: on Sony's output over the same 398 programs the same pass reports **1**, the
+known CLIP-window floor case.
+
+**The twenty-minute program is `--loop-liveness-always`, and it is ours.** `pd720006` was
+excluded from every differential run since it appeared, and nobody had asked why. Bisecting the
+flag list cumulatively answers it in one run: stock openvcl compiles it in **under a second**
+(17 418 bytes), and so does every prefix of the flag list up to and including
+`--branch-bubble-on-dependency`. Adding `--loop-liveness-always` - the seventh - does not finish
+in 90 seconds, and the flag on its own, with nothing else, does not finish in 120. A run with
+the full flag list was still going after 66 minutes when it was stopped; it has never been seen
+to finish. It is the only program of the
+first hundred in that corpus that does it, and the shape matches what the fork's README already
+suspects about `extendLoopDirectiveRange`: 19 labels and 19 branches with the loops interleaved
+rather than nested (`Lconly9:` sits *above* `Lconly8:`, `Lloop19` above `Lsc18`).
+
+That flag ships. A generated VU program with this control-flow shape would hang a project build
+rather than fail it, which is worse than a compile error. It is a TyraX-fork defect, not
+upstream's - upstream has no such flag - and it is open.
+
+**`--fmac-interlock` is not the villain.** Judged by oracle verdict rather than emitted text - the
+only sound comparison across flag sets - the three corpora give 23/22/21 divergent programs with
+the flag and 26/22/22 without it, overlapping on 22/21/19. The flag *exposed* bug 11; it does not
+cause a class of divergence of its own, and the 70 are clean under both settings.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now

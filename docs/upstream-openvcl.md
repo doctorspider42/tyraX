@@ -4,7 +4,7 @@ TyraX builds its VU1 microcode with [openvcl](https://github.com/ps2dev/openvcl)
 as an alternative to Sony's unlicensed `vcl` — the whole reason being that a
 publishable toolchain image cannot contain `vcl` (see
 [toolchain-image.md](toolchain-image.md), "Licensing of the published image"). This
-page is the part of that work that belongs to openvcl rather than to us: **ten defects**,
+page is the part of that work that belongs to openvcl rather than to us: **eleven defects**,
 one calibration mistake of our own, and the density flags. Every defect is written up with
 the mechanism - what the code believed and why that is wrong - and all but section 4 with a
 reproducer that fires on the stock commit below. Several need no flags at all, so they are
@@ -391,7 +391,88 @@ microprograms from a shipping engine, 1360 generated stress programs, 3780 narro
 every example in this repository contain not one `(--base)`. Post-increment, which shares the
 operand path and works, has 363 sites. A bug can be both total and invisible.
 
-## 11. Twenty-one flags, all off by default
+## 11. FDIV and EFU latency is measured down the file, and a branch does not go down the file
+
+`Q` and `P` have no hardware interlock. `div` writes `Q` a fixed seven cycles after it issues
+(thirteen for `rsqrt`), a read before then returns the PREVIOUS quotient, and `waitq` is the
+instruction that stalls until it lands. The compiler is therefore responsible for the distance,
+and it measures it on the wrong timeline.
+
+`scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal` walks the basic blocks in file order,
+carrying one `VuLatencyTracker` and one running cycle count from each block into the next:
+
+```cpp
+for( block = blocks.begin(); block != blocks.end(); ++block )
+{
+    scheduledBlock.firstIssueCycle = program.cycleCount;
+    scheduledBlock.issueSlots =
+        scheduleVuBasicBlockReadyIssueSlotsWithFlagLiveness( *block, liveness,
+                                                            programLatencyTracker,
+                                                            program.cycleCount );
+    program.cycleCount += scheduledBlock.cycleCount;
+}
+```
+
+That is exactly right for a block reached by falling through and wrong for one reached by a
+branch. Nothing in the compiler looks at a block's predecessors - `grep -i predecessor src/`
+finds only the register allocator's same-name alias chain - so a label's entry cycle is always
+the fall-through one, and a forward branch that jumps over the rows in between delivers its
+target early.
+
+**Reproducer** - the twenty-one flags TyraX passes; the shape needs a branch, so it does not
+reduce further:
+
+```
+    div        q, f0[x], f1[y]
+    ibgez      n0, Lskip
+    mul.xyzw   f3, f3, f4
+    ... five more rows ...
+Lskip:
+    mulq.w     f2, f1, q
+```
+
+openvcl puts twelve rows between the `div` and the `mulq` and emits no wait, because down the
+file twelve is more than seven. Along the taken edge the only rows between them are the branch
+and its delay slot:
+
+```
+                    nop                             div q, VF01x, VF02y      <- cycle 0
+                    nop                             lq VF05, 4(VI00)
+                    nop                             iaddiu VI01, VI00, 8
+                    nop                             nop
+                    nop                             ibgez VI01, Lskip        <- cycle 4
+                    nop                             nop                      <- delay slot
+                    ... six rows the branch jumps over ...
+Lskip:
+                    mulq.w VF03, VF02, q            nop                      <- cycle 6, needs 7
+```
+
+Sony's `vcl` on the same source pads the target block so the `mulq` sits at cycle **7** exactly,
+which is what says seven is the hardware's number and not a modelling choice.
+
+**Fix**: give each block the skew between its fall-through entry cycle and the shortest path
+that reaches it, and push the outstanding `Q`/`P` ready cycles back by it before the block is
+scheduled. For a branch out of a block whose own skew is `s`, issuing at cycle `X`, into a label
+whose fall-through entry is `L`, that edge's skew is `s + L - X - 2` - the two being the branch
+and its delay slot. A block takes the largest of its edges. A BACKWARD edge can never win that
+maximum (it has `X > L`), so one pass in file order computes the whole thing.
+
+**Scale.** 63 of 400, 73 of 480 and 71 of 480 programs in three generated stress corpora change
+when the skew is applied; on TyraX's 70 real microprograms **nothing moves** - the resident,
+engine and generated word counts stay at 1998 / 3908 / 9242 - because none of them puts a `Q`
+consumer at a label a forward branch can shorten into. The differential oracle's residual over the three corpora goes from
+**23 / 22 / 21** divergent programs to **1 / 2 / 2**, against Sony's own **2 / 3 / 1** on the same
+runs - at or below the reference everywhere. All five that remain are still in the FDIV/EFU
+bucket: two read `undef(P)` after an `esum`, and three read the wrong quotient in shapes this fix
+does not reach.
+
+**What is NOT fixed by this.** A producer BELOW its consumer, feeding it through a back edge on
+the next iteration, is a different question: the linear tracker has not seen the producer at all
+when it schedules the consumer. openvcl happens to answer that one correctly today, by emitting
+`waitq` (the linear model sees the division from the PREVIOUS block and over-waits), but nothing
+makes it do so on purpose.
+
+## 12. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **1998**, against SCE's
