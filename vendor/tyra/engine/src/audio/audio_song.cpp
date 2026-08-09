@@ -24,6 +24,12 @@
 # memory and never blocks on the network. Repositioning (load / rewind /
 # unload) hands the file to the streamer through a generation handshake -
 # the streamer owns all FILE access while active.
+#
+# And: the ring wait in work() no longer calls audsrv_wait_audio(), which
+# blocks inside audsrv's single IOP RPC thread and so froze every other
+# audsrv caller in the program for the length of the wait - a game with
+# streaming music and one sound emitter in earshot ran at half frame rate
+# because of it. It polls audsrv_available() instead; see the comment there.
 */
 
 #include "audio/audio_song.hpp"
@@ -380,7 +386,21 @@ void AudioSong::work() {
 
   if (chunkReadStatus > 0) {
     WaitSema(fillbufferSema);  // wait until previous chunk wasn't finished
-    audsrv_wait_audio(chunkReadStatus);
+    // Modified by TyraX: audsrv_wait_audio() used to be here, and it is the
+    // one call in this file that BLOCKS ON THE IOP - its RPC handler sits in
+    // a WaitSema loop until the ring has room. That occupies audsrv's single
+    // RPC server thread AND the EE client's completion semaphore for the
+    // whole wait, so every other audsrv call in the program queues behind it:
+    // a sound emitter asking for a volume change, or retriggering its sample,
+    // paid ~10 ms for it (docs/sound.md has the measurement - a scene that
+    // opened with music streaming and one emitter in earshot ran at 25 FPS).
+    // audsrv_available() answers from the ring pointers and returns
+    // immediately, so the lock is taken in short bursts and the game thread
+    // can slip in between. Sleeping between polls rather than spinning keeps
+    // this thread off the EE while it has nothing to do; the fillbuf callback
+    // above already means room is expected, so the loop normally runs zero
+    // times.
+    while (audsrv_available() < chunkReadStatus) Threading::sleep(1);
     audsrv_play_audio(chunk, chunkReadStatus);
     for (u32 i = 0; i < getListenersCount(); i++)
       songListeners[i]->listener->onAudioTick();

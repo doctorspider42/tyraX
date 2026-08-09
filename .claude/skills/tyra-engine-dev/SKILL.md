@@ -779,6 +779,26 @@ banner both, so a previously built ELF still reports.
   SPU2's own ENDX register, one bit per voice, one IOP RPC. Ask it per PLAY
   REQUEST, never per frame (a play already costs two or three RPCs; a per-frame
   poll is what the emitter loop's whole quantization exists to avoid).
+- **Never let a blocking audsrv RPC be the thing you wait on: it stops the
+  WHOLE library, not just the caller.** audsrv has one RPC server thread on the
+  IOP and one completion semaphore on the EE (`audsrv_rpc.c`), so a call that
+  blocks IOP-side holds both, and every other audsrv call in the program -
+  from any thread - queues behind it. `audsrv_wait_audio(n)` is exactly such a
+  call: its handler sits in `WaitSema(queue_sema)` until the ring has `n` bytes
+  free. `AudioSong::work()` used it once per music chunk, which put the game
+  thread's emitter calls behind a wait that lasts as long as it takes the ring
+  to drain: **measured ~10 ms per frame in PCSX2 on `examples/showcase` -
+  FRAME 20 -> 30 ms, a solid 25 FPS for as long as the track's first pass**,
+  while `SCENE`/`PART` never moved (the hunt is written up in
+  docs/profiling.md). It is now a poll on `audsrv_available()`, which answers
+  from the ring pointers and returns at once, with `Threading::sleep(1)`
+  between tries: same condition, same order, but the lock is taken in short
+  bursts. Four emitters retriggering every frame plus streaming music went from
+  28-30 ms to 20.0 ms. Two rules follow. **Prefer the non-blocking query plus a
+  sleep to any "wait" entry point** - `audsrv_available` / `audsrv_queued` over
+  `audsrv_wait_audio` - and remember the symptom shape: an audio-caused frame
+  drop shows up in whatever code happens to call audsrv, not in the audio code,
+  so the profiler blames the sound emitters for the music's lock.
 - **An EE buffer handed to a SIF DMA must be written back to main memory
   first** (`SifWriteBackDCache(ptr, size)`), and `audsrv_load_adpcm` did not do
   it. The EE's data cache is write-back, the DMA reads RAM, so a sample just
