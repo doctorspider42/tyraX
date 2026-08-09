@@ -18,4 +18,4 @@ shots 6
 epochs 400
 seed 0xB1557
 corpus examples/upscaler-lab
-command tyrax-editor --blss-train examples/upscaler-lab --all-shots -o examples/upscaler-lab/blss.net
+command tyrax-editor --blss-train examples/upscaler-lab --all-shots

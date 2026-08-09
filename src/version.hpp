@@ -16,6 +16,23 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.12.1 (the flagship demo on assets we may actually ship): every art asset
+// in examples/upscaler-lab is now CC0 1.0. The cottage and the animated spider
+// went in with UNVERIFIED redistribution terms and a banner in the project's
+// THIRD-PARTY-NOTICES.txt admitting it, which is not a state the feature's own
+// demo should be in; they are replaced by buildings kit-bashed from Kenney's
+// Retro Urban Kit (CC0) and by wobbler.glb, which five other examples already
+// ship. PATCH by this file's own rule - no capability appears or disappears,
+// the format does not move, and the editor is not touched. What DID move is
+// measured rather than assumed: the GS fill the example exists to demonstrate
+// is unchanged (--blss-coverage 72.63 -> 72.23, the emitters untouched at
+// 6 x 32 haze billboards), the oracle ceiling went UP (+1.058 -> +1.108 dB,
+// jitter off, 2x2) and the EE got 4 ms cheaper per frame in PCSX2, almost all
+// of it the animated model (2 x 1092 spider vertices -> 2 x 123 wobbler ones).
+// That last one moves the published hardware A/B, which CANNOT be re-measured
+// here - the console is unreachable - so 52.95 -> 32.42 ms / 1.63x is now
+// labelled as a measurement of the PREVIOUS geometry and the re-run is owed.
+//
 // 1.12.0 (the upscaler without the upscaler): BLSS gains a PLAIN mode -
 // ProjectSettings::blssNetwork, format v12 - which keeps the reduced raster and
 // the VRAM it hands back and deletes everything between: no bag proxies, no

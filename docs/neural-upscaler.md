@@ -1104,11 +1104,11 @@ because a net fitted on several projects belongs to none of them.
 > | | `--blss-eval` | `--blss-coverage` (geometry + emitters) | emitter share |
 > |---|---|---|---|
 > | `examples/showcase` | `headroom=+0.006` → **"WILL NOT BENEFIT"** | 15.24 = 0.67 + **14.57** | **95.6 %** |
-> | `examples/upscaler-lab` | `headroom=+1.058` at 1.38 passes | 72.63 = 0.98 + **71.65** | **98.7 %** |
+> | `examples/upscaler-lab` | `headroom=+1.108` at 1.39 passes | 72.23 = 0.96 + **71.27** | **98.7 %** |
 >
 > So the confident sentence is real, and it is `showcase` that prints it: a
 > near-zero ceiling measured on **4.4 %** of the frame's fill, quoted verbatim by
-> the BLSS window. `upscaler-lab` no longer prints it — it reads a +1.06 dB
+> the BLSS window. `upscaler-lab` no longer prints it — it reads a +1.11 dB
 > ceiling today — so the older claim on this page that *it* read `+0.000` and
 > *"THIS SCENE WILL NOT BENEFIT"* is **retracted**; it was measured before the
 > shot plan and the demo's re-tune. The billboard count quoted with it (3 072)
@@ -1475,12 +1475,12 @@ project directory in it (i.e. a bestiary-trained net about to ship).
 *Will the frame get faster?* counts how many times over a project's scenes paint
 the screen (`blss::measureCoverage`, headless twin `--blss-coverage`) and puts
 that against the hardware break-even. On `examples/upscaler-lab` it reads
-**72.63** where the five-point hardware fit implies **58.70** blended-pass
+**72.23** where the five-point hardware fit implies **58.70** blended-pass
 equivalents — an over-read that has now had two explanations and lost both.
 
 The first was that the counter prices an opaque untextured fragment as the
 blended textured pass `kPassMs` was calibrated on; that was falsified in the
-round that measured it (geometry is 0.98 of the 72.63 against a measured ceiling
+round that measured it (geometry is ~1.0 of the ~72.5 against a measured ceiling
 of ≤1.14, and re-weighting moves the total by 0.49 against a 13.93 gap).
 
 The second was **the camera**: hardware ran the fixture's own gameplay camera
@@ -1495,6 +1495,10 @@ move switched off — and it came out the other way:
 | the fixture's own parked camera (what the console A/B ran) | **78.99** |
 | its Cutscene Director tour | 85.64 |
 | the six-move corpus mean | 72.63 |
+
+(The three counted rows above were taken before the fixture's art assets were
+replaced with CC0 ones on 2026-08-09; the six-move mean reads 72.23 since, and
+the emitters — which are 98.7 % of it — were not touched.)
 | *the hardware fit's blended-pass equivalents* | *58.70* |
 
 **The game's own camera reads higher than the corpus average, not lower.** So the
@@ -2601,7 +2605,7 @@ seeds = 18 fold-runs:
 | `--no-anim` (the old behaviour) | +0.66 | 0.53 | 1/18 | 1.74 |
 
 +0.03 dB against a fold sd of 0.50. **That is not a result, and the reason is
-worth more than the number**: two spiders are **48 of that project's 1 512 bag
+worth more than the number**: the two animated models were **48 of that project's 1 512 bag
 proxies (3.2 %)** and, in the frame the comparison run dumped, **154 of 229 376
 pixels — 0.07 % of the picture.** The input distribution barely moves with them:
 every channel mean is identical to three decimals except `texDetail`
@@ -3096,7 +3100,7 @@ The gap first, because it is larger than it sounds. A billboard bag runs
 bbox for it, fell back to a radius-0 bounding sphere and `addBag()` threw the
 empty box away. The corpus agreed by accident — `bagList()` only walked
 geometry. **Both halves matched, and what they matched on was describing
-nothing over 71.65 of 72.63 counted coverages on `upscaler-lab` (98.7 %) and
+nothing over 71.27 of 72.23 counted coverages on `upscaler-lab` (98.7 %) and
 14.57 of 15.24 on `showcase` (95.6 %).** Every kernel the network chose over
 fire, fog and rain, it chose from the geometry behind them.
 
@@ -3268,7 +3272,7 @@ small fire emitter instead of eleven and re-run all three arms:
 
 Nothing becomes constant, at either cluster count. `coverage = 1.000` on the
 shipped fixture is the **truth about that fixture**: `--blss-coverage` counts
-71.65 of 72.63 full-screen coverages as emitters there, so the particles really
+71.27 of 72.23 full-screen coverages as emitters there, so the particles really
 do blanket every tile many times over. The sixth rule describes a sparse emitter
 perfectly well; what it cannot do is report a haze soup as anything but covered.
 
@@ -3668,7 +3672,7 @@ So, in order, what this retracts and what it establishes:
   0.14 px: the picture does not move. What alternates is the *resample*, on
   **16.3 % of the pixels below the HUD**, p99 13.8/255 and peak 40/255, and the
   difference image lights up every textured edge in the frame — wall, cobbles,
-  fence rails, cottage — while the flat sky stays black. A period-2 change of
+  fence rails, buildings — while the flat sky stays black. A period-2 change of
   that extent at the field rate is what "the screen is shaking" looks like from
   a chair.
 - **And that last point is why `blssbug` was never going to show it.** An
@@ -3702,7 +3706,9 @@ backwards: **retrain the net, do not ship the shake.** The example is the
 project's flagship demo, and its README told the reader to edit the `.tyra`
 before showing it to anyone — a default nobody can use as it stands. The flag is
 now `false`, `blss.net` is refitted against the un-jittered sampler
-(+0.85 → +0.51 dB trained, ceiling +1.730 → +1.058 dB, 49 % → 48 % of it), and
+(+0.85 → +0.51 dB trained, ceiling +1.730 → +1.058 dB, 49 % → 48 % of it — measured
+on the fixture's pre-CC0 geometry; the jitter-off ceiling reads +1.108 dB on the
+current one), and
 the captures say the shipped build does not alternate. Build **B** of the A/B/C
 is one line in that `.tyra` plus a retrain, documented in its README.
 

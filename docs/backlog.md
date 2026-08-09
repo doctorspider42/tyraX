@@ -93,6 +93,39 @@ the verification, and any fact worth reusing belongs in the relevant
     settle) rather than a hardware measurement of the mode, because
     192.168.100.150 answered `reset` with 0 and nothing else for the whole
     round. docs/profiling.md, "Plain mode's EE bill".
+  - **OWED: re-measure the hardware A/B on `examples/upscaler-lab`'s CC0
+    geometry.** Its art assets were replaced on 2026-08-09 - the cottage and the
+    animated spider had **unverified redistribution terms**, which is not a state
+    the feature's flagship demo could stay in - with buildings kit-bashed from
+    Kenney's Retro Urban Kit (CC0 1.0) and the `wobbler.glb` five other examples
+    already ship. Two of the three things that could have moved were measured and
+    did not: the **fill is intact** (`--blss-coverage` 72.63 -> 72.23, the
+    emitters byte-identical at 6 x 32 haze billboards, `PART` 0.46 ms in every
+    sample of both runs) and the **oracle ceiling went up** (+1.058 -> +1.108 dB,
+    jitter off, 2x2; CV +0.39 dB, 0 of 6 folds below bilinear). The third did:
+    the **EE is ~4 ms a frame cheaper** in PCSX2 - `SCENE` 11.53 -> 7.53 ms mean,
+    16.82 -> 10.16 peak, and the old build's four 25-FPS frames are gone - almost
+    all of it the animated model (2 x 1092 vertices -> 2 x 123). So both arms
+    should land ~4 ms lower and the ratio above 1.63x, and **that sentence is
+    arithmetic over an emulator measurement, not a result**. `52.95 -> 32.42 ms /
+    1.63x` is now labelled everywhere as a measurement of the previous geometry.
+    The console at 192.168.100.150 was unreachable for the whole session
+    (`Destination host unreachable`, not even ICMP - it needs a physical power
+    cycle), and PCSX2 is inadmissible for GS fill, which it under-reports by 76x.
+    The speed model fitted from the old runs is **unaffected** and needs no
+    re-fit: it prices fill, and the fill did not move.
+  - **DECIDE: `resources/blss-default.net`'s corpus now includes a scene that no
+    longer exists.** The shipped default net was fitted on seven example projects
+    plus the bestiary, and `examples/upscaler-lab` is one of the seven - so its
+    corpus changed the moment the geometry did. **The net has deliberately NOT
+    been refitted here**, because refitting it moves the published
+    leave-one-project-out row (+0.29 dB against a project's own +0.31) and every
+    md5 that anchors it (`879146bdee7f3b183c05985012753649`), which is its own
+    decision with its own measurement round. Nothing is broken in the meantime: a
+    net is fitted on a distribution, not on a file list, and the swap moved the
+    input distribution very little (`texDetail` mean 0.297 -> 0.312, still the
+    channel most correlated with the temporal weight). Route it as its own piece
+    of work, and refit + re-measure the fold table in one commit if you do.
   - **Switching BLSS on and off at runtime - NOT BUILT, and the arithmetic is
     why.** Asked for as a comparison and debugging tool: flip the feature every
     N frames and an A/B has no scene or camera variance at all, which is what
@@ -434,9 +467,9 @@ the verification, and any fact worth reusing belongs in the relevant
     | project | `--blss-eval` | `--blss-coverage` geom + emit | emitter share |
     |---|---|---|---|
     | `examples/showcase` | `headroom=+0.006` -> "WILL NOT BENEFIT" | 15.24 = 0.67 + **14.57** | **95.6 %** |
-    | `examples/upscaler-lab` | `headroom=+1.058` at 1.38 passes | 72.63 = 0.98 + **71.65** | **98.7 %** |
+    | `examples/upscaler-lab` | `headroom=+1.108` at 1.39 passes | 72.23 = 0.96 + **71.27** | **98.7 %** |
 
-    `upscaler-lab` reads a +1.06 dB ceiling today, so it no longer contradicts
+    `upscaler-lab` reads a +1.11 dB ceiling today, so it no longer contradicts
     the speed verb; the retracted claims are its `+0.000` / "WILL NOT BENEFIT"
     and its "3 072 billboards" (it has **11 emitters and 568 billboards**).
     `showcase` is the live case: a near-zero ceiling measured on **4.4 %** of
@@ -1126,10 +1159,11 @@ the verification, and any fact worth reusing belongs in the relevant
     model in a SUBFOLDER of `res/models/` (which the Asset Browser encourages,
     and which a multi-file Wavefront asset with its own `.mtl` and texture
     practically requires) commits its bake. Found on
-    `examples/upscaler-lab`: `res/models/cottage/Cottage_FREE__ovrb564.tmdl`,
-    411 KB of derived data, would have gone in. The example carries a local
-    top-up; the template and the append-if-missing block in `refreshGenerated`
-    want `/models/**/*.tmdl` instead.
+    `examples/upscaler-lab`, whose models have lived in a subfolder throughout:
+    411 KB of derived data would have gone in, and the CC0 rebuild of that
+    example puts 325 KB of `res/models/depot/*.tmdl` in exactly the same place.
+    The example carries a local top-up; the template and the append-if-missing
+    block in `refreshGenerated` want `/models/**/*.tmdl` instead.
   - **A `fog` emitter's `opacity` is silently dropped on save.**
     `project.cpp:690` serialises the custom physics block - `speed`, `spread`,
     `gravity`, `weight`, `life`, `grow`, **`opacity`**, `dieOnGround` - only for

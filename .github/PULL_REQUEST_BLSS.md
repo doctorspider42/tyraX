@@ -30,7 +30,7 @@ work(on)**, so d > 0 means BLSS made the frame shorter.
 
 | fixture | overdraw | BLSS off | BLSS on | d |
 |---|---|---|---|---|
-| `examples/upscaler-lab` — the haze demo | heavy | **52.95 ms** | **32.42 ms** | **+20.53 ms — 1.63×** |
+| `examples/upscaler-lab` — the haze demo [^geom] | heavy | **52.95 ms** | **32.42 ms** | **+20.53 ms — 1.63×** |
 | `blssrig` — terrain + six slabs | a handful of coverages | 9.42 ms | 19.25 ms | **−9.83 ms** |
 
 The win row: 95 % CI **[+20.46, +20.61]**, sd 1.12, **n = 1024 paired frames per
@@ -212,11 +212,16 @@ fraction, and nothing here measures that.
   That is the reconstruction cost of a quarter-area raster on a high-frequency
   ground texture, and the PSNR table prices it — **27.17 dB against 28.52
   native**. What you buy for it is the frame rate above.
-- **The demo's licences are unverified.** Two of `examples/upscaler-lab`'s art
-  assets — the cottage model and the animated spider — have **unverified
-  redistribution terms** (`THIRD-PARTY-NOTICES.txt`). They are free to build, run
-  and measure with; shipping them is a question only their original licences can
-  answer, and that is a call for the repo's owner, not for this branch.
+- **The demo's hardware A/B describes its previous geometry.** Every art asset in
+  `examples/upscaler-lab` was replaced with **CC0 1.0** material on 2026-08-09
+  (Kenney's Retro Urban Kit, plus the `wobbler.glb` five other examples already
+  ship) because the cottage and the spider it shipped before had **unverified
+  redistribution terms**. The GS fill that A/B measures is unchanged
+  (`--blss-coverage` 72.63 → 72.23, emitters untouched) and the oracle ceiling
+  rose (+1.058 → +1.108 dB), but the EE is ~4 ms a frame cheaper — almost all of
+  it the animated model, 2 × 1 092 vertices → 2 × 123 — so both arms should land
+  lower and the ratio higher. **That re-run is owed**: the console was unreachable
+  for the session that made the swap, and PCSX2 cannot price GS fill.
 - **The proxy budget ships off.** It is measured, it works, and it takes the EE
   bill to **4.17 ms** and break-even to 10.5 coverages for one channel of
   description (`coverage` 0.631 → 0.638, everything else identical to three
@@ -309,3 +314,6 @@ you cannot falsify is a number this feature has already been burned by.**
   console feature-spread numbers quoted anywhere predate it.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+[^geom]: Measured on this example's pre-CC0 geometry — see the licence bullet
+    above and `examples/upscaler-lab/README.md`, "What the asset swap moved".

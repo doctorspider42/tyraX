@@ -1,1 +1,0 @@
-{ "id": "ulab-cottage-west", "name": "cottage-west", "type": "model", "position": [-15, 0, -7], "rotation": [0, 22, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/cottage/Cottage_FREE.obj", "material": "res/models/cottage/Cottage_FREE.mtl" }

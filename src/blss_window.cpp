@@ -555,6 +555,8 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "break-even at 11.5 full-screen coverages. Both numbers are FITTED over\n"
         "five load points on hardware, not assumed. On a real PS2:\n"
         "  examples/upscaler-lab, 58.7 coverages: 52.95 -> 32.42 ms, 1.63x\n"
+        "    (that fixture's geometry as of 2026-08-09 - its fill is unchanged\n"
+        "     since, its EE is ~4 ms cheaper, and the re-run is owed)\n"
         "  blssrig, a handful of coverages:       9.42 -> 19.25 ms, a loss\n"
         "'Will the frame get faster?' in Tools > Neural Upscaler (BLSS)\n"
         "estimates YOUR scene's overdraw and says which side of that line it\n"
