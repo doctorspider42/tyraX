@@ -428,8 +428,9 @@ namespace fill {
 constexpr double kKeptFraction = 0.2452;
 constexpr double kSavedFraction = 1.0 - kKeptFraction;  // 0.7548, fitted
 // One full-screen alpha-blended textured pass on hardware, its own draw_finish.
-// THE UNIT `coverages` IS COUNTED IN - see kAnchorCoverages for what that costs
-// an estimator that counts an opaque untextured fragment as the same thing.
+// THE UNIT `coverages` IS COUNTED IN - see kAnchorCoverages for the 23.7 % gap
+// between it and what `--blss-coverage` reports, and why the material-weighting
+// theory of that gap is falsified.
 constexpr double kPassMs = 0.587;
 // BLSS' EE bill as shipped: proxy 2.34 + reproj 0.28 + feat 0.19 + net 0.78 +
 // pkt 0.50 + begin 0.41 + end 0.10.
@@ -439,12 +440,25 @@ constexpr double kCompositeGsMs = 0.50;
 // THE ONE SCENE WHERE BOTH ENDS OF THIS MODEL HAVE BEEN MEASURED, and the
 // number that moved most. Working back from the five-point fit,
 // `examples/upscaler-lab`'s true fill is 34.46 ms, which at kPassMs is 58.7
-// blended-pass equivalents - not the 75 the fragment counter reports. The
-// counter is the term that over-predicts, not the model: `coverages x 0.587`
-// over-states this frame by 28 %, because 0.587 ms is the cost of a BLENDED
-// TEXTURED pass and an opaque untextured fragment costs a fraction of that.
-// So this anchor is stated in blended-pass equivalents and the counter is
-// being taught to produce them (blsscorpus.cpp).
+// blended-pass equivalents - not the 72.63 `--blss-coverage` reports, an
+// over-read of 23.7 %.
+//
+// THE OBVIOUS EXPLANATION IS FALSIFIED, AND SO IS THE FIX IT IMPLIED. The
+// theory was that the counter prices an opaque untextured fragment as the
+// blended textured pass kPassMs is measured on, so it would be corrected by
+// weighting the count per material. Both halves failed measurement: 98.7 % of
+// this scene's coverage is ALREADY the 1.0-weight blended textured unit, its
+// counted geometry (0.98) sits below its own measured ceiling (<= 1.14), and
+// applying the weighting rule moves the anchor by 0.49 coverages against a
+// 13.93 gap. So there is no counter to teach - and nobody should start on the
+// weighted-coverage work in blsscorpus.cpp that this comment used to promise.
+//
+// THE LIVE EXPLANATION IS THE CAMERA. The hardware A/B ran the fixture's own
+// gameplay camera; the estimator averages six synthetic corpus shots spanning
+// 36.2 to 88.4 coverages, and one camera at 57.7 sits inside that spread. That
+// is a difference of VANTAGE, not of unit, and it would mean there is no
+// counter bug at all. Walk the coverage under the fixture's own camera before
+// rescaling anything.
 constexpr double kAnchorCoverages = 58.7;
 constexpr double kAnchorSpeedup = 1.63;
 constexpr double kAnchorOffMs = 52.95, kAnchorOnMs = 32.42;
@@ -515,6 +529,35 @@ Recommendation recommend(const EvalSummary& quality, bool haveQuality,
 // network can beat a bound of zero. Measured: on examples/showcase the oracle
 // scores +0.07 dB held-out and +0.02 dB on the rest.
 constexpr double kNoHeadroomDb = 0.10;
+
+// -------------------------------------------------------------- net source ---
+
+// WHICH NET PRODUCED THE TABLE ABOVE IT. Every verb that runs a network now
+// prints one line before it does anything:
+//
+//   [blss] net source=<default|project|explicit> path=... corpus=... scale=... jitter=...
+//
+// followed by any `[blss] net REFUSED: ...` / `[blss] net warning: ...` the
+// provenance check raised. It exists because a net that LOADS is not the same
+// thing as the net the reader thinks they measured - with a default shipping,
+// "I evaluated my project" and "I evaluated the editor's net on my project" are
+// one keystroke apart and used to look identical in the output. Parsed rather
+// than re-derived from the file system for the usual reason in this file: the
+// run's own statement about itself is falsifiable, an inference about it is not.
+struct NetSource {
+    bool ok = false;
+    std::string kind;    // default / project / explicit, verbatim
+    std::string path;    // "(built into the editor)" for the default
+    std::string corpus;  // "?" when the sidecar did not record one
+    std::string scale;   // "2x2" / "1x2" / "?"
+    std::string jitter;  // "on" / "off" / "?"
+    std::vector<std::string> refused;   // fatal provenance complaints
+    std::vector<std::string> warnings;  // non-fatal ones
+    // "the editor's own net" / "this project's own blss.net" - the same fact in
+    // the window's vocabulary rather than the tool's.
+    std::string label() const;
+};
+NetSource parseNetSource(const std::string& text);
 
 // ------------------------------------------------------------------ errors ---
 

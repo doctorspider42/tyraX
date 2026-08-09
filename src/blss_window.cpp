@@ -15,6 +15,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -520,16 +521,20 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "the menus, the text and every post effect still draw at FULL\n"
         "resolution, so 2D stays crisp.\n"
         "\n"
-        "PROOF OF CONCEPT, and the FIRST thing to know is which network you\n"
-        "have. A net fitted to the built-in procedural corpus was measured on\n"
-        "a real project (examples/procedural, 72 frames, six camera moves) at\n"
-        "-0.40 dB against plain bilinear - WORSE than leaving this off - while\n"
-        "paying half a composite pass more, because that corpus' most\n"
-        "predictive channels are out of range on a scene it did not see. The\n"
-        "same trainer fitted to THAT PROJECT'S OWN SCENES scored +0.06 dB at\n"
-        "1.19 passes against an oracle ceiling of +0.77. So: train on your\n"
-        "project, in Tools > Neural Upscaler (BLSS), with the corpus set to\n"
-        "this project and 'Fit every shot' on. That is the net to ship.\n"
+        "A TRAINED NETWORK SHIPS WITH THE EDITOR, so a project with no\n"
+        "blss.net is built with that one rather than with random weights. It\n"
+        "was fitted on seven example projects AND the built-in bestiary (55\n"
+        "shots) and measured leave-one-PROJECT-out at +0.29 dB on a project it\n"
+        "has never seen, against +0.31 dB for that project's own net - a tie\n"
+        "inside fold sds of 0.37 and 0.34.\n"
+        "\n"
+        "Training on your own scenes still reaches the highest number of all\n"
+        "(+0.41 dB in distribution, which is what the console runs) and takes\n"
+        "about ten seconds, so it is worth doing - but it is an OPTIMISATION\n"
+        "and no longer a prerequisite. A net fitted to the bestiary ALONE is\n"
+        "still a lottery, -0.34 dB on average over seven projects and -1.09 at\n"
+        "worst, which is exactly why the shipped default's corpus holds the\n"
+        "bestiary and real projects together.\n"
         "\n"
         "AND SOME SCENES HAVE NOTHING TO WIN. On examples/showcase the ORACLE\n"
         "itself - the best any per-tile weighting can do - scores +0.02 dB at\n"
@@ -537,9 +542,10 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "aliases. Run the window's Evaluate tab on your project BEFORE turning\n"
         "this on; it says so in one line.\n"
         "\n"
-        "On the built-in corpus, held out shot by shot, it is +0.42 dB (13\n"
-        "shots x 3 seeds = 39 fold-runs, sd 0.35, 3 of the 39 below bilinear) -\n"
-        "but that is a number about the bestiary, not about your game.\n"
+        "On the built-in corpus, held out shot by shot, it is +0.41 dB (13\n"
+        "shots x 3 seeds = 39 fold-runs, sd 0.34, 3 of the 39 below bilinear,\n"
+        "re-run at the activation table that ships) - but that is a number\n"
+        "about the bestiary, not about your game.\n"
         "\n"
         "IT HAS A REGIME, AND BOTH SIDES OF IT ARE MEASURED. The feature costs\n"
         "4.60 ms of EE per frame and keeps only 24.5 % of the scene's GS fill\n"
@@ -570,19 +576,20 @@ bool App::drawBlssSettings(ProjectSettings& s) {
         "Train the network in Tools > Neural Upscaler (BLSS), or with\n"
         "'tyrax-editor --blss-train' in the project directory. Check it with\n"
         "cross-validation, never with one split. Without a blss.net the game\n"
-        "is built with random weights and says so in its boot log.");
+        "is built with the net the editor ships and says which one it got in\n"
+        "its boot log.");
     if (s.blssEnabled)
         ImGui::TextColored(
             ImVec4(0.65f, 0.65f, 0.65f, 1.0f),
-            "    Proof of concept, and it has to be trained on THIS PROJECT: a net\n"
-            "    fitted to the built-in procedural corpus measured -0.40 dB on a real\n"
-            "    project, i.e. worse than leaving this off, where one fitted to that\n"
-            "    project's own scenes measured +0.06 against a ceiling of +0.77. Some\n"
-            "    scenes have no ceiling at all - on examples/showcase the oracle itself\n"
-            "    is +0.02 dB. Tools > Neural Upscaler (BLSS) trains it and its Evaluate\n"
-            "    tab answers 'will this scene benefit' in one line. On hardware it also\n"
-            "    measured 9.83 ms a frame SLOWER (9.42 -> 19.25), and textured\n"
-            "    primitives and terrain can vanish with it on - both are open work.");
+            "    A trained net ships with the editor, so this builds with that one until\n"
+            "    you train your own: +0.29 dB on a project it has never seen against\n"
+            "    +0.31 for that project's own net. Retraining here is worth a fraction of\n"
+            "    a dB on a scene that HAS a ceiling - and some scenes have none at all, on\n"
+            "    examples/showcase the oracle itself is +0.02 dB. Tools > Neural Upscaler\n"
+            "    (BLSS) answers 'will this scene benefit' in one line before you spend\n"
+            "    anything. On a frame with too little fill it also measured 9.83 ms a frame\n"
+            "    SLOWER (9.42 -> 19.25), and textured primitives and terrain can vanish\n"
+            "    with it on - both are open work.");
     // ALWAYS, not only when the feature is on. The person who most needs to
     // know that this project uses depth of field is the one deciding whether to
     // tick the box above; drawing it only for `s.blssEnabled` meant the answer
@@ -774,6 +781,7 @@ std::string App::blssNetPath() const {
 // no-clock-to-get-wrong rule the chat store follows.
 void App::blssRefreshNetStatus() {
     blssNetPresent_ = false;
+    blssNetAside_ = false;
     blssNetBytes_ = 0;
     blssNetWhen_.clear();
     blssNetArgs_.clear();
@@ -781,6 +789,7 @@ void App::blssRefreshNetStatus() {
     const std::string path = blssNetPath();
     if (path.empty()) return;
     std::error_code ec;
+    blssNetAside_ = fs::is_regular_file(path + ".off", ec);
     if (!fs::is_regular_file(path, ec)) return;
     blssNetPresent_ = true;
     blssNetBytes_ = (size_t)fs::file_size(path, ec);
@@ -814,6 +823,126 @@ void App::blssRefreshNetStatus() {
 void App::blssWriteNetSidecar(const std::string& netPath, const std::string& command) {
     std::ofstream out(netPath + ".args", std::ios::trunc);
     if (out) out << command << "\n";
+}
+
+// --- which net this project ships --------------------------------------------
+
+// THE SWITCH IS ONE FILE. templates.cpp's blssBake() reads <project>/blss.net
+// and falls back to the net embedded in the editor, so "use the shipped
+// default" IS "there is no blss.net here" - and a radio that pretended to a
+// setting the build never reads would be a second answer to a question codegen
+// has already answered. Setting one aside is therefore a RENAME and the other
+// radio brings it back: ten seconds of training is cheap to redo and still not
+// something a single click should destroy. The `.args` / `.meta` sidecars
+// travel with it, or a restored net comes back with its provenance detached and
+// the window reports "trained outside this editor" about its own work.
+void App::blssSetNetAside(bool aside) {
+    const std::string net = blssNetPath();
+    if (net.empty()) return;
+    const std::string off = net + ".off";
+    const std::string from = aside ? net : off;
+    const std::string to = aside ? off : net;
+    std::error_code ec;
+    fs::rename(from, to, ec);
+    if (ec) {
+        blssLastError_ = "could not move " + from + ": " + ec.message();
+        return;
+    }
+    for (const char* side : {".args", ".meta"}) {
+        std::error_code e2;
+        if (fs::is_regular_file(from + side, e2)) fs::rename(from + side, to + side, e2);
+    }
+    blssStatusChecked_ = -1.0e9;  // re-read now, not in up to a second
+    blssRefreshNetStatus();
+    statusMessage_ = aside ? "BLSS: this project now builds with the editor's default net"
+                           : "BLSS: this project's own net is back in use";
+}
+
+void App::drawBlssNetSource() {
+    const std::string net = blssNetPath();
+    if (net.empty()) return;
+
+    ImGui::TextUnformatted("Network the build bakes:");
+    ImGui::SameLine();
+    int mode = blssNetPresent_ ? 1 : 0;
+    ImGui::BeginDisabled(blssJob_.running());
+    if (ImGui::RadioButton("Use the shipped default", &mode, 0) && blssNetPresent_)
+        blssSetNetAside(true);
+    ImGui::SameLine();
+    // Nothing to select when the project has never been trained AND nothing was
+    // set aside - the Train tab is the way in, and the caption below says so.
+    ImGui::BeginDisabled(!blssNetPresent_ && !blssNetAside_);
+    if (ImGui::RadioButton("This project's own net", &mode, 1) && !blssNetPresent_)
+        blssSetNetAside(false);
+    ImGui::EndDisabled();
+    ImGui::EndDisabled();
+    prefHelp(
+        "Codegen bakes this project's own blss.net when there is one and the\n"
+        "net embedded in the editor when there is not - so this radio moves\n"
+        "one file. Choosing the default RENAMES blss.net to blss.net.off (with\n"
+        "its provenance sidecars); choosing your own net renames it back.\n"
+        "Nothing is deleted and nothing is retrained.\n"
+        "\n"
+        "The shipped default was fitted on seven example projects AND the\n"
+        "built-in bestiary and scores +0.29 dB on a project it has never seen,\n"
+        "against +0.31 dB for that project's own net - a tie inside fold sds of\n"
+        "0.37 and 0.34. So the default is a real answer, not a placeholder, and\n"
+        "the game's boot log names whichever one it got.");
+
+    if (blssNetPresent_) return;
+
+    // THE DEFAULT'S PROVENANCE, READ OUT OF THE SIDECAR IT SHIPPED WITH rather
+    // than typed here - the one thing a line about the shipped net must not do
+    // is drift from the shipped net. Cached: it parses an embedded string and
+    // cannot change while the editor runs.
+    static const blss::Provenance kDef = blss::defaultProvenance();
+    if (!kDef.present) {
+        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                           "    The editor's own net could not be read - this build would fall "
+                           "back to RANDOM weights.\n    kNetVersion or the topology moved and "
+                           "resources/blss-default.net was not refitted.");
+        return;
+    }
+    // "seven example projects and the built-in bestiary", counted rather than
+    // stated, so a refit that changes the corpus changes this line with it.
+    int projects = 0;
+    bool bestiary = false;
+    {
+        std::istringstream in(kDef.corpus);
+        std::string tok;
+        while (in >> tok) {
+            if (tok == "bestiary")
+                bestiary = true;
+            else
+                ++projects;
+        }
+    }
+    char corpus[128];
+    std::snprintf(corpus, sizeof(corpus), "%d project%s%s", projects, projects == 1 ? "" : "s",
+                  bestiary ? " and the built-in bestiary" : "");
+    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                       "    the editor's own net  -  %s, %d shots, %s, sub-pixel jitter %s",
+                       corpus, kDef.shots, blss::scaleName(kDef.scale).c_str(),
+                       kDef.jitter > 0 ? "on" : "off");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Corpus:\n  %s\n\nFitted with:\n  %s\n\nIt carries no timestamp and no "
+                          "editor version on purpose:\nre-running that command reproduces both "
+                          "files byte for byte.",
+                          kDef.corpus.c_str(), kDef.command.c_str());
+    ImGui::TextDisabled(
+        "    Measured leave-one-PROJECT-out at +0.29 dB on a project it has never seen, against\n"
+        "    +0.31 dB for that project's own net - a tie inside fold sds of 0.37 and 0.34.");
+    if (blssNetAside_)
+        ImGui::TextDisabled("    This project's own net is set aside as %s.off - the other radio "
+                            "brings it back.",
+                            blssNetName_);
+
+    if (ImGui::Button("Retrain for this project", ImVec2(scaled(200.0f), 0)))
+        blssTabSelect_ = kTabTrain;
+    ImGui::SameLine();
+    ImGui::TextDisabled("worth a fraction of a dB on a scene that HAS a ceiling - an "
+                        "optimisation,\nnot a prerequisite. Ten seconds; the buttons below say "
+                        "whether there is anything to win.");
 }
 
 // --- running a verb ----------------------------------------------------------
@@ -866,11 +995,11 @@ void App::drawBlssCorpusChoice() {
         "this the first control in the window rather than a footnote.\n"
         "\n"
         "The console runs YOUR scene. A net fitted to the built-in procedural\n"
-        "bestiary was measured ON a real project (examples/procedural, 72\n"
-        "frames, six camera moves) at -0.40 dB against plain bilinear - WORSE\n"
-        "than switching the feature off - while paying half a composite pass\n"
-        "more. The same trainer fitted to that project's own scenes scored\n"
-        "+0.06 dB at 1.19 passes, and the oracle's ceiling there is +0.77.\n"
+        "bestiary ALONE is a lottery on one: measured over seven projects it is\n"
+        "-0.34 dB on average against plain bilinear and -1.09 dB at worst,\n"
+        "i.e. worse than switching the feature off. The net the editor SHIPS\n"
+        "is not that net - its corpus is the bestiary and seven real projects\n"
+        "together, and it scores +0.29 dB on a project it has never seen.\n"
         "\n"
         "The mechanism is not subtle: texDetail is identically ZERO over all\n"
         "16 128 tiles of that project (it has no textures) and it is the\n"
@@ -894,9 +1023,11 @@ void App::drawBlssCorpusChoice() {
             "shots tab decides\n    which camera moves it sees - and lets you add your own.");
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
-                           "    13 hand-written procedural shots. Measured at -0.40 dB - worse "
-                           "than no BLSS -\n    on a real project. Use it to reproduce the "
-                           "documented fold tables, not to ship a game.");
+                           "    13 hand-written procedural shots. A net fitted to these ALONE is "
+                           "a lottery on a real\n    project: -0.34 dB mean and -1.09 dB worst "
+                           "over seven of them. Use it to reproduce the\n    documented fold "
+                           "tables, not to ship a game - the net the editor ships holds these "
+                           "AND\n    seven real projects.");
     }
 }
 
@@ -984,6 +1115,14 @@ void App::blssPoll() {
     {
         const std::vector<blssui::CorpusScene> scenes = blssui::parseCorpusScenes(text);
         if (!scenes.empty()) blssScenes_ = scenes;
+    }
+    // WHICH NET THE RUN ACTUALLY LOADED, from its own announce line. Every verb
+    // that evaluates a network prints it, and with a default shipping it is the
+    // only thing that separates "I measured my project's net" from "I measured
+    // the editor's net on my project" - the two look identical in a table.
+    {
+        const blssui::NetSource ns = blssui::parseNetSource(text);
+        if (ns.ok) blssNetSource_ = ns;
     }
     const std::vector<std::string> errs = blssui::parseErrors(text);
     blssLastError_.clear();
@@ -1249,10 +1388,11 @@ void App::drawBlssHeader() {
             "The upscaler is OFF for this project - nothing here reaches the game until "
             "it is on (Project settings tab).");
 
-    // "A project with BLSS on and no net is a build failure that used to be
-    // silent" - so this line is the first thing the window says.
-    ImGui::TextUnformatted("Project network:");
-    ImGui::SameLine();
+    // WHICH OF THE TWO NETS THIS PROJECT SHIPS. This used to be a status line
+    // whose worst branch read "none - the game will be built with RANDOM
+    // weights"; a trained net now ships with the editor, so that state is
+    // unreachable and the question became a choice.
+    drawBlssNetSource();
     if (blssNetPresent_) {
         // WEIGHTS AND TOPOLOGY, not a byte count. "500 bytes" tells a reader
         // nothing they can use; "123 weights, 6->12->3" is the same file
@@ -1291,14 +1431,6 @@ void App::drawBlssHeader() {
             // different render scale, just worse.
             drawBlssProvenanceDrift();
         }
-    } else if (s.blssEnabled) {
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
-                           "none - the game will be built with RANDOM weights");
-        ImGui::TextDisabled(
-            "    The build does not fail, it just reconstructs from an untrained net and "
-            "says so in the boot log. Train one on the Train tab.");
-    } else {
-        ImGui::TextDisabled("none");
     }
     ImGui::Spacing();
     drawBlssCorpusChoice();
@@ -1411,8 +1543,9 @@ void App::drawBlssProvenanceDrift() {
             drift.push_back(std::string("sub-pixel jitter ") + (trainedJitter ? "on" : "off") +
                             ", but the project now says " + (s.blssJitter ? "on" : "off"));
     }
-    // Which corpus. A net fitted to the bestiary and shipped on a project is
-    // the -0.40 dB mistake this whole window is arranged around.
+    // Which corpus. A net fitted to the bestiary ALONE and shipped on a project
+    // is the mistake this whole window is arranged around: measured over seven
+    // real projects it averages -0.34 dB and reaches -1.09 dB on the worst.
     const bool trainedOnProject =
         blssNetArgs_.find("--blss-train") != std::string::npos &&
         blssNetArgs_.find(fs::path(project_.dir).filename().string()) != std::string::npos;
@@ -1629,7 +1762,10 @@ void App::drawBlssHappyPath() {
     // see. "Will the picture improve" reads the oracle and "will the frame get
     // faster" counts overdraw; NEITHER of them notices that the corpus a net
     // would be FITTED to is missing a channel entirely - which is how a net
-    // came to measure -0.40 dB on a project whose own ceiling was +0.77.
+    // came to measure -0.48 dB on a project whose own ceiling was +0.345.
+    // (Both figures at ONE sampler. The -0.40/+0.06/+0.77 row this comment used
+    // to quote mixed two: the ceiling was measured with jitter ON and the
+    // margins with it off, so no two of those three numbers were comparable.)
     ImGui::SameLine();
     ImGui::BeginDisabled(blssJob_.running());
     if (ImGui::Button("Is the corpus good enough?", ImVec2(scaled(230.0f), scaled(30.0f)))) {
@@ -1650,9 +1786,10 @@ void App::drawBlssHappyPath() {
         "It is the question the other two buttons cannot answer. A channel that\n"
         "is identically zero over the whole corpus is a channel the network does\n"
         "NOT HAVE - and the console will still feed it a real value. That is the\n"
-        "mechanism behind the -0.40 dB result: texDetail was zero on all 16 128\n"
-        "tiles of an untextured project while being the bestiary's channel most\n"
-        "correlated with the temporal weight.\n"
+        "mechanism behind a bestiary-only net's -0.34 dB average (-1.09 at\n"
+        "worst) over seven real projects: texDetail is identically zero on five\n"
+        "of them while being the bestiary's channel most correlated with the\n"
+        "temporal weight.\n"
         "\n"
         "The full per-channel table is on the Inputs tab; what a run says here is\n"
         "the one-line verdict and the findings behind it.");
@@ -1836,8 +1973,10 @@ void App::drawBlssTrainTab() {
     else
         ImGui::TextColored(
             ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
-            "A net fitted here scored -0.40 dB on a real project - worse than leaving the\n"
-            "upscaler off. Switch the corpus in the header before training one to ship.");
+            "A net fitted to these ALONE is a lottery on a real project: -0.34 dB mean and\n"
+            "-1.09 worst over seven of them. Switch the corpus in the header before training\n"
+            "one to ship - or ship the editor's own net, whose corpus is these AND seven real\n"
+            "projects.");
     ImGui::Spacing();
 
     ImGui::BeginDisabled(blssJob_.running());
@@ -1912,9 +2051,9 @@ void App::drawBlssTrainTab() {
     prefHelp(
         "ON, and on a project corpus it should stay on. The console runs the\n"
         "frames the net was fitted to, so fitting all of them is the point -\n"
-        "measured on examples/procedural, that net scores +0.06 dB against an\n"
-        "oracle ceiling of +0.77, while a net trained on the bestiary scores\n"
-        "-0.40 on the same frames.\n"
+        "fitting the project reaches +0.41 dB in distribution, the highest\n"
+        "number this feature has, while a net fitted to the bestiary alone is\n"
+        "-0.34 dB on average over seven real projects.\n"
         "\n"
         "Off keeps a strided third of the shots out, so a later Evaluate on the\n"
         "same corpus measures content this net has not seen. That is a\n"
@@ -1963,7 +2102,7 @@ void App::drawBlssTrainTab() {
     prefHelp(
         "Hexadecimal. Seeds both the corpus and the weight initialisation.\n"
         "It matters far less than it looks: under cross-validation the sd of\n"
-        "the per-seed fold MEAN is 0.01 dB, against 0.40 dB from fold to fold.\n"
+        "the per-seed fold MEAN is 0.01 dB, against 0.34 dB from fold to fold.\n"
         "The shipped default is B1557.");
 
     ImGui::SetNextItemWidth(scaled(160));
@@ -2192,9 +2331,9 @@ void App::drawBlssVerdict(const blssui::EvalSummary& sum, bool compact) {
             netP, ceiling);
         if (!blssCorpusProject_)
             ImGui::TextColored(warn,
-                               "    That is exactly what a bestiary-trained net does on a real "
-                               "project (-0.40 dB,\n    measured). Switch the corpus above to "
-                               "this project and train again.");
+                               "    That is exactly what a bestiary-only net does on a real "
+                               "project (-0.34 dB mean,\n    -1.09 worst, over seven of them). "
+                               "Switch the corpus above to this project and train again.");
         else
             ImGui::TextColored(warn,
                                "    Check that the net was trained on THIS corpus, at this "
@@ -2323,6 +2462,27 @@ void App::drawBlssEvalTab() {
     // decibels are actually about.
     drawBlssVerdict(blssSummary_, /*compact=*/false);
     drawBlssVerdictThumbs();
+    // WHICH NET THE ROWS BELOW CAME FROM, in the run's own words. Above the
+    // table and not under it: a reader who has to scroll past the numbers to
+    // learn they are about a different network has already quoted them.
+    if (blssNetSource_.ok) {
+        const bool own = blssNetSource_.kind == "project";
+        ImGui::TextColored(own ? ImVec4(0.45f, 0.85f, 0.45f, 1.0f)
+                               : ImVec4(1.0f, 0.75f, 0.35f, 1.0f),
+                           "Net: %s  -  corpus %s, %s, jitter %s", blssNetSource_.label().c_str(),
+                           blssNetSource_.corpus.c_str(), blssNetSource_.scale.c_str(),
+                           blssNetSource_.jitter.c_str());
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The `[blss] net source=` line this run printed before it measured\n"
+                "anything. A net that LOADS is not the same thing as the net you meant\n"
+                "to measure: with a default shipping, an empty project directory and a\n"
+                "trained one produce the same table shape and different networks.");
+        for (const std::string& f : blssNetSource_.refused)
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "    REFUSED: %s", f.c_str());
+        for (const std::string& w : blssNetSource_.warnings)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "    warning: %s", w.c_str());
+    }
     for (const blssui::EvalSplit& sp : blssEval_.splits) {
         ImGui::SeparatorText(sp.heldOut ? "Held-out shots" : "Training shots");
         ImGui::TextDisabled("%s", sp.caption.c_str());
@@ -3058,8 +3218,9 @@ void App::drawBlssFeaturesTab() {
 // tab that lets a user change the answer. The corpus shoots a project from six
 // camera moves derived from its bounds and its player start, and the failure
 // this feature keeps producing is a distribution mismatch - a net fitted to
-// frames the console does not draw scored -0.40 dB on a real project, i.e.
-// worse than leaving the upscaler off. A corpus is only as good as its coverage
+// frames the console does not draw averages -0.34 dB over seven real projects
+// and -1.09 dB on the worst of them, i.e. worse than leaving the upscaler off.
+// A corpus is only as good as its coverage
 // of the content the PLAYER will look at, and the person who knows where the
 // player stands is the author, not a heuristic over an AABB.
 //
@@ -3072,8 +3233,9 @@ void App::drawBlssShotsTab() {
         "WHAT THE CORPUS IS ALLOWED TO SEE. The network is fitted to these frames and the "
         "console runs your game - so a shot list that misses the places a player stands is "
         "the single most expensive mistake available here. Measured: a net fitted to frames "
-        "the console does not draw scored -0.40 dB, worse than leaving the upscaler off, "
-        "because the channels it leaned on were out of range on the real content.");
+        "the console does not draw averages -0.34 dB over seven real projects and -1.09 at "
+        "worst, i.e. worse than leaving the upscaler off, because the channels it leaned on "
+        "were out of range on the real content.");
     ImGui::Spacing();
     if (!blssCorpusProject_) {
         ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
@@ -3384,8 +3546,9 @@ void App::drawBlssShotPlanPreview() {
     if (live == 0) {
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
                            "NOTHING WOULD BE SHOT. The trainer falls back to the procedural "
-                           "bestiary, which is the net\nmeasured at -0.40 dB on a real project. "
-                           "Turn a move back on or add a vantage.");
+                           "bestiary, and a net fitted\nto that alone averages -0.34 dB on a "
+                           "real project (-1.09 at worst). Turn a move back on\nor add a "
+                           "vantage.");
     } else if (project_.blssShots.isDefault()) {
         ImGui::TextDisabled(
             "%d shot(s) - the default plan, so this project's corpus is byte-identical to what "
@@ -3497,8 +3660,8 @@ void App::drawBlssProbeTab() {
         "Takes a feature vector the CONSOLE measured and places it inside this corpus' own "
         "distribution, per channel. It is the only way to know the network is being fed what "
         "it was trained on - and a channel outside the corpus' range is not interpolation, it "
-        "is a 12-unit hidden layer extrapolating. That is the mechanism behind the -0.40 dB "
-        "result this whole window is arranged around.");
+        "is a 12-unit hidden layer extrapolating. That is the mechanism behind a bestiary-only "
+        "net's -0.34 dB average over seven real projects, and -1.09 at worst.");
     ImGui::Spacing();
     drawBlssCorpusReminder();
     ImGui::Spacing();

@@ -706,6 +706,15 @@ private:
     // place "this was trained with --sharpen 0.5 and the project now says 0.80"
     // can be noticed - everywhere else the mismatch is silent and just worse.
     void drawBlssProvenanceDrift();
+    // WHICH OF THE TWO NETS THIS PROJECT SHIPS, as a control rather than a
+    // status line. codegen's order is the project's own `blss.net` else the net
+    // embedded in the editor, so the choice is a fact about ONE file - and the
+    // switch is therefore a reversible RENAME (`blss.net.off`), never a delete.
+    // It replaces the line that used to read "none - the game will be built
+    // with RANDOM weights", which stopped being reachable the moment a default
+    // shipped and was this feature's worst footgun while it was.
+    void drawBlssNetSource();
+    void blssSetNetAside(bool aside);
     // "Will this scene benefit at all?" - the answer --blss-eval already
     // contains and used to bury in a table. Reads the oracle row, which is the
     // scene's own ceiling: on examples/showcase it is +0.00 dB, and no network
@@ -1622,6 +1631,11 @@ private:
     // provenance is a sidecar this editor writes next to the net it trained;
     // a net newer than its sidecar reports "unknown" rather than a stale one.
     bool blssNetPresent_ = false;
+    // ...and whether a net this window set ASIDE is waiting to come back. The
+    // net-source radio is the only writer of `blss.net.off`; without this the
+    // "project's own net" option would go permanently dead the moment the
+    // shipped default was selected.
+    bool blssNetAside_ = false;
     bool blssNetArgsStale_ = false;
     size_t blssNetBytes_ = 0;
     std::string blssNetWhen_, blssNetArgs_;
@@ -1666,6 +1680,11 @@ private:
     // line when it is there and re-derived from the parsed table when it is
     // not, so an older binary still answers.
     blssui::EvalSummary blssSummary_;
+    // WHICH NET PRODUCED THE TABLE ON SCREEN, from the run's own announce line
+    // rather than from the file system. With a default shipping, "I evaluated
+    // my project" and "I evaluated the editor's net on my project" are one
+    // keystroke apart, and until the line existed they looked identical.
+    blssui::NetSource blssNetSource_;
     blssui::CvTable blssCv_;
     blssui::FeatureTable blssFeat_;
     // The third verdict - "is this corpus good enough to train on" - derived

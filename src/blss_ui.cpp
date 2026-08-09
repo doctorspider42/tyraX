@@ -1009,8 +1009,9 @@ ProbeVerdict probeVerdict(const ProbeTable& t) {
         v.why = "A value outside the range the corpus covered is not interpolation, it is "
                 "extrapolation from a 12-unit hidden layer - the network's answer there is "
                 "whatever its weights happen to extend to. This is the exact shape of the "
-                "-0.40 dB result: fitted on one distribution, run on another. Add shots that "
-                "cover the content the console is drawing, and re-train.";
+                "out-of-distribution result: fitted on one distribution, run on another - a "
+                "bestiary-only net averages -0.34 dB over seven real projects and -1.09 at "
+                "worst. Add shots that cover the content the console is drawing, and re-train.";
         return v;
     }
     if (t.tails > 0 || t.constants > 0 || t.missing > 0) {
@@ -1221,7 +1222,8 @@ CorpusHealth corpusHealth(const FeatureTable& t) {
         h.headline = b;
         h.why = "A constant channel is a channel the network does not have, and the console "
                 "will feed it a value the corpus never contained. That is exactly how a net "
-                "measured -0.40 dB - worse than leaving the upscaler off - on a real project.";
+                "comes to average -0.34 dB - worse than leaving the upscaler off - over seven "
+                "real projects, and -1.09 dB on the worst of them.";
         return h;
     }
     if (h.pinned > 0 || h.flat > 0) {
@@ -1419,6 +1421,58 @@ Recommendation recommend(const EvalSummary& quality, bool haveQuality, const Spe
     }
     r.why = why;
     return r;
+}
+
+// -------------------------------------------------------------- net source ---
+
+namespace {
+// `key=value` out of the announce line. The values are single tokens except
+// `path`, which is a file path and may hold spaces - and the default's is
+// literally "(built into the editor)". So a value runs to the next " <key>=" or
+// to the end of the line, which is what makes both cases one rule.
+std::string announceField(const std::string& line, const char* key) {
+    const std::string needle = std::string(" ") + key + "=";
+    const size_t at = line.find(needle);
+    if (at == std::string::npos) return "";
+    const size_t b = at + needle.size();
+    static const char* const kKeys[] = {" path=", " corpus=", " scale=", " jitter="};
+    size_t e = line.size();
+    for (const char* k : kKeys) {
+        const size_t n = line.find(k, b);
+        if (n != std::string::npos && n < e) e = n;
+    }
+    return trimmed(line.substr(b, e - b));
+}
+}  // namespace
+
+std::string NetSource::label() const {
+    if (!ok) return "";
+    if (kind == "default") return "the net that ships with the editor";
+    if (kind == "project") return "this project's own " + path;
+    return "the net given on the command line (" + path + ")";
+}
+
+NetSource parseNetSource(const std::string& text) {
+    NetSource s;
+    for (const std::string& raw : splitLines(text)) {
+        const std::string line = trimmed(raw);
+        if (line.rfind("[blss] net source=", 0) == 0) {
+            // The LAST one wins. A --cv run announces per fold, and the reader
+            // is being told which net the tables on screen came from.
+            s = NetSource{};
+            s.ok = true;
+            s.kind = announceField(line, "source");
+            s.path = announceField(line, "path");
+            s.corpus = announceField(line, "corpus");
+            s.scale = announceField(line, "scale");
+            s.jitter = announceField(line, "jitter");
+        } else if (line.rfind("[blss] net REFUSED: ", 0) == 0) {
+            s.refused.push_back(line.substr(20));
+        } else if (line.rfind("[blss] net warning: ", 0) == 0) {
+            s.warnings.push_back(line.substr(20));
+        }
+    }
+    return s;
 }
 
 // ------------------------------------------------------------------ errors ---
