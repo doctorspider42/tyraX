@@ -633,12 +633,15 @@ is still the right way to think about it; only the number moved.)
 The old figure on this line was **22**, computed off the wrong resolution factor
 and the pre-table EE bill. `upscaler-lab` as first built rasterised on the order
 of *nine hundred* coverages, which is why it won by 3.4x and also why it was a
-broken demo; **re-tuned it rasterises about 75** and still wins by 1.60x.
-`blssrig` rasterises a handful, which is why it loses by 6.4 ms. **The break-even
-is a real line and generated games fall on both sides of it** - so the EE floor is
-not academic: it is what decides how much overdraw a project needs before the
-feature pays. Every millisecond taken off the 5.02 ms lowers that bar by roughly
-**2.3** full-screen coverages.
+broken demo; **re-tuned it rasterises 58.7 blended-pass equivalents by
+measurement and 72.63 by the estimator** (that discrepancy is the open question
+in "Calibrating the speed model against hardware" below) and still wins by
+**1.63x**. `blssrig` rasterises a handful,
+which is why it loses by 6.4 ms. **The break-even is a real line and generated
+games fall on both sides of it** - so the EE floor is not academic: it is what
+decides how much overdraw a project needs before the feature pays. Every
+millisecond taken off the **4.60 ms** bill lowers that bar by roughly **2.3**
+full-screen coverages.
 
 One more measured negative, so nobody spends a day on it: the composite's EE
 work *can* be moved in front of `endScene`'s drain, because it is a pure
@@ -920,13 +923,16 @@ still costing both arms the same EE.
 
   **The whole 7 ms over-prediction is the coverage estimate.** Working back from
   the measurement, this scene's total fill is **34.46 ms = 58.7 full-screen
-  blended-textured passes**, against the anchor's **75**. `coverages × 0.587 ms`
-  over-states it by **28 %**; the effective cost of one *counted* coverage here is
-  **0.459 ms**, not 0.587. The mechanism is the one this page already records —
-  0.587 is the calibrated cost of a *blended textured* pass, and an opaque
-  untextured one is a fraction of that, so an estimator that counts terrain,
-  cottages and blended puffs alike in one "coverage" unit necessarily over-prices
-  the frame.
+  blended-textured passes**. The estimator itself — run headlessly against the
+  same fixture, which is what `--blss-coverage` was added for — reports
+  **72.63** (mean over its six corpus shots, p95 **94.39**). So
+  `coverages × 0.587 ms` over-states this frame by **23.7 %**, and the effective
+  cost of one *counted* coverage here is **0.474 ms**, not 0.587.
+
+  The **75** this section originally compared against was `kAnchorCoverages` as
+  recorded, not a figure re-derived from the tool. The tool says 72.63; quote
+  that. The gap to close is **13.93 coverages**, and the next two paragraphs are
+  about which mechanism closes it — because the obvious one does not.
 
 **What this is worth to a caller.** The estimator lives in `src/blss_ui.hpp` /
 `src/blss_window.cpp`, which this round does not own, so the numbers are recorded
@@ -935,18 +941,59 @@ here rather than applied: `kSavedFraction` 0.741 → **0.7548**, `kEeCostMs` 5.0
 `kAnchorCoverages` 75 → **58.7**, `kAnchorSpeedup` 1.60 → **1.63**,
 `kAnchorOffMs`/`kAnchorOnMs` 52.86/32.98 → **52.95 / 32.42**. The one that
 matters is the anchor: **the fill model is fine and the coverage counter reads
-28 % high**, so recalibrating the counter (or the ms-per-counted-coverage) is
+23.7 % high**, so recalibrating the counter (or the ms-per-counted-coverage) is
 what collapses the published 1.6–2.6x range, not touching the 0.741.
 
-**What is still owed on this.** The 75 is `kAnchorCoverages` as recorded, not a
-number this round re-derived — the coverage estimator is GUI-only, with no
-headless verb, so it could not be re-run against the fixture here. Whoever owns
-it should print the estimator's own coverage figure for `examples/upscaler-lab`
-and confirm it against the 58.7 measured above before rescaling anything; if the
-estimator now reports something other than 75, the ratio moves with it. And this
-is **one scene**. The slope is fitted over five points on a single fixture whose
-variable load is alpha-blended billboards; a scene whose overdraw is opaque
-geometry may well retain a different fraction, and nothing here measures that.
+**The owed check has been paid, and it falsified the explanation above.**
+`--blss-coverage <projectDir>` is now the headless twin of the window's "Will the
+frame get faster?" button — same `blss::measureCoverage`, same
+`blssui::speedFrom`, no second implementation to keep honest — and against
+`examples/upscaler-lab` it prints **72.63**, split **0.98 geometry + 71.65
+emitters**.
+
+> **RETRACTED: "the estimator over-reads because it counts terrain, cottages and
+> blended puffs alike in one unit."** That was this page's stated mechanism for
+> the over-read, and on this fixture it is **wrong**, by its own numbers.
+>
+> - The estimator counts **0.98** coverages of geometry *in total*. The hardware
+>   run's own 0-banks segment prices all geometry plus every non-haze emitter at
+>   0.67 ms, i.e. **≤ 1.14 blended-pass equivalents** — so the counted geometry is
+>   at or *below* its own measured ceiling. It is not over-priced.
+> - **98.7 % of this scene's counted coverage is the emitter half**, and an
+>   alpha-blended textured puff fragment *is* the 1.0-weight unit `kPassMs` was
+>   calibrated on. There is nothing there to weight down.
+> - Applying the weighting rule anyway moves this anchor by **0.49 coverages**
+>   against a **13.93** gap. It cannot be the mechanism.
+>
+> So `kAnchorCoverages` was **not** set by rescaling the counter's output, and the
+> counter has deliberately been left alone. A weight per fragment kind may still
+> be right in general — a scene that really is mostly opaque untextured terrain
+> would be over-priced by this unit — but it is not what is happening here, and
+> shipping a recalibration fitted to a falsified mechanism is exactly the shape of
+> mistake this feature has already made eight times.
+
+**The live hypothesis is the camera, and if it holds there is no counter bug at
+all.** The two instruments do not look at the same frames. The console ran the
+fixture's **own gameplay camera** — the Cutscene Director tour, then the parked
+vantage the A/B samples. The estimator averages the **six synthetic corpus
+shots**, whose per-shot totals span **36.2 to 88.4** coverages. A single camera at
+**57.7** sits comfortably inside that spread, right next to the 58.7 the hardware
+fit implies. On that reading each instrument answers its own question correctly —
+"how much fill does this scene ask for, averaged over six camera moves" versus
+"how much did *this* camera ask for" — and one has been quietly used as the other.
+
+**The experiment that would settle it**, and nothing should be rescaled before it
+runs: take the coverage estimate **under the fixture's own camera** (the Cutscene
+track plus the parked vantage, not the six automatic moves) and compare *that*
+against 58.7. Land near 58.7 and the counter is fine and the anchor was a
+sampling mismatch; still read near 72 and the over-read is real and its mechanism
+is unidentified. `--blss-coverage` already reports per-shot, so this is a
+shot-plan question rather than a new instrument.
+
+**And this is still one scene.** The slope is fitted over five points on a single
+fixture whose variable load is alpha-blended billboards; a scene whose overdraw is
+opaque geometry may well retain a different fraction, and nothing here measures
+that.
 
 ### The stability gate (period-2 / the "bob")
 

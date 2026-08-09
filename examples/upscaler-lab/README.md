@@ -10,18 +10,32 @@ The arithmetic it exists to test, **as measured on hardware rather than as
 derived from the GS data sheet**: one full-screen 512x448 alpha-blended textured
 pass costs **0.587 ms** on a real PS2 (the sheet's 8 pixels/clock at 147.456 MHz
 predicts ~194 us — a third of it, and the measured number is the one that
-counts). BLSS keeps **25.9 %** of the scene's fill and costs **5.02 ms of EE +
-0.46 ms of composite**, so break-even is `0.741 * 0.587 * D > 5.48`, i.e.
-**about 13 full-screen coverages**. So overdraw is the target, not triangles —
+counts). BLSS keeps **24.5 %** of the scene's fill — *fitted* over five hardware
+load points, not assumed from the quarter-area raster — and costs **4.60 ms of
+EE + 0.50 ms of composite fill**, so break-even is `0.7548 * 0.587 * D > 5.10`,
+i.e. **11.5 full-screen coverages**. So overdraw is the target, not triangles —
 and a triangle has to exceed ~288 px before its halved version is still
 fill-bound at all.
 
-The editor will now tell you where a scene sits on that line before you build
-anything: *Tools > Neural Upscaler (BLSS)* > **Will the frame get faster?**. It
-reads **72.6 coverages** here — 1.0 of geometry and **71.7 of haze** — against
-the ~75 the hardware A/B below implies. That agreement is the point of this
-example as a fixture; it is also why the emitter term exists at all, since a
-count taken from geometry alone reads this scene as one coverage.
+The editor will tell you where a scene sits on that line before you build
+anything: *Tools > Neural Upscaler (BLSS)* > **Will the frame get faster?**, or
+headlessly `tyrax-editor --blss-coverage <this folder>`. It reads **72.63
+coverages** here (p95 94.39) — **0.98 of geometry and 71.65 of haze**.
+
+**Those two instruments do not agree, and the disagreement is open.** Working
+back from the hardware fit, this scene's true fill is 34.46 ms = **58.7**
+blended-pass equivalents, so the estimator reads **23.7 % high** and one
+*counted* coverage here actually costs **0.474 ms**, not 0.587. The obvious
+explanation — that the counter prices opaque geometry as if it were a blended
+puff — is **falsified**: geometry is 0.98 of the 72.63 against a measured
+ceiling of ≤1.14, so it is not over-priced, and re-weighting it moves the total
+by 0.49 against a 13.93 gap. The live hypothesis is that the two are looking at
+different frames: hardware ran this fixture's *own* camera, the estimator
+averages six synthetic corpus shots spanning 36.2 to 88.4 coverages, and one
+camera at 57.7 sits inside that spread. See `docs/profiling.md`, "Calibrating
+the speed model against hardware", for the experiment that settles it. The
+emitter term is why this is a discrepancy of 24 % rather than of two orders of
+magnitude: a count taken from geometry alone reads this scene as **one** coverage.
 
 Open `upscaler-lab.tyra` and Build & Run (`F5`), or headless:
 `tyrax-editor --build <this folder> --run`.
@@ -90,7 +104,8 @@ bank.
   resolves the cobbles crisply, while the BLSS-on frame smears them into
   directional streaks at grazing angles. That is the reconstruction cost of a
   quarter-area raster on a high-frequency ground texture, and the PSNR table
-  prices it — 27.25 dB against 28.52 native. What you buy for it is the frame
+  prices it — 27.17 dB against 28.52 native (the 27.25 this line used to quote
+  was the jitter-on net, which is not what ships). What you buy for it is the frame
   rate in [Measured](#measured).
 - Re-run the training and watch the ceiling move:
   `tyrax-editor --blss-eval <this folder>` prints the oracle row before any net
@@ -106,27 +121,43 @@ followed by the parked camera. Samples are the per-frame `FTRAW` ticks of frames
 cross-pairings.** Sign: **d = work(off) − work(on)**, so d > 0 means BLSS made
 the frame shorter.
 
+**This is the configuration the example ships** — `blssJitter` **off** in both
+arms of the BLSS-on row:
+
 | arm | mean | median | p95 | max | FPS |
 |---|---|---|---|---|---|
-| BLSS **off** | **52.86 ms** | 53.01 | 54.44 | 55.37 | **18.9** |
-| BLSS **on** | **32.98 ms** | 32.93 | 33.62 | 34.37 | **30.3** |
+| BLSS **off** | **52.95 ms** | 53.11 | 54.52 | 55.38 | **18.9** |
+| BLSS **on**, jitter **off** | **32.42 ms** | 32.36 | 33.07 | 33.94 | **30.8** |
 
-**d = +19.88 ms, 95 % CI [+19.81, +19.95], sd 1.12, n = 1024 paired frames** per
-pairing; the four cross-pairings span **0.014 ms** against an effect of 19.9.
-**A 1.60x speedup, on a scene you can actually watch.**
+**d = +20.53 ms, 95 % CI [+20.46, +20.61], sd 1.12, n = 1024 paired frames** per
+pairing (2 048 pooled per arm); the four cross-pairings span **0.010 ms** against
+an effect of 20.5. **A 1.63x speedup, on a scene you can actually watch.**
 
-> **This table was measured with `blssJitter` ON, which is no longer what this
-> example ships** (2026-08-09). It has **not** been re-measured against the
-> jitter-off build: the attempt was made and the console dropped off the LAN
-> mid-run, and no number was going to be invented to fill the gap. Read it as
-> the timing of the jitter-**on** configuration until someone re-runs it.
+> **The jitter-ON timing, kept because it is what this file quoted for a week.**
+> Same fixture, same protocol, same window, jitter on:
 >
-> What is known without the re-run: the jitter changes *where* the half-res
-> raster samples, not how much of it there is, and the retrained net asks for
-> the same **1.76 passes** as the old one, so the fill either arm pays should be
-> the same and the figure is expected to hold. "Expected to hold" is a
-> prediction, not a measurement — the re-run is filed in `docs/backlog.md`. The
-> rig is one line: `TYRA_FRAME_PROFILE 1` in
+> | arm | mean | median | p95 | max | FPS |
+> |---|---|---|---|---|---|
+> | BLSS **off** | 52.86 ms | 53.01 | 54.44 | 55.37 | 18.9 |
+> | BLSS **on**, jitter **on** | 32.98 ms | 32.93 | 33.62 | 34.37 | 30.3 |
+>
+> **d = +19.88 ms, 95 % CI [+19.81, +19.95], 1.60x.**
+>
+> The re-run against the shipped jitter-off build was owed for a day and has
+> **landed** (2026-08-09, real hardware) — it is the table above. It had failed
+> twice first, both times because the console dropped off the LAN mid-session,
+> and no number was invented to fill the gap in the meantime.
+>
+> **The prediction held and was slightly beaten.** It was that the timing would
+> not move, because the jitter changes *where* the half-res raster samples rather
+> than how much of it there is. The off arm is unchanged (52.95 vs 52.86, inside
+> run-to-run drift) and the BLSS arm came out **0.56 ms faster**; the console's
+> own `BLSSFILL` line reads **`passes = 1.56`** on the shipped build, the same
+> figure the jittered build logged, which is the substance of the claim — the
+> retrained net did not start asking for more fill. The extra 0.56 ms is the
+> jitter arithmetic itself coming out of the raster setup.
+>
+> The rig is one line: `TYRA_FRAME_PROFILE 1` in
 > `vendor/tyra/engine/inc/debug/frame_profile.hpp`, then the protocol above.
 
 `drain` reads **0.02 ms in both arms** — see the boxed correction in
@@ -148,15 +179,38 @@ fill model, because they differ in nothing but particle count:
 | BLSS off | 0.1658 | **21.2 ms** |
 | BLSS on | 0.0429 | **24.8 ms** |
 
-- **BLSS keeps 25.9 % of the fill.** `blssScale 0` is `Scale::X2Y2` — half in
-  *each* axis, so a quarter of the pixels. Not half; `docs/profiling.md` said
-  half for a week and the break-even it computed was ~70 % too pessimistic.
+- **BLSS keeps about a quarter of the fill.** `blssScale 0` is `Scale::X2Y2` —
+  half in *each* axis, so a quarter of the pixels. Not half; `docs/profiling.md`
+  said half for a week and the break-even it computed was ~70 % too pessimistic.
+  This two-point ratio gave **25.9 %**, and it is biased toward 1 because the
+  particles' EE cost sits in both arms; the five-point fit that removes that term
+  (below) measures **24.5 %**, i.e. a saved fraction of **0.7548**.
 - **The scene's non-haze floor is 21.2 ms off / 24.8 ms on.** That is why the
-  demo lands at 19 → 30 FPS and not higher: with BLSS on this scene cannot beat
+  demo lands at 19 → 31 FPS and not higher: with BLSS on this scene cannot beat
   ~40 FPS however thin the haze gets, and **thinning the haze shrinks the win**,
   because the haze is the only thing BLSS is paid to remove. 6 x 32 is the
-  compromise: both arms watchable, the win still 1.6x, and the scene still ~75
-  full-screen coverages — comfortably above the ~13-coverage break-even.
+  compromise: both arms watchable, the win still 1.63x, and the scene still
+  **58.7 blended-pass equivalents** of fill — comfortably above the
+  **11.5-coverage** break-even.
+
+### Five load points, and the speed model fitted on them
+
+The two-point model above became a five-point fit on 2026-08-09
+(`docs/profiling.md`). A frame-indexed object script steps the six haze banks by
+index so segment *k* of each arm shows the same load, plus one segment that
+leaves all 192 particles simulated and submitted at `emitSize 0.05` — every
+particle still costing EE, no raster area at all. That last segment is what
+**separates the emitters' EE cost from their fill**, which a slope ratio cannot
+do:
+
+> **saved(ms) = 0.7548 × (scene fill, ms) − 5.10**, residual RMS **0.093 ms**
+> over a 0.7–34 ms fill range.
+
+Two independent confirmations fell out of it. The retention term was right (the
+shipped 0.741 was 2 % conservative), and the fit's **intercept, 5.10 ms,
+reproduces the independently-counted 4.60 EE + 0.50 composite fill to two
+decimals** — two instruments arriving at one number. What is *not* confirmed is
+the coverage estimate that feeds the model; see the top of this file.
 - `count` was cut rather than `size`, so every puff looks exactly as it did and
   2 880 particles of EE come off **both** arms.
 
@@ -174,6 +228,12 @@ half-res + BLSS (trained)           27.17  dB   1.76 passes   +0.51 dB
 half-res + oracle (upper bound)     27.716 dB   1.38 passes   +1.06 dB
 native full-res                     28.521 dB
 ```
+
+The `passes` column there is the **host** figure, averaged over the training
+corpus. It is not the console's: the game's own `BLSSFILL` line reads
+**`passes = 1.56`** on the shipped build. Quote 1.56 for what the PlayStation 2
+draws and 1.76 only as what `--blss-eval` scores over the corpus — a "1.76" has
+already circulated as the console number and it is not one.
 
 **The oracle row is the number that matters: +1.06 dB is this scene's ceiling**,
 against +0.33 dB on `examples/procedural` and **+0.01 dB on
@@ -208,17 +268,32 @@ what the trainer sees.
 
 | term | ms |
 |---|---|
-| `proxy` — the bag-proxy feed, inside scene submission | 2.69 |
-| `net` — the MLP | **0.79** |
-| `pkt` — the grid packet build | 0.55 |
+| `proxy` — the bag-proxy feed, inside scene submission | **2.34** |
+| `net` — the MLP | 0.78 |
+| `pkt` — the grid packet build | 0.50 |
 | `reproj` | 0.28 |
 | `feat` | 0.19 |
-| `beginScene` / `endScene` | 0.41 / 0.11 |
-| **total** | **5.02** |
+| `beginScene` / `endScene` | 0.41 / 0.10 |
+| **total** | **4.60** |
+
+…plus **0.50 ms** of composite fill on the GS, measured in the same runs. That is
+the whole bill, and both halves are counted rather than inferred.
 
 `net` was **1.93 ms** until the activation table was enabled on both twins; the
 emulator predicted that cut would be worth 2.11 ms and it is worth **1.14** here.
-`proxy` is now more than half the bill.
+The bill was **5.02 ms** until `addBag`'s four `floorf` calls and `emitGrid`'s
+two per grid corner became an inline floor-to-int — bit-identical for every
+finite argument in int range, and worth **+0.227 ms** [+0.225, +0.229] priced on
+hardware against its own switch. **`proxy` is more than half the bill**, which is
+the opposite of what PCSX2 said (it ranks `net` first) and the reason this table
+is a console table.
+
+A second cut, **the proxy budget, is measured and deliberately not shipped**: it
+takes the bill to **4.17 ms** (+0.429 [+0.427, +0.430], all of it in `proxy`) and
+break-even from 11.5 to 10.5 coverages, for one channel of description
+(`coverage` 0.631 → 0.638, every other channel identical to three decimals). It
+stays at 0 because `src/blsscorpus.cpp` does not cut the same way yet, and
+flipping one half of a twin silently invalidates every trained net.
 
 ## Two defects this scene found — one fixed, one switched off
 
@@ -350,12 +425,16 @@ haze.
 tyrax-editor --refresh-gen <this folder>     # codegen + the .tskl / .tmdl bakes
 tyrax-editor --blss-eval   <this folder>     # the oracle ceiling, before any net
 tyrax-editor --blss-train  <this folder> --all-shots -o <this folder>/blss.net
+tyrax-editor --blss-coverage <this folder>   # how much fill it asks the GS for
 tyrax-editor --build       <this folder> --run
 ```
 
-The **speed** half has no CLI verb — it is a second of in-process work with
-nothing to write, so it lives only in the window: open *Tools > Neural Upscaler
-(BLSS)* and press **Will the frame get faster?**. Both halves together produce
+The **speed** half is `tyrax-editor --blss-coverage <this folder>`, the headless
+twin of the window's **Will the frame get faster?** button — same
+`blss::measureCoverage`, same verdict arithmetic, so there is no second answer to
+keep honest. It exists because the round that *measured* the speed model could
+not re-derive the estimator's own figure: the estimator was a button in a GUI,
+and a number nobody can re-run is a number nobody can check. Both halves produce
 one answer ("TURN IT ON. The picture has room and the frame gets shorter." on
 this example), and the per-camera-move breakdown is behind the fold under it.
 

@@ -567,9 +567,30 @@ Eight things here that were paid for, and that any edit must keep:
   drawn and then cleared over.
 - **AND THE FEATURE HAS A REGIME AFTER ALL - IT IS HEAVY OVERDRAW.** On
   `examples/upscaler-lab` (3 072 large alpha-blended billboards) a real PS2
-  measures **530 ms with BLSS off against 157 ms with it on** - d = +373 ms,
-  95 % CI [+369, +377], n = 262 paired frames, a **3.37x** speedup for 5.95 ms
-  of EE. Break-even is about **22 full-screen coverages**. The previous verdict
+  measured **530 ms with BLSS off against 157 ms with it on** - a **3.37x**
+  speedup, on a scene running at **1.9 FPS** that nobody could watch. **Re-tuned
+  against the console** (6 banks x 32 instead of 12 x 256) it measures
+  **52.95 ms off against 32.42 ms on** - d = +20.53 ms, 95 % CI [+20.46, +20.61],
+  n = 1024 paired frames per pairing, **1.63x**, for **4.60 ms of EE** plus
+  0.50 ms of composite fill. That second table is the one to quote, and it is the
+  configuration the fixture SHIPS (`blssJitter` off). The owed jitter-off re-run
+  has **landed** (2026-08-09): the earlier 52.86 / 32.98 / **1.60x** was the
+  jitter-ON timing, the off arm is unchanged and the BLSS arm came out 0.56 ms
+  faster, and `BLSSFILL` reads **`passes = 1.56`** in both - i.e. the prediction
+  ("the jitter moves where the half-res raster samples, not how much of it there
+  is") held. Keep both tables, labelled. Break-even is **11.5 full-screen
+  coverages** (10.5 with the proxy budget on, which ships off), derived from
+  `0.7548 x 0.5872 x C > 4.60 + 0.50`: BLSS keeps about a quarter of the fill,
+  because `blssScale 0` is `Scale::X2Y2` - half in *each* axis, a quarter of the
+  pixels, NOT half the fill, which is what the ~22 figure had assumed. The
+  retention term is now FITTED on hardware over five load points (0.7548 saved,
+  RMS 0.093) rather than assumed at 0.741, and the fit's intercept 5.10 ms
+  reproduces the independently-counted 4.60 + 0.50 to two decimals. The
+  activation table
+  (`TYRA_BLSS_ACT_TABLE`, and the host's `actTable` in `src/blss.cpp` - **one
+  number in two files, moved in the same commit or not at all**) took `net` from
+  1.93 to **0.79 ms**; PCSX2 had predicted 2.11, because it over-weights libm
+  and does not transfer per-function. The previous verdict
   ("it saves nothing, the frames are EE-bound") came from ONE low-fill fixture
   plus a **false discriminator**: `drain ~ 0` does NOT mean EE-bound, because GS
   backpressure stalls the EE inside the submission (charged to `submit`) and

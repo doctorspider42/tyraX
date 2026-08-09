@@ -166,7 +166,23 @@ The neural upscaler trains and measures headlessly too
 TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [-o out.net]
 TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
 TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
+TYRAX --blss-coverage <projectDir> [--frames N] [--raster N] [--threads N]
+                                   [--out WxH] [--verbose]
 ```
+
+**`--blss-coverage` is the SPEED half of "should this project have BLSS on"**,
+and the headless twin of the window's *Will the frame get faster?* button — same
+`blss::measureCoverage`, same verdict arithmetic, in-process, about a second. It
+prints per-shot and overall mean/p95 coverages with the **geometry/emitter
+split**, the derived verdict, and machine-readable `[blss] coverage …` lines.
+Use the project's own raster (the default) or the verb and the button answer
+slightly different questions. It exists because the round that *measured* the
+speed model could not re-derive the estimator's own figure — it was a button in
+a GUI — and **a number nobody can re-run is a number nobody can check.** Its
+first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass
+equivalents on `examples/upscaler-lab`) and that disagreement is open, so read
+its output as an estimate with a known 24 % question mark, not as a measurement:
+docs/profiling.md, "Calibrating the speed model against hardware".
 
 **Seven flags measure a configuration no project can currently ask for, and each
 prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the
@@ -649,7 +665,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -1001,18 +1017,30 @@ Notes:
   debug build polls `livepad.bin` through HostFs every frame); and **run the
   page's GS fill calibration before quoting any PCSX2 number about GS cost** —
   measured, PCSX2 under-reports fill by **76x**.
-- **Testing whether a picture is STILL needs a period-2 test, not a diff.** A
-  reconstruction that alternates between two images every frame (the BLSS
-  jitter bob) is invisible to any sampler whose stride is even — every sample
-  lands on the same phase and the tool reports a perfectly still picture, which
-  is exactly how that bug survived a round of testing. Freeze the camera,
-  capture at an interval that is NOT frame-locked, and cluster the captures by
-  pairwise difference: two balanced clusters with near-zero within and large
-  between IS the alternation. And on Windows **select the PCSX2 instance by the
+- **Testing whether a picture is STILL needs a period-2 test, not a diff** — and
+  **three** instruments in a row got this wrong before it stuck, so the full
+  rules live in docs/profiling.md, "The stability gate". The short form, each
+  clause paid for: freeze the camera **and every emitter** (on
+  `examples/upscaler-lab` the running particles change more between frames than
+  the artefact does, and they bury it); point it at **textured** content (a
+  quarter-pixel resample cannot change an untextured box, so a minimal fixture
+  measures clean and truthfully and tells you nothing); capture **back to back**
+  rather than on a stride (an even stride lands on the same phase forever);
+  **never `-Trim`** and take the crop once (trimming black borders re-registers
+  a shifted picture to an identical image, so a displacement becomes invisible
+  by construction); report a **cross-correlation lag** as well as a pixel count;
+  and cluster by pairwise difference — two balanced clusters, near-zero within
+  and large between, IS the alternation. Then check the verdict against a
+  labelled A/B/C where you already know the answer, rather than against a
+  threshold you chose.
+  And on Windows **select the PCSX2 instance by the
   project on its command line** (`Get-CimInstance Win32_Process ... CommandLine
   -like "*<project>*"`) — `-ProcessName pcsx2-qt` takes the first one it finds,
   and with parallel worktrees running that silently captures somebody else's
-  game and looks exactly like a screenshot.
+  game and looks exactly like a screenshot. **A GDI grab reads the SCREEN**, so
+  an occluded PCSX2 captures as whatever is on top of it and yields a
+  plausible, entirely fictional "stable" table — diff frame 0 of one arm against
+  frame 0 of another before believing any of it.
 
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess
@@ -1333,7 +1361,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL

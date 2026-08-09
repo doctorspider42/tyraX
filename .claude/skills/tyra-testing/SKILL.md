@@ -166,7 +166,23 @@ The neural upscaler trains and measures headlessly too
 TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [-o out.net]
 TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
 TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
+TYRAX --blss-coverage <projectDir> [--frames N] [--raster N] [--threads N]
+                                   [--out WxH] [--verbose]
 ```
+
+**`--blss-coverage` is the SPEED half of "should this project have BLSS on"**,
+and the headless twin of the window's *Will the frame get faster?* button — same
+`blss::measureCoverage`, same verdict arithmetic, in-process, about a second. It
+prints per-shot and overall mean/p95 coverages with the **geometry/emitter
+split**, the derived verdict, and machine-readable `[blss] coverage …` lines.
+Use the project's own raster (the default) or the verb and the button answer
+slightly different questions. It exists because the round that *measured* the
+speed model could not re-derive the estimator's own figure — it was a button in
+a GUI — and **a number nobody can re-run is a number nobody can check.** Its
+first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass
+equivalents on `examples/upscaler-lab`) and that disagreement is open, so read
+its output as an estimate with a known 24 % question mark, not as a measurement:
+docs/profiling.md, "Calibrating the speed model against hardware".
 
 **Seven flags measure a configuration no project can currently ask for, and each
 prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the

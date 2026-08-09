@@ -16,8 +16,12 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.9.0 (the neural upscaler's shippable half): a union-corpus default net in
+// resources/, `--cv-groups` (leave-one-PROJECT-out), `--blss-coverage` (the
+// headless twin of the window's speed estimate) and the shot plan's corpus
+// side. All additive to the editor, none of it to the file: format stays v6.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 8
+#define TYRAX_VERSION_MINOR 9
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
