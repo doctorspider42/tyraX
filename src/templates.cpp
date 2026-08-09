@@ -1232,6 +1232,7 @@ class TerrainGame : public Tyra::Game {
   int extrapolationRun = 0;
   int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
   unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
   bool extrapolationSeeded = false;
   Tyra::WarpCamera warpPrev;
   bool warpPrevValid = false;
@@ -2484,6 +2485,7 @@ class TerrainGame : public Tyra::Game {
   int extrapolationRun = 0;
   int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
   unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
   bool extrapolationSeeded = false;
   Tyra::WarpCamera warpPrev;
   bool warpPrevValid = false;
@@ -5843,6 +5845,18 @@ bool TerrainGame::extrapolationWorthIt() {
     return false;
   }
   const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
   // How much work has to be there before the extra present is FREE, and it
   // differs by buffering mode. Double buffered, the loop is quantised to whole
   // fields anyway, so any overrun past one field already buys a second field
@@ -5902,13 +5916,14 @@ void TerrainGame::presentExtrapolatedFrame() {
 
   if (warpPrevValid) {
     Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
     to.position = Tyra::Vec4(
-        cur.position.x + (cur.position.x - warpPrev.position.x) * 0.5F,
-        cur.position.y + (cur.position.y - warpPrev.position.y) * 0.5F,
-        cur.position.z + (cur.position.z - warpPrev.position.z) * 0.5F, 1.0F);
-    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * 0.5F;
-    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * 0.5F;
-    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * 0.5F;
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
     float el = sqrtf(ex * ex + ey * ey + ez * ez);
     if (el > 1e-4F) {
       ex /= el; ey /= el; ez /= el;
@@ -18988,6 +19003,18 @@ bool TerrainGame::extrapolationWorthIt() {
     return false;
   }
   const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
   // How much work has to be there before the extra present is FREE, and it
   // differs by buffering mode. Double buffered, the loop is quantised to whole
   // fields anyway, so any overrun past one field already buys a second field
@@ -19047,13 +19074,14 @@ void TerrainGame::presentExtrapolatedFrame() {
 
   if (warpPrevValid) {
     Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
     to.position = Tyra::Vec4(
-        cur.position.x + (cur.position.x - warpPrev.position.x) * 0.5F,
-        cur.position.y + (cur.position.y - warpPrev.position.y) * 0.5F,
-        cur.position.z + (cur.position.z - warpPrev.position.z) * 0.5F, 1.0F);
-    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * 0.5F;
-    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * 0.5F;
-    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * 0.5F;
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
     float el = sqrtf(ex * ex + ey * ey + ez * ez);
     if (el > 1e-4F) {
       ex /= el; ey /= el; ez /= el;
