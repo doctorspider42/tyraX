@@ -64,6 +64,25 @@ struct CorpusConfig {
     // (`--blss-train <projectDir>`). Everything else in this struct still
     // applies - the resolution, the jitter, the supersample, the frame budget.
     std::string projectDir;
+    // MORE THAN ONE PROJECT, CONCATENATED INTO ONE CORPUS - the union corpus,
+    // and the thing that had to exist before "can one net ship for every
+    // project" could be asked at all. Every entry is walked by the same
+    // loadProject() that `projectDir` uses and its shots are appended, so a
+    // union corpus is exactly the shots of its members and nothing else: the
+    // rasteriser, the jitter, the truth and the features are the same code, the
+    // same way a project corpus and the bestiary are.
+    //
+    // Frames are still spread evenly over SHOTS, so a project with more scenes
+    // contributes proportionally more frames. That is a weighting decision and
+    // it is stated out loud in generate()'s header line (shots per member),
+    // because a union whose mean is dominated by one member is a mean about
+    // that member.
+    //
+    // When this is non-empty `projectDir` is ignored. A member that will not
+    // load is DROPPED with a message rather than silently falling back to the
+    // bestiary - a union corpus that quietly became the bestiary would be the
+    // exact distribution mismatch this feature spent eleven commits inside.
+    std::vector<std::string> projectDirs;
     // ONE PROXY PER PACKAGE, the way the engine submits them. StaPipCore hands
     // BLSS one bounding box per run of maxVertCount/3 consecutive vertices
     // (StaPipBagPackagesBBox), capped at 32 per bag, because a bag carries one
@@ -88,6 +107,16 @@ struct CorpusConfig {
     // on so the cost can be measured BEFORE the paired flip, which is what it
     // is for.
     bool proxyBudget = false;
+    // FOLLOW THE PROJECT'S TRAINING-SHOT PLAN (Project::blssShots): which of the
+    // six automatic camera moves survive, how many frames each gets, whether
+    // Cutscene Director takes join, and the author's own vantages.
+    //
+    // `--ignore-shot-plan` sets this false and the walk behaves exactly as it
+    // did before the plan existed. Same one reason as `--no-package-split` and
+    // `--no-anim`: a project that HAS a plan can still reproduce a fold table
+    // taken before it. A DEFAULT plan produces the same shots either way, which
+    // is why every published table stays reproducible without passing anything.
+    bool shotPlan = true;
     // ANIMATED MODELS ARE PART OF THE FRAME. On the console a skinned mesh is
     // submitted through StaPipCore like any other static bag, so it is drawn
     // AND it describes tiles; this corpus used to do neither. `--no-anim`
@@ -163,6 +192,18 @@ struct CorpusFrame {
     // dangle the moment generate() returned.
     std::string shotName;
     std::string moveName;
+    // WHICH MEMBER OF A UNION CORPUS THIS SHOT CAME FROM, and its name. 0 and
+    // "" for a single project or the bestiary, so nothing that predates the
+    // union corpus has to know this field exists.
+    //
+    // It is what makes LEAVE-ONE-PROJECT-OUT expressible: the held-out set is
+    // still one shot (a fold has to be one kind of content or its row says
+    // nothing), but the TRAINING set is the complement of the shot's whole
+    // group, so no camera move of the evaluated project is in it. Holding out a
+    // shot while its eleven siblings train is a measurement of the scene; this
+    // is a measurement of the project.
+    int group = 0;
+    std::string groupName;
 };
 
 // Renders the whole corpus, one worker per frame (CorpusConfig::threads). Frame

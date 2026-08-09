@@ -1,6 +1,7 @@
 #include "blssscene.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -583,10 +584,23 @@ Start startOf(const SceneData& sc, const ProjectSettings& rs) {
 // The automatic coverage set. Everything here is derived from the scene's own
 // bounds and its player start, so an empty-ish project still gets six honest
 // camera moves and a dense one gets six that are actually inside it.
+// `plan` decides WHICH of the six survive and how many frames each is worth;
+// `budget` still caps the scene's total shot count, and is INT_MAX when the
+// plan is non-default (see kShotsPerScene - a take displaces a move, and an
+// author who asked for shots has said the six-shot budget is not the constraint
+// any more). The six blocks below are in `BlssAutoMove` order and that ordering
+// is load-bearing: `plan.autoMove[i]` indexes them, and `blssAutoMoveKind(i)`
+// is the twin of each block's `s.move` literal.
 void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
                const ProjectScene& ps, const SceneData& sc,
-               const ProjectSettings& rs, int budget) {
+               const ProjectSettings& rs, int budget, const BlssShotPlan& plan) {
     if (budget <= 0) return;
+    // "May this move be emitted at all", by BlssAutoMove index.
+    const auto want = [&](BlssAutoMove m) {
+        return plan.autoMove[static_cast<int>(m)] &&
+               static_cast<int>(out.size()) < budget;
+    };
+    const auto frames = [&](BlssAutoMove m) { return plan.autoFrames[static_cast<int>(m)]; };
     const Start st = startOf(sc, rs);
     const float width = std::max(4.0f, static_cast<float>(sc.terrain.width));
     const float depth = std::max(4.0f, static_cast<float>(sc.terrain.depth));
@@ -676,10 +690,11 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
 
     // 1 - the walk. What the player sees for most of the running time, and the
     // shot the console's own debug view is read on.
-    if (static_cast<int>(out.size()) < budget) {
+    if (want(BlssAutoMove::Walk)) {
         SceneShot s;
         s.name = sceneName + " walk";
         s.move = "dolly-forward";
+        s.frames = frames(BlssAutoMove::Walk);
         float f[3];
         forward(yaw0, -0.05f, f);
         for (int k = 0; k <= 8; ++k) {
@@ -693,10 +708,11 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
     }
     // 2 - the pan. A yaw sweep from the same standpoint: the same content at
     // every reprojection offset the stick can produce.
-    if (static_cast<int>(out.size()) < budget) {
+    if (want(BlssAutoMove::Pan)) {
         SceneShot s;
         s.name = sceneName + " pan";
         s.move = "pan";
+        s.frames = frames(BlssAutoMove::Pan);
         for (int k = 0; k <= 16; ++k) {
             const float t = static_cast<float>(k) / 16.0f;
             const float yaw = yaw0 + (t - 0.5f) * kPanSweep;
@@ -710,10 +726,11 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
     }
     // 3 - the orbit. The only move that sweeps silhouettes across the whole
     // tile grid, and the one the procedural corpus scores best on.
-    if (static_cast<int>(out.size()) < budget) {
+    if (want(BlssAutoMove::Orbit)) {
         SceneShot s;
         s.name = sceneName + " orbit";
         s.move = "orbit";
+        s.frames = frames(BlssAutoMove::Orbit);
         const float h = ground(cx, cz) + st.eyeH * 1.5f;
         for (int k = 0; k <= 16; ++k) {
             const float a = 0.4f + 1.3f * static_cast<float>(k) / 16.0f;
@@ -727,10 +744,11 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
     }
     // 4 - the whip. Eased, so the angular velocity peaks mid-shot and the net
     // sees history that is fine, history that is useless, and both transitions.
-    if (static_cast<int>(out.size()) < budget) {
+    if (want(BlssAutoMove::Whip)) {
         SceneShot s;
         s.name = sceneName + " whip";
         s.move = "whip";
+        s.frames = frames(BlssAutoMove::Whip);
         s.ease = 1.0f;
         for (int k = 0; k <= 24; ++k) {
             const float t = static_cast<float>(k) / 24.0f;
@@ -745,10 +763,11 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
     }
     // 5 - the pitch. Coverage sweeps from 1 to nearly 0 over the shot, which is
     // what makes the empty-tile path a moving target rather than a corner.
-    if (static_cast<int>(out.size()) < budget) {
+    if (want(BlssAutoMove::Pitch)) {
         SceneShot s;
         s.name = sceneName + " pitch";
         s.move = "pitch-up";
+        s.frames = frames(BlssAutoMove::Pitch);
         for (int k = 0; k <= 16; ++k) {
             const float t = static_cast<float>(k) / 16.0f;
             // Stops at +0.20 rad, not at the zenith: the shot exists to sweep
@@ -766,10 +785,11 @@ void autoShots(std::vector<SceneShot>& out, const std::string& sceneName,
     // 6 - the strafe. A sideways translation is the one move that produces real
     // parallax, so near geometry slides across far and the tile's single
     // representative depth reprojects the two of them to the same place.
-    if (static_cast<int>(out.size()) < budget) {
+    if (want(BlssAutoMove::Strafe)) {
         SceneShot s;
         s.name = sceneName + " strafe";
         s.move = "dolly-lateral";
+        s.frames = frames(BlssAutoMove::Strafe);
         float f[3];
         forward(yaw0, -0.05f, f);
         const float rx = f[2], rz = -f[0];  // right = up x forward, y-up
@@ -838,7 +858,8 @@ void authoredShots(std::vector<SceneShot>& out, const Project& p,
 
 std::vector<ProjectScene> loadProject(const std::string& projectDir,
                                       std::string* err, bool verbose,
-                                      bool animated, ProjectBlss* blssOut) {
+                                      bool animated, ProjectBlss* blssOut,
+                                      bool honourPlan) {
     std::vector<ProjectScene> out;
     Project p;
     const std::string e = project::load(p, projectDir);
@@ -857,9 +878,34 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
         std::printf("[blss] project '%s' (%s), %zu scene(s)\n", p.name.c_str(),
                     p.gameTemplate.c_str(), p.scenes.size());
 
+    // THE TRAINING-SHOT PLAN, or the plan the trainer followed before there was
+    // one. `--ignore-shot-plan` substitutes a default-constructed plan rather
+    // than branching everywhere below, so "ignore it" and "it is default" are
+    // the same code path and cannot diverge.
+    const BlssShotPlan plan = honourPlan ? p.blssShots : BlssShotPlan{};
+    const bool planned = !plan.isDefault();
+    if (verbose && planned)
+        std::printf(
+            "[blss] training-shot plan: %d of %d automatic move(s), takes %s, %zu authored "
+            "shot(s) - the %d-shot per-scene cap is LIFTED\n",
+            [&] {
+                int n = 0;
+                for (int i = 0; i < kBlssAutoMoveCount; ++i) n += plan.autoMove[i] ? 1 : 0;
+                return n;
+            }(),
+            kBlssAutoMoveCount, plan.authoredTakes ? "on" : "off", plan.shots.size(),
+            kShotsPerScene);
+    if (verbose && honourPlan == false && !p.blssShots.isDefault())
+        std::printf(
+            "[blss] --ignore-shot-plan: this project HAS a training-shot plan and this run is "
+            "not following it - six automatic moves, takes on, an equal frame share. That is a "
+            "MEASUREMENT configuration (it reproduces a table taken before the plan existed), "
+            "not what the project asks for.\n");
+
     MatCache cache;
     BakeCache bakes;
-    for (const SceneData& sc : p.scenes) {
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
         const ProjectSettings rs = project::resolvedSettings(p, sc);
         const Light light = lightOf(rs);
         ProjectScene ps;
@@ -943,9 +989,46 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
 
         // Authored first, automatic to fill: a take is the author saying which
         // frame matters, and the automatic set is what covers the rest.
-        authoredShots(ps.shot, p, sc, kShotsPerScene / 2);
-        autoShots(ps.shot, ps.name, ps, sc, rs, kShotsPerScene);
+        //
+        // THE BUDGET IS THE COMPATIBILITY GUARANTEE. With a default plan the cap
+        // is kShotsPerScene and this produces the byte-identical shot table it
+        // always did - which is what keeps every published fold table a
+        // measurement of this code. With a non-default plan the cap is lifted:
+        // the author has said which shots they want, and silently dropping the
+        // sixth one would make the window's preview a lie.
+        const int budget = planned ? INT_MAX : kShotsPerScene;
+        const size_t before = ps.shot.size();
+        if (plan.authoredTakes) authoredShots(ps.shot, p, sc, planned ? INT_MAX : kShotsPerScene / 2);
+        const size_t afterTakes = ps.shot.size();
+        // THE AUTHOR'S OWN VANTAGES. A `BlssShot` is two (eye, look-at) keys and
+        // a SceneShot is a polyline of them, so this is a copy plus the one
+        // resolution rule both sides share (project::blssResolveShot - the
+        // window previews the same camera this shoots, which is the only reason
+        // the preview means anything).
+        for (size_t i = 0; i < plan.shots.size(); ++i) {
+            const BlssShot& b = plan.shots[i];
+            if (project::blssShotScene(p, b) != static_cast<int>(si)) continue;
+            float a[3], la[3], c[3], lc[3], fov = b.fovDeg;
+            if (!project::blssResolveShot(p, b, a, la, c, lc, &fov)) continue;  // off / unresolvable
+            SceneShot s;
+            s.name = project::blssShotLabel(p, b, static_cast<int>(i));
+            s.move = b.move ? "authored move" : "authored still";
+            s.fovDeg = fov;
+            s.frames = b.frames;
+            addKey(s, a, la);
+            // One key IS a shot here, unlike a take: a still standpoint is a
+            // legitimate thing to train on (the history is perfect and the net
+            // has to learn not to spend passes on it), and the author asked for
+            // exactly this one.
+            if (b.move) addKey(s, c, lc);
+            ps.shot.push_back(std::move(s));
+        }
+        const size_t afterAuthored = ps.shot.size();
+        autoShots(ps.shot, ps.name, ps, sc, rs, budget, plan);
         if (ps.shot.empty()) continue;
+        const size_t nTake = afterTakes - before;
+        const size_t nAuthored = afterAuthored - afterTakes;
+        const size_t nAuto = ps.shot.size() - afterAuthored;
 
         // ...and only now does `--no-anim` take them away, so the shot table
         // above is identical either way.
@@ -955,12 +1038,18 @@ std::vector<ProjectScene> loadProject(const std::string& projectDir,
             if (ps.mesh.empty()) continue;
         }
 
+        // The breakdown is here because a plan the tool IGNORES looks exactly
+        // like a plan it honours from the outside - same project, same scenes,
+        // a different corpus. The window parses the shot count back out of this
+        // line (blssui::parseCorpusScenes) to check the trainer obeyed; the
+        // count itself keeps its position and its "shot(s)" token so that parse
+        // is unaffected.
         if (verbose)
             std::printf(
                 "[blss]   scene '%s': %zu mesh(es) + %zu animated part(s), %zu "
-                "triangle(s), %zu shot(s)\n",
+                "triangle(s), %zu shot(s) (%zu take, %zu authored, %zu automatic)\n",
                 ps.name.c_str(), ps.mesh.size(), ps.anim.size(), ps.triangles(),
-                ps.shot.size());
+                ps.shot.size(), nTake, nAuthored, nAuto);
         out.push_back(std::move(ps));
     }
     return out;

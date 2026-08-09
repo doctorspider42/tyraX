@@ -28,6 +28,50 @@ the verification, and any fact worth reusing belongs in the relevant
   baked into the game, and a 1..5-pass Gouraud composite whose blend fields are
   the network's output. What it deliberately does not do yet, roughly in the
   order it is worth doing:
+  - **DONE, and it answers "can one net ship for every project": YES, if the
+    bestiary and real projects are in the SAME corpus.** Leave-one-PROJECT-out
+    (`--cv-groups`, new) over seven projects chosen by oracle ceiling, 18
+    fold-runs each, jitter off, 12 frames/shot. On `examples/upscaler-lab` - the
+    only example with a ceiling big enough to discriminate (+0.72 dB; 12 of the
+    32 examples are under +0.10 and cannot tell two nets apart at all) - a net
+    that has NEVER seen it scores **+0.29 dB against its own net's +0.31**, fold
+    sds 0.37 and 0.34. The two arms that fail: the **bestiary alone** is a
+    lottery (-0.34 dB mean over seven projects, **-1.09 worst**), and **projects
+    alone** degenerate - at deadzone 0 that net asks for 2.15 passes and scores
+    -0.10 dB with 22/42 folds below bilinear, and only the shipped deadzone
+    turns it into plain bilinear. `--standardise` re-run at six channels is
+    still worse (-0.05 vs +0.03, and `material-lab` -0.59). Mechanism, shown
+    with `--features`/`--probe`: `texDetail` is identically zero on five of the
+    seven projects and it is the bestiary's most oracle-correlated channel, so
+    the probe reports `band 0.0 %` - none of the training corpus lies inside the
+    frame's own band. **Also retracted: the -0.40/+0.06/+0.77 row that set the
+    "fit the project you ship" rule had its ceiling measured at jitter ON and
+    its margins at jitter OFF** (+0.773 vs +0.345 on the same scene today); the
+    sampler is announced in both directions now. Full account in
+    docs/neural-upscaler.md, "Can one net ship for every project?".
+
+    **OWED, and none of it is measurement**: ship a default `blss.net` (in the
+    repo or generated at build) fitted with
+    `--blss-train <examples...> bestiary --all-shots`; offer it in the window
+    beside "train on this project"; and rebuild it in CI whenever the corpus,
+    the topology or `kNetVersion` moves - the file records no topology and no
+    provenance, so a SHIPPED default needs `kNetVersion` policed harder than a
+    locally trained one.
+  - **DONE (corpus half): the training-shot plan is honoured by the trainer.**
+    `blssscene::loadProject` now gates the six automatic moves on
+    `Project::blssShots`, appends the author's own vantages, and carries a
+    per-shot frame count that `generate()` honours (explicit counts first, the
+    rest share the remainder; over-budget is scaled with a printed line, and a
+    starved shot is reported rather than dropped in silence).
+    `--ignore-shot-plan` reproduces the old behaviour. **Compatibility is
+    checked, not asserted**: a default plan writes nothing to the `.tyra` and
+    `--blss-train examples/procedural --all-shots --frames 72 --no-jitter` still
+    writes md5 `e069f286ea0c524999bfd9dac769608c`. Found on the way: a Cutscene
+    take **displaces** an automatic move rather than adding to one, so
+    `examples/upscaler-lab` has never had a `strafe` shot - the only move with
+    real parallax. The per-scene line now prints
+    `N shot(s) (a take, b authored, c automatic)` so that is visible, and a
+    non-default plan lifts the 6-shot cap.
   - **DONE, and it reverses the feature's verdict: BLSS WINS 3.4x on a
     GS-bound scene, on real hardware.** `examples/upscaler-lab` measures
     **530 ms with BLSS off against 157 ms with it on** (d = +373 ms, 95 % CI

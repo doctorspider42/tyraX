@@ -1516,6 +1516,24 @@ struct CliOpts {
     // not a knob - and because "train this project" is the shape the docs and
     // the panel already promise.
     std::string projectDir;
+    // EVERY positional after the first: a UNION CORPUS over several projects.
+    //
+    //   tyrax-editor --blss-eval a b c --cv --cv-groups
+    //
+    // This is the corpus the "can one net ship for every project" question needs
+    // and the one nobody had - see CorpusConfig::projectDirs. `projectDir` is
+    // still the first entry, so every single-project invocation is unchanged.
+    std::vector<std::string> projectDirs;
+    // `--cv-groups`: LEAVE-ONE-PROJECT-OUT. The held-out set is still one shot -
+    // a fold row has to be one kind of content or it says nothing - but the
+    // TRAINING set becomes the complement of that shot's whole PROJECT, so no
+    // camera move of the project being scored is in it.
+    //
+    // The distinction against plain `--cv` is the whole experiment: leave-one-
+    // shot-out asks "does this net generalise to a seventh camera move of a
+    // scene it has already seen", and every project-corpus number this feature
+    // ever published was that question. "Can I ship ONE net" is this one.
+    bool cvGroups = false;
     // `--no-package-split`: one bag proxy per object instead of one per VU1
     // package. Off is what the console does; on reproduces every fold table
     // published before the split existed. See CorpusConfig::packageSplit.
@@ -1528,6 +1546,12 @@ struct CliOpts {
     // worked before they were added. The console draws and describes them, so
     // this is a reproduction switch, not a setting - see CorpusConfig::animated.
     bool animated = true;
+    // `--ignore-shot-plan`: do not read the project's training-shot plan
+    // (Project::blssShots) - six automatic moves, takes on, no authored
+    // vantages, an equal frame share. A reproduction switch like the two above:
+    // it is how a fold table taken before the plan existed stays runnable on a
+    // project that has since authored one. See CorpusConfig::shotPlan.
+    bool shotPlan = true;
     // `--still`: freeze each shot at its first camera and first pose so only the
     // jitter phase advances - the host twin of the console's frozen-camera
     // experiment. A FIXTURE FOR THE PERIOD-2 TABLE ONLY; see CorpusConfig::still.
@@ -1668,6 +1692,7 @@ CliOpts parseCli(int argc, char** argv) {
         }
         else if (a == "--seed") o.seed = static_cast<uint32_t>(std::strtoul(next("0").c_str(), nullptr, 0));
         else if (a == "--cv") o.cv = true;
+        else if (a == "--cv-groups") { o.cv = true; o.cvGroups = true; }
         else if (a == "--cv-seeds") o.cvSeeds = std::max(1, std::atoi(next("1").c_str()));
         else if (a == "--cv-folds") o.cvFolds = std::max(0, std::atoi(next("0").c_str()));
         else if (a == "--weight-decay")
@@ -1719,12 +1744,17 @@ CliOpts parseCli(int argc, char** argv) {
         else if (a == "--no-package-split") o.packageSplit = false;
         else if (a == "--proxy-budget") o.proxyBudget = true;
         else if (a == "--no-anim") o.animated = false;
+        else if (a == "--ignore-shot-plan") o.shotPlan = false;
         else if (a == "--still") o.still = true;
         else if (a == "--no-jitter") o.jitter = 0;
         else if (a == "--jitter") o.jitter = 1;
-        // The only positional argument: the project to train on. Taken as the
-        // FIRST bare word so `--blss-train ~/game --cv` reads the way it looks.
-        else if (!a.empty() && a[0] != '-' && o.projectDir.empty()) o.projectDir = a;
+        // The positional arguments: the project(s) to train on. The first bare
+        // word is `projectDir` so `--blss-train ~/game --cv` reads the way it
+        // looks; every further one appends, which is the union corpus.
+        else if (!a.empty() && a[0] != '-') {
+            if (o.projectDir.empty()) o.projectDir = a;
+            o.projectDirs.push_back(a);
+        }
         else std::printf("blss: ignoring unknown argument '%s'\n", a.c_str());
     }
     return o;
@@ -1845,6 +1875,12 @@ TrainConfig trainConfigOf(const CliOpts& o) {
 // the page is a table nobody can reproduce; this feature has published five
 // numbers measured on a configuration nobody wrote down.
 void applySweepKnobs(const CliOpts& o) {
+    if (!o.shotPlan)
+        std::printf(
+            "blss: --ignore-shot-plan - the project's training-shot plan is NOT read. Six "
+            "automatic moves, takes on, no authored vantages, an equal frame share. A "
+            "MEASUREMENT configuration: it reproduces a corpus taken before the plan existed, "
+            "and it is not what the project asks the build for.\n");
     if (o.tile != kTile) {
         if (!setTileSize(o.tile)) {
             std::printf("blss: --tile %d refused (must be a positive power of two)\n", o.tile);
@@ -1893,9 +1929,14 @@ std::vector<CorpusFrame> buildCorpus(const CliOpts& o) {
     cc.seed = o.seed;
     cc.assetDir = o.assetDir;
     cc.projectDir = o.projectDir;
+    // One positional is the ordinary project corpus and goes down the old path;
+    // two or more is the union, and generate() then never falls back to the
+    // bestiary for a member that will not load.
+    if (o.projectDirs.size() > 1) cc.projectDirs = o.projectDirs;
     cc.packageSplit = o.packageSplit;
     cc.proxyBudget = o.proxyBudget;
     cc.animated = o.animated;
+    cc.shotPlan = o.shotPlan;
     cc.still = o.still;
     cc.jitter = o.jitter;
     cc.threads = o.threads;
@@ -1937,6 +1978,33 @@ std::string shotNameOf(const std::vector<CorpusFrame>& c, int shot) {
     for (const CorpusFrame& f : c)
         if (f.shot == shot) return std::string(f.shotName) + " " + f.moveName;
     return "shot " + std::to_string(shot);
+}
+
+// WHICH UNION MEMBER EACH SHOT CAME FROM, indexed by shot id. All zeros for a
+// single project or the bestiary, which is what makes --cv-groups degenerate
+// into "hold out everything and train on nothing" there rather than quietly
+// measuring something else - crossValidate() refuses that case out loud.
+std::vector<int> shotGroupsOf(const std::vector<CorpusFrame>& c, int shots) {
+    std::vector<int> g(static_cast<size_t>(std::max(shots, 0)), 0);
+    for (const CorpusFrame& f : c)
+        if (f.shot >= 0 && f.shot < shots) g[static_cast<size_t>(f.shot)] = f.group;
+    return g;
+}
+std::vector<std::string> groupNamesOf(const std::vector<CorpusFrame>& c) {
+    std::vector<std::string> n;
+    for (const CorpusFrame& f : c) {
+        if (f.group < 0) continue;
+        if (static_cast<size_t>(f.group) >= n.size()) n.resize(static_cast<size_t>(f.group) + 1);
+        if (n[static_cast<size_t>(f.group)].empty()) n[static_cast<size_t>(f.group)] = f.groupName;
+    }
+    return n;
+}
+// Every shot of one group - the set a leave-one-PROJECT-out fold must not train
+// on.
+ShotMask groupMask(const std::vector<int>& groupOf, int group) {
+    ShotMask m(groupOf.size(), 0);
+    for (size_t i = 0; i < groupOf.size(); ++i) m[i] = groupOf[i] == group ? 1 : 0;
+    return m;
 }
 
 // THE HOST'S INFERENCE. Twinned with RendererCoreBlss::runNet(), including the
@@ -2354,6 +2422,7 @@ Method netMethod(const Net& net, float sharpen, float deadAlpha) {
 // ONE FOLD: train on every shot but `shot`, measure on `shot`.
 struct FoldResult {
     int shot = 0;
+    int group = 0;  // which union member the held-out shot came from
     double blss = 0, bilinear = 0, oracleBound = 0, native = 0;  // held-out shot, dB
     double inBlss = 0, inBilinear = 0;                           // the trained-on shots
     double flicker = 0;
@@ -2420,7 +2489,8 @@ double nativePsnr(const std::vector<CorpusFrame>& corpus, const ShotMask& want) 
 std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus, int shots,
                                           const CliOpts& o, uint32_t seed,
                                           double* labelSeconds = nullptr,
-                                          double* foldSeconds = nullptr) {
+                                          double* foldSeconds = nullptr,
+                                          const std::vector<int>* groupOf = nullptr) {
     const auto clock0 = std::chrono::steady_clock::now();
     const std::vector<FrameLabels> labels = labelCorpus(corpus, o.sharpen, o.obj, o.threads);
     const auto clock1 = std::chrono::steady_clock::now();
@@ -2472,8 +2542,16 @@ std::vector<FoldResult> crossValidateOnce(const std::vector<CorpusFrame>& corpus
     parallelFor(nFolds, o.threads, [&](int f) {
         FoldResult& r = folds[static_cast<size_t>(f)];
         r.shot = f;
+        r.group = groupOf && f < static_cast<int>(groupOf->size()) ? (*groupOf)[static_cast<size_t>(f)] : 0;
         const ShotMask test = singleShotMask(shots, f);
-        const ShotMask train = complementMask(test);
+        // LEAVE-ONE-PROJECT-OUT: the held-out shot is still ONE shot, so the row
+        // is still one kind of content, but the training set loses the whole
+        // project it belongs to. Without this the net has already seen eleven
+        // other camera moves of the same scene, which is the question
+        // "generalises to a seventh move", not "generalises to a new project".
+        const ShotMask train =
+            (o.cvGroups && groupOf) ? complementMask(groupMask(*groupOf, r.group))
+                                    : complementMask(test);
 
         const std::vector<Sample> samples = gatherSamples(labels, corpus, train);
         TrainConfig tc = trainConfigOf(o);
@@ -2545,10 +2623,11 @@ uint32_t cvSeedAt(uint32_t base, int i) {
 
 int crossValidate(const CliOpts& o) {
     std::printf(
-        "\nblss: leave-one-shot-out cross-validation, %d seed(s) x every shot held out in turn\n"
+        "\nblss: leave-one-%s-out cross-validation, %d seed(s) x every shot held out in turn\n"
         "      %d frames, %d epochs, decay %.0e, %s inputs, %d hidden unit(s)\n"
         "      objective: flicker %.3f (%s), fill %.2f, sharpen %.2f;"
         " inference deadzone %.1f alpha\n",
+        o.cvGroups ? "PROJECT" : "shot",
         o.cvSeeds, o.frames, o.epochs,
         static_cast<double>(trainConfigOf(o).weightDecay),
         o.standardise ? "standardised" : "raw", kHidden, o.obj.flicker,
@@ -2558,6 +2637,8 @@ int crossValidate(const CliOpts& o) {
     std::vector<std::vector<FoldResult>> all;  // [seed][fold]
     std::vector<uint32_t> seeds;
     std::vector<std::string> shotNames;
+    std::vector<int> groupOf;                 // shot id -> union member
+    std::vector<std::string> groupNames;
     int shots = 0;
     // The same three-phase accounting --blss-train prints, for the same reason:
     // which phase dominates moves with the frame count, the fold count and the
@@ -2581,10 +2662,33 @@ int crossValidate(const CliOpts& o) {
         shots = shotCountOf(corpus);
         if (shotNames.empty())
             for (int s = 0; s < shots; ++s) shotNames.push_back(shotNameOf(corpus, s));
+        if (groupOf.empty()) {
+            groupOf = shotGroupsOf(corpus, shots);
+            groupNames = groupNamesOf(corpus);
+            // On a union corpus two members can easily name a scene the same
+            // thing ("main orbit"), so the fold rows carry the member's last
+            // path component - a table of thirty rows in which three say
+            // "main orbit" identifies nothing.
+            if (groupNames.size() > 1)
+                for (int s = 0; s < shots && s < static_cast<int>(shotNames.size()); ++s) {
+                    const std::string& g = groupNames[static_cast<size_t>(groupOf[static_cast<size_t>(s)])];
+                    const size_t cut = g.find_last_of("/\\");
+                    const std::string leaf = cut == std::string::npos ? g : g.substr(cut + 1);
+                    shotNames[static_cast<size_t>(s)] = leaf + "/" + shotNames[static_cast<size_t>(s)];
+                }
+        }
+        // A leave-one-PROJECT-out run over ONE project would train every fold on
+        // nothing. Say so instead of printing a table of zeros.
+        if (o.cvGroups && groupNames.size() < 2) {
+            std::printf(
+                "blss: --cv-groups needs a UNION corpus - pass two or more project "
+                "directories. With one source every fold's training set is empty.\n");
+            return 1;
+        }
         std::printf("blss: seed 0x%X - labelling %zu frames, then %d fold(s) over %d shot(s)\n",
                     so.seed, corpus.size(), o.cvFolds > 0 ? std::min(o.cvFolds, shots) : shots,
                     shots);
-        all.push_back(crossValidateOnce(corpus, shots, so, so.seed, &tLabel, &tFolds));
+        all.push_back(crossValidateOnce(corpus, shots, so, so.seed, &tLabel, &tFolds, &groupOf));
     }
     if (all.empty() || shots <= 0 || all[0].empty()) return 1;
     // Folds may be fewer than shots (--cv-folds): the rows of the table are the
@@ -2643,6 +2747,43 @@ int crossValidate(const CliOpts& o) {
                 overall.mean, overall.sd, overall.n, losses, overall.n, pas.mean, pas.sd);
     std::printf("  (sd of the per-seed fold-mean: %.2f - that is what one --blss-eval run"
                 " is estimating)\n", bySeed.sd);
+
+    // --- PER PROJECT, which is the only summary a union corpus is entitled to.
+    // A mean over every fold of a union is dominated by whichever member has the
+    // most shots AND by whichever members have no headroom at all - and most
+    // example projects have none (`--blss-eval` says +0.01 to +0.1 dB oracle on
+    // half of them), so an average over them is an average over ties. The
+    // decision has to be read off the rows that can discriminate anything, which
+    // is what the `ceiling` column is for: a project whose ceiling is +0.05 dB
+    // cannot report a meaningful margin in either direction.
+    if (groupNames.size() > 1) {
+        std::printf("\n  PER PROJECT - the held-out margin of the CROSS-PROJECT net,"
+                    " against that project's own bilinear\n");
+        std::printf("  %-34s %6s %9s %7s %9s %8s\n", "held-out project", "folds", "margin", "sd",
+                    "ceiling", "passes");
+        std::printf("  %s\n", std::string(36 + 6 + 9 + 7 + 9 + 8 + 5, '-').c_str());
+        for (size_t g = 0; g < groupNames.size(); ++g) {
+            std::vector<double> m;
+            double ceil = 0.0, pas = 0.0;
+            int n = 0;
+            for (const auto& seedRun : all)
+                for (const FoldResult& r : seedRun)
+                    if (static_cast<size_t>(r.group) == g) {
+                        m.push_back(r.margin());
+                        ceil += r.oracleBound - r.bilinear;
+                        pas += r.occ.passes;
+                        ++n;
+                    }
+            if (!n) continue;
+            const Spread sp = spreadOf(m);
+            std::printf("  %-34s %6d %+9.2f %7.2f %+9.2f %8.2f\n",
+                        groupNames[g].c_str(), n, sp.mean, sp.sd, ceil / n, pas / n);
+        }
+        std::printf("\n  `ceiling` is the ORACLE's margin over the same bilinear on the same"
+                    " folds - the best any\n  per-tile weighting can reach. A project whose"
+                    " ceiling is near zero cannot discriminate\n  between two nets, and its row"
+                    " is a tie however it reads.\n");
+    }
 
     // --- absolutes, averaged over seeds. Which content it helps, and at what
     // fill: a margin alone cannot say whether a fold is hard or merely cheap.

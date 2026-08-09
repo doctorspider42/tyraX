@@ -95,6 +95,15 @@ struct SceneShot {
     // history is fine, frames where it is useless, and the two transitions.
     float ease = 0.0f;
     float fovDeg = 60.0f;
+    // HOW MANY CORPUS FRAMES THIS SHOT GETS. 0 means "an equal share of what is
+    // left", which is what every shot asked for before the training-shot plan
+    // existed and is what a default plan still asks for - so a default plan
+    // produces the byte-identical corpus every published fold table was
+    // measured on. A positive number is the author saying "spend exactly this
+    // many here", and generate() honours the explicit counts FIRST and shares
+    // the remainder over the rest (Project::BlssShotPlan::autoFrames and
+    // BlssShot::frames are where it comes from).
+    int frames = 0;
     int keys() const { return static_cast<int>(eye.size() / 3); }
 };
 
@@ -188,6 +197,15 @@ struct ProjectScene {
 // frame budget evenly over shots and leave-one-shot-out cross-validation runs
 // one fold per shot, so this is a cost knob in both directions: too many shots
 // and every fold is three frames deep, too few and the net sees one viewpoint.
+//
+// IT IS SIX TOTAL, NOT SIX AUTOMATIC, and nothing said so until a project hit
+// it: an authored Cutscene take is pushed FIRST and then the automatic set
+// fills up to this number, so a take DISPLACES a move rather than adding to it.
+// On `examples/upscaler-lab` the take costs the strafe - the run reports
+// take/walk/pan/orbit/whip/pitch and no `strafe` at all, which is the one move
+// that produces real parallax. That is the reason the training-shot plan LIFTS
+// this cap as soon as it is non-default: an author who has asked for particular
+// shots has also said the six-shot budget is not the constraint any more.
 constexpr int kShotsPerScene = 6;
 
 // Walks `projectDir` and returns one entry per scene that produced geometry.
@@ -209,9 +227,18 @@ struct ProjectBlss {
 // before AnimMesh existed. It is `--no-package-split`'s sibling and exists for
 // the same one reason: to reproduce a fold table measured before the change,
 // not to ship.
+//
+// `honourPlan` false ignores `Project::blssShots` entirely - six automatic
+// moves, takes on, no authored vantages, an equal frame share - which is what
+// this walk did before the plan existed. Same role again (`--ignore-shot-plan`):
+// a project that HAS a plan can still be measured the old way, so a fold table
+// taken before it survives as a comparison. A project whose plan is default
+// produces the same shots either way, which is what keeps every published table
+// reproducible without passing anything.
 std::vector<ProjectScene> loadProject(const std::string& projectDir,
                                       std::string* err, bool verbose,
                                       bool animated = true,
-                                      ProjectBlss* blss = nullptr);
+                                      ProjectBlss* blss = nullptr,
+                                      bool honourPlan = true);
 
 }  // namespace blss

@@ -662,11 +662,22 @@ columns. A single split is a sample of size one, this feature quoted one five
 times, and the ±0.4 dB it blamed on the training seed was **which shot got held
 out** (per-seed fold-mean sd: 0.04 dB against 0.35 fold to fold). The current
 answer on the built-in corpus is **+0.42 dB over plain bilinear**, 39 fold-runs,
-3 of them below bilinear, 1.80 mean passes. **That net is not the one to ship into
-a game**: on a real project's own scenes a bestiary-trained net measures −0.40 dB,
-i.e. worse than doing nothing, because the channels its temporal gate leans on are
-out of range there. `--blss-train <projectDir>` fits the project instead, and the
-editor's BLSS window defaults its corpus switch to exactly that.
+3 of them below bilinear, 1.80 mean passes, **at jitter ON** — which is the
+bestiary's own sampler and not what any example project ships.
+
+**That net is still not the one to ship into a game, and the reason is now
+measured over seven projects rather than one**: a bestiary-trained net is a
+lottery, −0.34 dB on average and **−1.09 dB at worst**, because `texDetail` —
+the channel its temporal gate leans on hardest — is identically zero on five of
+those seven. What DOES ship as one net is a corpus that is **the bestiary AND
+real projects together**: leave-one-**project**-out it scores +0.29 dB on a
+project it has never seen against that project's own net's +0.31 (fold sds 0.37
+and 0.34). `--blss-train <a> <b> bestiary --all-shots` builds it;
+`--blss-eval <a> <b> bestiary --cv --cv-groups` is what measured it.
+`--blss-train <projectDir>` still fits one project and still reaches the highest
+number of all in distribution (+0.41 dB), and the editor's BLSS window defaults
+its corpus switch to exactly that. Full account: docs/neural-upscaler.md,
+"Can one net ship for every project?".
 
 Both verbs take **`--threads N`** (0 = every core, clamped to 32) for the corpus
 render and the oracle. It moves the wall clock and nothing else: the same seed

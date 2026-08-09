@@ -47,16 +47,32 @@ rasteriser and no pixel shaders at all.
 > frame's fill before switching it on — a project that is EE-bound gets nothing
 > here but a bill.
 >
-> **Fit the project you will ship, and ship that net.** That is the one sentence
-> on this page with a decision in it. A net fitted to the **built-in procedural
-> corpus** measured **−0.40 dB — worse than doing nothing** — on a real project's
-> own scenes, while the same trainer fitted to *that project's* scenes measured
-> **+0.06 dB** against an oracle ceiling of +0.77. `--blss-train <projectDir>`,
-> or the corpus switch in the window's header, which defaults to it; see
-> [Training on your own project](#training-on-your-own-project). And **some
-> scenes have no ceiling at all** — `--blss-eval <projectDir>` says so in one line
-> before you spend an afternoon on it, and **needs no trained network to say it**
-> ([net-free evaluation](#training)).
+> **Ask whether your scene has a ceiling first; then fit it if it does.** That is
+> the one sentence on this page with a decision in it, and it replaces "fit the
+> project you will ship, and ship that net" — which was right about the net it
+> named and wrong about the general case.
+> `--blss-eval <projectDir>` answers the first half in one line and **needs no
+> trained network to do it** ([net-free evaluation](#training)); **twelve of the
+> thirty-two example projects have an oracle ceiling under +0.10 dB**, where no
+> net can win anything and the question of which net to ship does not arise.
+>
+> On a scene that *does* have a ceiling, the choice has now been measured
+> properly — leave-one-**project**-out over seven projects rather than one
+> anecdote ([Can one net ship for every project?](#can-one-net-ship-for-every-project)):
+>
+> - a net fitted to the **built-in bestiary alone** is a lottery: **−0.34 dB on
+>   average over seven projects and −1.09 dB at worst.** Do not ship one;
+> - a net fitted to **real projects alone** degenerates — it asks for two
+>   full-screen passes of the wrong kernels, and only the inference deadzone
+>   keeps it from costing 0.10 dB;
+> - a net fitted to **the bestiary and real projects together** scores
+>   **+0.29 dB on a project it has never seen**, against **+0.31 dB** for that
+>   project's own net — a tie at fold sds of 0.37 and 0.34. **One net can
+>   ship.** `--blss-train <projects...> bestiary --all-shots`.
+> - per-project training still reaches the highest number of all (**+0.41 dB**
+>   in distribution, which is what the console runs), so the retrain button
+>   stays and so does the advice to press it. `--blss-train <projectDir>`, or the
+>   corpus switch in the window's header, which defaults to it.
 >
 > **The picture still bobs with `blssJitter` on**, and that is a separate axis
 > from the timing. A person was shown three builds of `examples/upscaler-lab`
@@ -548,6 +564,7 @@ on the page is a table nobody can reproduce:
 | `--no-anim` | leaves the project's animated models out of the corpus, the way it worked before they were added | [The animated models the corpus was not drawing](#the-animated-models-the-corpus-was-not-drawing) |
 | `--still` | freezes each shot at one camera and one pose so only the jitter phase advances — the host twin of the console's frozen-camera experiment, and a **fixture for the period-2 table only** (it is refused by `--blss-train` and by `--cv`) | [The still fixture](#the-still-fixture-and-what-it-showed-the-metrics-floor-was) |
 | `--proxy-budget` | caps a bag's proxy count at the tiles it covers — the fifth rule of the twin contract, which **ships off on both sides** | [The proxy budget](#the-proxy-budget-what-the-cheaper-frame-description-costs-the-network) |
+| `--ignore-shot-plan` | do not read the project's training-shot plan — six automatic moves, takes on, no authored vantages, an equal frame share | [Choosing what the corpus sees](#choosing-what-the-corpus-sees) |
 
 ```bash
 tyrax-editor --blss-train --frames 84 --fill-weight 4 -o try.net
@@ -561,6 +578,46 @@ would actually ship, after which `--blss-eval`'s held-out columns mean nothing);
 look like over the corpus, and how each correlates with the oracle) with its
 `--probe` companion, and `--drop-feature <name>` (hold channels at zero — the
 instrument that retired two of them).
+
+#### More than one project: the union corpus and `--cv-groups`
+
+**Every positional after the first is another project, and the corpus is their
+concatenation.** The word `bestiary` stands in for the built-in procedural
+corpus, so it can be a member like any project:
+
+```bash
+# fit one net to seven projects and the bestiary
+tyrax-editor --blss-train examples/upscaler-lab examples/cube bestiary --all-shots -o default.net
+
+# LEAVE-ONE-PROJECT-OUT: every shot held out in turn, trained on every project
+# EXCEPT the one the shot belongs to
+tyrax-editor --blss-eval examples/a examples/b examples/c bestiary --cv --cv-groups --cv-seeds 3
+```
+
+`--cv-groups` is the difference between two questions that look alike and are
+not. Plain `--cv` holds out one *shot* and trains on the other eleven camera
+moves **of the same scene** — "does this net generalise to a seventh move of
+content it has already seen". `--cv-groups` holds out the same one shot and
+removes its **whole project** from the training set — "does this net generalise
+to a project it has never seen", which is the only form of the question
+"can I ship one net" that means anything. The rows stay per shot (a fold has to
+be one kind of content or its row says nothing) and a **per-project summary**
+is printed under the fold table, with each project's oracle `ceiling` next to
+its margin so a tie can be told from a win.
+
+Three rules the union corpus enforces rather than assumes:
+
+- **frames are still spread evenly over SHOTS**, so a member with more scenes
+  contributes proportionally more frames. The header prints each member's shot
+  count for exactly that reason;
+- **a member that will not load is DROPPED, loudly.** A single `<projectDir>`
+  still falls back to the bestiary, which is the documented behaviour; a union
+  must not, because a member that quietly became the bestiary would put
+  procedural frames into a table whose whole claim is which project they came
+  from;
+- **the sampler is one sampler.** `blssJitter` is per project and the corpus
+  renders through one `setJitter()`, so members that disagree are a warning and
+  the first member wins. Pass `--jitter` / `--no-jitter` to say which you meant.
 
 ### What `--blss-eval` prints for a machine to read
 
@@ -812,6 +869,21 @@ all), 72 frames over six shots, both nets fitted with `--all-shots`:
 | project-trained net | **+0.06 dB** | 1.19 |
 | oracle (upper bound) | +0.77 dB | 1.20 |
 
+> **RE-MEASURED 2026-08-09, and that table is a JITTER-ON table.** Two of its
+> three rows survive and the third does not, which matters because the third is
+> the one the other two were read against. At the sampler `examples/procedural`
+> actually ships (`blssJitter` false) the ceiling is **+0.345 dB**, not +0.77 —
+> the +0.77 is what the same scene reads at **jitter ON**, re-measured today as
+> **+0.773**. The bestiary net is **−0.48** (and −0.85 if the bestiary is fitted
+> jitter-off to match), and the project net is **−0.00 at 1.04 passes**: with
+> half the ceiling gone it correctly asks for nothing. The generalisation of this
+> row from one project to seven, and the answer to the question it was used to
+> settle, are in
+> [Can one net ship for every project?](#can-one-net-ship-for-every-project) —
+> including the finding that **the bestiary in the training mix is what makes a
+> universal net work**, which this row could not have shown because it only ever
+> tried the bestiary alone.
+
 A net trained on the built-in corpus is **worse than doing nothing** on that
 project, by four tenths of a decibel, while paying half a pass more for the
 privilege. The mechanism is in `--features` and it is not subtle: `texDetail` is
@@ -844,6 +916,105 @@ you find that out before shipping BLSS on it, and the window says it in one line
 > and it starts on *This project's own scenes*, with *Fit every shot* on. See
 > [the window](#the-window).
 
+### Choosing what the corpus sees
+
+The six automatic camera moves are derived from the scene's own bounds and its
+player start, and for a long time that was the whole story: whatever they framed
+was what the network learned. **The training-shot plan** (*Tools ▸ Neural
+Upscaler (BLSS)*, and `Project::blssShots` in the `.tyra`, format v6) makes it an
+authoring decision instead. It carries four things:
+
+| | |
+|---|---|
+| **which of the six automatic moves survive** | each is a checkbox. They are, in order, `walk` (dolly-forward — what the player sees most of the running time), `pan` (a yaw sweep from one standpoint: the same content at every reprojection offset the stick can produce), `orbit` (the only move that sweeps silhouettes across the whole tile grid), `whip` (eased, so the angular velocity peaks mid-shot and the net sees history that is fine, history that is useless, and both transitions), `pitch-up` (coverage sweeping from 1 to nearly 0) and `strafe` (a lateral translation — **the only move with real parallax**, so the only one that teaches disocclusion) |
+| **how many frames each gets** | 0 = an equal share of `--frames`; a number = exactly that many |
+| **whether Cutscene Director takes join** | on by default: a take is the author having already said which frame matters |
+| **the author's own vantages** | typed, grabbed from the viewport, or bound to a placed Camera object. One key is a still standpoint — a legitimate shot, because the history is perfect there and the net has to learn not to spend passes on it — and two keys are a move |
+
+**A default plan writes nothing to the `.tyra`, and produces the byte-identical
+corpus it always did.** That is the compatibility guarantee and it is checked
+rather than asserted: `--blss-train examples/procedural --all-shots --frames 72
+--no-jitter` writes md5 `e069f286ea0c524999bfd9dac769608c` before and after the
+plan existed. Every fold table on this page therefore stays a measurement of the
+code that is here.
+
+`--ignore-shot-plan` reads the plan not at all — six moves, takes on, no
+authored vantages, an equal share. Same one role as `--no-package-split` and
+`--no-anim`: it is how a table taken *before* a project authored a plan stays
+runnable on that project afterwards, and it prints the usual "this is a
+measurement configuration" line. A project whose plan is default gets the same
+shots either way.
+
+#### A take DISPLACES an automatic move, and nothing said so
+
+`kShotsPerScene` is **6 shots total**, not 6 automatic ones: authored takes are
+pushed first and the automatic set fills up to the cap. On
+`examples/upscaler-lab` — one Cutscene take — the corpus is therefore
+`take / walk / pan / orbit / whip / pitch` and **there is no `strafe` at all**,
+which is the one move that produces real parallax and the one the disocclusion
+behaviour is learned from. Nobody had noticed, because nothing printed the
+breakdown. It does now:
+
+```
+[blss]   scene 'main': 32 mesh(es) + 4 animated part(s), 11650 triangle(s), 6 shot(s) (1 take, 0 authored, 5 automatic)
+```
+
+**That is why a non-default plan LIFTS the cap.** An author who has asked for
+particular shots has also said the six-shot budget is not the constraint any
+more, so takes, then authored vantages, then every enabled automatic move all
+get in. The count keeps its position and its `shot(s)` token in that line
+because the window parses it back (`blssui::parseCorpusScenes`) to check the
+trainer actually obeyed the plan — **a plan the tool ignores looks exactly like a
+plan it honours** from the outside, same project, same scenes, a different
+corpus.
+
+Frame budgets follow the same "say it out loud" rule. Explicit counts are
+honoured first and the rest share what is left; if the explicit counts alone
+exceed `--frames` they are **scaled down with a printed line** naming the
+`--frames` that would satisfy the plan as authored, and any shot that ends up
+with no frames at all is reported — a shot with zero frames is a fold that does
+not exist and a row the window will not find.
+
+### Is the corpus good enough?
+
+A corpus can be the right scene and still teach nothing, and until the *Inputs*
+tab grew a health check nothing said so in words — it printed the numbers that
+say a channel is dead and left the reading to you. The thresholds, in the order
+they are applied:
+
+| test | threshold | what it means |
+|---|---|---|
+| **no channel predicts anything** | peak \|channel↔oracle r\| **< 0.05** over all 18 (channel, output) pairs | **Unusable — there is nothing here to learn.** The oracle wants the same weights in every tile of every frame, so a per-tile network has no decision to make and can only add fill |
+| a channel is **constant** | `sd < 0.005` and ≥ 99 % of tiles at 0 or at 1 | **Unusable.** A constant channel is a channel the network does not have, and the console will feed it a value the corpus never contained |
+| a channel is **pinned** | ≥ 50 % of tiles at a clamp | trainable, but the net decides from fewer inputs than it has |
+| a channel is **flat** | `sd < 0.02` | as above |
+| a channel **cannot tell the shots apart** | per-shot mean spread < 0.02 | it is not carrying the difference between camera moves, which is what it exists to do |
+| the corpus is **thin** | fewer than 4 camera moves | neighbouring frames of one move are near-duplicates, so this is a much smaller sample than the frame count suggests |
+
+**The first test outranks the rest**, because a corpus whose oracle asks for the
+same answer everywhere has nothing to teach however healthy its inputs look. It
+is anchored on two projects at a stated configuration — 12 frames per shot,
+jitter off, `--blss-eval --features`:
+
+| | peak \|r\| | verdict |
+|---|---|---|
+| `examples/showcase` | **0.015** | THERE IS NOTHING HERE TO LEARN — and its oracle ceiling is **+0.00 dB**, which is the independent confirmation |
+| `examples/upscaler-lab` | **0.277** | trainable, but thin — `coverage` is saturated on two thirds of its tiles |
+
+Both are an order of magnitude away from the 0.05 line, which is what makes it a
+usable gate. It is a coarse one: the number moves with the frame count and with
+the sampler, so treat it as "which side of the line" and never as a score.
+
+**Then probe a console frame against it before shipping.** A channel that is
+pinned in the corpus and not pinned on the console is the mismatch that costs
+decibels — it is the whole of
+[what this page believed and got wrong, entry 6](#measured-is-not-optimised-eight-times).
+Run the game with *Debug view* → the feature-spread entry, take the `BLSSFEAT`
+line and paste it into `--blss-eval --probe`. **Under ps2link there is no
+`bin/log.txt`** — the game's output comes back over the `[ps2]` stream instead —
+so the window falls back to that stream, or to a pasted line, and says which
+source it used.
+
 The corpus was the binding constraint, not the trainer. Measured on the original
 seven when they were all there was (`1b9c7a74`, and **not re-run since** — the
 old corpus no longer exists to re-run it on): holding out **one** shot and
@@ -854,9 +1025,13 @@ moved the headline number.
 
 Materials are real PNGs from `examples/*/res/{materials,models}` where the tree
 has them and procedural checkers/noise/foliage otherwise, so training works in a
-clean checkout. Frames are split evenly over the shots and `CorpusFrame::shot`
-records which is which, because the eval split has to hold out whole shots —
-neighbouring frames of one camera move are near-duplicates. For every frame it
+clean checkout. Frames are split evenly over the shots — except where the
+project's training-shot plan asked for a particular count, which is honoured
+first ([above](#choosing-what-the-corpus-sees)) — and `CorpusFrame::shot`
+records which shot each frame belongs to, because the eval split has to hold out
+whole shots: neighbouring frames of one camera move are near-duplicates.
+`CorpusFrame::group` records which **project** it came from, which is what
+`--cv-groups` holds out. For every frame it
 produces:
 
 - the **ground truth** at output resolution,
@@ -1296,11 +1471,20 @@ its own net trained on the other twelve, `--cv-seeds N` independent corpora on
 top. It ignores `-i` — it trains what it measures. That is the number to act on,
 because a single held-out split is a sample of **size one**, and this feature
 quoted one five times before anybody checked (see
-[the fifth entry](#measured-is-not-optimised-six-times)).
+[the fifth entry](#measured-is-not-optimised-eight-times)).
+
+> **It answers "a seventh camera move", not "a new project".** Leave-one-shot-out
+> trains on eleven other moves of the same content, so it is the right question
+> for a corpus of thirteen unrelated bestiary shots and the wrong one for a
+> corpus of six moves over one scene. `--cv-groups` is the other question and it
+> needs a union corpus:
+> [Can one net ship for every project?](#can-one-net-ship-for-every-project).
 
 13 shots × 3 seeds = **39 fold-runs**, 156 frames, 512×448 from 256×224, shipped
 defaults (`--epochs 400`, `--seed 0xB1557`, `--flicker-weight 0`,
-`--fill-weight 16`, weight decay `1e-4`, raw inputs):
+`--fill-weight 16`, weight decay `1e-4`, raw inputs), and the bestiary's own
+sampler — **jitter ON**, which is what `--blss-train` with no project gives you
+and is not what any example project ships:
 
 | held-out shot | seed `B1557` | seed `CCD704ED` | seed `8814F396` | mean | sd |
 |---|---|---|---|---|---|
@@ -1357,6 +1541,16 @@ twelve **training** shots, i.e. the control that says the fold trained at all
 > (`pitch-sky`, `sphere-field`) now spread 0.24–0.25 dB across seeds. The seed
 > still moves the answer far less than the fold does, but by four times less
 > margin than this page claimed.
+>
+> **This table was measured with libm activations, and the tree now defaults to
+> the table** (`--act-table 512` on both twins). Spot-checked rather than re-run:
+> at seed `B1557`, `boxes-sphere` still reads **+0.58** and `floor-horizon` reads
+> **+0.28** against the +0.35 below. That is the size of difference
+> [the table's own sweep](#the-transcendentals-as-a-table) predicted — 0.01 dB on
+> the mean against a fold sd of 0.35 — and the bestiary's proxy count is
+> unchanged at 1 217, so it is the activation change and not the corpus. **The
+> whole table is owed a re-run at the shipped activations**; until then read the
+> per-fold cells as ±0.1 dB.
 >
 > **Re-run again at `7d3dbf67`, on the threaded corpus, and it reproduces cell
 > for cell** — every fold mean, every per-seed column, the +0.42, the sd 0.35,
@@ -1520,6 +1714,245 @@ could tell which.
   column. Note that on `flat` the oracle scores *below* the trained net (54.67
   against 55.72) — the oracle is optimising accuracy **plus fill**, and on an
   empty screen it correctly refuses to pay for a decibel nobody can see.
+
+### Can one net ship for every project?
+
+**Yes — but only if the bestiary and real projects are in the same training
+corpus. Either one alone fails, in two different ways.** This section replaces
+the one-project anecdote this page used to decide the question on, and it
+retracts part of it.
+
+Everything below is at **512×448 from 256×224** (`blssScale 0`), shipped
+defaults (400 epochs, decay `1e-4`, flicker 0 / period2, fill 16, sharpen 0.5,
+inference deadzone 8, activation table 512, raw inputs), **12 frames per shot**,
+and **`--no-jitter`** — which is the sampler *every* example project ships:
+`blssJitter` defaults to `false` and `examples/upscaler-lab` writes `false`
+explicitly. Read the sampler off every table on this page before comparing it to
+anything; the mistake this section corrects is exactly that.
+
+#### First: the −0.40 dB, re-measured, and the ceiling next to it was a different sampler
+
+`examples/procedural`, 72 frames over its six camera moves, both nets fitted
+with `--all-shots`, margin frame-weighted over both splits against the
+**project's own** bilinear:
+
+| the net | fitted on | margin | passes |
+|---|---|---|---|
+| the bestiary's, as `--blss-train` writes it (**jitter ON**) | 156 frames / 13 shots | **−0.48 dB** | 1.40 |
+| the bestiary's, fitted at the project's own sampler (**jitter OFF**) | 156 / 13 | **−0.85 dB** | 1.26 |
+| the project's own | 72 / 6 | **−0.00 dB** | 1.04 |
+| the oracle — the ceiling | — | **+0.34 dB** | 1.13 |
+
+**The claim holds and it is worse than it was written down as.** A
+bestiary-trained net is −0.48 dB on that project, and fitting the bestiary at
+the project's own sampler makes it −0.85 rather than better.
+
+**What does not hold is the row's third number.** This page printed the ceiling
+as **+0.77 dB**, and `examples/procedural` at **jitter ON** reads **+0.773 dB**
+today — to three decimals. That figure was measured before `blssJitter` existed,
+when the corpus was always jittered; at the sampler the project actually ships,
+the same scene's ceiling is **+0.345**. And the project-trained net is not
+`+0.06` any more but `−0.00` at 1.04 passes: with half the ceiling gone there is
+nothing left for it to win, so it correctly asks for nothing. **A ceiling and a
+margin measured under two different samplers are two different experiments**, and
+this page put them in one row for two months.
+
+#### Leave-one-PROJECT-out, which is the experiment nobody had run
+
+Seven projects, chosen by oracle ceiling rather than by taste — every
+`examples/*` was screened net-free first
+([the ceilings](#which-projects-can-discriminate-anything)) and these are the
+seven with the most headroom. `--cv-groups`, 3 seeds × 6 shots = **18 fold-runs
+per project**; the *sd* column is over those 18, which is the fold-to-fold
+spread this page insists on and not a seed spread.
+
+| held-out project | **(1)** other 6 projects | **(2)** other 6 **+ bestiary** | **(3)** its own net, held out | **(4)** its own net, `--all-shots` | **(5)** ceiling |
+|---|---|---|---|---|---|
+| `upscaler-lab` | +0.00 ±0.00 | **+0.29 ±0.37** | **+0.31 ±0.34** | +0.41 | **+0.72** |
+| `material-lab` | −0.08 ±0.07 | −0.07 ±0.04 | −0.05 ±0.20 | +0.00 | +0.62 |
+| `endless-runner` | +0.00 ±0.00 | −0.04 ±0.12 | −0.20 ±0.32 | +0.08 | +0.48 |
+| `cube` | +0.00 ±0.00 | +0.06 ±0.04 | +0.00 ±0.00 | +0.00 | +0.19 |
+| `save-points` | −0.00 ±0.00 | +0.01 ±0.02 | −0.00 ±0.00 | +0.00 | +0.25 |
+| `procedural` | +0.00 ±0.00 | −0.04 ±0.12 | −0.04 ±0.07 | −0.00 | +0.34 |
+| `endless-scroller` | +0.00 ±0.02 | +0.01 ±0.03 | +0.00 ±0.00 | +0.00 | +0.15 |
+| the bestiary, held out | — | +0.08 ±0.07 | — | — | +0.59 |
+| **mean over the seven** | **+0.00** | **+0.03** | **+0.00** | **+0.07** | |
+
+Columns 1 and 2 are the same run with one member added; column 3 is a separate
+`--cv` per project (leave-one-**shot**-out inside it, 3 seeds); column 4 is the
+shipping recipe evaluated on the frames it was fitted on, so it is the
+optimistic number and is here to bound the other three. Column 5 is the oracle's
+own margin on the same folds, and it reproduces **cell for cell** between the
+leave-one-project-out run and the seven separate per-project runs — which is the
+check that the two are measuring the same content.
+
+**Read column 5 first, because most of this table is ties.** Only
+`upscaler-lab` has a ceiling that a 0.3-dB difference can fit inside. On the
+other six the whole question is worth at most a fifth of a decibel and every
+column is inside the fold sd; a mean over all seven is dominated by content with
+nothing at stake, which is why the per-project rows are the answer and the mean
+is a footnote.
+
+**On the one row that can discriminate anything, a net that has never seen the
+project scores +0.29 against the project's own net's +0.31, at fold sds of 0.37
+and 0.34.** That is a tie, and it is the answer to the question this section
+asks. Note also that the honest per-project number (column 3) *loses* to the
+universal net on the mean, because two projects' own nets are actively harmful
+out of their own distribution (`endless-runner` −0.20, `material-lab` −0.05):
+six camera moves of one scene do not generalise to a seventh, which this page
+has said since the corpus was seven shots.
+
+**One discriminating project is a weak base and this conclusion should be read
+as such.** The honest form is: *the universal net has been shown not to lose,
+on the only content in this tree where losing would be visible.* What would fix
+it is more content with a real ceiling — the screening below says the whole
+`examples/` tree contains exactly one scene above +0.5 dB, so this cannot be
+fixed by measuring harder, only by authoring or acquiring heavy-overdraw scenes.
+That is the same shortage the break-even table has: one fixture on each side.
+
+#### Which projects can discriminate anything
+
+`--blss-eval <projectDir>` needs no network and prints the ceiling in one line,
+so the whole tree can be screened. All 32, 48 frames, jitter off, sorted:
+
+| ceiling | projects |
+|---|---|
+| **> +0.4 dB** | `upscaler-lab` **+0.80**, `material-lab` +0.47, `endless-runner` +0.45 |
+| +0.2 … +0.4 | `cube` +0.33, `save-points` +0.31, `procedural` +0.30, `endless-scroller` +0.24, `custom-nodes` +0.24, `portals` +0.22, `vu-lab` +0.20 |
+| +0.1 … +0.2 | `script-demo`, `video-modes`, `credits`, `object-spawning`, `probe-aim`, `glow`, `nav-ai`, `blocks-terrain`, `large-terrain`, `cutscene-demo` |
+| **< +0.1 dB — a tie however it reads** | `raytraced-mirror`, `physics-playground`, `layer-streaming`, `mirror-room`, `reflections`, `two-players`, `global-illumination`, `gi-showcase`, `lighting`, `texture-feeds`, `day-night`, **`showcase` +0.000** |
+
+Twelve of the thirty-two cannot tell two nets apart at all. Any mean over
+`examples/` is mostly those twelve.
+
+#### Why the projects-only union collapses, and it is not "it learned nothing"
+
+Column 1 reads **+0.00 at 1.00 passes on every project** — the composite
+degenerates to the plain bilinear base pass. The `in-dist` control says the same
+thing about the training side (+0.00 to +0.04 dB, against +0.41…+0.56 for a
+bestiary fold), so the temptation is to call it a failed fit.
+
+**It is not. The deadzone is hiding a wrong answer.** Same nets, evaluation
+only, `--deadzone-sweep` over 42 fold-runs per row:
+
+| inference deadzone, alpha | 0 | 2 | 4 | **8 (shipped)** | 16 |
+|---|---|---|---|---|---|
+| held-out margin | **−0.10** | −0.03 | −0.00 | **−0.00** | +0.00 |
+| mean passes | **2.15** | 1.39 | 1.04 | **1.00** | 1.00 |
+| point / temporal occupancy | 48 % / 67 % | 1.5 % / 37 % | 0 % / 4 % | 0 % / 0.1 % | 0 % / 0 % |
+| folds below bilinear | **22 / 42** | 17 / 42 | 10 / 42 | **1 / 42** | 0 / 42 |
+
+Without the deadzone the cross-project net asks for **two and a bit full-screen
+passes** and is **−0.10 dB with half its folds below bilinear**. The shipped
+deadzone does not make it right; it throws away everything it asks for and
+leaves plain bilinear. So "the universal net is harmless" and "the universal net
+is correct" are different statements and only the first one is true here.
+
+#### The mechanism, shown rather than asserted
+
+The channel this page named — `texDetail`, the bestiary's most
+oracle-correlated input — is **identically zero on five of the seven projects**.
+`--blss-eval --features`, jitter off, 12 frames per shot:
+
+| corpus | `texDetail` mean | % of tiles at 0 | `edgeDens` % at 1.0 | the bestiary net's margin there |
+|---|---|---|---|---|
+| the bestiary | 0.120 | 30.6 % | 29.2 % | — |
+| `upscaler-lab` | **0.443** | 29.3 % | 45.2 % | **+0.23** |
+| `cube` | 0.000 | **100 %** | 31.8 % | +0.24 |
+| `material-lab` | 0.082 | 30.0 % | 43.6 % | −0.29 |
+| `save-points` | 0.000 | **100 %** | 30.9 % | −0.18 |
+| `endless-scroller` | 0.000 | **100 %** | 34.3 % | −0.44 |
+| `procedural` | 0.000 | **100 %** | **63.4 %** | −0.85 |
+| `endless-runner` | 0.000 | **100 %** | 40.0 % | **−1.09** |
+
+Two things reproduce exactly and one is new. The **63 % against 29 %**
+`edgeDens` saturation this page reported for `procedural` is still 63.4 %
+against 29.2 %, and `texDetail` is still identically zero there. What is new is
+that this is not a `procedural` quirk: **most example projects are untextured
+enough that the channel is a constant zero**, so the bestiary net's temporal gate
+is driven by an input that is dead on most real content.
+
+The other half of the instrument places the frame *inside* the corpus.
+`--blss-eval --features --probe` with `endless-runner`'s own band — the project
+the bestiary net loses 1.09 dB on — against the bestiary corpus:
+
+```
+feature      console min/mean/max   spread   corpus min..max     pct    supp    band  verdict
+texDetail       0.000/0.000/0.000    0.000      0.000..1.000   30.6%   34.0%    0.0%  CONSTANT; in distribution
+coverage        0.000/0.616/1.000    1.000      0.000..1.000   25.7%    0.5%   78.2%  no support - net extrapolates
+```
+
+`band 0.0 %` is the sentence: **none of the bestiary corpus lies inside the
+frame's own `texDetail` band**, because the frame's band is a single point the
+corpus only ever visits as one end of a range. That is the same shape of failure
+the whole-bag proxy had, arrived at from the other direction, and it is why this
+probe is a permanent instrument rather than a debugging session.
+
+(The probe takes the engine's `BLSSFEAT` line. Feeding it a *host* corpus'
+`--features` row, as above, is a legitimate second use — it answers "does corpus
+A cover corpus B" — but say which you did: this run compared two host
+distributions and no console was involved.)
+
+#### Every net against every project
+
+The full transfer matrix, `--all-shots` nets, 72 frames per target, margin over
+that project's own bilinear. `union7` is one net fitted to all seven projects
+and `union7b` adds the bestiary; both have **seen** the target, so those two
+columns are in-distribution and the honest generalisation numbers are the
+leave-one-project-out table above:
+
+| target (ceiling) | bestiary only | union7 | union7 + bestiary | its own net |
+|---|---|---|---|---|
+| `upscaler-lab` (+0.94) | +0.23 | +0.25 | +0.20 | **+0.41** |
+| `material-lab` (+0.66) | **−0.29** | −0.03 | −0.00 | +0.00 |
+| `endless-runner` (+0.51) | **−1.09** | −0.03 | −0.01 | +0.08 |
+| `cube` (+0.17) | +0.24 | +0.02 | +0.01 | +0.00 |
+| `save-points` (+0.36) | −0.18 | +0.00 | +0.00 | +0.00 |
+| `procedural` (+0.34) | **−0.85** | −0.00 | +0.01 | −0.00 |
+| `endless-scroller` (+0.22) | **−0.44** | +0.00 | +0.00 | +0.00 |
+| **mean** | **−0.34** | +0.03 | +0.03 | +0.07 |
+
+**Shipping the bestiary net is a lottery with a −1.09 dB worst case**, and that
+is this page's old rule generalised from one project to seven. It wins on
+`upscaler-lab` (real texture detail) and on `cube` (whose ceiling is +0.17, so
+the win is tie-sized), and loses on the other five.
+
+#### `--standardise`, re-run at six channels
+
+Measured and rejected once at **eight** inputs, before two were retired, so it
+was owed a re-run. Same leave-one-project-out configuration, union + bestiary,
+3 seeds, 165 fold-runs:
+
+| | raw inputs (shipped) | `--standardise` |
+|---|---|---|
+| mean over the seven projects | **+0.03** | **−0.05** |
+| `upscaler-lab` | +0.29 ±0.37 | +0.21 ±0.15 |
+| `material-lab` | −0.07 ±0.04 | **−0.59 ±0.33** |
+| overall, 165 fold-runs | +0.04, sd 0.17 | −0.01, sd 0.26 |
+| folds below bilinear | 52 / 165 | 45 / 165 |
+| mean passes | 1.25 | 1.27 |
+
+**The verdict survives the drop to six channels and the failure changed shape.**
+Standardising reduces the *count* of losing folds (45 against 52) and makes the
+worst one far worse: `material-lab` goes from −0.07 to −0.59, which is most of
+its whole ceiling spent in the wrong direction. It stays off. As with
+`--flicker-weight`, setting a knob to zero is not the same as deleting it — the
+flag still reaches the configuration and this is its number at `kFeatures = 6`.
+
+#### What to do with this
+
+- **A default net can ship, and it must be fitted to the bestiary *and* real
+  projects.** `--blss-train <every example> bestiary --all-shots` is the recipe;
+  on the one project with a ceiling it is a tie with per-project training, and
+  its worst case over seven projects is −0.07 dB against the bestiary-only net's
+  −1.09.
+- **Keep the retrain button and keep the advice to press it**, but the reason is
+  no longer "otherwise the net hurts you". It is that per-project training is the
+  only thing that reached +0.41 in distribution, which is the number the console
+  actually runs, and `--blss-eval` costs seconds.
+- **Neither is worth anything on a project whose ceiling is under +0.1 dB**, and
+  twelve of the thirty-two examples are. That question is answered net-free,
+  first, in one line.
 
 ### The animated models the corpus was not drawing
 
@@ -2524,9 +2957,9 @@ so the temporal pass stops being a supersample and becomes plain accumulation,
 and what BLSS has left is spatial kernel selection. That is a real cure for a
 real bob, and it costs most of the reason to run the feature.
 
-### "Measured is not optimised", seven times
+### "Measured is not optimised", eight times
 
-**This is the most useful thing on this page.** The same mistake was made seven
+**This is the most useful thing on this page.** The same mistake was made eight
 times, each time one level further up, and each time it cost a debugging session.
 The first four are one sentence: *anything absent from the objective does not
 exist for the network.* The fifth is the same sentence about the **measurement**
@@ -2534,7 +2967,9 @@ rather than the objective, and it produced the most wrong text. The sixth is the
 same sentence about **what was being measured on**, and it is the one that had
 been running longest. The seventh is the same sentence about **the instrument
 built to catch the other six**, which is the strongest argument on this page that
-the rule is structural rather than a run of bad luck.
+the rule is structural rather than a run of bad luck. The eighth is the same
+sentence about the **CONFIGURATION** — a table whose rows were taken under two
+different samplers, printed as one row.
 
 1. **per-frame PSNR could not see flicker.** It is a still-image metric; a
    reconstruction that oscillates between two jitter phases scores *better* than
@@ -2630,6 +3065,36 @@ the rule is structural rather than a run of bad luck.
    instrument is not evidence until it has separated two cases whose answer you
    already know.** Deriving it correctly is not enough — entries 1, 2, 3 and this
    one were all derived correctly and all measured the wrong thing.
+
+8. **the row that set this feature's shipping rule had two samplers in it, and
+   the question it answered was never the question.** *"Fit the project you will
+   ship, and ship that net"* rested on one table:
+   **−0.40 / +0.06 / +0.77 dB** on `examples/procedural`. Every number in it is
+   reproducible and the row is still wrong twice over.
+
+   - **The ceiling was measured with the jitter ON and the margins with it OFF.**
+     Re-run today, `examples/procedural` reads **+0.773 dB** at jitter on and
+     **+0.345** at jitter off, and the project ships jitter off. So the two
+     margins were being read against a ceiling more than twice the one they could
+     ever have reached, which is what made **+0.06 dB look like a poor result
+     with room above it** instead of what it is — a net correctly declining to
+     spend fill on a scene with a third of a decibel in it. Nothing recorded
+     which sampler the row came from, because `blssJitter` did not exist when it
+     was taken and there was only one.
+   - **And "bestiary versus one project" is not "can I ship one net".** The
+     experiment that answers that is leave-one-**project**-out, and when it was
+     finally run it found the opposite of what the rule assumed: a net trained on
+     **the bestiary AND six other projects** is a tie with the held-out
+     project's own net (+0.29 against +0.31, fold sds 0.37 and 0.34), while the
+     bestiary alone is −0.34 dB on average and the six projects alone degenerate
+     to bilinear. **The rule generalised from a corpus of one to a policy**, and
+     the missing arm — the two corpora together — was never tried.
+
+   The rule that follows: **every number needs its configuration attached, and a
+   comparison needs its configuration to be the SAME.** This page already
+   demanded that of `--tile` and `--scale`, and prints an announcement line for
+   both; `blssJitter` became a third such knob and no line was added. It is
+   announced now, by `generate()`, on every run.
 
 ### What was tried for (3), and what it cost
 
@@ -3081,6 +3546,27 @@ fill 12, so a sweep of one at the wrong value of the other measures neither.
   confirmed at
   [The still fixture](#the-still-fixture-and-what-it-showed-the-metrics-floor-was).
   It is a fixture and not a corpus, so `--blss-train` and `--cv` refuse it.
+- **CLOSED (2026-08-09): can one net ship for every project?** Yes, if it is
+  fitted to **the bestiary and real projects together** — measured
+  leave-one-project-out over seven projects, and it is a tie with per-project
+  training on the only project with a ceiling big enough to tell
+  ([the section](#can-one-net-ship-for-every-project)). What is **owed** is the
+  product decision and its plumbing, none of which is in the files this was
+  measured in: a `blss.net` shipped in the repo (or generated at build), a
+  window that offers "use the default net" beside "train on this project", and
+  the recipe in CI so the default is rebuilt when the corpus, the topology or
+  `kNetVersion` moves. `blss.net` records **no** topology and no provenance, so
+  a shipped default needs `kNetVersion` policed harder than a locally trained
+  one does.
+- **`texDetail` is dead on most real content, and that is now a measurement
+  rather than a suspicion.** It is identically zero on **five of seven** example
+  projects and 0.082 on a sixth, against the bestiary's 0.120 and
+  `upscaler-lab`'s 0.443 — and it is the bestiary's most oracle-correlated
+  channel. The follow-up this page has flagged twice, **having the editor bake
+  real high-frequency energy per material at build time**, is now the item with
+  the most evidence behind it: it would turn a channel that is a constant on
+  most projects into one that varies, and it is a change to `buildFeatures()`'
+  *input*, not to the twin contract.
 - **Fix the depth channel's saturation.** This is the most promising item left
   and it has a measurement behind it: `depth` is a clamped `1/w` against
   `kDepthRef = 8`, **58.8 % of all corpus tiles read it at exactly 1.0**, and the

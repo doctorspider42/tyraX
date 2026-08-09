@@ -1055,11 +1055,21 @@ float train(Net&, const std::vector<Sample>&, const TrainConfig&);
 
 // ------------------------------------------------------------- CLI entries ---
 
-// TRAIN ON YOUR OWN PROJECT. Both entry points take an optional POSITIONAL
-// project directory:
+// TRAIN ON YOUR OWN PROJECT. Both entry points take POSITIONAL project
+// directories - one, or several, or the word `bestiary` for the built-in
+// procedural corpus:
 //
 //   tyrax-editor --blss-train <projectDir> [-o blss.net] ...
 //   tyrax-editor --blss-eval  <projectDir> --cv ...
+//   tyrax-editor --blss-train <a> <b> bestiary --all-shots -o default.net
+//   tyrax-editor --blss-eval  <a> <b> bestiary --cv --cv-groups --cv-seeds 3
+//
+// SEVERAL IS A UNION CORPUS, and it is what the question "can one net ship for
+// every project" needed and nobody had. Frames are still spread evenly over
+// SHOTS (so a member with more scenes gets more frames - the header says how
+// many each contributed), a member that will not load is DROPPED loudly rather
+// than falling back to the bestiary, and the sampler is resolved ONCE for the
+// whole corpus with a warning when the members disagree about blssJitter.
 //
 // With it, the corpus is the project's own scenes - real geometry, real
 // materials, real terrain, walked and orbited and whipped by cameras derived
@@ -1126,6 +1136,27 @@ int trainMain(int argc, char** argv);
 // cost N evaluations of the same trained folds rather than N trainings.
 //
 // Two modes train their own nets and therefore ignore -i:
+//
+//   --cv-groups   (with two or more <projectDir> positionals)
+//       LEAVE-ONE-PROJECT-OUT. The held-out set is still ONE shot - a fold row
+//       has to be one kind of content or it says nothing - but the TRAINING set
+//       loses the whole project that shot belongs to, so no camera move of the
+//       scored project is in it. That distinction is the whole experiment:
+//       plain --cv asks "does this generalise to a seventh camera move of a
+//       scene it has already seen", which is what every project-corpus number
+//       this feature published was, and --cv-groups asks "does this generalise
+//       to a project it has NEVER seen", which is the only form of "can I ship
+//       one net" that means anything. A per-project summary is printed under
+//       the fold table with each project's oracle CEILING next to its margin,
+//       because most example projects have no ceiling and their rows are ties
+//       however they read.
+//
+//       The answer, measured (docs/neural-upscaler.md, "Can one net ship for
+//       every project?"): YES, and only for a corpus that is the bestiary AND
+//       real projects. The bestiary alone is -0.34 dB over seven projects and
+//       -1.09 at worst; real projects alone degenerate to bilinear; the two
+//       together score +0.29 dB on a held-out project against its own net's
+//       +0.31, at fold sds of 0.37 and 0.34.
 //
 //   --cv [--cv-seeds N] [--cv-folds N]
 //       LEAVE-ONE-SHOT-OUT CROSS-VALIDATION, and it is the number to quote for

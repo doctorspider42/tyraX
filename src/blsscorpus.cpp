@@ -10,6 +10,7 @@
 #include <cstring>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -1129,6 +1130,13 @@ struct Shot {
     float ease = 0.0f;                     // 1 = smoothstep in t (the whip)
     float fovDeg = 60.0f;
 
+    // Which member of a union corpus this shot belongs to (CorpusFrame::group).
+    // 0 for the bestiary and for a single project.
+    int group = 0;
+    // SceneShot::frames - 0 = an equal share of --frames, > 0 = exactly this
+    // many. The bestiary never sets it, so its split is unchanged.
+    int frames = 0;
+
     const std::vector<Object>& geometry() const { return shared ? *shared : objs; }
 };
 
@@ -1745,18 +1753,22 @@ std::vector<std::vector<Object>> animObjectsOf(const ProjectScene& ps, Materials
 // and never resized afterwards - every shot of a scene POINTS at one geometry
 // set, because copying a real scene once per camera move is minutes of wall
 // clock for nothing.
-std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
-                                    std::vector<std::vector<Object>>& geometry,
-                                    std::vector<std::vector<std::vector<Object>>>& anim,
-                                    const std::vector<ProjectScene>& scenes) {
-    std::vector<Shot> shots;
-    geometry.clear();
-    geometry.reserve(scenes.size());
-    anim.clear();
-    anim.reserve(scenes.size());
+// APPENDS this project's shots, so a union corpus is a concatenation and
+// nothing else. `geometry` and `anim` are the caller's owning stores and they
+// grow across members - a Shot holds POINTERS into them, so they must never be
+// cleared or reallocated-with-move once a shot points at them, which is why
+// they are reserved by the caller and only ever pushed to here.
+void buildProjectShots(const CorpusConfig& cfg, Materials& mats,
+                       std::vector<std::unique_ptr<std::vector<Object>>>& geometry,
+                       std::vector<std::unique_ptr<std::vector<std::vector<Object>>>>& anim,
+                       const std::vector<ProjectScene>& scenes, int group,
+                       const std::string& groupName, std::vector<Shot>& shots) {
+    const size_t base = geometry.size();
     for (const ProjectScene& ps : scenes) {
-        geometry.push_back(objectsOf(ps, mats, cfg.packageSplit));
-        anim.push_back(animObjectsOf(ps, mats, cfg.packageSplit));
+        geometry.push_back(
+            std::make_unique<std::vector<Object>>(objectsOf(ps, mats, cfg.packageSplit)));
+        anim.push_back(std::make_unique<std::vector<std::vector<Object>>>(
+            animObjectsOf(ps, mats, cfg.packageSplit)));
     }
 
     for (size_t i = 0; i < scenes.size(); ++i) {
@@ -1767,16 +1779,18 @@ std::vector<Shot> buildProjectShots(const CorpusConfig& cfg, Materials& mats,
             s.name = ss.name;
             s.moveName = ss.move;
             s.move = Move::Path;
-            s.shared = &geometry[i];
-            s.animShared = &anim[i];
+            s.shared = geometry[base + i].get();
+            s.animShared = anim[base + i].get();
             s.pathEye = ss.eye;
             s.pathLook = ss.look;
             s.ease = ss.ease;
             s.fovDeg = ss.fovDeg > 5.0f ? ss.fovDeg : 60.0f;
+            s.group = group;
+            s.frames = ss.frames;
             shots.push_back(std::move(s));
         }
     }
-    return shots;
+    (void)groupName;
 }
 
 }  // namespace
@@ -1887,26 +1901,78 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     // - the jitter, the supersampled truth, the bag list, the features - runs
     // on whichever list of shots comes out of here, which is what makes a
     // project-trained net and a procedurally-trained one comparable.
-    std::vector<std::vector<Object>> projectGeometry;  // outlives `shots`
-    std::vector<std::vector<std::vector<Object>>> projectAnim;  // ... and so does this
+    // Stable addresses, because a Shot points into these and they grow once per
+    // member of a union corpus - see buildProjectShots().
+    std::vector<std::unique_ptr<std::vector<Object>>> projectGeometry;  // outlives `shots`
+    std::vector<std::unique_ptr<std::vector<std::vector<Object>>>> projectAnim;  // ... so does this
     std::vector<Shot> shots;
     ProjectBlss pb;
-    if (!cfg.projectDir.empty()) {
+    // The corpus SOURCES, in order. One entry is the ordinary
+    // `--blss-train <projectDir>`; several is the union corpus.
+    std::vector<std::string> sources = cfg.projectDirs;
+    if (sources.empty() && !cfg.projectDir.empty()) sources.push_back(cfg.projectDir);
+    std::vector<std::string> groupNames;   // one per LOADED member
+    std::vector<int> groupShots;           // ...and how many shots it gave
+    bool jitterSeen = false, jitterConflict = false;
+    for (const std::string& dir : sources) {
+        // THE BESTIARY AS A UNION MEMBER, spelled `bestiary` where a directory
+        // would go. It is not a project and there is nothing on disk to point
+        // at, but the question "is the built-in corpus worth adding to a
+        // cross-project training set" is exactly a leave-one-project-out
+        // question with the bestiary as one more group - and answering it any
+        // other way means two runs whose training sets differ in more than the
+        // one thing being tested.
+        if (dir == "bestiary" || dir == "BESTIARY") {
+            const size_t before = shots.size();
+            std::vector<Shot> b = buildShots(cfg, mats);
+            if (!cfg.packageSplit)
+                for (Shot& s : b)
+                    for (Object& o : s.objs) {
+                        o.part.clear();
+                        o.part.emplace_back(o.lo, o.hi);
+                    }
+            for (Shot& s : b) {
+                s.group = static_cast<int>(groupNames.size());
+                shots.push_back(std::move(s));
+            }
+            groupNames.push_back("bestiary");
+            groupShots.push_back(static_cast<int>(shots.size() - before));
+            continue;
+        }
         std::string err;
+        ProjectBlss mine;
         const std::vector<ProjectScene> scenes =
-            loadProject(cfg.projectDir, &err, cfg.verbose, cfg.animated, &pb);
-        if (!err.empty())
-            std::printf("[blss] project: %s\n", err.c_str());
+            loadProject(dir, &err, cfg.verbose, cfg.animated, &mine, cfg.shotPlan);
+        if (!err.empty()) std::printf("[blss] project: %s\n", err.c_str());
         if (scenes.empty()) {
+            if (sources.size() > 1) {
+                // A union corpus NEVER falls back: a member that quietly became
+                // the bestiary would put procedural content into a table whose
+                // whole claim is which project the frames came from.
+                std::printf("[blss] union member '%s' has no drawable scene - DROPPED\n",
+                            dir.c_str());
+                continue;
+            }
             // The documented fallback: a project that will not load, or that
             // has nothing to draw, still produces a corpus - just not its own.
             std::printf(
                 "[blss] project '%s' has no drawable scene - falling back to the "
                 "procedural bestiary\n",
-                cfg.projectDir.c_str());
-        } else {
-            shots = buildProjectShots(cfg, mats, projectGeometry, projectAnim, scenes);
+                dir.c_str());
+            continue;
         }
+        // THE SAMPLER HAS TO BE ONE SAMPLER. A union corpus renders every member
+        // through one blss::setJitter(), so members that disagree would be two
+        // incomparable distributions in one table. First member wins and the
+        // disagreement is said out loud.
+        if (jitterSeen && mine.jitter != pb.jitter) jitterConflict = true;
+        if (!jitterSeen) pb = mine;
+        jitterSeen = true;
+        const size_t before = shots.size();
+        buildProjectShots(cfg, mats, projectGeometry, projectAnim, scenes,
+                          static_cast<int>(groupNames.size()), dir, shots);
+        groupNames.push_back(dir);
+        groupShots.push_back(static_cast<int>(shots.size() - before));
     }
     if (shots.empty()) {
         shots = buildShots(cfg, mats);
@@ -1934,6 +2000,12 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
     const bool wantJitter =
         cfg.jitter >= 0 ? cfg.jitter != 0 : (pb.found ? pb.jitter : true);
     setJitter(wantJitter);
+    if (jitterConflict && cfg.jitter < 0)
+        std::printf(
+            "[blss] WARNING: the union members do NOT agree about blssJitter and this run "
+            "renders all of them at '%s' (the first member's). Pass --jitter/--no-jitter to "
+            "say which sampler you meant - a table mixing the two is two experiments.\n",
+            pb.jitter ? "on" : "off");
     if (cfg.verbose && cfg.still)
         std::printf(
             "[blss] STILL FIXTURE (--still): every frame of a shot is the shot's FIRST "
@@ -1947,24 +2019,99 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             "TYRA_BLSS_PROXY_BUDGET IS 0 - this run describes the frame more coarsely "
             "than the console does, which is a MEASUREMENT and not a twin.\n",
             kMaxProxiesPerBag);
+    // THE SAMPLER IS ANNOUNCED IN BOTH DIRECTIONS, and the reason is the eighth
+    // entry of "measured is not optimised" (docs/neural-upscaler.md): this page
+    // carried a row whose margins were taken jitter-off and whose ceiling was
+    // taken jitter-on, and nothing in either run said which. `--tile` and
+    // `--scale` have had an announcement line since they became sweepable;
+    // blssJitter became the third such knob and did not get one, so a jitter-ON
+    // run printed nothing at all.
     if (cfg.verbose && !wantJitter)
         std::printf(
             "[blss] sub-pixel jitter OFF%s - both phases sample the same "
             "position, so the temporal pass sees a genuine still frame and the "
             "quincunx supersample is gone.\n",
             cfg.jitter >= 0 ? " (--no-jitter)" : " (the project's blssJitter)");
+    else if (cfg.verbose)
+        std::printf(
+            "[blss] sub-pixel jitter ON%s - the two phases are a quincunx pair, so the "
+            "temporal pass has a genuine second sample to fuse. A table taken here is NOT "
+            "comparable with one taken at --no-jitter.\n",
+            cfg.jitter >= 0 ? " (--jitter)"
+                            : (pb.found ? " (the project's blssJitter)"
+                                        : " (the bestiary has no project to ask)"));
 
     // Frames spread round-robin over the shots, remainder to the first ones. A
     // shot that got a single frame would have no history at all and teach the
     // temporal channel nothing, so with fewer frames than shots the tail shots
     // are simply not rendered rather than degenerating.
+    //
+    // EXPLICIT COUNTS FIRST (Shot::frames, from the project's training-shot
+    // plan), then the rest share what is left. Every shot asking for 0 is the
+    // old behaviour exactly, which is what a default plan produces - so this
+    // does not move a single published number.
     const int shotCount = (int)shots.size();
     std::vector<int> perShot((size_t)shotCount, 0);
-    if (cfg.frames < shotCount) {
+    int asked = 0, freeShots = 0;
+    for (const Shot& s : shots) {
+        if (s.frames > 0) asked += s.frames;
+        else ++freeShots;
+    }
+    if (asked > cfg.frames) {
+        // NEVER DROP A SHOT SILENTLY. The window prints the per-shot counts it
+        // expects, so a clamp nobody announced makes its preview a lie - and a
+        // shot that got zero frames is a fold that does not exist.
+        std::printf(
+            "blss: the shot plan asks for %d explicit frame(s) and --frames is %d - scaling the "
+            "explicit counts down to fit. Raise --frames to %d to get the plan as authored.\n",
+            asked, cfg.frames, asked + freeShots);
+        int given = 0, k = 0;
+        for (int i = 0; i < shotCount; ++i)
+            if (shots[(size_t)i].frames > 0) {
+                // Proportional, floor, at least one frame each - a shot the
+                // author named explicitly must still be shot.
+                int n = (int)((long long)shots[(size_t)i].frames * cfg.frames / asked);
+                if (n < 1) n = 1;
+                perShot[(size_t)i] = n;
+                given += n;
+                ++k;
+            }
+        (void)k;
+        // Whatever the floor left over goes to the shots that asked for nothing,
+        // and if there is nothing left they get nothing - which the line above
+        // has already said out loud.
+        int rest = cfg.frames - given;
+        for (int i = 0; i < shotCount && rest > 0; ++i)
+            if (shots[(size_t)i].frames <= 0) {
+                perShot[(size_t)i] = 1;
+                --rest;
+            }
+    } else if (cfg.frames < shotCount) {
         for (int i = 0; i < cfg.frames; ++i) perShot[(size_t)i] = 1;
     } else {
-        const int base = cfg.frames / shotCount, rem = cfg.frames % shotCount;
-        for (int i = 0; i < shotCount; ++i) perShot[(size_t)i] = base + (i < rem ? 1 : 0);
+        const int spare = cfg.frames - asked;
+        const int base = freeShots > 0 ? spare / freeShots : 0;
+        int rem = freeShots > 0 ? spare % freeShots : 0;
+        for (int i = 0; i < shotCount; ++i) {
+            if (shots[(size_t)i].frames > 0) {
+                perShot[(size_t)i] = shots[(size_t)i].frames;
+                continue;
+            }
+            perShot[(size_t)i] = base + (rem > 0 ? 1 : 0);
+            if (rem > 0) --rem;
+        }
+    }
+    // A shot with no frames is a fold that does not exist and a row the window
+    // will not find. Say which ones and why, once.
+    {
+        int starved = 0;
+        for (int i = 0; i < shotCount; ++i)
+            if (perShot[(size_t)i] <= 0) ++starved;
+        if (starved)
+            std::printf(
+                "blss: %d of %d shot(s) got NO frames at --frames %d - they are not in this "
+                "corpus and there is no fold for them.\n",
+                starved, shotCount, cfg.frames);
     }
 
     if (cfg.verbose) {
@@ -1973,16 +2120,27 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
             for (const Object& o : s.geometry())
                 if (o.proxy) proxies += o.part.size();
         for (const auto& scene : projectAnim)
-            for (const auto& poses : scene)
+            for (const auto& poses : *scene)
                 if (!poses.empty()) {
                     animParts += 1;
                     proxies += poses[0].part.size();
                 }
+        std::string source = "procedural bestiary";
+        if (groupNames.size() == 1) source = groupNames[0];
+        else if (groupNames.size() > 1)
+            source = "UNION of " + std::to_string(groupNames.size()) + " project(s)";
         std::printf(
             "[blss] corpus: %s, %d frame(s) over %d shot(s), %dx%d out, %dx%d low, "
             "%dx supersample, %dx%d tiles, seed 0x%X\n",
-            projectGeometry.empty() ? "procedural bestiary" : cfg.projectDir.c_str(),
+            source.c_str(),
             cfg.frames, shotCount, outW, outH, lowW, lowH, ss, cols, rows, cfg.seed);
+        // WHICH MEMBER CONTRIBUTED WHAT, because frames are spread evenly over
+        // SHOTS: a member with twice the scenes gets twice the frames, and a
+        // union mean nobody can decompose is a mean about its largest member.
+        if (groupNames.size() > 1)
+            for (size_t g = 0; g < groupNames.size(); ++g)
+                std::printf("[blss]   group %zu  %-40s %2d shot(s)\n", g, groupNames[g].c_str(),
+                            groupShots[g]);
         // How finely the frame can be described AT ALL - the one number the
         // console's own instrument prints next to its feature spread, and the
         // one that was 2 on the day this feature was found running on a
@@ -1993,7 +2151,7 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         std::printf("[blss] %zu bag proxy(ies)%s over %s, %s\n", proxies,
                     cfg.proxyBudget ? " before the budget" : "",
                     projectGeometry.empty() ? "the bestiary"
-                                            : "the project's scenes",
+                                            : "the project scenes",
                     cfg.packageSplit ? "one per VU1 package (the engine's split)"
                                      : "one per object (--no-package-split)");
         // Said out loud because for its whole life this corpus rendered NEITHER
@@ -2078,6 +2236,10 @@ std::vector<CorpusFrame> generate(const CorpusConfig& cfg) {
         cf.shot = job.shot;
         cf.shotName = shot.name;
         cf.moveName = shot.moveName;
+        cf.group = shot.group;
+        cf.groupName = shot.group < (int)groupNames.size()
+                           ? groupNames[(size_t)shot.group]
+                           : std::string();
         Frame& fr = cf.frame;
         fr.cols = cols, fr.rows = rows;
         fr.outW = outW, fr.outH = outH;
