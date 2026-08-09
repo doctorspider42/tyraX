@@ -1,0 +1,146 @@
+# Frame extrapolation
+
+Frame extrapolation synthesises an extra presented frame between two rendered
+ones by re-drawing the last finished frame under a newer camera, so a game can
+render its world at half the field rate and still hand the television a fresh
+picture every field. It is the PlayStation 2 answer to "frame generation", and
+the reason it is possible at all is that it **extrapolates rather than
+interpolates**.
+
+## Why not interpolation
+
+A desktop frame generator blends frame N and frame N+1. Both halves of that are
+unavailable here. Needing N+1 means holding a finished frame back for a whole
+field before showing it — 20 ms of added latency on a machine that has none to
+spare — and the blend needs per-pixel optical flow, which the GS has no
+programmable pixel stage to compute or apply.
+
+Extrapolation is causal: it takes the newest camera the game knows about and
+re-projects the picture it already has. It costs no latency at all, and it
+actually *reduces* the camera's: what the player sees tracks the stick a field
+sooner than the next real render would deliver it.
+
+## What it does
+
+`RendererCore::presentWarpFrame(from, to)` draws the last finished frame into
+the buffer being rendered to, as a grid of textured triangle strips whose
+texture coordinates are the reprojection of each grid corner from camera `to`
+back into camera `from`, and presents it. It clears nothing (the grid covers
+every pixel) and runs no post fx (bloom, grain and grading are already in the
+source image; running them again would compound them frame after frame).
+
+The reprojection, per grid corner, is the neural upscaler's `buildReproj()` run
+forwards, with the per-tile `1/w` replaced by a single plane distance:
+
+```
+sX  = (2*px/outW - 1) * to.tanHalfFovX
+sY  = (1 - 2*py/outH) * to.tanHalfFovY
+dir = to.fwd + to.right*sX + to.up*sY
+wp  = to.pos + dir * planeDistance
+rel = wp - from.pos
+wPrev = dot(rel, from.fwd)                  // behind the old eye -> identity
+u = (dot(rel, from.right) / (wPrev * from.tanHalfFovX) * 0.5 + 0.5) * outW
+v = (0.5 - dot(rel, from.up) / (wPrev * from.tanHalfFovY) * 0.5) * outH
+```
+
+**Rotation is exact.** When `to.pos == from.pos`, `rel` is `dir * planeDistance`
+and that factor divides out of both ratios — the mapping is a homography, right
+at every scene depth, with no depth buffer anywhere. `planeDistance`
+(`setPlaneDistance`) only ever approximates *translation*, by assuming the world
+sits on one plane. That is the whole design: a camera that turns is reproduced
+perfectly, and a camera that moves is reproduced well enough at the plane and
+sheared away from it.
+
+## The measurements
+
+Fixture: the fpp preset, interlaced-field, PAL, triple buffering on, with a
+script calling `presentWarpFrame` once per game loop.
+
+| | before | with extrapolation |
+|---|---|---|
+| game loop (world + real render) | 50.4 Hz | **25.2 Hz** |
+| frames presented | 50.4 /s | **50.4 /s** |
+
+Read from three independent places that agree: the loop rate off the EE's own
+COP0 cycle counter, the game's FPS HUD (`FPS 25`), and PCSX2's own status bar
+(`FPS: 50  VPS: 50  Speed: 100%`). The world is simulated and rendered 25 times
+a second; the television gets 50 pictures a second.
+
+**The identity case is the test that proves the machinery.** With `from == to`
+the warp must reproduce its source exactly, and it does: the screen is a clean,
+correct scene, and any error in the packet, the TEX0 binding, the region clamp,
+the UV encoding or the strip vertex order would show as tearing or garbage
+instead. The reprojection arithmetic was then checked on the console against its
+closed form: at a 10 deg yaw with fov 60 and `tanHalfFovX` 0.659 the centre
+corner's U came out at 5191/16 = 324.4 px against an identity 256 px, i.e. a
+68.4 px shift where `tan(10 deg)/0.659 * 256` predicts 68; at 45 deg it reached
+644 px, correctly past the buffer edge and into the clamp.
+
+**What is NOT verified, and why.** That a *non-identity* warped frame looks
+right on screen. Real and warped frames alternate every field, and the capture
+tools available here (a Wayland compositor screencast) are not frame-accurate
+enough to isolate one of two images alternating at 50 Hz — ten consecutive
+captures of a deliberately marked warp frame returned byte-identical results,
+which says the instrument is sampling one latched surface, not that the picture
+is static. What the marker DID establish is that the warped buffer is scanned
+out at all. Verifying the warped image itself wants either a frame-accurate
+capture or a game-side A/B (render camera B for real, warp A to B, compare on
+the EE); until then this page does not claim it.
+
+Nothing here has been on real hardware.
+
+## Using it
+
+```cpp
+// After endFrame() of a normal frame: sample the pad again, work out where the
+// camera is NOW, and present one extra frame from it.
+Tyra::WarpCamera from = cameraOf(previousFrameCamera);
+Tyra::WarpCamera to   = cameraOf(cameraRightNow);
+engine->renderer.core.warp.setPlaneDistance(distanceToWhatYouAreLookingAt);
+engine->renderer.core.presentWarpFrame(from, to);
+```
+
+`presentWarpFrame` returns false and presents nothing when there is no finished
+frame to warp yet (the first frame after boot, or after a display-mode switch
+moved every buffer), so the return value can simply be ignored.
+
+It pairs with **triple buffering** ([frame pacing](frame-pacing.md)): the two
+presents per loop each block on a free buffer, which is what paces the whole
+arrangement to one presented frame per field. It costs **no GS VRAM** — the
+source is the display buffer double buffering already keeps.
+
+## Limits
+
+- **Dynamic objects freeze** for the warped frame. They are pixels in the source
+  image and the warp only knows about the camera, so a moving character is
+  carried along by the camera warp and does not advance. A game that cares
+  redraws them; the HUD is the same problem with the same answer.
+- **Disocclusion at the frame edge stretches.** The source has no pixels for
+  what just came into view, so the outermost cells clamp their last texels
+  across the strip — a smear a few pixels wide at ordinary turn rates. This is
+  what VR reprojection does. A guard band would fix it, and is not free: the
+  framebuffer would have to be wider than the display window, which means
+  splitting the physical raster from the displayed one and widening the frustum
+  to match — and `M4x4::perspective` takes the raster size as its scale, so the
+  widened fov/aspect would break the "frustum planes are independent of the
+  raster scale" invariant the neural upscaler's host/console parity rests on.
+  That is why it is not done here.
+- **A degenerate basis silently becomes a copy.** Corners whose `wPrev` falls
+  behind the old eye fall back to the identity sample, so a caller passing a
+  zero or non-orthonormal basis gets a clean copy rather than garbage. Safe, but
+  it means "the warp does nothing" and "the warp was handed a bad camera" look
+  identical — log the basis before suspecting the renderer.
+- **Interlaced-field is an approximation.** The source is the other field's
+  image, half a scan line away. The per-field `XYOFFSET` bias is applied, but
+  the warp does not otherwise model the field offset.
+- **No editor switch yet.** This is an engine API a game calls. Wiring it to a
+  project preference and into the generated game loop is the follow-up (see
+  [backlog](backlog.md)).
+
+## Where it lives
+
+- `renderer/core/warp/renderer_core_warp.{hpp,cpp}` — the module: `WarpCamera`,
+  the per-corner reprojection, the GS state block and the grid.
+- `RendererCore::presentWarpFrame` — draw + flip, no clear, no post fx.
+- `RendererCoreGS::getPreviousFrameBuffer` — the source, shared with the neural
+  upscaler's temporal tap.

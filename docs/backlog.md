@@ -38,17 +38,23 @@ the verification, and any fact worth reusing belongs in the relevant
   - **Tell the game when the buffer count changed.** `setDisplayOutput` re-runs
     the VRAM layout, so switching to a mode with no room silently drops to two
     buffers - correct, but a menu that offers the mode cannot say so.
-  - **Frame extrapolation ("bieda frame gen").** Reproject the last finished
-    frame under the newest camera on a textured grid and present that on the
-    field where no new frame is ready, so the picture tracks the stick at the
-    field rate while the world renders at half of it. Rotation-only is an exact
-    homography and needs no depth at all; translation wants a per-tile depth,
-    which BLSS' `buildReproj()` already computes for its own history tap. The
-    cheapest version of the same idea is free: `graph_set_framebuffer`'s last
-    two arguments are the DISPFB in-buffer offset (the engine passes `0, 0`
-    everywhere), so a guard-band render can be re-presented shifted by a few
-    pixels from the yaw delta for two register writes in the vblank handler.
-    Both ride on the triple-buffered present, which is why that came first.
+  - **DONE: frame extrapolation** (docs/frame-extrapolation.md) - the engine
+    module and `RendererCore::presentWarpFrame` land here; measured 25 Hz world /
+    50 Hz picture. Still owed: **a project preference + the generated game loop**
+    (it is an engine API a game must call by hand today), a **frame-accurate way
+    to verify a synthesised frame** (see the doc - the compositor screencast
+    cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
+    objects and the HUD on top of a warped frame, and hardware.
+  - **The guard band, and the DISPFB pan it would unlock.** Both the warp's edge
+    smear and the "free" 2D reprojection (`graph_set_framebuffer`'s last two
+    arguments are the DISPFB in-buffer offset; the engine passes `0, 0`
+    everywhere, so a shifted re-present costs two register writes in the vblank
+    handler) need a framebuffer WIDER than the display window. That means
+    splitting the physical raster from the displayed one and widening the
+    frustum to match - and `M4x4::perspective` takes the raster size as its
+    scale, so the widened fov/aspect breaks the "frustum planes are independent
+    of the raster scale" invariant BLSS' host/console parity rests on. Costed
+    and deliberately deferred, not forgotten.
 
 - **Neural upscaler (BLSS) follow-ups** (docs/neural-upscaler.md,
   docs/blss-reconstruction.md). The proof of concept shipped: half-res 3D

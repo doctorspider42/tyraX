@@ -61,6 +61,9 @@ void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
   blss.setVramRebuild(&RendererCore::rebuildPermanentBuffersThunk, this);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
+  // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
+  // buffer double/triple buffering already keeps.
+  warp.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
@@ -122,6 +125,10 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   // Re-derive the projection (and thus next frame's frustum planes) from
   // the new framebuffer size / aspect.
   renderer3D.setFov(renderer3D.getFov());
+
+  // Modified by TyraX: every display buffer just moved (or changed shape), so
+  // the frame the warp would sample as "last frame" no longer exists.
+  if (modeChanged) hasPresentedFrame = false;
 }
 
 // Modified by TyraX: GS hardware distance fog.
@@ -320,6 +327,27 @@ void RendererCore::endFrame() {
     if (isFrameLimitOn) graph_wait_vsync();
   }
   gs.flipBuffers(isFrameLimitOn);
+  hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md).
+bool RendererCore::presentWarpFrame(const WarpCamera& from,
+                                    const WarpCamera& to) {
+  // Nothing to warp before the first flip - the "previous" buffer is still
+  // whatever the GS powered up with.
+  if (!hasPresentedFrame) return false;
+
+  Threading::switchThread();
+  warp.draw(from, to);
+  // Deliberately NO applyPostFx: bloom, grain and grading are already baked
+  // into the source image, and running them again would compound them on every
+  // warped frame. Deliberately no beginFrame either - the warp covers every
+  // pixel, so the clear would only be work.
+  if (gs.getFrameBufferCount() < 3) {
+    if (isFrameLimitOn) graph_wait_vsync();
+  }
+  gs.flipBuffers(isFrameLimitOn);
+  return true;
 }
 
 }  // namespace Tyra

@@ -25,6 +25,7 @@
 #include "./envmap/renderer_core_envmap.hpp"
 #include "./shadowmap/renderer_core_shadow_map.hpp"
 #include "./splitview/renderer_core_splitview.hpp"
+#include "./warp/renderer_core_warp.hpp"
 #include "./blss/renderer_core_blss.hpp"
 #include "./paths/path3/path3.hpp"
 #include "./paths/path1/path1.hpp"
@@ -109,6 +110,10 @@ class RendererCore {
 
   /** Split-screen viewports for two-player games (TyraX fork). */
   RendererCoreSplitView splitView;
+
+  /** Frame extrapolation (TyraX fork, docs/frame-extrapolation.md). Costs no
+   * VRAM and does nothing until the game calls presentWarpFrame. */
+  RendererCoreWarp warp;
 
   /**
    * BLSS, the neural upscaler (TyraX fork, docs/neural-upscaler.md): renders
@@ -252,6 +257,29 @@ class RendererCore {
   /** VSync and swap frame double buffer. */
   void endFrame();
 
+  /**
+   * Modified by TyraX (docs/frame-extrapolation.md): synthesise and present an
+   * EXTRA frame between two rendered ones, by warping the last finished frame
+   * under a newer camera.
+   *
+   * The intended loop is "render the world at half rate, warp on the fields in
+   * between": after endFrame(), sample the pad again, work out where the
+   * camera is NOW, and call this. It draws a full-screen warped copy into the
+   * buffer the renderer is already pointing at and flips - no clear (the warp
+   * covers every pixel), no post fx (they are already in the source image, and
+   * running them again would compound bloom and grain frame after frame).
+   *
+   * Anything the game wants CORRECT rather than warped - the HUD, a first
+   * person weapon, a nearby animated character - it draws itself after this
+   * returns and before the flip... which this function does not offer, so for
+   * now those redraws belong in a normal frame. See the doc's "Limits".
+   *
+   * Returns false and presents nothing when there is no finished frame to warp
+   * yet (the first frame after boot or a display-mode switch), so a caller can
+   * simply ignore the result.
+   */
+  bool presentWarpFrame(const WarpCamera& from, const WarpCamera& to);
+
   void setFrameLimit(const bool& onoff) { isFrameLimitOn = onoff; }
 
   /** Get screen settings */
@@ -277,6 +305,10 @@ class RendererCore {
   static void rebuildPermanentBuffersThunk(void* user);
 
   bool isFrameLimitOn;
+  // Modified by TyraX: has a real frame been presented yet? The warp samples
+  // the previously finished display buffer, which before the first flip holds
+  // whatever was in GS VRAM at boot.
+  bool hasPresentedFrame = false;
   // Which post fx passes already ran this frame (RendererCorePostFx::Pass
   // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier
   // has run once this frame (only needed before the first pass that draws).

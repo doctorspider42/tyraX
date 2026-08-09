@@ -877,6 +877,25 @@ banner both, so a previously built ELF still reports.
   a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
   0.87 MB free and never evicts anything — if you are chasing a VRAM problem
   in a palettized project, measure before assuming there is one.
+- **Frame extrapolation: the IDENTITY warp is the test** (`renderer/core/warp/`,
+  `docs/frame-extrapolation.md`). `RendererCoreWarp` re-draws the last finished
+  frame under a newer camera as a textured grid, so a game can render its world
+  at half the field rate. When `from == to` the result must reproduce its source
+  EXACTLY, which is what makes the whole GS side falsifiable in one screenshot:
+  a wrong TEX0 binding, region clamp, UV encoding or strip vertex order all show
+  as tearing or garbage instead of a clean picture. Check that before checking
+  anything else. Two traps paid for here: **an overcounting NLOOP is as fatal as
+  an undercounting one** (the restore block claimed 4 registers and wrote 3, so
+  the GS read the next giftag as a register write and the game hung in
+  `draw_wait_finish` with no assert and a clean log); and **a degenerate camera
+  basis silently becomes an identity copy**, because every corner takes the
+  `wPrev < 1e-3` fallback - so "the warp does nothing" and "the caller passed a
+  bad basis" look identical. Note also what the tooling could NOT do: real and
+  warped frames alternate every field, and a Wayland compositor screencast is
+  not frame-accurate enough to isolate one of two images at 50 Hz - ten captures
+  of a deliberately marked warp frame came back byte-identical. If you need to
+  see a synthesised frame, build a game-side A/B rather than trusting a
+  screenshot.
 - **Triple buffering: "does it fit" is the WRONG question, and asking it that
   way is a boot crash** (TyraX fork, `docs/frame-pacing.md`). The third display
   buffer is a full one - 229 376 words at 512x448x32, 262 144 in `Pal576i` - and
