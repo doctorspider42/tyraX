@@ -28,6 +28,7 @@ void RendererSettings::copy(RendererSettings* out, const RendererSettings* in) {
   out->widescreen = in->widescreen;        // Modified by TyraX
   out->rasterScaleX = in->rasterScaleX;    // Modified by TyraX (BLSS)
   out->rasterScaleY = in->rasterScaleY;    // Modified by TyraX (BLSS)
+  out->tripleBuffering = in->tripleBuffering;  // Modified by TyraX
 }
 
 void RendererSettings::set(const RendererSettings& v) { copy(this, &v); }

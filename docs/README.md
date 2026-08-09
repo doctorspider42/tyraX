@@ -295,6 +295,10 @@ Developer design docs (internals, not user guides):
 - [GS VRAM residency](gs-vram.md) - where the 4 MB goes, what a texture
   really costs, the free-list texture heap and its eviction policy, the
   `VRAMSTAT` counters, and the measured before/after numbers.
+- [Frame pacing](frame-pacing.md) - the vsync cliff that halves the frame rate
+  when a frame overruns its field by a hair, the triple-buffered present that
+  removes it (a vblank interrupt latches `DISPFB`), what the third display
+  buffer costs in GS VRAM and why the engine refuses it in most display modes.
 - [BLSS reconstruction math](blss-reconstruction.md) - the twin contract
   between the neural upscaler's host trainer and its PS2 runtime: the exact
   sampling, blend equations, 8-bit truncation and grid vertex order both sides

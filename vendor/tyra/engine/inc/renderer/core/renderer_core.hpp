@@ -146,7 +146,7 @@ class RendererCore {
   /** Called by renderer */
   void init(VideoMode videoMode = VideoMode::Auto,
             DisplayMode displayMode = DisplayMode::Interlaced,
-            bool widescreen = false);
+            bool widescreen = false, bool tripleBuffering = false);
 
   /**
    * Runtime video output switch (TyraX fork): scan mode

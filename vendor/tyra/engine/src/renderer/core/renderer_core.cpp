@@ -19,11 +19,14 @@ RendererCore::RendererCore() { isFrameLimitOn = true; }
 RendererCore::~RendererCore() {}
 
 void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
-                        bool widescreen) {
+                        bool widescreen, bool tripleBuffering) {
   settings.setVideoMode(videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
   settings.setDisplayMode(displayMode);
   settings.setWidescreen(widescreen);
+  // Same rule: gs.init decides how many display buffers to allocate from it
+  // (TyraX fork, docs/frame-pacing.md).
+  settings.setTripleBuffering(tripleBuffering);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
@@ -304,8 +307,19 @@ void RendererCore::endFrame() {
   // FINISH that VU1 can't deliver yet.
   applyPostFx();
   texture.traceFrame();  // Modified by TyraX: GS VRAM residency report
-  if (isFrameLimitOn) graph_wait_vsync();
-  gs.flipBuffers();
+  // Modified by TyraX (docs/frame-pacing.md): with two buffers the frame
+  // limiter is this vsync wait - the EE cannot touch the other buffer until
+  // the finished one is on screen, so a frame that overruns its field by any
+  // margin at all waits out a whole second field and the rate halves.
+  //
+  // With three, the wait moves INSIDE flipBuffers: it blocks on a free
+  // buffer rather than on the display, the vblank handler does the
+  // presenting, and an overrunning frame costs one late field instead of an
+  // idle one.
+  if (gs.getFrameBufferCount() < 3) {
+    if (isFrameLimitOn) graph_wait_vsync();
+  }
+  gs.flipBuffers(isFrameLimitOn);
 }
 
 }  // namespace Tyra

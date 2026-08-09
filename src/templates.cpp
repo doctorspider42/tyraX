@@ -449,6 +449,12 @@ int main(int argc, char** argv) {
     options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = {{WIDESCREEN}};
+  // Triple buffering (Preferences > Build > Triple buffering, docs/
+  // frame-pacing.md): present from a vblank interrupt instead of stalling
+  // the EE on vsync, so a frame that overruns its field is shown one field
+  // late instead of halving the frame rate. Costs a third display buffer of
+  // GS VRAM; the engine reports and stays double buffered if it does not fit.
+  options.tripleBuffering = {{TRIPLE_BUFFERING}};
   // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
@@ -23386,6 +23392,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
+    s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
+                   st.tripleBuffering ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");

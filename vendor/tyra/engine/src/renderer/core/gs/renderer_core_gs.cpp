@@ -15,11 +15,25 @@
 #include <gs_gp.h>
 #include <gs_privileged.h>
 #include <gs_psm.h>
+#include <kernel.h>  // Modified by TyraX: INTC vblank handler (frame pacing)
 #include <packet2_utils.h>
 #include "debug/debug.hpp"
 #include "renderer/core/gs/renderer_core_gs.hpp"
 
 namespace Tyra {
+
+// Modified by TyraX (docs/frame-pacing.md): the vblank interrupt trampoline.
+//
+// One renderer exists per game, so a file-scope owner is enough and keeps the
+// handler free of any lookup. It is set while the handler is installed and
+// cleared before it is removed, so the ISR can never reach a dead object.
+static RendererCoreGS* vblankOwner = nullptr;
+
+extern "C" s32 tyraxVblankHandler(s32 cause) {
+  (void)cause;
+  if (vblankOwner != nullptr) vblankOwner->onVblank();
+  return 0;
+}
 
 RendererCoreGS::RendererCoreGS() {
   context = 0;
@@ -28,6 +42,7 @@ RendererCoreGS::RendererCoreGS() {
 }
 
 RendererCoreGS::~RendererCoreGS() {
+  removeVblankHandler();  // Modified by TyraX: before the object dies
   if (flipPacket) {
     packet2_free(flipPacket);
   }
@@ -117,9 +132,69 @@ void RendererCoreGS::allocateVramBuffers() {
   const int zHeight = static_cast<int>(settings->getRasterHeightUI());
   zBuffer.address = vram.allocateBuffer(zWidth, zHeight, zBuffer.zsm);
 
+  // Modified by TyraX (docs/frame-pacing.md): the third display buffer, and
+  // it is allocated LAST on purpose - it is the one allocation here that may
+  // be refused, and everything the renderer cannot do without is placed by
+  // then, so the fallback costs nothing.
+  //
+  // "Does it fit" is NOT the question, and asking it that way is a boot
+  // crash: at 512x512x32 (Pal576i) three buffers plus z are 1 048 576 words,
+  // i.e. EXACTLY the whole 4 MB, so the allocation succeeds and the post-fx
+  // buffers right after it get -1 - measured, as `Out of VRAM for post fx
+  // buffers` before the first frame. What has to survive is everything the
+  // renderer still allocates AFTER this function (post fx ~12 288 words, the
+  // env-map target + its z 32 768, the camera feed + its z 32 768, and the
+  // projected-shadow slots a game may claim later, ~20 480) plus a texture
+  // heap worth having.
+  bufferCount = 2;
+  if (settings->getFrameBufferCount() >= 3) {
+    const int bufferWords = static_cast<int>(
+        vram.getSizeInMB(static_cast<int>(frameBuffers[0].width),
+                         static_cast<int>(frameBuffers[0].height),
+                         frameBuffers[0].psm, GRAPH_ALIGN_PAGE) *
+            kWordsPerMB +
+        0.5F);
+    const int left = vram.getHeapWords() - bufferWords;
+    if (left < kThirdBufferReserveWords + kThirdBufferMinTextureWords) {
+      // Not a warning: a third buffer here boots into an assert or a scene
+      // with no textures, so the honest answer is to not take it.
+      TYRA_SOFT_ERROR(
+          "Triple buffering: not enough GS VRAM at this display mode - "
+          "staying double buffered. A third ",
+          static_cast<int>(frameBuffers[0].width), "x",
+          static_cast<int>(frameBuffers[0].height),
+          " buffer costs ", bufferWords, " words and would leave ", left,
+          ", under the ", kThirdBufferReserveWords + kThirdBufferMinTextureWords,
+          " the renderer's remaining buffers and the texture heap need. The "
+          "interlaced-field display mode halves every buffer and has room.");
+    } else {
+      frameBuffers[2] = frameBuffers[0];
+      frameBuffers[2].address = vram.allocateBuffer(
+          frameBuffers[2].width, frameBuffers[2].height, frameBuffers[2].psm);
+      if (frameBuffers[2].address >= 0) bufferCount = 3;
+    }
+  }
+
+  // The queue always starts with the frame being drawn into `context` and its
+  // neighbour on screen, in both modes - programDisplay() presents exactly
+  // this buffer, and the first flip derives the free slot from the pair.
+  displayedBuffer = context ^ 1;
+  pendingBuffer = -1;
+
+  // The handler IS the third buffer's present path, so the two are decided
+  // together and on every layout rebuild - a realloc that loses the buffer
+  // must also lose the interrupt. Installing is idempotent.
+  if (bufferCount >= 3) {
+    installVblankHandler();
+    if (vblankHandlerId < 0) bufferCount = 2;
+  } else {
+    removeVblankHandler();
+  }
+
   TYRA_LOG("GS buffers: frame ", static_cast<int>(frameBuffers[0].width), "x",
-           static_cast<int>(frameBuffers[0].height), " x2, z ", zWidth, "x",
-           zHeight, " at ", static_cast<int>(zBuffer.address));
+           static_cast<int>(frameBuffers[0].height), " x",
+           static_cast<int>(bufferCount), ", z ", zWidth, "x", zHeight, " at ",
+           static_cast<int>(zBuffer.address));
 }
 
 bool RendererCoreGS::needsBufferRealloc() const {
@@ -130,9 +205,18 @@ bool RendererCoreGS::needsBufferRealloc() const {
 // Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video
 // mode. See the header for why programDisplay() is deliberately not called.
 void RendererCoreGS::reallocateBuffers() {
+  resetDisplayQueue();  // Modified by TyraX: every address below moves
   vram.reset();
   allocateVramBuffers();
   initDrawingEnvironment();
+}
+
+// Modified by TyraX (docs/frame-pacing.md): drop a queued frame before the
+// buffer addresses it names stop being valid. allocateVramBuffers() re-arms
+// the queue right after; this only has to make sure no vblank in between
+// latches a DISPFB from the layout that is being torn down.
+void RendererCoreGS::resetDisplayQueue() {
+  pendingBuffer = -1;
 }
 
 // Modified by TyraX: video mode + display window + scan-out, split
@@ -207,7 +291,9 @@ void RendererCoreGS::programDisplay() {
     }
   }
   graph_set_bgcolor(0, 0, 0);
-  presentFrameBuffer(context ^ 1);
+  // Modified by TyraX: the buffer the queue considers on screen, which is
+  // context ^ 1 at init in both buffering modes (see allocateVramBuffers).
+  presentFrameBuffer(static_cast<u8>(displayedBuffer));
   graph_enable_output();
 }
 
@@ -217,6 +303,7 @@ void RendererCoreGS::programDisplay() {
 // over - the caller (RendererCore::setDisplayOutput) evicts all textures
 // first and re-inits post fx right after.
 void RendererCoreGS::reinit() {
+  resetDisplayQueue();  // Modified by TyraX: every address below moves
   vram.reset();
   allocateBuffers();
   initDrawingEnvironment();
@@ -456,13 +543,10 @@ qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
   return q;
 }
 
-void RendererCoreGS::flipBuffers() {
-  presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
-
-  context ^= 1;
-
+// Modified by TyraX: the FRAME switch, shared by both flip paths.
+void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
   packet2_update(flipPacket,
-                 draw_framebuffer(flipPacket->base, 0, &frameBuffers[context]));
+                 draw_framebuffer(flipPacket->base, 0, &frameBuffers[target]));
   // Modified by TyraX: true field rendering (InterlacedField). The frame we
   // start rendering now is presented at the next vsync, i.e. scanned during
   // the OPPOSITE field of the one running right now (CSR.FIELD, which shows
@@ -486,6 +570,81 @@ void RendererCoreGS::flipBuffers() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(flipPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+}
+
+void RendererCoreGS::flipBuffers(bool throttle) {
+  // --- Two buffers: the stock path, unchanged. RendererCore::endFrame has
+  // already waited for vsync, so presenting here lands in the vertical blank
+  // and the EE owns the other buffer the moment this returns.
+  if (bufferCount < 3) {
+    presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
+    context ^= 1;
+    displayedBuffer = context ^ 1;
+    emitDrawTargetSwitch(context);
+    return;
+  }
+
+  // --- Three buffers (TyraX, docs/frame-pacing.md).
+  //
+  // Nothing here waits for a vsync in order to PRESENT - the interrupt
+  // handler does that. What it waits for is a free buffer, i.e. for the
+  // previously queued frame to have been latched, which is the pacing: at
+  // most one frame in flight ahead of the display. When the frame limiter is
+  // off the wait is skipped and a not-yet-shown frame is simply replaced, so
+  // "unlimited" still means "render as fast as the EE can" for benchmarking.
+  if (throttle) {
+    while (pendingBuffer >= 0) graph_wait_vsync();
+  }
+
+  // With the queue drained, the handler is inert and displayedBuffer is
+  // stable (see the header). The free slot is the third index: 0+1+2 = 3.
+  const s32 shown = displayedBuffer;
+  const u8 finished = context;
+  const u8 next = static_cast<u8>(3 - shown - finished);
+
+  // Point FRAME at the free buffer BEFORE queueing the finished one. The
+  // draw_finish handshake inside is what makes the queue safe: the GIF is
+  // in-order, so when FINISH comes back every triangle of the finished frame
+  // has been rasterised and the buffer is genuinely complete. Queueing first
+  // would let the handler put a half-drawn frame on screen.
+  emitDrawTargetSwitch(next);
+
+  context = next;
+  pendingBuffer = finished;  // hands ownership to the interrupt handler
+}
+
+// Modified by TyraX (docs/frame-pacing.md): INTERRUPT CONTEXT.
+void RendererCoreGS::onVblank() {
+  const s32 queued = pendingBuffer;
+  if (queued < 0) return;
+  presentFrameBuffer(static_cast<u8>(queued));
+  displayedBuffer = queued;
+  pendingBuffer = -1;  // releases the buffer that just left the screen
+}
+
+void RendererCoreGS::installVblankHandler() {
+  if (vblankHandlerId >= 0) return;
+  vblankOwner = this;
+  DIntr();
+  vblankHandlerId = AddIntcHandler(INTC_VBLANK_S, tyraxVblankHandler, 0);
+  if (vblankHandlerId >= 0) EnableIntc(INTC_VBLANK_S);
+  EIntr();
+  if (vblankHandlerId < 0) {
+    vblankOwner = nullptr;
+    TYRA_SOFT_ERROR(
+        "Triple buffering: could not install the vblank handler - staying "
+        "double buffered.");
+  }
+}
+
+void RendererCoreGS::removeVblankHandler() {
+  if (vblankHandlerId < 0) return;
+  DIntr();
+  DisableIntc(INTC_VBLANK_S);
+  RemoveIntcHandler(INTC_VBLANK_S, vblankHandlerId);
+  EIntr();
+  vblankHandlerId = -1;
+  vblankOwner = nullptr;
 }
 
 void RendererCoreGS::updateCurrentField() {

@@ -22,6 +22,34 @@ the verification, and any fact worth reusing belongs in the relevant
 
 ## Queued (rough order)
 
+- **Frame pacing follow-ups** (docs/frame-pacing.md, triple buffering landed
+  with the measurements in that page):
+  - **Triple buffering at 512x448, paid for by BLSS.** The neural upscaler
+    sizes the z buffer from the RASTER rather than the display buffer, which at
+    2x2 gives back 172 032 words - comfortably more than the 229 376 a third
+    display buffer costs. So the combination the VRAM guard refuses today
+    (full-height interlaced + triple) should fit with BLSS on. Unmeasured; it
+    needs the guard to be told about the shrunk z, which it already is by
+    construction (`getHeapWords()` is read after z is placed) - so this may be
+    nothing more than an example project and a measurement.
+  - **A hardware pass.** Everything in that page is PCSX2. The INTC vblank
+    handler and the `DISPFB` latch are exactly what an emulator is friendlier
+    about than a console.
+  - **Tell the game when the buffer count changed.** `setDisplayOutput` re-runs
+    the VRAM layout, so switching to a mode with no room silently drops to two
+    buffers - correct, but a menu that offers the mode cannot say so.
+  - **Frame extrapolation ("bieda frame gen").** Reproject the last finished
+    frame under the newest camera on a textured grid and present that on the
+    field where no new frame is ready, so the picture tracks the stick at the
+    field rate while the world renders at half of it. Rotation-only is an exact
+    homography and needs no depth at all; translation wants a per-tile depth,
+    which BLSS' `buildReproj()` already computes for its own history tap. The
+    cheapest version of the same idea is free: `graph_set_framebuffer`'s last
+    two arguments are the DISPFB in-buffer offset (the engine passes `0, 0`
+    everywhere), so a guard-band render can be re-presented shifted by a few
+    pixels from the yaw delta for two register writes in the vblank handler.
+    Both ride on the triple-buffered present, which is why that came first.
+
 - **Neural upscaler (BLSS) follow-ups** (docs/neural-upscaler.md,
   docs/blss-reconstruction.md). The proof of concept shipped: half-res 3D
   render, sub-pixel `XYOFFSET` jitter, a 6-12-3 MLP trained on the host and

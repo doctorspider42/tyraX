@@ -91,6 +91,21 @@ class RendererSettings {
   bool isFieldRendering() const {
     return displayMode == DisplayMode::InterlacedField;
   }
+
+  /**
+   * Triple buffering (TyraX fork, docs/frame-pacing.md). Must be set before
+   * RendererCoreGS allocates buffers - it decides how many frame buffers the
+   * permanent VRAM region holds, and the third one is not cheap (a full
+   * display buffer: 229 376 words at 512x448x32, half that in
+   * InterlacedField). Off by default, and the engine falls back to two
+   * buffers when the third does not fit.
+   */
+  const bool& getTripleBuffering() const { return tripleBuffering; }
+  void setTripleBuffering(const bool& on) { tripleBuffering = on; }
+
+  /** Frame buffers the renderer wants: 3 with triple buffering on, else 2.
+   * What it actually GOT is RendererCoreGS::getFrameBufferCount(). */
+  unsigned int getFrameBufferCount() const { return tripleBuffering ? 3u : 2u; }
   /** Height of the physical frame/z buffers - half the logical height when
    * field rendering, the logical height otherwise (TyraX fork). Everything
    * that sizes or addresses the framebuffer (allocation, XYOFFSET/SCISSOR,
@@ -171,6 +186,9 @@ class RendererSettings {
   // Modified by TyraX: BLSS raster scale (1,1 = off - no project pays for it).
   int rasterScaleX = 1;
   int rasterScaleY = 1;
+  // Modified by TyraX: triple buffering (docs/frame-pacing.md). Off by
+  // default - the third buffer is a full display buffer of GS VRAM.
+  bool tripleBuffering = false;
 
   /** Framebuffer size per scan mode + projection aspect (TyraX fork).
    * The projection aspect keeps the stock 512/448 value as the 4:3 baseline

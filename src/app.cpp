@@ -13191,6 +13191,20 @@ void App::drawPreferencesModal() {
             "whatever this resolves to on the player's console. (Field\n"
             "rendering has no full-height variant yet.)");
     }
+    ImGui::Checkbox("Triple buffering", &prefSettings_.tripleBuffering);
+    prefHelp(
+        "How a frame that misses its vsync deadline is paid for. Off, the\n"
+        "EE waits for the next vsync before presenting, so a frame taking\n"
+        "20.4 ms on a 20 ms PAL field waits out a whole second field and\n"
+        "the rate halves - 49 fps of work is shown as 25. On, a finished\n"
+        "frame is queued and a vblank interrupt presents it, so it is one\n"
+        "field late instead, and the EE spends the wait rendering: the\n"
+        "same work runs at ~49 fps.\n\n"
+        "Costs a THIRD display buffer of GS VRAM - 0.875 MB of the\n"
+        "~1.08 MB texture budget at 512x448, about half that in\n"
+        "interlaced-field. Check the game's VRAMSTAT log line before\n"
+        "shipping it: when the buffer does not fit the engine says so and\n"
+        "stays double buffered, so this can never break a build.");
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md

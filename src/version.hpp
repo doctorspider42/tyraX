@@ -17,8 +17,8 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 4
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 5
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -50,6 +50,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // project-wide BLSS group. Purely additive - blssEnabled defaults to false, so
 // an older file opens as "no upscaler", which is exactly what it was, and the
 // codegen is byte-identical while the flag is off. No migration step.
-inline constexpr int kFormatVersion = 4;
+// v5 (frame pacing, docs/frame-pacing.md): ProjectSettings::tripleBuffering.
+// Purely additive - it defaults to false, which is the double-buffered
+// present every project had, and the codegen is byte-identical while it is
+// off. No migration step.
+inline constexpr int kFormatVersion = 5;
 
 }  // namespace version

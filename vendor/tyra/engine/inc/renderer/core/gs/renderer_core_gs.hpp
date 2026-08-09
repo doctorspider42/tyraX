@@ -67,6 +67,37 @@ class RendererCoreGS {
   void reprogramDisplay();
 
   /**
+   * Modified by TyraX (docs/frame-pacing.md): hand the finished frame to the
+   * display and take the next drawing buffer.
+   *
+   * `throttle` is RendererCore's frame limiter. With TWO buffers it is the
+   * stock behaviour and the caller has already waited for vsync. With THREE
+   * it is this function that paces: it blocks until the queued frame has been
+   * latched by the vblank handler, i.e. at most one frame may be in flight
+   * ahead of the display. That is the whole point of the feature - a frame
+   * that overruns its field by a hair is presented one field late instead of
+   * costing a full extra field of EE stall, so 20.4 ms of work on PAL
+   * presents at ~49 fps rather than collapsing to 25.
+   */
+  void flipBuffers(bool throttle);
+
+  /**
+   * Modified by TyraX: INTERRUPT CONTEXT - called from the INTC vblank
+   * handler, never by game code. Latches the queued buffer into DISPFB and
+   * releases the one it replaces.
+   *
+   * Everything it touches must stay interrupt-safe: `presentFrameBuffer` is
+   * GS privileged-register stores and nothing else, and the queue is three
+   * scalars ordered so the main thread never needs to disable interrupts
+   * (see the comment on pendingBuffer).
+   */
+  void onVblank();
+
+  /** Frame buffers actually allocated - 3 when triple buffering came up, 2
+   * when it was off or the third buffer did not fit in GS VRAM. */
+  unsigned int getFrameBufferCount() const { return bufferCount; }
+
+  /**
    * Modified by TyraX (BLSS): lay the permanent frame/z buffers out again
    * WITHOUT touching the video mode - the frame buffers come back at the same
    * addresses, the z buffer at the size the current raster scale asks for, and
@@ -82,8 +113,6 @@ class RendererCoreGS {
    * scale than the settings now ask for (TyraX fork, BLSS) - i.e. the
    * permanent VRAM region has to be laid out again. */
   bool needsBufferRealloc() const;
-
-  void flipBuffers();
 
   void enableZTests();
 
@@ -138,12 +167,23 @@ class RendererCoreGS {
   qword_t* emitRasterRestore(qword_t* q, bool texFlush);
 
   /**
-   * The OTHER double-buffered frame buffer (TyraX fork, for BLSS): the frame
-   * presented last vsync, i.e. the previous composited image at full display
-   * resolution. RendererCoreBlss samples it as the temporal history, which is
-   * why BLSS allocates no history buffer of its own.
+   * The most recently FINISHED frame buffer (TyraX fork, for BLSS): the
+   * previous composited image at full display resolution. RendererCoreBlss
+   * samples it as the temporal history, which is why BLSS allocates no
+   * history buffer of its own.
+   *
+   * With two buffers that is simply the other one. With three
+   * (docs/frame-pacing.md) the newest finished frame is the one QUEUED for
+   * the next vblank when there is one - it is newer than what the TV is
+   * scanning right now - and the displayed buffer otherwise. Reading
+   * `context ^ 1` here would have handed BLSS the free buffer, i.e. the
+   * frame before last or uninitialised VRAM.
    */
-  framebuffer_t* getPreviousFrameBuffer() { return &frameBuffers[context ^ 1]; }
+  framebuffer_t* getPreviousFrameBuffer() {
+    if (bufferCount < 3) return &frameBuffers[context ^ 1];
+    const s32 queued = pendingBuffer;
+    return &frameBuffers[queued >= 0 ? queued : displayedBuffer];
+  }
 
   /**
    * The per-field XYOFFSET y bias in 1/16 px that true field rendering
@@ -159,8 +199,23 @@ class RendererCoreGS {
   constexpr static float gsCenter = 4096.0F;
   constexpr static float screenCenter = gsCenter / 2.0F;
 
+  // Modified by TyraX (docs/frame-pacing.md): what must survive the third
+  // display buffer, in GS words (1 word = 4 bytes, 1 MB = 262 144 words).
+  // The reserve is everything RendererCore still allocates permanently after
+  // gs.init() - post fx, the env-map and camera-feed targets with their z
+  // buffers, and the projected-shadow slots a game may claim later; the
+  // texture floor is a floor and not a budget, so a project can still run out
+  // the ordinary way and say so through VRAMSTAT.
+  constexpr static float kWordsPerMB = 262144.0F;
+  constexpr static int kThirdBufferReserveWords = 98304;      // 384 KB
+  constexpr static int kThirdBufferMinTextureWords = 65536;   // 256 KB
+
   RendererSettings* settings;
-  framebuffer_t frameBuffers[2];
+  // Modified by TyraX: three slots, of which the last is only allocated when
+  // triple buffering asked for it AND it fitted (docs/frame-pacing.md).
+  static constexpr unsigned int kMaxFrameBuffers = 3;
+  framebuffer_t frameBuffers[kMaxFrameBuffers];
+  unsigned int bufferCount = 2;
   packet2_t* flipPacket;
   packet2_t* zTestPacket;
   // Modified by TyraX: preallocated ALPHA-register packet (setAlpha
@@ -168,6 +223,28 @@ class RendererCoreGS {
   packet2_t* alphaPacket;
   u8 context;
   u8 currentField;
+
+  /**
+   * Modified by TyraX (docs/frame-pacing.md): the display queue, shared with
+   * the vblank interrupt handler.
+   *
+   * `displayedBuffer` is what the GS is scanning out, `pendingBuffer` is a
+   * finished frame waiting for the next vblank (-1 = none). The third,
+   * implicit slot is the one being drawn into (`context`), and the three are
+   * always distinct while a frame is queued - which is exactly why three
+   * buffers are needed to present without stalling.
+   *
+   * NO INTERRUPT MASKING is needed around this, and that is a property worth
+   * keeping: the handler only ever acts when `pendingBuffer >= 0`, so while
+   * the main thread has waited for it to reach -1 the handler is inert and
+   * `displayedBuffer` cannot move under it. flipBuffers() therefore writes
+   * `context` FIRST and `pendingBuffer` LAST - that store is what hands
+   * ownership over, and it must not be reordered ahead of the rest.
+   */
+  volatile s32 pendingBuffer = -1;
+  volatile s32 displayedBuffer = 1;
+  /** INTC handler id from AddIntcHandler, -1 when not installed. */
+  s32 vblankHandlerId = -1;
   // Modified by TyraX (BLSS): the raster redirect currently open, if any.
   RasterTarget redirect;
   bool rasterRedirected = false;
@@ -189,6 +266,19 @@ class RendererCoreGS {
   void presentFrameBuffer(u8 index);
   qword_t* setXYOffset(qword_t* q, const int& drawContext, const float& x,
                        const float& y);
+  // Modified by TyraX (docs/frame-pacing.md): the flip packet - point FRAME
+  // at frameBuffers[target] and, in InterlacedField, re-bias XYOFFSET for the
+  // field that frame will be scanned in. Shared by both flip paths.
+  void emitDrawTargetSwitch(u8 target);
+  // Install / tear down the INTC vblank handler that latches DISPFB. Only
+  // used with three buffers; with two, RendererCore's graph_wait_vsync is the
+  // whole story and no handler is installed.
+  void installVblankHandler();
+  void removeVblankHandler();
+  /** Drop any queued frame and re-arm the queue on `context`. The VRAM
+   * rebuild paths (reinit / reallocateBuffers) move every buffer address, so
+   * a frame queued against the old layout must not reach DISPFB. */
+  void resetDisplayQueue();
 };
 
 }  // namespace Tyra

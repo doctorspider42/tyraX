@@ -877,6 +877,35 @@ banner both, so a previously built ELF still reports.
   a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
   0.87 MB free and never evicts anything — if you are chasing a VRAM problem
   in a palettized project, measure before assuming there is one.
+- **Triple buffering: "does it fit" is the WRONG question, and asking it that
+  way is a boot crash** (TyraX fork, `docs/frame-pacing.md`). The third display
+  buffer is a full one - 229 376 words at 512x448x32, 262 144 in `Pal576i` - and
+  at 512x512 three buffers plus z are **exactly** the whole 4 MB: the allocation
+  succeeds and the NEXT one fails, which is a live `Out of VRAM for post fx
+  buffers` assertion before the first frame (measured, that is how the guard was
+  written). What must survive the third buffer is everything `RendererCore::init`
+  still allocates AFTER `gs.init` - post fx ~12 288 words, the env-map target +
+  its z 32 768, the camera feed + its z 32 768, the projected-shadow slots a game
+  may claim later ~20 480 - plus a texture heap worth having, so
+  `allocateVramBuffers` checks for headroom (`kThirdBufferReserveWords +
+  kThirdBufferMinTextureWords`) and REFUSES rather than warns. The same
+  arithmetic is why the feature is in practice an `InterlacedField` one: the
+  full-height 32bpp modes have no room at all. **Any future permanent
+  allocation added to renderer init has to be added to that reserve**, or it
+  becomes the one that gets -1.
+- **The vblank handler owns `DISPFB`, and the queue is lock-free ON PURPOSE.**
+  `RendererCoreGS::onVblank` runs in interrupt context and everything it touches
+  must stay interrupt-safe - `presentFrameBuffer` is GS privileged-register
+  stores and nothing else, so do not grow it into anything that allocates, DMAs
+  or logs. The three-slot queue needs no `DIntr()` because the handler only acts
+  when `pendingBuffer >= 0`: while the main thread has waited for -1 the handler
+  is inert and `displayedBuffer` cannot move under it, which is why
+  `flipBuffers` writes `context` FIRST and `pendingBuffer` LAST. The other
+  ordering rule is the `draw_finish` handshake before queueing - the GIF is
+  in-order, so FINISH is what proves the frame is fully rasterised; queueing
+  first puts a half-drawn frame on screen. And any path that moves buffer
+  addresses (`reinit`, `reallocateBuffers`) must `resetDisplayQueue()` first, or
+  a queued frame reaches DISPFB naming the old layout.
 - **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
   (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
   presents a frame each iteration is paced to 50/60 Hz, but a loop that draws
