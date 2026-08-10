@@ -428,9 +428,42 @@ void FootIk::solveLeg(SkelInstance& inst, const FootIkRig::Leg& leg, u8 index,
   float cand1[3], cand2[3];
   rotateAbout(dir, plane, angA, cand1);
   rotateAbout(dir, plane, -angA, cand2);
-  float abUnit[3] = {ab[0] / L1, ab[1] / L1, ab[2] / L1};
-  const float* pick = v3dot(cand1, abUnit) >= v3dot(cand2, abUnit) ? cand1
-                                                                  : cand2;
+  // Which SIDE the knee bends to is decided by the direction it currently
+  // points AWAY from the hip->ankle line - never by the thigh direction.
+  //
+  // Comparing candidates against the thigh (the first version of this) ties
+  // whenever the target needs a big swing, because both candidates then sit
+  // at a similar angle to where the thigh happens to be pointing. A tie here
+  // is a coin flip on float noise, and the coin lands differently on the next
+  // frame: measured on a staircase, that produced isolated single-frame
+  // corrections of ~100 degrees on the hip and knee, an order of magnitude
+  // above their own 99th percentile.
+  //
+  // The pole criterion cannot do that. Both candidates are reflections of
+  // each other across the leg axis, so their perpendicular components are
+  // exactly opposite - the comparison can only tie when the two candidates
+  // ARE the same vector, which is precisely when the leg is straight and the
+  // choice does not matter.
+  float legAxis[3] = {ac[0], ac[1], ac[2]};
+  float pole[3];
+  if (v3norm(legAxis) > 1e-6F) {
+    const float along = v3dot(ab, legAxis);
+    for (int k = 0; k < 3; ++k) pole[k] = ab[k] - legAxis[k] * along;
+  } else {
+    pole[0] = pole[1] = pole[2] = 0.0F;
+  }
+  const float* pick;
+  if (v3norm(pole) > 1e-5F) {
+    float perp[3];
+    const float alongC = v3dot(cand1, dir);
+    for (int k = 0; k < 3; ++k) perp[k] = cand1[k] - dir[k] * alongC;
+    pick = v3dot(perp, pole) >= 0.0F ? cand1 : cand2;
+  } else {
+    // A perfectly straight leg has no knee side of its own; the thigh is
+    // then the only hint available, and both candidates coincide anyway.
+    float abUnit[3] = {ab[0] / L1, ab[1] / L1, ab[2] / L1};
+    pick = v3dot(cand1, abUnit) >= v3dot(cand2, abUnit) ? cand1 : cand2;
+  }
   float Bn[3];
   for (int k = 0; k < 3; ++k) Bn[k] = A[k] + pick[k] * L1;
 

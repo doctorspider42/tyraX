@@ -766,7 +766,23 @@ void solve(const glbparser::Skel& skel, const AnimRig& rig,
         rotateAbout(dir, plane, angA, c1);
         rotateAbout(dir, plane, -angA, c2);
         float abUnit[3] = {ab[0] / L1, ab[1] / L1, ab[2] / L1};
-        const float* pick = v3dot(c1, abUnit) >= v3dot(c2, abUnit) ? c1 : c2;
+        // Twin of the engine's pole criterion - see the long note there for
+        // why the thigh direction is the wrong thing to compare against.
+        float legAxis[3] = {ac[0], ac[1], ac[2]};
+        float pole[3] = {0, 0, 0};
+        if (v3norm(legAxis) > 1e-6f) {
+            const float along = v3dot(ab, legAxis);
+            for (int k = 0; k < 3; ++k) pole[k] = ab[k] - legAxis[k] * along;
+        }
+        const float* pick;
+        if (v3norm(pole) > 1e-5f) {
+            float perp[3];
+            const float alongC = v3dot(c1, dir);
+            for (int k = 0; k < 3; ++k) perp[k] = c1[k] - dir[k] * alongC;
+            pick = v3dot(perp, pole) >= 0.0f ? c1 : c2;
+        } else {
+            pick = v3dot(c1, abUnit) >= v3dot(c2, abUnit) ? c1 : c2;
+        }
         float Bn[3];
         for (int k = 0; k < 3; ++k) Bn[k] = A[k] + pick[k] * L1;
 
