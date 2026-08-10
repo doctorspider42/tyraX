@@ -444,6 +444,7 @@ void FootIk::solveLeg(SkelInstance& inst, const FootIkRig::Leg& leg, u8 index,
   // exactly opposite - the comparison can only tie when the two candidates
   // ARE the same vector, which is precisely when the leg is straight and the
   // choice does not matter.
+  float abUnit[3] = {ab[0] / L1, ab[1] / L1, ab[2] / L1};
   float legAxis[3] = {ac[0], ac[1], ac[2]};
   float pole[3];
   if (v3norm(legAxis) > 1e-6F) {
@@ -461,7 +462,6 @@ void FootIk::solveLeg(SkelInstance& inst, const FootIkRig::Leg& leg, u8 index,
   } else {
     // A perfectly straight leg has no knee side of its own; the thigh is
     // then the only hint available, and both candidates coincide anyway.
-    float abUnit[3] = {ab[0] / L1, ab[1] / L1, ab[2] / L1};
     pick = v3dot(cand1, abUnit) >= v3dot(cand2, abUnit) ? cand1 : cand2;
   }
   float Bn[3];

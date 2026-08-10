@@ -89,6 +89,41 @@ poses would cost a second blend.
 denormals are zero. Training has to clamp activations accordingly; ReLU is
 free (one `max`) and is what the format assumes.
 
+## Training one
+
+Three commands. The editor owns the feature layout, the joint order and the
+binary format; the trainer owns none of them, which is what stops the two
+drifting.
+
+```bash
+tyrax-editor --gait-dataset <projectDir> res/models/hero.fbx gait.csv --clip Walk_Loop --frames 30000
+```
+
+Walks the character over generated flats, steps, staircases and ramps with
+the host twin of the runtime solver, and writes one row per frame plus a
+`gait.csv.meta.json` carrying the joint list and the probe geometry derived
+from that model's own height.
+
+```bash
+python tools/motion-net/train.py gait.csv --out weights.json --hidden 64 --layers 2
+```
+
+ReLU only (one `max` on VU0), validation split off the **tail** rather than at
+random — consecutive frames are nearly the same sample, so a shuffled split
+leaks the answer and the reported loss means nothing.
+
+```bash
+tyrax-editor --gait-bake <projectDir> res/models/hero.fbx weights.json
+```
+
+Validates the weights against the rig's own joint list, refuses a mismatch,
+writes the `.tnet` and switches the net on.
+
+Measured on a 68-bone character, 30 000 rows, 64 units × 2 hidden layers:
+train 0.0048 / validation 0.0055 (converged, no overfit), **7 296 MAC per
+frame** — about 50 µs on VU0, against roughly 900 µs of skinning for the same
+instance. The file is 30 KB.
+
 ## The file
 
 `.tnet`, written by the editor and read by `MotionNetLoader`, following the
