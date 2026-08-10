@@ -464,6 +464,25 @@ Related: the engine's error blocks now print `==============  TYRAX  ===========
 (`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
 banner both, so a previously built ELF still reports.
 
+**Skeletal pose hooks and foot IK** (docs/foot-ik.md, docs/neural-gait.md).
+`SkelInstance::evalPose` runs a chain of `SkelPoseHook`s between the hierarchy
+walk and the matrix palette - the one moment every joint's global exists and
+nothing has consumed it. Edit with `setPoseGlobal` (overwrite a joint, mark
+its DESCENDANTS stale) then `refreshPose` (settle marked subtrees from their
+own locals, one parents-first pass); an edited child overrides its parent's
+motion rather than being re-derived, which is what lets one batch move a
+pelvis and a knee and mean both. Three things to know before touching it:
+`poseEquals` refuses to group an instance carrying a hook (two characters on
+different ground are not in the same pose), so a crowd with IK pays a skin
+each; a hook-carrying instance must `invalidatePose()` per frame or a
+standing character on a rising platform never re-poses; and the knee-side
+choice in `FootIk` is a POLE test, never a comparison against the thigh - the
+thigh version ties on a big swing and flips the knee ~100 degrees between
+frames (measured: worst single-frame correction 5.15 -> 0.77). `MotionNet`'s
+MLP runs on VU0 in macro mode with weights streamed from main memory through
+`lqc2`, so its size is bounded by RAM and not by VU0's 4 KB - that limit is a
+microprogram's, and this is not one.
+
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
