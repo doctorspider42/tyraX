@@ -30,6 +30,7 @@
 #include "./renderer/3d/mesh/dynamic/dynamic_mesh.hpp"
 #include "./renderer/3d/mesh/dynamic/skel_instance.hpp"
 #include "./renderer/3d/mesh/dynamic/skel_foot_ik.hpp"
+#include "./renderer/3d/mesh/dynamic/motion_net.hpp"
 #include "./renderer/3d/mesh/static/static_mesh.hpp"
 #include "./renderer/rt/vu0_raytracer.hpp"
 #include "./thread/threading.hpp"

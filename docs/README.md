@@ -11,6 +11,9 @@ guides. What is queued is in [Backlog](backlog.md).
 - [Foot IK](foot-ik.md) - why a walk cycle sinks into stairs, the pose hook
   the fix hangs off, the two-bone solver and the pelvis drop, and the one
   thing it costs (pose sharing across a crowd).
+- [Neural gait](neural-gait.md) - the small network that reads the ground
+  ahead and rewrites the stride, why it fits on VU0 with room to spare, what
+  it is allowed to touch and the rules that keep a learned system safe.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) - why
   the game reads a binary model instead of your `.obj`, what that means for
   your files and the disc, distance mesh LOD for static geometry, and
