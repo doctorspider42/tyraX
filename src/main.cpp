@@ -563,8 +563,14 @@ static int rigDetectFromCli(int argc, char** argv) {
         return 1;
     }
 
+    // --apply stores what was detected, with the solver ON. The GUI
+    // deliberately never does that (a guess is confirmed by a human), but a
+    // scripted setup has already made that decision by typing the flag.
+    bool apply = false;
     std::vector<std::string> models;
-    if (argc > 3) {
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--apply") == 0) apply = true;
+    if (argc > 3 && std::strcmp(argv[3], "--apply") != 0) {
         models.push_back(argv[3]);
     } else {
         const std::filesystem::path dir =
@@ -633,7 +639,28 @@ static int rigDetectFromCli(int argc, char** argv) {
         const footik::Resolved r = footik::resolve(rig, skel);
         for (const std::string& problem : r.problems)
             std::printf("  PROBLEM: %s\n", problem.c_str());
-        if (!r.ok()) ++bad;
+        if (!r.ok()) {
+            ++bad;
+            continue;
+        }
+        if (apply && !stored) {
+            rig.enabled = true;
+            p.animRigs.push_back(rig);
+            // Every object using this model opts in too: a rig with nothing
+            // switched on renders identically to no rig at all, and a script
+            // that asked for detection wants to SEE it.
+            for (SceneData& sc : p.scenes)
+                for (SceneObject& o : sc.objects)
+                    if (o.modelPath == rel) o.footIk = true;
+            std::printf("  applied\n");
+        }
+    }
+    if (apply) {
+        if (std::string err = project::save(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("saved: %s\n", p.dir.c_str());
     }
     return bad == 0 ? 0 : 1;
 }

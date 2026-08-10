@@ -21,6 +21,7 @@
 #include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
+#include "footik.hpp"  // resolves a rig's bone names to the console's indices
 #include "glbparser.hpp"
 #include "livedbg.hpp"  // Live Debugger wire formats - shared with the editor
 #include "starfield.hpp"
@@ -178,6 +179,20 @@ static std::string animBakedTsklRel(const std::string& modelPath,
     char suf[16];
     std::snprintf(suf, sizeof(suf), "__ovr%04x", (unsigned)(h & 0xffffu));
     return base + suf + ".tskl";
+}
+
+// The trained pose corrector a model ships (res-relative, docs/neural-gait.md).
+// An explicit AnimRig::netPath wins; otherwise it is the model's own stem with
+// a .tnet extension. Unlike the .tskl this is NOT baked from the model - it is
+// an authored artifact the trainer produced - so there is no override variant
+// and nothing derives a second name for it.
+static std::string animBakedTnetRel(const std::string& modelPath,
+                                    const std::string& netPath) {
+    if (!netPath.empty()) return netPath;
+    std::string base = modelPath;
+    if (const size_t dot = base.rfind('.'); dot != std::string::npos)
+        base = base.substr(0, dot);
+    return base + ".tnet";
 }
 
 // The .tmdl a static-model identity bakes to (res-relative), mirroring
@@ -803,6 +818,23 @@ class TerrainGame : public Tyra::Game {
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
+    // Foot IK and the learned gait corrector (docs/foot-ik.md,
+    // docs/neural-gait.md). Only instances whose object asked for it AND
+    // whose model carries a rig that resolved get these; everything else
+    // pays one null pointer. They are hooks on animInst, chained net -> IK,
+    // so the corrector reshapes the stride and the solver then plants what
+    // it produced.
+    std::unique_ptr<Tyra::FootIk> footIk;
+    std::unique_ptr<Tyra::MotionPoseCorrector> gaitNet;
+    // Motion the net reads, measured from the object rather than asked of
+    // the walker: a position delta works for a player, an AI agent, a
+    // physics body and a cutscene alike, and none of them have to know the
+    // net exists. animPhase is integrated here for the same reason - the
+    // net's own playback rate feeds back into it.
+    float animPrevPos[3] = {0.0F, 0.0F, 0.0F};
+    float animPrevYaw = 0.0F;
+    float animPhase = 0.0F;
+    bool animMotionSeeded = false;
     // StaPip bags pointing straight into animInst's skinned arrays; the
     // skinned vertices stay in model space, so the object transform rides
     // in animMat (info bag + light matrix), not in the vertex data.
@@ -901,6 +933,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // The trained pose corrector, shared by every instance of this model
+    // exactly like the skeleton is. Null when the rig asks for none or the
+    // file is missing/mismatched - which is not an error, the character just
+    // walks without it.
+    std::unique_ptr<Tyra::MotionNetModel> gaitNet;
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
@@ -1184,6 +1221,14 @@ class TerrainGame : public Tyra::Game {
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
   // camera from poking into geometry from below (jump clamp).
+  // What is under a world point, for the foot solver (docs/foot-ik.md).
+  // The terrain plus every mesh-mode collider in range, highest surface
+  // inside [y + up, y - down] wins. Deliberately NOT collidePlayer: a foot
+  // wants the surface under one point, not a capsule pushed out of walls.
+  bool sampleGround(const float world[3], float up, float down, float* outY,
+                    float* outNormal) const;
+  static bool animGroundThunk(void* user, const float world[3], float up,
+                              float down, float* outY, float* outNormal);
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
@@ -2040,6 +2085,23 @@ class TerrainGame : public Tyra::Game {
     // Animated models (.glb): this object's skeletal instance (own
     // playback state + skinned output mesh, samples the shared SkelModel).
     std::unique_ptr<Tyra::SkelInstance> animInst;
+    // Foot IK and the learned gait corrector (docs/foot-ik.md,
+    // docs/neural-gait.md). Only instances whose object asked for it AND
+    // whose model carries a rig that resolved get these; everything else
+    // pays one null pointer. They are hooks on animInst, chained net -> IK,
+    // so the corrector reshapes the stride and the solver then plants what
+    // it produced.
+    std::unique_ptr<Tyra::FootIk> footIk;
+    std::unique_ptr<Tyra::MotionPoseCorrector> gaitNet;
+    // Motion the net reads, measured from the object rather than asked of
+    // the walker: a position delta works for a player, an AI agent, a
+    // physics body and a cutscene alike, and none of them have to know the
+    // net exists. animPhase is integrated here for the same reason - the
+    // net's own playback rate feeds back into it.
+    float animPrevPos[3] = {0.0F, 0.0F, 0.0F};
+    float animPrevYaw = 0.0F;
+    float animPhase = 0.0F;
+    bool animMotionSeeded = false;
     // StaPip bags pointing straight into animInst's skinned arrays; the
     // skinned vertices stay in model space, so the object transform rides
     // in animMat (info bag + light matrix), not in the vertex data.
@@ -2138,6 +2200,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // The trained pose corrector, shared by every instance of this model
+    // exactly like the skeleton is. Null when the rig asks for none or the
+    // file is missing/mismatched - which is not an error, the character just
+    // walks without it.
+    std::unique_ptr<Tyra::MotionNetModel> gaitNet;
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
@@ -2421,6 +2488,14 @@ class TerrainGame : public Tyra::Game {
   // model AABB), mesh (CollisionMesh) or none, per SceneObjectData.collision.
   // ceiling receives the lowest overhead surface so the walkers can keep the
   // camera from poking into geometry from below (jump clamp).
+  // What is under a world point, for the foot solver (docs/foot-ik.md).
+  // The terrain plus every mesh-mode collider in range, highest surface
+  // inside [y + up, y - down] wins. Deliberately NOT collidePlayer: a foot
+  // wants the surface under one point, not a capsule pushed out of walls.
+  bool sampleGround(const float world[3], float up, float down, float* outY,
+                    float* outNormal) const;
+  static bool animGroundThunk(void* user, const float world[3], float up,
+                              float down, float* outY, float* outNormal);
   void collidePlayer(float prevX, float prevZ, float* nextX, float* nextZ,
                      float feetY, float eyeHeight, float* ground,
                      float* ceiling);
@@ -6130,6 +6205,12 @@ void TerrainGame::loadAnimModelAsset(int i) {
     gam.cullBox = CoreBBox(corners, 2);
   }
   gam.src = std::move(model);
+
+  // The trained pose corrector rides with the model, not with the instance.
+  // A missing or mismatched .tnet is deliberately non-fatal: the loader
+  // warns, this stays null and every instance simply walks without it.
+  if (FOOTIK_RIGS[i].netEnabled && FOOTIK_RIGS[i].netPath[0])
+    gam.gaitNet = MotionNetLoader::load(FOOTIK_RIGS[i].netPath);
 }
 
 // Frees the shared skeletal model + its textures. Every SkelInstance
@@ -6538,6 +6619,53 @@ void TerrainGame::setupAnimObject(int index) {
   if (!gam.src) return;
 
   g.animInst = std::make_unique<SkelInstance>(gam.src.get());
+
+  // --- foot IK / gait net (docs/foot-ik.md) -------------------------------
+  // Two switches have to agree: the MODEL carries a rig that resolved, and
+  // THIS object asked for it. A crowd binds the rig once and turns it on for
+  // the few instances close enough to matter - an instance running the
+  // solver cannot share its skinned mesh with the rest (SkelInstance::
+  // poseEquals refuses to group it), so each one costs a skin.
+  g.footIk.reset();
+  g.gaitNet.reset();
+  g.animMotionSeeded = false;
+  g.animPhase = 0.0F;
+  const FootIkRigData& rigData = FOOTIK_RIGS[o.data.animModel];
+  if (rigData.enabled && rigData.legCount > 0 && o.data.footIk) {
+    auto ik = std::make_unique<FootIk>();
+    ik->rig.legCount = rigData.legCount;
+    for (int l = 0; l < rigData.legCount && l < FootIkRig::kMaxLegs; ++l) {
+      ik->rig.legs[l].hip = rigData.legs[l].hip;
+      ik->rig.legs[l].knee = rigData.legs[l].knee;
+      ik->rig.legs[l].ankle = rigData.legs[l].ankle;
+    }
+    ik->rig.pelvis = rigData.pelvis;
+    ik->rig.soleOffset = rigData.soleOffset;
+    ik->rig.maxLift = rigData.maxLift;
+    ik->rig.maxDrop = rigData.maxDrop;
+    ik->rig.normalBlend = rigData.normalBlend;
+    ik->rig.maxRollDeg = rigData.maxRollDeg;
+    ik->rig.smoothing = rigData.smoothing;
+    ik->rig.traceUp = rigData.traceUp;
+    ik->rig.traceDown = rigData.traceDown;
+    ik->setGround(&TerrainGame::animGroundThunk, this);
+    g.footIk = std::move(ik);
+
+    if (gam.gaitNet) {
+      auto net = std::make_unique<MotionPoseCorrector>();
+      net->setModel(gam.gaitNet.get());
+      net->setGround(&TerrainGame::animGroundThunk, this);
+      net->setFootIk(g.footIk.get());
+      net->setWeight(rigData.netWeight);
+      // Order is the whole point: the corrector reshapes the stride, THEN
+      // the solver plants whatever it produced.
+      net->nextHook = g.footIk.get();
+      g.gaitNet = std::move(net);
+      g.animInst->setPoseHook(g.gaitNet.get());
+    } else {
+      g.animInst->setPoseHook(g.footIk.get());
+    }
+  }
   DynamicMesh* mesh = g.animInst->mesh.get();
   for (size_t m = 0; m < mesh->materials.size(); ++m) {
     MeshMaterial* mat = mesh->materials[m];
@@ -6826,8 +6954,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
       inst->setLoop(o.animLoop);
       // time always advances by wall-clock seconds (speed scales the step),
       // visible or not - animFinished stays honest for offscreen instances
-      const float step =
-          (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
+      // The gait net's playback rate is the one output that leaves the
+      // pose: shorter, quicker steps going up a flight is a TIMING change
+      // no solver can produce. It is last frame's rate, because the net is
+      // evaluated inside the pose hook further down - one frame of latency
+      // on a value that moves over a whole stride, i.e. invisible.
+      const float rate = g.gaitNet ? g.gaitNet->phaseRate() : 1.0F;
+      const float step = (o.animPlaying && !g_gameplayPaused)
+                             ? g_frameDt * o.animSpeed * rate
+                             : 0.0F;
       o.animFinished = inst->advance(step);
     }
 
@@ -6871,6 +7006,67 @@ void TerrainGame::updateAndRenderAnimObjects() {
     m.data[12] = o.data.position[0];
     m.data[13] = o.data.position[1];
     m.data[14] = o.data.position[2];
+
+    // Foot IK / gait net inputs. The matrix is this frame's, which is why
+    // this sits here and not next to the advance above; the per-frame
+    // integration is gated on the FIRST pass, because a split screen draws
+    // the same instant twice and would spring the feet twice.
+    if (g.footIk && !splitSecondPass) {
+      g.footIk->setWorld(m);
+      g.footIk->beginFrame(g_frameDt);
+      // Anything with a pose hook must re-pose every frame even when
+      // playback is frozen: the ground can move under a standing character
+      // (a lift, a drawbridge) and the clip time alone would say nothing
+      // changed.
+      inst->invalidatePose();
+      if (g.gaitNet) {
+        // Motion measured off the object, so a player, an AI agent, a
+        // physics body and a cutscene all feed the net without knowing it
+        // exists. The first frame seeds instead of measuring - a spawn
+        // would otherwise read as a teleport at enormous speed.
+        const float dx = o.data.position[0] - g.animPrevPos[0];
+        const float dz = o.data.position[2] - g.animPrevPos[2];
+        const float yawNow = o.data.rotation[1] * (PI / 180.0F);
+        float dYaw = yawNow - g.animPrevYaw;
+        while (dYaw > PI) dYaw -= 2.0F * PI;   // the +-180 seam
+        while (dYaw < -PI) dYaw += 2.0F * PI;
+        float speed = 0.0F, turn = 0.0F, strafe = 0.0F;
+        if (g.animMotionSeeded && g_frameDt > 1e-5F) {
+          speed = sqrtf(dx * dx + dz * dz) / g_frameDt;
+          turn = dYaw / g_frameDt;
+          // Sideways fraction of the travel in the character's own frame -
+          // the net has to tell a strafe from a walk, and a world-space
+          // velocity would make a learned gait face-direction dependent.
+          const float fwdX = sinf(yawNow), fwdZ = cosf(yawNow);
+          const float along = dx * fwdX + dz * fwdZ;
+          const float side = dx * fwdZ - dz * fwdX;
+          const float mag = sqrtf(along * along + side * side);
+          if (mag > 1e-5F) strafe = side / mag;
+        }
+        g.animPrevPos[0] = o.data.position[0];
+        g.animPrevPos[1] = o.data.position[1];
+        g.animPrevPos[2] = o.data.position[2];
+        g.animPrevYaw = yawNow;
+        g.animMotionSeeded = true;
+
+        // Gait phase. Integrated here rather than read off the instance
+        // because the net's own rate feeds back into it, so the phase the
+        // net sees and the time the clip advances by are the same number.
+        const float dur = (o.animClip >= 0 &&
+                           o.animClip < (int)gam.src->clips.size())
+                              ? gam.src->clips[o.animClip].duration
+                              : 0.0F;
+        if (dur > 1e-4F) {
+          g.animPhase += (g_frameDt * o.animSpeed *
+                          (g.gaitNet ? g.gaitNet->phaseRate() : 1.0F)) /
+                         dur;
+          g.animPhase -= floorf(g.animPhase);
+        }
+        g.gaitNet->setWorld(m);
+        g.gaitNet->beginFrame(g_frameDt, g.animPhase, speed, turn, strafe,
+                              yawNow, o.data.position);
+      }
+    }
 
     // pose + skin + submit only when the conservative box touches the view
     if (gam.cullBox.frustumCheck(
@@ -7033,6 +7229,124 @@ void TerrainGame::updateAndRenderAnimObjects() {
 // stay larger than the near clip distance (0.15, see clipMargin in init())
 // or looking up at a ceiling the head touches would open a see-through hole.
 constexpr float EYE_CLEARANCE = 0.2F;
+
+// What is under one world point, for the foot solver (docs/foot-ik.md).
+// The highest surface inside [y + up, y - down] wins: the terrain, plus the
+// triangles of every mesh-mode collider whose box the window touches.
+//
+// Deliberately NOT collidePlayer. A foot asks about ONE point and wants a
+// normal back; the walker asks about a capsule and wants to be pushed out of
+// walls. Sharing the traversal would mean the feet inherit the wall push and
+// the step-up rule, which is exactly the behaviour a foot must not have.
+//
+// Cost: one grid-accelerated raycast per collider in range per foot, which
+// for a biped on stairs is two objects and two rays. The distance reject in
+// front of it is what keeps a scene full of colliders from paying for feet
+// nowhere near them.
+bool TerrainGame::sampleGround(const float world[3], float up, float down,
+                               float* outY, float* outNormal) const {
+  const float top = world[1] + up;
+  const float bottom = world[1] - down;
+  bool found = false;
+  float best = bottom;
+  float bestN[3] = {0.0F, 1.0F, 0.0F};
+
+  // The heightfield first - it is one bilinear sample and it is what the
+  // character is standing on almost all of the time.
+  const float ty = terrainHeightAt(world[0], world[2]);
+  if (ty >= bottom && ty <= top) {
+    found = true;
+    best = ty;
+    // Central differences on the heightfield, the same slope normal the
+    // physics contact uses - so a foot on a hill tilts the way a rolling
+    // body would slide.
+    const float h = 0.25F;
+    Vec4 n(terrainHeightAt(world[0] - h, world[2]) -
+               terrainHeightAt(world[0] + h, world[2]),
+           2.0F * h,
+           terrainHeightAt(world[0], world[2] - h) -
+               terrainHeightAt(world[0], world[2] + h),
+           0.0F);
+    n.normalize();
+    bestN[0] = n.x, bestN[1] = n.y, bestN[2] = n.z;
+  }
+
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    if (o.data.collision != 1 || o.data.type != 5) continue;  // mesh mode only
+    if (o.data.model < 0 || o.data.model >= (int)gameModels.size()) continue;
+    const GameModel& gm = gameModels[o.data.model];
+    if (gm.collider.empty()) continue;
+
+    // Cheap reject: the object's own scaled radius against the XZ distance.
+    // Without it a scene with a hundred mesh colliders pays a local-space
+    // transform per foot per object, every frame.
+    const float rx = 0.5F * o.data.scale[0] * (gm.mx[0] - gm.mn[0]);
+    const float rz = 0.5F * o.data.scale[2] * (gm.mx[2] - gm.mn[2]);
+    const float reach = (rx > rz ? rx : rz) + 1.0F;
+    const float ddx = world[0] - o.data.position[0];
+    const float ddz = world[2] - o.data.position[2];
+    if (ddx * ddx + ddz * ddz > reach * reach) continue;
+
+    const float sx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 0.0001F;
+    const float sy = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 0.0001F;
+    const float sz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 0.0001F;
+    auto toLocal = [&](float wx, float wy, float wz) {
+      V3 q = {wx - o.data.position[0], wy - o.data.position[1],
+              wz - o.data.position[2]};
+      q = invRotated(q, o.data.rotation);
+      return V3{q.x / sx, q.y / sy, q.z / sz};
+    };
+    auto toWorld = [&](const V3& l) {
+      V3 q = {l.x * sx, l.y * sy, l.z * sz};
+      q = rotated(q, o.data.rotation);
+      return V3{q.x + o.data.position[0], q.y + o.data.position[1],
+                q.z + o.data.position[2]};
+    };
+
+    const V3 ro = toLocal(world[0], top, world[2]);
+    const V3 rq = toLocal(world[0], bottom, world[2]);
+    V3 rd = {rq.x - ro.x, rq.y - ro.y, rq.z - ro.z};
+    const float rl = sqrtf(rd.x * rd.x + rd.y * rd.y + rd.z * rd.z);
+    if (rl <= 0.0001F) continue;
+    rd.x /= rl, rd.y /= rl, rd.z /= rl;
+    float t;
+    Vec4 nLocal(0.0F, 1.0F, 0.0F, 0.0F);
+    if (!gm.collider.raycast(Vec4(ro.x, ro.y, ro.z, 1.0F),
+                             Vec4(rd.x, rd.y, rd.z, 0.0F), rl, &t, &nLocal))
+      continue;
+    const V3 hit = toWorld({ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t});
+    if (hit.y < best) continue;
+    best = hit.y;
+    found = true;
+    // A normal is a direction: it rotates with the object and, under a
+    // non-uniform scale, is squashed the OTHER way round from a position.
+    // Skipping that leaves a foot on a stretched ramp tilted wrong.
+    V3 n = {nLocal.x / sx, nLocal.y / sy, nLocal.z / sz};
+    n = rotated(n, o.data.rotation);
+    const float nl = sqrtf(n.x * n.x + n.y * n.y + n.z * n.z);
+    if (nl > 1e-6F) {
+      const float inv = (n.y < 0.0F ? -1.0F : 1.0F) / nl;  // a soup has no
+      bestN[0] = n.x * inv;                                // winding
+      bestN[1] = n.y * inv;
+      bestN[2] = n.z * inv;
+    }
+  }
+
+  if (!found) return false;
+  *outY = best;
+  outNormal[0] = bestN[0];
+  outNormal[1] = bestN[1];
+  outNormal[2] = bestN[2];
+  return true;
+}
+
+bool TerrainGame::animGroundThunk(void* user, const float world[3], float up,
+                                  float down, float* outY, float* outNormal) {
+  return static_cast<const TerrainGame*>(user)->sampleGround(world, up, down,
+                                                             outY, outNormal);
+}
 
 // Shared player-vs-scene collision (both walkers). Box mode reproduces the
 // classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
@@ -20375,7 +20689,8 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << (o.dynamicLighting ? 1 : 0) << ", " << animModelIndexOf(p, o)
         << ", \"" << escapeCString(o.animClip) << "\", "
         << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0) << ", "
-        << floatLit(o.animSpeed) << ", " << floatLit(o.animLodOverride) << ", "
+        << floatLit(o.animSpeed) << ", " << (o.footIk ? 1 : 0) << ", "
+        << floatLit(o.animLodOverride) << ", "
         << floatLit(o.meshLodOverride) << ", "
         // The content-forward correction only means anything on the animated
         // path (it is not offered for anything else). Emitting a stale value
@@ -21357,6 +21672,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int animAutoplay;      // animated models: 1 = play at scene start\n"
            "  int animLoop;          // animated models: 1 = starting clip loops\n"
            "  float animSpeed;       // animated models: playback speed multiplier\n"
+           "  int footIk;            // animated models: 1 = plant this instance's\n"
+           "                         // feet on the world (docs/foot-ik.md). Needs\n"
+           "                         // a resolved rig in FOOTIK_RIGS as well\n"
            "  float animLod;  // per-object animation-LOD distance override:\n"
            "                  // -1 = project ANIM_LOD_DISTANCE, 0 = off, >0 = custom\n"
            "  float meshLod;  // per-object mesh-LOD distance override (same coding)\n"
@@ -32742,8 +33060,80 @@ static std::string modelDataHeader(const Project& p) {
             out << "    \"" << binPathOf(animBakedTsklRel(key.first, key.second))
                 << "\",\n";
     }
-    out << "};\n\n"
-        << "// .mtl libraries assigned to primitives (first material = surface)\n"
+    out << "};\n\n";
+
+    // Foot IK rigs, one slot per ANIM_MODEL_PATHS entry (docs/foot-ik.md).
+    // Bone NAMES are resolved to node indices here, at build time, because
+    // that is the only place both the authored rig and the parsed skeleton
+    // exist - the console binds by index and never sees a name. A rig that
+    // does not resolve is emitted DISABLED rather than skipped, so the slots
+    // keep lining up with ANIM_MODEL_PATHS whatever fails.
+    //
+    // The gait net's joint list is deliberately NOT here: the .tnet carries
+    // its own, in its own output order, and two lists that must agree is one
+    // list too many.
+    out << "// Foot IK rig per animated model (docs/foot-ik.md). All-zero\n"
+           "// legCount = this model has no rig and animates as authored.\n"
+           "struct FootIkLegData {\n"
+           "  short hip, knee, ankle;\n"
+           "};\n"
+           "struct FootIkRigData {\n"
+           "  bool enabled;\n"
+           "  unsigned char legCount;\n"
+           "  FootIkLegData legs[4];\n"
+           "  short pelvis;\n"
+           "  float soleOffset, maxLift, maxDrop;\n"
+           "  float normalBlend, maxRollDeg, smoothing;\n"
+           "  float traceUp, traceDown;\n"
+           "  bool netEnabled;\n"
+           "  const char* netPath;  // \"\" = none\n"
+           "  float netWeight;\n"
+           "};\n"
+           "inline const FootIkRigData FOOTIK_RIGS[ANIM_MODEL_COUNT > 0 ? "
+           "ANIM_MODEL_COUNT : 1] = {\n";
+    if (animKeys.empty()) {
+        out << "    {false, 0, {{-1,-1,-1},{-1,-1,-1},{-1,-1,-1},{-1,-1,-1}}, "
+               "-1, 0.08F, 0.45F, 0.45F, 0.8F, 35.0F, 14.0F, 0.6F, 1.2F, "
+               "false, \"\", 1.0f},\n";
+    } else {
+        for (const auto& key : animKeys) {
+            const AnimRig* rig = p.findAnimRig(key.first);
+            footik::Resolved r;
+            bool usable = false;
+            if (rig && rig->enabled && !rig->legs.empty()) {
+                glbparser::Skel skel;
+                std::string err;
+                if (animimport::parseSkel(p.filePath(key.first), skel, err)) {
+                    r = footik::resolve(*rig, skel);
+                    usable = r.ok();
+                }
+            }
+            const AnimRig fallback;
+            const AnimRig& g = rig ? *rig : fallback;
+            out << "    {" << (usable ? "true" : "false") << ", "
+                << (usable ? (int)r.legs.size() : 0) << ", {";
+            for (int l = 0; l < 4; ++l) {
+                const bool have = usable && l < (int)r.legs.size();
+                out << (l ? "," : "") << "{" << (have ? r.legs[l].hip : -1)
+                    << "," << (have ? r.legs[l].knee : -1) << ","
+                    << (have ? r.legs[l].ankle : -1) << "}";
+            }
+            out << "}, " << (usable ? r.pelvis : -1) << ", "
+                << floatLit(g.soleOffset) << ", " << floatLit(g.maxLift)
+                << ", " << floatLit(g.maxDrop) << ", "
+                << floatLit(g.normalBlend) << ", " << floatLit(g.maxRollDeg)
+                << ", " << floatLit(g.smoothing) << ", "
+                << floatLit(g.traceUp) << ", " << floatLit(g.traceDown)
+                << ", " << (usable && g.netEnabled ? "true" : "false") << ", \""
+                << (usable && g.netEnabled
+                        ? binPathOf(animBakedTnetRel(key.first, g.netPath))
+                        : std::string())
+                << "\", " << floatLit(g.netWeight) << "},\n";
+        }
+    }
+    out << "};\n\n";
+
+    out << "// .mtl libraries assigned to primitives (first material = surface)\n"
         << "constexpr int MATERIAL_COUNT = " << materials.size() << ";\n"
         << "inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {\n";
     if (materials.empty()) {

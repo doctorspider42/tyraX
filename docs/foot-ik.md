@@ -95,6 +95,40 @@ the flat normal is already packed next to the triangle — but note it comes
 back with the source mesh's winding, and a triangle soup has no reliable one.
 The solver flips it against world up itself.
 
+## What the traces hit
+
+The generated game answers the solver through `sampleGround`: the terrain
+heightfield (one bilinear sample, plus a central-difference slope normal — so
+a foot on a hill tilts the way a rolling body would slide), then the triangles
+of every **mesh-mode** collider whose bounds the trace window reaches. Highest
+surface inside the window wins.
+
+That is deliberately *not* `collidePlayer`. A foot asks about one point and
+wants a normal back; the walker asks about a capsule and wants to be pushed
+out of walls. Sharing the traversal would give the feet the wall push and the
+step-up rule — exactly the behaviour a foot must not have.
+
+**Stairs therefore need `collision: mesh` on the model.** In box mode the trace
+hits the AABB and the whole flight reads as one flat lid, which looks like the
+solver ignoring the steps.
+
+Cost is one grid-accelerated raycast per collider in range per foot — two
+objects and two rays for a biped on a staircase. A cheap XZ distance reject in
+front of it is what stops a scene full of colliders paying for feet nowhere
+near them.
+
+## Two switches
+
+The rig is bound once per model (*Tools > Foot IK*); each instance opts in
+separately (*Properties > Foot IK*). Both must be on. The split exists because
+of the pose-sharing cost above: bind the rig once, run the solver on the
+characters close enough to matter, and let a distant crowd keep sharing one
+skin.
+
+An instance carrying a hook also re-poses every frame even when playback is
+frozen — the ground can move under a standing character (a lift, a
+drawbridge), and clip time alone would say nothing changed.
+
 ## What it never does
 
 The solver does not move the character. Its output is what the mesh looks
