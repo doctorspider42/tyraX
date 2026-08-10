@@ -638,9 +638,19 @@ void solve(const glbparser::Skel& skel, const AnimRig& rig,
             if (v3norm(gn) < 1e-6f) gn[0] = 0, gn[1] = 1, gn[2] = 0;
             if (gn[1] < 0.0f)
                 for (int k = 0; k < 3; ++k) gn[k] = -gn[k];
-            std::memcpy(state.normal[i], gn, sizeof(gn));
         } else {
-            state.normal[i][0] = 0, state.normal[i][1] = 1, state.normal[i][2] = 0;
+            gn[0] = 0.0f, gn[1] = 1.0f, gn[2] = 0.0f;
+        }
+        // Twin of the engine's normal smoothing - see the note there for the
+        // numbers this is worth.
+        {
+            const float k = dt > 0.0f ? clampf(dt * rig.smoothing, 0.0f, 1.0f)
+                                      : 1.0f;
+            for (int c = 0; c < 3; ++c)
+                state.normal[i][c] += (gn[c] - state.normal[i][c]) * k;
+            if (v3norm(state.normal[i]) < 1e-6f)
+                state.normal[i][0] = 0, state.normal[i][1] = 1,
+                state.normal[i][2] = 0;
         }
         springTo(&state.offset[i], &state.offsetVel[i], raw, rig.smoothing, dt);
         if (state.offset[i] < deepest) deepest = state.offset[i];

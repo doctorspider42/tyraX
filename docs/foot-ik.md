@@ -139,6 +139,37 @@ An instance carrying a hook also re-poses every frame even when playback is
 frozen — the ground can move under a standing character (a lift, a
 drawbridge), and clip time alone would say nothing changed.
 
+## Measuring jitter
+
+A solver that shakes is easy to see and hard to argue about, so there is a
+way to put a number on it that needs no emulator. `footik::solve` is a host
+twin of the runtime, and `--gait-dataset` already walks a character over
+procedurally generated stairs and ramps with it — its target columns are the
+per-joint corrections, one row per frame. The **frame-to-frame change** of
+those columns is the jitter:
+
+```bash
+tyrax-editor --gait-dataset <projectDir> res/models/hero.fbx jitter.csv --frames 4000
+```
+
+Read the median (normal tracking of changing ground), the 99th percentile
+(how rough it gets), and the worst single step (a discontinuity — a flipped
+knee, a snapped foot roll). Comparing two runs of the same seed isolates one
+change: everything the change does not touch comes out bit-identical, which
+is how the normal smoothing below was shown to be worth what it claims and
+nothing else.
+
+**Known, measured, unfixed:** on a 68-bone rig walking stairs the hip and
+knee still show rare single-frame corrections an order of magnitude above
+their 99th percentile (worst ≈ 5.2 against p99 ≈ 0.42). The median and p99
+are steady, so this is a discontinuity in a small number of frames rather
+than general noise. The leading suspect is the two-candidate knee-bend pick
+going ambiguous as a leg straightens — `cross(thigh, shin)` collapses there
+and both candidates tie. A first attempt at stabilising it (remembering the
+last well-conditioned bend direction in the hip's frame) did not remove the
+spikes and made one joint's tail worse, so it was reverted rather than
+shipped on a hunch.
+
 ## What it never does
 
 The solver does not move the character. Its output is what the mesh looks
