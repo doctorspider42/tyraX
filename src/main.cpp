@@ -21,6 +21,7 @@
 #include "elfsym.hpp"
 #include "fbxparser.hpp"  // animimport::parseSkel (--rig-detect)
 #include "footik.hpp"
+#include "motionnet.hpp"
 #include "gibake.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
@@ -663,6 +664,174 @@ static int rigDetectFromCli(int argc, char** argv) {
         std::printf("saved: %s\n", p.dir.c_str());
     }
     return bad == 0 ? 0 : 1;
+}
+
+// The two halves of training a gait net (docs/neural-gait.md). Both are CLI
+// rather than buttons for the same reason --bake-gi is: they are long,
+// scriptable and belong in a loop with a Python trainer that is not the
+// editor's business. The Foot IK panel is where a net is switched ON.
+//
+// tyrax-editor.exe --gait-dataset <projectDir> <modelRel> <out.csv>
+//                  [--clip NAME] [--frames N] [--speed S] [--seed N]
+static int gaitDatasetFromCli(int argc, char** argv) {
+    if (argc < 5) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --gait-dataset <projectDir> "
+                     "<modelRel> <out.csv> [--clip NAME] [--frames N] "
+                     "[--speed S] [--seed N]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const std::string rel = argv[3];
+    const AnimRig* rig = p.findAnimRig(rel);
+    if (!rig || rig->legs.empty()) {
+        std::fprintf(stderr,
+                     "error: %s has no rig - run --rig-detect --apply first\n",
+                     rel.c_str());
+        return 1;
+    }
+    glbparser::Skel skel;
+    std::string err;
+    if (!animimport::parseSkel(p.filePath(rel), skel, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const footik::Resolved resolved = footik::resolve(*rig, skel);
+    if (!resolved.ok()) {
+        for (const std::string& problem : resolved.problems)
+            std::fprintf(stderr, "error: %s\n", problem.c_str());
+        return 1;
+    }
+
+    motionnet::DatasetOptions opt;
+    for (int i = 5; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "--clip") == 0) opt.clip = argv[i + 1];
+        else if (std::strcmp(argv[i], "--frames") == 0) opt.frames = std::atoi(argv[i + 1]);
+        else if (std::strcmp(argv[i], "--speed") == 0) opt.speed = (float)std::atof(argv[i + 1]);
+        else if (std::strcmp(argv[i], "--seed") == 0) opt.seed = (unsigned)std::atoi(argv[i + 1]);
+    }
+    const motionnet::Params params = motionnet::defaultParams(skel, *rig);
+    const std::string csv =
+        motionnet::generateDataset(skel, *rig, resolved, params, opt);
+    if (csv.empty()) {
+        std::fprintf(stderr, "error: %s\n", opt.error.c_str());
+        return 1;
+    }
+    std::ofstream f(argv[4], std::ios::binary);
+    if (!f) {
+        std::fprintf(stderr, "error: cannot write %s\n", argv[4]);
+        return 1;
+    }
+    f << csv;
+    // The trainer needs the joint list and the probe geometry to write a
+    // weights file this editor will accept, and deriving them twice is how
+    // the two come to disagree - so they are emitted next to the CSV.
+    const std::vector<int> joints = motionnet::outputJoints(*rig, resolved);
+    const std::string metaPath = std::string(argv[4]) + ".meta.json";
+    std::ofstream m(metaPath, std::ios::binary);
+    m << "{\n  \"featureVersion\": " << (int)motionnet::kFeatureVersion
+      << ",\n  \"featureCount\": " << (int)motionnet::kFeatureCount
+      << ",\n  \"joints\": [";
+    for (size_t i = 0; i < joints.size(); ++i)
+        m << (i ? ", " : "") << joints[i];
+    m << "],\n  \"params\": {\n    \"probeForward\": [";
+    for (int i = 0; i < motionnet::kProbeForward; ++i)
+        m << (i ? ", " : "") << params.probeForward[i];
+    m << "],\n    \"probeLateral\": [";
+    for (int i = 0; i < motionnet::kProbeLateral; ++i)
+        m << (i ? ", " : "") << params.probeLateral[i];
+    m << "],\n    \"probeScale\": " << params.probeScale
+      << ",\n    \"refSpeed\": " << params.refSpeed
+      << ",\n    \"outScale\": " << params.outScale
+      << ",\n    \"phaseRateRange\": " << params.phaseRateRange << "\n  }\n}\n";
+    std::printf("%s: %d rows, %d features, %d joints\n", argv[4], opt.frames,
+                (int)motionnet::kFeatureCount, (int)joints.size());
+    std::printf("%s\n", metaPath.c_str());
+    return 0;
+}
+
+// tyrax-editor.exe --gait-bake <projectDir> <modelRel> <weights.json>
+static int gaitBakeFromCli(int argc, char** argv) {
+    if (argc < 5) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --gait-bake <projectDir> <modelRel> "
+                     "<weights.json>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const std::string rel = argv[3];
+    const AnimRig* rig = p.findAnimRig(rel);
+    if (!rig || rig->legs.empty()) {
+        std::fprintf(stderr, "error: %s has no rig\n", rel.c_str());
+        return 1;
+    }
+    std::ifstream in(argv[4], std::ios::binary);
+    if (!in) {
+        std::fprintf(stderr, "error: cannot read %s\n", argv[4]);
+        return 1;
+    }
+    const std::string text((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    motionnet::Net net;
+    std::string err;
+    if (!motionnet::readWeightsJson(text, net, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    // The net's own joint list must be the one this rig produces, or the
+    // outputs land on the wrong bones - which looks like a bad net rather
+    // than a bad pairing, so it is refused here.
+    glbparser::Skel skel;
+    if (!animimport::parseSkel(p.filePath(rel), skel, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const std::vector<int> want =
+        motionnet::outputJoints(*rig, footik::resolve(*rig, skel));
+    if (want != net.joints) {
+        std::fprintf(stderr,
+                     "error: these weights were trained against a different "
+                     "joint list - regenerate the dataset\n");
+        return 1;
+    }
+
+    std::string outRel = rig->netPath;
+    if (outRel.empty()) {
+        outRel = rel;
+        if (const size_t dot = outRel.rfind('.'); dot != std::string::npos)
+            outRel = outRel.substr(0, dot);
+        outRel += ".tnet";
+    }
+    const std::string bytes = motionnet::writeTnet(net);
+    std::ofstream f(p.filePath(outRel), std::ios::binary);
+    if (!f) {
+        std::fprintf(stderr, "error: cannot write %s\n", outRel.c_str());
+        return 1;
+    }
+    f.write(bytes.data(), (std::streamsize)bytes.size());
+    f.close();
+
+    for (AnimRig& r : p.animRigs)
+        if (r.model == rel) {
+            r.netEnabled = true;
+            r.netPath = outRel;
+        }
+    if (std::string e = project::save(p); !e.empty()) {
+        std::fprintf(stderr, "error: %s\n", e.c_str());
+        return 1;
+    }
+    std::printf("%s: %d bytes, %d layers, %d joints - enabled on %s\n",
+                outRel.c_str(), (int)bytes.size(), (int)net.layers.size(),
+                (int)net.joints.size(), rel.c_str());
+    return 0;
 }
 
 // tyrax-editor.exe --dump-graph <projectDir> <objectName> [sceneName]
@@ -2736,6 +2905,10 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--rig-detect") == 0)
         return rigDetectFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--gait-dataset") == 0)
+        return gaitDatasetFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--gait-bake") == 0)
+        return gaitBakeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)

@@ -2383,6 +2383,8 @@ struct AnimRig {
     float maxDrop = 0.45f;      // how far the pelvis may sink
     float normalBlend = 0.8f;   // 0 = keep the clip's foot angle
     float maxRollDeg = 35.0f;
+    float pelvisTilt = 0.6f;    // tip the hips toward the lower foot
+    float maxTiltDeg = 14.0f;
     float smoothing = 14.0f;    // spring rate, 1/s
     float traceUp = 0.6f;       // trace window around the clip's sole, world
     float traceDown = 1.2f;
@@ -2405,6 +2407,7 @@ inline bool operator==(const AnimRig& a, const AnimRig& b) {
            a.pelvis == b.pelvis && a.soleOffset == b.soleOffset &&
            a.maxLift == b.maxLift && a.maxDrop == b.maxDrop &&
            a.normalBlend == b.normalBlend && a.maxRollDeg == b.maxRollDeg &&
+           a.pelvisTilt == b.pelvisTilt && a.maxTiltDeg == b.maxTiltDeg &&
            a.smoothing == b.smoothing && a.traceUp == b.traceUp &&
            a.traceDown == b.traceDown && a.netEnabled == b.netEnabled &&
            a.netPath == b.netPath && a.netWeight == b.netWeight &&

@@ -273,15 +273,69 @@ void FootIk::modifyPose(SkelInstance& inst) {
     targetW[i][2] = ankleW[2];
   }
 
-  // --- stage 2: lower the pelvis so the deepest leg can reach ---
+  // --- stage 2: lower the pelvis so the deepest leg can reach, and TIP it
+  // toward the lower foot. The drop alone is not enough: with one leg
+  // reaching down a step and the other bent under the body, level hips read
+  // as a character on stilts. The tilt is what puts the weight on a leg. ---
   pelvisOff = clampf(deepest, -rig.maxDrop, 0.0F) * weight;
-  if (rig.pelvis >= 0 && (pelvisOff < -1e-5F)) {
+  if (rig.pelvis >= 0) {
     M4x4 m = inst.poseGlobal((u32)rig.pelvis);
-    m.data[12] += modelUpRaw[0] * pelvisOff;
-    m.data[13] += modelUpRaw[1] * pelvisOff;
-    m.data[14] += modelUpRaw[2] * pelvisOff;
-    inst.setPoseGlobal((u32)rig.pelvis, m);
-    inst.refreshPose();  // the hips must have MOVED before the legs read them
+    bool edited = false;
+    if (pelvisOff < -1e-5F) {
+      m.data[12] += modelUpRaw[0] * pelvisOff;
+      m.data[13] += modelUpRaw[1] * pelvisOff;
+      m.data[14] += modelUpRaw[2] * pelvisOff;
+      edited = true;
+    }
+
+    if (legs >= 2 && rig.pelvisTilt > 0.0F) {
+      const M4x4& h0 = inst.poseGlobal((u32)rig.legs[0].hip);
+      const M4x4& h1 = inst.poseGlobal((u32)rig.legs[1].hip);
+      float hipVec[3] = {h1.data[12] - h0.data[12], h1.data[13] - h0.data[13],
+                         h1.data[14] - h0.data[14]};
+      const float span = v3norm(hipVec);
+      // The two feet's height difference, converted from world into model
+      // units through the SAME raw up-vector a height offset uses - mixing
+      // that up with the unit one silently scales the tilt by the object's
+      // scale.
+      const float upLen = sqrtf(modelUpRaw[0] * modelUpRaw[0] +
+                                modelUpRaw[1] * modelUpRaw[1] +
+                                modelUpRaw[2] * modelUpRaw[2]);
+      const float dModel = (targetW[0][1] - targetW[1][1]) * upLen;
+      if (span > 1e-4F && fabsf(dModel) > 1e-5F) {
+        float ang = atanf(dModel / span) * rig.pelvisTilt * weight;
+        const float maxAng = rig.maxTiltDeg * (3.14159265F / 180.0F);
+        ang = clampf(ang, -maxAng, maxAng);
+        float axis[3];
+        v3cross(hipVec, modelUpUnit, axis);
+        if (v3norm(axis) > 1e-6F) {
+          // Sign by experiment, the same trick the knee bend uses: rotate the
+          // hip offset both ways and keep the one that moves leg 0's hip the
+          // way its own foot went. Cheaper and safer than reasoning about an
+          // arbitrary rig's handedness.
+          float rel[3] = {h0.data[12] - m.data[12], h0.data[13] - m.data[13],
+                          h0.data[14] - m.data[14]};
+          float probe[3];
+          rotateAbout(rel, axis, ang, probe);
+          const float moved = (probe[0] - rel[0]) * modelUpUnit[0] +
+                              (probe[1] - rel[1]) * modelUpUnit[1] +
+                              (probe[2] - rel[2]) * modelUpUnit[2];
+          if (moved * dModel < 0.0F) ang = -ang;
+          float R[9];
+          float turned[3];
+          rotateAbout(modelUpUnit, axis, ang, turned);
+          rotFromTo(modelUpUnit, turned, R);
+          float pivot[3] = {m.data[12], m.data[13], m.data[14]};
+          rotateJoint(m.data, R, pivot);
+          edited = true;
+        }
+      }
+    }
+
+    if (edited) {
+      inst.setPoseGlobal((u32)rig.pelvis, m);
+      inst.refreshPose();  // the hips must have MOVED before the legs read them
+    }
   }
 
   // --- stage 3: solve each leg onto its target ---

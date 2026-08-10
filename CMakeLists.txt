@@ -185,6 +185,7 @@ add_executable(tyrax-editor
     src/flownode.cpp
     src/footik.cpp
     src/footik_ui.cpp
+    src/motionnet.cpp
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp

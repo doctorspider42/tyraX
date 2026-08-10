@@ -55,6 +55,15 @@ struct FootIkRig {
    * surface it found. Clamped by maxRollDeg either way. */
   float normalBlend = 0.8F;
   float maxRollDeg = 35.0F;
+  /**
+   * How far the pelvis TIPS toward the lower foot, as a fraction of the angle
+   * the two feet actually make. Lowering the hips alone is not enough: with
+   * one leg reaching down a step and the other bent under the body, level
+   * hips read as a character standing on stilts. This is the term that makes
+   * the weight land on a leg. 0 disables it.
+   */
+  float pelvisTilt = 0.6F;
+  float maxTiltDeg = 14.0F;
   /** Critically damped follow rate, 1/s. The ground under a walker is a step
    * function; without this the foot pops on every tread edge. */
   float smoothing = 14.0F;

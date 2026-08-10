@@ -2251,6 +2251,10 @@ static void writeAnimRigsSection(std::ostream& json, const Project& p) {
             json << ", \"normalBlend\": " << fmtFloat(r.normalBlend);
         if (r.maxRollDeg != 35.0f)
             json << ", \"maxRollDeg\": " << fmtFloat(r.maxRollDeg);
+        if (r.pelvisTilt != 0.6f)
+            json << ", \"pelvisTilt\": " << fmtFloat(r.pelvisTilt);
+        if (r.maxTiltDeg != 14.0f)
+            json << ", \"maxTiltDeg\": " << fmtFloat(r.maxTiltDeg);
         if (r.smoothing != 14.0f)
             json << ", \"smoothing\": " << fmtFloat(r.smoothing);
         if (r.traceUp != 0.6f) json << ", \"traceUp\": " << fmtFloat(r.traceUp);
@@ -5749,6 +5753,10 @@ static void readAnimRigsSection(const json::Value& root, Project& out) {
             r.normalBlend = (float)v->numberOr(0.8);
         if (const auto* v = jr.find("maxRollDeg"))
             r.maxRollDeg = (float)v->numberOr(35.0);
+        if (const auto* v = jr.find("pelvisTilt"))
+            r.pelvisTilt = (float)v->numberOr(0.6);
+        if (const auto* v = jr.find("maxTiltDeg"))
+            r.maxTiltDeg = (float)v->numberOr(14.0);
         if (const auto* v = jr.find("smoothing"))
             r.smoothing = (float)v->numberOr(14.0);
         if (const auto* v = jr.find("traceUp"))
@@ -5775,6 +5783,10 @@ static void readAnimRigsSection(const json::Value& root, Project& out) {
         if (r.normalBlend > 1.0f) r.normalBlend = 1.0f;
         if (r.maxRollDeg < 0.0f) r.maxRollDeg = 0.0f;
         if (r.maxRollDeg > 89.0f) r.maxRollDeg = 89.0f;
+        if (r.pelvisTilt < 0.0f) r.pelvisTilt = 0.0f;
+        if (r.pelvisTilt > 1.0f) r.pelvisTilt = 1.0f;
+        if (r.maxTiltDeg < 0.0f) r.maxTiltDeg = 0.0f;
+        if (r.maxTiltDeg > 60.0f) r.maxTiltDeg = 60.0f;
         if (r.smoothing < 0.5f) r.smoothing = 0.5f;
         if (r.traceUp < 0.0f) r.traceUp = 0.0f;
         if (r.traceDown < 0.0f) r.traceDown = 0.0f;
@@ -6552,6 +6564,7 @@ uint64_t liveLinkContextHash(const Project& p) {
         for (const std::string& j : r.netJoints) fnvMixS(h, j);
         fnvMixF(h, r.soleOffset), fnvMixF(h, r.maxLift), fnvMixF(h, r.maxDrop);
         fnvMixF(h, r.normalBlend), fnvMixF(h, r.maxRollDeg);
+        fnvMixF(h, r.pelvisTilt), fnvMixF(h, r.maxTiltDeg);
         fnvMixF(h, r.smoothing), fnvMixF(h, r.traceUp), fnvMixF(h, r.traceDown);
     }
     return h;

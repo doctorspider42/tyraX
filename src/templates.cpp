@@ -6646,6 +6646,8 @@ void TerrainGame::setupAnimObject(int index) {
     ik->rig.normalBlend = rigData.normalBlend;
     ik->rig.maxRollDeg = rigData.maxRollDeg;
     ik->rig.smoothing = rigData.smoothing;
+    ik->rig.pelvisTilt = rigData.pelvisTilt;
+    ik->rig.maxTiltDeg = rigData.maxTiltDeg;
     ik->rig.traceUp = rigData.traceUp;
     ik->rig.traceDown = rigData.traceDown;
     ik->setGround(&TerrainGame::animGroundThunk, this);
@@ -33119,6 +33121,7 @@ static std::string modelDataHeader(const Project& p) {
            "  short pelvis;\n"
            "  float soleOffset, maxLift, maxDrop;\n"
            "  float normalBlend, maxRollDeg, smoothing;\n"
+           "  float pelvisTilt, maxTiltDeg;\n"
            "  float traceUp, traceDown;\n"
            "  bool netEnabled;\n"
            "  const char* netPath;  // \"\" = none\n"
@@ -33128,7 +33131,8 @@ static std::string modelDataHeader(const Project& p) {
            "ANIM_MODEL_COUNT : 1] = {\n";
     if (animKeys.empty()) {
         out << "    {false, 0, {{-1,-1,-1},{-1,-1,-1},{-1,-1,-1},{-1,-1,-1}}, "
-               "-1, 0.08F, 0.45F, 0.45F, 0.8F, 35.0F, 14.0F, 0.6F, 1.2F, "
+               "-1, 0.08F, 0.45F, 0.45F, 0.8F, 35.0F, 14.0F, 0.6F, 14.0F, "
+               "0.6F, 1.2F, "
                "false, \"\", 1.0f},\n";
     } else {
         for (const auto& key : animKeys) {
@@ -33158,7 +33162,8 @@ static std::string modelDataHeader(const Project& p) {
                 << ", " << floatLit(g.maxDrop) << ", "
                 << floatLit(g.normalBlend) << ", " << floatLit(g.maxRollDeg)
                 << ", " << floatLit(g.smoothing) << ", "
-                << floatLit(g.traceUp) << ", " << floatLit(g.traceDown)
+                << floatLit(g.pelvisTilt) << ", " << floatLit(g.maxTiltDeg)
+                << ", " << floatLit(g.traceUp) << ", " << floatLit(g.traceDown)
                 << ", " << (usable && g.netEnabled ? "true" : "false") << ", \""
                 << (usable && g.netEnabled
                         ? binPathOf(animBakedTnetRel(key.first, g.netPath))

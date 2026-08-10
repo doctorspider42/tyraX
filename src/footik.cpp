@@ -440,6 +440,20 @@ AnimRig autoDetect(const std::string& modelRel, const glbparser::Skel& skel) {
     if (!rig.legs.empty()) {
         Resolved r = resolve(rig, skel);
         rig.soleOffset = measureSoleOffset(skel, r);
+
+        // Every OTHER length has to be scaled to the model too, and forgetting
+        // that is a bug you see rather than read: the struct defaults are
+        // authored for a ~1.8-unit human, so on a 3.4-unit character the trace
+        // window, the lift ceiling and the pelvis drop are all half of what
+        // they should be - the feet stop reaching the ground exactly when a
+        // step gets interesting. motionnet::defaultParams derives its numbers
+        // the same way for the same reason.
+        const float height = skel.max[1] - skel.min[1];
+        const float s = height > 1e-3f ? height / 1.8f : 1.0f;
+        rig.maxLift *= s;
+        rig.maxDrop *= s;
+        rig.traceUp *= s;
+        rig.traceDown *= s;
         // The joints worth handing the gait net beyond the legs: the pelvis
         // carries the weight shift, the lower spine the lean. The spine is
         // BELOW the pelvis in the hierarchy, not above it - every common rig
@@ -636,6 +650,48 @@ void solve(const glbparser::Skel& skel, const AnimRig& rig,
     }
 
     state.pelvisOffset = clampf(deepest, -rig.maxDrop, 0.0f);
+    // Tip the pelvis toward the lower foot. The drop alone leaves level hips
+    // over a leg reaching down a step, which reads as stilts - this is the
+    // term that puts the weight on a leg. Twin of the engine's stage 2.
+    if (resolved.pelvis >= 0 && legs >= 2 && rig.pelvisTilt > 0.0f) {
+        const float* h0 = &pose[(size_t)resolved.legs[0].hip * 16];
+        const float* h1 = &pose[(size_t)resolved.legs[1].hip * 16];
+        float hipVec[3] = {h1[12] - h0[12], h1[13] - h0[13], h1[14] - h0[14]};
+        const float span = v3norm(hipVec);
+        const float upLen = v3len(upRaw);
+        const float dModel = (targetW[0][1] - targetW[1][1]) * upLen;
+        if (span > 1e-4f && std::fabs(dModel) > 1e-5f) {
+            float* pm = &pose[(size_t)resolved.pelvis * 16];
+            float ang = std::atan(dModel / span) * rig.pelvisTilt;
+            const float maxAng = rig.maxTiltDeg * (kPi / 180.0f);
+            ang = clampf(ang, -maxAng, maxAng);
+            float axis[3];
+            v3cross(hipVec, upUnit, axis);
+            if (v3norm(axis) > 1e-6f) {
+                float rel[3] = {h0[12] - pm[12], h0[13] - pm[13], h0[14] - pm[14]};
+                float probe[3];
+                rotateAbout(rel, axis, ang, probe);
+                float delta[3] = {probe[0] - rel[0], probe[1] - rel[1],
+                                  probe[2] - rel[2]};
+                if (v3dot(delta, upUnit) * dModel < 0.0f) ang = -ang;
+                float turned[3], R[9];
+                rotateAbout(upUnit, axis, ang, turned);
+                rotFromTo(upUnit, turned, R);
+                float pivot[3] = {pm[12], pm[13], pm[14]};
+                // The whole subtree follows, exactly as refreshPose() does it
+                // on the console.
+                std::vector<char> under(skel.nodes.size(), 0);
+                under[resolved.pelvis] = 1;
+                rotateJoint(pm, R, pivot);
+                for (int i : order) {
+                    const int par = skel.nodes[i].parent;
+                    if (par < 0 || !under[par]) continue;
+                    under[i] = 1;
+                    rotateJoint(&pose[(size_t)i * 16], R, pivot);
+                }
+            }
+        }
+    }
     if (resolved.pelvis >= 0 && state.pelvisOffset < -1e-5f) {
         // The whole subtree under the pelvis moves with it, which for a
         // resolved rig is every hip - resolve() refuses a pelvis for which

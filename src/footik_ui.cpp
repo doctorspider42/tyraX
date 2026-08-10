@@ -292,6 +292,22 @@ void App::drawFootIkWindow() {
             "and the clip's authored foot angle survives untouched.");
 
         ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Pelvis tilt", &rig.pelvisTilt, 0.0f, 1.0f,
+                               "%.2f"))
+            changed = true;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::SliderFloat("Max tilt", &rig.maxTiltDeg, 0.0f, 60.0f,
+                               "%.0f deg"))
+            changed = true;
+        ImGui::SameLine();
+        helpMarker(
+            "How far the hips tip toward the lower foot. Lowering them alone\n"
+            "is not enough: with one leg reaching down a step and the other\n"
+            "bent under the body, level hips read as a character on stilts.\n"
+            "This is the term that makes the weight land on a leg.");
+
+        ImGui::SetNextItemWidth(scaled(200));
         if (ImGui::DragFloat("Smoothing", &rig.smoothing, 0.2f, 0.5f, 60.0f,
                              "%.1f /s"))
             changed = true;
