@@ -45,9 +45,15 @@ class CollisionMesh {
   /**
    * Nearest triangle hit along a ray (both faces). Returns false on a miss.
    * @param dir must be normalized
+   * @param outNormal optional: the hit triangle's flat normal, MESH-LOCAL and
+   * unit length, with the winding it was built with (a caller wanting a
+   * surface normal facing the ray flips it against `dir` itself - the mesh is
+   * a soup and its winding is whatever the source model had). Free: the
+   * normal is already packed next to the triangle, so asking for it costs
+   * three loads on the winning triangle and nothing per miss.
    */
   bool raycast(const Vec4& origin, const Vec4& dir, float maxDist,
-               float* outDist) const;
+               float* outDist, Vec4* outNormal = nullptr) const;
 
   /**
    * Pushes a sphere out of every triangle steeper than maxNormalY

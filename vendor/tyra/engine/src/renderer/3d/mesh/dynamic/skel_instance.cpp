@@ -420,23 +420,79 @@ void SkelInstance::evalPose() {
   // globals, parents-first; matrix nodes are never animated (glTF spec),
   // an animated flag overrides just in case a file breaks that rule
   for (u32 i : model->order) {
-    const SkelNode& node = model->nodes[i];
     float local[16];
-    const float* localPtr = local;
-    if (node.hasMatrix && !animatedCur[i]) {
-      localPtr = node.matrix.data;
-    } else {
-      const float* l = &localsCur[(size_t)i * 10];
-      fromTrs(local, l, l + 3, l + 7);
-    }
-    if (node.parent >= 0)
-      mulM4(globals[i].data, globals[node.parent].data, localPtr);
+    localMatrix(i, local);
+    const s32 parent = model->nodes[i].parent;
+    if (parent >= 0)
+      mulM4(globals[i].data, globals[parent].data, local);
     else
-      memcpy(globals[i].data, localPtr, 16 * sizeof(float));
+      memcpy(globals[i].data, local, 16 * sizeof(float));
   }
+
+  // The pose post-process sees the finished model-space skeleton and nothing
+  // downstream of it yet. It settles its own subtrees through refreshPose();
+  // the extra call here is the safety net for a hook that edited and forgot,
+  // and costs one flag test when it did not.
+  for (SkelPoseHook* h = poseHook; h != nullptr; h = h->nextHook) {
+    h->modifyPose(*this);
+    if (anyPoseEdit) refreshPose();
+  }
+
+  buildPalette();
+}
+
+/** The node's own transform relative to its parent, from whichever of the two
+ * glTF representations the file used. */
+void SkelInstance::localMatrix(u32 node, float* out) const {
+  const SkelNode& n = model->nodes[node];
+  if (n.hasMatrix && !animatedCur[node]) {
+    memcpy(out, n.matrix.data, 16 * sizeof(float));
+    return;
+  }
+  const float* l = &localsCur[(size_t)node * 10];
+  fromTrs(out, l, l + 3, l + 7);
+}
+
+void SkelInstance::buildPalette() {
   for (size_t j = 0; j < model->palette.size(); j++)
     mulM4(palette[j].data, globals[model->palette[j].node].data,
           model->palette[j].ibm.data);
+}
+
+void SkelInstance::setPoseHook(SkelPoseHook* hook) {
+  poseHook = hook;
+  if (hook && poseEdited.size() != model->nodes.size())
+    poseEdited.assign(model->nodes.size(), 0);
+  poseDirty = true;
+}
+
+void SkelInstance::setPoseGlobal(u32 node, const M4x4& m) {
+  if (node >= model->nodes.size()) return;
+  memcpy(globals[node].data, m.data, 16 * sizeof(float));
+  if (poseEdited.size() != model->nodes.size())
+    poseEdited.assign(model->nodes.size(), 0);
+  poseEdited[node] = 1;
+  anyPoseEdit = true;
+}
+
+void SkelInstance::refreshPose() {
+  if (!anyPoseEdit) return;
+  // One parents-first pass: a node whose PARENT was edited (or itself
+  // re-derived) recomputes from its local transform and passes the mark on.
+  // The edited node itself keeps the matrix the hook wrote - that is the
+  // whole point - so the mark means "my children are stale", not "I am".
+  for (u32 i : model->order) {
+    const s32 parent = model->nodes[i].parent;
+    if (parent < 0 || !poseEdited[parent]) continue;
+    if (!poseEdited[i]) {  // an edited child overrides its parent's motion
+      float local[16];
+      localMatrix(i, local);
+      mulM4(globals[i].data, globals[parent].data, local);
+    }
+    poseEdited[i] = 1;
+  }
+  memset(poseEdited.data(), 0, poseEdited.size());
+  anyPoseEdit = false;
 }
 
 void SkelInstance::skinParts(u8 lod) {

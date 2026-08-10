@@ -150,7 +150,7 @@ bool CollisionMesh::intersectTri(const float* t, const Vec4& origin,
 }
 
 bool CollisionMesh::raycast(const Vec4& origin, const Vec4& dir, float maxDist,
-                            float* outDist) const {
+                            float* outDist, Vec4* outNormal) const {
   if (tris.empty()) return false;
 
   // cells overlapped by the XZ projection of the segment
@@ -167,6 +167,7 @@ bool CollisionMesh::raycast(const Vec4& origin, const Vec4& dir, float maxDist,
   ++stampCounter;
   bool hit = false;
   float best = maxDist;
+  u32 bestTri = 0;
   for (int cz = cz0; cz <= cz1; ++cz)
     for (int cx = cx0; cx <= cx1; ++cx) {
       const int cell = cz * nx + cx;
@@ -177,11 +178,18 @@ bool CollisionMesh::raycast(const Vec4& origin, const Vec4& dir, float maxDist,
         float dist;
         if (intersectTri(&tris[t * kTriFloats], origin, dir, best, &dist)) {
           best = dist;
+          bestTri = t;
           hit = true;
         }
       }
     }
-  if (hit) *outDist = best;
+  if (hit) {
+    *outDist = best;
+    if (outNormal) {
+      const float* n = &tris[bestTri * kTriFloats + 9];
+      outNormal->set(n[0], n[1], n[2], 0.0F);
+    }
+  }
   return hit;
 }
 

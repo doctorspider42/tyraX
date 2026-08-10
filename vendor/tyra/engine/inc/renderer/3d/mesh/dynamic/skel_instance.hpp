@@ -19,6 +19,32 @@
 
 namespace Tyra {
 
+class SkelInstance;
+
+/**
+ * A per-instance pose post-process, run on the evaluated MODEL-SPACE pose
+ * after the hierarchy walk and before the matrix palette is built - the only
+ * moment at which every joint's global transform exists and nothing has
+ * consumed it yet. Foot IK and the learned pose corrector are the two
+ * implementations (skel_foot_ik.hpp, motion_net.hpp); anything else that has
+ * to bend a skeleton at runtime belongs here rather than in a second pose
+ * evaluator.
+ *
+ * Edit through SkelInstance::poseGlobal/setPoseGlobal and finish with
+ * refreshPose() - see those for the subtree contract.
+ */
+class SkelPoseHook {
+ public:
+  virtual ~SkelPoseHook() {}
+  virtual void modifyPose(SkelInstance& inst) = 0;
+
+  /** Hooks form a chain, run in order, because a character wants more than
+   * one: the learned pose corrector reshapes the whole stride and foot IK
+   * then plants what it produced. Ownership stays with the game; a cycle
+   * here hangs the frame, so wire it once at setup and leave it alone. */
+  SkelPoseHook* nextHook = nullptr;
+};
+
 /**
  * One scene object's view of a SkelModel: playback state (with crossfade),
  * per-frame pose evaluation (EE) and matrix-palette skinning (VU0 macro
@@ -127,11 +153,53 @@ class SkelInstance {
    * skinned meshes are interchangeable, so a renderer can skin one and draw
    * it for every instance in the group (with per-instance matrix/color).
    * Instances autoplaying the same clip from scene load stay equal forever;
-   * a scripted play()/speed change simply splits the group. */
+   * a scripted play()/speed change simply splits the group.
+   *
+   * A POSE HOOK breaks the group by definition: two instances at the same
+   * clip time stand on different ground and are bent differently, so an
+   * instance carrying one never shares its skin (and never lends it). This
+   * is the price of foot IK on a crowd and it is charged here, once, rather
+   * than left for each renderer to remember. */
   bool poseEquals(const SkelInstance& other) const {
-    return model == other.model && cur.clip == other.cur.clip &&
+    return poseHook == nullptr && other.poseHook == nullptr &&
+           model == other.model && cur.clip == other.cur.clip &&
            cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F;
   }
+
+  /**
+   * Installs (nullptr = removes) the pose post-process. The hook is NOT
+   * owned. Setting one marks the pose dirty, so the next ensurePose() runs
+   * it even if playback did not move - a hook whose ground moved under a
+   * standing character still gets its frame.
+   */
+  void setPoseHook(SkelPoseHook* hook);
+  SkelPoseHook* getPoseHook() const { return poseHook; }
+
+  /** Forces the next ensurePose() to re-evaluate even when playback is
+   * frozen. A hook driven by the world (rather than by clip time) calls this
+   * per frame - a paused character on a rising platform still plants. */
+  void invalidatePose() { poseDirty = true; }
+
+  // ---- pose editing, valid only from inside SkelPoseHook::modifyPose ----
+
+  /** The joint's model-space transform for this frame. */
+  const M4x4& poseGlobal(u32 node) const { return globals[node]; }
+
+  /** Overwrites it and marks the node's DESCENDANTS as needing to be
+   * re-derived; the write itself is immediate, the subtree is not. Several
+   * edits may be batched and settled with one refreshPose(). */
+  void setPoseGlobal(u32 node, const M4x4& m);
+
+  /** Re-derives every descendant of an edited node from its own local
+   * transform, in one parents-first pass. Cheap (nodes, not vertices) but
+   * not free - batch edits and call it once, and call it BETWEEN stages that
+   * read positions the previous stage moved (a pelvis drop before the legs
+   * read their hips). Idempotent when nothing is marked. */
+  void refreshPose();
+
+  /** Joint count and hierarchy, for a hook validating its rig. */
+  u32 nodeCount() const { return (u32)model->nodes.size(); }
+  s32 nodeParent(u32 node) const { return model->nodes[node].parent; }
 
  private:
   struct Layer {
@@ -149,6 +217,10 @@ class SkelInstance {
   u8 lastSkinnedLod = 0;          // which level the out arrays hold
   u8 maxLodLevels = 1;            // longest per-part chain incl. the base
 
+  SkelPoseHook* poseHook = nullptr;   // not owned
+  std::vector<u8> poseEdited;         // subtree needs re-deriving (refreshPose)
+  bool anyPoseEdit = false;           // skips the walk when nothing was edited
+
   // scratch buffers, sized once in the constructor
   std::vector<float> localsCur, localsPrev;  // nodes * 10: t[3] r[4] s[3]
   std::vector<u8> animatedCur, animatedPrev; // node had a channel this pose
@@ -160,7 +232,9 @@ class SkelInstance {
   void advanceLayer(Layer& layer, float dt);
   void evalLocals(Layer& layer, std::vector<float>& locals,
                   std::vector<u8>& animated);
+  void localMatrix(u32 node, float* out) const;
   void evalPose();
+  void buildPalette();
   void skinParts(u8 lod);
 };
 
