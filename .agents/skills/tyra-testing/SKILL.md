@@ -63,6 +63,11 @@ as the flag you chose. Verify bakes with the Release build. If ccache/sccache
 is on `PATH` CMake uses it automatically, which is what makes switching
 worktrees cheap.
 
+Side build trees of your own (`cmake -S . -B build-demo`, `build-trainer`, …)
+are fine and are **not** something you have to clean up before committing:
+`.gitignore` carries `build-*/` next to `build/`, so they stay out of
+`git status` and out of a `git add -A`.
+
 **Timing a build honestly:** back-to-back clean builds on a laptop drift ~20%
 from thermals alone, so a single before/after pair proves nothing. Alternate
 the two variants (A, B, A, B, …) and compare like rounds — and read
