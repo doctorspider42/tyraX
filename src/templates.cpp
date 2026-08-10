@@ -7274,10 +7274,45 @@ bool TerrainGame::sampleGround(const float world[3], float up, float down,
   for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
     const RuntimeObject& o = runtimeObjects[oi];
     if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-    if (o.data.collision != 1 || o.data.type != 5) continue;  // mesh mode only
-    if (o.data.model < 0 || o.data.model >= (int)gameModels.size()) continue;
+
+    const bool meshMode = o.data.collision == 1 && o.data.type == 5 &&
+                          o.data.model >= 0 &&
+                          o.data.model < (int)gameModels.size() &&
+                          !gameModels[o.data.model].collider.empty();
+    if (!meshMode) {
+      // BOX mode - and this is the common case, not the fallback: most
+      // staircases are a stack of Box primitives, and a foot that only saw
+      // mesh colliders would walk through every one of them while the
+      // walker climbed it. Stand-on-top only: the sides of a box are the
+      // walker's problem, a foot just wants the lid it is over.
+      const CollisionBox cb = objectCollisionBox(o);
+      const V3 cWorld =
+          boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+      const float cy = o.data.position[1] + cWorld.y;
+      const float lid = cy + cb.half[1];
+      if (lid < bottom || lid > top || lid < best) continue;
+      // Footprint in the box's own YAW frame, exactly like collidePlayer -
+      // a turned box has to block along its real faces. No radius padding:
+      // the walker pads by its own radius because it is a capsule, a foot
+      // is a point and padding would let it hover past the tread edge.
+      const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+      const float yc = cosf(yaw), ys = sinf(yaw);
+      const float rx = world[0] - (o.data.position[0] + cWorld.x);
+      const float rz = world[2] - (o.data.position[2] + cWorld.z);
+      const float lx = rx * yc - rz * ys;
+      const float lz = rx * ys + rz * yc;
+      if (fabsf(lx) > cb.half[0] || fabsf(lz) > cb.half[2]) continue;
+      best = lid;
+      found = true;
+      // A box lid is flat whatever the object's pitch: box mode does not
+      // model a tilted top anywhere else either (mesh collision is the
+      // escape hatch), and inventing a tilt here would disagree with the
+      // surface the walker is actually standing on.
+      bestN[0] = 0.0F, bestN[1] = 1.0F, bestN[2] = 0.0F;
+      continue;
+    }
+
     const GameModel& gm = gameModels[o.data.model];
-    if (gm.collider.empty()) continue;
 
     // Cheap reject: the object's own scaled radius against the XZ distance.
     // Without it a scene with a hundred mesh colliders pays a local-space

@@ -97,22 +97,32 @@ The solver flips it against world up itself.
 
 ## What the traces hit
 
-The generated game answers the solver through `sampleGround`: the terrain
-heightfield (one bilinear sample, plus a central-difference slope normal — so
-a foot on a hill tilts the way a rolling body would slide), then the triangles
-of every **mesh-mode** collider whose bounds the trace window reaches. Highest
-surface inside the window wins.
+The generated game answers the solver through `sampleGround`. Highest surface
+inside the trace window wins, over three sources:
+
+- the **terrain** heightfield — one bilinear sample, plus a
+  central-difference slope normal, so a foot on a hill tilts the way a rolling
+  body would slide;
+- **box colliders** — stand-on-top only, tested in the box's own yaw frame.
+  This is the common case, not the fallback: a staircase is a stack of Box
+  primitives, and a foot that only saw triangle soups would walk through every
+  tread while the walker climbed it;
+- **mesh colliders** — a grid-accelerated raycast returning the hit
+  triangle's normal, so a ramp, a rock or a rooftop tilts the foot properly.
 
 That is deliberately *not* `collidePlayer`. A foot asks about one point and
 wants a normal back; the walker asks about a capsule and wants to be pushed
 out of walls. Sharing the traversal would give the feet the wall push and the
-step-up rule — exactly the behaviour a foot must not have.
+step-up rule — exactly the behaviour a foot must not have. It is also why the
+box test uses **no radius padding**: the walker pads by its own radius because
+it is a capsule, and a foot padded the same way would hover past the tread
+edge.
 
-**Stairs therefore need `collision: mesh` on the model.** In box mode the trace
-hits the AABB and the whole flight reads as one flat lid, which looks like the
-solver ignoring the steps.
+A box lid stays flat whatever the object's pitch, because box collision does
+not model a tilted top anywhere else either — mesh mode is the escape hatch
+for a surface that really is sloped.
 
-Cost is one grid-accelerated raycast per collider in range per foot — two
+Cost is one grid-accelerated raycast per mesh collider in range per foot — two
 objects and two rays for a biped on a staircase. A cheap XZ distance reject in
 front of it is what stops a scene full of colliders paying for feet nowhere
 near them.
