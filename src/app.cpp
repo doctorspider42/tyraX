@@ -703,6 +703,8 @@ int App::run(const std::string& initialProjectDir) {
     droneAudition(false);
     droneRenderCancel_.store(true);
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
+    // The importer publishes a result into App members, which must outlive it.
+    if (modelImportThread_.joinable()) modelImportThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
@@ -768,6 +770,15 @@ bool App::captureFrameTo(const std::string& path, int w, int h) {
 }
 
 void App::drawUI() {
+    // Project opening is staged so this cover reaches the framebuffer before
+    // synchronous file parsing / viewport preparation begins. The loader must
+    // stay on this thread: it replaces the custom-node/style registries.
+    projectLoadTick();
+    if (projectLoading_) {
+        drawProjectLoadingScreen();
+        return;
+    }
+
     ImGuizmo::BeginFrame();
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
@@ -847,6 +858,10 @@ void App::drawUI() {
     // or not the window is open, so a reply is never stranded by closing it.
     aiChatTick();
 
+    // The importer never touches ImGui/project_/viewport_ from its worker.
+    // This is the one main-thread handoff point for its finished asset.
+    modelImportTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -893,6 +908,7 @@ void App::drawUI() {
     drawNewSceneModal();
     drawDeleteSceneModal();
     drawDeleteAssetModal();
+    drawModelImportModal();
     drawModelSizeModal();
     drawDiscardModal();
     drawLayoutModals();
@@ -4725,16 +4741,7 @@ void App::forgetRecentProject(int index) {
 }
 
 void App::openRecentProject(const std::string& dir) {
-    const std::string err = openProjectAt(dir);
-    if (err.empty()) return;
-    // Moved or deleted since it was probed (the probe runs at startup, not per
-    // frame): re-probe so the entry shows as missing, say what went wrong, and
-    // KEEP it - whether a project on an unplugged drive is worth forgetting is
-    // the user's call.
-    const std::string key = recentProjectKey(dir);
-    for (RecentProject& r : recentProjects_)
-        if (recentProjectKey(r.dir) == key) probeRecentProject(r);
-    platform::errorBox("Open Project", err);
+    openProjectAt(dir, true);
 }
 
 void App::requestOpenRecent(const std::string& dir) {
@@ -4784,10 +4791,24 @@ void App::drawRecentProjectsMenu() {
     }
 }
 
-std::string App::openProjectAt(const std::string& dir) {
+void App::openProjectAt(const std::string& dir, bool fromRecent) {
+    if (projectLoading_) return;
+
+    projectLoadDir_ = dir;
+    projectLoadName_ = std::filesystem::path(dir).filename().string();
+    if (projectLoadName_.empty()) projectLoadName_ = dir;
+    projectLoadFromRecent_ = fromRecent;
+    projectLoading_ = true;
+    // Even a tiny project gets a readable transition instead of a one-frame
+    // flash. A genuinely large one simply keeps the same screen animating.
+    projectLoadShowUntil_ = glfwGetTime() + 0.25;
+}
+
+void App::projectLoadTick() {
+    if (!projectLoading_ || glfwGetTime() < projectLoadShowUntil_) return;
+
     Project p;
-    std::string err = project::load(p, dir);
-    if (!err.empty()) return err;
+    std::string err = project::load(p, projectLoadDir_);
 
     // Format gate. load() already refused a file from a NEWER editor (the
     // message names both versions), so every open path that funnels through
@@ -4798,7 +4819,7 @@ std::string App::openProjectAt(const std::string& dir) {
     // next save. A prompt + backup appear exactly when registered migration
     // steps will transform the data, which is the irreversible part.
     if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
-        !steps.empty()) {
+        err.empty() && !steps.empty()) {
         std::string msg = "This project uses an older format (v" +
                           std::to_string(p.formatVersionOnDisk) +
                           "; this editor writes v" +
@@ -4810,36 +4831,98 @@ std::string App::openProjectAt(const std::string& dir) {
         msg += "\nThis cannot be undone. A backup of the project files will be "
                "created in _backup/ first.\n\nMigrate and open?";
         if (!platform::confirmBox("Project Migration", msg))
-            return "Migration declined - \"" + p.name + "\" was not opened.";
+            err = "Migration declined - \"" + p.name + "\" was not opened.";
 
-        std::string backupDir;
-        if (std::string e = migrations::backup(p, p.formatVersionOnDisk, backupDir);
-            !e.empty())
-            return "Backup failed - migration aborted, the project was not "
-                   "modified.\n\n" + e;
-        if (std::string e = migrations::run(p, p.formatVersionOnDisk); !e.empty())
-            return "This project cannot be migrated.\n\n" + e +
-                   "\n\nThe project on disk was not modified. The backup in " +
-                   backupDir + " is intact.";
-        p.formatVersionOnDisk = version::kFormatVersion;
-        // Persist the migrated format right away so disk, undo history and every
-        // later save share one baseline. Same file set as --resave/--migrate: a
-        // migration that wrote less than a resave would DROP what it skipped.
-        std::string e = project::save(p);
-        if (e.empty()) e = project::saveHeights(p);
-        if (e.empty()) e = project::saveSplat(p);
-        if (!e.empty())
-            return "Migration succeeded but saving failed:\n" + e +
-                   "\n\nThe backup in " + backupDir + " is intact.";
+        if (err.empty()) {
+            std::string backupDir;
+            if (std::string e =
+                    migrations::backup(p, p.formatVersionOnDisk, backupDir);
+                !e.empty())
+                err = "Backup failed - migration aborted, the project was not "
+                      "modified.\n\n" + e;
+            if (err.empty())
+                if (std::string e = migrations::run(p, p.formatVersionOnDisk);
+                    !e.empty())
+                    err = "This project cannot be migrated.\n\n" + e +
+                          "\n\nThe project on disk was not modified. The backup in " +
+                          backupDir + " is intact.";
+            if (err.empty()) {
+                p.formatVersionOnDisk = version::kFormatVersion;
+                // Persist the migrated format right away so disk, undo history
+                // and every later save share one baseline.
+                std::string e = project::save(p);
+                if (e.empty()) e = project::saveHeights(p);
+                if (e.empty()) e = project::saveSplat(p);
+                if (!e.empty())
+                    err = "Migration succeeded but saving failed:\n" + e +
+                          "\n\nThe backup in " + backupDir + " is intact.";
+            }
+        }
+    }
+
+    if (!err.empty()) {
+        // A missing recent entry stays in the list, but refresh its badge now:
+        // an unplugged drive may return later and forgetting it is the user's call.
+        if (projectLoadFromRecent_) {
+            const std::string key = recentProjectKey(projectLoadDir_);
+            for (RecentProject& r : recentProjects_)
+                if (recentProjectKey(r.dir) == key) probeRecentProject(r);
+        }
+        projectLoading_ = false;
+        platform::errorBox("Open Project", err);
+        return;
     }
 
     project_ = p;
     hasProject_ = true;
     applyProjectToViewport();
     attachProject();  // resets dirty + window title
-    // project_.dir, not `dir`: load normalizes it (and accepts a .tyra path).
+    // project_.dir, not the requested spelling: load normalizes it.
     rememberRecentProject(project_.dir);
-    return {};
+    projectLoading_ = false;
+}
+
+void App::drawProjectLoadingScreen() {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->Pos);
+    ImGui::SetNextWindowSize(vp->Size);
+    ImGui::SetNextWindowViewport(vp->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.035f, 0.045f, 0.065f, 1.0f));
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    ImGui::Begin("Opening Project##project_load", nullptr, flags);
+
+    const char spinner[] = {'|', '/', '-', '\\'};
+    const char spin = spinner[(int)(ImGui::GetTime() * 10.0) & 3];
+    const char* phase = "Reading project and preparing workspace...";
+    const std::string heading = "Opening " + projectLoadName_;
+    const float panelW = scaled(440.0f);
+    const float panelH = scaled(150.0f);
+    ImGui::SetCursorPos(ImVec2((vp->Size.x - panelW) * 0.5f,
+                               (vp->Size.y - panelH) * 0.5f));
+    ImGui::BeginGroup();
+    const float headingW = ImGui::CalcTextSize(heading.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - headingW) * 0.5f);
+    ImGui::TextUnformatted(heading.c_str());
+    ImGui::Spacing();
+    const std::string status = std::string(1, spin) + "  " + phase;
+    const float statusW = ImGui::CalcTextSize(status.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - statusW) * 0.5f);
+    ImGui::TextDisabled("%s", status.c_str());
+    ImGui::Spacing();
+    // The loader cannot report truthful byte counts, so animate an explicitly
+    // indeterminate bar instead of inventing a percentage.
+    const float wave = (float)std::fmod(ImGui::GetTime() * 0.55, 1.0);
+    ImGui::ProgressBar(wave, ImVec2(panelW, scaled(8.0f)), "");
+    ImGui::EndGroup();
+
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 void App::requestOpenProject() {
@@ -6250,174 +6333,368 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
     }
 }
 
-std::string App::importModelAsset() {
+void App::importModelAsset(const std::string& targetFolder) {
+    if (modelImporting_) return;
     const std::string src = pickModelFile();
-    if (src.empty()) return "";
+    if (src.empty()) return;
 
-    const std::filesystem::path srcPath(src);
-    const std::filesystem::path srcDir = srcPath.parent_path();
-    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-    const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "models";
-    std::error_code ec;
-    std::filesystem::create_directories(destDir, ec);
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    modelImportName_ = sanitizeAssetName(
+        std::filesystem::path(src).filename().string());
+    modelImportResult_ = ModelImportResult{};
+    modelImportProgress_.store(0.0f, std::memory_order_relaxed);
+    modelImportStage_.store(0, std::memory_order_relaxed);
+    modelImportDone_.store(false, std::memory_order_relaxed);
+    modelImporting_ = true;
+    modelImportOpen_ = true;
+    modelImportClose_ = false;
+    modelImportThread_ = std::thread(&App::modelImportWorker, this, src,
+                                     project_.dir, targetFolder);
+}
 
-    // Animated models (.glb/.fbx): copy, then a validation bake for early
-    // feedback. The .tskl the game loads is serialized from the copy on
-    // every build. A .glb is self-contained; an .fbx may reference textures
-    // as separate files, so those are copied next to it.
-    if (isAnimatedModelPath(fileName)) {
-        std::filesystem::copy_file(srcPath, destDir / fileName,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
+void App::modelImportWorker(std::string src, std::string projectDir,
+                            std::string targetFolder) {
+    ModelImportResult result;
+    result.projectDir = projectDir;
+    result.targetFolder = targetFolder;
+    auto progress = [&](int stage, float fraction) {
+        modelImportStage_.store(stage, std::memory_order_relaxed);
+        modelImportProgress_.store(fraction, std::memory_order_relaxed);
+    };
+    auto finish = [&]() {
+        modelImportResult_ = std::move(result);
+        modelImportDone_.store(true, std::memory_order_release);
+    };
+
+    try {
+        const std::filesystem::path srcPath(src);
+        const std::filesystem::path srcDir = srcPath.parent_path();
+        const std::string fileName =
+            sanitizeAssetName(srcPath.filename().string());
+        const std::filesystem::path destDir =
+            std::filesystem::path(projectDir) / "res" / "models";
+        const std::filesystem::path destPath = destDir / fileName;
+        result.relPath = "res/models/" + fileName;
+        result.animated = isAnimatedModelPath(fileName);
+        std::error_code ec;
+        std::filesystem::create_directories(destDir, ec);
         if (ec) {
-            statusMessage_ = "Model import failed: " + ec.message();
-            return "";
+            result.status = "Model import failed: " + ec.message();
+            finish();
+            return;
         }
-        if (fileName.size() > 4 && fileName.compare(fileName.size() - 4, 4, ".fbx") == 0)
-            fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
-        glbparser::Baked baked;
-        std::string error;
-        if (!animimport::bake((destDir / fileName).string(), 12.0f, baked, error)) {
-            statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
-            return "res/models/" + fileName;
+        ec.clear();
+        if (std::filesystem::exists(destPath, ec) && !ec &&
+            std::filesystem::equivalent(srcPath, destPath, ec) && !ec) {
+            // Opening the destination below truncates it. A picker aimed at a
+            // file already inside res/models must never eat the source asset.
+            result.status =
+                "Model import skipped: the selected file is already in res/models";
+            finish();
+            return;
         }
-        statusMessage_ = "Imported " + fileName + " (" +
-                         std::to_string(baked.clips.size()) + " clip(s), " +
-                         std::to_string(baked.totalVertexCount()) + " verts, " +
-                         std::to_string(baked.frameCount) + " baked frames)";
-        // Rough PS2 memory estimate: the skeletal runtime keeps one bind-pose
-        // mesh + keyframe tracks (+ per-instance skinned buffers), not baked
-        // frames - parseSkel knows the actual footprint.
-        glbparser::Skel skel;
-        std::string skelError;
-        const size_t bytes = animimport::parseSkel((destDir / fileName).string(),
-                                                   skel, skelError)
-                                 ? skel.ps2Bytes()
-                                 : 0;
-        if (bytes > 8u * 1024 * 1024)
-            statusMessage_ += " - WARNING: ~" + std::to_string(bytes >> 20) +
-                              " MB on the PS2 (32 MB total) - reduce the mesh";
-        if (!baked.warnings.empty())
-            statusMessage_ += " - " + baked.warnings.front() +
-                              (baked.warnings.size() > 1
-                                   ? " (+" + std::to_string(baked.warnings.size() - 1) +
-                                         " more warning(s), see build log)"
-                                   : "");
-        glbInfoCache_.erase("res/models/" + fileName);
-        beginModelSizing("res/models/" + fileName);
-        modelSizeFresh_ = true;  // ask how big it is in the real world
-        return "res/models/" + fileName;
-    }
+        ec.clear();
 
-    // Parse the source model to find its material libraries and textures -
-    // they get flattened next to the .obj in res/models/. Sanitized names may
-    // differ from the originals, so the mtllib/map_Kd references are rewritten
-    // while copying instead of copying the files verbatim.
-    objparser::Model parsed;
-    const bool parseOk = objparser::load(src, parsed);
+        // Animated models are copied with byte-level progress. Parsing and
+        // baking expose no inner callback, so those phases keep the spinner
+        // moving while the bar holds at its honest stage boundary.
+        if (result.animated) {
+            progress(0, 0.02f);
+            std::ifstream in(srcPath, std::ios::binary | std::ios::ate);
+            std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
+            if (!in || !out) {
+                result.status = "Model import failed: cannot copy " + fileName;
+                finish();
+                return;
+            }
+            const std::streamoff total = in.tellg();
+            in.seekg(0, std::ios::beg);
+            std::vector<char> chunk(4u * 1024u * 1024u);
+            std::streamoff copied = 0;
+            while (in) {
+                in.read(chunk.data(), (std::streamsize)chunk.size());
+                const std::streamsize got = in.gcount();
+                if (got <= 0) break;
+                out.write(chunk.data(), got);
+                if (!out) break;
+                copied += got;
+                const float part = total > 0
+                                       ? (float)((double)copied / (double)total)
+                                       : 1.0f;
+                modelImportProgress_.store(0.02f + part * 0.18f,
+                                           std::memory_order_relaxed);
+            }
+            out.close();
+            if (!in.eof() || !out) {
+                result.status = "Model import failed while copying " + fileName;
+                finish();
+                return;
+            }
+            result.installed = true;
 
-    // texture file (relative to the .obj) -> sanitized basename in res/models
-    std::map<std::string, std::string> textureNames;
-    for (const objparser::Submesh& s : parsed.submeshes)
-        for (const std::string& tex : {s.texture, s.refl})
-            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
-                textureNames.emplace(
-                    tex,
-                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
-    std::map<std::string, std::string> mtlNames;
-    for (const std::string& m : parsed.mtlLibs)
-        mtlNames.emplace(
-            m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+            if (fileName.size() > 4 &&
+                fileName.compare(fileName.size() - 4, 4, ".fbx") == 0) {
+                progress(1, 0.22f);
+                fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
+            }
 
-    int missing = 0;
+            progress(2, 0.34f);
+            glbparser::Baked baked;
+            std::string error;
+            if (!animimport::bake(destPath.string(), 12.0f, baked, error)) {
+                result.status = "Imported " + fileName + " - UNUSABLE: " + error;
+                progress(4, 1.0f);
+                finish();
+                return;
+            }
+            result.measured = true;
+            for (int k = 0; k < 3; ++k) {
+                result.bounds[k] = baked.min[k];
+                result.bounds[k + 3] = baked.max[k];
+            }
+            result.status = "Imported " + fileName + " (" +
+                            std::to_string(baked.clips.size()) + " clip(s), " +
+                            std::to_string(baked.totalVertexCount()) + " verts, " +
+                            std::to_string(baked.frameCount) + " baked frames)";
 
-    // .obj: rewrite mtllib lines to the sanitized library names
-    {
-        std::ifstream in(srcPath);
-        std::ofstream out(destDir / fileName, std::ios::trunc);
-        if (!in || !out) {
-            statusMessage_ = "Model import failed: cannot copy " + fileName;
-            return "";
+            // Rough PS2 memory estimate: the skeletal runtime keeps one
+            // bind-pose mesh + keyframe tracks, not the baked preview frames.
+            progress(3, 0.76f);
+            glbparser::Skel skel;
+            std::string skelError;
+            const size_t bytes = animimport::parseSkel(destPath.string(), skel,
+                                                       skelError)
+                                     ? skel.ps2Bytes()
+                                     : 0;
+            if (bytes > 8u * 1024 * 1024)
+                result.status += " - WARNING: ~" +
+                                 std::to_string(bytes >> 20) +
+                                 " MB on the PS2 (32 MB total) - reduce the mesh";
+            if (!baked.warnings.empty())
+                result.status +=
+                    " - " + baked.warnings.front() +
+                    (baked.warnings.size() > 1
+                         ? " (+" + std::to_string(baked.warnings.size() - 1) +
+                               " more warning(s), see build log)"
+                         : "");
+            progress(4, 1.0f);
+            finish();
+            return;
         }
-        std::string line;
-        while (std::getline(in, line)) {
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "mtllib") {
-                out << "mtllib";
-                std::string name;
-                while (ss >> name) out << " " << mtlNames[name];
-                out << "\n";
-            } else {
-                out << line << "\n";
+
+        // Wavefront import parses the source once, then rewrites the copied
+        // .obj/.mtl references to their sanitized, flattened dependency names.
+        progress(2, 0.08f);
+        objparser::Model parsed;
+        const bool parseOk = objparser::load(src, parsed);
+
+        std::map<std::string, std::string> textureNames;
+        for (const objparser::Submesh& s : parsed.submeshes)
+            for (const std::string& tex : {s.texture, s.refl})
+                if (!tex.empty() && tex != "@sky")
+                    textureNames.emplace(
+                        tex, sanitizeAssetName(
+                                 std::filesystem::path(tex).filename().string()));
+        std::map<std::string, std::string> mtlNames;
+        for (const std::string& m : parsed.mtlLibs)
+            mtlNames.emplace(
+                m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+
+        int missing = 0;
+        progress(0, 0.42f);
+        {
+            std::ifstream in(srcPath);
+            std::ofstream out(destPath, std::ios::trunc);
+            if (!in || !out) {
+                result.status = "Model import failed: cannot copy " + fileName;
+                finish();
+                return;
+            }
+            std::string line;
+            while (std::getline(in, line)) {
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "mtllib") {
+                    out << "mtllib";
+                    std::string name;
+                    while (ss >> name) out << " " << mtlNames[name];
+                    out << "\n";
+                } else {
+                    out << line << "\n";
+                }
             }
         }
-    }
+        result.installed = true;
 
-    // .mtl libraries: rewrite map_Kd to the sanitized (flattened) texture names
-    for (const auto& [mtlRef, mtlDest] : mtlNames) {
-        std::ifstream in(srcDir / mtlRef);
-        if (!in) {
-            ++missing;
-            continue;
+        progress(1, 0.64f);
+        size_t finishedDeps = 0;
+        const size_t totalDeps = mtlNames.size() + textureNames.size();
+        auto dependencyDone = [&]() {
+            ++finishedDeps;
+            if (totalDeps)
+                modelImportProgress_.store(
+                    0.64f + 0.30f * (float)finishedDeps / (float)totalDeps,
+                    std::memory_order_relaxed);
+        };
+        for (const auto& [mtlRef, mtlDest] : mtlNames) {
+            std::ifstream in(srcDir / mtlRef);
+            if (!in) {
+                ++missing;
+                dependencyDone();
+                continue;
+            }
+            std::ofstream out(destDir / mtlDest, std::ios::trunc);
+            if (!out) {
+                dependencyDone();
+                continue;
+            }
+            std::string line;
+            while (std::getline(in, line)) {
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "map_Kd" || tag == "refl") {
+                    std::vector<std::string> toks;
+                    for (std::string t; ss >> t;) toks.push_back(t);
+                    std::string last = toks.empty() ? "" : toks.back();
+                    for (char& c : last)
+                        if (c == '\\') c = '/';
+                    auto it = textureNames.find(last);
+                    out << tag;
+                    if (tag == "refl")
+                        for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                            out << " " << toks[ti];
+                    out << " "
+                        << (it != textureNames.end() ? it->second : last) << "\n";
+                } else {
+                    out << line << "\n";
+                }
+            }
+            dependencyDone();
         }
-        std::ofstream out(destDir / mtlDest, std::ios::trunc);
-        if (!out) continue;
-        std::string line;
-        while (std::getline(in, line)) {
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "map_Kd" || tag == "refl") {
-                // last token = filename, remapped to its flattened name; the
-                // refl options (-type/-mm, the strength) are preserved.
-                std::vector<std::string> toks;
-                for (std::string t; ss >> t;) toks.push_back(t);
-                std::string last = toks.empty() ? "" : toks.back();
-                for (char& c : last)
-                    if (c == '\\') c = '/';
-                auto it = textureNames.find(last);
-                out << tag;
-                if (tag == "refl")
-                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
-                        out << " " << toks[ti];
-                out << " " << (it != textureNames.end() ? it->second : last)
-                    << "\n";
-            } else {
-                out << line << "\n";
+
+        for (const auto& [texRef, texDest] : textureNames) {
+            std::filesystem::copy_file(
+                srcDir / texRef, destDir / texDest,
+                std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) {
+                ++missing;
+                ec.clear();
+            }
+            dependencyDone();
+        }
+
+        result.status = "Imported " + fileName;
+        if (!parseOk)
+            result.status +=
+                " (unparseable - it will render as a placeholder box)";
+        else if (!mtlNames.empty())
+            result.status += " + " + std::to_string(mtlNames.size()) +
+                             " mtl, " + std::to_string(textureNames.size()) +
+                             " texture(s)";
+        if (missing > 0)
+            result.status += " - " + std::to_string(missing) +
+                             " referenced file(s) missing next to the .obj";
+        if (parseOk) {
+            result.measured = true;
+            for (int k = 0; k < 3; ++k) {
+                result.bounds[k] = parsed.min[k];
+                result.bounds[k + 3] = parsed.max[k];
             }
         }
+        progress(4, 1.0f);
+    } catch (const std::exception& e) {
+        result.status = "Model import failed: " + std::string(e.what());
+    } catch (...) {
+        result.status = "Model import failed: unexpected importer error";
+    }
+    finish();
+}
+
+void App::modelImportTick() {
+    if (!modelImporting_ ||
+        !modelImportDone_.load(std::memory_order_acquire))
+        return;
+
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    modelImporting_ = false;
+    modelImportClose_ = true;
+
+    ModelImportResult& result = modelImportResult_;
+    // The modal prevents normal project switching, but keep the handoff
+    // guarded for shutdown/automation paths too: a worker result belongs only
+    // to the project directory it started from.
+    if (!hasProject_ || project_.dir != result.projectDir) return;
+
+    statusMessage_ = result.status;
+    if (!result.installed) return;
+
+    std::string imported = result.relPath;
+    const std::string modelRoot = "res/models";
+    const bool targetInsideModels =
+        result.targetFolder.size() > modelRoot.size() &&
+        result.targetFolder.compare(0, modelRoot.size(), modelRoot) == 0 &&
+        result.targetFolder[modelRoot.size()] == '/';
+    if (targetInsideModels) {
+        // moveAssets needs the just-created root asset in its fresh inventory;
+        // it carries .obj dependencies and retargets existing references.
+        scanAssetTree();
+        const std::string moveError =
+            moveAssets({result.relPath}, result.targetFolder);
+        if (moveError.empty())
+            imported = result.targetFolder + "/" +
+                       std::filesystem::path(result.relPath).filename().string();
+        else
+            statusMessage_ += " - could not move it into " +
+                              result.targetFolder + ": " + moveError;
+    } else {
+        assetsChanged();
     }
 
-    // referenced textures, flattened into res/models/
-    for (const auto& [texRef, texDest] : textureNames) {
-        std::filesystem::copy_file(srcDir / texRef, destDir / texDest,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
-        if (ec) {
-            ++missing;
-            ec.clear();
-        }
+    assetSelection_.assign(1, imported);
+    if (result.measured) {
+        beginModelSizing(imported, result.bounds.data(),
+                         result.bounds.data() + 3);
+        modelSizeFresh_ = true;
+    }
+}
+
+void App::drawModelImportModal() {
+    if (modelImportOpen_) {
+        ImGui::OpenPopup("Importing model");
+        modelImportOpen_ = false;
+    }
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Importing model", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize |
+                                    ImGuiWindowFlags_NoSavedSettings))
+        return;
+
+    if (modelImportClose_) {
+        modelImportClose_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
     }
 
-    // The cache is keyed "<model>|<material override>", so erasing the bare
-    // path missed every entry of a re-imported model (its summary stayed
-    // stale until a project reload) - drop the whole map, it is cheap to
-    // refill and the Assets panel refills it the same frame.
-    modelInfoCache_.clear();
-    statusMessage_ = "Imported " + fileName;
-    if (!parseOk)
-        statusMessage_ += " (unparseable - it will render as a placeholder box)";
-    else if (!mtlNames.empty())
-        statusMessage_ += " + " + std::to_string(mtlNames.size()) + " mtl, " +
-                          std::to_string(textureNames.size()) + " texture(s)";
-    if (missing > 0)
-        statusMessage_ += " - " + std::to_string(missing) +
-                          " referenced file(s) missing next to the .obj";
-    if (parseOk) {
-        beginModelSizing("res/models/" + fileName);
-        modelSizeFresh_ = true;  // an .obj carries no unit at all - ask
-    }
-    return "res/models/" + fileName;
+    static const char* kStages[] = {
+        "Copying model", "Copying materials and textures",
+        "Reading and validating model", "Estimating runtime memory",
+        "Finishing import"};
+    const int stage = std::clamp(modelImportStage_.load(std::memory_order_relaxed),
+                                 0, (int)(std::size(kStages) - 1));
+    const float fraction = std::clamp(
+        modelImportProgress_.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    ImGui::Text("%c  %s", "|/-\\"[(int)(ImGui::GetTime() * 10.0) & 3],
+                kStages[stage]);
+    ImGui::TextDisabled("%s", modelImportName_.c_str());
+    ImGui::Spacing();
+    ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
+    ImGui::TextDisabled(
+        "The editor stays responsive while the importer works in the background.");
+    ImGui::EndPopup();
 }
 
 // --- model real-world size (docs/world-scale.md) ---------------------------
@@ -6437,19 +6714,39 @@ void App::beginModelSizing(const std::string& relPath) {
     modelSizePath_ = relPath;
     modelSizeApplyExisting_ = false;
     modelSizeFresh_ = false;  // the import path raises it after this call
-    // Re-importing over an existing file keeps its name, so the viewport's
-    // path-keyed caches would hand back the OLD geometry's bounds.
-    viewport_.invalidateAssets();
-    // What the file is authored as. modelLocalBounds covers both formats
-    // (static .obj bounds and an animated model's baked pose bounds) and is
-    // the same measurement the placement snapping uses.
-    SceneObject probe;
-    probe.type = PrimitiveType::Model;
-    probe.modelPath = relPath;
-    float mn[3] = {0.0f, 0.0f, 0.0f}, mx[3] = {0.0f, 0.0f, 0.0f};
-    modelSizeMeasured_ = viewport_.modelLocalBounds(probe, mn, mx);
+    // The Asset Browser inspector has already parsed this exact asset to show
+    // its stats. Reuse that parse's bounds: going through modelLocalBounds()
+    // here used to parse/bake a large model all over again on the UI thread,
+    // which made the editor appear frozen immediately after clicking Size.
+    // Imports use the bounds overload below and likewise never pay twice.
+    const float* mn = nullptr;
+    const float* mx = nullptr;
+    if (isAnimatedModelPath(relPath)) {
+        const auto it = glbInfoCache_.find(relPath);
+        if (it != glbInfoCache_.end() && it->second.ok)
+            mn = it->second.min, mx = it->second.max;
+    } else {
+        const auto it = modelInfoCache_.find(relPath + "|");
+        if (it != modelInfoCache_.end() && it->second.ok)
+            mn = it->second.min, mx = it->second.max;
+    }
+    modelSizeMeasured_ = mn && mx;
     for (int c = 0; c < 3; ++c)
         modelSizeSrc_[c] = modelSizeMeasured_ ? mx[c] - mn[c] : 0.0f;
+    auto it = project_.modelUnitMeters.find(relPath);
+    modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
+    modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    modelSizeOpen_ = true;
+}
+
+void App::beginModelSizing(const std::string& relPath, const float mn[3],
+                           const float mx[3]) {
+    modelSizePath_ = relPath;
+    modelSizeApplyExisting_ = false;
+    modelSizeFresh_ = false;
+    viewport_.invalidateAssets();
+    modelSizeMeasured_ = true;
+    for (int c = 0; c < 3; ++c) modelSizeSrc_[c] = mx[c] - mn[c];
     auto it = project_.modelUnitMeters.find(relPath);
     modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
     modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
@@ -6751,6 +7048,10 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath,
         info.verts = model.vertexCount();
         info.tris = info.verts / 3;
         info.positions = model.positionCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = model.min[c];
+            info.max[c] = model.max[c];
+        }
         // texture paths resolve relative to the file that defined them: the
         // override .mtl when one is assigned, the model otherwise
         const std::filesystem::path texBase =
@@ -6801,6 +7102,10 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();
         info.frameCount = baked.frameCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = baked.min[c];
+            info.max[c] = baked.max[c];
+        }
         info.warnings = baked.warnings;
         for (const glbparser::Part& p : baked.parts) {
             GlbInfo::Material mat;
@@ -7101,10 +7406,11 @@ void App::drawAssetsSection() {
         ImGui::SetTooltip("Asset Browser: folders, thumbnails, filters,\n"
                           "drag & drop into the scene, safe move/rename/delete.");
     ImGui::SameLine();
+    ImGui::BeginDisabled(modelImporting_);
     if (ImGui::SmallButton("Import model...")) {
         importModelAsset();
-        assetsChanged();
     }
+    ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
                           ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
@@ -14522,11 +14828,5 @@ void App::openProjectDialog() {
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
-    const std::string err = openProjectAt(dir);
-    if (!err.empty()) {
-        runner_.clearLog();
-        // Surface the error in the Output window via the runner log is hacky;
-        // show a popup instead on next frame. Simple approach: message box.
-        platform::errorBox("Open Project", err);
-    }
+    openProjectAt(dir);
 }

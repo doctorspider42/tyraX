@@ -933,6 +933,16 @@ only reads `project_` per frame does not. The unsaved-edit guard is NOT in
 there — `requestCloseProject()` owns it, like `requestOpen/New/Exit`, via
 `PendingAction` + the discard modal.
 
+**Local opening is a staged main-thread operation.** `openProjectAt` records the
+folder and returns; `projectLoadTick` first gives `drawProjectLoadingScreen` a
+frame to reach the GPU, then performs `project::load`, migration and
+`attachProject()`. That ordering is what keeps a large open showing an honest
+full-window cover instead of a frozen copy of the previous project. Do not move
+`project::load` onto a worker casually: it replaces the process-wide custom
+flow-node, screen-effect and menu-style registries as part of parsing, so it is
+not a detached file read. The bar is deliberately indeterminate because the
+loader exposes no truthful byte/work total.
+
 Two traps that guard alone does NOT cover, both real bugs found on this path:
 - **A tick called BEFORE its own `!hasProject_` return still runs after a
   close.** `droneTickRender()` sits above that guard in

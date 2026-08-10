@@ -11,7 +11,7 @@
 // The source .glb/.fbx is never rewritten. The user's per-clip edits live in
 // Project::animClipEdits and are folded into the parsed skeleton on its way
 // into the .tskl at build time (templates.cpp bakeAnimAssets), so the console
-// receives clips that are already trimmed, retimed and renamed and pays
+// receives clips that are already trimmed, retimed, made in-place and renamed and pays
 // nothing at runtime. The editor's viewport preview applies the same numbers
 // through the sampling helpers below, which is what keeps "what you scrub is
 // what ships" true - change the math here and both sides move together.
@@ -61,8 +61,9 @@ std::string sourceName(const Project& p, const std::string& modelRel,
 
 // Applies every edit belonging to `modelRel` to a parsed skeleton, in place:
 // per clip, trim (inserting interpolated boundary keys and rebasing to 0),
-// then scale time, then rename. Clips with no entry still get the project fps
-// ratio applied. Safe to call on a model with no edits at all.
+// optionally pin the motion root horizontally for in-place playback, then
+// scale time, then rename. Clips with no entry still get the project fps ratio
+// applied. Safe to call on a model with no edits at all.
 void applyClipEdits(const Project& p, const std::string& modelRel,
                     glbparser::Skel& skel);
 

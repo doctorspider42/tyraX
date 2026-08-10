@@ -17,8 +17,8 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 9
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 13
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -73,6 +73,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // 4 and 5, then the collision-box overlay landed on main and took 6. A branch
 // that lives a while renumbers rather than argues; the number means "what the
 // file may contain", and only main gets to say which is which.)
-inline constexpr int kFormatVersion = 7;
+// v8 (Animation Editor in-place clips, docs/animated-models.md):
+// AnimClipEdit::inPlace removes horizontal root motion during the .tskl bake.
+// Purely additive and false when absent, so older projects keep their exact
+// authored animation and need no migration step.
+inline constexpr int kFormatVersion = 8;
 
 }  // namespace version
