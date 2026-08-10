@@ -809,7 +809,8 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"anim\": { \"clip\": \"" + jsonEscape(o.animClip) +
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
-                ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
+                ", \"speed\": " + fmtFloat(o.animSpeed) +
+                (o.footIk ? ", \"footIk\": true" : "") + " }";
     }
     // Per-object LOD overrides (animated models + player avatars); omitted at
     // the -1 default = "use the project preference".
@@ -2217,6 +2218,61 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// Foot IK / neural gait bone bindings (docs/foot-ik.md). Conditional like the
+// clip edits above: a project that never bound a rig emits nothing.
+static void writeAnimRigsSection(std::ostream& json, const Project& p) {
+    if (p.animRigs.empty()) return;
+    json << "\"animRigs\": [";
+    for (size_t i = 0; i < p.animRigs.size(); ++i) {
+        const AnimRig& r = p.animRigs[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"model\": \""
+             << jsonEscape(r.model) << "\"";
+        if (r.enabled) json << ", \"enabled\": true";
+        if (!r.pelvis.empty())
+            json << ", \"pelvis\": \"" << jsonEscape(r.pelvis) << "\"";
+        if (!r.legs.empty()) {
+            json << ", \"legs\": [";
+            for (size_t l = 0; l < r.legs.size(); ++l) {
+                const AnimRigLeg& g = r.legs[l];
+                json << (l ? ", " : "") << "{ \"hip\": \"" << jsonEscape(g.hip)
+                     << "\", \"knee\": \"" << jsonEscape(g.knee)
+                     << "\", \"ankle\": \"" << jsonEscape(g.ankle) << "\"";
+                if (!g.toe.empty())
+                    json << ", \"toe\": \"" << jsonEscape(g.toe) << "\"";
+                json << " }";
+            }
+            json << "]";
+        }
+        if (r.soleOffset != 0.08f)
+            json << ", \"soleOffset\": " << fmtFloat(r.soleOffset);
+        if (r.maxLift != 0.45f) json << ", \"maxLift\": " << fmtFloat(r.maxLift);
+        if (r.maxDrop != 0.45f) json << ", \"maxDrop\": " << fmtFloat(r.maxDrop);
+        if (r.normalBlend != 0.8f)
+            json << ", \"normalBlend\": " << fmtFloat(r.normalBlend);
+        if (r.maxRollDeg != 35.0f)
+            json << ", \"maxRollDeg\": " << fmtFloat(r.maxRollDeg);
+        if (r.smoothing != 14.0f)
+            json << ", \"smoothing\": " << fmtFloat(r.smoothing);
+        if (r.traceUp != 0.6f) json << ", \"traceUp\": " << fmtFloat(r.traceUp);
+        if (r.traceDown != 1.2f)
+            json << ", \"traceDown\": " << fmtFloat(r.traceDown);
+        if (r.netEnabled) json << ", \"netEnabled\": true";
+        if (!r.netPath.empty())
+            json << ", \"netPath\": \"" << jsonEscape(r.netPath) << "\"";
+        if (r.netWeight != 1.0f)
+            json << ", \"netWeight\": " << fmtFloat(r.netWeight);
+        if (!r.netJoints.empty()) {
+            json << ", \"netJoints\": [";
+            for (size_t j = 0; j < r.netJoints.size(); ++j)
+                json << (j ? ", " : "") << "\"" << jsonEscape(r.netJoints[j])
+                     << "\"";
+            json << "]";
+        }
+        json << " }";
+    }
+    json << "\n  ]";
+}
+
 // The project's own VU programs (docs/vu-authoring.md). Conditional: a project
 // that never opened Tools > VU Programs emits nothing.
 static void writeVuStages(std::ostream& json, const std::vector<VuStage>& st) {
@@ -2632,6 +2688,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::AnimRigs: writeAnimRigsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
@@ -2658,6 +2715,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::AnimRigs: return "animRigs";
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
@@ -4302,6 +4360,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = an->find("speed")) o.animSpeed = (float)v->numberOr(1.0);
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
+            if (const auto* v = an->find("footIk")) o.footIk = v->boolOr(false);
         }
         if (const auto* v = jo.find("animLod")) {
             o.animLodOverride = (float)v->numberOr(-1.0);
@@ -5655,6 +5714,76 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readAnimRigsSection(const json::Value& root, Project& out) {
+    out.animRigs.clear();
+    const auto* arr = root.find("animRigs");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const auto& jr : arr->arr) {
+        AnimRig r;
+        if (const auto* v = jr.find("model")) r.model = v->stringOr("");
+        if (r.model.empty()) continue;  // addresses nothing
+        if (const auto* v = jr.find("enabled")) r.enabled = v->boolOr(false);
+        if (const auto* v = jr.find("pelvis")) r.pelvis = v->stringOr("");
+        if (const auto* v = jr.find("legs");
+            v && v->type == json::Value::Type::Array) {
+            for (const auto& jl : v->arr) {
+                AnimRigLeg g;
+                if (const auto* n = jl.find("hip")) g.hip = n->stringOr("");
+                if (const auto* n = jl.find("knee")) g.knee = n->stringOr("");
+                if (const auto* n = jl.find("ankle")) g.ankle = n->stringOr("");
+                if (const auto* n = jl.find("toe")) g.toe = n->stringOr("");
+                // A leg missing any of its three real joints cannot be
+                // solved; keeping it would only make the console warn.
+                if (g.hip.empty() || g.knee.empty() || g.ankle.empty()) continue;
+                if (r.legs.size() >= 4) break;  // FootIkRig::kMaxLegs
+                r.legs.push_back(std::move(g));
+            }
+        }
+        if (const auto* v = jr.find("soleOffset"))
+            r.soleOffset = (float)v->numberOr(0.08);
+        if (const auto* v = jr.find("maxLift"))
+            r.maxLift = (float)v->numberOr(0.45);
+        if (const auto* v = jr.find("maxDrop"))
+            r.maxDrop = (float)v->numberOr(0.45);
+        if (const auto* v = jr.find("normalBlend"))
+            r.normalBlend = (float)v->numberOr(0.8);
+        if (const auto* v = jr.find("maxRollDeg"))
+            r.maxRollDeg = (float)v->numberOr(35.0);
+        if (const auto* v = jr.find("smoothing"))
+            r.smoothing = (float)v->numberOr(14.0);
+        if (const auto* v = jr.find("traceUp"))
+            r.traceUp = (float)v->numberOr(0.6);
+        if (const auto* v = jr.find("traceDown"))
+            r.traceDown = (float)v->numberOr(1.2);
+        if (const auto* v = jr.find("netEnabled"))
+            r.netEnabled = v->boolOr(false);
+        if (const auto* v = jr.find("netPath")) r.netPath = v->stringOr("");
+        if (const auto* v = jr.find("netWeight"))
+            r.netWeight = (float)v->numberOr(1.0);
+        if (const auto* v = jr.find("netJoints");
+            v && v->type == json::Value::Type::Array)
+            for (const auto& jj : v->arr) {
+                const std::string n = jj.stringOr("");
+                if (!n.empty()) r.netJoints.push_back(n);
+            }
+        // Same clamps the Foot IK tab enforces - a hand-edited file must not
+        // be able to produce a solver that tears the mesh apart.
+        if (r.soleOffset < 0.0f) r.soleOffset = 0.0f;
+        if (r.maxLift < 0.0f) r.maxLift = 0.0f;
+        if (r.maxDrop < 0.0f) r.maxDrop = 0.0f;
+        if (r.normalBlend < 0.0f) r.normalBlend = 0.0f;
+        if (r.normalBlend > 1.0f) r.normalBlend = 1.0f;
+        if (r.maxRollDeg < 0.0f) r.maxRollDeg = 0.0f;
+        if (r.maxRollDeg > 89.0f) r.maxRollDeg = 89.0f;
+        if (r.smoothing < 0.5f) r.smoothing = 0.5f;
+        if (r.traceUp < 0.0f) r.traceUp = 0.0f;
+        if (r.traceDown < 0.0f) r.traceDown = 0.0f;
+        if (r.netWeight < 0.0f) r.netWeight = 0.0f;
+        if (r.netWeight > 1.0f) r.netWeight = 1.0f;
+        out.animRigs.push_back(std::move(r));
+    }
+}
+
 static void readModelUnitsSection(const json::Value& root, Project& out) {
     out.modelUnitMeters.clear();
     const auto* obj = root.find("modelUnits");
@@ -5686,6 +5815,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::AnimRigs: readAnimRigsSection(root, p); break;
         case Section::ModelUnits: readModelUnitsSection(root, p); break;
         // A section blob is total, so a peer that never had the Input Map
         // would wipe it - re-seed the built-ins after applying (idempotent).
@@ -5863,6 +5993,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readSequencesSection(root, out);
 
     readAnimEditsSection(root, out);
+    readAnimRigsSection(root, out);
 
     readPrefabsSection(root, out);
     readVuSection(root, out);
@@ -6273,7 +6404,8 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (uint64_t)o.reverbDelay | ((uint64_t)o.reverbFeedback << 8) |
                   ((uint64_t)(o.reverbPriority & 0xFFFF) << 16));
     fnvMixS(h, o.animClip);
-    fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
+    fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0) |
+                  (o.footIk ? 4 : 0));
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     fnvMixF(h, o.modelYawOffset);
@@ -6406,6 +6538,21 @@ uint64_t liveLinkContextHash(const Project& p) {
         fnvMixS(h, e.model), fnvMixS(h, e.clip), fnvMixS(h, e.rename);
         fnvMixF(h, e.timeScale), fnvMixF(h, e.trimStart), fnvMixF(h, e.trimEnd);
         fnvMix(h, e.inPlace ? 1u : 0u);
+    }
+    // A Foot IK rig resolves bone NAMES to the indices the console uses at
+    // build time, and the whole rig is a baked constant - so binding a leg or
+    // moving a slider cannot reach a running game either.
+    for (const AnimRig& r : p.animRigs) {
+        fnvMixS(h, r.model), fnvMixS(h, r.pelvis);
+        fnvMix(h, r.enabled ? 1u : 0u), fnvMix(h, r.netEnabled ? 1u : 0u);
+        fnvMixS(h, r.netPath), fnvMixF(h, r.netWeight);
+        for (const AnimRigLeg& g : r.legs)
+            fnvMixS(h, g.hip), fnvMixS(h, g.knee), fnvMixS(h, g.ankle),
+                fnvMixS(h, g.toe);
+        for (const std::string& j : r.netJoints) fnvMixS(h, j);
+        fnvMixF(h, r.soleOffset), fnvMixF(h, r.maxLift), fnvMixF(h, r.maxDrop);
+        fnvMixF(h, r.normalBlend), fnvMixF(h, r.maxRollDeg);
+        fnvMixF(h, r.smoothing), fnvMixF(h, r.traceUp), fnvMixF(h, r.traceDown);
     }
     return h;
 }

@@ -19,6 +19,8 @@
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
+#include "fbxparser.hpp"  // animimport::parseSkel (--rig-detect)
+#include "footik.hpp"
 #include "gibake.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
@@ -541,6 +543,99 @@ static int dumpFromCli(int argc, char** argv) {
     // so the CLI and the in-editor assistant cannot describe it differently.
     std::printf("%s\n", aichat::projectSummaryJson(p).c_str());
     return 0;
+}
+
+// tyrax-editor.exe --rig-detect <projectDir> [modelRel]
+// What Tools > Foot IK would detect, printed. Exists because a rig is guessed
+// from bone NAMES, and "does the detector understand this exporter's naming?"
+// is a question about a file, not about a GUI - so it is answerable in one
+// command against any model, with an exit code a script can read. Also prints
+// the resolution problems, which is the same list the panel shows.
+static int rigDetectFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --rig-detect <projectDir> [modelRel]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+
+    std::vector<std::string> models;
+    if (argc > 3) {
+        models.push_back(argv[3]);
+    } else {
+        const std::filesystem::path dir =
+            std::filesystem::path(p.dir) / "res" / "models";
+        std::error_code ec;
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (!e.is_regular_file()) continue;
+            std::string ext = e.path().extension().string();
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            if (ext == ".glb" || ext == ".gltf" || ext == ".fbx")
+                models.push_back("res/models/" + e.path().filename().string());
+        }
+        std::sort(models.begin(), models.end());
+    }
+    if (models.empty()) {
+        std::fprintf(stderr, "error: no animated models in %s\n", argv[2]);
+        return 1;
+    }
+
+    int bad = 0;
+    for (const std::string& rel : models) {
+        std::printf("%s\n", rel.c_str());
+        glbparser::Skel skel;
+        std::string err;
+        if (!animimport::parseSkel(p.filePath(rel), skel, err)) {
+            std::printf("  unusable: %s\n", err.c_str());
+            ++bad;
+            continue;
+        }
+        const float height = skel.max[1] - skel.min[1];
+        std::printf("  %d bones, %d clips, %.3f units tall\n",
+                    (int)skel.nodes.size(), (int)skel.clips.size(), height);
+        // An already-bound rig is reported as authored; only an unbound model
+        // is guessed, so running this cannot make the tool disagree with the
+        // project.
+        const AnimRig* stored = p.findAnimRig(rel);
+        AnimRig rig = stored ? *stored : footik::autoDetect(rel, skel);
+        std::printf("  source: %s\n", stored ? "project" : "detected");
+        if (rig.legs.empty()) {
+            std::printf("  no leg chains found\n");
+            ++bad;
+            continue;
+        }
+        for (size_t i = 0; i < rig.legs.size(); ++i)
+            std::printf("  leg %d: %s / %s / %s%s%s\n", (int)i + 1,
+                        rig.legs[i].hip.c_str(), rig.legs[i].knee.c_str(),
+                        rig.legs[i].ankle.c_str(),
+                        rig.legs[i].toe.empty() ? "" : " / ",
+                        rig.legs[i].toe.c_str());
+        std::printf("  pelvis: %s\n",
+                    rig.pelvis.empty() ? "(none)" : rig.pelvis.c_str());
+        // The sole offset against the model's own height is the one number
+        // that says whether the ankle/toe binding is sane: a human ankle sits
+        // at roughly 4-6% of standing height, so anything far outside that
+        // means the "foot" bone is not the foot.
+        std::printf("  sole offset: %.4f", rig.soleOffset);
+        if (height > 1e-4f)
+            std::printf("  (%.1f%% of height)", 100.0f * rig.soleOffset / height);
+        std::printf("\n");
+        if (!rig.netJoints.empty()) {
+            std::printf("  gait-net joints:");
+            for (const std::string& j : rig.netJoints)
+                std::printf(" %s", j.c_str());
+            std::printf("\n");
+        }
+        const footik::Resolved r = footik::resolve(rig, skel);
+        for (const std::string& problem : r.problems)
+            std::printf("  PROBLEM: %s\n", problem.c_str());
+        if (!r.ok()) ++bad;
+    }
+    return bad == 0 ? 0 : 1;
 }
 
 // tyrax-editor.exe --dump-graph <projectDir> <objectName> [sceneName]
@@ -2612,6 +2707,8 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--rig-detect") == 0)
+        return rigDetectFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)

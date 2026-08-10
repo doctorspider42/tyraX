@@ -303,6 +303,7 @@ void App::scanAssetTree() {
 void App::assetsChanged() {
     modelInfoCache_.clear();
     glbInfoCache_.clear();
+    rigInfoCache_.clear();
     wavIssueCache_.clear();
     viewport_.invalidateAssets();  // model/material/texture/thumbnail caches
     assetUsageSerial_ = ~0ull;     // re-census on the next query
@@ -413,6 +414,13 @@ void App::rebuildAssetUsage() {
     for (const auto& [asset, tiers] : project_.modelLods)
         for (const std::string& t : tiers)
             note(t, 2, "LOD level of " + nameOf(asset));
+
+    // A trained pose corrector is the same kind of thing: the .tnet is a file
+    // the build ships and the game loads, so it is a REFERENCE. The rig's bone
+    // binding next to it is settings and stays uncounted, per the rule above.
+    for (const AnimRig& r : project_.animRigs)
+        if (r.netEnabled && !r.netPath.empty())
+            note(r.netPath, 2, "gait net of " + nameOf(r.model));
 
     // The built-in sprites the generated game loads by fixed name (save menu,
     // USE prompt, loading screen, debug font). Nothing in the model points at
@@ -641,6 +649,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (std::string& m : project_.music) swap(m);
     for (std::string& s : project_.sounds) swap(s);
     for (AnimClipEdit& e : project_.animClipEdits) swap(e.model);
+    for (AnimRig& r : project_.animRigs) swap(r.model), swap(r.netPath);
 
     // Map keys have to be re-inserted rather than assigned.
     if (auto it = project_.textureQuality.find(from);

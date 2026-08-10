@@ -659,6 +659,11 @@ struct SceneObject {
     bool animAutoplay = true;   // play the starting clip at scene start
     bool animLoop = true;       // starting clip loops
     float animSpeed = 1.0f;     // playback speed multiplier
+    // Foot IK on this instance (docs/foot-ik.md). Two switches - this and the
+    // model's rig - because a rig is worth binding once and using on some
+    // instances only: an instance running the solver cannot share its skinned
+    // mesh with the rest of a crowd, so a distant extra is cheaper without it.
+    bool footIk = false;
     // Per-object LOD overrides (animated models, incl. player avatars - each
     // of the two Player objects of a two-player scene carries its own set).
     // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
@@ -957,6 +962,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
+           a.footIk == b.footIk &&
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
@@ -2341,6 +2347,70 @@ struct AnimClipEdit {
     }
 };
 
+// One leg of a Foot IK rig. Bones are named, never indexed: a re-export with
+// one extra bone shifts every index, and a rig that silently retargets to the
+// wrong leg is far worse than one that reports a bone it can no longer find.
+// Resolution to the indices the console uses happens at build time
+// (footik::resolve).
+struct AnimRigLeg {
+    std::string hip;    // thigh - the chain root, never moved by the solver
+    std::string knee;
+    std::string ankle;  // the joint the sole hangs under
+    std::string toe;    // optional: only used to MEASURE the sole offset
+};
+
+inline bool operator==(const AnimRigLeg& a, const AnimRigLeg& b) {
+    return a.hip == b.hip && a.knee == b.knee && a.ankle == b.ankle &&
+           a.toe == b.toe;
+}
+
+// The Foot IK + neural gait binding of one animated model asset (Tools >
+// Animation Editor > Foot IK, docs/foot-ik.md + docs/neural-gait.md).
+//
+// Per ASSET rather than per object, because a rig is a property of the
+// skeleton: every instance of a character shares it, and a scene object only
+// carries the on/off switch (SceneObject::footIk). Lengths are MODEL units -
+// the space the .tskl's vertices live in - so the numbers mean the same thing
+// whatever the object is scaled to.
+struct AnimRig {
+    std::string model;  // project-relative asset, e.g. "res/models/hero.glb"
+    bool enabled = false;
+    std::vector<AnimRigLeg> legs;  // 1..4; two for a biped
+    std::string pelvis;            // lowered so a leg can reach; "" = none
+
+    float soleOffset = 0.08f;   // ankle height above the sole
+    float maxLift = 0.45f;      // how far a foot may rise above the clip
+    float maxDrop = 0.45f;      // how far the pelvis may sink
+    float normalBlend = 0.8f;   // 0 = keep the clip's foot angle
+    float maxRollDeg = 35.0f;
+    float smoothing = 14.0f;    // spring rate, 1/s
+    float traceUp = 0.6f;       // trace window around the clip's sole, world
+    float traceDown = 1.2f;
+
+    // --- the learned pose corrector that runs BEFORE the solver ---
+    bool netEnabled = false;
+    std::string netPath;  // "" = res/models/<stem>.tnet next to the model
+    float netWeight = 1.0f;
+    // Joints the net is allowed to bend, beyond the leg chains it always
+    // gets. Spine and pelvis are what buy the weight shift and the lean.
+    std::vector<std::string> netJoints;
+
+    // True when this entry would change nothing on the console - such rows
+    // are dropped on save so an untouched project keeps an empty list.
+    bool isDefault() const { return !enabled && !netEnabled && legs.empty(); }
+};
+
+inline bool operator==(const AnimRig& a, const AnimRig& b) {
+    return a.model == b.model && a.enabled == b.enabled && a.legs == b.legs &&
+           a.pelvis == b.pelvis && a.soleOffset == b.soleOffset &&
+           a.maxLift == b.maxLift && a.maxDrop == b.maxDrop &&
+           a.normalBlend == b.normalBlend && a.maxRollDeg == b.maxRollDeg &&
+           a.smoothing == b.smoothing && a.traceUp == b.traceUp &&
+           a.traceDown == b.traceDown && a.netEnabled == b.netEnabled &&
+           a.netPath == b.netPath && a.netWeight == b.netWeight &&
+           a.netJoints == b.netJoints;
+}
+
 inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
     return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
            a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
@@ -2646,6 +2716,19 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Foot IK / neural gait rigs (Tools > Animation Editor > Foot IK,
+    // docs/foot-ik.md). One entry per animated model asset that has been
+    // bound; a model with no entry animates exactly as before. Project-wide
+    // and persisted like the collections above, not part of undo/redo.
+    std::vector<AnimRig> animRigs;
+
+    // The rig of one model asset, or nullptr when it has never been bound.
+    const AnimRig* findAnimRig(const std::string& modelRel) const {
+        for (const AnimRig& r : animRigs)
+            if (r.model == modelRel) return &r;
+        return nullptr;
+    }
+
     // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
     // objects - their flow graphs included - stamped into the world by hand,
     // by a procedural graph, or by the Spawn Prefab node while the game runs.
@@ -2903,6 +2986,7 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    AnimRigs,        // "animRigs" (Foot IK / neural gait bone bindings)
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
@@ -2919,7 +3003,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 19,
+static_assert(kSectionCount == 20,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

@@ -419,6 +419,34 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+                // Foot IK is per instance on purpose - see the field's comment
+                // in project.hpp. The rig itself is bound once per model in
+                // Tools > Foot IK, and without one this switch does nothing,
+                // so say which half is missing rather than offering a dead box.
+                {
+                    const AnimRig* rig = project_.findAnimRig(o.modelPath);
+                    const bool bound = rig && rig->enabled && !rig->legs.empty();
+                    ImGui::BeginDisabled(!bound);
+                    if (ImGui::Checkbox("Foot IK", &o.footIk)) committed = true;
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                    if (!bound) {
+                        ImGui::TextDisabled("(no rig - Tools > Foot IK)");
+                        if (ImGui::IsItemClicked()) showFootIk_ = true;
+                    } else {
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "Plants this instance's feet on whatever is\n"
+                                "under them instead of on the flat floor the\n"
+                                "clip was authored on.\n\n"
+                                "Costs a skinned mesh: an instance solving IK\n"
+                                "cannot share its pose with the rest of a\n"
+                                "crowd, so leave it off for distant extras.");
+                    }
+                }
+
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: Play Animation, Stop Animation,\n"

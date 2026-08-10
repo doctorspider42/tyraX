@@ -102,6 +102,13 @@ std::string writeTanm(const Baked& baked,
 
 // One node of the glTF hierarchy with its bind-pose local transform.
 struct SkelNode {
+    // The authored bone name. HOST-SIDE ONLY - it is never written into the
+    // .tskl, because the console binds joints by index and a name table is
+    // pure weight there. It exists so a rig can be AUTHORED against something
+    // stable: the Foot IK binding (footik.hpp) is auto-detected from these and
+    // stored by name, so re-exporting a model with one extra bone does not
+    // silently retarget the rig to the wrong leg.
+    std::string name;
     int parent = -1;
     bool hasMatrix = false;  // matrix nodes are never animated (glTF spec)
     float matrix[16] = {};

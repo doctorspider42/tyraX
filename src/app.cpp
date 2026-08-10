@@ -893,6 +893,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
+    drawFootIkWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
     drawSessionWindow();
@@ -1555,6 +1556,7 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
+            if (ImGui::MenuItem("Foot IK...")) showFootIk_ = true;
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
@@ -4260,6 +4262,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "credits") return &showCreditsEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
+    if (key == "footik") return &showFootIk_;
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
@@ -4294,7 +4297,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat"};
+    "credits",  "vu",       "chat",     "footik"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -5011,6 +5014,7 @@ void App::closeProject() {
     wavIssueCache_.clear();
     modelInfoCache_.clear();
     glbInfoCache_.clear();  // always invalidated with modelInfoCache_
+    rigInfoCache_.clear();  // the third sibling (footik_ui.cpp)
     // The error catcher tails the open project's logs; the next open baselines
     // it again (attachProject). The runner log survives the close, so its size
     // has to stay honest or the next poll reads a shrink that never happened.
@@ -12062,6 +12066,7 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
             project_.modelUnitMeters.erase(d.relPath);
             modelInfoCache_.clear();
             glbInfoCache_.clear();
+            rigInfoCache_.clear();
             statusMessage_ = "Deleted " + d.label;
             commitChange();
             break;

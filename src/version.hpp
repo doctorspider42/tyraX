@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 13
+#define TYRAX_VERSION_MINOR 14
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -77,6 +77,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // AnimClipEdit::inPlace removes horizontal root motion during the .tskl bake.
 // Purely additive and false when absent, so older projects keep their exact
 // authored animation and need no migration step.
-inline constexpr int kFormatVersion = 8;
+// v9 (Foot IK / neural gait rigs, docs/foot-ik.md): the "animRigs" section
+// binds an animated model's leg chains by bone name and carries the solver's
+// numbers plus the optional pose corrector. Purely additive and absent by
+// default - a project with no rig behaves exactly as before, so no migration
+// step, only the newer-file refusal an older editor now owes.
+inline constexpr int kFormatVersion = 9;
 
 }  // namespace version

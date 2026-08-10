@@ -103,6 +103,52 @@ graph, a trigger volume and the camera all see the same world whether IK is
 on, off or half faded — and `setWeight(0)` is a true zero-cost bypass, not a
 solver running with small numbers.
 
+## Binding a rig (Tools > Foot IK)
+
+The panel is per **model asset**, because a rig is a property of the skeleton:
+every instance of a character shares it. A scene object only carries the
+on/off switch (*Properties > Foot IK*), so a rig can be bound once and used on
+some instances only — a distant extra is cheaper without it, for the pose
+sharing reason above.
+
+**Detect legs from bone names** guesses the whole thing. It recognises Mixamo
+(`LeftUpLeg`/`LeftLeg`/`LeftFoot`/`LeftToeBase`), Blender Rigify
+(`thigh`/`shin`/`foot`), Unreal (`thigh_l`/`calf_l`/`foot_l`/`ball_l`) and the
+plain `thigh`/`knee`/`ankle` spellings, pairs sides by the left/right marker,
+and picks the pelvis as the **deepest common ancestor of the two hips** —
+whatever it happens to be called.
+
+One naming trap is handled by the hierarchy rather than by the name: a bare
+`…Leg` bone is ambiguous, and Mixamo uses `LeftLeg` for the *shin*. It becomes
+the knee when it descends from an already-found hip, and the hip otherwise.
+
+A detection never switches the solver on. A guess is a starting point you
+confirm, and a solver nobody looked at is how a character ships with a knee
+bending backwards.
+
+**measure** reads the sole offset off the model instead of guessing it: the
+lowest vertex actually weighted to the foot in the bind pose, against the
+ankle joint. A boot and a bare foot differ by centimetres, and centimetres are
+exactly what a sunk heel is.
+
+The panel refuses to enable a rig it cannot resolve, and says why — a bone
+name that is not in the model, a chain the hierarchy does not connect (the
+ankle must descend from the knee, the knee from the hip), or a pelvis that is
+not an ancestor of every hip and would therefore not move the legs. The build
+skips such a rig too: the character animates exactly as it does today.
+
+From a shell, the same answer without the GUI:
+
+```bash
+tyrax-editor --rig-detect <projectDir>
+```
+
+It prints, per animated model, the detected (or stored) chains, the pelvis,
+the measured sole offset as a percentage of the model's own height, and every
+resolution problem — exiting non-zero if any model fails. The percentage is
+the quick sanity check: a human ankle sits at roughly 4–6% of standing
+height, so a number far outside that means the "foot" bone is not the foot.
+
 ## Rig fields
 
 | Field | What it decides |

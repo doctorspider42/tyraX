@@ -37,6 +37,7 @@
 #include "livelogic.hpp"
 #include "placement.hpp"
 #include "prefab.hpp"
+#include "glbparser.hpp"  // RigInfo member (the Foot IK tool's skeleton cache)
 #include "project.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
@@ -644,6 +645,19 @@ private:
     };
     std::map<std::string, GlbInfo> glbInfoCache_;
     const GlbInfo& glbInfo(const std::string& relPath);
+    // The parsed SKELETON of an animated model - bone names and hierarchy,
+    // which glbInfo deliberately does not keep (it is a summary). Only the
+    // Foot IK tool needs it, and it needs all of it: auto-detection reads the
+    // names, validation the parent links, and the sole measurement the
+    // bind-pose mesh. Evicted alongside glbInfoCache_/modelInfoCache_ - the
+    // three are siblings at every invalidation site.
+    struct RigInfo {
+        bool ok = false;
+        std::string error;
+        glbparser::Skel skel;
+    };
+    std::map<std::string, RigInfo> rigInfoCache_;
+    const RigInfo& rigInfo(const std::string& relPath);
     // glbInfo(relPath).clips with the Animation Editor's renames applied -
     // the names the game resolves and every reference stores.
     std::vector<std::string> effectiveClips(const std::string& relPath);
@@ -1671,6 +1685,16 @@ private:
     // other project-wide editors), and the panel owns its own playhead so
     // the preview keeps running while a field is being dragged.
     bool showAnimEditor_ = false;
+    // Foot IK / neural gait (footik_ui.cpp, docs/foot-ik.md). Its own window
+    // and its own TU: the binding is a property of the SKELETON, not of a
+    // clip, and hud_ui.cpp is long enough already.
+    bool showFootIk_ = false;
+    std::string footIkModel_;
+    void drawFootIkWindow();
+    // The rig entry for a model, created empty on first touch (the
+    // animEditFor idiom).
+    AnimRig& animRigFor(const std::string& model);
+    void pruneAnimRigs();
     std::string animEdModel_;   // project-relative .glb/.fbx being edited
     std::string animEdClip_;    // SOURCE clip name ("" = none selected)
     float animEdTime_ = 0.0f;   // playhead, seconds into the TRIMMED clip

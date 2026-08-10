@@ -261,6 +261,7 @@ std::vector<uint32_t> readIndices(const Doc& doc, int index) {
 // Scene graph
 
 struct Node {
+    std::string name;  // authored bone name - the only handle a rig has
     float t[3] = {0, 0, 0};
     float r[4] = {0, 0, 0, 1};
     float s[3] = {1, 1, 1};
@@ -519,6 +520,7 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
         for (size_t i = 0; i < arr->arr.size(); ++i) {
             const json::Value& n = arr->arr[i];
             Node& node = nodes[i];
+            if (const json::Value* nm = n.find("name")) node.name = nm->stringOr("");
             auto readVec = [&](const char* key, float* dst, int count) {
                 const json::Value* v = n.find(key);
                 if (!v || v->type != json::Value::Type::Array ||
@@ -1132,6 +1134,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     for (size_t i = 0; i < P.nodes.size(); ++i) {
         const Node& src = P.nodes[i];
         SkelNode& dst = out.nodes[i];
+        dst.name = src.name;
         dst.parent = P.parent[i];
         dst.hasMatrix = src.hasMatrix;
         std::memcpy(dst.matrix, src.matrix.m, sizeof(dst.matrix));

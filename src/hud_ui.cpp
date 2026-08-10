@@ -2848,6 +2848,15 @@ void App::drawAnimEditorWindow() {
         ImGui::EndCombo();
     }
     ImGui::SameLine();
+    // The other half of an animated model's authoring: clips are edited here,
+    // the skeleton's leg binding next door (docs/foot-ik.md). Separate windows
+    // because they answer different questions about the same asset, one link
+    // because nobody would find the second one otherwise.
+    if (ImGui::SmallButton("Foot IK...")) {
+        footIkModel_ = animEdModel_;
+        showFootIk_ = true;
+    }
+    ImGui::SameLine();
     const float projScale = animedit::projectTimeScale(project_.settings);
     if (std::fabs(projScale - 1.0f) > 0.001f)
         ImGui::TextDisabled("project fps: %.0f -> %.0f (%.3fx)",
