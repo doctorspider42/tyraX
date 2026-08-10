@@ -3660,6 +3660,196 @@ one. `SifAllocIopHeap`/`FreeIopHeap`/`InitIopHeap` kept their names upstream and
 resolve from `libkernel.a` either way, which is why the header lists ten and not
 thirteen.
 
+### Round fifteen: the regions no instrument had ever looked at
+
+Fourteen rounds of differential testing had swept the same ground with better and
+better instruments, and rounds eleven through fourteen each found their bug on the
+previous round's "still unexamined" list. This round was that list and nothing else:
+seven regions where the corpora contain none of the construct, so a clean oracle
+report over them says nothing at all. The work was building the shapes, not
+re-running the sweeps. **Two more defects, both upstream's, both silent, and both
+free on everything this project compiles.**
+
+**`.syntax old` decides whether a name is a field by its spelling.** An entire
+parsing mode nothing in this effort had ever compiled. In old syntax a component
+selection is written onto the end of the name — `vf01x`, `gif_tagx` — and openvcl
+strips an alias's trailing `xyzw` *before* asking whether the argument can carry a
+field at all, then rejects the whole argument when it turns out it cannot. An
+integer alias whose name ends in x, y, z or w therefore does not compile; the list
+of spellings that survive is five hardcoded English trigrams (`dex`, `tex`, `lex`,
+`rex`, `sex`), which is exactly why ps2gl's `next_index` works and `next_matrix` is
+"Invalid argument". Sony's `vcl` compiles both, identically. The silent half is
+worse: where the argument *can* take a field, the trigram list makes `vertex` a
+whole quadword to openvcl and `verte` field `x` to Sony's `vcl` — the same source,
+two different programs, no diagnostic from either. Fixed by asking the modifier
+first and then stripping unconditionally. Written up as item 12 of
+[upstream-openvcl.md](upstream-openvcl.md).
+
+**A loop-carried live range is abandoned for the whole loop when the count is over.**
+`extendLoopDirectiveRange` refuses to extend anything when the aliases *overlapping*
+a loop outnumber the register file — and the set it counts is not the set it
+extends. What gets extended is the carried names; what gets counted also includes
+every short-lived temporary in the body, which is never extended and costs nothing.
+So the guard fires because of the temporaries and then drops the extension for the
+carried name, whose register goes to a temporary and whose value is gone by the
+second iteration. Round fourteen had named this early return and left it open for
+want of a reproducer. It has one now: a `--LoopCS` loop with thirty-four float
+temporaries and one carried name diverges from its own source under two independent
+oracles, the same loop with two temporaries does not, and removing the guard makes
+the first one clean *and it still allocates*. Item 13 of the same page.
+
+**Why fourteen rounds walked past it, and who it reaches anyway.** Without a
+`--LoopCS` directive on the branch target, openvcl does not treat a back edge as a
+loop at all, so the function containing the guard is never entered. An instrumented
+build says it plainly: across the 70 real microprograms and all 1360 generated stress
+programs, the guard fired **zero** times in the default configuration and **387**
+times on the 70 with `--loop-liveness-always`, where it is disabled by its own
+condition. It needs the directive *and* the default configuration together, and no
+corpus in this project has either.
+
+openvcl's own does. All twelve ps2gl fixtures in `test/fixtures/` carry `--LoopCS`,
+and on a plain checkout with no flags **ten of the twelve take the guard**, eighteen
+sites between them — `indexed.vcl`, the smallest, twice: 37 float aliases against 31
+and then 24 integer aliases against 15. This is not a synthetic-only shape; it is
+live on the corpus upstream ships as its own, in the configuration a plain `make`
+produces. (A first pass at this claim said no fixture used the directive. It was a
+case-sensitive `grep` for `--loop` against a directive spelled `--LoopCS`, corrected
+here because the wrong version of that sentence is what would have made this defect
+look academic.)
+
+**What the two fixes cost: nothing, and that is checkable rather than argued.**
+`.syntax new` never reaches the parsing change, and `--loop-liveness-always` already
+skipped the guard, so both are no-ops on everything TyraX compiles. Measured that
+way: the 70 keep **1996 / 3910 / 9242** words, seven `clipw` per clip program and
+three `addaw` per env-mapped one, per-program word counts identical, and the
+microcode md5 stays `e78d466912af036dfea8d0a9f3b8385c`. All three generated stress
+corpora recompile **byte-identical** — 0 of 400, 0 of 480 and 0 of 480 programs moved
+— and so do openvcl's own twelve ps2gl fixtures. In the default configuration, which
+is where both defects live, eight of those twelve fixtures change and all twelve
+still allocate; over `test/regress/src` compiled with no flags the set of programs the
+value oracles call divergent goes from ten to nine, with nothing new joining it.
+
+The regenerated `docker/openvcl-tyrax.patch` was applied to a pristine checkout of
+the pinned commit `a5867c3` and rebuilt: the resulting binary is byte-identical to
+the one every measurement above was taken with. That check is the one this file has
+argued for repeatedly — a bump to that patch is a diff no reviewer can read, and the
+binary a reader can build from it has to be the binary that was tested.
+
+The suite goes from 45 cases to **50**: three reproducers and two controls, and
+`docker/openvcl-regress.sh` reads **46 pass / 0 fail / 4 xfail** on the new build
+against **43 / 3 / 4** on the shipped one, the three failures being exactly the
+three reproducers. It also grew a mechanism it did not have — a case may now name
+one flag to *drop*, because a defect that lives in a flag's off path cannot be
+asserted by a suite that only ever compiles one configuration, and the loop case is
+the first of those.
+
+**Five regions came back clean, and each one needed an argument rather than a sweep.**
+
+*Latency across a forward branch for anything that is not Q or P.* Bug 12 fixed the
+block-entry skew for the FDIV and EFU pipelines only. The integer file and the
+MAC/STATUS flags have the same exposure in principle, and neither is reachable:
+
+- The only VI producer with a modelled ready cycle is `ilw`/`ilwr` — everything else
+  that writes an integer register has latency 1 and records nothing at all. The
+  shortest taken-edge distance from a producer in the predecessor block to the first
+  row of the target is two rows, the branch and its delay slot, which is the three
+  cycles `--sce-latencies` calibrates an integer load to. An `ilw` cannot be closer:
+  not in the branch row (both are LOWER-pipe) and not in the delay slot, because
+  `canMoveIntoBranchDelaySlot` refuses any candidate with `latency() > 1`. Sony's
+  `vcl` *does* put an `ilw` in a delay slot on the same source — and pads its branch
+  target with three NOP rows when it does.
+- The MAC and STATUS flags need one cycle (`--sce-latencies`, calibrated), and two
+  consecutive rows already provide one. Sony's own output says one is the real
+  figure and not a modelling choice: over one generated corpus it places a MAC reader
+  in the row immediately below its producing FMAC 266 times and a status reader 127
+  times.
+
+A new path-aware instrument, `pi-pathgap.py`, checks this rather than trusting it: it
+rebuilds the control-flow graph over the emitted rows the way the emitter's own CLIP
+pass does — a branch fans out from its delay slot, never from the branch row — and
+reports, per dependency class, the fewest rows any path executes between a producer
+and its consumer. Run against Sony's `vcl` first, as every instrument here must be:
+on the 70 and on all three stress corpora, openvcl's minimum is at or above Sony's
+minimum in every class. The one place it goes below is `int-load` feeding a *branch*,
+which is `--branch-interlock` doing exactly what it was measured to do.
+
+The instrument deliberately does not judge CLIP. A CLIP reader is not paired with the
+nearest push — SCE keeps two and three clips in flight on purpose — so a
+nearest-producer distance would report Sony's own correct output as a violation. That
+question belongs to `p8-flagorder.py`, and the emitter answers it in
+`padClipFlagWindowAcrossPaths`, which is already path-aware.
+
+*MAC and STATUS provenance, judged against the source instead of against Sony.* The
+suite carries this as XFAIL on the grounds that no valid cross-assembler comparison
+exists. That is an argument against a differential test and not against a self-oracle,
+so the self-oracle was built — it turned out to exist already, behind `PB_MAC=1` and
+`PB_STATUS=1` in `pd-cond.py`, switched on by nothing in fourteen rounds — and run.
+**It fails its positive control.** On the same sources, Sony's `vcl` diverges from its
+own source on 195 of 343, 275 of 390 and 262 of 388 programs, five to six times
+openvcl's 40 / 59 / 58. An oracle that calls the reference implementation wrong on
+two-thirds of a corpus is measuring its own model. The reason generalises from the
+differential case to the self case: the MAC register holds exactly one value at a
+time, so *any* inserted or deleted FMAC changes what an `fmand` observes, and both
+assemblers insert and delete them. A usable oracle would have to prove either that the
+reader's result is dead or that the substituted flags are equal, and neither follows
+from the source. The XFAIL stands, now with a number behind it — and openvcl scores
+strictly better than Sony on the model that is too strict for both.
+
+*More than one `fcset`.* The reference is known-wrong here (the suite's `fcset_hoist`
+XFAILs record Sony reordering CLIP readers around a second `fcset` where openvcl is
+right), so this had to be reasoned from the hardware. `fcset` writes the whole
+24-bit CLIP register from an immediate, which makes it a barrier in both directions,
+and openvcl's ISA table declares it a CLIP *writer*: two `fcset`s are ordered against
+each other and against every `clipw` by WAW, a reader below one is ordered by RAW, and
+a reader above one by WAR. Shapes with two and three `fcset`s, each window holding its
+own push and reader, pass `p8-flagorder`, `pa-dag`, `pb-dag` and `pd-cond`. Note the
+asymmetry with `FSSET`, which is declared read-*and*-write precisely to make it a
+barrier: the status bits are sticky, so a contributor moved past a clear survives it,
+while a `clipw` moved past an `fcset` is simply overwritten.
+
+*`ilwr` / `iswr`.* Compiled for the first time in this effort. Both forms parse, emit
+and assemble; the address register is read and the destination written as the table
+says; and the load lands in the calibrated three cycles before its consumer. Sony's
+`vcl` declines to emit them at all on the same source — it constant-folds the base into
+an `ilw`/`isw` with an offset — so there is no differential verdict to have, only the
+self-oracle, which is clean.
+
+*Non-contiguous `.init_vf` / `.init_vi`.* Two blocks of each, split and separated by
+other directives, accumulate correctly and compile identically to Sony's `vcl`. One
+thing does not: a `.init_vf` placed *after* the code it applies to is accepted by
+Sony's `vcl` and rejected by openvcl with a diagnostic that names the directive as a
+read — `Read-attempt from uninitialized float register (.init_vf >>> vf03-vf08 <<<)`.
+That is a loud failure on a shape no source in this project uses, so it is recorded
+here and not fixed.
+
+**What was not examined, and what would have to be true for a bug to hide anyway.**
+
+- `extendMultiQStageLiveRanges` has a second copy of the abandoned-extension guard,
+  over the same over-counted set, for multi-`Q` staging. No reproducer was attempted.
+- Two loud divergences from Sony's `vcl` were found and left alone, because a
+  compiler that stops is not the failure mode this effort is about: openvcl rejects
+  `p` as an alias name (Sony's `vcl` accepts it — VCL's reserved names have bitten
+  this project before), and it rejects a `.init_vf` placed after the code it applies
+  to. Both produce an error rather than a program.
+- The three corpora were **not** re-judged against Sony's `vcl` after the fixes,
+  because their output is byte-identical to the build that already was. That is a
+  stronger statement than a re-run, not a weaker one — but it is only true because
+  the byte comparison was made, and a future change that moves a single program owes
+  the oracle sweep.
+- The path-aware instrument counts **rows**, and a row is at least a cycle. A gap at
+  or above the threshold is therefore proof; a gap below it is a question, because a
+  row that stalls the hardware buys cycles a row count cannot see. Nothing here is
+  asserted against a constant for that reason — the verdict is always openvcl against
+  Sony on the same source.
+- For the forward-branch argument to be wrong, either `canMoveIntoBranchDelaySlot`
+  would have to start admitting a producer with a latency, or the one-cycle MAC figure
+  would have to be wrong in a direction Sony's own 266 adjacent readers do not show.
+- For `.syntax old` to hide another defect it would have to be in a construct none of
+  the seventeen hand-built old-syntax programs used — and they are narrow: aliases,
+  broadcasts, destination masks and the integer forms, all against Sony's `vcl` on the
+  same source. The mode is now exercised by three regression cases where it was
+  exercised by none, which is a floor and not a sweep.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull

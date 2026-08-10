@@ -196,17 +196,25 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends g++ cmake make git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# openvcl-tyrax.patch - one fix this engine needs, and it is worth upstreaming
-# (see "The openvcl migration" in docs/toolchain-image.md): accept CLIPw's implied
-# w component, instead of rejecting the operand and then emitting the program
-# WITHOUT the clipw while keeping the fcand that reads its clip flags.
+# openvcl-tyrax.patch - the fork's whole diff against the pinned commit above,
+# `src/` only (see "The openvcl migration" in docs/toolchain-image.md). It began
+# as one fix - accept CLIPw's implied w component, instead of rejecting the
+# operand and then emitting the program WITHOUT the clipw while keeping the fcand
+# that reads its clip flags - and now carries thirteen defect fixes and the
+# twenty-one density flags `VCL_FLAGS` passes. Every defect is written up with a
+# reproducer in docs/upstream-openvcl.md; none has been submitted upstream yet.
 #
-# It used to carry a second hunk that relaxed the register allocator's conflict
-# test (live ranges that merely touch). It is gone: openvcl's own test suite
-# asserts the strict rule, and the register pressure it was working around
-# belonged to the engine, where three programs were holding GIF tags live across
-# a whole batch loop. Fixing it there made the allocator change unnecessary -
-# all 25 programs allocate with stock openvcl, and its 419 tests stay green.
+# A bump to this file is a diff no reviewer can read, so it has a suite:
+# `docker/openvcl-regress.sh <image>` runs the fork's `test/regress/` against the
+# assembler an image actually carries, and every one of those fixes has a case
+# there plus a control.
+#
+# It used to carry a hunk that relaxed the register allocator's conflict test
+# (live ranges that merely touch). It is gone: openvcl's own test suite asserts
+# the strict rule, and the register pressure it was working around belonged to
+# the engine, where three programs were holding GIF tags live across a whole
+# batch loop. Fixing it there made the allocator change unnecessary - all 25
+# programs allocate with stock openvcl, and its 419 tests stay green.
 COPY docker/openvcl-tyrax.patch /tmp/openvcl-tyrax.patch
 
 # BUILD_EXAMPLES defaults to ON when $PS2SDK is set and cross-compiles four PS2

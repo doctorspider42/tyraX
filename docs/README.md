@@ -261,12 +261,14 @@ Developer design docs (internals, not user guides):
 - [The toolchain image](toolchain-image.md) - where the Docker image games are
   compiled in comes from (this repo, since it stopped being an unpinned
   `h4570/tyra:latest`), how to build and publish it, how to point one project at
-  another image with `TYRAX_IMAGE`, and the measurements behind keeping the
-  inherited toolchain (the from-source `openvcl` changes all 25 VU1
-  microprograms and fails on 4).
-- [What to send upstream to openvcl](upstream-openvcl.md) - the two openvcl bugs
-  this work found (one with a patch, one without a reproducer) and the four
-  density flags, ready to hand over.
+  another image with `TYRAX_IMAGE`, and the long measured account of replacing
+  Sony's unlicensed `vcl` with `openvcl` so the image can be published at all -
+  thirteen silent miscompiles found and fixed, the microcode now smaller than
+  Sony's on all three corpora and at parity on the console.
+- [What to send upstream to openvcl](upstream-openvcl.md) - the thirteen openvcl
+  defects this work found, each with the mechanism and (all but one) a reproducer
+  that fires on the stock commit, plus the twenty-one density flags, ready to hand
+  over. The fork's own `test/regress/` marks which cases fire without any flags.
 - [Profiling the generated game](profiling.md) - the built-in debug frame
   profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
   behind it (deterministic camera orbit, in-run A/B, engine-side counters)

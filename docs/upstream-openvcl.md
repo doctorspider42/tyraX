@@ -4,7 +4,7 @@ TyraX builds its VU1 microcode with [openvcl](https://github.com/ps2dev/openvcl)
 as an alternative to Sony's unlicensed `vcl` — the whole reason being that a
 publishable toolchain image cannot contain `vcl` (see
 [toolchain-image.md](toolchain-image.md), "Licensing of the published image"). This
-page is the part of that work that belongs to openvcl rather than to us: **eleven defects**,
+page is the part of that work that belongs to openvcl rather than to us: **thirteen defects**,
 one calibration mistake of our own, and the density flags. Every defect is written up with
 the mechanism - what the code believed and why that is wrong - and all but section 4 with a
 reproducer that fires on the stock commit below. Several need no flags at all, so they are
@@ -482,7 +482,229 @@ when it schedules the consumer. openvcl happens to answer that one correctly tod
 `waitq` (the linear model sees the division from the PREVIOUS block and over-waits), but nothing
 makes it do so on purpose.
 
-## 12. Twenty-one flags, all off by default
+## 12. `.syntax old` decides whether a name is a field by its spelling
+
+In old syntax a component selection is written onto the end of the name —
+`vf01x`, and for an alias `gif_tagx` or `xformed_vertw`. `Token::extractRegister`
+strips the trailing `xyzw` of an alias, and it does so **before** asking whether
+that argument can carry a field at all. When it turns out it cannot, the whole
+argument is rejected:
+
+```cpp
+if( extractFields( fieldStr, parsedFields ) )
+{
+    if( !( hasModifier( DEST, modifiers ) || hasModifier( BROADCAST, modifiers )
+           || hasModifier( FLAG, modifiers ) ) )
+        return false;                       // "Invalid argument"
+    fields |= parsedFields;
+    alias = name.substr( 0, pos );
+}
+```
+
+`iaddiu`'s destination is `vi:write`, `isw`'s value operand is a plain `vi` and a
+branch's condition is a plain `vi` — none of them marked `:dest`, `:bc` or
+`:flag`. So **an integer alias whose name ends in x, y, z or w does not compile**.
+What rescues some of them is a list of hardcoded English trigrams a few lines up:
+
+```cpp
+if( ending != "dex" && ending != "tex" && ending != "lex" &&
+    ending != "rex" && ending != "sex" )
+    shouldStrip = true;
+```
+
+which is how ps2gl's own `indexed.vcl` — `next_index`, `first_index`,
+`last_index` — compiles and the same program with those names spelled
+`next_matrix` does not.
+
+**Reproducer**, no flags, stock upstream:
+
+```
+        .syntax old
+        .name OldAliasInt
+        .vu
+        .init_vf_all
+        .init_vi_all
+        --enter
+        --endenter
+        iaddiu      next_matrix, vi00, 8
+        iaddiu      array, next_matrix, 4
+        isw         array, 300(vi00)x
+        --exit
+        --endexit
+```
+
+```
+old_alias_int.vcl(9) : Invalid argument (iaddiu >>> next_matrix <<<, vi00, 8)
+```
+
+Sony's `vcl` compiles it, and compiles it **identically** to the same program with
+the aliases renamed `next_index` or `counter` — three rows, no field anywhere. The
+name is a name.
+
+**The other half is silent, and it is the more serious one.** Where the argument
+*can* carry a field, the trigram list still applies, and there openvcl and Sony
+disagree about what the program says. A float alias called `vertex` in a `:dest`
+position is `verte` field `x` to Sony's `vcl`:
+
+```
+        lq          vertex, 0(vi00)          ; .syntax old
+        sq          vertex, 300(vi00)
+```
+
+| alias | Sony `vcl` | openvcl |
+|---|---|---|
+| `matrix` | `lq.x` / `sq.x` | `lq.x` / `sq.x` |
+| `draw` | `.w` (mod bits 8) | `.w` |
+| `vertexw` | mod bits 9 = `x`+`w` | `x`+`w` |
+| **`vertex`** | **`lq.x` / `sq.x`** | **`lq` / `sq`, whole quadword** |
+| **`index`** | **`lq.x` / `sq.x`** | **`lq` / `sq`, whole quadword** |
+
+Neither assembler says anything. The same source becomes a different program.
+openvcl is also inconsistent with itself here: `vertexw` *is* stripped, to `vert`
+plus `x|w`, so `vertex` is not being treated as an atomic name — only as one that
+happens to end in `tex`.
+
+**Fix**: ask the modifier first, and then strip unconditionally.
+
+```cpp
+if( alias.empty() )
+{
+    if( !newSyntax && !indirect
+        && ( hasModifier( DEST, modifiers ) || hasModifier( BROADCAST, modifiers )
+             || hasModifier( FLAG, modifiers ) ) )
+    {
+        ... find the trailing xyzw run ...
+        if( pos < end && pos > 0 && extractFields( name.substr( pos ), parsedFields ) )
+        {
+            fields |= parsedFields;
+            alias = name.substr( 0, pos );
+        }
+    }
+}
+```
+
+An argument that cannot take a field keeps its name whatever it is spelled, and one
+that can is stripped whatever it is spelled. `next_matrix` compiles; `next_index`
+still compiles, so ps2gl is unaffected; `vertex` in a `:dest` position now reads the
+way the reference reads it. The `pos > 0` guard is new and says a name that is
+*nothing but* field letters is not a register reference.
+
+**Scale.** `.syntax new` never enters this code, so every source TyraX compiles is
+untouched: the 70 real microprograms are byte-identical (md5
+`e78d466912af036dfea8d0a9f3b8385c`, 1996 / 3910 / 9242 words) and all 1360 programs
+of the three generated stress corpora are byte-identical too. openvcl's own ps2gl
+fixtures, which are old syntax, are unchanged.
+
+Cases `old_alias_int`, `old_alias_field` and the control `old_alias_int_ok` in the
+fork's `test/regress/`.
+
+## 13. A loop-carried live range is abandoned for the whole loop when the count is over
+
+`extendLoopDirectiveRange` stretches the live ranges of the names a loop body
+carries across its back edge. Before it does, it refuses:
+
+```cpp
+std::set<Alias*> overlappingAliases;
+for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
+{
+    Alias* alias = i->first;
+    if( alias->type() != Alias::FLOAT )
+        continue;
+    if( aliases.find( alias ) != aliases.end() || alias->hasRangeOverlapping( loopStart, loopEnd ) )
+        overlappingAliases.insert( alias );
+}
+
+if( overlappingAliases.size() > availableFloats )
+    return;
+```
+
+**The set it counts is not the set it extends.** `addRange` below is applied to
+`aliases`; `overlappingAliases` also contains every short-lived temporary with any
+range inside the body — names that are never extended and cost nothing. So the
+guard fires because of the temporaries, and when it fires it drops the extension
+for the carried name, which is the one thing in the loop that needs it. A value
+written at the bottom of the body and read at the top then has its register handed
+to a temporary, and every iteration after the first reads what the temporary left.
+
+Returning early is not the safe direction. There is no configuration in which
+extending nothing is correct; when the extension genuinely does not fit, refusing
+to allocate is the answer, and that is what happens today when the guard is *not*
+taken.
+
+**Reproducer** — a `--LoopCS` loop with thirty-four independent float temporaries
+and one carried name, `carry`, written by the `abs.xyzw` at the bottom of the body
+and read by the `mul.y` at the top:
+
+```
+loop:
+    --LoopCS   1, 1
+    ibltz      n1, skip
+    mul.y      out, b, carry[z]        ; reads what the previous iteration left
+    sq         out, 300(vi00)
+    mul.xyzw   f00, a, b               ; thirty-four of these
+    sq         f00, 400(vi00)
+    ...
+    abs.xyzw   carry, c                ; writes it for the next one
+    sq         carry, 301(vi00)
+skip:
+    ...
+    ibne       cnt, vi00, loop
+```
+
+41 float aliases overlap the loop against 31 available, so the guard is taken. The
+emitted program diverges from its own source under both `pb-dag` and `pd-cond` (the
+`sq` to 300 stores a value the source never computes there). The same loop with two
+temporaries instead of thirty-four never reaches the guard and is correct. Removing
+the guard makes the thirty-four-temporary version clean **and it still allocates** —
+the overflow the guard was catching was the temporaries it should not have counted.
+
+**Why no corpus in this project has ever seen this — and why upstream's own has.**
+Without a `--LoopCS` directive on the branch target, `extendLoopDirectiveLiveRanges`
+does not treat a back edge as a loop at all (the fork's `--loop-liveness-always` is
+what changes that, and it also skips this guard). Not one of the 70 real
+microprograms and not one of the 1360 generated stress programs uses `--LoopCS`, so
+an instrumented build counts the guard firing **zero** times across all of them in
+the default configuration, and **387** times on the 70 with `--loop-liveness-always`,
+where it is disabled by its own condition. It needs the directive *and* the default
+configuration together, which is exactly the pair fourteen rounds of differential
+testing against Sony's `vcl` never had.
+
+openvcl's own ps2gl fixtures are the other case: **all twelve use `--LoopCS`**, and
+the smallest of them, `test/fixtures/indexed.vcl`, takes the guard twice on a plain
+checkout with no flags — 37 float aliases against 31, then 24 integer aliases against
+15. So this is not a synthetic-only shape: it is live on the code upstream ships as
+its own test corpus, in the configuration a plain `make` produces.
+
+**Fix**: narrow the extended set to the read-first names (which is what the carried
+set actually is) and delete the guard.
+
+**Scale.** Zero on everything TyraX compiles: with `--loop-liveness-always` on, the
+narrowing and the skip were already in force, so the change is a no-op there. The 70
+keep md5 `e78d466912af036dfea8d0a9f3b8385c` and 1996 / 3910 / 9242 words; all 1360
+generated programs are byte-identical; openvcl's twelve ps2gl fixtures are
+byte-identical too.
+
+In the **default** configuration, which is what this fix is for, eight of those
+twelve fixtures change and **all twelve still allocate** — the overflow the guard
+existed to prevent does not happen once the temporaries stop being counted. Over the
+whole of `test/regress/src` compiled with no flags at all, the set of programs the
+value oracles call divergent goes from ten to nine: `loop_pressure_carry` leaves it,
+`old_alias_int` leaves it because it now compiles at all, and nothing new joins. (The
+one apparent newcomer, `old_alias_field`, is the oracles' own limitation — they parse
+the source themselves and have no old-syntax mode, so they read `vertex` whole; Sony's
+`vcl` emits the `.x` form the emitter now emits.)
+
+Cases `loop_pressure_carry` and its control `loop_pressure_carry_ok` in the fork's
+`test/regress/`, compiled with the standard flag list **minus**
+`--loop-liveness-always` — a defect that lives in a flag's off path cannot be
+asserted by a suite that only ever compiles one configuration, so `cases.tsv` grew
+an `arg` form, `no:--the-flag`, that drops exactly one.
+
+**Not fixed, and not examined.** `extendMultiQStageLiveRanges` carries a second copy
+of the same guard, over the same `overlappingAliases` set, for the multi-`Q` staging
+extension. It has the same shape; no reproducer was attempted for it.
+
+## 14. Twenty-one flags, all off by default
 
 These are ours, they are measured, and they are what make openvcl competitive on this
 engine: the resident VU1 program set went from 3072 instructions to **1998**, against SCE's

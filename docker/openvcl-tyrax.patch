@@ -2213,7 +2213,7 @@ index 7b16a5b..830e41e 100644
  
  }
 diff --git a/src/RegisterAllocator.cpp b/src/RegisterAllocator.cpp
-index cf6d79b..c8cbfd3 100644
+index cf6d79b..ab479f1 100644
 --- a/src/RegisterAllocator.cpp
 +++ b/src/RegisterAllocator.cpp
 @@ -10,15 +10,18 @@
@@ -2542,7 +2542,7 @@ index cf6d79b..c8cbfd3 100644
  	return true;
  }
  
-@@ -905,44 +1096,206 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
+@@ -905,44 +1096,195 @@ bool RegisterAllocator::loopTargetHasLoopDirective( std::list<Token>::iterator t
  
  void RegisterAllocator::extendLoopDirectiveRange( std::list<Token>& tokens, unsigned int loopStart, unsigned int loopEnd )
  {
@@ -2628,52 +2628,38 @@ index cf6d79b..c8cbfd3 100644
 +	// stays carried, and the field walk only adds to it.
 +	for( std::set<Alias*>::iterator i = liveInAliases.begin(); i != liveInAliases.end(); ++i )
 +		carriedAliases.insert( *i );
-+	if( vuLoopLivenessAlwaysEnabled() )
-+		aliases = liveInAliases;
++	// ONLY THE READ-FIRST NAMES ARE LIVE ACROSS THE BACK EDGE. A name written
++	// before it is read inside the body is a temporary whose own range already
++	// covers it, and stretching those over the whole loop is what used to run the
++	// allocator out of registers. That narrowing was --loop-liveness-always's
++	// alone; the default path kept the wider set and an early return below to
++	// catch the overflow the wider set caused.
++	//
++	// SKIPPING THE EXTENSION IS NOT A LICENCE TO EMIT WRONG CODE, and that early
++	// return did exactly that. It compared the number of aliases with a range
++	// OVERLAPPING the loop against the register file - a set it does not extend:
++	// what gets addRange() below is this read-first set, while the count included
++	// every short-lived temporary in the body. So it fired on loops whose
++	// extension was free, and when it fired it dropped the extension for the
++	// carried names that needed it. A value written at the bottom of the body and
++	// read at the top then had its register handed to a temporary, and every
++	// iteration after the first read what the temporary left.
++	//
++	// Measured, on a `--LoopCS` loop with 41 float aliases overlapping it and one
++	// carried name: with the early return the emitted program diverges from its
++	// own source under both pb-dag and pd-cond; without it the same program is
++	// clean AND still allocates. The same loop with two fewer temporaries never
++	// reached the guard and was correct all along. See the regression cases
++	// loop_pressure_carry and loop_pressure_carry_ok.
++	//
++	// When the extension genuinely does not fit, failing loudly is the only honest
++	// answer - which is what --loop-liveness-always has always done here.
++	aliases = liveInAliases;
  
- 	unsigned int availableFloats = 0;
-+	unsigned int availableInts = 0;
- 	for( unsigned int i = 0; i < 32; ++i )
- 	{
- 		if( m_floats[i].available() )
- 			++availableFloats;
- 	}
-+	for( unsigned int i = 0; i < 16; ++i )
-+	{
-+		if( m_integers[i].available() )
-+			++availableInts;
-+	}
- 
--	std::set<Alias*> overlappingAliases;
-+	std::set<Alias*> overlappingFloats;
-+	std::set<Alias*> overlappingInts;
- 	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
- 	{
- 		Alias* alias = i->first;
--		if( alias->type() != Alias::FLOAT )
-+		if( aliases.find( alias ) == aliases.end()
-+		    && !alias->hasRangeOverlapping( loopStart, loopEnd ) )
- 			continue;
--		if( aliases.find( alias ) != aliases.end() || alias->hasRangeOverlapping( loopStart, loopEnd ) )
--			overlappingAliases.insert( alias );
-+		if( alias->type() == Alias::FLOAT )
-+			overlappingFloats.insert( alias );
-+		else
-+			overlappingInts.insert( alias );
- 	}
- 
--	if( overlappingAliases.size() > availableFloats )
-+	// Skipping the extension is not a licence to emit wrong code: a value live
-+	// across the back edge whose range was not extended gets its register handed
-+	// to another name. --loop-liveness-always keeps the extension and lets
-+	// allocation fail loudly instead.
-+	if( !vuLoopLivenessAlwaysEnabled()
-+	    && ( overlappingFloats.size() > availableFloats
-+	         || overlappingInts.size() > availableInts ) )
- 		return;
- 
- 	for( std::set<Alias*>::iterator a = aliases.begin(); a != aliases.end(); ++a )
- 		(*a)->addRange( loopStart, loopEnd );
+-	unsigned int availableFloats = 0;
+-	for( unsigned int i = 0; i < 32; ++i )
++	for( std::set<Alias*>::iterator a = aliases.begin(); a != aliases.end(); ++a )
++		(*a)->addRange( loopStart, loopEnd );
 +
 +	tieCarriedWritesToLiveInAliases( tokens, loopStart, loopEnd, carriedAliases );
 +}
@@ -2703,7 +2689,9 @@ index cf6d79b..c8cbfd3 100644
 +	// register.
 +	std::map<std::string, Alias*> carriedByName;
 +	for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); ++t )
-+	{
+ 	{
+-		if( m_floats[i].available() )
+-			++availableFloats;
 +		if( t->lineNumber() < loopStart || t->lineNumber() > loopEnd )
 +			continue;
 +		for( std::list<Token::Argument>::const_iterator a = t->arguments().begin(); a != t->arguments().end(); ++a )
@@ -2718,12 +2706,18 @@ index cf6d79b..c8cbfd3 100644
 +			if( carriedByName.find( a->alias() ) == carriedByName.end() )
 +				carriedByName[ a->alias() ] = alias;
 +		}
-+	}
-+
+ 	}
+ 
+-	std::set<Alias*> overlappingAliases;
+-	for( AliasMap::iterator i = m_aliases.begin(); i != m_aliases.end(); ++i )
 +	for( std::list<Token>::iterator t = tokens.begin(); t != tokens.end(); ++t )
-+	{
+ 	{
+-		Alias* alias = i->first;
+-		if( alias->type() != Alias::FLOAT )
 +		if( t->lineNumber() < loopStart || t->lineNumber() > loopEnd )
-+			continue;
+ 			continue;
+-		if( aliases.find( alias ) != aliases.end() || alias->hasRangeOverlapping( loopStart, loopEnd ) )
+-			overlappingAliases.insert( alias );
 +		for( std::list<Token::Argument>::const_iterator a = t->arguments().begin(); a != t->arguments().end(); ++a )
 +		{
 +			if( !(a->flags() & Token::Argument::WRITE) )
@@ -2752,11 +2746,17 @@ index cf6d79b..c8cbfd3 100644
 +			// pre-pass hands the ring one register either way.
 +			trySetSameNamePredecessor( written, carried->second );
 +		}
-+	}
+ 	}
+-
+-	if( overlappingAliases.size() > availableFloats )
+-		return;
+-
+-	for( std::set<Alias*>::iterator a = aliases.begin(); a != aliases.end(); ++a )
+-		(*a)->addRange( loopStart, loopEnd );
  }
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-@@ -973,7 +1326,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
+@@ -973,7 +1315,14 @@ void RegisterAllocator::extendLoopDirectiveLiveRanges( std::list<Token>& tokens
  		std::list<Token>::iterator target = label->second;
  		if( target->lineNumber() >= branch->lineNumber() )
  			continue;
@@ -2772,7 +2772,7 @@ index cf6d79b..c8cbfd3 100644
  			continue;
  
  		extendLoopDirectiveRange( tokens, target->lineNumber(), branch->lineNumber() );
-@@ -1216,7 +1576,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
+@@ -1216,7 +1565,12 @@ void RegisterAllocator::extendMultiQStageRange( std::list<Token>& tokens, unsign
  			overlappingAliases.insert( alias );
  	}
  
@@ -2786,7 +2786,7 @@ index cf6d79b..c8cbfd3 100644
  		return;
  
  	for( std::set<Alias*>::iterator a = qStageAliases.begin(); a != qStageAliases.end(); ++a )
-@@ -1263,13 +1628,33 @@ void RegisterAllocator::extendMultiQStageLiveRanges( std::list<Token>& tokens )
+@@ -1263,13 +1617,33 @@ void RegisterAllocator::extendMultiQStageLiveRanges( std::list<Token>& tokens )
  void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  {
  	// One synthetic alias per (type, register) pair, with one range per
@@ -2824,7 +2824,7 @@ index cf6d79b..c8cbfd3 100644
  
  	for( std::list<Token>::iterator it = tokens.begin(); it != tokens.end(); ++it )
  	{
-@@ -1285,10 +1670,17 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1285,10 +1659,17 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  		const unsigned int line = it->lineNumber();
  
@@ -2842,7 +2842,7 @@ index cf6d79b..c8cbfd3 100644
  
  			if( a->type() == Token::Argument::FLOAT_REGISTER )
  			{
-@@ -1315,6 +1707,10 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1315,6 +1696,10 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  					m_aliases[ integers[r] ] = integers[r];
  				}
  				integers[r]->addRange( line, line );
@@ -2853,7 +2853,7 @@ index cf6d79b..c8cbfd3 100644
  			}
  		}
  	}
-@@ -1322,27 +1718,1529 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
+@@ -1322,27 +1707,1529 @@ void RegisterAllocator::collectLiteralRegisterUsage( std::list<Token>& tokens )
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -4539,7 +4539,7 @@ index 738fca5..067d7c0 100644
  
  #include "RegisterAllocator.inl"
 diff --git a/src/Token.cpp b/src/Token.cpp
-index 586585b..34ef948 100644
+index 586585b..d990cb8 100644
 --- a/src/Token.cpp
 +++ b/src/Token.cpp
 @@ -367,9 +367,25 @@ bool Token::processOperand( const Operand* operand, bool newSyntax, Token::Argum
@@ -4599,6 +4599,104 @@ index 586585b..34ef948 100644
  		}
  
  		std::string extra = name.substr(name.find(')',stop)+1);
+@@ -755,13 +781,29 @@ bool Token::extractRegister( std::string name, Argument& argument, unsigned int
+ 		}
+ 
+ 		// Support old-syntax component selection appended directly to aliases,
+-		// e.g. "gif_tagx" or "xformed_vertw" → treat trailing xyzw as fields.
+-		// Only allowed when not using new syntax and when fields are valid for this operand.
+-		// IMPORTANT: To avoid breaking identifiers ending in common words like "index", "vertex",
+-		// we check if the trailing xyzw are part of a common word suffix and skip stripping if so.
++		// e.g. "gif_tagx" or "xformed_vertw" -> treat trailing xyzw as fields.
++		//
++		// WHETHER A NAME CAN CARRY A FIELD IS A PROPERTY OF THE ARGUMENT, NOT OF THE
++		// SPELLING. Only an argument the operand pattern marks :dest, :bc or :flag
++		// takes one; the destination of an `iaddiu`, the value operand of an `isw`
++		// and a branch's condition never do. This used to strip first and then
++		// reject the WHOLE argument when no such modifier was present, so an
++		// integer alias whose name happened to end in x, y, z or w was
++		// "Invalid argument" - and the list of names that survived it was a
++		// hardcoded set of English trigrams ("dex", "tex", "lex", "rex", "sex"),
++		// which is how `next_index` compiled and `next_matrix` did not. Sony's vcl
++		// accepts both and reads neither as a field, so the trigrams were also a
++		// silent divergence in the other direction: a FLOAT alias called `vertex`
++		// is `verte` field x to Sony's vcl and a whole register here.
++		//
++		// Asking the modifier first answers both: an argument that cannot take a
++		// field keeps its name whole whatever it is spelled, and one that can is
++		// stripped whatever it is spelled - which is what the reference does.
+ 		if( alias.empty() )
+ 		{
+-			if( !newSyntax && !indirect )
++			if( !newSyntax && !indirect
++			    && ( hasModifier( DEST, modifiers ) || hasModifier( BROADCAST, modifiers )
++			         || hasModifier( FLAG, modifiers ) ) )
+ 			{
+ 				// Find contiguous trailing xyzw characters
+ 				std::string::size_type end = name.size();
+@@ -775,54 +817,16 @@ bool Token::extractRegister( std::string name, Argument& argument, unsigned int
+ 						break;
+ 				}
+ 
+-				if( pos < end )
++				// A name that is NOTHING but field letters is a field selection with
++				// no alias in front of it, which is not a register reference at all.
++				if( pos < end && pos > 0 )
+ 				{
+-					// Check for common word endings that shouldn't be stripped:
+-					// "dex" (index), "tex" (vertex), "plex" (complex), "rex" (regex)
+-					// Allow stripping if:
+-					// 1. Multiple xyzw chars (e.g., "xyz", "xyzw"), OR
+-					// 2. Single xyzw after non-alphabetic char (e.g., "gif_tag11x"), OR
+-					// 3. Single xyzw that doesn't form a common word suffix
+-					bool shouldStrip = false;
+-					if( (end - pos) >= 2 )
+-					{
+-						// Multiple field chars - always strip
+-						shouldStrip = true;
+-					}
+-					else if( pos > 0 && !isalpha(name[pos-1]) )
+-					{
+-						// Single field char after digit/underscore - likely field access
+-						shouldStrip = true;
+-					}
+-					else if( pos >= 2 )
++					std::string fieldStr = name.substr( pos );
++					unsigned int parsedFields = 0;
++					if( extractFields( fieldStr, parsedFields ) )
+ 					{
+-						// Check if this forms a common word ending we should preserve
+-						std::string ending = name.substr(pos-2, 3);
+-						// Convert to lowercase for comparison
+-						for(size_t i = 0; i < ending.length(); i++)
+-							if(ending[i] >= 'A' && ending[i] <= 'Z')
+-								ending[i] = ending[i] - 'A' + 'a';
+-
+-						if( ending != "dex" && ending != "tex" && ending != "lex" &&
+-						    ending != "rex" && ending != "sex" )
+-						{
+-							shouldStrip = true;
+-						}
+-					}
+-
+-					if( shouldStrip )
+-					{
+-						std::string fieldStr = name.substr( pos );
+-						unsigned int parsedFields = 0;
+-						if( extractFields( fieldStr, parsedFields ) )
+-						{
+-							// Ensure this operand allows fields on the argument (dest/broadcast/flag)
+-							if( !( hasModifier( DEST, modifiers ) || hasModifier( BROADCAST, modifiers ) || hasModifier( FLAG, modifiers ) ) )
+-								return false;
+-
+-							fields |= parsedFields;
+-							alias = name.substr( 0, pos );
+-						}
++						fields |= parsedFields;
++						alias = name.substr( 0, pos );
+ 					}
+ 				}
+ 			}
 diff --git a/src/Token.h b/src/Token.h
 index ba4e871..614d628 100644
 --- a/src/Token.h
