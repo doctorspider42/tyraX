@@ -36696,10 +36696,11 @@ std::vector<File> bakeAnimAssets(const Project& p,
 
         // Non-destructive clip edits (Tools > Animation Editor) + the
         // project's animation-fps ratio are folded in here, right before
-        // serialization: trim, retime, rename. The source .glb/.fbx is never
-        // touched, and the console pays nothing - it just receives clips of
-        // the edited length under the edited names. Runs after the LOD
-        // generation because it only rewrites keyframe tracks, never meshes.
+        // serialization: trim, remove root motion, retime, rename. The source
+        // .glb/.fbx is never touched, and the console pays nothing - it just
+        // receives clips of the edited length under the edited names. Runs
+        // after the LOD generation because it only rewrites keyframe tracks,
+        // never meshes.
         animedit::applyClipEdits(p, relPath, skel);
 
         // Extracted textures land next to the .tskl, prefixed with the model

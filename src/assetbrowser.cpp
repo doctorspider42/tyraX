@@ -1161,7 +1161,9 @@ void App::drawAssetBrowserWindow() {
     };
     if (ImGui::Button("Import...")) ImGui::OpenPopup("assetimport");
     if (ImGui::BeginPopup("assetimport")) {
-        if (ImGui::MenuItem("Model (.obj / .glb / .fbx)...")) importInto(importModelAsset());
+        if (ImGui::MenuItem("Model (.obj / .glb / .fbx)...", nullptr, false,
+                            !modelImporting_))
+            importModelAsset(assetFolder_);
         if (ImGui::MenuItem("Material (.mtl)...")) importInto(importMaterialAsset());
         if (ImGui::MenuItem("Texture (.png)...")) importInto(importTextureAsset());
         ImGui::Separator();

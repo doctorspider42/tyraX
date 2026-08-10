@@ -1,6 +1,7 @@
 #include "animedit.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 
 namespace animedit {
@@ -91,6 +92,172 @@ void trimChannel(glbparser::SkelChannel& ch, float start, float end) {
     ch.values.swap(values);
 }
 
+bool isAncestor(const glbparser::Skel& skel, int ancestor, int node) {
+    while (node >= 0 && node < (int)skel.nodes.size()) {
+        if (node == ancestor) return true;
+        node = skel.nodes[node].parent;
+    }
+    return false;
+}
+
+int nodeDepth(const glbparser::Skel& skel, int node) {
+    int depth = 0;
+    while (node >= 0 && node < (int)skel.nodes.size()) {
+        ++depth;
+        node = skel.nodes[node].parent;
+    }
+    return depth;
+}
+
+struct Linear3 {
+    float m[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};  // column-major
+};
+
+Linear3 mul(const Linear3& a, const Linear3& b) {
+    Linear3 r{};
+    for (int c = 0; c < 3; ++c)
+        for (int row = 0; row < 3; ++row) {
+            r.m[c * 3 + row] = 0.0f;
+            for (int k = 0; k < 3; ++k)
+                r.m[c * 3 + row] +=
+                    a.m[k * 3 + row] * b.m[c * 3 + k];
+        }
+    return r;
+}
+
+Linear3 localLinear(const glbparser::SkelNode& n) {
+    Linear3 r{};
+    if (n.hasMatrix) {
+        for (int c = 0; c < 3; ++c)
+            for (int row = 0; row < 3; ++row)
+                r.m[c * 3 + row] = n.matrix[c * 4 + row];
+        return r;
+    }
+    const float x = n.r[0], y = n.r[1], z = n.r[2], w = n.r[3];
+    const float x2 = x + x, y2 = y + y, z2 = z + z;
+    const float xx = x * x2, xy = x * y2, xz = x * z2;
+    const float yy = y * y2, yz = y * z2, zz = z * z2;
+    const float wx = w * x2, wy = w * y2, wz = w * z2;
+    r.m[0] = (1.0f - (yy + zz)) * n.s[0];
+    r.m[1] = (xy + wz) * n.s[0];
+    r.m[2] = (xz - wy) * n.s[0];
+    r.m[3] = (xy - wz) * n.s[1];
+    r.m[4] = (1.0f - (xx + zz)) * n.s[1];
+    r.m[5] = (yz + wx) * n.s[1];
+    r.m[6] = (xz + wy) * n.s[2];
+    r.m[7] = (yz - wx) * n.s[2];
+    r.m[8] = (1.0f - (xx + yy)) * n.s[2];
+    return r;
+}
+
+Linear3 parentLinear(const glbparser::Skel& skel, int node) {
+    std::vector<int> chain;
+    for (int n = node >= 0 && node < (int)skel.nodes.size()
+                     ? skel.nodes[node].parent
+                     : -1;
+         n >= 0 && n < (int)skel.nodes.size(); n = skel.nodes[n].parent)
+        chain.push_back(n);
+    Linear3 out;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+        out = mul(out, localLinear(skel.nodes[*it]));
+    return out;
+}
+
+void transform(const Linear3& m, const float v[3], float out[3]) {
+    for (int row = 0; row < 3; ++row)
+        out[row] = m.m[row] * v[0] + m.m[3 + row] * v[1] +
+                   m.m[6 + row] * v[2];
+}
+
+bool inverse(const Linear3& a, Linear3& out) {
+    const float a00 = a.m[0], a01 = a.m[3], a02 = a.m[6];
+    const float a10 = a.m[1], a11 = a.m[4], a12 = a.m[7];
+    const float a20 = a.m[2], a21 = a.m[5], a22 = a.m[8];
+    const float det = a00 * (a11 * a22 - a12 * a21) -
+                      a01 * (a10 * a22 - a12 * a20) +
+                      a02 * (a10 * a21 - a11 * a20);
+    if (std::fabs(det) < 1e-10f) return false;
+    const float d = 1.0f / det;
+    out.m[0] = (a11 * a22 - a12 * a21) * d;
+    out.m[3] = (a02 * a21 - a01 * a22) * d;
+    out.m[6] = (a01 * a12 - a02 * a11) * d;
+    out.m[1] = (a12 * a20 - a10 * a22) * d;
+    out.m[4] = (a00 * a22 - a02 * a20) * d;
+    out.m[7] = (a02 * a10 - a00 * a12) * d;
+    out.m[2] = (a10 * a21 - a11 * a20) * d;
+    out.m[5] = (a01 * a20 - a00 * a21) * d;
+    out.m[8] = (a00 * a11 - a01 * a10) * d;
+    return true;
+}
+
+bool movesHorizontally(const glbparser::Skel& skel,
+                       const glbparser::SkelChannel& ch) {
+    const Linear3 basis = parentLinear(skel, ch.node);
+    const float base[3] = {ch.values[0], ch.values[1], ch.values[2]};
+    for (size_t k = 3; k + 2 < ch.values.size(); k += 3) {
+        const float local[3] = {ch.values[k] - base[0],
+                                ch.values[k + 1] - base[1],
+                                ch.values[k + 2] - base[2]};
+        float model[3];
+        transform(basis, local, model);
+        if (std::fabs(model[0]) >= 1e-6f || std::fabs(model[2]) >= 1e-6f)
+            return true;
+    }
+    return false;
+}
+
+// The motion root is the shallowest translating node that still owns the whole
+// matrix palette (normally Root, or Hips when its parents stay put). This
+// avoids pinning an animated foot merely because it travels farther than the
+// pelvis. An odd multi-root asset with no common moving ancestor is left alone
+// instead of corrupting an arbitrary limb track.
+glbparser::SkelChannel* motionRoot(glbparser::Skel& skel,
+                                  glbparser::SkelClip& clip) {
+    glbparser::SkelChannel* bestCommon = nullptr;
+    int commonDepth = INT_MAX;
+    for (glbparser::SkelChannel& ch : clip.channels) {
+        if (ch.path != 0 || ch.node < 0 ||
+            ch.node >= (int)skel.nodes.size() || ch.values.size() < 3)
+            continue;
+        if (!movesHorizontally(skel, ch)) continue;
+
+        const int depth = nodeDepth(skel, ch.node);
+        bool common = !skel.palette.empty();
+        for (const glbparser::SkelJoint& joint : skel.palette)
+            if (!isAncestor(skel, ch.node, joint.node)) {
+                common = false;
+                break;
+            }
+        if (common && depth < commonDepth)
+            bestCommon = &ch, commonDepth = depth;
+    }
+    return bestCommon;
+}
+
+void makeInPlace(glbparser::Skel& skel, glbparser::SkelClip& clip) {
+    glbparser::SkelChannel* root = motionRoot(skel, clip);
+    if (!root || root->values.size() < 3) return;
+    const float base[3] = {root->values[0], root->values[1], root->values[2]};
+    const Linear3 basis = parentLinear(skel, root->node);
+    Linear3 inv;
+    if (!inverse(basis, inv)) return;
+    for (size_t k = 0; k + 2 < root->values.size(); k += 3) {
+        const float local[3] = {root->values[k] - base[0],
+                                root->values[k + 1] - base[1],
+                                root->values[k + 2] - base[2]};
+        float model[3];
+        transform(basis, local, model);
+        // Keep authored vertical bob in model space; remove only horizontal
+        // travel, even when an FBX parent maps it onto local Y (or any other
+        // oddly oriented axis).
+        model[0] = 0.0f;
+        model[2] = 0.0f;
+        float kept[3];
+        transform(inv, model, kept);
+        for (int c = 0; c < 3; ++c) root->values[k + c] = base[c] + kept[c];
+    }
+}
+
 }  // namespace
 
 float projectTimeScale(const ProjectSettings& st) {
@@ -162,6 +329,10 @@ void applyClipEdits(const Project& p, const std::string& modelRel,
                 trimChannel(ch, start, end);
             clip.duration = end - start;
         }
+
+        // Pin after trimming: the first pose of the selected window is the
+        // place the character should stand, while vertical bob stays authored.
+        if (e && e->inPlace) makeInPlace(skel, clip);
 
         if (std::fabs(scale - 1.0f) > 1e-6f) {
             const float inv = 1.0f / scale;
