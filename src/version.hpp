@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.24.1 (the Display tab loses the VRAM line 1.23.0 gave it): the readout was
+// correct and unwanted. It answered "what does this mode cost" as a wall of
+// small print under the mode picker - three lines, two of them explaining that
+// a DIFFERENT number elsewhere is a different pool - which is a footnote about
+// the HUD parked in a settings dialog. Removed on request, without a
+// replacement: the question it answered is a game-runtime question and the
+// game's own HUD answers it (`VRAM 3.21/4 MB`, still there, docs/gs-vram.md).
+// The per-mode figures it computed are not lost either - they are written down
+// in that doc's table, where they can be read without switching modes to watch
+// a number move. PATCH: one thing comes off the screen, no behaviour changes.
+//
 // 1.24.0 (the Debug button becomes a build-profile dropdown): "run and open the
 // debugger" stops being a thing to remember and becomes what running a debug
 // build does. The button was Run plus opening the Debugger panel, which meant
@@ -660,7 +671,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

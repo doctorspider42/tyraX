@@ -144,16 +144,9 @@ exactly the old behaviour, so the failure mode degrades rather than breaks.
 
 ## Reading it without a debug log
 
-Two readouts answer "how much of the 4 MB is gone before I draw anything", and
-they exist because the question was asked of a surface that cannot answer it:
-
-- **In the game**, the debug HUD's `VRAM 3.21/4 MB` line, directly under `MEM`
-  (*Preferences > Build > Show memory usage*). Used over the GS' 4 MB, phrased
-  to read the same way round as the line above it.
-- **In the editor**, under the display-mode picker in *Preferences > Display*:
-  the buffers' cost for the mode you are choosing, computed by the same
-  `project::tripleBufferingFit` arithmetic the triple-buffering fit uses, so it
-  is right before you build.
+The debug HUD's `VRAM 3.21/4 MB` line, directly under `MEM` (*Preferences >
+Build > Show memory usage*), answers "how much of the 4 MB is gone". It is
+phrased as used-over-total so it reads the same way round as the line above it.
 
 **`MEM` and `VRAM` are different pools, and only one of them moves with the
 display mode.** Reported as *"I keep switching display modes and the editor
