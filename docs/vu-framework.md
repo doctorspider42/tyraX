@@ -197,10 +197,12 @@ that today.
 
 The cheaper answer for micro-memory pressure is upstream of swapping: **the
 editor knows, at build time, which program variants a project can actually use**.
-A project with no matcap material does not need the two `tce` programs at all.
-That specialization is not implemented yet; it needs the union of what a project
-*may* use (spawn-pool prefabs included) plus "generate everything" in a Live Link
-build, or an object spawned at run time will find no program to draw with.
+This specialization is implemented by `vuNeededClasses`: it takes the union of
+scene objects and spawn-pool prefabs, codegen calls `setResidentClasses`, and
+Color is always retained as the fallback. A project with no matcap material does
+not upload the two `tce` programs. The all-class fallback remains deliberately
+available; after the 2026-08-11 CLIP-history cleanup its exact Sony-VCL size is
+2026 of the 2042 usable slots.
 
 ## Commands
 

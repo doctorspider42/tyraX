@@ -201,6 +201,16 @@ Retired / simplified:
   2.55× the old precise baseline. The hardware half of the original M4
   gate (real-PS2 clipbench re-run + SW-vs-hardware ADC check) is still
   owed before the EE clipper can be deleted.
+- **M6 — compact the triangle crossing test. DONE 2026-08-11.** The CLIP
+  flag is a four-entry history, so the six per-triangle judgements are now
+  consumed by two positional `fcand` reads rather than six individual reads
+  plus four `ior`s. Four dead `mul.w` copies of the already-live guard were
+  also removed from every clip program. The handwritten family and the C++
+  description changed together. `--vu-check` proves all 15 generated static
+  programs bit-identical to their handwritten twins across 60 randomized
+  trials each; a Docker/Sony-VCL rebuild of `examples/showcase` reduced the
+  exact ten-program resident set from 2040 to **2026 of 2042 slots** and
+  produced a PS2 ELF successfully.
 
 ## Verification protocol (every milestone)
 

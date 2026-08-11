@@ -2656,25 +2656,28 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     //
     // Two clipw judgements per corner: the x/y guard band against the vertex's
     // own w (the GS scissor trims the overhang pixel-exactly), then the exact
-    // near/far planes through the biased constants. NOTE that fcand yields 0 or
-    // 1 - "any masked bit set" - and NOT the bit pattern; every read below is
-    // written that way.
+    // near/far planes through the biased constants. The CLIP register is a
+    // 24-bit window of four six-bit judgements, newest at bits 0..5. Push four
+    // tests before the first read and the remaining two before the second, so
+    // the six tests pay for two positional flag reads instead of six. fcand
+    // yields 0 or 1 ("any masked bit set"), not the masked bit pattern.
     const IVal vi01 = b.inamed("VI01");
     const IVal triOr = b.inamed("triOr");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 2; ++i) {
         b.clipwInto(vertex[i]);
-        b.fcandInto(vi01, 0xF);
-        if (i == 0)
-            b.iaddInto(triOr, vi01, b.izero());
-        else
-            b.iorInto(triOr, triOr, vi01);
         b.subInto(sjudge, cvec, vertex[i].broadcast(2), MX);
         b.addInto(sjudge, cvec, vertex[i].broadcast(2), MY);
-        b.mulInto(sjudge, b.zero(), cvec.broadcast(3), MW);
         b.clipwInto(sjudge);
-        b.fcandInto(vi01, 0xA);
-        b.iorInto(triOr, triOr, vi01);
     }
+    b.fcandInto(vi01, 0x3CA3CA);
+    b.iaddInto(triOr, vi01, b.izero());
+
+    b.clipwInto(vertex[2]);
+    b.subInto(sjudge, cvec, vertex[2].broadcast(2), MX);
+    b.addInto(sjudge, cvec, vertex[2].broadcast(2), MY);
+    b.clipwInto(sjudge);
+    b.fcandInto(vi01, 0x3CA);
+    b.iorInto(triOr, triOr, vi01);
 
     // --- the clip-space triangle into scratch polygon A ---------------------
     for (int i = 0; i < 3; ++i) {
@@ -2756,7 +2759,6 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.addInto(sjudge, b.zero(), pd.broadcast(0), MX);
     b.addInto(sjudge, b.zero(), cd.broadcast(0), MY);
     b.subInto(sjudge, sjudge, cvec.broadcast(3), (uint8_t)(MX | MY));
-    b.mulInto(sjudge, b.zero(), cvec.broadcast(3), MW);
     b.clipwInto(sjudge);
     b.fcandInto(vi01, 0x2);
     prog.code.back().comment = "prev outside?";
