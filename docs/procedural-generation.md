@@ -316,6 +316,25 @@ edits still apply to the same instances. The window shows how many edits exist,
 how many no longer match a point (kept, because a point may come back when a
 slider moves) and offers an explicit *Drop unmatched*.
 
+### Asking the AI Assistant for a graph
+
+The [AI Assistant](ai-chat.md) can author a scatter graph: it reads the node
+catalog and the volume's current graph, writes the whole graph back, and bakes
+it — "*scatter rocks and pine trees over the north half, thin them on slopes
+above 30 degrees*" is a request it can carry out end to end, including telling
+you the triangle and RAM cost it came to.
+
+Three things worth knowing when you use it that way:
+
+- **It writes the graph whole.** Your per-instance hand edits are dropped by such
+  a write (they are bound to points the old graph made), so do the hand pass
+  after the graph has settled.
+- **It cannot import assets.** A `Pick Asset` pool can only name files already
+  under `res/models/`; ask it to scatter something you have not imported and it
+  will say so and point at the Asset Browser.
+- **Nothing appears until it bakes** — same rule as for you. It is told this, and
+  the bake report it quotes is the real one from `procbake`.
+
 ---
 
 ## Determinism, stability, speed

@@ -133,6 +133,22 @@ a model*. The line is per prefab; switching in the list does not carry it
 along, and a file that merely shares the name (no bake marker in its first
 line) does not count as baked.
 
+## Asking the AI Assistant for one
+
+The [AI Assistant](ai-chat.md) can do all three of the verbs on this page —
+`create_prefab` (capture named objects, or whatever you have selected),
+`insert_prefab` (stamp a copy) and `bake_prefab_model` — which matters most in
+the middle of a [procedural](procedural-generation.md) job: a *Pick Prefab* row
+can only name a prefab that already exists, so without those tools the assistant
+had to build a graph, stop, and ask you to press *Create from selection* yourself.
+
+It is told the 48-record cap and the escape hatch above, and told to choose
+between them by the count you asked for: dozens of anything scripted stays a
+prefab, hundreds of scenery gets baked to a model and scattered with *Pick
+Asset*. The bake's skipped-member list comes back with the reply rather than
+being swallowed, because a light or a scripted door silently missing from the
+scatter is exactly the surprise this page exists to prevent.
+
 ## Spawning at runtime
 
 **Spawn Prefab** (flow node) builds one instance at a linked position with a yaw

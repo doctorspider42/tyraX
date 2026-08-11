@@ -1318,7 +1318,28 @@ g++ -std=c++20 -O0 -I src -I build-dev/generated -I vendor/imgui -I vendor/imgui
 (Everything but `main.cpp.o`, plus a harness with its own `main()`. The GUI code
 comes along unused - it costs a link, not a display.) The same recipe works for
 any host-only module that a plain `g++ aichat.cpp` cannot link on its own because
-it reaches `project.cpp`.
+it reaches `project.cpp`. **On Windows** it is `src/*.obj`, no `main.cpp.obj`,
+and the libraries CMake links: `-static -lopengl32 -lgdi32 -lcomdlg32 -lshell32
+-lole32 -luuid -lws2_32 -limm32` (miss `comdlg32` and the only error you get is
+`GetOpenFileNameW` from `platform.cpp`, which says nothing about a file dialog).
+That harness is how the procedural read tools were checked without a backend -
+`runReadTool` for `get_proc_graph` / `list_proc_nodes` over
+`examples/procedural`, plus a `procGraphJson` -> `parseProcGraph` -> `procGraphJson`
+round trip over all six of its volumes, which must come out **byte-identical** or
+`set_proc_graph` loses whatever differs.
+
+**2b. A malformed reply is its own test, and it needs no editor at all.**
+`aigen::repairJson` + `json::parse` are the path a model's broken envelope takes
+(a bare `"` left in prose is the common one, and it makes the whole document
+unparseable). Copy `repairJson` and `extractJsonObject` into a scratch file next
+to `src/json.cpp` and assert on the recovered `say` and on whether the tool calls
+SURVIVED - that second half is the one that catches the interesting bugs, because
+salvaging the prose while silently dropping the calls looks fine on screen and
+ends the turn. Cases worth having: a clean envelope (must be untouched), a stray
+quote with and without calls, a lone backslash, a markdown fence, `\uXXXX`
+escapes (they must come out as UTF-8, not `?`), and plain prose (must NOT parse
+as an envelope). Reuse ONE `json::Value` across the failed parse and the retry,
+too - that is exactly how the stale-partial-parse bug in `json::parse` surfaced.
 
 **3. The whole loop, with a FAKE backend and no tokens.** The backends are
 external commands found on `PATH`, so a shell script called `claude` earlier on
@@ -1335,6 +1356,11 @@ case "$n" in
 *) echo '{ "say": "Done." }' ;;
 esac
 ```
+
+A fake is also the only convenient way to feed the window a reply that is
+BROKEN in a specific way - answer with an unescaped quote (`{ "say": "the "main"
+scene" }`) or a lone backslash and check that the window shows prose rather than
+JSON, which is what the repair path exists for.
 
 Drive the window with `--ui-script` (no focus needed, see above) and check the
 RESULT in the project rather than on screen - that is what makes it a test:
