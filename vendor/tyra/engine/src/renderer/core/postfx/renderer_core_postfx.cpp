@@ -667,7 +667,24 @@ void RendererCorePostFx::apply(int passes) {
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
+  // Modified by TyraX (BLSS): the mask is gs->zBuffer.mask, NEVER a literal.
+  // ps2sdk's draw_enable_tests() below writes TEST_1 and NOTHING ELSE
+  // (disassembled: one A+D qword, GS_REG_TEST_1), so THIS qword is the last
+  // word on ZBUF for the whole rest of the frame - and for the next one, up
+  // to the next bracket. A hardcoded 0 means "z writes enabled at DISPLAY
+  // resolution", which was right for every project until the upscaler shrank
+  // the z buffer to the low-res raster: the GS strides z by FRAME.FBW, so the
+  // very next full-screen draw (the following frame's clearScreen sprite,
+  // which draw_disable_tests leaves at ZTE=1/ZTST=ALWAYS) stamped 512x448
+  // words from ZBP through the post-fx buffers, the env map, the camera feed,
+  // the low-res target and into the TEXTURE HEAP. Symptom: whichever textures
+  // landed in that window drew nothing at all - a zeroed 4-bit CLUT has
+  // alpha 0 and ATEST NOTEQUAL/AREF 0 discards every fragment - so
+  // `examples/showcase` (post fx on, one texture: the ground) lost its whole
+  // TERRAIN while everything untextured kept drawing. See the same lesson in
+  // RendererCoreGS::allocateVramBuffers: an allocation is not an addressable
+  // extent, and the mask belongs to whoever made the allocation.
+  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, gs->zBuffer.mask), GS_REG_ZBUF_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
   q++;
@@ -735,7 +752,8 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
+  // gs->zBuffer.mask, never a literal - see apply()'s copy of this block.
+  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, gs->zBuffer.mask), GS_REG_ZBUF_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
   q++;

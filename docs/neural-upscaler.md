@@ -497,6 +497,68 @@ reach past the smaller allocation. The ordering problem (z is allocated third in
 solved by laying the permanent VRAM region out again from `configure()`, through
 `RendererCore::rebuildPermanentBuffers()`.
 
+#### That invariant has been broken TWICE, and the second time deleted the terrain
+
+Both breaks are the same shape and both were reported as "the upscaler makes
+geometry disappear", so the shape is worth naming once: **a `ZBUF` mask written
+as a literal instead of asked for.** The GS strides depth by `FRAME.FBW`, not by
+whatever the allocator handed out, so a full-screen draw with `ZMSK = 0` writes
+`512 × 448` words from `ZBP` however small the z buffer is — and above a 256×224
+allocation that is the post-fx buffers, the env map, the camera feed, the low-res
+target and then the **texture heap**. A zeroed 4-bit CLUT has alpha 0, and
+`ATEST NOTEQUAL` / `AREF 0` discards every fragment, so the visible result is
+whole textured surfaces drawing *nothing at all* while untextured geometry is
+untouched.
+
+- **The first break** was `RendererCoreBlss::configure()` assigning
+  `gs->zBuffer.mask` one statement *before* the VRAM rebuild it triggers;
+  `allocateVramBuffers()` clears the field at its start, so the mask was 0 for
+  the whole run. Fixed by **deriving** the mask inside `allocateVramBuffers()`
+  from the allocation it just made, and never assigning it from outside.
+- **The second break** was `RendererCorePostFx::apply()`'s restore block, and it
+  survived the first fix because it writes the register **directly**:
+  `GS_SET_ZBUF(zbp, zsm, 0)` — "put back what the drawing environment expects",
+  which was true of every project until the z buffer stopped covering the
+  display. The line under it, ps2sdk's `draw_enable_tests()`, does **not** cover
+  for it: disassembled from `libdraw.a`, that helper emits one A+D qword at
+  `GS_REG_TEST_1` and nothing else. So the literal was the last word on `ZBUF`
+  for the rest of the frame *and the next one*, and the following frame's
+  `Path3::clearScreen` sprite — full-screen, and `draw_disable_tests` leaves it
+  at `ZTE = 1` / `ZTST = ALWAYS` — did the stamping. Fixed by writing
+  `gs->zBuffer.mask`, which is 0 inside the bracket and the derived default
+  outside, in both `apply()` and `applyCustom()`.
+
+**Which projects it hit is exactly "the ones that run post fx"**, because
+`apply()` early-returns when no pass is enabled. That is why
+`examples/upscaler-lab` (bloom 0, grain 0) never showed it and
+`examples/showcase` (bloom 0.16 + grain 0.09 + colour grading) lost its whole
+**ground**: showcase has exactly one texture in the entire project, the
+terrain's, so the corruption read as "BLSS deletes the terrain" rather than as
+texture damage.
+
+Measured on a scratch copy of showcase with nothing changed but `blssEnabled`,
+PCSX2 software renderer, 2×2 neural, one vantage:
+
+| | ground patch (mean RGB) | crosshair sprite (peak) | film grain in the sky (sd/255) |
+|---|---|---|---|
+| BLSS off (control) | (112, 100, 24) | (253, 236, 193) | 4.51 |
+| BLSS on, **before** | (246, 181, 88) — the sky | absent (246, 180, 88) | 1.80 |
+| BLSS on, **after** | **(112, 100, 24)** | **(253, 239, 195)** | **4.20** |
+
+Two configurations hid it, and both are explained by the arithmetic rather than
+by luck. `blssScale` **1×2** draws correctly because its low-res target is twice
+as large, so the overshoot is absorbed below the texture heap instead of 368 KB
+into it. And an **untextured** terrain draws because it has no texture to lose —
+the crosshair sprite was still missing in that arm, which is what proved the
+fault was not in the terrain path at all.
+
+**The rule this leaves, for anything that shrinks a buffer this engine
+addresses:** an allocation is not an addressable extent, and the mask belongs to
+whoever made the allocation. Grep for `GS_SET_ZBUF` before adding a full-screen
+pass — every writer must either point at its own depth buffer inside a bracket
+that restores through `RendererCoreGS::emitRasterRestore()`, or pass
+`gs->zBuffer.mask`.
+
 **Measured, and this is the one console number on this page that is current.**
 PCSX2 software renderer, scratch `fpp` project, `Pal576i` (512×512), from the
 game's own `VRAMSTAT` line at frame 240:

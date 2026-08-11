@@ -111,7 +111,7 @@ reported defects and leaves three smaller things visible:
   upscaled scene) - which is a much bigger idea than a greyed checkbox and is
   not obviously right, since the object may be placed before the setting.
 
-## The terrain streaking is FIXED, and a different upscaler defect was found looking for it
+## The terrain streaking is FIXED, and so is the different upscaler defect found looking for it
 
 **Closed 2026-08-11 on the merge of origin/main.** A user reported the ground
 texture smearing into long directional streaks toward the horizon at grazing
@@ -131,39 +131,57 @@ way to the horizon**, no streaks, no washed ground between them. Same on
 `examples/upscaler-lab` (gravel at 0.3) with the upscaler **on**. So the
 symptom is gone with the upscaler both off and on, and the question is closed.
 
-**What the same A/B turned up instead, and it is NOT this and NOT the merge.**
-Forcing the upscaler on for `examples/showcase` - a project never authored for
-it - makes the **terrain disappear entirely**: objects, sky, fog and HUD all
-render, the ground is simply absent and the sky dome shows through where it
-should be. Bisected as far as it is cheap to:
+**What the same A/B turned up instead is FIXED (1.21.1), and the last bullet
+below was the right guess.** Forcing the upscaler on for `examples/showcase` - a
+project never authored for it - made the **terrain disappear entirely**:
+objects, sky, fog and HUD all rendered, the ground was simply absent and the sky
+dome showed through where it should be. Bisected first by what it is *not*, and
+every one of these eliminations still stands:
 
-- It is **not the merge**. The pre-merge commit (`897476ee`), built into its own
-  worktree and run on the identical fixture, loses the terrain in exactly the
+- It was **not the merge**. The pre-merge commit (`897476ee`), built into its own
+  worktree and run on the identical fixture, lost the terrain in exactly the
   same way. Pre-existing on this branch.
-- It is **not the network**. `blssNetwork` false (plain mode) loses it too - so
-  it is the half plain mode keeps: the reduced raster, the redirect and the
-  shrunken z buffer, not the proxies/MLP/composite.
-- It is **not VRAM**: `VRAMSTAT` reads `evict=0 reup=0 res=6 freeMB=1.31`
+- It was **not the network**. `blssNetwork` false (plain mode) lost it too.
+- It was **not VRAM**: `VRAMSTAT` reads `evict=0 reup=0 res=6 freeMB=1.31`
   throughout, and the ground texture is resident.
-- It is **not the clipper**. Flipping showcase's `"clipping"` from the legacy
-  `precise` (EE) to `vu1` - the one obvious difference from upscaler-lab, and
-  the theory that the EE clipper emits screen coordinates for the full raster -
-  changes nothing: the terrain is still absent.
+- It was **not the clipper**. Flipping showcase's `"clipping"` from the legacy
+  `precise` (EE) to `vu1` changed nothing.
 - `examples/upscaler-lab` with the upscaler on draws ITS terrain correctly, so
-  this is not "BLSS loses terrain" in general - something about this project.
-  With VRAM, the network and the clipper ruled out, the untested differences
-  left are the **post-fx stack** (showcase runs bloom 0.5 + grain 0.25 and
-  allocates four env-map targets; upscaler-lab runs none of it - and post fx is
-  exactly where "a full-screen pass looks right on a bare fixture and wrong in a
-  real scene" has bitten this engine before) and the **terrain AO map / lightmap
-  second pass**, which showcase bakes and which draws the ground as two
-  alpha-blended passes over one vertex array. Both are a one-key edit, a Docker
-  build and a boot; do those before theorising further.
+  it was never "BLSS loses terrain" in general - which left the **post-fx
+  stack** as the untested difference (showcase runs bloom + grain + colour
+  grading, upscaler-lab runs none of it), noted here as "exactly where 'a
+  full-screen pass looks right on a bare fixture and wrong in a real scene' has
+  bitten this engine before". It was that.
 
-Not urgent by shipping standards - no example ships this combination and the
-Preferences verdict does not recommend it for showcase (the oracle scores
-+0.00 dB there) - but a feature that silently deletes the ground when someone
-ticks a checkbox is a bad thing to leave undocumented.
+**The mechanism** is the shrunken-z-buffer hazard a second time, and the full
+account with the before/after numbers is docs/neural-upscaler.md, section 5,
+"That invariant has been broken TWICE". `RendererCorePostFx::apply()`'s restore
+block re-programmed `ZBUF` with a **hardcoded mask of 0**, and ps2sdk's
+`draw_enable_tests()` on the next line does not cover for it - disassembled from
+`libdraw.a`, it emits one A+D qword at `GS_REG_TEST_1` and nothing else. So the
+literal was the last word on `ZBUF` for the rest of the frame and the next one,
+and the following frame's full-screen `Path3::clearScreen` sprite (which
+`draw_disable_tests` leaves at `ZTE = 1` / `ZTST = ALWAYS`) stamped 512x448 words
+of depth from `ZBP` at the display stride, across a 256x224 allocation, into the
+texture heap. A zeroed 4-bit CLUT has alpha 0, `ATEST NOTEQUAL`/`AREF 0`
+discards every fragment, and showcase has exactly **one texture in the whole
+project** - the terrain's - so the damage read as "BLSS deletes the terrain".
+The fix is `gs->zBuffer.mask` instead of the literal, in `apply()` and
+`applyCustom()`.
+
+**Two things worth carrying forward.** The discriminator that split "not
+submitted" from "submitted and discarded" cost nothing: showcase's only texture
+is the ground, so a **non-zero `texDetail` in the `BLSSFEAT` line under
+`blssDebugView 2`** proves the terrain bag reached `StaPipCore::render`, passed
+the frustum check and emitted proxies - the fault had to be downstream. And the
+crosshair sprite was missing in every broken arm, including the one with an
+untextured terrain; a second, unrelated-looking casualty is what says "this is
+not about the terrain path" long before any theory does.
+
+**Still owed on it:** a hardware pass (everything above is PCSX2), and nothing
+has re-checked whether the projected-shadow slots - allocated later than
+everything the stamp used to reach - were also being damaged on projects that
+use them.
 
 ## Queued (rough order)
 

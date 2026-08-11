@@ -16,6 +16,45 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.21.1 (the upscaler DELETED the terrain of any project with post fx): a
+// second instance of the shrunken-z-buffer hazard 1.19.x fixed in
+// RendererCoreBlss::configure, this time in the post-fx pass, and reported as
+// "forcing the upscaler on in examples/showcase makes the ground disappear".
+// Engine only, one register field, no setting moves, the format is untouched:
+// PATCH.
+//
+// RendererCorePostFx::apply()'s restore block re-programmed ZBUF with a
+// HARDCODED mask of 0 - "z writes enabled" - which was right for every project
+// until the upscaler sized the z buffer from the raster instead of the display.
+// ps2sdk's draw_enable_tests() on the next line writes TEST_1 and nothing else
+// (disassembled from libdraw.a: one A+D qword at GS_REG_TEST_1), so that qword
+// was the last word on ZBUF for the rest of the frame AND the next one - and
+// the following frame's full-screen clearScreen sprite, which
+// draw_disable_tests leaves at ZTE=1/ZTST=ALWAYS, then stamped 512x448 words of
+// depth from ZBP at the display stride, across a 256x224 allocation, straight
+// through the post-fx buffers, the env map, the camera feed, the low-res target
+// and into the TEXTURE HEAP. Whichever textures landed in that window drew
+// nothing at all: a zeroed 4-bit CLUT has alpha 0 and ATEST NOTEQUAL/AREF 0
+// discards every fragment.
+//
+// So the projects it hit are exactly the ones that RUN post fx, which is why
+// `examples/upscaler-lab` (bloom 0, grain 0) never showed it and
+// `examples/showcase` (bloom 0.16 + grain 0.09 + colour grading) lost its whole
+// ground - showcase has exactly one texture in the project, the terrain's, so
+// the damage read as "BLSS deletes the terrain" rather than as texture
+// corruption. Measured on a scratch copy of showcase with nothing changed but
+// `blssEnabled`, PCSX2 software renderer, 2x2 neural: the ground is absent at
+// every distance and every angle (looking straight down at ground 1.8 units
+// away shows sky), the crosshair sprite is absent, and film grain reads
+// sd 1.80/255 in the sky against 4.51 with the upscaler off. After the fix, on
+// the same fixture: crosshair back (peak 253,239,195 against the control's
+// 253,236,193), grain sd 4.20, and a ground patch means (112,100,24) - the
+// control's value exactly. Two configurations that hid it and are now
+// explained rather than mysterious: `blssScale` 1 (1x2) draws correctly because
+// the twice-as-large low-res target absorbs the overshoot before the heap, and
+// an untextured terrain draws because it has no texture to lose (its crosshair
+// was still missing).
+//
 // 1.21.0 (main's animation and loading work arrives): three landings come in
 // from origin/main - the terrain wrap fix (#211), the audsrv music-stream fix
 // (#213, both PATCH there) and the animation/loading workflow set (#214, which
@@ -487,7 +526,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 21
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
