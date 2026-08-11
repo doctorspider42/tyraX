@@ -379,3 +379,19 @@ The editor projects this map into the moon disc of a day/night cycle
 embedded in the editor binary and is **never copied into a generated game** —
 only the small baked disc ships, so a game built with TyraX carries a derived
 image, not this file.
+
+## Universal Animation Library 2 — CC0 1.0 (public domain dedication)
+
+`examples/foot-ik-stairs/res/models/UAL1_Standard.fbx` is a rigged, animated
+character from the **Universal Animation Library 2** by
+[@Quaternius](https://www.patreon.com/quaternius), dedicated to the public
+domain under [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
+
+CC0 asks for nothing, so this entry is courtesy rather than obligation — the
+author supports themselves through Patreon and the work is worth naming.
+
+It ships as an EXAMPLE asset only: it is not embedded in the editor and no
+generated game carries it unless that project references it. It is the one
+sizeable binary in `examples/` (23 MB of source FBX, ~4.6 MB packed), and it
+is there because [foot IK](docs/foot-ik.md) cannot be demonstrated without a
+real leg rig — a primitive has no knee.
