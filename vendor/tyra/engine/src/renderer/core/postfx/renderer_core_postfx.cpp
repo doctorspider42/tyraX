@@ -208,15 +208,33 @@ qword_t* RendererCorePostFx::sizedQuad(qword_t* q, int dstVram, int dstBufW,
 
 void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
   if (gs == nullptr) return;
-  if (x0 < 0) x0 = 0;
-  if (y0 < 0) y0 = 0;
-  if (x1 > fbW) x1 = fbW;
-  if (y1 > fbH) y1 = fbH;
+
+  // Modified by TyraX: this bracket takes FRAME and puts the raster window
+  // back through RendererCoreGS::getRasterTarget() / emitRasterRestore(), the
+  // way the env map, the camera feed and the shadow map already do. It used to
+  // read gs->getCurrentFrameBuffer() and restore a DISPLAY-sized SCISSOR and
+  // XYOFFSET - the fourth copy of the same bug, and the only one the pass that
+  // fixed the other three missed. It runs inside the generated renderScene(),
+  // so a bracket wrapping that (BLSS) was cancelled by the first portal and
+  // silently lost for the rest of the frame. One implementation of the restore
+  // also means this one finally carries the InterlacedField per-field XYOFFSET
+  // bias, which it never did (RendererCoreGS::getFieldYOffset16).
+  //
+  // Portals stay incompatible with BLSS for an independent reason - a portal
+  // through-view wants real display-resolution depth, and codegen refuses the
+  // combination outright now - so this does not make the pair work. It removes
+  // the last copy of a restore that does the wrong thing.
+  const RendererCoreGS::RasterTarget rt = gs->getRasterTarget();
+  const int rasterW = rt.scissorX1 - rt.scissorX0 + 1;
+  const int rasterH = rt.scissorY1 - rt.scissorY0 + 1;
+  if (x0 < rt.scissorX0) x0 = rt.scissorX0;
+  if (y0 < rt.scissorY0) y0 = rt.scissorY0;
+  if (x1 > rt.scissorX1 + 1) x1 = rt.scissorX1 + 1;
+  if (y1 > rt.scissorY1 + 1) y1 = rt.scissorY1 + 1;
   if (x1 <= x0 || y1 <= y0) return;
 
-  auto* fb = gs->getCurrentFrameBuffer();
-  const int fbVram = static_cast<int>(fb->address);
-  const int fbBufW = static_cast<int>(fb->width);
+  const int fbVram = rt.frameAddress;
+  const int fbBufW = rt.frameWidth;
 
   packet2_reset(packet, false);
   // Screen-origin offset for the z-clear sprite; the window-centered offset
@@ -251,22 +269,24 @@ void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
   q++;
   PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
   q++;
-  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + rasterW) << 4, (2048 + rasterH) << 4, 0),
               GS_REG_XYZ2);
   q++;
-  // Color writes back on + the drawing environment's tests for the
-  // destination render (their own giftags - not in the NLOOP above).
+  // Put the raster back for the destination render: FRAME with color writes on
+  // again, the window-centered XYOFFSET the VU1 pipeline expects, ZBUF and the
+  // drawing environment's tests (their own giftags - not in the NLOOP above).
+  // No TEXFLUSH: this bracket wrote depth into the buffer the scene renders
+  // into, nothing the scene is about to sample as a texture.
+  q = gs->emitRasterRestore(q, false);
+  // ...and then narrow the scissor again. emitRasterRestore widened it back to
+  // the whole raster window, but the destination view is the one thing here
+  // that must stay bounded to the portal's bbox - portalMaskEnd is what finally
+  // lets it go.
   PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
-              GS_REG_FRAME_1);
+  PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
   q++;
-  q = draw_enable_tests(q, 0, &gs->zBuffer);
   packet2_update(packet, q);
-  packet2_update(packet,
-                 draw_primitive_xyoffset(packet->next, 0,
-                                         2048.0F - (fbW / 2.0F),
-                                         2048.0F - (fbH / 2.0F)));
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
@@ -279,9 +299,14 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   if (gs == nullptr || count < 3) return;
   if (count > 12) count = 12;  // a frustum-clipped quad tops out at 9 verts
 
-  auto* fb = gs->getCurrentFrameBuffer();
-  const int fbVram = static_cast<int>(fb->address);
-  const int fbBufW = static_cast<int>(fb->width);
+  // Modified by TyraX: the raster target, not the display buffer - see
+  // portalMaskBegin for why this bracket had to stop restoring the display
+  // buffer unconditionally.
+  const RendererCoreGS::RasterTarget rt = gs->getRasterTarget();
+  const int rasterW = rt.scissorX1 - rt.scissorX0 + 1;
+  const int rasterH = rt.scissorY1 - rt.scissorY0 + 1;
+  const int fbVram = rt.frameAddress;
+  const int fbBufW = rt.frameWidth;
 
   packet2_reset(packet, false);
   // Screen-origin raster offset for the mask sprites/fan; restored to the
@@ -312,7 +337,7 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   q++;
   PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
   q++;
-  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + rasterW) << 4, (2048 + rasterH) << 4, 0),
               GS_REG_XYZ2);
   q++;
   // --- 2) z-only: cap the quad interior at the surface depth ------------
@@ -349,22 +374,16 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   q++;
   PACK_GIFTAG(q, GS_SET_XYZ(2048 << 4, 2048 << 4, 0), GS_REG_XYZ2);
   q++;
-  PACK_GIFTAG(q, GS_SET_XYZ((2048 + fbW) << 4, (2048 + fbH) << 4, 0),
+  PACK_GIFTAG(q, GS_SET_XYZ((2048 + rasterW) << 4, (2048 + rasterH) << 4, 0),
               GS_REG_XYZ2);
   q++;
-  // Restore: full-screen scissor, the drawing environment's tests, and the
-  // window-centered raster offset (their own giftags - not in the NLOOP).
-  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  PACK_GIFTAG(q, GS_SET_SCISSOR(0, fbW - 1, 0, fbH - 1), GS_REG_SCISSOR_1);
-  q++;
-  q = draw_enable_tests(q, 0, &gs->zBuffer);
+  // Restore whatever was redirected before this bracket - FRAME, the full
+  // raster scissor (the bbox bound from portalMaskBegin ends here), the
+  // window-centered XYOFFSET the VU1 pipeline expects, ZBUF and the drawing
+  // environment's tests. Their own giftags, not in the NLOOP above.
+  q = gs->emitRasterRestore(q, false);
 
   packet2_update(packet, q);
-  packet2_update(packet,
-                 draw_primitive_xyoffset(packet->next, 0,
-                                         2048.0F - (fbW / 2.0F),
-                                         2048.0F - (fbH / 2.0F)));
   packet2_update(packet, draw_finish(packet->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
@@ -648,7 +667,24 @@ void RendererCorePostFx::apply(int passes) {
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
+  // Modified by TyraX (BLSS): the mask is gs->zBuffer.mask, NEVER a literal.
+  // ps2sdk's draw_enable_tests() below writes TEST_1 and NOTHING ELSE
+  // (disassembled: one A+D qword, GS_REG_TEST_1), so THIS qword is the last
+  // word on ZBUF for the whole rest of the frame - and for the next one, up
+  // to the next bracket. A hardcoded 0 means "z writes enabled at DISPLAY
+  // resolution", which was right for every project until the upscaler shrank
+  // the z buffer to the low-res raster: the GS strides z by FRAME.FBW, so the
+  // very next full-screen draw (the following frame's clearScreen sprite,
+  // which draw_disable_tests leaves at ZTE=1/ZTST=ALWAYS) stamped 512x448
+  // words from ZBP through the post-fx buffers, the env map, the camera feed,
+  // the low-res target and into the TEXTURE HEAP. Symptom: whichever textures
+  // landed in that window drew nothing at all - a zeroed 4-bit CLUT has
+  // alpha 0 and ATEST NOTEQUAL/AREF 0 discards every fragment - so
+  // `examples/showcase` (post fx on, one texture: the ground) lost its whole
+  // TERRAIN while everything untextured kept drawing. See the same lesson in
+  // RendererCoreGS::allocateVramBuffers: an allocation is not an addressable
+  // extent, and the mask belongs to whoever made the allocation.
+  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, gs->zBuffer.mask), GS_REG_ZBUF_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
   q++;
@@ -716,7 +752,8 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
   q++;
   PACK_GIFTAG(q, GS_SET_CLAMP(1, 1, 0, 0, 0, 0), GS_REG_CLAMP_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
+  // gs->zBuffer.mask, never a literal - see apply()'s copy of this block.
+  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, gs->zBuffer.mask), GS_REG_ZBUF_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 1, 1, 0, 0, 0), GS_REG_TEX1_1);
   q++;

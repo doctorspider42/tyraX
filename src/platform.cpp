@@ -15,9 +15,15 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <tlhelp32.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+// Guarded because MinGW only declares it at _WIN32_WINNT >= 0x0600 and this
+// tree sets no target version; the value is fixed in the ABI.
+#ifndef PROCESS_QUERY_LIMITED_INFORMATION
+#define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
+#endif
 #else
 #include <fcntl.h>
 #include <pwd.h>
@@ -250,26 +256,184 @@ std::string envPrefix(const std::string& name, const std::string& value) {
 #endif
 }
 
-std::string killByName(const std::vector<std::string>& processNames) {
-    std::string cmd;
-    for (const std::string& raw : processNames) {
-        if (raw.empty()) continue;
+// ---------------------------------------------------------------------------
+// Looking at other processes
+// ---------------------------------------------------------------------------
+
+namespace {
+
 #ifdef _WIN32
-        std::string name = raw;
-        if (name.size() < 4 || name.compare(name.size() - 4, 4, ".exe") != 0)
-            name += ".exe";
-        cmd += "taskkill /F /IM " + name + " 2>nul & ";
-#else
-        // -x: exact process name. A wrapper (a PCSX2 AppImage, a flatpak
-        // launcher) shows up under its own name, which is why callers pass the
-        // basename of whatever they actually launched alongside the standard
-        // names rather than relying on a fuzzy -f match that could just as
-        // easily match the editor's own command line.
-        cmd += "pkill -x " + shQuote(raw) + " >/dev/null 2>&1; ";
+// Windows compares both process names and paths case-insensitively; nothing
+// off it does, which is why this is not defined there.
+std::string lowerAscii(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return s;
+}
 #endif
+
+// The basename with the platform's executable suffix removed, lowercased on
+// Windows (where process names are compared case-insensitively) and left alone
+// elsewhere - so "PCSX2.exe", "pcsx2" and "pcsx2.EXE" are one name on Windows
+// while "Pcsx2" and "pcsx2" stay two on Linux, which is what those file systems
+// mean.
+std::string processKey(const std::string& raw) {
+#ifdef _WIN32
+    std::string s = lowerAscii(raw);
+    if (s.size() > 4 && s.compare(s.size() - 4, 4, ".exe") == 0) s.resize(s.size() - 4);
+    return s;
+#else
+    return raw;
+#endif
+}
+
+#ifdef _WIN32
+
+// Another process's command line, straight from the kernel:
+// NtQueryInformationProcess(ProcessCommandLineInformation), which needs only
+// PROCESS_QUERY_LIMITED_INFORMATION and reads no remote memory. Windows 8.1 and
+// up; anything older (or a process we may not open) answers "" and the caller
+// treats it as unidentified rather than as a target.
+std::string remoteCommandLine(DWORD pid) {
+    struct UniStr {  // UNICODE_STRING, spelled locally so winternl stays out
+        USHORT Length;
+        USHORT MaximumLength;
+        PWSTR Buffer;
+    };
+    using NtQip = LONG(WINAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+    static NtQip query = [] {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        return nt ? (NtQip)(void*)GetProcAddress(nt, "NtQueryInformationProcess")
+                  : nullptr;
+    }();
+    if (!query) return "";
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h) return "";
+    constexpr ULONG kProcessCommandLineInformation = 60;
+    constexpr LONG kInfoLengthMismatch = (LONG)0xC0000004L;
+    std::vector<unsigned char> buf(1024);
+    ULONG need = 0;
+    LONG st = query(h, kProcessCommandLineInformation, buf.data(),
+                    (ULONG)buf.size(), &need);
+    if (st == kInfoLengthMismatch && need > buf.size()) {
+        buf.assign(need, 0);
+        st = query(h, kProcessCommandLineInformation, buf.data(),
+                   (ULONG)buf.size(), &need);
     }
-    cmd += "exit 0";
-    return cmd;
+    std::string out;
+    if (st >= 0) {
+        const UniStr* s = (const UniStr*)buf.data();
+        if (s->Buffer && s->Length) {
+            const std::wstring w(s->Buffer, s->Length / sizeof(wchar_t));
+            out = wideToUtf8(w.c_str());
+        }
+    }
+    CloseHandle(h);
+    return out;
+}
+
+#else
+
+std::string readProcFile(const fs::path& p) {
+    std::string out;
+    FILE* f = std::fopen(p.c_str(), "rb");
+    if (!f) return out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    std::fclose(f);
+    return out;
+}
+
+#endif
+
+}  // namespace
+
+std::vector<RunningProcess> processesNamed(const std::string& name) {
+    std::vector<RunningProcess> out;
+    if (name.empty()) return out;
+    const std::string want = processKey(name);
+#ifdef _WIN32
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return out;
+    PROCESSENTRY32W e{};
+    e.dwSize = sizeof(e);
+    if (Process32FirstW(snap, &e)) {
+        do {
+            const std::string key = processKey(wideToUtf8(e.szExeFile));
+            if (key != want) continue;
+            RunningProcess p;
+            p.pid = e.th32ProcessID;
+            p.name = key;
+            p.commandLine = remoteCommandLine(e.th32ProcessID);
+            out.push_back(std::move(p));
+        } while (Process32NextW(snap, &e));
+    }
+    CloseHandle(snap);
+#else
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
+        const std::string leaf = entry.path().filename().string();
+        if (leaf.empty() || leaf.find_first_not_of("0123456789") != std::string::npos)
+            continue;
+        // The exe symlink first: /proc/<pid>/comm truncates at 15 characters,
+        // which a PCSX2 AppImage's file name passes comfortably.
+        std::string exe;
+        std::error_code lec;
+        const fs::path target = fs::read_symlink(entry.path() / "exe", lec);
+        if (!lec) exe = target.filename().string();
+        if (exe.empty()) {
+            exe = readProcFile(entry.path() / "comm");
+            while (!exe.empty() && (exe.back() == '\n' || exe.back() == '\r'))
+                exe.pop_back();
+        }
+        if (processKey(exe) != want) continue;
+        RunningProcess p;
+        p.pid = (unsigned long long)std::strtoull(leaf.c_str(), nullptr, 10);
+        p.name = exe;
+        // argv, NUL-separated. Joined with spaces so both platforms hand the
+        // caller one string to look through.
+        std::string cmd = readProcFile(entry.path() / "cmdline");
+        for (char& c : cmd)
+            if (c == '\0') c = ' ';
+        while (!cmd.empty() && cmd.back() == ' ') cmd.pop_back();
+        p.commandLine = cmd;
+        out.push_back(std::move(p));
+    }
+#endif
+    return out;
+}
+
+bool commandLineNamesPath(const std::string& commandLine, const std::string& path) {
+    if (commandLine.empty() || path.empty()) return false;
+#ifdef _WIN32
+    // Windows path comparison is case-insensitive, and the launcher quotes the
+    // argument, so a plain substring test over both lowercased is exactly the
+    // question - the quotes sit outside the path, never inside it.
+    return lowerAscii(commandLine).find(lowerAscii(path)) != std::string::npos;
+#else
+    return commandLine.find(path) != std::string::npos;
+#endif
+}
+
+bool killProcess(unsigned long long pid) {
+    if (pid == 0) return false;
+#ifdef _WIN32
+    HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, (DWORD)pid);
+    // ERROR_INVALID_PARAMETER is what OpenProcess says about a pid that no
+    // longer exists, which is success as far as the caller is concerned.
+    if (!h) return GetLastError() == ERROR_INVALID_PARAMETER;
+    const BOOL ok = TerminateProcess(h, 1);
+    // Wait for it to actually go: on Windows the handles it holds (the project's
+    // bin\ as a working directory, above all) are released on exit, not on the
+    // TerminateProcess call, and the Clean path deletes exactly those files.
+    if (ok) WaitForSingleObject(h, 3000);
+    CloseHandle(h);
+    return ok != 0;
+#else
+    if (::kill((pid_t)pid, SIGKILL) == 0) return true;
+    return errno == ESRCH;  // already gone
+#endif
 }
 
 bool commandExists(const std::string& name) {

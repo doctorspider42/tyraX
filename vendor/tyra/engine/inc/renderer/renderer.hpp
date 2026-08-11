@@ -30,9 +30,11 @@ class Renderer {
 
   // Modified by TyraX: displayMode selects the scan mode
   // (480i/480p/1080i), widescreen fits the projection to a 16:9 display.
+  // tripleBuffering: see docs/frame-pacing.md - costs a third display buffer
+  // of GS VRAM and falls back to two when it does not fit.
   void init(VideoMode videoMode = VideoMode::Auto,
             DisplayMode displayMode = DisplayMode::Interlaced,
-            bool widescreen = false);
+            bool widescreen = false, bool tripleBuffering = false);
 
   /** World background color */
   void setClearScreenColor(const Color& color) {

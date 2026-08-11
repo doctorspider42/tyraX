@@ -689,6 +689,33 @@ void App::livedbgTick() {
     }
 
     const fs::path binDir = fs::path(project_.dir) / "bin";
+
+    // How old the snapshot FILE is, which is a different question from
+    // "did a new snapshot arrive". The two channels this rides on fail
+    // differently and only one of them is visible from here: a ps2link
+    // session's file server is a ps2client the editor spawned, and when it
+    // goes the console keeps running while every devkit file freezes at its
+    // last write. That leaves a valid, parseable, permanently stale
+    // livedbg.bin - which without this reads exactly like "no data yet".
+    if (now >= dbgSnapFileNextStat_) {
+        dbgSnapFileNextStat_ = now + 0.5;
+        std::error_code ec;
+        const fs::path snapPath = binDir / "livedbg.bin";
+        const fs::file_time_type t = fs::last_write_time(snapPath, ec);
+        if (ec) {
+            dbgSnapFileAge_ = -1.0;  // not there at all
+        } else {
+            // NEVER against the system clock: file_clock's epoch is
+            // implementation-defined and on this libstdc++ sits in the
+            // future, so a system_clock difference is nonsense. Its own
+            // clock's now() is the only correct comparand.
+            const auto d = fs::file_time_type::clock::now() - t;
+            dbgSnapFileAge_ =
+                std::chrono::duration<double>(d).count();
+            if (dbgSnapFileAge_ < 0.0) dbgSnapFileAge_ = 0.0;
+        }
+    }
+
     livedbg::Snapshot snap;
     if (livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
         (snap.seq != dbgSnap_.seq || snap.frame != dbgSnap_.frame)) {
@@ -987,6 +1014,49 @@ static void dbgVuDrawFindings(const vucap::Capture& c) {
     ImGui::Separator();
 }
 
+// Why the panel is empty, in one sentence, with the remedy. An empty panel is
+// the single most expensive failure this channel has: a dead transport and a
+// game that has not booted yet look identical, and the difference is on disk
+// the whole time (see livedbgTick's file-age stat). Called by the Debugger's
+// state block AND the Stats tab, so the two cannot tell different stories.
+std::string App::dbgSilenceReason() const {
+    if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)
+        return {};
+    if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
+    if (dbgSnapFileAge_ < 0.0)
+        return "bin/livedbg.bin has not appeared. Nothing is reporting yet - "
+               "Build & Run (F5 for PCSX2, F6 for a console). If the game IS "
+               "running, it was built before the Live Debugger was switched "
+               "on: rebuild it.";
+    // The game rewrites this every 6 frames locally and every 25 over ps2link
+    // - about 0.5 s either way at a healthy frame rate. Several seconds of
+    // silence is a dead channel, not a slow one; a collapsed frame rate makes
+    // it late, never absent.
+    // Big enough for the whole sentence: snprintf TRUNCATES rather than
+    // failing, and a message about a silent failure that is itself silently
+    // cut off would be a poor joke.
+    char buf[768];
+    const double age = dbgSnapFileAge_;
+    std::string when;
+    if (age < 90.0)
+        when = std::to_string((int)(age + 0.5)) + " seconds";
+    else
+        when = std::to_string((int)(age / 60.0 + 0.5)) + " minutes";
+    std::snprintf(
+        buf, sizeof(buf),
+        "bin/livedbg.bin is STALE - it stopped changing %s ago, so what is on "
+        "disk is a snapshot of a session that is over. The game may well still "
+        "be running: over ps2link the file server is a ps2client this editor "
+        "spawned, and closing the editor, stopping the game or redeploying THIS "
+        "project takes it down - the console then keeps running with no host: "
+        "to write to. (Deploying a DIFFERENT project no longer does: since "
+        "1.22.0 that refuses and names this session instead of killing it.) The "
+        "cure is a redeploy (Run on PS2, F6), not a retry. Under PCSX2 it means "
+        "the game itself stopped.",
+        when.c_str());
+    return buf;
+}
+
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
 // what the variables hold, where it is stopped - plus the transport controls
 // and the breakpoint list. The graph itself is the other half of this UI (the
@@ -1051,7 +1121,13 @@ void App::drawDebuggerWindow() {
             chip = {IM_COL32(140, 140, 140, 255), "NO SYMBOLS"};
             break;
         case DbgState::Waiting:
-            chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
+            // A frozen file is a DIFFERENT thing from an absent one and must
+            // not share a chip with it: one is "not started yet", the other is
+            // "the transport died and the console is still running".
+            if (dbgSnapFileAge_ >= 0.0)
+                chip = {IM_COL32(240, 175, 70, 255), "STALE SNAPSHOT"};
+            else
+                chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
             break;
         case DbgState::Stale:
             chip = {IM_COL32(240, 175, 70, 255), "STALE (rebuild)"};
@@ -1083,7 +1159,12 @@ void App::drawDebuggerWindow() {
     }
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
         ImGui::SameLine(0.0f, scaled(12.0f));
-        ImGui::TextDisabled("frame %u \xc2\xb7 %.0f fps \xc2\xb7 scene %d",
+        // "rendered" is not decoration: this is the game's frame counter over
+        // the EDITOR's wall clock, and the frame counter counts loop
+        // iterations - so on a game with frame extrapolation on, the picture
+        // changes about twice as often as this says. The Stats tab has the
+        // game's own measurement of both.
+        ImGui::TextDisabled("frame %u \xc2\xb7 %.1f fps rendered \xc2\xb7 scene %d",
                             dbgSnap_.frame, dbgFps_, dbgSnap_.scene);
     }
 
@@ -1107,10 +1188,10 @@ void App::drawDebuggerWindow() {
                 "game starts reporting as soon as it boots.");
             break;
         case DbgState::Waiting:
-            ImGui::TextWrapped(
-                "Symbols loaded (%d nodes). Waiting for a game to report - "
-                "Build & Run (F5) for PCSX2, or F6 for a real console.",
-                (int)dbgSyms_.nodes.size());
+            ImGui::TextWrapped("%s", dbgSilenceReason().c_str());
+            if (dbgSnapFileAge_ < 0.0)
+                ImGui::TextDisabled("Symbols loaded (%d nodes).",
+                                    (int)dbgSyms_.nodes.size());
             break;
         case DbgState::Stale:
             ImGui::TextWrapped(
@@ -1673,14 +1754,51 @@ void App::drawDebuggerWindow() {
     if (ImGui::BeginTabItem("Stats")) {
         const livedbg::Stats& st = dbgSnap_.stats;
         if (!live || !st.valid) {
-            ImGui::TextDisabled("No stats yet.");
-            prefHelp(
-                "They arrive with the game's snapshots - run a debug build with\n"
-                "the Live Debugger on. A game built before this panel existed\n"
-                "reports none: rebuild it.");
+            // "No stats yet." was the whole message here, and it was the same
+            // message whether the game had not booted, the build carried no
+            // debugger runtime, or the file server had died half an hour ago
+            // with the console still running. Say WHICH.
+            const std::string why = dbgSilenceReason();
+            if (!why.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImVec4(0.94f, 0.75f, 0.35f, 1.0f));
+                ImGui::TextWrapped("%s", why.c_str());
+                ImGui::PopStyleColor();
+            } else if (!live) {
+                ImGui::TextDisabled("No stats yet.");
+                prefHelp(
+                    "They arrive with the game's snapshots - run a debug build\n"
+                    "with the Live Debugger on.");
+            } else {
+                // Reporting, but the stats block is empty: an older ELF.
+                ImGui::TextDisabled(
+                    "This game reports no stats block - it was built before "
+                    "the Stats tab existed. Rebuild it (F5 / F6).");
+            }
         } else {
             ImGui::SeparatorText("Frame");
-            ImGui::Text("%d FPS", st.fps);
+            // The game's OWN measurement, on its COP0 clock, over its stated
+            // 0.5 s window - a different instrument from the header's
+            // frames-over-the-editor's-wall-clock, and the two should agree.
+            // A game built before the tenths existed reports only whole
+            // frames per second, so fall back rather than printing 0.0.
+            if (st.fpsX10 > 0)
+                ImGui::Text("%.1f FPS rendered", st.fpsX10 / 10.0f);
+            else
+                ImGui::Text("%d FPS rendered", st.fps);
+            if (st.presentedX10 > st.fpsX10 * 115 / 100) {
+                ImGui::SameLine();
+                ImGui::Text("\xc2\xb7 %.1f presented", st.presentedX10 / 10.0f);
+            }
+            prefHelp(
+                "Measured by the game itself: rendered = game loops per\n"
+                "second, presented = buffer flips. Frame extrapolation\n"
+                "synthesises a frame per rendered one, so it shows about\n"
+                "twice as often as it renders and both numbers are quoted.\n"
+                "The number beside the frame counter above is the same\n"
+                "rendered rate timed against this editor's wall clock -\n"
+                "they should agree. Neither is the frame-timing rig, which\n"
+                "measures sub-frame WORK in milliseconds (docs/profiling.md).");
             ImGui::SameLine();
             ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
                                 "%u vertices",

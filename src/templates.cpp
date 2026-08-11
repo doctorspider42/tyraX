@@ -18,6 +18,7 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
+#include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
@@ -426,15 +427,15 @@ int main(int argc, char** argv) {
   // The Engine(options) ctor re-applies this flag, so it must be set here
   // too or the static above gets reset to the default (console logging).
   options.writeLogsToFile = !ps2link;
-  // Target system (Project > Preferences > Build): Auto follows the console
+  // Target system (Project > Preferences > Display): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
-  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // Scan mode (Project > Preferences > Display > Display mode): interlaced
   // 480i/576i (whole frames or true field rendering), progressive 480p,
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
   // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
-  // PAL picture (Preferences > Build > PAL picture): with the
+  // PAL picture (Preferences > Display > PAL picture): with the
   // region-following interlaced mode, a PAL console (or a forced-PAL
   // target system) boots the full-height 512-line 576i frame instead of
   // the letterboxed NTSC-size picture. Resolved here, before engine init,
@@ -446,8 +447,14 @@ int main(int argc, char** argv) {
        (options.videoMode == Tyra::VideoMode::Auto &&
         graph_get_region() == GRAPH_MODE_PAL)))
     options.displayMode = Tyra::DisplayMode::Pal576i;
-  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  // 16:9 anamorphic output (Preferences > Display > Widescreen).
   options.widescreen = {{WIDESCREEN}};
+  // Triple buffering (Preferences > Display > Triple buffering, docs/
+  // frame-pacing.md): present from a vblank interrupt instead of stalling
+  // the EE on vsync, so a frame that overruns its field is shown one field
+  // late instead of halving the frame rate. Costs a third display buffer of
+  // GS VRAM; the engine reports and stays double buffered if it does not fit.
+  options.tripleBuffering = {{TRIPLE_BUFFERING}};
   // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
@@ -522,9 +529,32 @@ constexpr bool P2_JOIN_ON_START = {{P2_JOIN_ON_START}};
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
+
+// Experimental (Preferences > Display > Frame delivery,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = {{FRAME_EXTRAPOLATION}};
+
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = {{FRAME_EXTRAPOLATION_PLANE}};
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = {{FRAME_EXTRAPOLATION_FORCE}};
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = {{FRAME_EXTRAPOLATION_GROUND}};
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -1204,6 +1234,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -2441,6 +2487,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -3099,7 +3161,11 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
-#include <math.h>
+// The frame-timing rig (docs/profiling.md, "Timing a frame that BLSS is in").
+// TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
+// a preprocessor pass and nothing else.
+#include "debug/frame_profile.hpp"
+{{BLSS_INCLUDE}}#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -4581,18 +4647,288 @@ static inline u32 profTicks() {
   return v;
 }
 
+#if TYRA_FRAME_PROFILE
+// ---------------------------------------------------------------------------
+// The FRAMETIME line: the frame-timing rig's output half (the counters live in
+// the engine, inc/debug/frame_profile.hpp; the protocol is docs/profiling.md).
+//
+// ONCE A SECOND, never once a frame. TyraDebug::writeInLogFile does a full
+// ofstream open + append + flush PER LINE (vendor/tyra/engine/src/debug/
+// debug.cpp), over host: on real hardware - a per-frame line would be
+// measuring the logger. One snprintf, one TYRA_LOG, the same 1 Hz cadence
+// RendererCoreBlss::logFeatureSpread already uses.
+//
+// The whole block charges its own cost to FrameProfile::tExcluded, which
+// endFrame() subtracts from tFrameWork - otherwise one frame in fifty is a
+// 20 ms outlier made entirely of measurement apparatus.
+// ---------------------------------------------------------------------------
+namespace ftrig {
+
+constexpr int kWindow = 50;    // frames per FRAMETIME line
+constexpr int kRaw = 512;      // buffered per-frame samples (paired stats)
+constexpr float kTicksPerMs = 294912.0F;
+constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
+
+u32 work[kWindow], drain[kWindow];
+u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+// The split of the two big EE terms. The first hardware A/B read the
+// composite's EE half off ONE counter and got "~3.9 ms of scene submission"
+// by SUBTRACTION, which is not a measurement; these make both attributable.
+u64 sPrx = 0, sAcc = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
+int n = 0;
+u32 frame = 0;  // frames since boot - the alignment key between runs A and B
+u32 raw[kRaw];
+int rawN = 0;
+u32 rawFirst = 0;
+// One-frame delay line. drawDebugHud runs BEFORE endFrame, so the BLSS
+// counters it can see are THIS frame's while tFrameWork/tDrain are still last
+// frame's. Holding the BLSS values back by one frame makes every record
+// coherent instead of skewed.
+u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
+u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
+bool pValid = false;
+
+// u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
+// a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
+// wrapped and printed BELOW the median - which is how a 500 ms frame first
+// reported itself as 37 ms. Per-frame values (median, p95) were always fine;
+// only the accumulators were wrong.
+inline float ms(u64 ticks, int count) {
+  return (float)ticks / (kTicksPerMs * (float)count);
+}
+
+void sortU32(u32* a, int cnt) {
+  for (int i = 1; i < cnt; i++) {
+    const u32 v = a[i];
+    int j = i - 1;
+    while (j >= 0 && a[j] > v) {
+      a[j + 1] = a[j];
+      j--;
+    }
+    a[j + 1] = v;
+  }
+}
+
+// Dumps the buffered per-frame work ticks so runs A and B can be compared as
+// PAIRED samples (frame k of A against frame k of B - the fixture's camera is
+// frame-indexed, so those are the same view). Same I/O cost as one summary
+// line, 512x the data; 64 values a line keeps each line under 600 bytes.
+void dumpRaw() {
+  char line[600];
+  for (int base = 0; base < rawN; base += 64) {
+    int at = snprintf(line, sizeof(line), "FTRAW %lu",
+                      (unsigned long)(rawFirst + (u32)base));
+    const int end = base + 64 < rawN ? base + 64 : rawN;
+    for (int i = base; i < end; i++)
+      at += snprintf(line + at, sizeof(line) - at, " %lx",
+                     (unsigned long)raw[i]);
+    TYRA_LOG(line);
+  }
+  rawN = 0;
+}
+
+void tick(const Vec4& camPos, const Vec4& camAt) {
+  namespace FP = Tyra::FrameProfile;
+  const int i = n;
+  work[i] = FP::tFrameWork;
+  drain[i] = FP::tDrain;
+  if (pValid) {
+    sBeg += pBeg;
+    sEnd += pEnd;
+    sCmp += pCmp;
+    sCmpEe += pCmpEe;
+    sPrx += pPrx;
+    sAcc += pAcc;
+    sRep += pRep;
+    sFea += pFea;
+    sNet += pNet;
+    sPkt += pPkt;
+  }
+  pBeg = FP::tBlssBegin;
+  pEnd = FP::tBlssEnd;
+  pCmp = FP::tBlssComposite;
+  pCmpEe = FP::tBlssCompositeEe;
+  pPrx = FP::tBlssProxy;
+  pAcc = FP::tBlssAccum;
+  pRep = FP::tBlssReproj;
+  pFea = FP::tBlssFeat;
+  pNet = FP::tBlssNet;
+  pPkt = FP::tBlssPacket;
+  pValid = true;
+  if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
+  if (rawN == 1) rawFirst = frame;
+  frame++;
+  if (++n < kWindow) return;
+  n = 0;
+
+  u32 sorted[kWindow];
+  u64 sumW = 0, sumD = 0;
+  int over = 0;
+  for (int k = 0; k < kWindow; k++) {
+    sorted[k] = work[k];
+    sumW += work[k];
+    sumD += drain[k];
+    if (work[k] > kBudget20ms) over++;
+  }
+  sortU32(sorted, kWindow);
+
+  // Heading, not orbit angle: it is defined for any fixture camera, and it is
+  // the independent confirmation that frame f of run A really was looking
+  // where frame f of run B was. `f` is the exact key; `cam` is the check.
+  const float cam = atan2f(camAt.x - camPos.x, camAt.z - camPos.z);
+  const float mean = ms(sumW, kWindow);
+  const float dr = ms(sumD, kWindow);
+
+  char line[320];
+  snprintf(line, sizeof(line),
+           "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
+           "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
+           kWindow, (unsigned long)(frame - kWindow), (double)mean,
+           (double)ms(sorted[kWindow / 2], 1),
+           (double)ms(sorted[(kWindow * 95) / 100], 1), (double)(mean - dr),
+           (double)dr, (double)ms(sBeg, kWindow), (double)ms(sEnd, kWindow),
+           (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
+           (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
+  TYRA_LOG(line);
+  // The attribution line. `proxy` is charged inside StaPipCore (scene
+  // SUBMISSION, not the composite); the other four split the composite's EE
+  // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
+  // figure above to within the counters' own overhead.
+  //
+  // `proxy=total/accum` splits the proxy feed itself: `accum` is
+  // RendererCoreBlss::addBag, the read-modify-write per (proxy, TILE), and
+  // `total - accum` is the projection half - eight corners through the MVP,
+  // the near clip, the bbox reduce, once per VU1 package. They are the two
+  // halves the same millisecond can be taken off in completely different ways,
+  // and this feature has already paid once for splitting a term by
+  // subtraction instead of measuring it.
+  // THREE decimals, not two, and the reason is that this line has outlived the
+  // sizes it was written for. When it was added the terms it splits ran 2-4 ms
+  // and 0.01 was noise; the cuts since have taken reproj to 0.28 and feat to
+  // 0.19, where a real 0.05 ms saving is five units of the last digit and a
+  // 0.02 one is two. A term measured to 0.01 ms cannot resolve a cut worth
+  // 0.03, and rounding is not something more paired windows can average away.
+  snprintf(line, sizeof(line),
+           "FTSPLIT f=%lu proxy=%.3f/%.3f reproj=%.3f feat=%.3f net=%.3f "
+           "pkt=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
+           (double)ms(sAcc, kWindow),
+           (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
+           (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
+  TYRA_LOG(line);
+  sBeg = sEnd = sCmp = sCmpEe = 0;
+  sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
+  if (rawN >= kRaw) dumpRaw();
+}
+
+#if TYRA_FRAME_PROFILE_CALIB
+// The calibration gate. K full-screen textured alpha-blended sprites a frame,
+// each with its own draw_finish + wait; the slope of the sweep is what one
+// full-screen GS pass costs on THIS machine. PCSX2 runs a software rasteriser
+// and is not fill-rate accurate, and BLSS trades GS fill for GS fill - a slope
+// near zero means no emulator number about this feature's GS cost is
+// admissible. Real hardware should read ~0.2-0.4 ms per pass at 512x448.
+constexpr int kCalibK[5] = {0, 2, 4, 8, 16};
+u32 calSum[5] = {0, 0, 0, 0, 0};
+int calN[5] = {0, 0, 0, 0, 0};
+int calFrame = 0;
+// THE RESOLUTION THE SWEEP RAN AT. The probe sizes its sprite from the current
+// framebuffer, so `slope` is ms per full-screen pass AT THIS RASTER and means
+// nothing without it - the 0.5872 this rig published was measured on a PAL 576i
+// fixture (512x512) and then read against 512x448 coverages for a year, which
+// is 14.3 % more pixels than the constant describes. Printed on the line, next
+// to a per-megapixel figure that does not depend on the mode at all.
+int calW = 0, calH = 0;
+
+void calibrate(Engine* engine) {
+  const int slot = (calFrame / 10) % 5;  // 10 frames per K, then rotate
+  calFrame++;
+  auto& core = engine->renderer.core;
+  const u32 t = Tyra::FrameProfile::gsFillProbe(&core.gs, &core.sync,
+                                                core.getPath1(),
+                                                kCalibK[slot], &calW, &calH);
+  calSum[slot] += t;
+  calN[slot]++;
+  if (calFrame % 250) return;
+  char line[200];
+  int at = snprintf(line, sizeof(line), "GSFILL");
+  for (int i = 0; i < 5; i++)
+    at += snprintf(line + at, sizeof(line) - at, " k%d=%.3f", kCalibK[i],
+                   calN[i] ? (double)ms(calSum[i], calN[i]) : 0.0);
+  // Least-squares slope of ms against K, i.e. ms per full-screen pass.
+  float sx = 0.0F, sy = 0.0F, sxx = 0.0F, sxy = 0.0F;
+  for (int i = 0; i < 5; i++) {
+    const float x = (float)kCalibK[i];
+    const float y = calN[i] ? ms(calSum[i], calN[i]) : 0.0F;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
+  }
+  const float den = 5.0F * sxx - sx * sx;
+  const float slope = den != 0.0F ? (5.0F * sxy - sx * sy) / den : 0.0F;
+  // raster= is what `slope` is per; perMpx= is the same measurement with the
+  // mode divided out, so two consoles - or two display modes on one console -
+  // can be compared without anybody having to remember which fixture booted in
+  // which resolution.
+  const float mpx = (float)calW * (float)calH * 1e-6F;
+  snprintf(line + at, sizeof(line) - at, " raster=%dx%d slope=%.4f perMpx=%.4f",
+           calW, calH, (double)slope, mpx > 0.0F ? (double)(slope / mpx) : 0.0);
+  TYRA_LOG(line);
+}
+#endif  // TYRA_FRAME_PROFILE_CALIB
+
+}  // namespace ftrig
+#endif  // TYRA_FRAME_PROFILE
+
 /** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
  * (used/total EE MB) and the per-phase EE-time profiler in the top-left
  * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
- * in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
+ * in terrain_config.hpp fold the calls away). The camera is passed in for the
+ * frame-timing rig's `cam` field - it is the only thing here that needs it,
+ * and it is unused when TYRA_FRAME_PROFILE is 0. */
+void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
+#if TYRA_FRAME_PROFILE
+  {
+    // Everything in here is apparatus, so it comes straight back out of
+    // tFrameWork (see FrameProfile::tExcluded).
+    const u32 fpE0 = Tyra::FrameProfile::ticks();
+#if TYRA_FRAME_PROFILE_CALIB
+    ftrig::calibrate(engine);
+#endif
+    ftrig::tick(camPos, camAt);
+    Tyra::FrameProfile::tExcluded += Tyra::FrameProfile::ticks() - fpE0;
+  }
+#else
+  (void)camPos;
+  (void)camAt;
+#endif
   if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
   static int memRefresh = 0;
   static float memFreeMB = 0.0F;
   char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
-    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    // RENDERED frames per second, averaged over the engine's stated 0.5 s
+    // window (Info::getFps - it reads COP0 Count, not the video mode's
+    // scanline timer). Frame extrapolation presents a synthesised frame after
+    // endFrame() returns, so the game then shows about twice the rate it
+    // renders: SHOWN is that second number, and it appears only when the two
+    // genuinely differ. docs/profiling.md, "The three frame rate counters".
+    // The CAP is printed beside the rate because without it the same game
+    // reads 25 in PAL 576i and 30-40 in 1080i and looks like a counting bug -
+    // it is not. Those modes refresh at 50 and 60 Hz, and a frame that misses
+    // its field halves to 25 or 30 respectively; getRefreshRate() is the
+    // engine's own answer (DTV modes 60, Pal576i 50, the rest follow the video
+    // mode). Reported as "coś tu chyba źle liczy".
+    const float cap = engine->renderer.core.getSettings().getRefreshRate();
+    if (engine->info.isPresentingExtraFrames())
+      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f/%.0f",
+               (double)engine->info.getFps(),
+               (double)engine->info.getPresentedFps(), (double)cap);
+    else
+      snprintf(line, sizeof(line), "FPS %.1f/%.0f",
+               (double)engine->info.getFps(), (double)cap);
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -4605,6 +4941,22 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
+    drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+    // GS VRAM, beside it and deliberately so. MEM is the EE's 32 MB of main
+    // memory and does NOT move when the display mode changes - the
+    // framebuffers and the z buffer live in the GS' separate 4 MB, and that
+    // is the pool a taller mode eats. Reported as "I change the display mode
+    // and the memory reading never moves", which was the HUD answering a
+    // question it was never asked. Free rather than used: the texture heap is
+    // what a mode change takes from, and free space is what the next texture
+    // upload actually has (docs/gs-vram.md) - but it is printed as USED over
+    // the GS' 4 MB so it reads the same way round as MEM above it. Note the
+    // HUD glyph atlas is digits, '.' and UPPERCASE only: a lowercase word
+    // here silently draws nothing (the first cut of this line ended in
+    // "free" and rendered as blank).
+    snprintf(line, sizeof(line), "VRAM %.2f/4 MB",
+             4.0F - (double)engine->renderer.core.gs.vram.getFreeSpaceInMB());
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -4913,7 +5265,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -4930,7 +5282,7 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+{{BLSS_INIT}}  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -5432,8 +5784,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      renderScene();
-    }
+{{BLSS_SCENE_RENDER}}    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -5488,10 +5839,167 @@ void TerrainGame::loop() {
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
-    drawDebugHud(engine);
+    drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -7648,7 +8156,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
-  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
@@ -10226,6 +10734,7 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colorBag->many = sb.colors.data();
@@ -10376,6 +10885,10 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
+    // ...and it rides the dome, so it is a shell fragment too - see the dome's
+    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
+    // would read as "the far plane, everywhere it covers".
+    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;
@@ -12364,6 +12877,13 @@ void TerrainGame::buildSkyDome() {
   // The dome is centered on the camera - a nearby dynamic light would win
   // its pick and tint the whole sky.
   skyDome.infoBag->dynLightPick = false;
+  // ...and for the same reason it cannot be described to the BLSS upscaler:
+  // a shell around the eye has no screen bounding box that means anything.
+  // Its package boxes wrap the near plane, so each one reports "the frame,
+  // fully covered, at the nearest representable depth" and flattens coverage,
+  // depth and depthGrad wherever it lands. Measured: with the dome in, the
+  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
+  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -17844,7 +18364,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -17861,7 +18381,7 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+{{BLSS_INIT}}  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -18430,8 +18950,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      renderScene();
-    }
+{{BLSS_SCENE_RENDER}}    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -18486,10 +19005,167 @@ void TerrainGame::loop() {
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
-    drawDebugHud(engine);
+    drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -19575,6 +20251,11 @@ struct ScriptContext {
   // timer runs out (a mode the TV can't display would otherwise strand the
   // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
   // The game applies and resets all three.
+  // Frame extrapolation (docs/frame-extrapolation.md), written by the Set
+  // Frame Extrapolation flow node: -1 = leave alone, 0 = off, 1 = on (still
+  // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
+  // latches it and clears it back to -1.
+  int frameExtrapolation = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
@@ -21267,6 +21948,12 @@ static bool staticBatchEligible(const SceneObject& o,
     return blocked.find(o.name) == blocked.end();
 }
 
+// The neural upscaler's build interlock, defined with the rest of the BLSS
+// codegen far below and emitted into a TU OF ITS OWN - see blssClashes() for
+// why it is a hard #error and blssInterlock() for why it stopped living in
+// inc/scene_data.hpp.
+static std::string blssInterlock(const Project& p);
+
 // inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build
 static std::string sceneDataContent(const Project& p, const std::string& ns) {
     std::ostringstream out;
@@ -21321,7 +22008,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float emitWeight;  // custom: air drag ~ 1/weight\n"
            "  float emitLife;    // custom: particle lifetime, seconds\n"
            "  float emitGrow;    // custom: size multiplier at end of life\n"
-           "  float emitOpacity; // custom: base alpha 0..1\n"
+           "  float emitOpacity; // fog/custom: base alpha 0..1\n"
            "  int emitDieGround; // custom: 1 = particle dies on the terrain\n"
            "  int snd;        // sound emitters: index into SND_PATHS, -1 = none\n"
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
@@ -23066,6 +23753,75 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
+    // The neural upscaler (docs/neural-upscaler.md). Mostly project-wide, like
+    // the blob shadows above: the scale, the jitter, the sharpen/temporal
+    // tuning and the debug view are one net's properties and are plain
+    // constants. Two of them - whether the scene rasterises reduced at all, and
+    // whether the MLP reconstructs it - resolve PER SCENE, and get tables like
+    // the POSTFX_* ones below, but ONLY when the project's scenes actually
+    // disagree (project::blssUse().mixed). A project whose scenes all resolve
+    // alike keeps the scalars it had, which is what makes its regeneration
+    // byte-identical.
+    //
+    // The whole block is emitted only while some scene has it ON, like the rest
+    // of the feature. A project with the upscaler off must generate the header
+    // it generated before BLSS existed, byte for byte - and nothing references
+    // these constants there, because the init block and the frame bracket are
+    // equally absent.
+    const project::BlssUse blssU = project::blssUse(p);
+    if (blssU.any) {
+        // The refusal itself is NOT here any more - it is its own translation
+        // unit (src/gen/blss_interlock.gen.cpp), because this header is included
+        // by about fourteen of them and the compiler repeated the whole
+        // diagnostic in every one. See blssInterlock().
+        const blss::Scale sc =
+            p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
+        // BLSS_ENABLED / BLSS_NETWORK are the WIDEST configuration the run will
+        // take, i.e. what init() has to allocate and bake for; in a mixed
+        // project the per-scene tables below narrow it at every scene load. In
+        // a uniform project the two say exactly what they always said.
+        out << "constexpr int BLSS_ENABLED = " << (blssU.any ? 1 : 0)
+            << ";\n"
+            << "constexpr int BLSS_SCALE_X = " << blss::scaleX(sc) << ";\n"
+            << "constexpr int BLSS_SCALE_Y = " << blss::scaleY(sc) << ";\n"
+            << "constexpr float BLSS_SHARPEN = "
+            << floatLit(p.settings.blssSharpen) << ";\n"
+            << "constexpr int BLSS_TEMPORAL = "
+            << (p.settings.blssTemporal ? 1 : 0) << ";\n"
+            // The +-1/4-pixel per-frame raster jitter. 0 is the kill switch
+            // for the period-2 bob (docs/neural-upscaler.md, "The
+            // oscillation") at the cost of the temporal supersampling.
+            << "constexpr int BLSS_JITTER = "
+            << (p.settings.blssJitter ? 1 : 0) << ";\n"
+            // PLAIN MODE. 0 = the reduced raster and one bilinear pass, with
+            // no proxy feed, no reprojection, no feature grid and no MLP. The
+            // four constants above are still emitted and still say what the
+            // project holds: configure() is what decides which of them plain
+            // mode reads (none of them, and it forces the jitter off), so the
+            // policy lives in one place instead of being restated here.
+            << "constexpr int BLSS_NETWORK = "
+            << (blssU.anyNetwork ? 1 : 0) << ";\n"
+            << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
+            << ";\n";
+        // PER SCENE (docs/neural-upscaler.md, "Per scene"). Emitted only when
+        // the scenes disagree, because a table of identical values is a table
+        // that changes every existing project's generated header for nothing.
+        if (blssU.mixed) {
+            out << "// This project's scenes do not all resolve the upscaler "
+                   "alike, so it is\n"
+                   "// switched per scene at load (RendererCoreBlss::setScene, "
+                   "free - configure()\n"
+                   "// below already sized the z buffer for the WIDEST raster "
+                   "any scene uses).\n"
+                   "constexpr int BLSS_NATIVE_SCENES = 1;\n";
+            sceneBools("BLSS_ENABLEDS", [&](int si) { return rs[si].blssEnabled; });
+            sceneBools("BLSS_NETWORKS", [&](int si) {
+                return rs[si].blssEnabled && rs[si].blssNetwork;
+            });
+            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n"
+                   "#define BLSS_SCENE_NET BLSS_NETWORKS[g_activeScene]\n";
+        }
+    }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
     {
@@ -23600,6 +24356,655 @@ static std::string screenFxSource(const Project& p) {
     return out.str();
 }
 
+// ---------------------------------------------------------- BLSS upscaler ---
+// The neural upscaler (docs/neural-upscaler.md) is baked at build time, so
+// every piece of it is a pure function of the Project - which is what lets
+// fillTemplate (a pure function too) decide whether the boot log has to admit
+// the network is untrained.
+//
+// Two of its settings resolve PER SCENE - whether the scene rasterises reduced,
+// and whether the MLP reconstructs it (project::blssUse). So everything below
+// asks blssUse(p) rather than p.settings.blssEnabled, and emits NOTHING while
+// no scene resolves it on. That is the contract for the whole feature: a
+// project with the upscaler off must generate byte-for-byte the sources it
+// generated before BLSS existed - and, since per-scene arrived, a project whose
+// scenes all resolve ALIKE must generate byte-for-byte what the project-wide
+// setting generated.
+
+// --- The interlock ---------------------------------------------------------
+// BLSS cannot be combined with depth of field, portals or split screen: all
+// three read or write real GS depth at DISPLAY resolution, which since the z
+// buffer started following the raster is not merely unwritten but unallocated
+// (docs/neural-upscaler.md). Until this block existed nothing in codegen knew
+// that. Three documents claimed "the generated game does not emit them
+// together" and none of them was ever true; the preferences dialog warned, and
+// a user who went past the warning got an ELF that compiled, booted, and drew
+// the wrong picture. Split screen is the worst of the three: the frame bracket
+// wraps only the single-view branch and configure() leaves zBuffer.mask = 1
+// outside it, so a split frame renders at FULL resolution with scene depth
+// writes masked - a broken picture, not a degraded one.
+//
+// So the generated sources REFUSE TO COMPILE. The alternative shape - emit the
+// game with the upscaler quietly dropped and a loud warning - lost on three
+// counts:
+//
+//  - It makes the ELF disagree with the project. `blssEnabled` would still be
+//    true in the .tyra while the binary has no upscaler in it, so the boot log,
+//    the VRAM figures and any timing would describe a configuration the project
+//    does not. For a proof of concept whose whole purpose is being MEASURED,
+//    "the build succeeded, and quietly measured something else" is the worst
+//    outcome on the table.
+//  - A build warning is not loud. `--build` streams a Docker log and a line in
+//    it scrolls past; what people read is the reason a build stopped.
+//  - The build is not the first thing to see the clash. The editor's
+//    preferences dialog already enumerates the same features, per feature, live
+//    (App::drawPreferencesWindow). This is the backstop for somebody who went
+//    past that, and a backstop that lets the build through is not one.
+//
+// The remedy is one click in every case, including the data-dependent ones
+// (a portal dropped into a scene), because BLSS is the newer, opt-in, off-by-
+// default half of every one of these pairs: turning the upscaler off always
+// resolves the clash, whichever feature tripped it. The message says so first
+// and names the clashing feature - and where it is - second.
+//
+// It lives in the generated SOURCE and not in the editor's build button,
+// because the button is not the only road to a wrong ELF: `docker compose up`
+// + `make` by hand in the project directory is one, and so is a CI job that
+// never runs the editor. Nothing that produces an ELF gets past a #error.
+//
+// A COMPILER DIAGNOSTIC IS A BAD PLACE FOR PROSE, and this had to learn it the
+// expensive way. The messages used to carry the whole argument - the measured
+// artefact, the mechanism, the remedy in three variants, ~340 characters each -
+// and they were emitted into inc/scene_data.hpp, which about fourteen
+// translation units include. GCC prints an #error three times over (the
+// diagnostic, the quoted source line, the caret), so one clash on one project
+// was one paragraph printed forty-two times, and the user who hit it reported
+// their whole build log as that wall. Two changes, and both are about SHAPE
+// rather than wording:
+//
+//  - Each line NAMES the pair, the scene and one place to fix it, and points at
+//    the doc page for the why. The long form is not gone - it lives in
+//    docs/neural-upscaler.md and docs/frame-extrapolation.md, and verbatim in
+//    the dialog (drawBlssClashWarning), which is where a person reads at their
+//    own pace and can click the thing being described.
+//  - It is emitted into a TU OF ITS OWN (src/gen/blss_interlock.gen.cpp), so it
+//    is compiled ONCE. That file is generated only while the project actually
+//    clashes and swept away by refreshGenerated when it stops - a stale one
+//    would refuse a build that is fine, which is the one failure mode worse
+//    than a noisy one. It is a plain generated source with no ownership marker,
+//    so nobody can switch the guard off by taking ownership of it, and
+//    Makefile.base globs src/**/*.cpp so it needs no Makefile change.
+//
+// The BLSS_* constants and the init/composite calls stay in scene_data.hpp and
+// are still emitted under a refusal on purpose - suppressing them would bury
+// the one diagnostic that matters under a page of "BLSS_SCALE_X was not
+// declared in this scope".
+
+// Text that is safe to put after a `#error`. The directive's operand is not
+// lexed as C++ tokens, but an unpaired apostrophe in it still draws a "missing
+// terminating ' character" warning out of GCC - which is not theoretical: the
+// authored words "the upscaler's temporal pass" put one such warning on every
+// one of those fourteen translation units, so every legitimate refusal shipped
+// with a bogus warning attached to it. A double quote does the same.
+//
+// So this is applied to the WHOLE #error line and not only to the user text
+// interpolated into it (scene and object names, which were the original
+// reason). The messages below are authored without either character, which
+// makes this a backstop rather than a filter - but a backstop is exactly what
+// the apostrophe bug proves is needed, because the hazard is invisible in the
+// C++ source that writes it. Anything outside a conservative printable set
+// becomes '?'.
+static std::string errorSafe(const std::string& s) {
+    static const std::string kPunct = " .,:;()[]<>+-_=/*&#@!%?";
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') ||
+                        kPunct.find((char)c) != std::string::npos;
+        out += ok ? (char)c : '?';
+    }
+    return out;
+}
+
+// One line per feature this project uses that the upscaler cannot be combined
+// with; empty means the combination is buildable. Each condition mirrors the
+// one the GENERATED GAME will actually take, not the coarser one the
+// preferences dialog paints its warning from - a build that refuses more often
+// than the game would break is a build that blocks work for nothing.
+static std::vector<std::string> blssClashes(const Project& p) {
+    std::vector<std::string> out;
+    if (!project::blssUse(p).any) return out;
+    // EVERY clashing feature is reported, but only the first place each one
+    // shows up: a project with a portal AND split screen should learn both in
+    // one build rather than fix one, rebuild, and be refused again - while
+    // eleven scenes with depth of field are eleven copies of one sentence.
+    //
+    // PER SCENE (docs/neural-upscaler.md, "Per scene"). Every question below is
+    // asked of a scene that RESOLVES the upscaler on, and of no other. That is
+    // the whole second half of making this setting per-scene: the interlock was
+    // project-wide, so one portal anywhere refused the build for a project
+    // whose other nine scenes had neither a portal nor anything to do with it.
+    // The remedy is now local too - turn the upscaler off in THAT scene, in
+    // Scene > Scene Preferences.
+    const auto sceneUpscales = [&](size_t si) {
+        return project::resolvedSettings(p, p.scenes[si]).blssEnabled;
+    };
+
+    auto sceneName = [&](size_t si) {
+        return errorSafe(p.scenes[si].name.empty()
+                             ? ("scene #" + std::to_string(si))
+                             : ("scene " + p.scenes[si].name));
+    };
+    // POSTFX_DOFS stores the amount in 1/128ths (the sceneInts fx128 above),
+    // and RendererCorePostFx::applyPostFx runs the pass only for
+    // `dof > 0 && dofFocus > 0` - so an amount under 1/128, or a zero focus
+    // distance, is depth of field that never draws and never clashes.
+    auto dofActive = [](float amount, float focus) {
+        const int fx = (int)(amount * 128.0f + 0.5f);
+        return fx > 0 && focus > 0.0f;
+    };
+    // A plain decimal, not floatLit: this ends up in a sentence somebody
+    // reads, and a C++ float suffix in the middle of one reads as a typo.
+    auto amountText = [](float v) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f", (double)v);
+        return std::string(buf);
+    };
+
+    // 1. Depth of field. Per SCENE, not per project: the project value is only
+    //    the default and a scene can override the whole post-fx group
+    //    (SceneOverrides::postFx), which is exactly what the POSTFX_DOFS table
+    //    is a table of.
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const ProjectSettings rs = project::resolvedSettings(p, p.scenes[si]);
+        if (!rs.blssEnabled) continue;
+        if (!dofActive(rs.dofAmount, rs.dofFocus)) continue;
+        out.push_back("BLSS x DEPTH OF FIELD in " + sceneName(si) +
+                      " (amount " + amountText(rs.dofAmount) +
+                      ") - turn one of them off. Why, and where: "
+                      "docs/neural-upscaler.md, Limitations.");
+        break;
+    }
+    // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
+    //    in a project whose authored amount is 0 everywhere. Mode 1 turns depth
+    //    of field off and mode 2 restores the scene's authored value (caught by
+    //    the loop above when that value is non-zero); only mode 0 sets its own.
+    //    The amount is a literal in the emitted code - nothing can wire it - so
+    //    this reads the same numbers the emitter does.
+    if (out.empty()) {
+        bool found = false;
+        for (size_t si = 0; si < p.scenes.size() && !found; ++si) {
+            if (!sceneUpscales(si)) continue;
+            for (const SceneObject& o : p.scenes[si].objects) {
+                const FlowNode* hit = nullptr;
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    if (n.type != "SetDof" || (int)n.num[3] != 0) continue;
+                    bool posWired = false;
+                    for (const FlowLink& l : o.flowGraph.links)
+                        posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
+                    // A wired position replaces Focus with the live
+                    // player-to-point distance, which is > 0.
+                    if (dofActive(n.num[2], posWired ? 1.0f : n.num[0])) {
+                        hit = &n;
+                        break;
+                    }
+                }
+                if (!hit) continue;
+                out.push_back(
+                    "BLSS x DEPTH OF FIELD in " + sceneName(si) +
+                    ": the flow graph of " + errorSafe(o.name) +
+                    " turns it on at runtime (amount " +
+                    amountText(hit->num[2]) +
+                    ") - turn one of them off. Why, and where: "
+                    "docs/neural-upscaler.md, Limitations.");
+                found = true;
+                break;
+            }
+        }
+    }
+    // 3. Portals. Objects in a scene, so this is data and not a preference -
+    //    and only a LINKED pair renders a through-view (renderPortalView skips
+    //    target < 0), so an unlinked portal is a tinted surface and no clash.
+    //    Same resolution rule as the PORTALS table: the target names another
+    //    Portal in the same scene.
+    bool portalFound = false;
+    for (size_t si = 0; si < p.scenes.size() && !portalFound; ++si) {
+        if (!sceneUpscales(si)) continue;
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi) {
+            const SceneObject& o = objs[oi];
+            if (o.type != PrimitiveType::Portal || o.portalTarget.empty())
+                continue;
+            const SceneObject* target = nullptr;
+            for (size_t ti = 0; ti < objs.size(); ++ti)
+                if (ti != oi && objs[ti].type == PrimitiveType::Portal &&
+                    objs[ti].name == o.portalTarget)
+                    target = &objs[ti];
+            if (!target) continue;
+            out.push_back("BLSS x PORTALS in " + sceneName(si) +
+                          ": the linked portal " + errorSafe(o.name) + " -> " +
+                          errorSafe(target->name) +
+                          " - turn one of them off. Why, and where: "
+                          "docs/neural-upscaler.md, Limitations.");
+            portalFound = true;
+            break;
+        }
+    }
+    // 4. Split screen. A preference (MULTIPLAYER_MODE == 2) AND scene data: the
+    //    generated frame takes the split branch only when the active scene has
+    //    a SECOND Player object (PLAYER2_INDEXES), so a project set to split
+    //    with no player two anywhere never renders a split frame and is not a
+    //    clash. The preferences dialog does not make that distinction; this
+    //    does, because it is the one that stops the build.
+    if (p.settings.multiplayer == "split") {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!sceneUpscales(si)) continue;
+            int players = 0;
+            for (const SceneObject& o : p.scenes[si].objects)
+                if (o.type == PrimitiveType::Player) ++players;
+            if (players < 2) continue;
+            out.push_back(
+                "BLSS x SPLIT SCREEN in " + sceneName(si) +
+                " (Multiplayer is set to split screen and the scene has a "
+                "second Player object) - turn one of them off. Why, and where: "
+                "docs/neural-upscaler.md, Limitations.");
+            break;
+        }
+    }
+    // 5. Frame extrapolation. A PROJECT preference x scene data, the same shape
+    //    as split screen above - and the one condition here that is not about
+    //    the z buffer.
+    //
+    //    Both features reconstruct a frame from the PREVIOUS one by reprojecting
+    //    it through the camera delta, and both are approximations whose error
+    //    grows with that delta. Extrapolation presents twice per loop, so the
+    //    world runs at HALF the field rate and the camera moves TWICE as far
+    //    between two RENDERED frames - which is exactly the interval BLSS'
+    //    temporal pass reprojects across. So turning extrapolation on does not
+    //    merely add a second approximation beside the first, it doubles the
+    //    input to the first one as well.
+    //
+    //    Measured on the reporter's own project (raytracing-test: progressive,
+    //    three buffers, neural mode at 2x2, PCSX2 software renderer, player
+    //    driven by --pad). Parked, all four arms are indistinguishable. In
+    //    MOTION: the upscaler alone is clean, extrapolation alone is clean, and
+    //    the pair tears the frame into cells that disagree - a second displaced
+    //    copy of near geometry, hard rectangular seams across the sky, object
+    //    silhouettes pasted at 32-pixel granularity. The instrument that names
+    //    it is the reprojection displacement itself: BLSS' own per-corner offset
+    //    peaks at 158 px of a 448 px raster with extrapolation off and 201 px
+    //    with it on, and the warp's grid is being displaced by the same doubled
+    //    delta at the same time.
+    //
+    //    It is NOT the two-buffer history degeneration composite() guards, and
+    //    that guard is not what is missing: with three buffers the rotation was
+    //    LOGGED frame by frame and the history is always the previous RENDERED
+    //    frame, intact and never a synthesised one. Nor is it raster state
+    //    leaking across the warp - a leaked SCISSOR/XYOFFSET/FRAME is static
+    //    register state and would wreck a parked frame too.
+    //
+    //    Refused rather than degraded because no partial measure fixed it:
+    //    dropping the temporal pass (the strongest single contributor) reduced
+    //    the tearing but left the warp's own grid coming apart under the same
+    //    doubled delta. Turning EITHER feature off is clean, so the honest
+    //    answer is that the project picks one.
+    //
+    //    THIS ONE IS ALSO PREVENTED IN THE EDITOR, and it is the only one of the
+    //    five that can be: it is setting against SETTING, and both switches sit
+    //    in one block (drawBlssSettings), so the dialogs grey out whichever of
+    //    the two is not already on and say why. The other four are setting
+    //    against scene CONTENT - you cannot grey out a portal somebody placed -
+    //    and keep the live warning plus this refusal, unchanged. That does not
+    //    make this branch dead code: a .tyra can be hand-edited, an older editor
+    //    never knew about the pair, and a Set Frame Extrapolation flow node
+    //    turns it on at runtime. Prevention and refusal are belt and braces.
+    if (p.settings.frameExtrapolation) {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!sceneUpscales(si)) continue;
+            out.push_back(
+                "BLSS x FRAME EXTRAPOLATION in " + sceneName(si) +
+                " - turn one of them off in Project > Preferences > Frame "
+                "delivery. Why, and where: docs/frame-extrapolation.md, Why not "
+                "with the upscaler.");
+            break;
+        }
+    }
+    return out;
+}
+
+// The refusal as it lands in src/gen/blss_interlock.gen.cpp - a TU whose entire
+// job is to stop the build, so the diagnostic is printed ONCE. "" when the
+// project is clean, and refreshGenerated then DELETES the file: a stale copy
+// would refuse a build that is fine, which is worse than the noise this
+// replaced. Nothing else may go in here, and nothing else includes it.
+//
+// The banner comment carries the argument the #error lines no longer do. It
+// costs nothing (a comment is not a diagnostic) and it is what somebody sees
+// when they open the file the compiler named.
+static std::string blssInterlock(const Project& p) {
+    const std::vector<std::string> clashes = blssClashes(p);
+    if (clashes.empty()) return "";
+    std::string s =
+        "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+        "// ==========================================================="
+        "===============\n"
+        "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
+        "//\n"
+        "// The neural upscaler (BLSS) is on in a SCENE that uses a feature it\n"
+        "// cannot be combined with. Both halves would compile and boot; the\n"
+        "// picture would be wrong, quietly, which is why this is an error and\n"
+        "// not a warning.\n"
+        "//\n"
+        "// This file exists only to stop the build. It is generated while the\n"
+        "// clash is present and deleted the moment it is fixed, so there is\n"
+        "// nothing to clean up and nothing to take ownership of. Fix EITHER\n"
+        "// side - one click resolves it:\n"
+        "//\n"
+        "//   Scene > Scene Preferences > Neural upscaler (BLSS): tick\n"
+        "//     Override the upscaler for this scene and untick Use the\n"
+        "//     upscaler. Every OTHER scene keeps it.\n"
+        "//   ...or project-wide, Project > Preferences > Display > Frame\n"
+        "//     delivery > Use the upscaler   (turn it off)\n"
+        "//\n"
+        "// ...or remove the clashing feature named below, then rebuild.\n"
+        "// The editor says all of this live, with the measurements, in that\n"
+        "// same block - this is the backstop for a build that never met it.\n"
+        "// ==========================================================="
+        "===============\n";
+    // Short by design (see the essay above blssClashes): one line per clash,
+    // naming the pair, the scene and one place to fix it. errorSafe covers the
+    // WHOLE line - an apostrophe anywhere in it is a GCC warning on every TU
+    // that reads it.
+    for (const std::string& c : clashes) s += "#error " + errorSafe(c) + "\n";
+    return s;
+}
+
+// WHICH NETWORK THIS BUILD BAKES, and the answer is no longer "the project's or
+// noise".
+//
+// It used to be. A project with BLSS on and no `blss.net` was compiled with the
+// random initialisation the trainer starts from, behind a comment banner in a
+// generated header and a boot-log line - which is the most a build can do when
+// there is genuinely nothing else to bake. But there IS something else now: the
+// editor ships a default network fitted on seven example projects AND the
+// bestiary, and leave-one-PROJECT-out measured that net at +0.29 dB on a project
+// it had never seen against +0.31 dB for that project's own net
+// (docs/neural-upscaler.md, "Can one net ship for every project?"). Random
+// weights are not a neutral fallback - they are a per-tile blend chosen by
+// noise - so "the game will be built with RANDOM weights" was a footgun with a
+// fix sitting next to it.
+//
+// The order is: the project's own net, then the editor's built-in default, then
+// (only if the shipped asset cannot be read by this build at all) the random
+// initialisation. Every step is named in the generated header AND in the boot
+// log, because the one thing worse than the wrong net is not knowing which net
+// you got.
+struct BlssBake {
+    blss::Net net;
+    enum class Source { Random, Default, Project };
+    Source source = Source::Random;
+    blss::Provenance prov;
+    std::vector<std::string> warnings;  // fitted for a different configuration
+    std::vector<std::string> notes;     // why a candidate was passed over
+};
+
+static BlssBake blssBake(const Project& p) {
+    BlssBake b;
+    // What this project will RUN the net in. A net is not wrong because it was
+    // fitted elsewhere; it is wrong when it was fitted for a different raster
+    // scale or a different sampler, and that is a comparison the file could not
+    // support until it grew a provenance sidecar.
+    const blss::NetExpect want{
+        p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2,
+        p.settings.blssJitter ? 1 : 0,
+        // The ENGINE's table, not the host's live `--act-table` setting: this
+        // process never ran a BLSS verb, so that global is 0 here.
+        blss::kEngineActTable};
+    const std::filesystem::path netPath = std::filesystem::path(p.dir) / "blss.net";
+    const std::string path = netPath.string();
+
+    std::string err;
+    if (blss::load(b.net, path, &err)) {
+        const blss::Provenance prov = blss::readProvenance(path);
+        const blss::NetIssues iss = blss::checkProvenance(prov, want);
+        if (iss.fatal.empty()) {
+            b.source = BlssBake::Source::Project;
+            b.prov = prov;
+            b.warnings = iss.warn;
+            return b;
+        }
+        // A net that loads into a differently shaped world is exactly the
+        // "reconstructing garbage" case: refuse it and fall through rather than
+        // bake weights that mean something else.
+        for (const std::string& f : iss.fatal)
+            b.notes.push_back("this project's blss.net was refused - " + f);
+    } else {
+        std::error_code ec;
+        if (std::filesystem::exists(netPath, ec))
+            b.notes.push_back("this project's blss.net was refused - " + err);
+    }
+
+    if (blss::defaultNet(b.net, &err)) {
+        b.source = BlssBake::Source::Default;
+        b.prov = blss::defaultProvenance();
+        const blss::NetIssues iss = blss::checkProvenance(b.prov, want);
+        b.warnings = iss.warn;
+        for (const std::string& f : iss.fatal)
+            b.notes.push_back("the editor's built-in default disagrees with itself - " + f);
+        return b;
+    }
+    b.notes.push_back(err);
+    // The trainer's own starting seed, so an untrained bake is exactly the net
+    // --blss-train begins from rather than a second arbitrary constant.
+    b.net.randomize(blss::TrainConfig{}.seed);
+    return b;
+}
+
+// One sentence naming the network, used by both the generated header's banner
+// and the boot log so the two cannot describe different things.
+static std::string blssNetSummary(const BlssBake& b) {
+    switch (b.source) {
+        case BlssBake::Source::Project:
+            return "this project's own blss.net" +
+                   (b.prov.corpus.empty() ? std::string(" (no provenance recorded)")
+                                          : " (fitted on " + b.prov.corpus + ")");
+        case BlssBake::Source::Default:
+            return "the editor's built-in default network" +
+                   (b.prov.corpus.empty() ? std::string()
+                                          : " (fitted on " + b.prov.corpus + ")");
+        default:
+            return "RANDOM WEIGHTS - no network could be loaded";
+    }
+}
+
+// inc/blss_net.gen.hpp: blss::emitGeneratedSource is THE emitter (it is the
+// twin of the host forward pass, so reimplementing the table here would be a
+// second thing to keep in sync). Only the untrained banner is added.
+static std::string blssNetHeader(const Project& p) {
+    const BlssBake b = blssBake(p);
+    // A comment, so anything user text can reach it has to survive being one -
+    // the corpus and the command come out of a sidecar file somebody may have
+    // edited, and a newline in either would end the comment and start emitting
+    // the file's contents as C++.
+    const auto commentLine = [](const std::string& s) {
+        std::string out = "// ";
+        for (char c : s) out += (c == '\n' || c == '\r') ? ' ' : c;
+        return out + "\n";
+    };
+    std::string s = "// ============================================================"
+                    "==========\n";
+    s += commentLine("Network: " + blssNetSummary(b));
+    if (!b.prov.command.empty()) s += commentLine("  rebuild it with: " + b.prov.command);
+    for (const std::string& n : b.notes) s += commentLine("  " + n);
+    for (const std::string& w : b.warnings) s += commentLine("  WARNING: " + w);
+    if (b.source == BlssBake::Source::Default)
+        s += "//\n"
+             "// This project has no blss.net of its own, so it is built with the\n"
+             "// network the editor ships. Measured leave-one-PROJECT-out, that\n"
+             "// net scores +0.29 dB on a project it has never seen against the\n"
+             "// project's own net's +0.31 - a tie - and fitting your own scene\n"
+             "// still reaches the highest number in distribution:\n"
+             "//\n"
+             "//     tyrax-editor --blss-eval <projectDir>    (is there a ceiling?)\n"
+             "//     tyrax-editor --blss-train <projectDir> --all-shots\n"
+             "//\n"
+             "// then rebuild. See docs/neural-upscaler.md.\n";
+    if (b.source == BlssBake::Source::Random)
+        s += "//\n"
+             "// WARNING: THIS NETWORK IS UNTRAINED. No network could be loaded -\n"
+             "// not the project's, and not the editor's built-in default - so the\n"
+             "// weights below are the random initialisation the trainer STARTS\n"
+             "// from. The upscaler will composite, but its per-tile choices are\n"
+             "// noise. This is a defect in the editor build, not in the project.\n"
+             "//\n"
+             "//     tyrax-editor --blss-train        (writes blss.net)\n"
+             "//     tyrax-editor --blss-eval         (the PSNR table)\n"
+             "//\n"
+             "// then rebuild. See docs/neural-upscaler.md.\n";
+    s += "// ============================================================"
+         "==========\n";
+    s += blss::emitGeneratedSource(b.net);
+    return s;
+}
+
+// The prolog's include line for the baked net.
+//
+// PLAIN MODE INCLUDES NOTHING, and that is the point of doing it here rather
+// than leaving a header nobody reads: the weights are ~2 KB of .rodata and the
+// banner above them describes a network that will not run, so a plain build
+// would ship - and a plain boot log would announce - a net it never loads. The
+// FILE is still generated (blssNetHeader is emitted whenever the upscaler is
+// on), so which files a BLSS project has stays a function of blssEnabled alone.
+static std::string blssInclude(const Project& p) {
+    const project::BlssUse u = project::blssUse(p);
+    if (!u.any || !u.anyNetwork) return "";
+    return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
+           "(--blss-train)\n";
+}
+
+// TerrainGame::init(): configure the low-res target and hand over the net.
+static std::string blssInit(const Project& p) {
+    const project::BlssUse u = project::blssUse(p);
+    if (!u.any) return "";
+    // The uniform project's comment is left EXACTLY as it was before per-scene
+    // existed, down to the wording: this text lands in src/terrain_game.cpp,
+    // and a project whose scenes all resolve alike has to regenerate byte for
+    // byte (it is still project-wide, so the old sentence is still true).
+    std::string s =
+        u.mixed
+            ? "  // The neural upscaler (docs/neural-upscaler.md): baked -\n"
+              "  // nothing at runtime turns it on or off, but this project's\n"
+              "  // scenes do not all resolve it alike, so the eighth argument\n"
+              "  // tells configure() to size the z buffer for the FULL display\n"
+              "  // raster. The layout is then decided once and loadScene()'s\n"
+              "  // setScene() switches the upscaler per scene, touching no VRAM.\n"
+              "  // configure() sizes the low-res render target and the\n"
+              "  // reconstruction knobs; in PLAIN mode (BLSS_NETWORK 0) it also\n"
+              "  // switches off the proxy feed, the reprojection, the feature\n"
+              "  // grid and the MLP, leaving one bilinear composite pass.\n"
+            : "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
+              "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
+              "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
+              "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
+              "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
+              "  // raster and one bilinear composite pass.\n";
+    s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+         "BLSS_SHARPEN,\n"
+         "                                       BLSS_TEMPORAL, "
+         "BLSS_DEBUG_VIEW,\n";
+    s += u.mixed ? "                                       BLSS_JITTER, "
+                   "BLSS_NETWORK,\n"
+                   "                                       BLSS_NATIVE_SCENES);\n"
+                 : "                                       BLSS_JITTER, "
+                   "BLSS_NETWORK);\n";
+    if (u.anyNetwork)
+        s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
+             "BLSS_NET_W2,\n"
+             "                                    BLSS_NET_B2);\n";
+    // WHICH RECONSTRUCTION, AND WHICH NET, IN THE BOOT LOG, ALWAYS. Said here
+    // and not only in a generated header, because the person wondering why the
+    // picture looks wrong is reading bin/log.txt. It used to be printed only in
+    // the untrained case, which meant the interesting cases - "I trained one
+    // and it is not being used" and "I never trained one and it works anyway" -
+    // were both silent. Plain mode is a third such case and the loudest of
+    // them: a reader who does not know the mode exists would otherwise measure
+    // a frame with no network in it and attribute the numbers to one.
+    if (!u.anyNetwork) {
+        s += "  TYRA_LOG(\"BLSS: reconstruction = PLAIN (no network) - the reduced "
+             "raster is blown up by one bilinear pass. No proxies, no reprojection, "
+             "no feature grid, no MLP.\");\n";
+        return s;
+    }
+    const BlssBake b = blssBake(p);
+    s += "  TYRA_LOG(\"BLSS: network = " + escapeCString(blssNetSummary(b)) + "\");\n";
+    for (const std::string& n : b.notes)
+        s += "  TYRA_LOG(\"BLSS: " + escapeCString(n) + "\");\n";
+    for (const std::string& w : b.warnings)
+        s += "  TYRA_LOG(\"BLSS: WARNING - " + escapeCString(w) + "\");\n";
+    if (b.source == BlssBake::Source::Random)
+        s += "  TYRA_LOG(\"BLSS: the baked network is UNTRAINED (random weights) - run"
+             " 'tyrax-editor --blss-train' in the project directory and rebuild.\");\n";
+    return s;
+}
+
+// TerrainGame::loadScene(): the PER-SCENE half (docs/neural-upscaler.md, "Per
+// scene"). Emitted only when the project's scenes actually disagree, so a
+// project that resolves the upscaler alike everywhere generates the loadScene()
+// it always generated, byte for byte.
+//
+// It sits next to setVU1Clipping() on purpose: that is the same shape of thing
+// - a renderer-wide mode a scene may override, re-applied at every load - and
+// putting the two together is what says a per-scene BLSS is not special.
+//
+// The cost is a raster scale, a projection re-derivation and two flags. It is
+// free because configure() already sized the z buffer for the widest raster any
+// scene uses; without that, this call would evict every resident texture and
+// re-lay the permanent VRAM region, which is exactly why a PER-FRAME toggle was
+// rejected (docs/backlog.md).
+static std::string blssSceneSetup(const Project& p) {
+    if (!project::blssUse(p).mixed) return "";
+    return "  // The neural upscaler, per scene (docs/neural-upscaler.md). No\n"
+           "  // VRAM is touched: the z buffer was sized at init for the widest\n"
+           "  // raster any scene uses, so this is a flag and a projection.\n"
+           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, "
+           "BLSS_SCENE_NET);\n";
+}
+
+// The frame loop's 3D bracket. Off = the plain call the loop always had, byte
+// for byte. On = the raster redirect around it plus the composite, which MUST
+// run before applyPostFx and before any 2D: the HUD, the menus and every post
+// effect keep drawing at display resolution.
+//
+// Only the non-split branch is ever bracketed - splitView.end() restores the
+// display raster, and split screen is one of the three features BLSS cannot be
+// combined with anyway. That is not left to the docs and a warning any more:
+// blssClashes() above refuses the build when a SCENE actually has both, so
+// this branch is unreachable in a game that compiles (docs/neural-upscaler.md,
+// docs/blss-reconstruction.md section 7).
+//
+// PER SCENE NEEDS NO BRANCH HERE, and that is not an accident to be tidied
+// away: beginScene(), endScene() and composite() all return immediately when
+// `enabled` is false, so a scene that setScene() switched to native runs the
+// same three calls as three no-ops around a plain renderScene(). Adding an
+// `if (blss.isEnabled())` would put a second copy of that decision in the
+// hottest loop in the game and make the mixed and uniform builds differ for
+// nothing.
+static std::string blssSceneRender(const Project& p) {
+    if (!project::blssUse(p).any) return "      renderScene();\n";
+    return "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
+           "scene\n"
+           "      // renders into the low-res target, then the composite blows "
+           "it\n"
+           "      // back up into the display buffer - before the depth of "
+           "field,\n"
+           "      // the post effects and every 2D pass below.\n"
+           "      engine->renderer.core.blss.beginScene(scriptCtx.skyColor);\n"
+           "      renderScene();\n"
+           "      engine->renderer.core.blss.endScene();\n"
+           "      engine->renderer.core.blss.composite();\n";
+}
+
 static std::string fillTemplate(const Project& p, const char* tpl) {
     // docker compose project name: lowercase, must start with letter/digit,
     // and SUFFIXED WITH THE DIRECTORY.
@@ -23705,6 +25110,14 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION}}",
+                   st.frameExtrapolation ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_PLANE}}",
+                   floatLit(st.frameExtrapolationPlane));
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_FORCE}}",
+                   st.frameExtrapolationForce ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_GROUND}}",
+                   st.frameExtrapolationGround ? "true" : "false");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
@@ -23722,6 +25135,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
+    s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
+                   st.tripleBuffering ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
@@ -23743,6 +25158,15 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // after it (topmost, layer -1).
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
+    // The neural upscaler (docs/neural-upscaler.md). Three slots, all empty
+    // while it is off - which is what keeps an existing project's generated
+    // sources byte-identical: the baked net's include, the init that configures
+    // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
+    // the plain renderScene() call the loop always had).
+    s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
+    s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
+    s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
+    s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
     return s;
 }
 
@@ -27877,6 +29301,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
                   << ";\n";
+            } else if (n.type == "SetFrameExtrapolation") {
+                int m = (int)(n.num[0] + 0.5f);
+                if (m < 0) m = 0;
+                if (m > 2) m = 2;
+                c << pad << "ctx.frameExtrapolation = " << m << ";\n";
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
@@ -30633,7 +32062,9 @@ const int OBJ_RING = {{OBJ_RING}};    // samples kept per watched object
 // moved since this build, so node keys would point at the wrong nodes.
 const unsigned int HASH_LO = {{HASH_LO}}U, HASH_HI = {{HASH_HI}}U;
 
-unsigned int hits[NODES] = {};
+// A project with no flow graph instruments no node, and a zero-length array is
+// not a C++ array - the runtime is still built for everything else it carries.
+unsigned int hits[NODES > 0 ? NODES : 1] = {};
 unsigned short evKey[EVENTS] = {};
 unsigned int evFrame[EVENTS] = {};
 int evCount = 0;  // valid ring entries
@@ -30951,8 +32382,18 @@ void flush(ScriptContext& ctx) {
   unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
   unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
   unsigned short resident = 0, peak = 0;
+  // Tenths of a frame per second, in the four spare bytes at the end of the
+  // stats block: the whole-number field above cannot say 19.6, and it cannot
+  // say whether the game PRESENTS more often than it renders. Additive, so an
+  // editor that predates them reads the same block it always did and a game
+  // that predates them leaves the zeros memset put there.
+  unsigned short fpsX10 = 0, fpsShownX10 = 0;
   if (ctx.engine) {
-    fps = ctx.engine->info.getFps();
+    const float renderedFps = ctx.engine->info.getFps();
+    const float shownFps = ctx.engine->info.getPresentedFps();
+    fps = (unsigned int)(renderedFps + 0.5F);
+    fpsX10 = (unsigned short)(renderedFps * 10.0F + 0.5F);
+    fpsShownX10 = (unsigned short)(shownFps * 10.0F + 0.5F);
     Tyra::RendererCore& rc = ctx.engine->renderer.core;
     const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
     binds = vs.binds;
@@ -30989,6 +32430,8 @@ void flush(ScriptContext& ctx) {
   put32(st + 48, ramFrame);
   put32(st + 52, binds);
   put32(st + 56, hits);
+  put16(st + 60, fpsX10);
+  put16(st + 62, fpsShownX10);
   p += 64;
   put16(p, (unsigned short)flushMapCount);
   p += 2;
@@ -31482,21 +32925,29 @@ void tickFromScript(ScriptContext& ctx) {
 )DBG";
 
 static std::string liveDebugHeader(const Project& p) {
-    const DbgSymbols syms = debugSymbols(p);
     const std::string ns = sanitizeNamespace(p.name);
-    return replaceAll(liveDebugOn(p, syms) ? TPL_LIVE_DEBUG_HPP_ON
-                                           : TPL_LIVE_DEBUG_HPP_OFF,
+    return replaceAll(liveDebugEnabled(p) ? TPL_LIVE_DEBUG_HPP_ON
+                                          : TPL_LIVE_DEBUG_HPP_OFF,
                       "{{NS}}", ns);
 }
 
 static std::string liveDebugSource(const Project& p) {
     const DbgSymbols syms = debugSymbols(p);
-    if (!liveDebugOn(p, syms)) {
+    // NOT liveDebugOn: this used to also require at least one instrumented
+    // flow-graph node, which silently took the WHOLE channel away from any
+    // project without a graph - and the channel carries far more than node
+    // hits. The Stats tab (frame rate, bag flushes, GS VRAM, free EE RAM),
+    // the VU1 capture and the crash report are properties of the FRAME, not
+    // of anybody's logic, and a project with no graphs is exactly the kind of
+    // bare fixture somebody opens the Debugger on. Reported as "the Live
+    // Debugger shows nothing while the log keeps arriving": the game wrote no
+    // livedbg.bin at all, so the panel waited forever with nothing to say.
+    // The zero-cost rule is unchanged - liveDebugEnabled is still debug
+    // profile AND the preference, so a release build gets the empty TU below.
+    if (!liveDebugEnabled(p)) {
         std::string why = "the \"Live Debugger\" preference is off";
         if (p.settings.buildProfile != "debug")
             why = "this is a release build";
-        else if (p.settings.liveDebug)
-            why = "no flow graph has a runnable node to instrument";
         return "// Generated by TyraX. Do not edit - regenerated on every "
                "build.\n// Live Debugger: nothing to compile here - " +
                why +
@@ -31544,9 +32995,12 @@ static std::string liveDebugSymFile(const Project& p) {
     char hex[32];
     std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)syms.hash);
     out << "hash " << hex << "\n";
-    if (!liveDebugOn(p, syms))
+    if (!liveDebugEnabled(p))
         out << "# The build this was generated with carries no debugger "
                "runtime.\n";
+    else if (syms.nodes.empty())
+        out << "# No flow-graph node to instrument; the runtime is still "
+               "built (frame stats, VU capture, crash report).\n";
     out << syms.text;
     return out.str();
 }
@@ -37409,6 +38863,19 @@ std::vector<File> generate(const Project& p) {
     const VuBuild vuBuild = buildVuFiles(p);
     for (const std::string& w : vuBuild.warnings)
         std::printf("[vu] %s\n", w.c_str());
+    // The neural upscaler's interlock (blssClashes) says the same thing on the
+    // host, before Docker is even started, so `--refresh-gen` reports it too
+    // and `--build` does not make anyone wait for a compiler to reach the
+    // #error. THIS is the earliest and cheapest signal there is; the generated
+    // source is the guard, this is the courtesy copy.
+    for (const std::string& c : blssClashes(p))
+        std::printf("[blss] BUILD WILL BE REFUSED: %s\n", c.c_str());
+    // ...and the guard itself, in a TU of its own so the compiler prints it
+    // once instead of once per translation unit that includes scene_data.hpp.
+    // Absent (not empty) when the project is clean, which is what keeps every
+    // clean project's file list byte-identical - refreshGenerated sweeps a
+    // leftover away.
+    const std::string blssRefusal = blssInterlock(p);
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +
@@ -37515,6 +38982,19 @@ std::vector<File> generate(const Project& p) {
         files.push_back(
             {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
     }
+    // The baked BLSS network (docs/neural-upscaler.md), and ONLY while the
+    // upscaler is on - a project with it off must generate exactly the file set
+    // it generated before the feature existed. The body comes from
+    // blss::emitGeneratedSource, the twin of the host forward pass; a missing
+    // <projectDir>/blss.net is not an error, it is random weights with a banner
+    // in the header and a TYRA_LOG line in the generated init.
+    if (project::blssUse(p).any)
+        files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
+    // The build refusal, when there is one. Its own TU so the compiler prints
+    // it once; absent while the project is clean, so a clean project's file set
+    // is what it always was. project::refreshGenerated deletes a leftover.
+    if (!blssRefusal.empty())
+        files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }

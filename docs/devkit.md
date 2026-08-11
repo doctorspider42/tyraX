@@ -461,13 +461,21 @@ Candidates come from three places, best first:
 3. **A scan of the default projects folder**, which catches projects made by
    `--new` and never opened in the GUI.
 
-A game running right now beats all of it, and on an emulator it is a process
-query rather than a file one: `pcsx2-qt.exe`'s command line carries `-elf
-<projectDir>\bin\<name>.elf`. **On real hardware there is no such process** -
-which is exactly why the session pointer records the transport. A ps2link
-deploy is served by a `ps2client` the editor spawns, so closing the editor
-freezes every devkit file mid-session while the console keeps running; the cure
-is a redeploy, not a retry.
+A game running right now beats all of it, and it is a process query rather than
+a file one - so `--debug-state` makes it, under **running games**:
+`pcsx2-qt.exe`'s command line carries `-elf <projectDir>\bin\<name>.elf`, and a
+`ps2client`'s carries `-h <console>` and `execee host:<name>.elf`. **On real
+hardware there is no game process** - which is exactly why the session pointer
+records the transport - but the file server is a process here on the PC, and its
+command line says which console it is serving and which game.
+
+That command line is not just a diagnostic: it is the identity the Runner
+decides ownership by. A ps2link deploy is served by a `ps2client` the editor
+spawns, so closing the editor freezes every devkit file mid-session while the
+console keeps running (the cure is a redeploy, not a retry) - and a deploy of a
+*different* project now refuses rather than killing that server, which it used
+to do machine-wide by name. See
+[ps2link-setup.md](ps2link-setup.md#one-file-server-at-a-time).
 
 ### Where to look first
 

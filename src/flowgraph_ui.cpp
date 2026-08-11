@@ -1367,6 +1367,46 @@ void App::drawFlowGraphWindow() {
                     ImGui::TextDisabled("%s: from link", t->numLabels[0]);
                     continue;
                 }
+                // A declared choice wins over every label heuristic below:
+                // the node said what this parameter IS, so there is nothing to
+                // guess from its name.
+                if (t->numChoices[a] && *t->numChoices[a]) {
+                    const char* list = t->numChoices[a];
+                    int count = 1;
+                    for (const char* p = list; *p; ++p)
+                        if (*p == '|') ++count;
+                    int idx = (int)(n.num[a] + 0.5f);
+                    if (idx < 0) idx = 0;
+                    if (idx >= count) idx = count - 1;
+                    // Slice the k-th '|'-separated label out of the list.
+                    auto option = [&](int k) {
+                        std::string out;
+                        int at = 0;
+                        for (const char* p = list;; ++p) {
+                            if (*p == '|' || !*p) {
+                                if (at == k) return out;
+                                out.clear();
+                                ++at;
+                                if (!*p) break;
+                            } else {
+                                out.push_back(*p);
+                            }
+                        }
+                        return out;
+                    };
+                    const std::string cur = option(idx);
+                    if (beginCombo(t->numLabels[a], cur.c_str(), t->numTips[a])) {
+                        for (int k = 0; k < count; ++k) {
+                            const std::string lab = option(k);
+                            if (ImGui::Selectable(lab.c_str(), k == idx)) {
+                                n.num[a] = (float)k;
+                                changed = true;
+                            }
+                        }
+                        endCombo();
+                    }
+                    continue;
+                }
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||
                                     std::strcmp(t->numLabels[a], "Once") == 0 ||
                                     std::strcmp(t->numLabels[a], "Whole") == 0 ||

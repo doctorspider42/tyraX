@@ -153,13 +153,54 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding resources/moon-lroc-color-1k.jpg")
 
+# --- Embedded default BLSS network (resources/blss-default.net + .meta) ---
+# The neural upscaler's shipped network (docs/neural-upscaler.md, "Can one net
+# ship for every project?"): 500 bytes of weights fitted on seven example
+# projects AND the procedural bestiary, plus its provenance sidecar. Baked into
+# the editor rather than shipped loose for the same reason the app icon is - a
+# default that is only there when someone remembered to copy a data file is
+# worse than no default - and templates.cpp falls back to it whenever a project
+# has BLSS on and no blss.net of its own.
+#
+# REBUILD BOTH FILES WHENEVER THE CORPUS, THE TOPOLOGY OR blss::kNetVersion
+# MOVES. The net carries no topology beyond that version number, so a stale
+# asset is refused at bake time (the build then falls back to random weights and
+# says so) rather than silently mis-shaped. `tyrax-editor --blss-emit -o <tmp>`
+# in a directory with no blss.net is the cheap check: it loads the embedded net
+# and fails when this build cannot read it. The command that produces them is
+# recorded in the .meta file itself.
+set(BLSS_NET_GEN ${CMAKE_BINARY_DIR}/generated/blssnet_gen.hpp)
+add_custom_command(
+    OUTPUT ${BLSS_NET_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/blss-default.net
+            -DOUT_FILE=${BLSS_NET_GEN}
+            -DNAMESPACE=blssdefault -DSYMBOL=kDefaultNet
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/blss-default.net
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding resources/blss-default.net")
+
+set(BLSS_META_GEN ${CMAKE_BINARY_DIR}/generated/blssmeta_gen.hpp)
+add_custom_command(
+    OUTPUT ${BLSS_META_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/blss-default.net.meta
+            -DOUT_FILE=${BLSS_META_GEN}
+            -DNAMESPACE=blssdefault -DSYMBOL=kDefaultNetMeta
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/blss-default.net.meta
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding resources/blss-default.net.meta")
+
 # Own target for the generators. If the headers were listed straight in
 # tyrax-editor's sources, CMake would attach their custom commands to that
 # target and give them order-only deps on everything it LINKS - so the
 # generators (0.1 s of work) waited for libimgui.a, and with them every editor
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
 add_custom_target(tyrax-generated
-    DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN})
+    DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
+            ${BLSS_NET_GEN} ${BLSS_META_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
@@ -173,6 +214,11 @@ add_executable(tyrax-editor
     src/app.cpp
     src/audiopreview.cpp
     src/assetbrowser.cpp
+    src/blss.cpp
+    src/blsscorpus.cpp
+    src/blssscene.cpp
+    src/blss_ui.cpp
+    src/blss_window.cpp
     src/camtake.cpp
     src/chat_ui.cpp
     src/credits_ui.cpp
