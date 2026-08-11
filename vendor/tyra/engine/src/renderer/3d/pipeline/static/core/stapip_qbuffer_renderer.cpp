@@ -29,6 +29,12 @@
 
 namespace Tyra {
 
+static inline u32 readTelemetryTicks() {
+  u32 result;
+  asm volatile("mfc0 %0, $9" : "=r"(result));
+  return result;
+}
+
 /**
  * VU1 = 1000 vert
  *
@@ -690,11 +696,17 @@ void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
   if (billboardSetActive == billboard) return;
   billboardSetActive = billboard;
 
+  const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
+
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_send_packet2(
       billboard ? billboardProgramsPacket : programsPacket, DMA_CHANNEL_VIF1,
       true);
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  if (telemetry != nullptr) {
+    ++telemetry->programSetSwaps;
+    telemetry->programSetWaitTicks += readTelemetryTicks() - waitStart;
+  }
   clearLastProgramName();
 }
 
@@ -889,7 +901,12 @@ void StaPipQBufferRenderer::sendPacket() {
   TYRA_ASSERT(packet2_get_qw_count(currentPacket) <= qbuffersPacketSize,
               "Packet is too big. Internal error");
 
+  const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  if (telemetry != nullptr) {
+    ++telemetry->packetFlushes;
+    telemetry->vu1WaitTicks += readTelemetryTicks() - waitStart;
+  }
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // TyraX: the VU1 packet tap (docs/devkit.md). Null in any build whose devkit

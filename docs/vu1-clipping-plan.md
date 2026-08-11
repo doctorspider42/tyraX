@@ -222,6 +222,15 @@ Retired / simplified:
   valid non-axis-aligned packed basis and kept all 15 handwritten/generated
   programs bit-identical across 60 trials; Docker rebuilt and linked
   `examples/showcase` successfully.
+- **M8 — opt-in static-pipeline telemetry. DONE 2026-08-11.**
+  `StaPipCore::setTelemetryEnabled` now exposes interval counters for final
+  cull/clip/outside package and triangle routes, a 0–6 active-plane histogram,
+  qbuffer flushes and VIF1/VU1 wait ticks, plus billboard/resident program-set
+  swaps and their full drain/upload time. `takeTelemetry` returns and resets
+  the interval. The disabled path retains the original first-partial-plane
+  AABB early-out and performs no COP0 reads, so a release that does not opt in
+  pays no diagnostic cost. This is the measurement base for active-plane
+  clipping and program-set sorting rather than another temporary global.
 
 ## Verification protocol (every milestone)
 

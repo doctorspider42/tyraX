@@ -16,6 +16,7 @@
 #include "./bag/packaging/stapip_bag_package.hpp"
 #include "./bag/packaging/stapip_bag_packager.hpp"
 #include "./stapip_qbuffer_renderer.hpp"
+#include "./stapip_telemetry.hpp"
 #include "./stapip_bag_bboxes_cacher.hpp"
 #include "renderer/3d/pipeline/shared/pipeline_frustum_culling.hpp"
 
@@ -95,6 +96,16 @@ class StaPipCore {
   }
   void setVuTime(const float& seconds) { qbufferRenderer.setVuTime(seconds); }
 
+  /**
+   * TyraX diagnostics: opt in to package routing, active-plane and VIF1/VU1
+   * wait counters. Disabled by default, so release games keep the original
+   * AABB early-out and perform no COP0 timing reads. `takeTelemetry` returns
+   * the accumulated interval and resets it.
+   */
+  void setTelemetryEnabled(const bool& enabled);
+  bool isTelemetryEnabled() const { return telemetryEnabled; }
+  StaPipTelemetry takeTelemetry();
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
@@ -119,6 +130,11 @@ class StaPipCore {
   Plane objectSpacePlanes[6];
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
+  bool telemetryEnabled = false;
+  StaPipTelemetry telemetry;
+  void recordPackage(const StaPipBagPackage& package,
+                     const CoreBBoxFrustum& route);
+  void recordOutsideBag(const StaPipBag* bag);
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);
 };

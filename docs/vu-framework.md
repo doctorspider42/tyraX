@@ -192,8 +192,11 @@ no address baked in.
 
 The cost is serialization: `ensureProgramSet` waits for the DMA channel before
 *and* after the upload, and it is called per bag, so a scene that interleaves
-billboard and ordinary bags pays for a swap at every transition. Nothing measures
-that today.
+billboard and ordinary bags pays for a swap at every transition.
+`StaPipCore::setTelemetryEnabled(true)` now measures both the transition count
+(`programSetSwaps`) and total drain/upload time (`programSetWaitTicks`); read and
+reset an interval with `takeTelemetry()`. It is opt-in, so the normal render path
+does not execute COP0 timing reads.
 
 The cheaper answer for micro-memory pressure is upstream of swapping: **the
 editor knows, at build time, which program variants a project can actually use**.

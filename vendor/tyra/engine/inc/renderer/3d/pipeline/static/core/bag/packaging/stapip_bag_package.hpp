@@ -32,6 +32,13 @@ class StaPipBagPackage {
   CoreBBoxFrustum isInFrustum;
 
   /**
+   * Modified by TyraX: conservative mask of frustum planes crossed by this
+   * package's AABB. Populated only while StaPip telemetry is enabled for now;
+   * false-positive bits cost work, but a missing bit must never reach VU1.
+   */
+  u8 clipPlaneMask;
+
+  /**
    * We are creating StaPipBagPackagesBBox which checks CoreBBox for every
    * maxVertCount / 3. So this variable is index of starting
    * StaPipBagPackagesBBox's CoreBBox. If package have <= maxVertCount / 3

@@ -176,8 +176,10 @@ the verification, and any fact worth reusing belongs in the relevant
 - **Measure the cost of `ensureProgramSet` swaps.** The billboard program set is
   swapped in and out per bag with a full DMA drain on both sides, so a scene that
   interleaves billboard and ordinary bags pays for a swap at every transition.
-  Nothing measures it today; sorting bags by program set would bound it to two
-  swaps a frame.
+  `StaPipTelemetry` now reports `programSetSwaps` and `programSetWaitTicks`; run
+  a billboard-interleaved fixture on hardware and record the real cost before
+  deciding whether sorting bags by program set (at most two swaps a frame) is
+  worth the ordering constraint.
 
 - **Texture minification: the terrain still has no mip chain.** With the wrap
   bug fixed (the ground repeats again) the remaining distance artefact is

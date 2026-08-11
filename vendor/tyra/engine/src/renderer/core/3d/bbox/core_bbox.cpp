@@ -364,8 +364,10 @@ void CoreBBox::computeObjectSpacePlanes(Plane* out, const Plane* worldPlanes,
 // per-axis sign pick (p-vertex) and the minimizing one is its mirror
 // (n-vertex) - so two dot products replace the eight-corner sweep.
 CoreBBoxFrustum CoreBBox::frustumCheckAABB(const Plane* objectSpacePlanes,
-                                           const Vec4& min, const Vec4& max) {
+                                           const Vec4& min, const Vec4& max,
+                                           u8* crossingMask) {
   CoreBBoxFrustum result = IN_FRUSTUM;
+  if (crossingMask) *crossingMask = 0;
 
   for (u8 i = 0; i < 6; i++) {
     const Vec4& n = objectSpacePlanes[i].normal;
@@ -376,15 +378,21 @@ CoreBBoxFrustum CoreBBox::frustumCheckAABB(const Plane* objectSpacePlanes,
     const float pZ = n.z >= 0.0F ? max.z : min.z;
     const float maxDistance = d + n.x * pX + n.y * pY + n.z * pZ;
 
-    if (maxDistance <= 0.0F) return OUTSIDE_FRUSTUM;
+    if (maxDistance <= 0.0F) {
+      if (crossingMask) *crossingMask = 0;
+      return OUTSIDE_FRUSTUM;
+    }
 
-    if (result == IN_FRUSTUM) {
+    if (result == IN_FRUSTUM || crossingMask) {
       const float nX = n.x >= 0.0F ? min.x : max.x;
       const float nY = n.y >= 0.0F ? min.y : max.y;
       const float nZ = n.z >= 0.0F ? min.z : max.z;
       const float minDistance = d + n.x * nX + n.y * nY + n.z * nZ;
 
-      if (minDistance <= 0.0F) result = PARTIALLY_IN_FRUSTUM;
+      if (minDistance <= 0.0F) {
+        result = PARTIALLY_IN_FRUSTUM;
+        if (crossingMask) *crossingMask |= static_cast<u8>(1U << i);
+      }
     }
   }
 

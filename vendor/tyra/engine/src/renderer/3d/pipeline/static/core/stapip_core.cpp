@@ -63,6 +63,50 @@ void StaPipCore::onFrameEnd() { cacher.onFrameEnd(); }
 
 void StaPipCore::reinitVU1Programs() { qbufferRenderer.reinitVU1(); }
 
+void StaPipCore::setTelemetryEnabled(const bool& enabled) {
+  telemetryEnabled = enabled;
+  telemetry = StaPipTelemetry{};
+  packager.setCapturePlaneMasks(enabled);
+  qbufferRenderer.setTelemetry(enabled ? &telemetry : nullptr);
+}
+
+StaPipTelemetry StaPipCore::takeTelemetry() {
+  const StaPipTelemetry result = telemetry;
+  telemetry = StaPipTelemetry{};
+  return result;
+}
+
+void StaPipCore::recordPackage(const StaPipBagPackage& package,
+                               const CoreBBoxFrustum& route) {
+  if (!telemetryEnabled) return;
+
+  const u32 triangles = package.size / 3;
+  if (route == IN_FRUSTUM) {
+    ++telemetry.packagesCull;
+    telemetry.trianglesCull += triangles;
+  } else if (route == PARTIALLY_IN_FRUSTUM) {
+    ++telemetry.packagesClip;
+    telemetry.trianglesClip += triangles;
+    u8 bits = package.clipPlaneMask;
+    u8 count = 0;
+    while (bits != 0) {
+      count += bits & 1U;
+      bits >>= 1;
+    }
+    ++telemetry.activePlanePopcount[count <= 6 ? count : 6];
+  } else {
+    ++telemetry.packagesOutside;
+    telemetry.trianglesOutside += triangles;
+  }
+}
+
+void StaPipCore::recordOutsideBag(const StaPipBag* bag) {
+  if (!telemetryEnabled) return;
+  telemetry.packagesOutside +=
+      (bag->count + maxVertCount - 1) / maxVertCount;
+  telemetry.trianglesOutside += bag->count / 3;
+}
+
 u32 StaPipCore::getMaxVertCountByBag(const StaPipBag* bag) {
   const u32 derived = qbufferRenderer.getCullProgramByBag(bag)->getMaxVertCount(
       bag->color->many == nullptr, qbufferRenderer.getBufferSize());
@@ -177,6 +221,7 @@ void StaPipCore::render(StaPipBag* bag) {
     frustumCheck = bbox->getMainBBox()->frustumCheckAABB(objectSpacePlanes);
 
     if (frustumCheck == OUTSIDE_FRUSTUM) {
+      recordOutsideBag(bag);
       return;
     }
   }
@@ -211,7 +256,7 @@ void StaPipCore::render(StaPipBag* bag) {
 
   // Modified by TyraX: per-bag texture wrap. GS_REG_CLAMP is global state and
   // the VU1 programs have no micro memory left to carry it in-band the way
-  // the ALPHA qword is (the clip family sits at ~2036/2042), so a bag whose
+  // the ALPHA qword is (the clip family sits at 1992/2042), so a bag whose
   // texture asked for anything but REPEAT gets it the way the blend equation
   // used to: drain PATH1, write the register, draw, put REPEAT back.
   // Path3::clearScreen guarantees REPEAT for every other mesh in the frame,
@@ -298,6 +343,7 @@ void StaPipCore::render(StaPipBag* bag) {
             " size: ", static_cast<int>(biggerPkgs[0].size));
     for (u16 i = 0; i < packagesCount; i++) {
       Verbose(i, " package - cull by data pointer");
+      recordPackage(biggerPkgs[i], IN_FRUSTUM);
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(biggerPkgs[i]);
       qbufferRenderer.cull(buffer);
@@ -334,6 +380,7 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
 
     if (cull) {
       Verbose(i, " - package in frustum -> cull");
+      recordPackage(packages[i], IN_FRUSTUM);
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(packages[i]);
       qbufferRenderer.cull(buffer);
@@ -344,6 +391,8 @@ void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
       Verbose(i, " - partial package. Created subpkgs: ", subpkgsSize);
 
       renderSubpkgs(packages1By3, subpkgsSize);
+    } else {
+      recordPackage(packages[i], OUTSIDE_FRUSTUM);
     }
     Verbose(i, " - package skipped (outside)");
   }
@@ -361,6 +410,7 @@ void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
   // Check if some subpkgs are full in frustum
   for (u16 i = 0; i < count; i++) {
     if (subpkgs[i].isInFrustum == IN_FRUSTUM) {
+      recordPackage(subpkgs[i], IN_FRUSTUM);
       if (loadedIndexes.size() <= 1) {
         Verbose(i, " - subpackage in frustum -> load");
         loadedIndexes.push_back(i);
@@ -400,11 +450,14 @@ void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
                       doneIndexes.end();
 
     if (isSkip) {
+      if (subpkgs[i].isInFrustum == OUTSIDE_FRUSTUM)
+        recordPackage(subpkgs[i], OUTSIDE_FRUSTUM);
       Verbose(i, " - subpkg skipped, already rendered/outside");
       continue;
     }
 
     auto buffer = qbufferRenderer.getBuffer();
+    recordPackage(subpkgs[i], PARTIALLY_IN_FRUSTUM);
     buffer->fillByCopy1By3(subpkgs[i]);
     Verbose(i, " - subpkg out/partial -> send to clipper");
     qbufferRenderer.clip(buffer);

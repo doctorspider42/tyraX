@@ -65,7 +65,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
     result[i].endIndexOf1By3BBox =
         (i * size + result[i].size - 1) / (maxVertCount / 3);
 
-    result[i].isInFrustum = checkFrustum(result[i]);
+    result[i].clipPlaneMask = 0;
+    result[i].isInFrustum =
+        checkFrustum(result[i], capturePlaneMasks ? &result[i].clipPlaneMask
+                                                  : nullptr);
   }
 
   return result;
@@ -114,7 +117,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
         pkg.indexOf1By3BBox +
         ((i * size + result[i].size - 1) / (maxVertCount / 3));
 
-    result[i].isInFrustum = checkFrustum(result[i]);
+    result[i].clipPlaneMask = 0;
+    result[i].isInFrustum =
+        checkFrustum(result[i], capturePlaneMasks ? &result[i].clipPlaneMask
+                                                  : nullptr);
   }
 
   return result;
@@ -126,7 +132,8 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
 // (possibly freshly merged) bbox per package and dotted each corner against
 // each world plane - the dominant EE cost of partially-visible geometry
 // after the clipper itself.
-CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
+CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
+                                                u8* crossingMask) {
   if (!renderBBox || !objectSpacePlanes)
     return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
@@ -145,7 +152,7 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
     renderBBox->getMergedMinMax(indexOfPart, partSize, &min, &max);
   }
 
-  return CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max);
+  return CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max, crossingMask);
 }
 
 void StaPipBagPackager::setMaxVertCount(const u32& count) {

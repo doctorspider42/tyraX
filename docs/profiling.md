@@ -39,6 +39,31 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+## Static-pipeline VU1 telemetry
+
+`StaPipCore` also has an opt-in counter block for questions below the frame
+profiler's resolution: how many packages actually took the cull, clip, or
+outside route; how many triangles those routes represented; how many frustum
+planes each clip package crossed; how often the qbuffer flushed; how long the
+EE waited for VIF1/VU1; and how often the resident/billboard program set was
+swapped.
+
+```cpp
+stapip.core.setTelemetryEnabled(true);
+
+// Render the interval to measure.
+
+const Tyra::StaPipTelemetry sample = stapip.core.takeTelemetry();
+const float vuWaitMs = sample.vu1WaitTicks / 294912.0F;
+const float swapWaitMs = sample.programSetWaitTicks / 294912.0F;
+```
+
+`takeTelemetry()` returns the accumulated interval and clears every counter.
+`activePlanePopcount[0..6]` is a histogram for clip-routed packages. Telemetry
+is disabled by default; while disabled, package classification keeps its
+single-partial-plane early-out, no COP0 reads run, and no timing/counter cost is
+added to the release path.
+
 ## Manual deep-dive (finer breakdown)
 
 When you need to see *inside* a phase — e.g. "which branch of the engine's
@@ -50,10 +75,10 @@ works:
    delete the first-line ownership marker so the build stops regenerating it.
 2. **Bracket the phases you care about with COP0 reads** and accumulate into
    file-scope counters, exactly like the built-in profiler does — but as deep
-   as you need (per engine call site, per package branch). For engine-internal
-   phases, add temporary `u32` counters inside `vendor/tyra` (e.g. in
-   `StaPipCore::render` / `StaPipQBufferRenderer::sendPacket`) and `extern`
-   them into the game to print. Revert those engine edits when done.
+   as you need (per engine call site, per package branch). Prefer the built-in
+   `StaPipTelemetry` API for static-pipeline routing, qbuffer waits, or
+   program-set swaps; add temporary engine counters only for phases it does not
+   expose, then revert those edits.
 3. **Make the repro deterministic without a pad.** Overwrite the camera in
    `loop()` with a slow orbit around the object of interest, e.g.
 

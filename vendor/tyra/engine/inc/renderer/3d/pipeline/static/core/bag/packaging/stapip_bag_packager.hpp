@@ -35,6 +35,9 @@ class StaPipBagPackager {
   void init(Renderer3DFrustumPlanes* frustumPlanes);
   void setRenderBBox(StaPipBagPackagesBBox* bbox) { renderBBox = bbox; }
   void setMaxVertCount(const u32& count);
+  void setCapturePlaneMasks(const bool& enabled) {
+    capturePlaneMasks = enabled;
+  }
 
   /**
    * Modified by TyraX. Frustum planes pre-transformed into the current
@@ -59,13 +62,15 @@ class StaPipBagPackager {
    */
   StaPipBagPackage* create(u16* o_size, const StaPipBagPackage& pkg, u16 size);
 
-  CoreBBoxFrustum checkFrustum(const StaPipBagPackage& pkg);
+  CoreBBoxFrustum checkFrustum(const StaPipBagPackage& pkg,
+                               u8* crossingMask = nullptr);
 
  private:
   u32 maxVertCount;
   Renderer3DFrustumPlanes* frustumPlanes;
   StaPipBagPackagesBBox* renderBBox;
   const Plane* objectSpacePlanes = nullptr;
+  bool capturePlaneMasks = false;
   // Two pools because a bag-level package array is still in use while one of
   // its partial packages is split into subpackages (StaPipCore::renderPkgs).
   std::vector<StaPipBagPackage> bagPackagesPool;

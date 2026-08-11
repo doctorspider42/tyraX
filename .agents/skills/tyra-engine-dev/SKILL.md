@@ -190,8 +190,11 @@ once per mesh, and culls per QUAD with one `clipw` judgement per corner.
 The two programs are NOT resident: the VU1-clipping program set fills micro
 memory to 1992/2042, so they live in their own packet swapped in on demand
 (`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
-restored by the next non-billboard bag. The C++ side must keep the prim
-giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
+restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
+transition count and full wait/upload ticks, plus cull/clip/outside routes,
+active-plane population, qbuffer flushes, and VIF1/VU1 wait ticks; disabled
+telemetry keeps the AABB early-out and performs no COP0 reads. The C++ side
+must keep the prim giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
 NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
 frustum culling `None` + no clip checks (the one legitimate `None` — the
 program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
