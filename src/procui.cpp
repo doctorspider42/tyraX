@@ -41,7 +41,7 @@ std::vector<int> App::procVolumes() const {
     return out;
 }
 
-void App::addScatterVolume() {
+void App::addScatterVolume(bool commit) {
     int counter = 0;
     std::string name;
     for (;;) {
@@ -70,8 +70,13 @@ void App::addScatterVolume() {
     procPositionsApplied_ = false;
     procPreviewNode_ = 0;
     showProcedural_ = true;
-    commitChange();  // stamps the object id the window addresses it by
-    procVolumeId_ = project_.objects()[procVolume_].id;
+    // The id the window addresses this volume by is stamped by the commit, so a
+    // caller that takes the commit over (the AI Assistant's add_object, which
+    // owes its whole call ONE undo step) owns setting procVolumeId_ after it.
+    if (commit) {
+        commitChange();
+        procVolumeId_ = project_.objects()[procVolume_].id;
+    }
     statusMessage_ = "Added " + name +
                      " - fill its Pick Asset pool, then Bake (Tools > Procedural)";
 }

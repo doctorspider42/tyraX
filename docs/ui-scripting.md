@@ -156,6 +156,12 @@ hold, and clears when the editor exits. Neither window was ever focused.
   widgets with the same label in the same window are ambiguous — the first one
   wins (which is also an argument for the `##scope` suffixes the codebase already
   uses).
+- **`hover` does not HOLD the cursor.** The GLFW backend rewrites `io.MousePos`
+  from the real mouse every frame, so a synthetic hover lasts about as long as
+  the step that injected it — which means a tooltip on a *delay*
+  (`ImGuiHoveredFlags_ForTooltip`) usually will not be there by the time a later
+  `shot` runs, and its absence proves nothing. A tooltip shown while the cursor
+  is held — during a `click` step, or one with no delay — screenshots fine.
 - Modals do not all close on `escape`. Click their `Cancel` — `dump` will tell
   you it is there.
 
