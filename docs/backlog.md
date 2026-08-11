@@ -412,18 +412,23 @@ use them.
     cycle), and PCSX2 is inadmissible for GS fill, which it under-reports by 76x.
     The speed model fitted from the old runs is **unaffected** and needs no
     re-fit: it prices fill, and the fill did not move.
-  - **DECIDE: `resources/blss-default.net`'s corpus now includes a scene that no
-    longer exists.** The shipped default net was fitted on seven example projects
-    plus the bestiary, and `examples/upscaler-lab` is one of the seven - so its
-    corpus changed the moment the geometry did. **The net has deliberately NOT
-    been refitted here**, because refitting it moves the published
-    leave-one-project-out row (+0.29 dB against a project's own +0.31) and every
-    md5 that anchors it (`879146bdee7f3b183c05985012753649`), which is its own
-    decision with its own measurement round. Nothing is broken in the meantime: a
-    net is fitted on a distribution, not on a file list, and the swap moved the
-    input distribution very little (`texDetail` mean 0.297 -> 0.312, still the
-    channel most correlated with the temporal weight). Route it as its own piece
-    of work, and refit + re-measure the fold table in one commit if you do.
+  - **DONE (refitted): `resources/blss-default.net`'s corpus included a scene
+    that no longer existed.** The shipped default was fitted on seven example
+    projects plus the bestiary, and `examples/upscaler-lab` is one of the seven -
+    so its corpus changed the moment the geometry did. It was deliberately left
+    unrefitted at the time, as its own piece of work.
+
+    **CI is what collected the debt**, and it is worth recording how: the
+    `blss-default-net` job re-runs the recorded command and diffs, so the stale
+    net failed the moment the workflow first ran. Refitted with the same recipe;
+    md5 `879146bdee7f3b183c05985012753649` -> `6a93196c96aa15993150ec724716a27d`,
+    final loss 0.042956, and the `.meta` came back byte-identical - the recipe
+    did not move, only the corpus content under it.
+
+    **Still owed, and not done here: the published fold table.** The
+    leave-one-project-out row (+0.29 dB against a project's own +0.31) was
+    measured with the old net and is now a number from a previous fit. Re-measure
+    it in its own round rather than quoting it as if it described these weights.
   - **DONE - BLSS is a PER-SCENE setting** (docs/neural-upscaler.md, "Per
     scene"). `SceneOverrides::upscaler` carries `blssEnabled` + `blssNetwork`;
     the scale, the jitter and the reconstruction tuning stay project-wide,
@@ -563,7 +568,7 @@ use them.
     `resources/blss-default.net` (+ its `.meta`), fitted on the seven screened
     projects AND the bestiary with `--all-shots --frames 660 --no-jitter`
     (12 frames/shot over 55 shots, 39 s on six cores, md5
-    `879146bdee7f3b183c05985012753649`) and embedded into the editor by
+    `6a93196c96aa15993150ec724716a27d`) and embedded into the editor by
     `cmake/embed_binary.cmake`. `templates.cpp` bakes the project's own
     `blss.net` if it has one, the shipped default if it does not, and the random
     initialisation only when the embedded asset cannot be read at all - so the

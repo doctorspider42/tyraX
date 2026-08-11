@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.24.3 (the shipped default net is refitted, and CI stops asserting a
+// property of one machine): the net embedded in the editor was fitted before
+// examples/upscaler-lab was rebuilt on CC0 assets - and upscaler-lab is one of
+// the seven projects in its corpus, so the recipe stopped producing the shipped
+// bytes the moment the geometry changed. It was a KNOWN deferral (docs/
+// backlog.md said so, and the PR description listed it as owed); what is new is
+// that the blss-default-net workflow's first run collected the debt by failing.
+// Refitted with the identical recorded command: md5 879146bd -> 6a93196c, final
+// loss 0.042956, and the .meta came back byte-identical - the recipe never
+// moved, only the corpus content under it.
+//
+// AND THE CHECK THAT CAUGHT IT CANNOT BE THE CHECK CI RUNS. Same tree, same
+// command, three md5s: 6a93196c on MinGW g++ (Windows, twice - so the trainer
+// IS deterministic) and d817c318 on the ubuntu runner, with losses 0.042956 and
+// 0.042761 - 0.45 % apart. The bytes are toolchain-bound and the nets are
+// equivalent, so a byte anchor pinned in a workflow that runs on ubuntu asserts
+// a property of a machine that is not that runner.
+//
+// The assertion is aimed rather than deleted: CI now checks the final loss
+// within 5 % (ten times the measured toolchain spread) plus the sidecar
+// reproducing byte for byte - it is pure recipe text, so a changed corpus path,
+// topology, epoch count or seed still lands there. Exact-byte identity stays a
+// local check on the fitting machine, which is what caught this in the first
+// place. Still owed: the published leave-one-project-out fold table was
+// measured with the OLD net and needs its own round.
+//
 // 1.24.2 (a texture allocation is whole PAGES, and a menu stopped eating the
 // HUD's letters): reported as "opening the menu makes some letters disappear -
 // R is gone from VRAM", with a screenshot reading `V AM 3.81/4 MB`.
@@ -697,7 +723,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -2720,15 +2720,16 @@ refused: the net file's bytes are a *published reproducibility anchor*. This
 feature's shot-plan compatibility check, its thread-determinism contract and its
 default-net check are all of the form "does this command still write md5 X"
 (`e069f286ea0c524999bfd9dac769608c`, `6b2fba90d0f059f055134a55df478c8e`,
-`879146bdee7f3b183c05985012753649`). Adding one byte to the format invalidates
+`6a93196c96aa15993150ec724716a27d`). Adding one byte to the format invalidates
 every one of them silently, and the next person to run a check learns only that
 it failed. So the weights keep their format to the byte and the provenance sits
 beside them.
 
 **The sidecar carries no timestamp and no editor version**, and both omissions
 are the same decision: re-running `command` must reproduce the file byte for
-byte, or the CI check that guards the shipped default — *re-run it and diff* —
-cannot fire. A clock would break that outright (the chat-store precedent: the
+byte, or the check that guards the shipped default — *re-run it and diff* —
+cannot fire. (That diff is a **local** check, on the machine that fits the net;
+what CI can assert is narrower, and the paragraph below says why.) A clock would break that outright (the chat-store precedent: the
 mtime is already there and a clock in the file is a diff nobody wants), and a
 semver would break it on every unrelated release, dirtying
 `resources/blss-default.net.meta` while the 500 bytes beside it are unchanged.
@@ -2742,6 +2743,33 @@ The price is stated rather than hidden: **a sidecar can be separated from its ne
 by a copy.** A net with no sidecar reports *unknown provenance* — a warning, not
 an error, because every net trained before this existed is in that state and must
 keep working.
+
+##### The net's bytes are toolchain-bound, and that is measured
+
+The `.github/workflows/blss-default-net.yml` job first ran with the net's md5 as
+its assertion, and the first run settled a question the file had only been able
+to flag as a suspicion. Same tree, same recorded command:
+
+| built by | md5 of `blss-default.net` | final loss |
+|---|---|---|
+| MinGW g++ on Windows, run **twice** | `6a93196c96aa15993150ec724716a27d` | 0.042956 |
+| g++ on the ubuntu runner | `d817c318b2a3a56df3a1a1886c76a83c` | 0.042761 |
+
+Two things fall out. The trainer **is** deterministic — two runs on one toolchain
+give one byte string, which is the property the thread-determinism contract above
+also relies on. And the bytes **are** toolchain-bound, while the two nets are
+equivalent where it counts: the losses are **0.45 % apart**.
+
+So a byte anchor is a property of the fitting machine, not a portable test. CI
+asserts what survives the move — the **final loss within 5 %** (ten times the
+measured toolchain spread) and the **sidecar reproducing byte for byte**, it
+being pure recipe text with no floats in it. A corpus, trainer or topology change
+moves the loss by far more than a toolchain does; exact-byte identity stays a
+local check, run where the net is fitted.
+
+That is also how this net was caught being **stale**: the same command on the
+same toolchain stopped reproducing the committed bytes after `upscaler-lab` was
+rebuilt on CC0 assets, which is exactly the drift the job exists to find.
 
 **What the checks do.** Two severities, and the split is the point:
 

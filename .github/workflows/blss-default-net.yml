@@ -24,13 +24,32 @@
 # 17.5 s). The build of the editor is the only real cost, which is why ccache is
 # cached across runs.
 #
-# WHAT THIS JOB CANNOT PROVE, said out loud. The md5 anchor was produced by
-# MinGW g++ on Windows; the trainer is deterministic and thread-count
-# independent (checked with --threads 1 against every core), but it is not
-# proven bit-identical ACROSS TOOLCHAINS - the oracle and the Adam loop run host
-# floats. If the reproduction step fails while step 1 passes and no BLSS source
-# changed, that is the finding: the anchor is platform-bound and belongs in a
-# matrix, not in one runner. Do not "fix" it by deleting the diff.
+# WHAT THIS JOB CANNOT PROVE, AND IT IS NOW MEASURED RATHER THAN SUSPECTED. An
+# earlier revision of this file carried the md5 of the net's bytes as the check,
+# with a note that it "was produced by MinGW g++ on Windows" and might not be
+# bit-identical across toolchains. The first CI run of this workflow settled it,
+# and three numbers are the whole story - same tree, same recorded command:
+#
+#   6a93196c96aa15993150ec724716a27d   MinGW g++ on Windows, TWICE   loss 0.042956
+#   d817c318b2a3a56df3a1a1886c76a83c   g++ on the ubuntu runner      loss 0.042761
+#
+# So: the trainer IS deterministic - two runs on one toolchain give one byte
+# string - and the bytes ARE toolchain-bound, while the two nets are equivalent
+# in quality (the losses are 0.45 % apart). A byte anchor therefore cannot be a
+# portable CI check, and pinning one in a workflow that runs on ubuntu asserts a
+# property of a machine that is not this one.
+#
+# THE CHECK IS NOT DELETED, IT IS AIMED AT WHAT SURVIVES THE MOVE. Step 2 now
+# asserts the final loss against a recorded value with a tolerance, plus the
+# sidecar reproducing byte for byte (it is pure recipe text, no floats, so it is
+# stable everywhere). What that keeps catching is the drift the job was written
+# for: a corpus, trainer or topology change moves the loss far more than a
+# toolchain does. What it gives up is exact-byte identity, which is a property
+# of the fitting machine and is checked there - `git diff` after re-running the
+# recorded command is that check, and it is what caught this net being stale.
+#
+# THE TOLERANCE IS 5 %, against a measured toolchain spread of 0.45 % - ten
+# times the observed noise. Widen it only with a measurement, not a hunch.
 name: blss-default-net
 
 # The two path lists are duplicated rather than shared through a YAML anchor,
@@ -154,10 +173,20 @@ jobs:
       # The sidecar records the whole invocation with argv[0] replaced by the
       # tool's name, so re-running it is a matter of substituting the binary -
       # and it carries no timestamp and no editor version, which is the only
-      # reason a byte diff of the RESULT means anything. Both files are diffed:
-      # the weights are the artefact and the sidecar is the claim about them,
-      # and either drifting from the other is the failure.
-      - name: The shipped default is reproducible from its own recorded command
+      # reason diffing the RESULT means anything.
+      #
+      # Two assertions, and the note at the top of this file says why they are
+      # these two: the final loss within a tolerance (toolchain-stable, and it
+      # is what moves when the corpus or the trainer does), and the sidecar
+      # reproducing byte for byte (pure recipe text - a changed corpus PATH,
+      # topology, epoch count or seed lands here).
+      - name: The shipped default is still what its recipe produces
+        env:
+          # Measured on this tree, MinGW g++ on Windows and g++ on ubuntu:
+          # 0.042956 and 0.042761. The expected value is the one the shipped
+          # bytes were fitted at; refit and update both together.
+          EXPECT_LOSS: "0.042956"
+          TOL_PCT: "5"
         run: |
           set -e
           meta=resources/blss-default.net.meta
@@ -165,15 +194,20 @@ jobs:
           test -n "$cmd" || { echo "FAIL: no 'command' line in $meta"; exit 1; }
           echo "re-running: ./build/tyrax-editor $cmd"
           # shellcheck disable=SC2086 - the recorded command is a plain argv
-          ./build/tyrax-editor $cmd
-          md5sum resources/blss-default.net
-          echo "879146bdee7f3b183c05985012753649  resources/blss-default.net" | md5sum -c - \
-            || { echo "FAIL: the net's bytes moved - see the note at the top of this file"; exit 1; }
-          git diff --exit-code -- resources/blss-default.net resources/blss-default.net.meta \
-            || { echo "FAIL: re-running the recorded command does not reproduce the tree."; \
-                 echo "      Refit the default in the same commit as whatever moved:"; \
+          ./build/tyrax-editor $cmd | tee train.log
+          loss="$(sed -n 's/^blss: final loss \([0-9.]*\),.*/\1/p' train.log)"
+          test -n "$loss" || { echo "FAIL: the trainer printed no final loss"; exit 1; }
+          echo "final loss $loss, expected $EXPECT_LOSS +/- $TOL_PCT %"
+          awk -v a="$loss" -v b="$EXPECT_LOSS" -v t="$TOL_PCT" \
+              'BEGIN { d = (a - b) / b; if (d < 0) d = -d; exit (d * 100 > t) }' \
+            || { echo "FAIL: the loss moved by more than $TOL_PCT % - the corpus, the"; \
+                 echo "      trainer or the topology changed. Refit the default in the"; \
+                 echo "      same commit as whatever moved, and update EXPECT_LOSS:"; \
                  echo "        ./build/tyrax-editor $cmd"; exit 1; }
-          echo "byte-identical: the shipped net is the net that command produces"
+          git diff --exit-code -- resources/blss-default.net.meta \
+            || { echo "FAIL: the recorded command no longer reproduces its own sidecar."; \
+                 exit 1; }
+          echo "the recipe still produces this net: loss within tolerance, sidecar identical"
 
       - name: Summary
         if: always()
