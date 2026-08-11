@@ -13742,6 +13742,31 @@ void App::drawPreferencesWindow() {
         "also leaves less VRAM for textures. All can also be switched at\n"
         "runtime with the Set Display Mode flow node, which shows a\n"
         "keep-or-revert prompt with an automatic rollback.");
+    // WHAT THE MODE COSTS, computed, right where the mode is chosen. Until
+    // this line the only statement about it was prose in the tooltip above
+    // ("leaves less VRAM for textures"), so a user switching modes to see the
+    // memory move had nothing to watch: the game's HUD MEM is the EE's 32 MB
+    // and is rightly unmoved by a display mode, while the pool a taller frame
+    // actually eats is the GS' separate 4 MB. Reported exactly that way.
+    //
+    // The arithmetic is project::tripleBufferingFit's, not a second copy of
+    // it: leftWords is what remains AFTER taking a third buffer, so adding
+    // bufferWords back gives the free space with the two this mode always
+    // has. That keeps this line and the triple-buffering gate below
+    // incapable of disagreeing.
+    {
+        const auto fit = project::tripleBufferingFit(project_, prefSettings_,
+                                                     project::bootDisplayMode(prefSettings_));
+        const auto& dm =
+            project::displayModeInfo(project::bootDisplayMode(prefSettings_));
+        const int freeWords = fit.leftWords + fit.bufferWords;
+        const int h = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
+        ImGui::TextDisabled(
+            "    %dx%d: the two display buffers and the z buffer leave %.2f MB "
+            "of GS VRAM\n    for textures. (The HUD's MEM is the EE's 32 MB - a "
+            "different pool, and\n    a display mode never moves it.)",
+            dm.bufW, h, freeWords * 4.0 / 1048576.0);
+    }
     if (prefSettings_.displayMode == "interlaced") {
         int palPic = prefSettings_.palFullHeight ? 1 : 0;
         const char* palPicNames[] = {"Letterbox (NTSC-size picture)",

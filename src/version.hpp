@@ -16,6 +16,36 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.23.0 (three readings that answered the wrong question): all three came from
+// one session of using the editor rather than from a test, and each is a
+// surface saying something true about a quantity nobody asked about.
+//
+// MEM DID NOT MOVE WITH THE DISPLAY MODE, because it is the EE's 32 MB and a
+// display mode never touches it. The pool that moves is the GS' separate 4 MB,
+// where the two frame buffers and the z buffer live, and nothing showed it at
+// all. Both surfaces now do: the game's debug HUD prints `VRAM 3.21/4 MB`
+// under `MEM`, and Preferences > Display prints the same figure for the mode
+// being picked, off `project::tripleBufferingFit`'s own arithmetic, before a
+// build exists. Measured: 1080i leaves 0.79 MB for textures, 480p 1.24 MB -
+// HD costs a third of the texture budget, which is worth seeing while choosing.
+//
+// THE FPS LINE READ 25 IN 576i AND 30-40 IN HD and looked like a counting bug.
+// It was not: those modes refresh at 50 and 60 Hz, so one missed field halves
+// to 25 and to 30 respectively. The rate is now printed over its cap
+// (`FPS 25.0/50`, `FPS 30.0/60`) - the same result in both modes, and legible
+// as such only with the denominator there.
+//
+// THE BOOT LOGO SAT LOW IN 1080i, and the first fix moved it 25 rows high
+// instead, because the vertical centre of a raw sprite is neither half the
+// buffer nor half the 448-row sprite space: render() shifts that space up by
+// (renderHeight - 448) / 2, so the visible centre is (renderHeight + 448) / 4.
+// The three candidates coincide at 448 rows and separate by 46 in 1080i, which
+// is why it survived until a mode taller than the authored space shipped.
+// Measured in PCSX2 with the HUD's 20-row line pitch as a ruler.
+//
+// MINOR rather than PATCH: two readouts that did not exist appear, in the game
+// and in the editor. The logo alone would have been a PATCH.
+//
 // 1.22.0 (a deploy stops killing every other PS2 session on the machine):
 // reported from use, and diagnosed the hard way an hour earlier - `Run on PS2`
 // of one project froze another project's Live Debugger, its Live Link and its
@@ -601,7 +631,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 22
+#define TYRAX_VERSION_MINOR 23
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

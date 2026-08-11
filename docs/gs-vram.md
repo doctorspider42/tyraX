@@ -142,6 +142,37 @@ keeps it small in practice (the streaming fixture above returns to a single
 space, the eviction loop keeps going — worst case it empties the heap, which is
 exactly the old behaviour, so the failure mode degrades rather than breaks.
 
+## Reading it without a debug log
+
+Two readouts answer "how much of the 4 MB is gone before I draw anything", and
+they exist because the question was asked of a surface that cannot answer it:
+
+- **In the game**, the debug HUD's `VRAM 3.21/4 MB` line, directly under `MEM`
+  (*Preferences > Build > Show memory usage*). Used over the GS' 4 MB, phrased
+  to read the same way round as the line above it.
+- **In the editor**, under the display-mode picker in *Preferences > Display*:
+  the buffers' cost for the mode you are choosing, computed by the same
+  `project::tripleBufferingFit` arithmetic the triple-buffering fit uses, so it
+  is right before you build.
+
+**`MEM` and `VRAM` are different pools, and only one of them moves with the
+display mode.** Reported as *"I keep switching display modes and the editor
+shows the same memory usage the whole time — shouldn't it drop when I go from
+HD to 480p?"* `MEM` is the EE's 32 MB of main memory; a display mode never
+touches it. The frame and z buffers live in the GS' separate 4 MB, and that is
+the pool a taller mode eats. Measured on the same fixture, changing only
+`displayMode`:
+
+| mode | buffers + z | free for textures |
+|---|---|---|
+| 1080i (448×540) | 3.21 MB | **0.79 MB** |
+| 480p (448×448) | 2.76 MB | **1.24 MB** |
+
+0.45 MB between them — 448×92 px × 4 B × three buffers (two display + z), minus
+page alignment. **HD costs about a third of the texture budget**, and on a
+scene with almost nothing in it the reading is still ~3 MB: what fills VRAM
+first is the framebuffers, not the scene.
+
 ## Measuring it
 
 `RendererCoreVRamStats` counts binds / hits / uploads / re-uploads / evictions

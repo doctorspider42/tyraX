@@ -4915,12 +4915,20 @@ void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
     // endFrame() returns, so the game then shows about twice the rate it
     // renders: SHOWN is that second number, and it appears only when the two
     // genuinely differ. docs/profiling.md, "The three frame rate counters".
+    // The CAP is printed beside the rate because without it the same game
+    // reads 25 in PAL 576i and 30-40 in 1080i and looks like a counting bug -
+    // it is not. Those modes refresh at 50 and 60 Hz, and a frame that misses
+    // its field halves to 25 or 30 respectively; getRefreshRate() is the
+    // engine's own answer (DTV modes 60, Pal576i 50, the rest follow the video
+    // mode). Reported as "coś tu chyba źle liczy".
+    const float cap = engine->renderer.core.getSettings().getRefreshRate();
     if (engine->info.isPresentingExtraFrames())
-      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f",
+      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f/%.0f",
                (double)engine->info.getFps(),
-               (double)engine->info.getPresentedFps());
+               (double)engine->info.getPresentedFps(), (double)cap);
     else
-      snprintf(line, sizeof(line), "FPS %.1f", (double)engine->info.getFps());
+      snprintf(line, sizeof(line), "FPS %.1f/%.0f",
+               (double)engine->info.getFps(), (double)cap);
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -4933,6 +4941,22 @@ void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
+    drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+    // GS VRAM, beside it and deliberately so. MEM is the EE's 32 MB of main
+    // memory and does NOT move when the display mode changes - the
+    // framebuffers and the z buffer live in the GS' separate 4 MB, and that
+    // is the pool a taller mode eats. Reported as "I change the display mode
+    // and the memory reading never moves", which was the HUD answering a
+    // question it was never asked. Free rather than used: the texture heap is
+    // what a mode change takes from, and free space is what the next texture
+    // upload actually has (docs/gs-vram.md) - but it is printed as USED over
+    // the GS' 4 MB so it reads the same way round as MEM above it. Note the
+    // HUD glyph atlas is digits, '.' and UPPERCASE only: a lowercase word
+    // here silently draws nothing (the first cut of this line ended in
+    // "free" and rendered as blank).
+    snprintf(line, sizeof(line), "VRAM %.2f/4 MB",
+             4.0F - (double)engine->renderer.core.gs.vram.getFreeSpaceInMB());
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }

@@ -106,6 +106,27 @@ a frame rate cannot see a 22 ms -> 17 ms improvement at all. **Quote
 milliseconds from `FRAMETIME`; use these counters to notice that something is
 wrong, never to price it.**
 
+### The rate is printed over its cap, because the cap moves with the mode
+
+The HUD line reads `FPS 30.0/60`, not `FPS 30.0`. The denominator is
+`RendererSettings::getRefreshRate()` — 60 Hz for the DTV modes (480p, 1080i),
+50 Hz for PAL 576i, and the video mode's own rate for everything else.
+
+Without it the same build looks like it counts wrong. Reported exactly that
+way: *"with the upscaler on, 576i shows 25 fps; switch to HD and it can be
+30–40 — something is counting wrong here."* Nothing was. A vsync-locked frame
+that misses its field halves to the next divisor of the **mode's** refresh, and
+those two modes do not refresh at the same rate:
+
+| mode | refresh | a frame that misses | what the HUD shows |
+|---|---|---|---|
+| PAL 576i | 50 Hz | 25 | `FPS 25.0/50` — half the cap |
+| 1080i / 480p | 60 Hz | 30 | `FPS 30.0/60` — half the cap |
+
+Both are the *same* result — one missed field — and printing the cap beside the
+rate is what makes that legible. `25/50` and `30/60` compare; `25` and `30` do
+not. Read the ratio, not the numerator.
+
 ## Manual deep-dive (finer breakdown)
 
 When you need to see *inside* a phase — e.g. "which branch of the engine's
