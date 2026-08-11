@@ -1618,6 +1618,17 @@ use them.
     the graph did). Still out: the time machine (rewinding is a stranger verb for
     an assistant than reading), Live Link edits into a running game, and anything
     visual - it can read what the game SAYS, never what it looks like.
+  - Procedural volumes landed (`get_proc_graph` / `set_proc_graph` /
+    `list_proc_nodes` / `bake_volume`, and `add_object` type `scatter` now goes
+    through the editor's own verb so a fresh volume carries the starter graph),
+    and with them the prefab half the first version had to hand back mid-job:
+    `create_prefab` / `insert_prefab` / `bake_prefab_model`, so "scatter this
+    thing I built, by the hundred" is one conversation instead of two plus a
+    button press. What is still out on that side: **per-instance hand edits** -
+    a scatter graph write drops them, and a tool that could nudge one instance
+    would need a way to name it that is not a 64-bit point key - and the
+    **runtime** volumes' capability check, which the assistant can read from
+    the docs but cannot query for a specific graph.
   - The step budget (8 rounds), the transcript budget (60 KB), the read_doc cap
     (48 KB), the 40-hit search cap and the 100-chats-per-project history cap are
     constants picked by eye, not measured against a long session.

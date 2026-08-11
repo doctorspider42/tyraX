@@ -410,7 +410,7 @@ static uint64_t parseHex64(const std::string& s) {
 // procedural graph of a Scatter object. Parameters are written as the maps
 // they are, so a node only carries what was actually set and a new parameter
 // on an existing node type reads as its registry default in old projects.
-static std::string procGraphJson(const ProcGraph& g) {
+std::string procGraphJson(const ProcGraph& g) {
     std::string json = "{ \"seed\": " + std::to_string((long long)g.seed) +
                        ", \"nextId\": " + std::to_string(g.nextId);
     if (g.bakedHash) json += ", \"baked\": \"" + hex64(g.bakedHash) + "\"";
@@ -565,6 +565,15 @@ static void readProcGraph(const json::Value& jg, ProcGraph& g) {
     // truncated file must not hand out an id that is already taken.
     for (const ProcNode& n : g.nodes) g.nextId = std::max(g.nextId, n.id + 1);
     for (const ProcLink& l : g.links) g.nextId = std::max(g.nextId, l.id + 1);
+}
+
+bool parseProcGraph(const std::string& body, ProcGraph& out) {
+    json::Value root;
+    if (!json::parse(body, root) || root.type != json::Value::Type::Object)
+        return false;
+    out = ProcGraph{};
+    readProcGraph(root, out);
+    return true;
 }
 
 // Pre-Font-Manager projects stored a raw TTF path on every text and menu

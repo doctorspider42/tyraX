@@ -107,6 +107,27 @@ struct ToolCall {
     bool failed = false;
 };
 
+// ---------------------------------------------------------------------------
+// The procedural (scatter-graph) node catalog
+// ---------------------------------------------------------------------------
+//
+// The same idea as aigen::nodeCatalog for flow nodes, and here for the same
+// reason: a graph is only writable by a model that knows the exact node keys,
+// pin order and parameter keys, and all three already exist in
+// procNodeTypes() - so the catalog is DERIVED from the registry rather than
+// written out again. A procedural node added to that registry documents itself
+// to the assistant the moment it exists, `.desc` and per-parameter `.tip`
+// included (which is why both are mandatory by convention).
+
+// Every add-menu category in registry order.
+std::vector<std::string> procNodeCategories();
+
+// One self-documenting line per node type: pins (in order - a link addresses
+// them by INDEX), parameters with kind, default, range and tip, and the node's
+// description. `category` limits it to one category ("" = all of them).
+// Returns "" when `category` names none.
+std::string procNodeCatalog(const std::string& category = "");
+
 // The properties set_object accepts, and the ONE list of them: the prompt
 // documents the table and App::applyChatObjectProp (chat_ui.cpp) switches on the
 // same keys. A row added here needs a branch there - a key the executor does not
@@ -169,6 +190,11 @@ int findObject(const SceneData& sc, const std::string& name);
 std::string noSuchObject(const SceneData& sc, const std::string& name);
 std::string noSuchScene(const Project& p, const std::string& name);
 
+// The same for the procedural tools: the object exists but is not a Procedural
+// volume, so the reply names the ones that are (or says the scene has none and
+// how to make one). `index` is the object in `sc` that was named.
+std::string notAVolume(const SceneData& sc, int index);
+
 // "type=box, x=3" - the call's arguments on one line, for the transcript and
 // the chat window's tool rows.
 std::string argsText(const ToolCall& c);
@@ -224,9 +250,21 @@ std::string transcript(const Conversation& c, size_t budget = 60000,
 
 // Splits one reply into prose and tool calls. Never fails: a reply that is not
 // an envelope at all is taken as prose, because a chat backend answering "the
-// box is at 0,1,0" in plain English is being helpful, not broken.
+// box is at 0,1,0" in plain English is being helpful, not broken. A reply whose
+// envelope does not parse strictly is REPAIRED first (aigen::repairJson - a
+// model writing prose leaves quotes in it) and, failing that, has its prose read
+// out of it by hand; showing a human the raw JSON is never the answer.
 void parseReply(const std::string& reply, std::string& say,
                 std::vector<ToolCall>& calls);
+
+// One message as plain text for the clipboard: the prose, then a line per tool
+// call or result. Distinct from transcript()'s rendering, which is written for
+// the MODEL (role tags, budget trimming) - this one is what a person wanted to
+// keep. Both live here so the window has no second idea of what a message says.
+std::string messageText(const Message& m);
+
+// The whole conversation as plain text, with a role heading per message.
+std::string conversationText(const Conversation& c);
 
 // ---------------------------------------------------------------------------
 // Saved conversations (docs/ai-chat.md "History")

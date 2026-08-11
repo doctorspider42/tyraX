@@ -3,6 +3,7 @@
 #include "platform.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -466,16 +467,81 @@ std::string extractJsonObject(const std::string& text) {
     return "";
 }
 
+// A model writing prose inside a JSON string leaves quotes in it, and a model
+// writing a Windows path leaves lone backslashes; both make the whole document
+// unparseable and neither is worth a round trip to fix. Repairing them is only
+// ever applied to text a MODEL wrote - never to a project file, where an
+// unparseable byte is a real problem that must be reported, not guessed at.
+std::string repairJson(const std::string& doc) {
+    std::string out;
+    out.reserve(doc.size() + 16);
+    bool inStr = false, changed = false;
+    for (size_t i = 0; i < doc.size(); ++i) {
+        const char c = doc[i];
+        if (!inStr) {
+            out += c;
+            if (c == '"') inStr = true;
+            continue;
+        }
+        if (c == '\\') {
+            const char n = i + 1 < doc.size() ? doc[i + 1] : '\0';
+            bool valid = n == '"' || n == '\\' || n == '/' || n == 'b' ||
+                         n == 'f' || n == 'n' || n == 'r' || n == 't';
+            if (n == 'u') {
+                valid = i + 5 < doc.size();
+                for (size_t k = i + 2; valid && k <= i + 5; ++k)
+                    valid = std::isxdigit((unsigned char)doc[k]) != 0;
+            }
+            if (valid) {
+                out += c;
+                out += n;
+                ++i;
+            } else {
+                out += "\\\\";  // a lone backslash the model meant literally
+                changed = true;
+            }
+            continue;
+        }
+        if (c == '"') {
+            // The disambiguation this whole function rests on: a real string
+            // terminator is ALWAYS followed by , } ] or : - a quote the model
+            // left mid-sentence practically never is.
+            size_t j = i + 1;
+            while (j < doc.size() && (doc[j] == ' ' || doc[j] == '\t' ||
+                                      doc[j] == '\r' || doc[j] == '\n'))
+                ++j;
+            const char n = j < doc.size() ? doc[j] : '\0';
+            if (n == ',' || n == '}' || n == ']' || n == ':' || n == '\0') {
+                out += c;
+                inStr = false;
+            } else {
+                out += "\\\"";
+                changed = true;
+            }
+            continue;
+        }
+        out += c;
+    }
+    return changed ? out : doc;
+}
+
 std::string parseGraph(const std::string& reply, FlowGraph& out,
                        std::string* warnings) {
     const std::string doc = extractJsonObject(reply);
+    json::Value root;
+    if (!doc.empty() && json::parse(doc, root))
+        return parseGraphJson(root, out, warnings);
+    // Second try on a repaired reply. The repair runs on the WHOLE text rather
+    // than on `doc`, because a stray quote unbalances extractJsonObject's own
+    // string tracking - so re-extracting from the repaired text is part of it.
+    if (const std::string fixed = repairJson(reply); fixed != reply)
+        if (const std::string doc2 = extractJsonObject(fixed); !doc2.empty())
+            if (json::parse(doc2, root))
+                return parseGraphJson(root, out, warnings);
     if (doc.empty())
         return "The reply contains no JSON object. Reply head: " +
                reply.substr(0, 200);
-    json::Value root;
-    if (!json::parse(doc, root))
-        return "The reply's JSON is malformed. Head: " + doc.substr(0, 200);
-    return parseGraphJson(root, out, warnings);
+    return "The reply's JSON is malformed. Head: " + doc.substr(0, 200);
 }
 
 std::string parseGraphJson(const json::Value& root, FlowGraph& out,
