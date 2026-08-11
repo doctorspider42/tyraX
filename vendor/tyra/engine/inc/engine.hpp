@@ -86,6 +86,16 @@ struct EngineOptions {
   /** Reserve the camera-feed render target - another 128 KB (TyraX fork).
    * Only projects with a texture feed read it. */
   bool camFeedTarget = true;
+
+  /** Triple buffering (TyraX fork, docs/frame-pacing.md). Presents through a
+   * vblank interrupt instead of stalling the EE on vsync, so a frame that
+   * misses its field by a little is shown one field late rather than halving
+   * the rate - 20.4 ms of work on PAL runs at ~49 fps instead of 25. Costs a
+   * third full display buffer of GS VRAM (229 376 words at 512x448x32, half
+   * that in InterlacedField); the engine reports and stays double buffered
+   * when that does not fit. Cannot be changed at runtime - the buffer count
+   * is decided when the permanent VRAM region is laid out. */
+  bool tripleBuffering = false;
 };
 
 class Engine {

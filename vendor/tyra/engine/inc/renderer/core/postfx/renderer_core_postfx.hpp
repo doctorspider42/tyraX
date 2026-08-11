@@ -256,6 +256,12 @@ class RendererCorePostFx {
   //     restore scissor/tests.
   // xy = screen pixels (pairs), z = 24-bit GS depths of the quad plane.
   // Call through RendererCore::portalViewBegin/End, which drain PATH1.
+  // Both take FRAME from RendererCoreGS::getRasterTarget() and put the raster
+  // back with the shared emitRasterRestore(), like every other bracket in the
+  // engine - they used to restore gs->getCurrentFrameBuffer() plus a
+  // display-sized SCISSOR/XYOFFSET, which is wrong from inside renderScene()
+  // whenever something bracketed the whole scene (BLSS) and dropped the
+  // InterlacedField per-field offset bias in every mode.
   void portalMaskBegin(int x0, int y0, int x1, int y1);
   void portalMaskEnd(const float* xy, const u32* z, int count, u8 clearR,
                      u8 clearG, u8 clearB);

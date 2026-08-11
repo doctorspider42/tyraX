@@ -1,0 +1,1 @@
+{ "id": "ulab-smoke-0", "name": "smoke-0", "type": "emitter", "position": [-9, 1.3, 9], "rotation": [0, 0, 0], "scale": [0.9, 1, 0.9], "color": [0.42, 0.42, 0.44], "physics": false, "collision": "none", "emitter": { "kind": "smoke", "count": 40, "size": 0.8, "enabled": true, "followPlayer": false } }

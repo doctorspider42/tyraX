@@ -81,7 +81,7 @@ blind.
 - 480p and 1080i output **only over component (YPbPr) cables**; on RGB/composite
   the screen goes dark until the auto-revert kicks in (that is the prompt's
   whole point). PCSX2 displays every mode regardless.
-- The interlaced modes (stock and field rendering) follow Preferences > Build >
+- The interlaced modes (stock and field rendering) follow Preferences > Display >
   Target system (PAL/NTSC/auto); the DTV modes always run at 60 Hz.
 - Field rendering outputs the same 480i/576i signal as the stock mode, so it
   works on any cable/TV; expect a slightly softer static picture (each field

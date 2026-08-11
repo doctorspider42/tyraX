@@ -34,6 +34,18 @@ class RendererCore2D {
   void setTextureMappingType(
       const PipelineTextureMappingType textureMappingType);
 
+  // Modified by TyraX: the logical height sprites are authored against (448).
+  // render() centres that space in the actual framebuffer, so the 2D origin
+  // stays on the top of the picture in the taller display modes.
+  //
+  // PUBLIC because it is a CONTRACT, not an implementation detail: anything
+  // that centres a sprite for itself has to divide THIS, not
+  // RendererSettings::getHeight(). Doing the latter centres a second time on
+  // top of render()'s own centring and lands (height - 448) / 2 rows low - 46
+  // in 1080i, 32 in PAL 576i - which is exactly how the boot banner regressed
+  // the moment render() stopped assuming 448 (see info/banner.cpp).
+  static const float SPRITE_SPACE_HEIGHT;
+
  private:
   void setPrim();
   void setLod();

@@ -1,0 +1,6 @@
+# The static primitives' material. Same image as the terrain, but without the
+# -s tiling: a crate face maps the whole 256 texture once, which is what puts a
+# high texelArea/screenArea ratio - BLSS's texDetail - on the small props.
+newmtl stone
+Kd 1 1 1
+map_Kd gravel.png

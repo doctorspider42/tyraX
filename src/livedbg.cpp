@@ -205,6 +205,12 @@ bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out) {
     st.ramFrame = rd<uint32_t>(p + 48);
     st.vramBinds = rd<uint32_t>(p + 52);
     st.vramHits = rd<uint32_t>(p + 56);
+    // The four spare bytes of the block: tenths of a frame per second,
+    // rendered and presented. 0 from a game built before they existed, which
+    // is why the panel falls back to the whole-number field rather than
+    // showing 0.0.
+    st.fpsX10 = rd<uint16_t>(p + 60);
+    st.presentedX10 = rd<uint16_t>(p + 62);
     s.stats = st;
     p += 64;
     const int flushCount = (int)rd<uint16_t>(p);

@@ -38,10 +38,12 @@ public:
     // Stops the game running on the console: kills the ps2client file server
     // and resets ps2link, so the PS2 reboots back into its listening state.
     void stopPs2(const Project& p);
-    // Closes a running PCSX2 instance (by process name - the editor does not
-    // keep the emulator's handle after launch). Best-effort and instant; a
-    // no-op when nothing is running.
-    void stopEmulator();
+    // Closes the running PCSX2 instance that is booting THIS project's ELF (the
+    // editor does not keep the emulator's handle after launch, so it is found by
+    // the -elf path on its command line). Best-effort and instant; a no-op when
+    // nothing is running, and it deliberately leaves other people's emulators -
+    // several run at once here, one per worktree - alone.
+    void stopEmulator(const Project& p);
     // Builds <project>/<name>.iso from bin/ (see isoexport.hpp for layout).
     void exportIso(const Project& p);
     // VS-style Clean: wipes the build products - obj/ and bin/ in the
@@ -86,6 +88,14 @@ private:
     bool launchPCSX2(const Project& p);
     bool deployToPs2(const Project& p);
     void killPs2Client();
+    // Takes the ps2link file-server channel for this project: kills our own
+    // ps2client (by handle) plus any stale one left by an earlier run of this
+    // same project, and REFUSES - naming what it found and what to do - when a
+    // server another running editor owns has it. False = do not go near the
+    // console. See the comment on the definition in runner.cpp.
+    bool claimPs2Channel(const Project& p);
+    // Closes the PCSX2 instances booting this project's ELF, and only those.
+    void killEmulatorsFor(const Project& p, const std::string& exe);
     void worker(Project p, bool build, bool run, bool ps2, bool rebuild);
     void join();
 

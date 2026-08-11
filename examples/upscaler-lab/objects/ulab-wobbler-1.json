@@ -1,0 +1,1 @@
+{ "id": "ulab-wobbler-1", "name": "wobbler-1", "type": "model", "position": [7, 0, -3], "rotation": [0, -110, 0], "scale": [1.7, 1.7, 1.7], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/wobbler.glb", "anim": { "clip": "Twist", "autoplay": true, "loop": true, "speed": 0.85 } }

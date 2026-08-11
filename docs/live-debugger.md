@@ -21,9 +21,23 @@ extra transport, no engine change.
 2. Leave **Live Debugger** on (*Project > Preferences > Build*, or *Build > Live
    Debugger*; on by default).
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
-4. Open *Tools > Debugger* (**F9**), or click the **DBG** chip in the toolbar.
-   Switch to the built-in **Debugger** window layout (Layout menu) for the full
-   desk: the graph in the middle, the Debugger panel on the right.
+
+That is the whole of it: **launching the game opens the Debugger panel** when
+those first two conditions hold and the panel is closed. There is no separate
+"run with the debugger" action to remember — every launch path does it (the
+toolbar's Play, the run menu, and the F5/F6/Ctrl+F5/Ctrl+F6 chords), and a
+new project starts with the panel already docked as a tab behind **Properties**,
+so the first run has somewhere to report.
+
+It opens only when closed, and never closes it: a panel you shut mid-session
+stays shut until the next launch, and a launch never re-docks or steals focus
+from one already open. In a release build, or with *Live Debugger* off, nothing
+appears — there would be nothing to show.
+
+To open it by hand anyway: *Tools > Debugger* (**F9**), or click the **DBG**
+chip in the toolbar. For the full desk — the graph in the middle, the Debugger
+panel in a column of its own — switch to the built-in **Debugger** window
+layout (Layout menu).
 
 The Flow Graph window becomes a live instrument the moment the game reports:
 
@@ -44,8 +58,12 @@ being edited with its hit count, breakpoint checkbox and Fire button.
 
 The **DBG** chip in the toolbar (next to LIVE) reads like a status light:
 
-- **DBG 50 fps** (green) — the game is reporting; the number is measured against
-  the editor's own clock, so it is the frame rate you are actually seeing.
+- **DBG 50 fps** (green) — the game is reporting; the number is the game's frame
+  counter timed against the editor's own clock. That counter counts **rendered**
+  frames, so on a game with frame extrapolation on the picture changes about
+  twice as often as this says — the *Stats* tab carries the game's own
+  measurement of both rates. See docs/profiling.md, "The three frame rate
+  counters", before comparing this against any other FPS readout.
 - **DBG halted @ 1234** (orange) — the game is stopped, at that frame.
 - **DBG (rebuild)** (amber) — the running ELF was built from different graphs, so
   its node numbering no longer matches the project. Nothing is highlighted until
@@ -189,11 +207,43 @@ right-click one. Up to 1024 nodes and 64 breakpoints are tracked.
 In a debug build with the debugger on: one counter bump plus a ring write per
 node that fires, and one `fopen`/`fwrite` of a few KB every 6 frames (25 over
 ps2link, where every file operation is a network round-trip). Nothing on the GS.
-In a release build — or with the preference off, or in a project whose graphs
-have no runnable node — the generated runtime is an empty translation unit, every
-`livedbg::` entry point is an inline no-op and `halted()` is a compile-time
-`false`, so the game loop's `|| livedbg::halted()` folds away. There is nothing
-to strip out later.
+In a release build — or with the preference off — the generated runtime is an
+empty translation unit, every `livedbg::` entry point is an inline no-op and
+`halted()` is a compile-time `false`, so the game loop's `|| livedbg::halted()`
+folds away. There is nothing to strip out later.
+
+**A project with no flow graph still gets the runtime.** It used to not: the
+gate was the preference *and* at least one instrumented node, so a bare project
+generated the empty TU, wrote no `bin/livedbg.bin` at all, and the panel waited
+forever with nothing to say. But most of what this channel carries is not about
+anybody's logic — the **Stats** tab's frame rate, bag flushes, GS VRAM and free
+EE RAM, the VU1 capture and the crash report are properties of the *frame* — and
+a fixture with no graph is exactly the kind of project you open the Debugger on.
+The gate is now the debug profile plus the preference; the hit table is simply
+empty.
+
+### When the panel is empty, it says why
+
+An empty panel used to be the most expensive thing this channel could do: *"No
+stats yet."* was the same sentence whether the game had not booted, the build
+carried no runtime, or **the file server died half an hour ago with the console
+still running**. That last one is the ps2link failure mode and it leaves a
+perfectly valid `bin/livedbg.bin` frozen at its last write — indistinguishable
+from "no data yet" unless somebody thinks to look at the file's timestamp.
+
+So the editor stats that file every tick, independently of whether new
+snapshots are arriving, and reports one of two things from a single string that
+both the state block and the *Stats* tab read:
+
+- **no file at all** — nothing has reported yet; build and run, or (if the game
+  *is* running) rebuild it, because it predates the preference being switched on;
+- **a stale file** — the chip goes amber, reads **STALE SNAPSHOT** rather than
+  *WAITING FOR THE GAME*, and the text names **how old the snapshot is** and
+  that the cure is a redeploy rather than a retry.
+
+Because the game rewrites the file every 6 frames (25 over ps2link — roughly
+half a second either way), several seconds of silence is a dead channel and not
+a slow one. A collapsed frame rate makes the snapshot *late*, never absent.
 
 ## Limits
 
@@ -209,6 +259,25 @@ to strip out later.
   from the editor would need a second command channel and is not implemented.
 - **ps2link** serves the same file channel and the code paths are identical, but
   the verified target is PCSX2 (see PROGRESS 191).
+- **On a console the file channel outlives nothing.** It is served by a
+  `ps2client` the Runner spawned, and *one file server at a time* is real:
+  closing the editor, **Stop on PS2**, a **Clean** or a redeploy of **this**
+  project all take it down. The console does not notice — the game keeps
+  running, blocked on `host:`, and every devkit file stays frozen at its last
+  write while the `[ps2]` log keeps scrolling, because the log is UDP straight
+  to whichever `ps2client` is listening and does not go through that server at
+  all. **Two transports, one of them dead, and only the log is visible.** That
+  is what the stale-snapshot report above exists to name. A game that is still
+  running does not need a rebuild — either redeploy (**F6**), or serve it
+  yourself with `ps2client -h <ip> listen` from the project's `bin/` and it
+  resumes within seconds.
+
+  Deploying **another** project used to be on that list, and was the most
+  confusing entry on it: the editor ran `taskkill /F /IM ps2client.exe`,
+  machine-wide, so any *Run on PS2* anywhere killed this session's file server.
+  Since 1.22.0 a deploy only reaps the servers it owns and refuses — naming the
+  project that holds the channel — rather than taking one that is not its own
+  (see [ps2link-setup.md](ps2link-setup.md#one-file-server-at-a-time)).
 - Sequences, object scripts and custom `.flownode` C++ bodies are not
   instrumented beyond the node that invokes them.
 
@@ -219,4 +288,5 @@ to strip out later.
 - [object-scripts.md](object-scripts.md), [custom-flow-nodes.md](custom-flow-nodes.md)
   — the other halves of the scripting story.
 - `examples/script-demo` is a good playground: open it, set the build profile to
-  debug, F5, then F9.
+  debug (the toolbar's profile dropdown, right of Stop), and press F5 — the
+  panel opens by itself.

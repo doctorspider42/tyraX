@@ -366,6 +366,32 @@ int RendererCoreGSVRam::getSize(int width, const int& height, const int& psm,
   const int pagesW = (width + l.pageW - 1) / l.pageW;
   const int pagesH = (height + l.pageH - 1) / l.pageH;
 
+  // The GS stores an image in whole pages, one page row at a time, and
+  // scrambles its texels across a page's 32 blocks - so what an allocation
+  // must cover is the HIGHEST BLOCK its texels reach: the last page's index
+  // times 32, plus the block the swizzle puts that page's bottom-right corner
+  // at. (Both orders are Morton curves, which is what makes the corner the
+  // maximum. The Z orders are permuted variants for which that is false, so
+  // they round to whole pages instead; a z buffer is never sub-page.)
+  //
+  // This is a BOUND, which the arithmetic it replaced was not. Upstream sized
+  // an allocation by its pixel count plus a flat 2048-word pad carrying the
+  // comment "TODO: Without this hack, textures are overlapping ourselves" -
+  // and the pad covers a wide, short texture for width <= 128 and nothing
+  // wider. The debug HUD font, 512x16 PSMCT32, counts 8192 words of pixels
+  // but spans 8 pages, so the next texture was placed 10240 words in - page 5
+  // of the font's own 8 - and overwrote every glyph from x=320 rightwards.
+  // Reported as "opening the menu makes letters disappear": the HUD read
+  // "V AM" because R lives at x=480, and the menu's own font atlas is the
+  // allocation that lands on it, which is why only a scene that opens a menu
+  // ever showed it.
+  //
+  // Dropping the pad is the other half. It was never derived from anything,
+  // and it is brutal on palettes: a 16-entry CLUT holds 64 BYTES and was
+  // charged 8.25 KB, so twenty palettized textures spent 160 KB of a ~1 MB
+  // heap on padding alone. A CLUT is addressed by CBP in blocks and the width
+  // <= 16 branch above leaves its width alone, so the block path sizes it
+  // exactly: one block for 16 entries, four for 256.
   int size;
   if (l.order != nullptr) {
     // Blocks used inside the LAST page (the partial remainder of each axis).

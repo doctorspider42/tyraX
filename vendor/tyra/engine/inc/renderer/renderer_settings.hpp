@@ -80,6 +80,12 @@ struct RendererOptions {
 
   /** Reserve the camera-feed target (another 128 KB) - texture feeds. */
   bool camFeed = true;
+
+  /** Triple buffering (docs/frame-pacing.md): a third full display buffer,
+   * presented from a vblank handler instead of stalling the EE on vsync.
+   * The most expensive option in this struct - and the cheapest to afford
+   * at ColorDepth::Bits16, where a display buffer is half the size. */
+  bool tripleBuffering = false;
 };
 
 class RendererSettings {
@@ -152,6 +158,21 @@ class RendererSettings {
   bool isFieldRendering() const {
     return displayMode == DisplayMode::InterlacedField;
   }
+
+  /**
+   * Triple buffering (TyraX fork, docs/frame-pacing.md). Must be set before
+   * RendererCoreGS allocates buffers - it decides how many frame buffers the
+   * permanent VRAM region holds, and the third one is not cheap (a full
+   * display buffer: 229 376 words at 512x448x32, half that in
+   * InterlacedField). Off by default, and the engine falls back to two
+   * buffers when the third does not fit.
+   */
+  const bool& getTripleBuffering() const { return tripleBuffering; }
+  void setTripleBuffering(const bool& on) { tripleBuffering = on; }
+
+  /** Frame buffers the renderer wants: 3 with triple buffering on, else 2.
+   * What it actually GOT is RendererCoreGS::getFrameBufferCount(). */
+  unsigned int getFrameBufferCount() const { return tripleBuffering ? 3u : 2u; }
   /** Height of the physical frame/z buffers - half the logical height when
    * field rendering, the logical height otherwise (TyraX fork). Everything
    * that sizes or addresses the framebuffer (allocation, XYOFFSET/SCISSOR,
@@ -162,6 +183,50 @@ class RendererSettings {
   }
   unsigned int getRenderHeightUI() const {
     return static_cast<unsigned int>(getRenderHeightF());
+  }
+
+  /**
+   * Modified by TyraX (BLSS neural upscaler, docs/neural-upscaler.md):
+   * the 3D pass' RASTER scale divisor. 1,1 (the default) means the 3D scene
+   * rasterises straight into the display buffer; 2,2 or 1,2 means it
+   * rasterises into RendererCoreBlss' low-res target and the reconstruction
+   * passes blow it back up.
+   *
+   * It composes with the field-rendering split above: the raster height is
+   * getRenderHeightF() / sy, so InterlacedField's already-halved buffer is
+   * halved again rather than fought with.
+   *
+   * ONLY the projection's raster scale reads these (see
+   * RendererCore3D::setProjection). The world-space frustum planes come from
+   * fov + aspectRatio and are deliberately untouched - exactly the invariant
+   * InterlacedField already relies on. Everything that sizes or addresses the
+   * DISPLAY buffer (clears, 2D/HUD, post fx, env-map/shadow-map restores)
+   * keeps getWidth()/getRenderHeightF(); getting that split wrong draws half
+   * the frame off-screen.
+   */
+  void setRasterScale(const int& sx, const int& sy) {
+    rasterScaleX = sx < 1 ? 1 : sx;
+    rasterScaleY = sy < 1 ? 1 : sy;
+  }
+  const int& getRasterScaleX() const { return rasterScaleX; }
+  const int& getRasterScaleY() const { return rasterScaleY; }
+  bool isRasterScaled() const {
+    return rasterScaleX != 1 || rasterScaleY != 1;
+  }
+  /** Width of the raster the 3D projection is built for (TyraX fork). */
+  float getRasterWidthF() const {
+    return width / static_cast<float>(rasterScaleX);
+  }
+  /** Height of the raster the 3D projection is built for (TyraX fork) -
+   * the physical render height divided by the raster scale. */
+  float getRasterHeightF() const {
+    return getRenderHeightF() / static_cast<float>(rasterScaleY);
+  }
+  unsigned int getRasterWidthUI() const {
+    return static_cast<unsigned int>(getRasterWidthF());
+  }
+  unsigned int getRasterHeightUI() const {
+    return static_cast<unsigned int>(getRasterHeightF());
   }
   const float& getNear() const { return near; }
   const float& getFar() const { return far; }
@@ -193,6 +258,12 @@ class RendererSettings {
   bool widescreen = false;
   ColorDepth colorDepth = ColorDepth::Bits32;  // Modified by TyraX
   bool dither = true;                          // Modified by TyraX
+  // Modified by TyraX: BLSS raster scale (1,1 = off - no project pays for it).
+  int rasterScaleX = 1;
+  int rasterScaleY = 1;
+  // Modified by TyraX: triple buffering (docs/frame-pacing.md). Off by
+  // default - the third buffer is a full display buffer of GS VRAM.
+  bool tripleBuffering = false;
 
   /** Framebuffer size per scan mode + projection aspect (TyraX fork).
    * The projection aspect keeps the stock 512/448 value as the 4:3 baseline

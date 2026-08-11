@@ -103,8 +103,19 @@ class RendererCore3D {
 
   void popEnvView(const CameraInfo3D& cameraInfo);
 
+  /**
+   * Modified by TyraX: true between pushEnvView/pushPortalView and
+   * popEnvView, i.e. while the submitted geometry is being seen through a
+   * camera that is NOT the frame's. RendererCoreBlss reads it to keep those
+   * submissions out of its per-tile feature grid - the grid is indexed by
+   * SCREEN tiles, and a reflection probe's bags projected with the probe's own
+   * view land in tiles they have nothing to do with.
+   */
+  bool isForeignViewActive() const { return foreignView; }
+
  private:
   M4x4 savedView, savedProjection, savedViewProj;  // pushEnvView state
+  bool foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   M4x4 view, projection, viewProj;
   float fov;
   bool is3DSupportEnabled;

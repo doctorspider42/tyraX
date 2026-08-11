@@ -37,15 +37,15 @@ int main(int argc, char** argv) {
   // The Engine(options) ctor re-applies this flag, so it must be set here
   // too or the static above gets reset to the default (console logging).
   options.writeLogsToFile = !ps2link;
-  // Target system (Project > Preferences > Build): Auto follows the console
+  // Target system (Project > Preferences > Display): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::Auto;
-  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // Scan mode (Project > Preferences > Display > Display mode): interlaced
   // 480i/576i (whole frames or true field rendering), progressive 480p,
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
   // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::Interlaced;
-  // PAL picture (Preferences > Build > PAL picture): with the
+  // PAL picture (Preferences > Display > PAL picture): with the
   // region-following interlaced mode, a PAL console (or a forced-PAL
   // target system) boots the full-height 512-line 576i frame instead of
   // the letterboxed NTSC-size picture. Resolved here, before engine init,
@@ -57,7 +57,7 @@ int main(int argc, char** argv) {
        (options.videoMode == Tyra::VideoMode::Auto &&
         graph_get_region() == GRAPH_MODE_PAL)))
     options.displayMode = Tyra::DisplayMode::Pal576i;
-  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  // 16:9 anamorphic output (Preferences > Display > Widescreen).
   options.widescreen = false;
   // Framebuffer colour depth (Preferences > Build > Colour depth) and the
   // GS's ordered dithering. 16bpp halves what the two frame buffers cost in
@@ -71,6 +71,12 @@ int main(int argc, char** argv) {
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
   options.envMapTarget = true;
   options.camFeedTarget = false;
+  // Triple buffering (Preferences > Display > Triple buffering, docs/
+  // frame-pacing.md): present from a vblank interrupt instead of stalling
+  // the EE on vsync, so a frame that overruns its field is shown one field
+  // late instead of halving the frame rate. Costs a third display buffer of
+  // GS VRAM; the engine reports and stays double buffered if it does not fit.
+  options.tripleBuffering = false;
   // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,

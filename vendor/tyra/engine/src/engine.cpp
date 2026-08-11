@@ -79,6 +79,7 @@ void Engine::initAll(const EngineOptions& options) {
   rendererOptions.dither = options.dither;
   rendererOptions.envMap = options.envMapTarget;
   rendererOptions.camFeed = options.camFeedTarget;
+  rendererOptions.tripleBuffering = options.tripleBuffering;
   renderer.init(rendererOptions);
   banner.show(&renderer);
   audio.init();

@@ -67,6 +67,20 @@ framebuffer. That is anamorphic output, so 2D has no projection to widen and is
 stretched by the TV instead — game menus cancel that stretch themselves (see
 [menu-styles.md](menu-styles.md) "Widescreen"), the HUD does not.
 
+**2D is authored against 448 lines whatever the framebuffer is.** Sprite
+coordinates are framebuffer pixels with the origin at the top-left of the
+picture, and the engine's 2D pass keeps that origin on the top of the raster by
+centring the logical 448-row space in whatever height the mode allocates
+(`RendererCore2D::SPRITE_SPACE_HEIGHT`). It has to: the offset used to be a bare
+constant that was only the top of the picture at 448 rows, so in `1080i` — the
+one mode taller than 448 — every sprite was drawn (540 − 448) / 2 = **46 rows
+too high** and the debug HUD's first line fell off the top of the screen
+entirely. The term is exactly zero in the 448-row modes, so nothing that
+already worked moved. A future mode with a different framebuffer height gets
+the same treatment for free; one with a different *width* would not, and the
+horizontal origin is deliberately still the raw constant (measured correct at
+both 512 and 448 wide — 2D is not re-centred horizontally).
+
 **One thing the editor cannot know**: with `videoSystem: auto`, whether
 *PAL picture* (`palFullHeight`) promotes `interlaced` to the 512-line frame
 depends on the region of the console that boots the disc. The viewport shows

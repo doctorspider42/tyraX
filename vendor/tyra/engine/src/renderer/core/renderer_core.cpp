@@ -12,8 +12,17 @@
 #include "renderer/core/renderer_core.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
+#include "debug/frame_profile.hpp"
 
 namespace Tyra {
+
+#if TYRA_FRAME_PROFILE
+namespace FrameProfile {
+// COP0 Count at the top of this frame's beginFrame(). Not published in the
+// header: nothing outside endFrame() has any business reading a half-frame.
+static u32 frameStart = 0;
+}  // namespace FrameProfile
+#endif
 
 RendererCore::RendererCore() {
   isFrameLimitOn = true;
@@ -37,6 +46,10 @@ void RendererCore::init(const RendererOptions& options) {
   // ...and it picks their pixel format + the GS dither state (TyraX fork).
   settings.setColorDepth(options.colorDepth);
   settings.setDither(options.dither);
+  // Same rule: gs.init decides how many display buffers to allocate from it
+  // (TyraX fork, docs/frame-pacing.md). Note the two interact - a third
+  // display buffer is half the price at ColorDepth::Bits16.
+  settings.setTripleBuffering(options.tripleBuffering);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
@@ -62,14 +75,51 @@ void RendererCore::init(const RendererOptions& options) {
   if (camFeed.getTexture())
     camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
                                           TextureWrap::Clamp);
+  // BLSS, the neural upscaler (TyraX fork): its low-res render target belongs
+  // in the same permanent region, in the same relative order - but it is only
+  // taken when the generated game's init() calls blss.configure(), so a
+  // project with BLSS off costs zero VRAM words. This call is dependency
+  // wiring, and the re-place after a display-mode VRAM reset (see
+  // setDisplayOutput below).
+  blss.init(&settings, &gs, &sync, &path1, &renderer3D);
+  // ... and how configure() asks for the permanent region to be laid out
+  // again, because turning BLSS on shrinks the z buffer to the raster size
+  // and the z buffer was allocated three lines into gs.init().
+  blss.setVramRebuild(&RendererCore::rebuildPermanentBuffersThunk, this);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
+  // Frame extrapolation (TyraX fork) - also no VRAM: it samples the display
+  // buffer double/triple buffering already keeps.
+  warp.init(&settings, &gs, &sync, &path1, &blss, this);
   texture.init(&gs, &path3);
   renderer3D.init(&settings, &path1);
   renderer2D.init(&settings, &texture.clut);
 }
 
 void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
+
+// Modified by TyraX (BLSS): see the header. Deliberately NOT gs.reinit() -
+// the display geometry has not changed, and reinit()'s programDisplay() would
+// reset the GS and blank the output in the middle of a game's init().
+void RendererCore::rebuildPermanentBuffers() {
+  texture.evictAll();
+  gs.reallocateBuffers();
+  postFx.init(&settings, &gs);
+  envMap.init(&settings, &gs, &sync, &path1);
+  shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+  camFeed.init(&settings, &gs, &sync, &path1);
+  // Null when this project reserved no camera-feed target (TyraX fork).
+  if (camFeed.getTexture())
+    camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                          TextureWrap::Clamp);
+  TYRA_LOG("Permanent GS buffers re-placed (raster scale ",
+           settings.getRasterScaleX(), "x", settings.getRasterScaleY(),
+           "), texture heap free MB: ", gs.vram.getFreeSpaceInMB());
+}
+
+void RendererCore::rebuildPermanentBuffersThunk(void* user) {
+  static_cast<RendererCore*>(user)->rebuildPermanentBuffers();
+}
 
 // Modified by TyraX: runtime video output switch - see the header.
 void RendererCore::setDisplayOutput(const DisplayMode& mode,
@@ -93,6 +143,9 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     envMap.init(&settings, &gs, &sync, &path1);
     shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
     camFeed.init(&settings, &gs, &sync, &path1);
+    // Same for the BLSS low-res target: vram.reset() forgot it, and its size
+    // follows the new framebuffer geometry (re-places only if configured).
+    blss.init(&settings, &gs, &sync, &path1, &renderer3D);
   } else {
     // Same buffers - only the display window shape changes (1080i widens;
     // the SDTV modes are stretched by the TV, their window stays as-is).
@@ -102,6 +155,10 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   // Re-derive the projection (and thus next frame's frustum planes) from
   // the new framebuffer size / aspect.
   renderer3D.setFov(renderer3D.getFov());
+
+  // Modified by TyraX: every display buffer just moved (or changed shape), so
+  // the frame the warp would sample as "last frame" no longer exists.
+  if (modeChanged) hasPresentedFrame = false;
 }
 
 // Modified by TyraX: GS hardware distance fog.
@@ -212,6 +269,10 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
 }
 
 void RendererCore::beginFrame() {
+#if TYRA_FRAME_PROFILE
+  FrameProfile::frameStart = FrameProfile::ticks();
+#endif
+  beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -221,6 +282,10 @@ void RendererCore::beginFrame() {
 }
 
 void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
+#if TYRA_FRAME_PROFILE
+  FrameProfile::frameStart = FrameProfile::ticks();
+#endif
+  beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
   postFxAppliedMask = 0;
@@ -272,6 +337,15 @@ void RendererCore::portalViewEnd(const float* xy, const u32* z, int count,
   postFx.portalMaskEnd(xy, z, count, clearR, clearG, clearB);
 }
 
+// Modified by TyraX: the 2D bounding box restarts here
+// (docs/frame-extrapolation.md).
+void RendererCore::beginFrameStamp() {
+  hud2dX0 = 1 << 20;
+  hud2dY0 = 1 << 20;
+  hud2dX1 = -1;
+  hud2dY1 = -1;
+}
+
 void RendererCore::endFrame() {
   Threading::switchThread();
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
@@ -286,9 +360,72 @@ void RendererCore::endFrame() {
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
   applyPostFx();
+#if TYRA_FRAME_PROFILE
+  // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
+  // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
+  // its three brackets, a plain frame would otherwise defer its whole GS load
+  // past the vsync wait into flipBuffers and read as free. Guarded on
+  // isVU1Configured() because the handshake spins forever before VU1 is up
+  // (the pure-2D loading screen).
+  {
+    const u32 d0 = FrameProfile::ticks();
+    if (path1.isVU1Configured()) sync.align3D();
+    const u32 d1 = FrameProfile::ticks();
+    FrameProfile::tDrain = d1 - d0;
+    // The game's own once-a-second sort + snprintf + TYRA_LOG is host: file
+    // I/O; it is measurement apparatus, not frame work, so it comes back out.
+    FrameProfile::tFrameWork =
+        d1 - FrameProfile::frameStart - FrameProfile::tExcluded;
+    FrameProfile::tExcluded = 0;
+  }
+#endif
   texture.traceFrame();  // Modified by TyraX: GS VRAM residency report
-  if (isFrameLimitOn) graph_wait_vsync();
-  gs.flipBuffers();
+  // Modified by TyraX (docs/frame-pacing.md): with two buffers the frame
+  // limiter is this vsync wait - the EE cannot touch the other buffer until
+  // the finished one is on screen, so a frame that overruns its field by any
+  // margin at all waits out a whole second field and the rate halves.
+  //
+  // With three, the wait moves INSIDE flipBuffers: it blocks on a free
+  // buffer rather than on the display, the vblank handler does the
+  // presenting, and an overrunning frame costs one late field instead of an
+  // idle one.
+  {  // Modified by TyraX: everything below is STALL, not the frame's cost.
+    u32 t0, t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+    if (gs.getFrameBufferCount() < 3) {
+      if (isFrameLimitOn) graph_wait_vsync();
+    }
+    gs.flipBuffers(isFrameLimitOn);
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    stallAccum += t1 - t0;
+  }
+  hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md).
+bool RendererCore::presentWarpFrame(const WarpCamera& from,
+                                    const WarpCamera& to) {
+  // Nothing to warp before the first flip - the "previous" buffer is still
+  // whatever the GS powered up with.
+  if (!hasPresentedFrame) return false;
+
+  Threading::switchThread();
+  warp.draw(from, to);
+  // Deliberately NO applyPostFx: bloom, grain and grading are already baked
+  // into the source image, and running them again would compound them on every
+  // warped frame. Deliberately no beginFrame either - the warp covers every
+  // pixel, so the clear would only be work.
+  {  // Modified by TyraX: the synthesised frame's present is stall too.
+    u32 t0, t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+    if (gs.getFrameBufferCount() < 3) {
+      if (isFrameLimitOn) graph_wait_vsync();
+    }
+    gs.flipBuffers(isFrameLimitOn, /*synthetic=*/true);
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    stallAccum += t1 - t0;
+  }
+  return true;
 }
 
 }  // namespace Tyra

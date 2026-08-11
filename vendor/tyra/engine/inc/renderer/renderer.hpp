@@ -29,8 +29,8 @@ class Renderer {
   RendererCore core;
 
   // Modified by TyraX: one options struct - scan mode (480i/480p/1080i),
-  // widescreen, framebuffer colour depth + dithering, and which optional
-  // render targets to reserve VRAM for. See RendererOptions.
+  // widescreen, framebuffer colour depth + dithering, triple buffering, and
+  // which optional render targets to reserve VRAM for. See RendererOptions.
   void init(const RendererOptions& options = RendererOptions());
 
   /** World background color */
