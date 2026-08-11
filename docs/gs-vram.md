@@ -39,6 +39,43 @@ at 4-bit turns a 256×256 into ~1/8 of the pixels plus a small CLUT. It is why
 the `showcase` example, which draws a whole village, never comes close to
 filling VRAM.
 
+## An allocation is whole PAGES, not pixels
+
+`getSize()` counts a texture's **pixels**. The GS stores a texture in whole
+8 KB **pages**, a row of pages at a time, so a texture that does not fill its
+last page row still *owns* those pages — and the next allocation has to start
+past them. For anything short and wide the two answers differ by a factor:
+
+| texture | pixels (+ the 2 048-word pad) | pages actually spanned |
+|---|---|---|
+| 256×256 PSMCT32 | 65 536 + 2 048 | 4 × 8 = 65 536 ✔ |
+| 64×64 PSMCT32 | 4 096 + 2 048 | 1 × 2 = 4 096 ✔ |
+| **512×16 PSMCT32** (the debug HUD font) | **10 240** | **8 × 1 = 16 384** ✘ |
+
+A PSMCT32 page is 64×32 texels. The 512×16 font is one page row of **eight**
+pages, so it spans 16 384 words while being sized at 10 240 — and the next
+texture was placed 10 240 words in, which is page 5 of the font's own 8. It
+overwrote pages 5, 6 and 7: **every glyph from x = 320 rightwards**.
+
+That is the bug behind *"opening the menu makes letters disappear"*. The HUD
+read `V AM` because `R` sits at x = 480 and was the only glyph past x = 320 on
+screen (`T`, at 496, was equally gone and simply not being drawn). The menu's
+own font atlas is the allocation that lands on it — which is why a *menu
+opening* triggers it, and why every scene that never opens one was fine.
+
+Upstream's `// TODO: Without this hack, textures are overlapping ourselves`
+sat on that 2 048-word pad. The pad is not the fix: it covers a width of 128
+and nothing wider. `getSize()` now returns **at least** the page footprint,
+`ceil(w / pageW) × ceil(h / pageH) × 2048`, with the page geometry per format
+(PSMCT32 64×32, PSMT8 128×64, PSMT4 128×128, PSM16 64×64; the `8H`/`4HL`/`4HH`
+formats are the high bits of a 32-bit buffer and keep 64×32).
+
+It changes **nothing** for the frame and z buffers — those are page-aligned
+already, and all five display modes come out identical either way — and
+nothing for textures at least 32 rows tall. The one measured cost is the debug
+font growing 10 240 → 16 384 words: **24 KB**, visible as the HUD's own `VRAM`
+line moving 3.21 → 3.23 MB.
+
 ## Two regions
 
 `RendererCoreGSVRam` splits VRAM in two:

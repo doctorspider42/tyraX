@@ -236,14 +236,24 @@ which is the right answer when there is no floor.
 Precedence: the neural upscaler's real per-tile depth, then the ground plane,
 then the fixed distance, then rotation only.
 
-## Getting the fixed plane back on purpose
+## The fixed plane is no longer a control
 
-The fixed-distance plane is still there: turn *Ground plane* off and set
-*Translation plane* — **12** is what the first version shipped with. It moves the
-whole picture uniformly, sky included, which is what the ground plane exists to
-avoid; keep it for a scene with no meaningful floor, or to A/B the two.
+*Ground plane* is a plain on/off: **ticked** takes the depth from the floor,
+**unticked** is rotation only. The *Translation plane* drag that used to sit
+under it is gone. Between them those two settings had three states, and the
+third — unticked, at some positive distance — was a knob for guessing at a
+number the ground plane derives properly, whose whole effect is the uniform
+lens-zoom described above.
 
-**Always synthesise (ignore the gate)** is next to it, and exists because the
+`planeDistance` **still exists** in the project format and still reaches the
+game, so a project saved with a positive distance renders exactly as it did.
+It is simply unreachable from the editor: hand-edit `frameExtrapolationPlane`
+in the `.tyra` to set one (**12** is what the first version shipped with), and
+note that ticking or unticking *Ground plane* in the editor resets it to 0 —
+the normalisation happens on that interaction and nowhere else, so merely
+opening the dialog never rewrites a project's rendering.
+
+**Always synthesise (ignore the gate)** sits below it, and exists because the
 gate measures EE work: a scene held back by the GS rather than the EE keeps it
 shut. `examples/raytraced-mirror` sits at 26.36 Hz with the gate never opening
 once. Forced, with the plane at 12, it runs 23.03 Hz of world for ~46 presented

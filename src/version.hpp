@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.24.2 (a texture allocation is whole PAGES, and a menu stopped eating the
+// HUD's letters): reported as "opening the menu makes some letters disappear -
+// R is gone from VRAM", with a screenshot reading `V AM 3.81/4 MB`.
+//
+// getSize() counted a texture's PIXELS. The GS stores one in whole 8 KB pages,
+// a row of pages at a time, so a texture that does not fill its last page row
+// still OWNS those pages. The debug HUD font is 512x16 PSMCT32: 8192 words of
+// pixels (+ upstream's 2048-word pad) against a footprint of ceil(512/64) x
+// ceil(16/32) = 8 x 1 pages = 16384 words. The next texture was therefore
+// placed 10240 words in - page 5 of the font's own 8 - and overwrote pages
+// 5..7, which is every glyph from x=320 rightwards. R lives at x=480 and was
+// the only glyph past that line on screen; T, at 496, was equally gone and
+// simply not being drawn. The allocation that lands there is the menu's own
+// font atlas, which is why opening a menu is what triggers it.
+//
+// THE DIAGNOSIS IS THE GLYPH POSITIONS. Every letter that still rendered (V, A,
+// M, F, P, S, E, B) sits at x <= 288 and every one that did not sits past 320 -
+// a boundary that falls exactly on a page edge, from one screenshot.
+//
+// getSize() now returns at least the page footprint. Upstream's
+// "TODO: Without this hack, textures are overlapping ourselves" sat on the pad,
+// which covers width 128 and nothing wider. Nothing changes for the frame and z
+// buffers (page-aligned already - all five display modes come out identical) or
+// for textures 32 rows or taller. Measured cost: the font grows 24 KB, which
+// the HUD's own VRAM line shows as 3.21 -> 3.23 MB.
+//
 // 1.24.1 (the Display tab loses the VRAM line 1.23.0 gave it): the readout was
 // correct and unwanted. It answered "what does this mode cost" as a wall of
 // small print under the mode picker - three lines, two of them explaining that
@@ -671,7 +697,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

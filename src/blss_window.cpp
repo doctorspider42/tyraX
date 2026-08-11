@@ -610,20 +610,23 @@ void App::drawBlssSpeedAnswer(const ProjectSettings& staged) {
         "\n"
         "The same numbers without the GUI: `tyrax-editor --blss-coverage`.\n"
         "Tools > Neural Upscaler (BLSS) adds the PICTURE half - whether there is\n"
-        "anything here to reconstruct at all - which this button does not ask.");
+        "anything here to reconstruct at all - which this button does not ask.\n"
+        "\n"
+        "NOTHING HAS BEEN MEASURED YET until you press this. Until then, whether\n"
+        "BLSS pays for itself on YOUR scenes is unknown - it is a large win on a\n"
+        "frame with real overdraw and a straight loss on one without.");
     if (blssCovRunning_.load()) {
         ImGui::SameLine();
         ImGui::TextDisabled("counting overdraw... %.0f s", blssCovSeconds_);
         return;
     }
     if (!blssCov_.ok) {
-        if (!blssCov_.err.empty())
-            ImGui::TextColored(warn, "    %s", blssCov_.err.c_str());
-        else
-            ImGui::TextDisabled(
-                "    Not measured. Until it is, whether this pays for itself on\n"
-                "    YOUR scenes is unknown - it is a large win on a frame with\n"
-                "    real overdraw and a straight loss on one without.");
+        // An ERROR still speaks up - it is a thing that went wrong and the
+        // reader has to see it. "Not measured" does not: it was three lines
+        // saying that the button directly above them had not been pressed yet,
+        // which the button says by existing. It moved into that button's own
+        // tooltip (the "NOTHING HAS BEEN MEASURED YET" paragraph).
+        if (!blssCov_.err.empty()) ImGui::TextColored(warn, "    %s", blssCov_.err.c_str());
         return;
     }
     const blssui::SpeedEstimate sp = blssSpeedFor(staged);
@@ -854,33 +857,24 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             s.blssScale = scale;
             changed = true;
         }
-        help(
-            "How much of the frame the GS actually rasterises. 2x2 quarters\n"
-            "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
-            "own interlaced-field mode already does to the raster - softer\n"
-            "vertically, untouched horizontally.\n"
-            "The z-buffer is allocated at THIS size, which is where the VRAM\n"
-            "saving comes from - the line under this combo works it out for\n"
-            "the display mode THIS project boots in, rather than quoting a\n"
-            "measurement taken at some other resolution.",
-            "Train the network at the scale you ship - the Train tab follows\n"
-            "this setting. A blss.net is a bare list of floats and records nothing\n"
-            "about how it was trained, so a mismatch costs quality without\n"
-            "saying anything - which is what the .meta sidecar beside it exists\n"
-            "to catch.");
-        // THE NUMBER FOR THIS PROJECT, live, under the control that decides it.
-        {
-            const std::string vram = blssVramLine(s);
-            if (!vram.empty()) {
-                if (s.blssScale == 1)
-                    // 1x2's saving is exactly zero and that is worth colour: it
-                    // is the one setting whose headline benefit is absent, and
-                    // neither the UI nor the docs ever said so.
-                    ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.35f, 1.0f), "%s", vram.c_str());
-                else
-                    ImGui::TextDisabled("%s", vram.c_str());
-            }
-        }
+        // THE NUMBER FOR THIS PROJECT rides IN the tooltip rather than under the
+        // combo. It is still computed live and still says what THIS project's
+        // display mode costs - it just stops being a permanent paragraph on a
+        // dialog that had four of them stacked down one column.
+        help((std::string(
+                  "How much of the frame the GS actually rasterises. 2x2 quarters\n"
+                  "the 3D fill; 1x2 halves only the height, which is what the PS2's\n"
+                  "own interlaced-field mode already does to the raster - softer\n"
+                  "vertically, untouched horizontally.\n"
+                  "The z-buffer is allocated at THIS size, which is where the VRAM\n"
+                  "saving comes from.\n\n") +
+              blssui::unindent(blssVramLine(s)))
+                 .c_str(),
+             "Train the network at the scale you ship - the Train tab follows\n"
+             "this setting. A blss.net is a bare list of floats and records nothing\n"
+             "about how it was trained, so a mismatch costs quality without\n"
+             "saying anything - which is what the .meta sidecar beside it exists\n"
+             "to catch.");
     }
     ImGui::EndDisabled();
 
@@ -973,6 +967,24 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
                         &s.frameExtrapolation))
         changed = true;
     ImGui::EndDisabled();
+    // The exclusion, ON the greyed checkbox, so hovering the thing that will not
+    // tick says why. It NAMES where the upscaler is on, because "turn the
+    // upscaler off" is not actionable when the answer is one scene overriding
+    // the project and this dialog is not where that lives. It was five lines of
+    // body text under the checkbox; a disabled control that explains itself on
+    // hover is the same information without the wall.
+    if (blockExtrapolation) {
+        char clash[512];
+        std::snprintf(clash, sizeof(clash),
+                      "NOT AVAILABLE while the upscaler is on for %s.\n"
+                      "\n"
+                      "The two cannot be combined - both rebuild a frame by\n"
+                      "reprojecting the previous one, and in motion the pair tears the\n"
+                      "picture into cells that disagree. Untick the upscaler (above, or\n"
+                      "in Scene > Scene Preferences for that scene) and this frees up.",
+                      upscalerWhere.c_str());
+        prefHelp(clash);
+    }
     help(
         "Frame generation, PS2 style: after each rendered frame the game\n"
         "presents a SYNTHESISED one, re-drawing it under the camera\n"
@@ -1007,49 +1019,37 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         "loop's work already overruns a field (two fields when triple buffered),\n"
         "so leaving it on costs a fast scene nothing. Each flip is logged to the\n"
         "game's bin/log.txt.");
-    // The other half of the exclusion, in line for the same reason. It NAMES
-    // where the upscaler is on, because "turn the upscaler off" is not
-    // actionable advice when the answer is one scene overriding it and this
-    // dialog is not where that lives.
-    if (blockExtrapolation)
-        ImGui::TextDisabled(
-            "    Not while the upscaler is on for %s. The two cannot be\n"
-            "    combined - both rebuild a frame by reprojecting the previous one,\n"
-            "    and in motion the pair tears the picture into cells that\n"
-            "    disagree. Untick the upscaler (above, or in Scene > Scene\n"
-            "    Preferences for that scene) and this frees up.",
-            upscalerWhere.c_str());
     ImGui::BeginDisabled(!s.frameExtrapolation);
-    if (ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround))
+    // ONE CONTROL, TWO STATES. This used to be a checkbox followed by a
+    // "Translation plane" drag whose own zero read "rotation only" - so the
+    // pair had three states, two of which (ticked, and unticked-at-zero) are
+    // the only ones worth shipping and the third (unticked at some positive
+    // distance) is a knob for guessing at a number the ground plane derives
+    // properly. The drag is gone and the distance is pinned to zero: ticked =
+    // the ground plane, unticked = rotation only.
+    if (ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround)) {
+        // Normalised on the first touch of this box, NOT on load: a project
+        // saved with a positive distance keeps rendering exactly as it did
+        // until someone changes this setting, because silently re-rendering
+        // somebody's shipped project on open is worse than an unreachable
+        // value. The field stays in the format and still reaches the game
+        // (project.cpp, templates.cpp) - it is only unreachable from the UI,
+        // which docs/frame-extrapolation.md says out loud.
+        s.frameExtrapolationPlane = 0.0f;
         changed = true;
+    }
     help(
         "Take the depth from the FLOOR instead of a fixed distance. A view ray\n"
         "meets the ground at w = h / -dir.y, so depth grows toward the horizon by\n"
         "itself and a ray at or above the horizon never meets it - the sky then\n"
         "does not move at all, which is the worst artefact of a fixed plane.\n"
-        "Costs a few operations per grid corner and needs no depth buffer, and it\n"
-        "overrides the fixed distance below.",
-        "");
-    ImGui::BeginDisabled(s.frameExtrapolationGround);
-    ImGui::SetNextItemWidth(scaled(160));
-    ImGui::DragFloat("Translation plane", &s.frameExtrapolationPlane, 0.5f, 0.0f,
-                     200.0f,
-                     s.frameExtrapolationPlane <= 0.0f ? "rotation only"
-                                                       : "%.1f units");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    help(
-        "How camera TRANSLATION is reprojected when the ground plane is off.\n"
+        "Costs a few operations per grid corner and needs no depth buffer.\n"
         "\n"
-        "0 = rotation only. Exact, but a walk in a straight line then reproduces\n"
-        "the previous frame EXACTLY - the synthesised frame is a duplicate,\n"
-        "which reads as judder.\n"
-        "\n"
-        "A positive distance assumes the whole world sits on one plane that far\n"
-        "away. That moves the entire picture uniformly, which looks like a lens\n"
-        "ZOOM rather than parallax - geometrically wrong, but it IS motion, and\n"
-        "on some content that beats a duplicated frame.",
+        "Unticked, camera translation is not reprojected at all (rotation only).\n"
+        "That is exact, but a walk in a straight line then reproduces the\n"
+        "previous frame EXACTLY - the synthesised frame is a duplicate, which\n"
+        "reads as judder. Which is why this is the recommended state.",
         "");
-    ImGui::EndDisabled();
     if (ImGui::Checkbox("Always synthesise (ignore the gate)",
                         &s.frameExtrapolationForce))
         changed = true;

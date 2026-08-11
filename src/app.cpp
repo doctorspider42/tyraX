@@ -13711,8 +13711,13 @@ void App::drawPreferencesWindow() {
     // open, which is the whole point of this no longer being a modal. The three
     // buttons below used to go through an applyAndOpen() helper that closed
     // this dialog first; there is nothing left for it to do.
+    //
+    // It used to be SAID, in a dimmed line under each of those three buttons.
+    // Three copies of one sentence about window management, in a dialog whose
+    // problem was that everything explained itself in prose - and each of the
+    // three buttons already has a tooltip that could hold it. Now they do.
     const char* kOpensWindow =
-        "Opens the window alongside this one - both stay usable.";
+        "\n\nOpens the window alongside this one - both stay usable.";
 
     // The footer's own height, reserved out of every tab body below: the
     // separator, three lines of note and the button row.
@@ -14014,7 +14019,6 @@ void App::drawPreferencesWindow() {
         "Opens alongside this window - it draws these same controls one level\n"
         "deeper, over the same live project settings, so the two cannot\n"
         "disagree.");
-    ImGui::TextDisabled("    %s", kOpensWindow);
     endTab();
     }
 
@@ -14173,7 +14177,11 @@ void App::drawPreferencesWindow() {
         "built-in loading.png on black is shown.");
     if (ImGui::Button("Open Loading Screens editor"))
         showLoadingEditor_ = true;
-    ImGui::TextDisabled("    %s", kOpensWindow);
+    prefHelp(
+        (std::string("Design the loading screens this project shows between "
+                     "scenes.") +
+         kOpensWindow)
+            .c_str());
     endTab();
     }
 
@@ -14302,10 +14310,12 @@ void App::drawPreferencesWindow() {
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
     if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
     prefHelp(
-        "Sky gradient, baked lighting and distance fog now live in presets.\n"
-        "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
-        "Scene > Preferences (or uses the default).");
-    ImGui::TextDisabled("    %s", kOpensWindow);
+        (std::string(
+             "Sky gradient, baked lighting and distance fog now live in presets.\n"
+             "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
+             "Scene > Preferences (or uses the default).") +
+         kOpensWindow)
+            .c_str());
 
     ImGui::SeparatorText("Shadows");
     ImGui::Checkbox("Blob shadows under moving objects", &prefSettings_.blobShadows);
@@ -14685,10 +14695,6 @@ void App::drawPreferencesWindow() {
     // pinned footer is what stops the next setting anybody adds from putting
     // the dialog back where it was.
     ImGui::Separator();
-    ImGui::TextDisabled(
-        "Project-wide defaults, applied as you edit them (nothing reaches disk\n"
-        "until you save). Scenes inherit them unless a category is overridden in\n"
-        "Scene > Scene Preferences; the emulator path and dev-PS2 IP are in Edit > Preferences.");
     if (ImGui::Button("Close", ImVec2(scaled(120), 0))) showProjectPrefs_ = false;
     ImGui::End();
 }

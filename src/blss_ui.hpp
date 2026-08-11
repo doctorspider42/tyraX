@@ -56,6 +56,13 @@ enum class Kind { None, Train, Eval, Headroom, Cv, Features, Emit };
 
 const char* kindName(Kind k);
 
+// Drop the four-space indent the on-screen note lines carry, so the same
+// computed sentence can be reused inside a TOOLTIP. The indent is a layout
+// device for a line drawn under its control - inside a tooltip it is just a
+// ragged left edge. Kept here, beside the other pure helpers, because the
+// window is not the only surface that shows these lines.
+std::string unindent(const std::string& text);
+
 // ------------------------------------------------------------------- cost ---
 
 // What a verb is about to cost, in wall-clock seconds. It exists because the

@@ -43,6 +43,18 @@ const char* kindName(Kind k) {
     return "";
 }
 
+std::string unindent(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    bool atLineStart = true;
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (atLineStart && text[i] == ' ') continue;  // eat the leading run
+        atLineStart = text[i] == '\n';
+        out.push_back(text[i]);
+    }
+    return out;
+}
+
 // ------------------------------------------------------------------- cost ---
 //
 // MEASURED, on this branch, on examples/procedural at 512x448, on one machine

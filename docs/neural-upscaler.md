@@ -620,7 +620,7 @@ makes the choice between them a pure quality question and why the sweep below
 asks it directly.
 
 So `1×2` is a choice about *fill and picture*, never about memory, and the
-settings panel now says that on the line under the Render scale combo — computed
+settings panel says so in the Render scale tooltip — computed
 for the display mode the project actually boots in
 (`App::blssVramLine`, a host twin of `RendererCoreGSVRam::getSize`). The tooltip
 it replaced quoted "2×2 hands 672 KB back and 1×2 hands back 448 KB", which is
@@ -2109,7 +2109,7 @@ and a user who never trains one never sees them.
 |---|---|---|
 | **Use the upscaler** | Preferences | render the 3D scene at reduced resolution and reconstruct. The project **default** — a scene can [override it](#per-scene) |
 | **Mode** | Preferences | **Plain** — one bilinear pass, no network, 0.52 ms of EE instead of 4.60 and a break-even of 2.6 coverages instead of 13.1, with the VRAM saving and the picture unchanged whenever the network asks for nothing ([plain mode](#plain-mode--the-reduced-raster-without-the-network)) — or **Neural**, the per-tile network. Its own switch rather than a third value of the row above, because it is a third question: *use it* asks whether the raster shrinks, *scale* by how much, this asks what blows it back up. Picking Plain greys the four network rows |
-| **Render scale** | Preferences | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). A **live line under the combo** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so). **Two entries and not more, on purpose**: the tool can now sweep any raster scale (`--scale WxH`) and [going below half resolution was measured and declined](#below-half-resolution-swept) — the picture loses up to 2.6 dB for a break-even that barely moves |
+| **Render scale** | Preferences | `2×2` (quarter the pixels) or `1×2` (half-height only — cheaper reconstruction, keeps horizontal detail). The **tooltip** works out what it is worth in GS VRAM on *this project's* raster, and says outright that [1×2 is worth nothing](#at-12-the-vram-saving-is-exactly-zero-and-nothing-said-so). **Two entries and not more, on purpose**: the tool can now sweep any raster scale (`--scale WxH`) and [going below half resolution was measured and declined](#below-half-resolution-swept) — the picture loses up to 2.6 dB for a break-even that barely moves |
 | **Sharpen strength** | window | the `k` of passes 4/5; the net decides *where*, this decides *how much* |
 | **Temporal reuse** | window | allow the history pass at all (off = spatial-only, no ghosting, no AA) |
 | **Sub-pixel jitter** | window | the samples the temporal pass averages. Not a runtime switch — flipping it makes an existing `blss.net` stale |
