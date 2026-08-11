@@ -16,6 +16,56 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.22.0 (a deploy stops killing every other PS2 session on the machine):
+// reported from use, and diagnosed the hard way an hour earlier - `Run on PS2`
+// of one project froze another project's Live Debugger, its Live Link and its
+// time machine, all at the same second, while the `[ps2]` log kept scrolling.
+// Both halves of that are now fixed rather than merely diagnosable.
+//
+// THE CAUSE WAS ONE VERB, USED TWICE. `Runner::deployToPs2`, `stopPs2` and
+// `clean` each ran `platform::killByName({"ps2client"})` - `taskkill /F /IM
+// ps2client.exe`, machine-wide, by name - so a deploy of ANY project took down
+// the file server of every OTHER ps2link session; and `launchPCSX2` /
+// `stopEmulator` did the same to every emulator, which had already interrupted
+// measurements repeatedly on this branch. This repo is routinely driven with
+// several editors from several worktrees at once, so neither was an edge case.
+// `killByName` is deleted, not narrowed: a by-name kill is the wrong primitive
+// and leaving it in the platform layer leaves it there to be reached for.
+//
+// OWNERSHIP IS READ OFF THE PROCESS'S OWN COMMAND LINE, and the ordering is the
+// design: the handle first (the Process we spawned, killed as a tree - the
+// common case and the only certain one), then a search for what the handle
+// cannot reach. `-h <ip>` says which console and `execee host:<name>.elf` says
+// which game, so a stale server from a crashed run of the SAME project is still
+// reaped - without that the fix would have traded one bug for "only one deploy
+// per boot works" - while one a RUNNING editor owns is refused with that
+// project named and one no editor claims at all is reaped as an orphan. Two
+// rules hold it up: a process whose command line cannot be read is never a
+// target, and "is that editor alive" is answered by devsession's heartbeat OR a
+// live editor pid, because the heartbeat stops while an editor sits in a native
+// file dialog and the direction that must not fail is the one ending in a kill.
+// The discriminator is deliberately the command line and not the working
+// directory, which would be sharper (the deploy runs its server with cwd =
+// <project>/bin): Linux answers cwd with one readlink and Windows has no
+// supported way to ask, and a key only one platform can compute would make the
+// two behave differently.
+//
+// Measured against the reporter's own live session (their editor open on
+// F:\Tyra-Projects\display-modes, its game running on the console at
+// 192.168.100.150): a deploy of a different project REFUSED, naming that
+// project and the remedy; their ps2client survived; their bin/livedbg.bin kept
+// advancing across the whole operation - which is the exact file that froze in
+// the original incident. In the same run a stale server of the deploying
+// project and an orphan nobody owned were both reaped. On the emulator side,
+// two instances differing only in their -elf path: the project's own was
+// closed, the other left running.
+//
+// MINOR: a capability appears - the editor can tell one file server from
+// another, name the session that owns one, and refuse rather than steal it, and
+// `--debug-state` now prints that inventory (emulators and file servers with
+// the console and game each is serving) instead of a PowerShell incantation for
+// the reader to run. No default moves and the format is untouched (still v17).
+//
 // 1.21.2 (two silences: the Live Debugger reported nothing for a project with
 // no flow graph, and the HD HUD was drawn above the picture). Two independent
 // fixes, no setting moves, the format is untouched: PATCH.
@@ -551,8 +601,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 21
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 22
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -246,17 +246,24 @@ a slow one. A collapsed frame rate makes the snapshot *late*, never absent.
 - **ps2link** serves the same file channel and the code paths are identical, but
   the verified target is PCSX2 (see PROGRESS 191).
 - **On a console the file channel outlives nothing.** It is served by a
-  `ps2client` the Runner spawned, and *one file server at a time* is enforced by
-  name: closing the editor, **Stop on PS2**, a **Clean**, or deploying **any
-  other project** takes it down. The console does not notice — the game keeps
+  `ps2client` the Runner spawned, and *one file server at a time* is real:
+  closing the editor, **Stop on PS2**, a **Clean** or a redeploy of **this**
+  project all take it down. The console does not notice — the game keeps
   running, blocked on `host:`, and every devkit file stays frozen at its last
-  write while the `[ps2]` log keeps scrolling, because the log is UDP and does
-  not go through that server at all. **Two transports, one of them dead, and
-  only the log is visible.** That is what the stale-snapshot report above
-  exists to name. A game that is still running does not need a rebuild — either
-  redeploy (**F6**), or serve it yourself with
-  `ps2client -h <ip> listen` from the project's `bin/` and it resumes within
-  seconds.
+  write while the `[ps2]` log keeps scrolling, because the log is UDP straight
+  to whichever `ps2client` is listening and does not go through that server at
+  all. **Two transports, one of them dead, and only the log is visible.** That
+  is what the stale-snapshot report above exists to name. A game that is still
+  running does not need a rebuild — either redeploy (**F6**), or serve it
+  yourself with `ps2client -h <ip> listen` from the project's `bin/` and it
+  resumes within seconds.
+
+  Deploying **another** project used to be on that list, and was the most
+  confusing entry on it: the editor ran `taskkill /F /IM ps2client.exe`,
+  machine-wide, so any *Run on PS2* anywhere killed this session's file server.
+  Since 1.22.0 a deploy only reaps the servers it owns and refuses — naming the
+  project that holds the channel — rather than taking one that is not its own
+  (see [ps2link-setup.md](ps2link-setup.md#one-file-server-at-a-time)).
 - Sequences, object scripts and custom `.flownode` C++ bodies are not
   instrumented beyond the node that invokes them.
 

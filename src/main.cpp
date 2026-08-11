@@ -137,6 +137,46 @@ static long long reportProjectState(const std::filesystem::path& dir,
     return best;
 }
 
+// A game running RIGHT NOW is the most current source of all, and it is a
+// process query rather than a file one - so ask it here instead of printing a
+// PowerShell incantation for the reader to run (which is what this used to do,
+// and which said nothing at all about the ps2link half).
+//
+// The two processes worth naming are the ones the editor itself starts and the
+// ones it must not kill blindly: the emulator carries `-elf <projectDir>/bin/
+// <name>.elf`, and the ps2link file server carries `-h <console>` and
+// `execee host:<name>.elf`. That command line IS the identity the Runner now
+// decides ownership by (see runner.cpp), so printing it makes the decision
+// checkable from a shell - "whose ps2client is that" was previously answerable
+// only by hand.
+static void reportRunningGames() {
+    std::printf("\nrunning games:\n");
+    bool any = false;
+    for (const char* name : {"pcsx2-qt", "pcsx2"})
+        for (const platform::RunningProcess& p : platform::processesNamed(name)) {
+            any = true;
+            std::printf("  %-10s pid %-6llu %s\n", name, p.pid,
+                        p.commandLine.empty() ? "(command line unreadable)"
+                                              : p.commandLine.c_str());
+        }
+    for (const platform::RunningProcess& p : platform::processesNamed("ps2client")) {
+        any = true;
+        std::printf("  %-10s pid %-6llu %s\n", "ps2client", p.pid,
+                    p.commandLine.empty() ? "(command line unreadable)"
+                                          : p.commandLine.c_str());
+    }
+    if (!any)
+        std::printf("  none (no emulator and no ps2link file server on this "
+                    "machine)\n");
+    else
+        std::printf(
+            "  The -elf path is <projectDir>/bin/<name>.elf; a ps2client's "
+            "-h names the console and\n  its host:<name>.elf names the game it "
+            "is serving. Only one ps2client can serve a\n  console at a time, "
+            "which is why a deploy refuses rather than killing one it does not "
+            "own.\n");
+}
+
 static int debugStateFromCli(int argc, char** argv) {
     namespace fs = std::filesystem;
     bool verbose = false;
@@ -236,11 +276,7 @@ static int debugStateFromCli(int argc, char** argv) {
     if (!freshest.empty())
         std::printf("\nfreshest debug artifact: %s (%s)\n", freshest.c_str(),
                     ageText(freshestAge).c_str());
-    std::printf(
-        "\nA game running right now is the most current source of all, and it "
-        "is a process query, not a file one:\n  Get-CimInstance Win32_Process "
-        "-Filter \"name='pcsx2-qt.exe'\" | Select-Object CommandLine\nThe -elf "
-        "path in it is <projectDir>\\bin\\<name>.elf.\n");
+    reportRunningGames();
     return 0;
 }
 

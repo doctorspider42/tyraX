@@ -20,6 +20,34 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
+## FIXED: a deploy killed every other PS2 session on the machine
+
+**Reported and fixed 2026-08-11, in 1.22.0.** Kept here because the *shape* is a
+hazard class rather than one line, and because the diagnosis is the interesting
+part: a *Run on PS2* of `display-modes` froze `raytracing-test`'s Live Debugger,
+Live Link and time machine at the same second, while the `[ps2]` log kept
+scrolling. Two transports, one dead: the log is UDP straight to whichever
+`ps2client` is listening and never passes through the file server, so only the
+live half was visible and it read as "the debugger shows nothing".
+
+The cause was `platform::killByName({"ps2client"})` — `taskkill /F /IM
+ps2client.exe`, machine-wide — in `deployToPs2`, `stopPs2` and `clean`, with the
+identical mistake in `launchPCSX2`/`stopEmulator` for every emulator. Both are
+now per project, keyed on the target process's own command line, and
+`killByName` is deleted from `platform` so it cannot be reached for again. The
+ownership rules, the refusal and the orphan escape hatch are in
+[ps2link-setup.md](ps2link-setup.md#one-file-server-at-a-time).
+
+**Still owed:** the refusal path was measured against a live ps2link session on
+this machine, but the *proceed* path with the field genuinely clear could not be
+— the owner's session was up throughout, and the only way to exercise it would
+have been to take their file server, which is the defect. It is one branch
+(first scan finds nothing → return true) and the reap-then-rescan half of it was
+observed; a console session that starts from an idle machine closes it. The
+emulator arm was measured with two stand-in processes started through the
+launcher's own `startDetached` + `shellArg` quoting, because launching real
+emulators on a machine somebody was using was not an option.
+
 ## FIXED: the upscaler with triple buffering presented BLACK frames
 
 **Found 2026-08-11 while measuring the frame-rate counters, fixed the same day

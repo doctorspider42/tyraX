@@ -1047,10 +1047,12 @@ std::string App::dbgSilenceReason() const {
         "bin/livedbg.bin is STALE - it stopped changing %s ago, so what is on "
         "disk is a snapshot of a session that is over. The game may well still "
         "be running: over ps2link the file server is a ps2client this editor "
-        "spawned, and closing the editor, stopping the game, or deploying "
-        "ANY project takes it down - the console then keeps running with no "
-        "host: to write to. The cure is a redeploy (Run on PS2, F6), not a "
-        "retry. Under PCSX2 it means the game itself stopped.",
+        "spawned, and closing the editor, stopping the game or redeploying THIS "
+        "project takes it down - the console then keeps running with no host: "
+        "to write to. (Deploying a DIFFERENT project no longer does: since "
+        "1.22.0 that refuses and names this session instead of killing it.) The "
+        "cure is a redeploy (Run on PS2, F6), not a retry. Under PCSX2 it means "
+        "the game itself stopped.",
         when.c_str());
     return buf;
 }

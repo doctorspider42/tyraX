@@ -270,7 +270,13 @@ by every project); headless: `--build <projectDir>
 --run-ps2 [ip]`. The editor drives the console with a patched
 [ps2client](https://github.com/ps2dev/ps2client) shipped in `tools/ps2client`
 (see the README there — the patch fixes a Nagle/delayed-ACK stall that made
-file serving ~100x slower).
+file serving ~100x slower). That `ps2client` stays alive as the game's file
+server, and a console can only have one, so a deploy clears the field first — it
+reaps the servers **this** project owns and refuses, naming the project that
+holds the channel, rather than taking one that is somebody else's
+([docs/ps2link-setup.md](docs/ps2link-setup.md#one-file-server-at-a-time)).
+`--debug-state` lists every emulator and file server running, with the project
+each one is serving.
 
 The console side is **always our own [ps2link](https://github.com/ps2dev/ps2link)**:
 a pinned upstream plus this repo's patch, built in Docker by

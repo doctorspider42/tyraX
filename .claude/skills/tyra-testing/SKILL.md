@@ -1156,14 +1156,18 @@ Notes:
   `bin/log.txt` (texture binds/hits/uploads/re-uploads/evictions, resident
   count, free MB, largest free block) — the honest way to tell "the scene is
   thrashing textures" from "the scene is just heavy"; see
-  [docs/gs-vram.md](../../../docs/gs-vram.md). A `--build --run` also kills
-  every other PCSX2 instance, and parallel worktree sessions run their own —
-  when several are up, `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs
-  whichever it finds first (it warns, but the frames are already wrong), so pass
-  **`-ProcessId <pid>`** with the pid whose `-elf` path is your project. Note
-  that when another agent's session is live you cannot use `--build --run` at
-  all: build with plain `--build` and launch PCSX2 yourself on `bin/<name>.elf`
-  (`-logfile <path>` keeps your emulog out of theirs).
+  [docs/gs-vram.md](../../../docs/gs-vram.md). Parallel worktree sessions each
+  run their own emulator, so when several are up
+  `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs whichever it finds first
+  (it warns, but the frames are already wrong) — pass **`-ProcessId <pid>`**
+  with the pid whose `-elf` path is your project. A `--build --run` used to reap
+  **every** PCSX2 on the machine by name and interrupted those sessions
+  repeatedly; since 1.22.0 it closes only the instance whose `-elf` names your
+  own ELF, so a launch of your project no longer ends somebody else's
+  measurement. Their *build* is still shared ground (one container per project
+  name, one engine volume per checkout), so when another agent's session is live
+  it is still politer to build with plain `--build` and launch PCSX2 yourself on
+  `bin/<name>.elf` (`-logfile <path>` keeps your emulog out of theirs).
   For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
@@ -1273,22 +1277,38 @@ Notes:
   is a redeploy (*Run on PS2*, F6), not a retry — and it is why
   `--debug-state` reports the transport.
 
-  **Closing the editor is only the tidiest way to kill it.** `deployToPs2`,
-  `stopPs2` and `clean` each run `platform::killByName({"ps2client"})` —
-  `taskkill /F /IM ps2client.exe`, **machine-wide, by name** — so a *Run on
-  PS2* of a DIFFERENT project (or of the same project from another worktree's
-  editor, which this repo routinely has several of) silently takes down the
-  file server of the session you are watching. Diagnosed once from timestamps
-  alone: `livedbg.bin` and `livetime.bin` in project A froze to the second at
-  the moment project B was deployed, while `[ps2]` log lines kept scrolling in
-  the editor's Output panel. **That log is the trap** — it is UDP straight from
-  the console to whichever `ps2client` is listening, so it does not go through
-  the file server at all and keeps arriving after the file channel is dead.
-  Two transports, one dead, and only the live one is visible. Before blaming a
-  format or a version mismatch, check the surviving `ps2client`'s command line
-  (`Get-CimInstance Win32_Process -Filter "name='ps2client.exe'"`): if its
-  `execee host:<name>.elf` names a different ELF than the project you are
-  debugging, that is your answer.
+  **A deploy no longer kills anybody else's file server, and the story of why
+  is worth keeping.** `deployToPs2`, `stopPs2` and `clean` used to run
+  `platform::killByName({"ps2client"})` — `taskkill /F /IM ps2client.exe`,
+  **machine-wide, by name** — so a *Run on PS2* of a DIFFERENT project (or of
+  the same project from another worktree's editor, which this repo routinely
+  has several of) silently took down the file server of the session you were
+  watching. Diagnosed once from timestamps alone: `livedbg.bin` and
+  `livetime.bin` in project A froze to the second at the moment project B was
+  deployed, while `[ps2]` log lines kept scrolling in the editor's Output
+  panel. **That log is the trap** — it is UDP straight from the console to
+  whichever `ps2client` is listening, so it does not go through the file server
+  at all and keeps arriving after the file channel is dead. Two transports, one
+  dead, and only the live one is visible.
+
+  Since 1.22.0 the Runner reaps only the servers it owns (its own by handle, a
+  stale one of the SAME project by its command line, an orphan no running
+  editor claims) and **refuses**, naming the project that holds the channel,
+  for anything else — docs/ps2link-setup.md, "One file server at a time". So
+  when a channel is dead now, ask `--debug-state`: it lists every `ps2client`
+  with the console (`-h`) and the game (`execee host:<name>.elf`) its command
+  line names, which is the same identity the Runner decides ownership by. If
+  that ELF is not the project you are debugging, somebody else has the channel
+  and your deploy will say so rather than stealing it.
+
+  **`platform::killByName` is gone from the tree, deliberately.** Use
+  `platform::processesNamed(name)` + `platform::killProcess(pid)` and decide
+  ownership from the command line; a process whose command line cannot be read
+  is never a target. Note the discriminator is the command line and not the
+  working directory, even though cwd would be sharper (the deploy runs its
+  server with cwd = `<project>/bin`): Linux answers that with one readlink of
+  `/proc/<pid>/cwd` and Windows has no supported way to ask, and a key only one
+  platform can compute is worse than a slightly weaker key both can.
 
   That leaves a bind for **scripted** hardware debugging: a probe needs the file
   server alive, but the editor that hosts it also drives `livedbg.cmd`, and two

@@ -1870,8 +1870,9 @@ void App::drawToolbar() {
     }
     // Stop: cancels a running build, else stops the selected target - closes
     // PCSX2, or on the console kills the file server + resets ps2link. The
-    // emulator side is always available (a stray PCSX2 can't be detected, and
-    // the kill is a no-op when none runs).
+    // emulator side is always available: it looks for the instance booting THIS
+    // project's ELF, which is a no-op when there is none and leaves the other
+    // worktrees' emulators alone.
     const bool stopEnabled = busy || targetReady;
     if (iconButton("##tb_stop", gapPair, stopEnabled,
                    busy            ? "Cancel build"
@@ -1881,7 +1882,7 @@ void App::drawToolbar() {
                    paintStop(stopEnabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else if (runOnPs2_) runner_.stopPs2(project_);
-        else runner_.stopEmulator();
+        else runner_.stopEmulator(project_);
     }
 
     // Live Link chip: a dot + label after the run group, ALSO the on/off
