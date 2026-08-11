@@ -206,8 +206,12 @@ Color is always retained as the fallback. A project with no matcap material does
 not upload the two `tce` programs. The all-class fallback remains deliberately
 available. The 2026-08-11 CLIP-history and packed-matcap cleanups reduced the
 set to 1992 slots; exact active-plane dispatch then spent 38 slots to skip
-irrelevant Sutherland-Hodgman passes. Its current exact Sony-VCL size is
-**2030 of the 2042 usable slots**.
+irrelevant Sutherland-Hodgman passes. ABI-compatible clip variants now share
+resident images: `C/D` use one two-stream image and `TC/TCE` one three-stream
+image, selected through `VU1_OPTIONS_ADDR.y`; `TD` stays specialised. Path1
+deduplicates program objects with the same source range and gives both objects
+one destination address. The current exact Sony-VCL all-class set is **1676 of
+the 2042 usable slots** (366 spare), down 354 slots from the active-plane build.
 
 Clip packets use a private extension of the standard buffer header. The vertex
 count remains in bits 0..9; bits 10..15 carry the six-plane mask in VU dispatch
@@ -227,6 +231,10 @@ in the simulator, diffs the GS output, prints the micro-memory budget. Exit 0
 only if every handwritten program parsed and every described one matched. This
 is the framework's test — there is no unit-test suite in this repo
 (`tyra-testing`).
+
+The check also exercises variant one of both shared clip images against the old
+specialised `D` and `TCE` programs. Ordinary per-description equivalence only
+selects variant zero and is not sufficient proof for a multi-entry image.
 
 Set `VUGEN_DUMP=1` and a mismatch also prints the whole GIF window from both
 programs side by side, quadword by quadword. One differing field tells you

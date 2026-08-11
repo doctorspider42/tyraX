@@ -466,6 +466,15 @@ struct Desc {
      * geometry the clipper produced. Emits a VARIABLE number of vertices and
      * patches the prim tag's NLOOP with the count. */
     bool clip = false;
+    /** Built-in clip images can cover one ABI-compatible peer at run time:
+     * C also covers D, and TC also covers TCE. The peer uses the same input
+     * stride, scratch stride and GIF register list, so only the per-corner
+     * shading branch differs; custom programs remain fully specialised. */
+    bool sharedClipDir = false;
+    bool sharedClipEnv = false;
+    /** Test-harness value written to VU1_OPTIONS_ADDR.y. It does not change
+     * generated code; non-zero selects the shared image's peer path. */
+    int runtimeClipVariant = 0;
     std::string dir = "as_is";  // sub-directory under programs/
 
     /** A PROJECT's own program: the same skeleton with a stage list woven in.

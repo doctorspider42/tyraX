@@ -1459,6 +1459,17 @@ simply delegates are not.
   carries the SAME factor the node contents do - the UI scale included, or a 250%
   editor draws grown nodes at un-grown spacing and they overlap.
 
+### VU clip-image aliases
+
+The five built-in clip classes occupy three resident code images: `C/D` share
+the generated C image, `TC/TCE` share TC, and `TD` stays specialised.
+`VU1_OPTIONS_ADDR.y` selects the peer path. Keep four pieces in step: the
+`Desc::sharedClip*` generator flags, the D/TCE EE wrappers' shared symbol
+ranges, `Path1::createProgramsCache` source-range deduplication, and the
+`engineCrossingInstructions` budget in `vu_ui.cpp`. A normal per-description
+equivalence run only selects variant zero; the `-- shared clip images, peer
+paths --` check against the specialised D/TCE sources is mandatory.
+
 ## Building the editor
 
 ```powershell

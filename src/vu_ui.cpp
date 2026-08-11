@@ -114,6 +114,32 @@ int classBitIndex(unsigned bit) {
     return 0;
 }
 
+/** Crossing-half instruction count with the built-in clip-image aliases
+ * applied. C/D share the C image; TC/TCE share the TC image. Cull and as_is
+ * remain one image per class. */
+int engineCrossingInstructions(unsigned mask, int fam) {
+    if (fam != 1) {
+        int total = 0;
+        for (const ClassRow& c : kClasses)
+            if (mask & c.bit)
+                total += engineSizes().instr[classBitIndex(c.bit)][fam];
+        return total;
+    }
+    int total = 0;
+    if (mask & ((1u << 0) | (1u << 1))) total += engineSizes().instr[0][1];
+    if (mask & (1u << 2)) total += engineSizes().instr[2][1];
+    if (mask & ((1u << 3) | (1u << 4))) total += engineSizes().instr[3][1];
+    return total;
+}
+
+int engineResidentInstructions(unsigned mask, int fam) {
+    int total = engineCrossingInstructions(mask, fam);
+    for (const ClassRow& c : kClasses)
+        if (mask & c.bit)
+            total += engineSizes().instr[classBitIndex(c.bit)][0];
+    return total;
+}
+
 /** A tooltip on the widget just submitted. Deliberately a local copy rather
  * than a shared helper: the flow-graph editor's version carries extra
  * bookkeeping for its node canvas, and the ONE rule that matters here is the
@@ -402,13 +428,7 @@ void App::drawVuProgramsWindow() {
             // on the clipping mode, and the clip family is far bigger - so the
             // mode is part of the budget, not a detail.
             const int fam = project_.settings.clipping == "vu1" ? 1 : 2;
-            int totEmitted = 0;
-            for (const ClassRow& c : kClasses) {
-                if ((mask & c.bit) == 0) continue;
-                const int ci = classBitIndex(c.bit);
-                totEmitted += engineSizes().instr[ci][0] +
-                              engineSizes().instr[ci][fam];
-            }
+            int totEmitted = engineResidentInstructions(mask, fam);
             // A custom program REPLACES its class's cull half, so only the
             // difference against the engine's own is new weight.
             for (const vugen::Built& b : vuPreview_) totEmitted += b.stageInstrs;
@@ -484,13 +504,31 @@ void App::drawVuProgramsWindow() {
                     // twins the mode selects. The other one sits in the ELF
                     // costing nothing - counting it is what made this estimate
                     // claim both modes cost the same.
-                    r.delta = r.instrs - engineSizes().instr[ci][r.fam];
+                    const bool sharedClip =
+                        r.fam == 1 && r.bit != (1u << 2);
+                    r.delta = sharedClip
+                                  ? r.instrs
+                                  : r.instrs - engineSizes().instr[ci][r.fam];
                     r.resident = r.fam == 0 || r.fam == fam;
-                    if (r.boot && r.resident && (mask & r.bit))
-                        totEmitted += r.delta;
                     scriptRows.push_back(r);
                 }
             }
+            unsigned customClipMask = 0;
+            for (const ScriptRow& r : scriptRows)
+                if (r.boot && r.resident && r.fam == 1 && (mask & r.bit))
+                    customClipMask |= r.bit;
+            // If every active member of a shared pair is overridden, its
+            // built-in image is no longer resident. Otherwise it stays once
+            // for the stock peer and each override is additional.
+            const unsigned cd = mask & ((1u << 0) | (1u << 1));
+            if (cd != 0 && (cd & ~customClipMask) == 0)
+                totEmitted -= engineSizes().instr[0][1];
+            const unsigned tctce = mask & ((1u << 3) | (1u << 4));
+            if (tctce != 0 && (tctce & ~customClipMask) == 0)
+                totEmitted -= engineSizes().instr[3][1];
+            for (const ScriptRow& r : scriptRows)
+                if (r.boot && r.resident && (mask & r.bit))
+                    totEmitted += r.delta;
             const int totLo = (totEmitted + 1) / 2, totHi = totEmitted;
             const float frac = (float)totHi / 2042.0f;
             char bar[64];
@@ -523,13 +561,8 @@ void App::drawVuProgramsWindow() {
                     commitChange();
                 }
                 ImGui::SameLine(scaled(250));
-                int clipTot = 0, asIsTot = 0;
-                for (const ClassRow& c : kClasses) {
-                    if ((mask & c.bit) == 0) continue;
-                    const int ci = classBitIndex(c.bit);
-                    clipTot += engineSizes().instr[ci][1];
-                    asIsTot += engineSizes().instr[ci][2];
-                }
+                const int clipTot = engineCrossingInstructions(mask, 1);
+                const int asIsTot = engineCrossingInstructions(mask, 2);
                 ImGui::TextDisabled("%d slots, against %d for the EE clipper",
                                     clipTot, asIsTot);
                 if (ImGui::IsItemHovered() || ImGui::IsItemHovered())
@@ -561,8 +594,13 @@ void App::drawVuProgramsWindow() {
                 bool on = (mask & c.bit) != 0;
                 const bool used = (needed & c.bit) != 0;
                 const int ci = classBitIndex(c.bit);
-                const int emitted =
-                    engineSizes().instr[ci][0] + engineSizes().instr[ci][fam];
+                int crossing = engineSizes().instr[ci][fam];
+                if (fam == 1) {
+                    const unsigned without = mask & ~c.bit;
+                    crossing = engineCrossingInstructions(mask | c.bit, 1) -
+                               engineCrossingInstructions(without, 1);
+                }
+                const int emitted = engineSizes().instr[ci][0] + crossing;
                 const int lo = (emitted + 1) / 2, hi = emitted;
                 ImGui::PushID((int)c.bit);
                 if (c.bit == 1u) ImGui::BeginDisabled();  // the fallback floor
@@ -598,13 +636,23 @@ void App::drawVuProgramsWindow() {
             // console run flipped vu-lab to VU1 clipping at run time and hit
             // the engine's own overflow assert.
             {
-                int other = 0;
                 const int otherFam = fam == 1 ? 2 : 1;
-                for (const ClassRow& c : kClasses) {
-                    if ((mask & c.bit) == 0) continue;
-                    const int ci = classBitIndex(c.bit);
-                    other += engineSizes().instr[ci][0] +
-                             engineSizes().instr[ci][otherFam];
+                int other = engineResidentInstructions(mask, otherFam);
+                if (otherFam == 1) {
+                    unsigned otherCustomClipMask = 0;
+                    for (const ScriptRow& r : scriptRows)
+                        if (r.boot && r.fam == 1 && (mask & r.bit))
+                            otherCustomClipMask |= r.bit;
+                    const unsigned otherCd =
+                        mask & ((1u << 0) | (1u << 1));
+                    if (otherCd != 0 &&
+                        (otherCd & ~otherCustomClipMask) == 0)
+                        other -= engineSizes().instr[0][1];
+                    const unsigned otherTcTce =
+                        mask & ((1u << 3) | (1u << 4));
+                    if (otherTcTce != 0 &&
+                        (otherTcTce & ~otherCustomClipMask) == 0)
+                        other -= engineSizes().instr[3][1];
                 }
                 for (const vugen::Built& b : vuPreview_) other += b.stageInstrs;
                 for (const ScriptRow& r : scriptRows) {

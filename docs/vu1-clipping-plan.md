@@ -245,6 +245,18 @@ Retired / simplified:
   `--vu-check` covers both sparse single-plane and full-mask execution across
   all five handwritten/generated clip twins. Docker rebuilt the engine and
   linked `examples/showcase` successfully.
+- **M10 — ABI-paired shared clip images. DONE 2026-08-11.** `C/D` now share
+  one two-stream image and `TC/TCE` one three-stream image; `TD` remains fully
+  specialised. `VU1_OPTIONS_ADDR.y` selects only the per-corner preparation
+  branch, after which each pair enters the same scratch clipper, fan emitter
+  and GIF layout. `Path1::createProgramsCache` aliases program objects with an
+  identical source range to one upload and one destination address, including
+  partial resident-class sets and custom overrides. `--vu-check` compares both
+  shared peer paths directly against their former specialised programs over 60
+  random trials. Sony VCL measured `C/D` at 326 slots and `TC/TCE` at 316; with
+  the specialised 226-slot `TD` image and five cull images the all-class set is
+  now **1676 of 2042 slots** — 354 slots smaller than M9, with 366 spare. The
+  final showcase ELF contains no `Clip_D` or `Clip_TCE` code image.
 
 ## Verification protocol (every milestone)
 

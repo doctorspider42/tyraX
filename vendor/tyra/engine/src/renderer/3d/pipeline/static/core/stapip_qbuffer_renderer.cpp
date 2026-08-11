@@ -354,9 +354,16 @@ void StaPipQBufferRenderer::sendObjectData(
 
   packet2_utils_vu_open_unpack(objectDataPacket, VU1_OPTIONS_ADDR, false);
   {
+    const u32 sharedClipVariant =
+        bag->lighting != nullptr ||
+                (bag->texture != nullptr && bag->texture->coordinatesAreNormals)
+            ? 1
+            : 0;
     packet2_add_u32(objectDataPacket,
                     singleColorEnabled);   // Single color enabled.
-    packet2_add_u32(objectDataPacket, 0);  // not used (dynpip lerp slot)
+    // Static-pipeline-only use of the old dynpip lerp lane: C/D and TC/TCE
+    // share one clip image per ABI-compatible pair. Other programs ignore it.
+    packet2_add_u32(objectDataPacket, sharedClipVariant);
     // Modified by TyraX: GS hardware fog params (see RendererCoreFog)
     packet2_add_float(objectDataPacket, rendererCore->fog.scale);
     packet2_add_float(objectDataPacket, rendererCore->fog.offset);
@@ -500,12 +507,12 @@ void StaPipQBufferRenderer::setProgramsCache() {
   // as_is is only ever fed by the retired EE clipper path).
   // The env (matcap) variants ride along in both sets: cull_tce +
   // as_is_tce with the EE clipper, cull_tce + clip_tce in VU1-clipping
-  // mode. The vu1 set only fits because the five clip programs share one
-  // rotating fan emitter (see fanEmitLoop in the .vclpp files) - three
-  // inlined emit copies per program measured 2162 instructions against
-  // the 2042 ceiling. Check the micro-memory budget with nm after
-  // touching any program - the createProgramsCache overflow assert is
-  // compiled out in release.
+  // mode. The clip family uses three resident images: C/D share the C image,
+  // TC/TCE share TC, and TD stays specialised. Their input/scratch/output ABIs
+  // match within each pair; VU1_OPTIONS_ADDR.y selects only the per-corner
+  // shading path. Path1 aliases identical source ranges to one destination.
+  // Check the exact micro-memory budget with nm after touching any program -
+  // the createProgramsCache overflow assert is compiled out in release.
   // Modified by TyraX: the set is DATA-DRIVEN now (setResidentClasses). Each
   // material class contributes a pair - the cull program plus its clipped or
   // as_is twin - and a class the project never draws can be dropped to buy
@@ -536,8 +543,8 @@ void StaPipQBufferRenderer::setProgramsCache() {
   programsPacket = path1->createProgramsCache(programs, count, 0);
 
   // Modified by TyraX: the billboard family lives in its own small packet,
-  // swapped in on demand (ensureProgramSet) - the resident set above has no
-  // spare micro memory for it. Built once; independent of the clipping mode.
+  // swapped in on demand (ensureProgramSet). Built once; independent of the
+  // clipping mode, even though shared clip images now leave useful headroom.
   if (billboardProgramsPacket == nullptr) {
     VU1Program* billboardPrograms[2];
     billboardPrograms[0] = repository.getProgram(StaPipBillboardColor);

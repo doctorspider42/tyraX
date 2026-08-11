@@ -1098,12 +1098,15 @@ Desc descClipColor() {
     d.programEnum = "StaPipClipColor";
     d.title = "StaPip - Clip - C";
     d.clip = true;
+    d.sharedClipDir = true;
     d.dir = "clip";
     return d;
 }
 
 Desc descClipTextureColor() {
     Desc d = descClipColor();
+    d.sharedClipDir = false;
+    d.sharedClipEnv = true;
     d.vclName = "StaPipVU1ClipTC";
     d.asmName = "StaPipVU1Clip_TC";
     d.fileStem = "stapip_clip_tc_vu1";
@@ -1116,6 +1119,7 @@ Desc descClipTextureColor() {
 
 Desc descClipDirLights() {
     Desc d = descClipColor();
+    d.sharedClipDir = false;
     d.vclName = "StaPipVU1ClipD";
     d.asmName = "StaPipVU1Clip_D";
     d.fileStem = "stapip_clip_d_vu1";
@@ -1140,6 +1144,7 @@ Desc descClipTextureDirLights() {
 
 Desc descClipTextureEnv() {
     Desc d = descClipTextureColor();
+    d.sharedClipEnv = false;
     d.vclName = "StaPipVU1ClipTCE";
     d.asmName = "StaPipVU1Clip_TCE";
     d.fileStem = "stapip_clip_tce_vu1";
@@ -1275,6 +1280,8 @@ Desc descForClass(unsigned classBit, int lookIndex, Half half) {
             break;
     }
     d.custom = true;
+    d.sharedClipDir = false;
+    d.sharedClipEnv = false;
     d.dir = "gen";
     // The look INDEX is in the name because several looks may target the same
     // class - only one is installed at a time, but they all have to exist in
@@ -1904,7 +1911,7 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
         }
     }
 
-    if (d.env) {
+    if (d.env || d.sharedClipEnv) {
         static const char* en[3] = {"envBasisX", "envBasisY", "envBasisZ"};
         Val* slot[3] = {&k.envBasisX, &k.envBasisY, &k.envBasisZ};
         for (int i = 0; i < 3; ++i) {
@@ -2154,7 +2161,7 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     }
 
     Val envScratch[2];
-    if (d.env) {
+    if (d.env || d.sharedClipEnv) {
         static const char* sn[2] = {"tyraEnvLen", "tyraEnvNrm"};
         for (int i = 0; i < 2; ++i) envScratch[i] = b.named(sn[i]);
     }
@@ -2399,6 +2406,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
  * the builder reads best rather than line by line. */
 void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     Vu b(prog);
+    const bool sharedDir = d.sharedClipDir;
+    const bool sharedEnv = d.sharedClipEnv;
     const bool colorStream = !d.dirLights;
     const bool spot = usesSpotLight(d);
     // One scratch-polygon vertex: [pos, colour], or [pos, stq, colour].
@@ -2457,8 +2466,20 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     if (colorStream) {
         colorData = b.inamed("colorData");
         b.iaddInto(colorData, lastBlock, vertexCount);
+        if (sharedDir) {
+            normalData = colorData;  // same second-block ABI, different meaning
+        }
         const Lbl multi = b.label("setDestAddrMultiColor");
         const Lbl done = b.label("setDestAddr");
+        const Lbl colorMode = b.label("setDestAddrColor");
+        if (sharedDir) {
+            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1,
+                    "VU1_OPTIONS_ADDR.y = shared clip variant");
+            b.branchIfLez(sceFlag, colorMode);
+            b.iaddInto(destAddress, normalData, vertexCount);
+            b.branch(done);
+            b.bind(colorMode);
+        }
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0,
                 "VU1_OPTIONS_ADDR.x = single colour flag");
         b.branchIfLez(sceFlag, multi);
@@ -2498,10 +2519,10 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         color[i] = b.named(colorNames[i]);
         vertex[i] = b.named(vertexNames[i]);
         if (d.texture) st[i] = b.named(stNames[i]);
-        if (!colorStream) normal[i] = b.named(normalNames[i]);
+        if (!colorStream || sharedDir) normal[i] = b.named(normalNames[i]);
     }
 
-    if (colorStream) {
+    auto loadColors = [&]() {
         const Lbl multiColor = b.label("multiColor");
         const Lbl processing = b.label("processing");
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
@@ -2511,13 +2532,16 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         b.bind(multiColor);
         for (int i = 0; i < 3; ++i) loadInto(prog, color[i], colorData, i);
         b.bind(processing);
-    }
+    };
+    if (colorStream && !sharedDir) loadColors();
+
     for (int i = 0; i < 3; ++i)
         loadInto(prog, vertex[i], vertexData, i, MALL,
                  i == 0 ? "object space - the MVP multiply is below" : nullptr);
     if (d.texture)
         for (int i = 0; i < 3; ++i) loadInto(prog, st[i], stqData, i);
-    if (!colorStream) {
+
+    auto shadeDirectional = [&]() {
         for (int i = 0; i < 3; ++i)
             loadInto(prog, normal[i], normalData, i, MXYZ);
         // Lit on the ORIGINAL three corners; the colours are then interpolated
@@ -2528,17 +2552,12 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         for (int i = 0; i < 3; ++i)
             b.dirLightShade(color[i], normal[i], k.lightMatrix, k.lightDirs,
                             k.lightColors, k.ambient);
-    }
+    };
 
     Val envScratch[2];
-    if (d.env) {
+    if (d.env || sharedEnv) {
         static const char* sn[2] = {"tyraEnvLen", "tyraEnvNrm"};
         for (int i = 0; i < 2; ++i) envScratch[i] = b.named(sn[i]);
-        // The matcap ST, from the object-space normals in the ST slot, BEFORE
-        // the transform and the judgement: the macro's rsqrt writes Q and every
-        // later Q write - the edge lerps, the emitter's divide - comes after.
-        for (int i = 0; i < 3; ++i)
-            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
     }
 
     Val spotScratch[7];
@@ -2546,6 +2565,53 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         static const char* sn[7] = {"spotD", "spotSq", "spotDist", "spotTm",
                                     "spotT", "spotC",  "spotA"};
         for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
+    }
+
+    auto applySpot = [&]() {
+        for (int i = 0; i < 3; ++i)
+            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
+                        spotScratch);
+        for (int i = 0; i < 3; ++i) {
+            // Clamp before interpolation. The emitter still provides the
+            // matching floor and integer conversion after clipping.
+            b.loadI(255.0f);
+            b.minimumIInto(color[i], color[i], MXYZ);
+        }
+    };
+    auto applyEnv = [&]() {
+        // Matcap ST from the object-space normals, before any Q-consuming
+        // clip interpolation or perspective divide.
+        for (int i = 0; i < 3; ++i)
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
+    };
+
+    if (sharedDir) {
+        const Lbl colorMode = b.label("sharedColorMode");
+        const Lbl prepared = b.label("sharedAttributesReady");
+        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+        b.branchIfLez(sceFlag, colorMode);
+        shadeDirectional();
+        b.branch(prepared);
+        b.bind(colorMode);
+        loadColors();
+        applySpot();
+        b.bind(prepared);
+    } else {
+        if (!colorStream) shadeDirectional();
+
+        if (sharedEnv) {
+            const Lbl envMode = b.label("sharedEnvMode");
+            const Lbl prepared = b.label("sharedAttributesReady");
+            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+            b.branchIfGtz(sceFlag, envMode);
+            applySpot();
+            b.branch(prepared);
+            b.bind(envMode);
+            applyEnv();
+            b.bind(prepared);
+        } else if (d.env) {
+            applyEnv();
+        }
     }
 
     StageCtx sc;
@@ -2600,11 +2666,11 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // being displaced.
         if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
     }
-    if (spot)
+    if (spot && !sharedDir && !sharedEnv)
         for (int i = 0; i < 3; ++i)
             b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
                         spotScratch);
-    if (spot)
+    if (spot && !sharedDir && !sharedEnv)
         for (int i = 0; i < 3; ++i) {
             // CEILING BEFORE THE CLIPPER INTERPOLATES. The emitter clamps too,
             // but that is after the lerp: a saturated corner left at its raw
@@ -2929,6 +2995,14 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     } else {
         const Lbl kickMulti = b.label("kickMulti");
         const Lbl kickPatch = b.label("kickPatch");
+        const Lbl kickColor = b.label("kickColor");
+        if (sharedDir) {
+            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+            b.branchIfLez(sceFlag, kickColor);
+            b.iaddInto(vertexData, colorData, b.izero());
+            b.branch(kickPatch);
+            b.bind(kickColor);
+        }
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
         b.branchIfLez(sceFlag, kickMulti);
         if (d.texture) b.iaddInto(vertexData, stqData, b.izero());
@@ -3679,6 +3753,7 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     auto puti = [&](int qw, int f, uint32_t v) { mem[(size_t)qw * 4 + f] = v; };
 
     puti(kOptionsAddr, 0, singleColor ? 1u : 0u);
+    puti(kOptionsAddr, 1, static_cast<uint32_t>(d.runtimeClipVariant));
     putf(kOptionsAddr, 2, -255.0f / 900.0f);
     putf(kOptionsAddr, 3, 255.0f * 1000.0f / 900.0f);
     for (int f = 0; f < 4; ++f)

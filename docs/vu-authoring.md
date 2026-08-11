@@ -1128,6 +1128,13 @@ than the generator's descriptions. That is not fastidiousness: budgeting against
 the cull half alone showed `examples/vu-lab` comfortably green while the console
 died on the engine's assert the first time it ran.
 
+The built-in clip family is five logical programs but only three resident code
+images. `C/D` share the two-stream image, `TC/TCE` share the three-stream image,
+and `TD` remains specialised. The Micro memory panel applies those aliases (and
+prices a custom override as a separate image); summing all five `.vclpp` files
+by hand is deliberately conservative but no longer describes what Path1
+uploads.
+
 ```
 | Assertion failed!
 | VU1 pipeline programs overflow into the draw-finish program

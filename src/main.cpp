@@ -2110,6 +2110,53 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
+    // The built-in C/D and TC/TCE clip pairs now share one resident image per
+    // ABI-compatible pair. The ordinary checks above exercise variant zero;
+    // compare variant one directly with the old specialised peer as well.
+    std::printf("-- shared clip images, peer paths --\n");
+    auto checkSharedClip = [&](const char* sharedStem, const char* peerStem,
+                               const char* label) {
+        const std::vector<vugen::Desc> descs = vugen::allDescs();
+        const vugen::Desc* peer = nullptr;
+        for (const vugen::Desc& d : descs)
+            if (d.fileStem == peerStem) peer = &d;
+        if (peer == nullptr) {
+            std::printf("  %-16s FAILED: missing peer description\n", label);
+            ++mismatches;
+            return;
+        }
+        const fs::path root = fs::path(engine) / "src" / "renderer" / "3d" /
+                              "pipeline" / "static" / "core" / "programs" /
+                              "clip";
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program shared, specialised;
+        std::string err;
+        if (!vuasm::parseFile((root / (std::string(sharedStem) + ".vclpp")).string(),
+                              opt, shared, err) ||
+            !vuasm::parseFile((root / (std::string(peerStem) + ".vclpp")).string(),
+                              opt, specialised, err)) {
+            std::printf("  %-16s FAILED: %s\n", label, err.c_str());
+            ++mismatches;
+            return;
+        }
+        vugen::Desc staged = *peer;
+        staged.runtimeClipVariant = 1;
+        const vugen::Equivalence eq = vugen::equivalence(
+            shared, specialised, staged, 60, 0x5A4ECA11u);
+        std::printf("  %-16s %-9s %d trials, up to %d vertices\n", label,
+                    eq.identical ? "IDENTICAL" : "DIFFERENT", eq.trials,
+                    eq.vertices);
+        if (!eq.identical) {
+            ++mismatches;
+            if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
+            if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+    };
+    checkSharedClip("stapip_clip_c_vu1", "stapip_clip_d_vu1", "Clip C/D");
+    checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_tce_vu1", "Clip TC/TCE");
+    std::printf("\n");
+
     // 3. The emitted SOURCE must behave like the IR it came from.
     //
     // This is not paranoia, it is the check whose absence shipped a broken

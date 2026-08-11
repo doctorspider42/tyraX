@@ -188,7 +188,7 @@ expands each center into a camera-facing quad — 6 GS vertices — from the
 camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
 once per mesh, and culls per QUAD with one `clipw` judgement per corner.
 The two programs are NOT resident: the VU1-clipping program set fills micro
-memory to 2030/2042, so they live in their own packet swapped in on demand
+memory to 1676/2042, so they live in their own packet swapped in on demand
 (`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
 restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
 transition count and full wait/upload ticks, plus cull/clip/outside routes,
@@ -476,7 +476,7 @@ banner both, so a previously built ELF still reports.
   whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
   state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
   (there is not enough micro memory left to carry it in-band the way the ALPHA
-  qword is - the clip program set sits at 2030/2042). What nobody had noticed is
+  qword is - the clip program set sits at 1676/2042). What nobody had noticed is
   that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
   clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
   generated game sampled clamped**. Harmless for a model whose STs are 0..1;
@@ -608,9 +608,8 @@ banner both, so a previously built ELF still reports.
   per vertex, 6 instructions) is all that fits — adding the matching
   `max.xyz … vf00[x]` floor too (9 per program) tripped the real
   `VU1 pipeline programs overflow into the draw-finish program` assert
-  (path1.cpp:145) on the boot logo. The full clip family has 50 slots of
-  micro-memory headroom after the 2026-08-11 active-plane dispatch work is 12
-  slots;
+  (path1.cpp:145) on the boot logo. After the 2026-08-11 shared-image work the
+  all-class set has 366 slots of micro-memory headroom;
   measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
   after ANY edit there. **And the clip family now has a C++ description**
@@ -618,6 +617,16 @@ banner both, so a previously built ELF still reports.
   has to be made in BOTH places or `--vu-check` fails — which is the point:
   the ceiling above is exactly the kind of change that used to be applied to
   `clip_c` and forgotten on `clip_tc`.
+- **The five logical clip programs occupy three resident images.** `C/D` share
+  the C image (same two-stream input and stride-2 scratch ABI), `TC/TCE` share
+  TC (same three-stream/stride-3 ABI), and `TD` stays specialised.
+  `VU1_OPTIONS_ADDR.y` selects the peer's per-corner shading path. The wrapper
+  objects deliberately point at the same CodeStart/CodeEnd range and
+  `Path1::createProgramsCache` must alias that range to one destination instead
+  of uploading it twice. If a generated override replaces one peer, it gets its
+  own image while the built-in image remains for the other. `--vu-check` has a
+  separate peer-path section because normal description parity only exercises
+  variant zero.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
