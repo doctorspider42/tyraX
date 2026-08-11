@@ -25,6 +25,11 @@ public:
         SolidWireframe = 2,  // solid shading with a dark wireframe overlay
     };
 
+    // View > Collision boxes: draw the box the GAME collides with over every
+    // collider (docs/collision-boxes.md). Editor state, no project data.
+    void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
+    bool collisionOverlay() const { return collisionOverlay_; }
+
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
 
@@ -89,7 +94,7 @@ public:
     // Objects on hidden layers are excluded like they are for picking.
     // Returns false when the ray leaves the scene without hitting anything.
     bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
-                          const std::vector<char>& skip, float outPoint[3]) const;
+                          const std::vector<char>& skip, float outPoint[3]);
 
     // Inverse of camRay: a world point -> normalized image coords (u, v in
     // [0,1], origin top-left) of the LAST rendered frame. False when the point
@@ -441,7 +446,13 @@ public:
         float angleDeg = 40.0f;   // turntable yaw
         float pitchDeg = 15.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier
+        // Camera-target offset in preview-radius units, expressed in the
+        // current camera's screen plane. This keeps panning equally useful on
+        // a centimetre prop and a ten-metre character.
+        float panX = 0.0f;
+        float panY = 0.0f;
         bool wireframe = false;   // overlay the triangles
+        bool inPlace = false;     // remove horizontal root motion
         PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
@@ -588,7 +599,23 @@ public:
 
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
-    int pick(float u, float v, const std::vector<SceneObject>& objects) const;
+    int pick(float u, float v, const std::vector<SceneObject>& objects);
+
+    // Every object under those coordinates, front to back - the click order
+    // pick() returns the first of. Repeated clicks at the same spot walk this
+    // list, which is the only way to reach something standing inside or behind
+    // another object with the mouse alone (App::viewportPick).
+    void pickAll(float u, float v, const std::vector<SceneObject>& objects,
+                 std::vector<int>& out);
+
+    // The box a click tests against, in the object's own rotated frame and in
+    // WORLD units - i.e. what the object DRAWS as, not the unit cube: a
+    // model's mesh bounds, a marker's own extents, a primitive's unit box.
+    // The object's scale is already folded in, because a fixed-size marker
+    // (an emitter cone, a scroller origin) draws the same whatever the scale
+    // says. Shared by pick() and placementRaycast() so what the cursor rests
+    // on stays what a click would select.
+    void pickBounds(const SceneObject& o, float mn[3], float mx[3]);
 
 private:
     struct Mesh {
@@ -616,11 +643,13 @@ private:
     int hmW_ = 0, hmD_ = 0;
 
     // Nav-mesh overlay mesh (see setNavOverlay)
+    bool collisionOverlay_ = false;
     bool navOverlayOn_ = false;
     std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
+    Mesh collisionCube_;  // exact unit wire cube for the collision overlay
 
     // Scatter preview (see setScatterPreview): the pushed result plus the GL
     // meshes for its mask / curve overlays, rebuilt only when version changes.
@@ -816,7 +845,7 @@ private:
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).
     std::map<int, Mesh> boxMeshes_, sphereMeshes_, cylinderMeshes_, coneMeshes_;
-    const Mesh& primMesh(PrimitiveType type, int detail);
+    const Mesh& primMesh(PrimitiveType type, int detail, bool rings = false);
     void clearPrimMeshCache();
     std::string projectDir_;
     // .obj models split per material (MTL): each part carries its own GL mesh
@@ -876,7 +905,7 @@ private:
     // baked frame list, wrapped inside [first, first + count). The shared
     // worker behind updateAnimPose and the Animation Editor preview.
     void uploadAnimPose(AnimModelDraw& draw, int firstFrame, int frameCount,
-                        float frame);
+                        float frame, bool inPlace = false);
     double animClock_ = 0.0;  // preview time in seconds (advanced per render)
     // Non-destructive clip edits pushed in by the app (it owns the Project).
     // The preview applies the same trim/retime the build bakes, so a placed

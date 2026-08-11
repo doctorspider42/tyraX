@@ -1,6 +1,6 @@
 # Texture atlasing
 
-*Project > Preferences > Build > Texture atlasing* (default off). At build,
+*Project > Preferences > Rendering > Texture atlasing* (default off). At build,
 small material textures are packed into shared **256×256 pages**: the GS
 keeps **one VRAM allocation (+~8 KB allocation overhead) per page** instead
 of one per texture, and draw batches switch textures less. On a scene

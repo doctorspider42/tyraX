@@ -20,6 +20,14 @@ examples/** text=auto eol=lf
 *.heights text eol=lf
 *.flownode text eol=lf
 
+# The neural upscaler's network and its provenance sidecar. The `.net` is 500
+# bytes of floats and must never be line-ending-normalised; the `.meta` is text
+# the TRAINER writes with LF, and the check that guards the shipped default is
+# "re-run the command recorded inside it and diff", so a checkout that turned it
+# into CRLF would make that diff fail forever on Windows and nowhere else.
+*.net binary
+*.net.meta text eol=lf
+
 # The TyraX ps2link patch is applied to a Unix (Linux-container) checkout of
 # ps2link; a CRLF patch fails `git apply`. Keep it (and the tool sources) LF.
 tools/ps2link/** text=auto eol=lf

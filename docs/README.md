@@ -71,6 +71,24 @@ guides. What is queued is in [Backlog](backlog.md).
   `.screenfx` text files (no editor rebuild): a small manifest plus a raw
   low-level GS-blit body, positioned in the UI Editor screen stack with numeric
   parameters, and how to copy an effect to another project.
+- [The neural upscaler (BLSS)](neural-upscaler.md) - rendering the 3D scene at
+  half resolution and reconstructing it with a small neural network that picks,
+  per 32x32 screen tile, how much point / temporal / sharpened reconstruction
+  that tile wants: the sub-pixel `XYOFFSET` jitter, the features the EE can
+  produce without ever reading the framebuffer back, the free full-resolution
+  history hiding in the other display buffer, the host-side trainer
+  (`--blss-train <projectDir>` / `--blss-eval` / `--blss-eval --cv`, threaded and
+  byte-for-byte deterministic at any `--threads N`), why you must **fit the
+  project you will ship** - a net trained on the built-in bestiary measured
+  -0.40 dB, i.e. worse than doing nothing, on a real project - the three-term
+  objective the oracle actually minimises (accuracy, flicker and the fill the
+  composite would cost), the SIX times this feature learned that anything absent
+  from the objective, or from the measurement, or from the thing being measured
+  ON, does not exist (the fifth is the most transferable: every
+  out-of-distribution decibel it ever quoted came from a single held-out split,
+  and cross-validating turned "statistically a draw" into a real +0.42 dB on the
+  bestiary), and why shrinking the z buffer to the reduced raster makes it leave
+  MORE texture VRAM than not using it at all.
 - [Emissive materials (glow)](emissive-materials.md) - making a material light
   itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
   floor baked into the vertex colors (free at runtime), the white-hot core (why
@@ -288,3 +306,17 @@ Developer design docs (internals, not user guides):
 - [GS VRAM residency](gs-vram.md) - where the 4 MB goes, what a texture
   really costs, the free-list texture heap and its eviction policy, the
   `VRAMSTAT` counters, and the measured before/after numbers.
+- [Frame extrapolation](frame-extrapolation.md) - synthesising an extra
+  presented frame by re-drawing the last one under a newer camera, so the world
+  can run at half the field rate: the reprojection (exact for rotation, a single
+  plane for translation), the measured 25 Hz world / 50 Hz picture, and what the
+  capture tools here could not verify.
+- [Frame pacing](frame-pacing.md) - the vsync cliff that halves the frame rate
+  when a frame overruns its field by a hair, the triple-buffered present that
+  removes it (a vblank interrupt latches `DISPFB`), what the third display
+  buffer costs in GS VRAM and why the engine refuses it in most display modes.
+- [BLSS reconstruction math](blss-reconstruction.md) - the twin contract
+  between the neural upscaler's host trainer and its PS2 runtime: the exact
+  sampling, blend equations, 8-bit truncation and grid vertex order both sides
+  must agree on, and why a drift between them trains the network for a machine
+  that does not exist.

@@ -57,6 +57,16 @@ binding flips it; the env map and portals never showed this because they
 don't sample with plain UVs). And the default Repeat wrap bleeds the
 opposite edge rows into the screen border — the feed texture is Clamp.
 
+That Clamp is real now, and it was not before TyraX 1.9.1. The GS wrap mode
+is one global register that no 3D pipeline wrote per mesh, so a feed sampled
+clamped only because the whole engine happened to be left clamped at boot —
+which is the same accident that stopped the *terrain* from tiling
+([terrain painting](terrain-painting.md)). 3D is REPEAT from the top of every
+frame now, and a bag whose texture asks for clamping is bracketed by a
+pipeline drain and a CLAMP register write. That drain is why the mechanism is
+reserved for render targets: it is a barrier, and one per such mesh per frame
+is only affordable because there are a handful of them.
+
 ## Costs and constraints
 
 - A camera feed is a real second scene render (bounded by the view list)

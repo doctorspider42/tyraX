@@ -22,6 +22,7 @@
 #include "./stapip_program_name.hpp"
 #include "./stapip_programs_repository.hpp"
 #include "./stapip_clipper.hpp"
+#include "./stapip_telemetry.hpp"
 #include "renderer/core/paths/path1/path1.hpp"
 #include "renderer/core/renderer_core.hpp"
 #include "renderer/core/texture/renderer_core_texture_buffers.hpp"
@@ -54,6 +55,9 @@ class StaPipQBufferRenderer {
   void setMaxVertCount(const u32& count);
 
   void setInfo(PipelineInfoBag* bag);
+
+  /** TyraX addition: null keeps the hot path free of counter/timer reads. */
+  void setTelemetry(StaPipTelemetry* value) { telemetry = value; }
 
   /** Fast render with culling */
   void cull(StaPipQBuffer* buffer);
@@ -221,6 +225,8 @@ class StaPipQBufferRenderer {
   float clipNearZ = 0.0F, clipFarZ = 0.0F;
   // Modified by TyraX: per-bag dynamic light (see setBagLight).
   const RendererCoreSpotLight* bagLight = nullptr;
+  // Modified by TyraX: opt-in routing/VU1 back-pressure telemetry.
+  StaPipTelemetry* telemetry = nullptr;
 };
 
 }  // namespace Tyra

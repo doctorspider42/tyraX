@@ -1,0 +1,27 @@
+# Authored assets (models, textures, materials, ui, audio, sfx) are
+# checked in - a pulled project must render without missing files. Only
+# build-regenerated output is ignored.
+/menus/
+# Baked memory card icon (docs/save-editor.md): icon.sys + list.icn, derived
+# from the title/icon settings in the .tyra and rebaked on every build. The
+# "checking memory card" overlay in res/hud/ is NOT here - that one is written
+# only when missing, so it is user-replaceable like the other HUD sprites.
+/save/
+# Baked credits page strips (docs/credits.md). The roll ITSELF is in the
+# .tyra - these are its pixels, rewritten on every build. The images an
+# Image block points at live in res/credits/ and ARE checked in.
+/credits/pages/
+
+# Baked model output - the .glb/.obj next to it is the source, these are
+# regenerated on every build (docs/model-pipeline.md).
+/models/*.tskl
+/models/*.tanm
+/models/*.tmdl
+
+# The stock rules above only reach res/models/*.tmdl - one level. This example
+# keeps the cottage in res/models/cottage/, so its bake lands a directory
+# deeper and would otherwise be committed (411 KB of derived data). Filed
+# against TPL_RES_GITIGNORE in docs/backlog.md.
+/models/**/*.tmdl
+/models/**/*.tskl
+/models/**/*.tanm

@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ambience.hpp"
+#include "facts.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
 #include "input.hpp"
@@ -182,16 +183,36 @@ inline int primSphereStacks(int detail) {
     const int s = detail * 5 / 7;
     return s < 2 ? 2 : s;
 }
+// Cylinder rings ALONG THE AXIS, same idea. Without them the side is one quad
+// tall however high the detail goes, so anything that varies vertically - a
+// lamp above the pillar, the contact darkening at its foot, a probe gradient -
+// can only be a linear ramp between the top and bottom rims, and every segment
+// shows that ramp's diagonal seam as a full-height stripe. Measured on the
+// PS2: raising detail 4 -> 32 multiplied the stripes (0 -> 15 reversals across
+// the silhouette) without shrinking their amplitude at all, because the added
+// vertices all went AROUND the cylinder and none of them went up it.
+// One ring per four radial segments keeps a side quad roughly square at the
+// default 16 and leaves detail < 8 emitting exactly what it emitted before.
+// Opt-in per object (SceneObject::primRings): the rings only pay for
+// themselves when something lights the cylinder from above or below, so a
+// fencepost under a plain sun keeps the classic single-quad side.
+inline int primCylinderStacks(int detail, bool rings) {
+    if (!rings) return 1;
+    const int s = detail / 4;
+    return s < 1 ? 1 : s;
+}
 // Triangles a primitive tessellates to at the given detail - for the UI
 // readout. Marker/geometry-less types report 0.
-inline int primTriangleCount(PrimitiveType type, int detail) {
+inline int primTriangleCount(PrimitiveType type, int detail, bool rings = false) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint:
             return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
-        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        // side (2 per seg per ring) + 2 caps (1 per seg each)
+        case PrimitiveType::Cylinder:
+            return d * 2 * (primCylinderStacks(d, rings) + 1);
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
@@ -291,6 +312,16 @@ struct SceneObject {
     // more triangles. Type-dependent range/default - see clampPrimDetail /
     // defaultPrimDetail / primTriangleCount.
     int primDetail = kDefaultPrimDetail;
+    // Cylinders only: subdivide the side ALONG THE AXIS too (see
+    // primCylinderStacks). Off = the classic side, one quad tall however high
+    // the detail goes - cheapest, and correct whenever nothing lights the
+    // object from above or below, because then there is no vertical gradient
+    // to resolve and the rings are pure triangle cost. On = one ring per four
+    // radial segments, which is what a baked point light overhead or a probe
+    // gradient needs to stop showing up as full-height diagonal stripes.
+    // Defaults OFF so that opening an old project changes no geometry and no
+    // frame budget; App::addObject turns it on for newly created cylinders.
+    bool primRings = false;
     // Rendering cut-off: farther than this from the camera the object is not
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
@@ -454,7 +485,11 @@ struct SceneObject {
                                   // and drift, heavy ones keep their velocity
     float emitterLife = 1.5f;     // particle lifetime, seconds (+-25% jitter)
     float emitterGrow = 1.0f;     // size multiplier reached at end of life
-    float emitterOpacity = 0.6f;  // base alpha 0..1 (fades out near death)
+    // Base alpha 0..1 (fades out near death). NOT custom-only despite sitting
+    // in this block: FOG reads it too (peak alpha = opacity x 60, vs custom's
+    // x 128), it is authored for both in the inspector, and save() writes it
+    // for both. The other four kinds have hardcoded peak alphas and ignore it.
+    float emitterOpacity = 0.6f;
     bool emitterDieOnGround = false;  // particle dies when it hits the terrain
                                       // (water soaking in instead of clipping)
 
@@ -844,7 +879,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
-           a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
+           a.primDetail == b.primDetail && a.primRings == b.primRings &&
+           a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
@@ -985,6 +1021,47 @@ struct ProjectSettings {
     // via the Set Widescreen flow node.
     bool widescreen = false;
 
+    // Triple buffering (docs/frame-pacing.md): present through a vblank
+    // interrupt instead of stalling the EE on vsync, so a frame that misses
+    // its field by a little is shown one field late rather than halving the
+    // rate. Costs a THIRD full display buffer of GS VRAM - 0.875 MB of the
+    // ~1.08 MB texture heap at 512x448x32, half that in interlaced-field -
+    // so it is off by default and the engine falls back to two buffers when
+    // it does not fit. Decided at engine init; no runtime switch.
+    bool tripleBuffering = false;
+
+    // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
+    // frame the game presents a SYNTHESISED one, re-drawing it under the
+    // camera extrapolated from its own motion - so the world runs at half the
+    // field rate while the picture keeps it. Experimental: camera rotation
+    // reprojects exactly, translation is approximated by a single plane, and
+    // dynamic objects plus the HUD freeze for the synthesised frame.
+    bool frameExtrapolation = false;
+
+    // Frame extrapolation: how camera TRANSLATION is reprojected when no
+    // per-tile depth is available (i.e. the neural upscaler is off - with it
+    // on, its real depth wins and this is ignored). 0 = rotation only, the
+    // default: a walk in a straight line then reproduces the previous frame
+    // exactly. A positive distance assumes the world sits on one plane that far
+    // away, which moves the whole picture uniformly and reads as a lens ZOOM -
+    // wrong, but it is MOTION, and on some content that beats a duplicated
+    // frame. 12 is the value the first version shipped with. World units.
+    float frameExtrapolationPlane = 0.0f;
+
+    // Ignore the per-frame gate and always synthesise. The gate declines
+    // whenever the EE is not what is slow - a GS-bound scene can sit at 26 fps
+    // with the gate shut - so this is how a scene gets tested at all without
+    // placing a Set Frame Extrapolation node.
+    bool frameExtrapolationForce = false;
+
+    // Use the analytic GROUND plane instead of a fixed distance: a corner's
+    // view ray meets the floor at w = h / -dir.y, so depth grows toward the
+    // horizon on its own and anything at or above it does not move at all.
+    // Strictly better than a constant for a game with a floor, and free.
+    // Outranks frameExtrapolationPlane; the upscaler's real depth outranks
+    // both.
+    bool frameExtrapolationGround = true;
+
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
     // when baking res/ -> .res-baked/; sources stay untouched. Per-asset
@@ -1005,6 +1082,12 @@ struct ProjectSettings {
     // is exactly why "why did the layer not unload / why is that not
     // reflecting" is hard to see - this puts the volume back on screen.
     bool showAreas = false;
+    // Debug profile only: draw every collider's COLLISION BOX in the game as a
+    // red wireframe (docs/collision-boxes.md). What the walker and the
+    // third-person camera boom test is that box, not the mesh - so a prop that
+    // blocks short of its surface, or a camera that pulls in early, cannot be
+    // explained by what is on screen until the box is too.
+    bool showCollision = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
@@ -1300,6 +1383,85 @@ struct ProjectSettings {
     float dofFocus = 20.0f;  // sharp up to this camera distance
     float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
 
+    // The neural upscaler (docs/neural-upscaler.md). The 3D scene renders into
+    // a reduced-resolution GS target and a small MLP - trained on the host,
+    // baked into the game - decides per 32x32 screen tile how to blow it back
+    // up to the display buffer. Baked at build time, like custom screen
+    // effects: no flow-graph control.
+    //
+    // THE PROJECT DEFAULT, which a scene may override for `blssEnabled` and
+    // `blssNetwork` (SceneOverrides::upscaler - see the note there for why
+    // those two and not the other four). Read the resolved answer with
+    // project::resolvedSettings(p, scene); reading p.settings.blssEnabled
+    // directly asks "what does a scene that inherits do", which is a different
+    // question and is almost never the one being asked.
+    //
+    // Off by default, and deliberately so: it is a proof of concept, and it is
+    // incompatible with depth of field, portals and split-screen (all three
+    // need real GS depth at display resolution, which a low-res z cannot give).
+    bool blssEnabled = false;
+    int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
+    // WHETHER THE NETWORK RUNS AT ALL. true (the default, and what every
+    // project written before this key existed reads as) is the neural
+    // reconstruction; false is PLAIN MODE - the reduced raster blown back up
+    // by one bilinear pass, with no bag proxies, no reprojection, no feature
+    // grid and no MLP.
+    //
+    // ITS OWN SWITCH RATHER THAN A THIRD VALUE OF blssEnabled OR blssScale,
+    // and the reason is that it is a third question. `blssEnabled` asks
+    // whether the 3D scene is rasterised at a reduced size - which is where
+    // the VRAM saving comes from, and plain mode keeps ALL of it. `blssScale`
+    // asks how much smaller, and plain mode is as meaningful at 1x2 as at 2x2,
+    // so folding it into that combo would forbid half the real combinations.
+    // This asks what reconstructs the result, which is orthogonal to both. It
+    // is also the shape that costs nothing on disk: an additive bool defaulting
+    // to true regenerates every existing project byte for byte, where a
+    // tri-state replacing blssEnabled would change the serialized shape of
+    // every BLSS project and need a migration step to say what `true` meant.
+    //
+    // Why anyone would want it: on every project measured so far the trained
+    // net asks for NOTHING - all three outputs quantise under the deadzone and
+    // BLSSFILL reports 1.00 passes, i.e. the composite is already a single
+    // bilinear pass - while the frame still pays 4.60 ms of EE to reach that
+    // conclusion. Plain mode is that same picture without the bill, which
+    // moves the break-even from ~13 full-screen coverages to low single digits
+    // (blssui::fill::breakEven, docs/profiling.md).
+    bool blssNetwork = true;
+    float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
+    bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
+    // The +-1/4-pixel raster jitter that alternates every frame (the temporal
+    // supersampling half of the feature).
+    //
+    // OFF BY DEFAULT since 2026-08-08, and the reason is the only kind that
+    // settles this question: a human looked at three builds of
+    // examples/upscaler-lab that differed in nothing else (docs/
+    // neural-upscaler.md, "The oscillation"). BLSS off - steady. BLSS on with
+    // jitter on - "like an earthquake". BLSS on with jitter off - steady. The
+    // jitter is the cause and turning it off is the cure.
+    //
+    // Why it happens: jittered sampling is SUPPOSED to produce a different
+    // image every frame, and the only thing entitled to fuse the two phases
+    // back together is the temporal accumulator. It does not - measured, on a
+    // net that puts 72-78% of its weight on the temporal pass. So the
+    // alternation reaches the screen as a period-2 flicker on every textured
+    // surface, at the field rate.
+    //
+    // The price of the default is measured and real: on examples/upscaler-lab
+    // it takes the trained margin from +0.69 to +0.26 dB and the scene's own
+    // oracle ceiling from +0.84 to +0.27 - roughly two thirds of the available
+    // reconstruction, given up for a picture a user can look at. That is the
+    // right trade for a default and the wrong one to force, which is why the
+    // setting stays: a project that has judged the shake acceptable (or whose
+    // content does not show it) turns it back on and gets the samples back.
+    // Note that the host trainer reads this field, so a net is fitted for the
+    // sampler its project will ship with - flipping it on an existing project
+    // means retraining that project's blss.net.
+    bool blssJitter = false;
+    // 0 = off, 1 = tint by winning kernel, 2 = log the per-frame feature and
+    // output SPREAD into the game's bin/log.txt (the panel offers 0 and 1;
+    // 2 is a developer instrument, set by hand in the .tyra - see project.cpp).
+    int blssDebugView = 0;
+
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
     // GS (per-vertex coefficient computed on VU1). Match fogColor with the
@@ -1344,8 +1506,14 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
+           a.tripleBuffering == b.tripleBuffering &&
+           a.frameExtrapolation == b.frameExtrapolation &&
+           a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
+           a.frameExtrapolationForce == b.frameExtrapolationForce &&
+           a.frameExtrapolationGround == b.frameExtrapolationGround &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
+           a.showCollision == b.showCollision &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.remotePad == b.remotePad &&
@@ -1395,6 +1563,16 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
+           a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
+           a.blssNetwork == b.blssNetwork &&
+           a.blssSharpen == b.blssSharpen &&
+           a.blssTemporal == b.blssTemporal &&
+           // blssJitter was missing from this list until plain mode added the
+           // field above it. Harmless so far - the BLSS group is project-wide
+           // and edited outside undo - but a field absent from an operator==
+           // is the exact shape of bug this list exists to prevent.
+           a.blssJitter == b.blssJitter &&
+           a.blssDebugView == b.blssDebugView &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -1420,12 +1598,33 @@ struct SceneOverrides {
     bool postFx = false;      // bloom, grain, depth of field, flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
+    // The neural upscaler: blssEnabled + blssNetwork ONLY (docs/
+    // neural-upscaler.md, "Per scene"). The other four BLSS settings stay
+    // project-wide and the reasons are different for each pair:
+    //
+    //   blssScale sizes the two PERMANENT GS allocations - the low-res colour
+    //   target and, through it, the z buffer - and the permanent region cannot
+    //   be re-laid after init without evicting every resident texture. It is
+    //   also recorded in a net's provenance sidecar and REFUSED on mismatch
+    //   (blss::checkProvenance), so a per-scene scale would need a net per
+    //   scale, not a setting.
+    //
+    //   blssJitter is the sampler the net was FITTED for, recorded in the same
+    //   sidecar. Sharpen and temporal are that net's tuning, and the debug view
+    //   is a developer instrument. A per-scene value for any of them would be a
+    //   knob on a network that does not vary with it.
+    //
+    // What DOES vary per scene is the pair of questions that have a per-scene
+    // answer: does this scene rasterise reduced at all, and does the MLP
+    // reconstruct it or does one bilinear pass. Both are free at a fixed scale.
+    bool upscaler = false;    // blssEnabled, blssNetwork
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
-           a.fog == b.fog && a.highlight == b.highlight;
+           a.fog == b.fog && a.highlight == b.highlight &&
+           a.upscaler == b.upscaler;
 }
 
 class History;
@@ -2280,8 +2479,9 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
 // and the editor's preview applies the identical math (animedit.hpp).
 //
 // Order of operations, both here and in the preview: trim in SOURCE seconds,
-// then rebase the trimmed range to start at 0, then scale time. The clip the
-// game sees is `rename` (when set) with duration
+// then rebase the trimmed range to start at 0, remove horizontal root motion
+// when `inPlace` is set, then scale time. The clip the game sees is `rename`
+// (when set) with duration
 // (trimEnd - trimStart) / (timeScale * project fps ratio).
 struct AnimClipEdit {
     std::string model;   // project-relative asset, e.g. "res/models/hero.glb"
@@ -2290,21 +2490,113 @@ struct AnimClipEdit {
     float timeScale = 1.0f;   // >1 plays faster; on top of the project fps ratio
     float trimStart = 0.0f;   // seconds into the source clip; 0 = from the start
     float trimEnd = 0.0f;     // seconds into the source clip; 0 = to the end
+    bool inPlace = false;      // pin the motion root's X/Z to the trimmed start
     bool loop = true;         // default Loop for objects that pick this clip
 
     // True when this entry changes nothing - the Animation Editor drops such
     // entries on save so an untouched project keeps an empty list.
     bool isDefault() const {
         return rename.empty() && timeScale == 1.0f && trimStart == 0.0f &&
-               trimEnd == 0.0f && loop;
+               trimEnd == 0.0f && !inPlace && loop;
     }
 };
 
 inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
     return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
            a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
-           a.trimEnd == b.trimEnd && a.loop == b.loop;
+           a.trimEnd == b.trimEnd && a.inPlace == b.inPlace &&
+           a.loop == b.loop;
 }
+
+// ---------------------------------------------------------------------------
+// WHAT THE NEURAL UPSCALER'S TRAINING CORPUS IS ALLOWED TO SEE
+// (Tools > Neural Upscaler (BLSS) > Training shots, docs/neural-upscaler.md).
+//
+// WHY THIS EXISTS. The corpus shoots a project from six camera moves derived
+// from the scene's bounds and the player start, plus any authored Cutscene
+// Director track, and until now the user had no say in any of it. That matters
+// because the failure this feature keeps producing is a DISTRIBUTION MISMATCH:
+// a net fitted to frames the game does not draw scored -0.40 dB on a real
+// project - worse than leaving the feature off - and the diagnosis was that
+// its most predictive channels were out of range on the content the console
+// runs. A corpus is only as good as its coverage of the content the PLAYER
+// will look at, and the person who knows where the player stands is the author.
+//
+// So: this is the author's statement of which frames get fitted. It is
+// PROJECT-WIDE (like sequences and prefabs) rather than per scene, because a
+// shot names the scene it belongs to and a plan spanning scenes is one thing to
+// read; it is persisted through save() but is NOT part of undo/redo, for the
+// same reason a prefab is not - it is a build input, not a scene edit.
+//
+// COMPATIBILITY: a default plan writes NOTHING to the .tyra, so an untouched
+// project is byte-identical and the trainer keeps doing exactly what it did.
+
+// The six automatic camera moves blssscene::autoShots derives, in the order it
+// derives them. The order is the serialized order - APPEND ONLY.
+enum class BlssAutoMove { Walk = 0, Pan, Orbit, Whip, Pitch, Strafe, Count };
+enum : int { kBlssAutoMoveCount = (int)BlssAutoMove::Count };
+// The three tables that name a move (label/.tyra key, the corpus' own `move`
+// string, and what the move is for) live in `namespace project` further down,
+// next to blssResolveShot - one home for everything that reads the plan.
+
+// One authored training vantage. Deliberately a two-key polyline and nothing
+// more: `SceneShot` is a polyline of (eye, look-at) keys and every move the
+// corpus already produces reduces to one, so an author who can place two
+// vantages can express a still standpoint, a walk, a strafe or a push-in
+// without a second parameterisation for anybody to keep in step.
+struct BlssShot {
+    std::string name;   // "" = named from its scene and its index
+    std::string scene;  // scene NAME; "" = the project's first scene
+    // A placed Camera object, by name, instead of raw numbers - "aim it where
+    // the player actually stands" is the whole point, and the editor already
+    // has a way to put a camera there. Non-empty WINS over eye/look, and a
+    // camera that is not in the shot's scene drops the shot rather than
+    // silently shooting the origin.
+    std::string camera, cameraTo;
+    float eye[3] = {0.0f, 2.0f, 0.0f};
+    float look[3] = {0.0f, 2.0f, 1.0f};
+    // A second key. Off = a still standpoint, which is a legitimate shot (the
+    // history is perfect and the net has to learn not to spend passes on it).
+    bool move = false;
+    float eye2[3] = {0.0f, 2.0f, 0.0f};
+    float look2[3] = {0.0f, 2.0f, 1.0f};
+    float fovDeg = 60.0f;
+    // How many corpus frames this shot gets. 0 = its equal share of --frames,
+    // which is what every shot has always had. A number here is how an author
+    // says "the corridor matters more than the skybox pan".
+    int frames = 0;
+    bool enabled = true;
+};
+
+inline bool operator==(const BlssShot& a, const BlssShot& b) {
+    for (int k = 0; k < 3; ++k)
+        if (a.eye[k] != b.eye[k] || a.look[k] != b.look[k] || a.eye2[k] != b.eye2[k] ||
+            a.look2[k] != b.look2[k])
+            return false;
+    return a.name == b.name && a.scene == b.scene && a.camera == b.camera &&
+           a.cameraTo == b.cameraTo && a.move == b.move && a.fovDeg == b.fovDeg &&
+           a.frames == b.frames && a.enabled == b.enabled;
+}
+
+struct BlssShotPlan {
+    // Which of the six automatic moves survive, per move, for every scene.
+    bool autoMove[kBlssAutoMoveCount] = {true, true, true, true, true, true};
+    // Per-move frame count; 0 = the equal share.
+    int autoFrames[kBlssAutoMoveCount] = {0, 0, 0, 0, 0, 0};
+    // Cutscene Director camera tracks. On by default and worth keeping on: a
+    // take is the author having already said which frame matters.
+    bool authoredTakes = true;
+    std::vector<BlssShot> shots;
+
+    // Nothing has been authored - the plan the trainer has always followed.
+    // writeBlssShotsSection emits nothing for this, so an untouched project's
+    // .tyra does not change shape.
+    bool isDefault() const {
+        for (int i = 0; i < kBlssAutoMoveCount; ++i)
+            if (!autoMove[i] || autoFrames[i] != 0) return false;
+        return authoredTakes && shots.empty();
+    }
+};
 
 struct Project {
     std::string name;
@@ -2612,12 +2904,32 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // World Facts (Tools > World Facts, docs/world-facts.md): the project's
+    // central memory of game state - the declared catalog, the reusable named
+    // conditions over it, the rules that react to it and the saved fact sets
+    // the devkit pushes into a running game. Project-wide like the preset
+    // collections above and persisted through save(), but not part of
+    // undo/redo: a fact is a declaration, and undoing one halfway through a
+    // scene edit would leave graphs referencing something that stopped
+    // existing. `factScenarios` is editing/test data and never reaches the
+    // console; the other three are compiled into the game.
+    std::vector<facts::Fact> facts;
+    std::vector<facts::Query> factQueries;
+    std::vector<facts::Rule> factRules;
+    std::vector<facts::Scenario> factScenarios;
+
     // The project's own VU1 microprograms and its VU0 kernel
     // (docs/vu-authoring.md). Project-wide like the preset collections above,
     // persisted through save(), not part of undo/redo - a microprogram is a
     // build artefact, and undoing one halfway through a scene edit would mean
     // the running game and the editor disagree about what is installed.
     VuSettings vu;
+
+    // What the neural upscaler's training corpus is allowed to see
+    // (Tools > Neural Upscaler (BLSS) > Training shots). Project-wide like the
+    // collections above, persisted through save(), not part of undo/redo - it
+    // is a build input, not a scene edit. A default plan writes nothing.
+    BlssShotPlan blssShots;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
@@ -2705,6 +3017,55 @@ std::vector<std::string> previewDisplayModes(const ProjectSettings& s);
 // One entry of displayModes() by key; an unknown key resolves to "interlaced".
 const DisplayModeInfo& displayModeInfo(const std::string& key);
 
+// Whether a third display buffer would actually fit in GS VRAM at the
+// project's boot display mode (docs/frame-pacing.md). The HOST TWIN of
+// RendererCoreGS::allocateVramBuffers' headroom check - the engine refuses the
+// buffer and stays double buffered when the numbers do not work, and without
+// this the editor would offer a setting whose failure only shows up in the
+// running game's log. Change one, change the other.
+//
+// It takes the PROJECT and not only the settings because the two things that
+// move the answer - whether the z buffer shrinks, and whether a BLSS low-res
+// target is allocated at all - are per-scene questions now (project::blssUse):
+// a project whose scenes disagree pins z at the full raster and gets none of
+// the saving. `s` is the staged settings, so the Preferences modal can ask
+// about a default it has not committed yet (the blssUse(p, defaults) idiom).
+struct TripleBufferFit {
+    bool fits = false;
+    int bufferWords = 0;  // what a third display buffer costs
+    int leftWords = 0;    // what would remain after taking it
+    int needWords = 0;    // what the rest of the renderer + textures need
+    std::string mode;     // the display-mode key this answer is for
+};
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s);
+// The same question for an EXPLICIT display mode, which is the form that
+// matters: the boot mode is not the only one the game runs in.
+// RendererCore::setDisplayOutput re-lays the whole VRAM region on a runtime
+// scan-mode switch, so allocateVramBuffers asks again with the new framebuffer
+// size and a project may get three buffers in one mode and two in another.
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
+                                   const std::string& modeKey);
+
+// Every mode this project can end up in - the boot mode plus everything
+// `supportedModes` declares - split by whether a third buffer fits. This is
+// what makes the setting honest: it is a REQUEST, granted per mode at runtime,
+// and a project whose modes disagree changes its frame pacing when the player
+// changes resolution. Empty `fitting` means the tick buys nothing anywhere,
+// which is what the Preferences window greys the checkbox on.
+struct TripleBufferModes {
+    std::string boot;
+    bool bootFits = false;
+    std::vector<TripleBufferFit> fitting;
+    std::vector<TripleBufferFit> notFitting;
+    // Modes the project does NOT declare that would have room - the actionable
+    // half of a refusal. Computed rather than asserted: which modes those are
+    // depends on the upscaler's z shrink, so "try field rendering" is a
+    // statement about this project's settings and not a general fact.
+    std::vector<TripleBufferFit> roomElsewhere;
+};
+TripleBufferModes tripleBufferingModes(const Project& p,
+                                       const ProjectSettings& s);
+
 // Creates the project directory, generates all Tyra game sources / build files
 // and the <name>.tyra project file. `preset` picks the starting content, and it
 // is the project's permanent game template (Project::gameTemplate):
@@ -2746,6 +3107,48 @@ void ensureObjectIds(Project& p);
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
 
+// Assigns a stable id to every fact that lacks one and repairs duplicates.
+// A fact's id is what a PLAYER'S SAVE FILE stores, so it must exist before
+// anything is written and must never be reused - which is why this runs on
+// load and on create like ensureObjectIds, and why the save payload is keyed
+// by it instead of by position (docs/world-facts.md "Saving").
+void ensureFactIds(Project& p);
+
+// Where one fact is used. `graphs` names owning objects as "scene / object",
+// the rest name the query, rule or scenario. The single answer to "what
+// breaks if I change this" - read by the Facts window's Used by list and by
+// the delete confirmation.
+struct FactUsage {
+    std::vector<std::string> graphs;     // "Main / Door" (flow-graph nodes)
+    std::vector<std::string> queries;    // query names
+    std::vector<std::string> rules;      // rule names
+    std::vector<std::string> scenarios;  // scenario names
+    std::vector<std::string> computed;   // facts computed from a query using it
+    bool any() const {
+        return !graphs.empty() || !queries.empty() || !rules.empty() ||
+               !scenarios.empty() || !computed.empty();
+    }
+    int count() const {
+        return (int)(graphs.size() + queries.size() + rules.size() +
+                     scenarios.size() + computed.size());
+    }
+};
+FactUsage factUsage(const Project& p, const std::string& factName);
+
+// Same question for a query - which facts compute from it, which rules and
+// queries name it, which graph nodes evaluate it.
+FactUsage queryUsage(const Project& p, const std::string& queryName);
+
+// Renames a fact everywhere it is referenced: flow-graph node params, query
+// leaves, rule conditions and actions, scenario rows, and the `computed` link.
+// The renameObjectRefs contract - a by-name reference that does not join this
+// goes stale on the first rename.
+void renameFactRefs(Project& p, const std::string& from, const std::string& to);
+// The same for a query name (fact.computed, Condition::query, the FactQuery
+// flow node's param).
+void renameFactQueryRefs(Project& p, const std::string& from,
+                         const std::string& to);
+
 // Fills in the built-in input actions and the "Default" preset (Tools > Input
 // Map) with the bindings that were hardcoded before the Input Map existed, so
 // a project from an older TyraX plays identically. Only ADDS what is missing:
@@ -2769,6 +3172,45 @@ int saveMenuIndex(const Project& p);
 // RoleNone / out-of-range values.
 const char* inputRoleName(int role);
 
+// --- The neural upscaler's training-shot plan --------------------------------
+//
+// ONE RESOLUTION, READ BY BOTH SIDES. The editor previews an authored shot and
+// `blssscene::loadProject` shoots it, and if those two derived a camera
+// differently the window would be drawing a frame the corpus never renders -
+// which is precisely the class of bug (host describes one frame, console runs
+// another) that cost this feature eleven commits. So the arithmetic lives here,
+// in the module that owns the data, and both callers ask it.
+
+// The label the UI shows and the key the .tyra stores ("walk", "pan", ...).
+const char* blssAutoMoveName(int move);
+// The `SceneShot::move` string the corpus tags that move with
+// ("dolly-forward", "pan", "orbit", "whip", "pitch-up", "dolly-lateral") - the
+// twin of the literals in blssscene.cpp, so a rename cannot drift between the
+// window's per-shot table and the trainer's own output.
+const char* blssAutoMoveKind(int move);
+// One line saying what that move is FOR, in the terms the corpus was built in.
+const char* blssAutoMoveWhy(int move);
+
+// Which scene a shot belongs to, as an index into Project::scenes. Matches by
+// NAME (an index would rot the moment a scene is deleted); an empty
+// BlssShot::scene means the first scene, and a name matching nothing is -1,
+// which the corpus must read as "drop this shot" rather than as scene 0.
+int blssShotScene(const Project& p, const BlssShot& s);
+
+// Resolve one authored shot into the two (eye, look-at) keys a `SceneShot`
+// carries. `eyeB`/`lookB` are filled with a copy of the first key for a still
+// shot, so a caller can always emit two keys and let the corpus collapse them.
+// Returns false when the shot is disabled, names no scene this project has, or
+// names a Camera object that scene does not contain - all three of which are
+// "do not shoot this", never "shoot the origin".
+bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
+                     float eyeB[3], float lookB[3], float* fovDeg = nullptr);
+
+// The name a shot is shown and reported under - its own `name`, or one derived
+// from its scene and index the way the automatic moves are named. Never empty,
+// because a fold table row with no label is a measurement nobody can act on.
+std::string blssShotLabel(const Project& p, const BlssShot& s, int index);
+
 // Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
 // {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
 // missing entries - a renamed/repointed/deleted icon stays as the user left it.
@@ -2789,6 +3231,16 @@ std::string objectJson(const SceneObject& o);
 // the string is not a JSON object; unknown/missing keys take their defaults
 // (same reader the project load uses).
 bool parseObject(const std::string& body, SceneObject& out);
+
+// One Procedural volume's scatter graph as the JSON the object body carries,
+// and back. Public for the same reason objectJson is: the AI Assistant's
+// get_proc_graph / set_proc_graph hand a graph to a model and take one back,
+// and a second serializer for it would drift from the file format the day
+// anything in ProcNode changed. Reading is TOTAL (`out` is replaced) and drops
+// nodes of unknown types plus the links that touched them, exactly as loading a
+// project does; it returns false only when `body` is not a JSON object.
+std::string procGraphJson(const ProcGraph& g);
+bool parseProcGraph(const std::string& body, ProcGraph& out);
 
 // Project-wide manifest sections (everything in the .tyra except the scene
 // table, the per-object bodies and the editor-side state). Each serializes
@@ -2813,6 +3265,8 @@ enum class Section {
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
+    Facts,           // "facts", "factQueries", "factRules", "factScenarios"
+    BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -2824,7 +3278,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 18,
+static_assert(kSectionCount == 20,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
@@ -2882,6 +3336,33 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
 // runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// What the neural upscaler resolves to across the WHOLE project (docs/
+// neural-upscaler.md, "Per scene"). One answer, read by codegen, by the build
+// interlock, by the editor's clash warning and by the BLSS window - so none of
+// them can decide "does this project mix" differently, which is exactly how the
+// old dialog-vs-build split drifted.
+//
+// `mixed` is decided on the RESOLVED values, never on the override flags: a
+// project whose every scene overrides to the same answer is not mixed, and it
+// keeps generating the sources a project-wide setting generated. That is what
+// makes byte-identical regeneration a property of the OUTCOME rather than of
+// how somebody happened to author it.
+struct BlssUse {
+    bool any = false;         // some scene rasterises reduced
+    bool anyNative = false;   // some scene renders at the full raster
+    bool anyNetwork = false;  // some scene reconstructs with the MLP
+    bool mixed = false;       // the scenes do not all resolve alike
+};
+BlssUse blssUse(const Project& p);
+// The same answer for a project DEFAULT that is not (yet) `p.settings` - what
+// Project > Preferences is staging while the modal is open. It exists because
+// that dialog now states what mixing costs (docs/neural-upscaler.md, "What it
+// costs"), and it has to state it about the settings the reader is editing
+// rather than about the ones on disk; computing "does this project mix"
+// separately there would have been a second answer to the question this
+// function exists to be the only one of.
+BlssUse blssUse(const Project& p, const ProjectSettings& defaults);
 
 // Fold the editable ranges onto a cycle / one of its keys. Called by the
 // .tyra reader (a hand-edited file is not to be trusted) and by the Ambience

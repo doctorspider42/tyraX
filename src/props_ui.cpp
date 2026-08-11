@@ -320,7 +320,22 @@ void App::drawPropertiesWindow() {
             o.primDetail = clampPrimDetail(o.type, detail);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
-        ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
+        ImGui::TextDisabled("(%d tris)",
+                            primTriangleCount(o.type, o.primDetail, o.primRings));
+        // Cylinders get a second tessellation axis, because Detail alone only
+        // adds vertices AROUND the shape - see the tooltip.
+        if (o.type == PrimitiveType::Cylinder) {
+            if (ImGui::Checkbox("Vertical rings", &o.primRings)) committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Subdivide the side along the axis too (one ring per four "
+                    "segments).\nTurn this on when something lights the "
+                    "cylinder from above or below: without\nrings the side is "
+                    "one quad tall at any Detail, so a lamp overhead bakes "
+                    "into\nfull-height diagonal stripes that more Detail only "
+                    "makes narrower.\nLeave it off otherwise - the rings are "
+                    "then triangles nothing shades.");
+        }
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -363,6 +378,7 @@ void App::drawPropertiesWindow() {
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                                        w.c_str());
+                committed |= drawModelFacing(o);
                 // (The model's built-in materials aren't listed here: they're
                 // authored in the modelling tool and the Material picker below
                 // is how you override/edit them - see drawMaterialCombo.)
@@ -1762,6 +1778,7 @@ void App::drawPropertiesWindow() {
                 } else {
                     ImGui::TextDisabled("%d verts, %d clip(s)", info.vertexCount,
                                         (int)info.clips.size());
+                    committed |= drawModelFacing(o);
                     // Locomotion clip mapping. Idle/Walk are required (fall back
                     // to the first clip); Run/Jump are optional (<none>).
                     // Effective (post-rename) names, like every other clip ref.
@@ -2301,6 +2318,8 @@ void App::drawMultiProperties() {
         if (d != primary.primDetail)
             for (auto* p : objs) p->primDetail = clampPrimDetail(p->type, d);
         if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+        if (primary.type == PrimitiveType::Cylinder)
+            multiCheck("Vertical rings", &SceneObject::primRings);
     }
 
     // --- solid geometry fields ---
@@ -2344,7 +2363,18 @@ void App::drawMultiProperties() {
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         multiCombo("Effect", &SceneObject::emitterKind, kinds, 6);
         multiDragF("Particle size", &SceneObject::emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
-        multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f, "%.2f");
+        // Opacity only exists for the kinds that read it - fog (peak alpha =
+        // Opacity x 60) and custom (x 128); fire/smoke/sparks/rain have fixed
+        // peak alphas, and the value is not even stored for them. Offering the
+        // slider there was an edit that went nowhere, which is the same bug the
+        // single-object inspector already avoids by asking the kind first.
+        bool allOpacityKind = true;
+        for (auto* p : objs)
+            allOpacityKind =
+                allOpacityKind && (p->emitterKind == 2 || p->emitterKind == 5);
+        if (allOpacityKind)
+            multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f,
+                       "%.2f");
         multiCheck("Enabled", &SceneObject::emitterEnabled);
         multiCheck("Follow player", &SceneObject::emitterFollowPlayer);
     }
@@ -2366,6 +2396,46 @@ void App::drawMultiProperties() {
         return;
     }
     if (committed) commitChange();
+}
+
+// The skeletal runtime treats +Z as forward. Source files do not necessarily
+// agree, and object rotation is the wrong fix for an avatar because the walker
+// owns that rotation at runtime. Present the four useful authored axes instead
+// of making an artist discover what "model yaw offset" means. The Custom entry
+// keeps arbitrary existing values editable and preserves project compatibility.
+bool App::drawModelFacing(SceneObject& o) {
+    float yaw = std::fmod(o.modelYawOffset, 360.0f);
+    if (yaw > 180.0f) yaw -= 360.0f;
+    if (yaw < -180.0f) yaw += 360.0f;
+    auto near = [&](float want) { return std::fabs(yaw - want) < 0.01f; };
+    int facing = near(0.0f) ? 0
+                 : near(180.0f) || near(-180.0f) ? 1
+                 : near(-90.0f) ? 2
+                 : near(90.0f) ? 3
+                               : 4;
+    const char* choices[] = {
+        "+Z (already forward)", "-Z (backwards - turn 180 deg)",
+        "+X (turn 90 deg left)", "-X (turn 90 deg right)",
+        "Custom (fine tune below)"};
+    bool committed = false;
+    ImGui::SetNextItemWidth(scaled(250));
+    if (ImGui::Combo("Model faces", &facing, choices, 5)) {
+        constexpr float offsets[] = {0.0f, 180.0f, -90.0f, 90.0f};
+        if (facing < 4) {
+            o.modelYawOffset = offsets[facing];
+            committed = true;
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Choose the direction the imported mesh faces in its own file.\n"
+            "The editor turns only the mesh to +Z; player and AI facing stay\n"
+            "correct. Pick -Z when the character walks backwards.");
+    ImGui::SetNextItemWidth(scaled(110));
+    ImGui::DragFloat("Yaw correction", &o.modelYawOffset, 1.0f, -180.0f,
+                     180.0f, "%.0f deg");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    return committed;
 }
 
 // Per-object LOD override rows (animated models + player avatars). Each
@@ -2401,21 +2471,6 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
     if (animated)
         row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
-    if (!animated) return committed;  // yaw offset drives the skeletal path
-
-    // Content-forward correction: a model authored facing +-X (instead of
-    // the +Z the avatar drive / AI turn-to-face expect) renders turned by
-    // this many degrees while every logic yaw stays pure. Applied between
-    // scale and rotation, mirrored in the viewport preview.
-    ImGui::SetNextItemWidth(scaled(110));
-    ImGui::DragFloat("Model yaw offset", &o.modelYawOffset, 1.0f, -180.0f,
-                     180.0f, "%.0f deg");
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Model faces sideways in game? The content was authored\n"
-            "X-forward (common Blender habit: facing the red axis).\n"
-            "Set +90 or -90 - the mesh turns, facing logic stays intact.");
     return committed;
 }
 

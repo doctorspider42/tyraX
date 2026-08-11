@@ -29,6 +29,15 @@ void rotateEuler(const float* rotDeg, float& x, float& y, float& z) {
     }
 }
 
+// Rotation about Y alone (the model frame's content-forward correction),
+// same sense as the Y step of rotateEuler.
+void rotateY(float deg, float& x, float& z) {
+    if (deg == 0.0f) return;
+    const float c = std::cos(deg * kPi / 180.0f), s = std::sin(deg * kPi / 180.0f);
+    const float nx = x * c + z * s, nz = -x * s + z * c;
+    x = nx, z = nz;
+}
+
 // Do two boxes overlap on the ground plane? Footprints are shrunk by a hair so
 // props standing edge to edge don't read as "one is under the other".
 bool footprintsOverlap(const Aabb& a, const Aabb& b) {
@@ -40,25 +49,14 @@ bool footprintsOverlap(const Aabb& a, const Aabb& b) {
 }  // namespace
 
 Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb) {
-    // Local box before rotation: the unit primitive, or the model's own bounds.
-    float lmn[3] = {-0.5f, -0.5f, -0.5f}, lmx[3] = {0.5f, 0.5f, 0.5f};
-    if (o.type == PrimitiveType::Model && modelAabb) {
-        float mn[3], mx[3];
-        if (modelAabb(o, mn, mx))
-            for (int k = 0; k < 3; ++k) lmn[k] = mn[k], lmx[k] = mx[k];
-    }
-    for (int k = 0; k < 3; ++k) {
-        lmn[k] *= o.scale[k];
-        lmx[k] *= o.scale[k];
-        if (lmn[k] > lmx[k]) std::swap(lmn[k], lmx[k]);  // negative scale
-    }
-
+    const CollisionBox b = collisionBox(o, modelAabb);
     Aabb out;
     for (int k = 0; k < 3; ++k) out.mn[k] = 1e30f, out.mx[k] = -1e30f;
     for (int corner = 0; corner < 8; ++corner) {
-        float x = (corner & 1) ? lmx[0] : lmn[0];
-        float y = (corner & 2) ? lmx[1] : lmn[1];
-        float z = (corner & 4) ? lmx[2] : lmn[2];
+        float x = b.center[0] + ((corner & 1) ? b.half[0] : -b.half[0]);
+        float y = b.center[1] + ((corner & 2) ? b.half[1] : -b.half[1]);
+        float z = b.center[2] + ((corner & 4) ? b.half[2] : -b.half[2]);
+        rotateY(b.yaw, x, z);
         rotateEuler(o.rotation, x, y, z);
         const float p[3] = {o.position[0] + x, o.position[1] + y,
                             o.position[2] + z};
@@ -68,6 +66,56 @@ Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb) {
         }
     }
     return out;
+}
+
+bool collides(const SceneObject& o) {
+    if (o.collisionMode == 2) return false;  // "no collision" opts out
+    switch (o.type) {
+        // Everything with no geometry in the game. Kept as one list because
+        // the generated runtime used to carry three copies of it by NUMBER
+        // and they had already drifted - the scroller belt marker was missing
+        // from the camera's, so an invisible belt origin shoved the boom.
+        case PrimitiveType::SpawnPoint:
+        case PrimitiveType::Player:
+        case PrimitiveType::Emitter:
+        case PrimitiveType::SoundEmitter:
+        case PrimitiveType::PointLight:
+        case PrimitiveType::Empty:
+        case PrimitiveType::Decal:
+        case PrimitiveType::Camera:
+        case PrimitiveType::Area:
+        case PrimitiveType::Scatter:
+        case PrimitiveType::Scroller: return false;
+        default: return true;
+    }
+}
+
+CollisionBox collisionBox(const SceneObject& o,
+                          const aobake::ModelAabbFn& modelAabb) {
+    // The box before rotation: the unit primitive, or - for a model - the
+    // MESH's own bounds, which is the whole reason this is not just the scale.
+    // A model authored standing on its origin has a box sitting entirely above
+    // it, and the unit cube around that origin is its ankles.
+    float lmn[3] = {-0.5f, -0.5f, -0.5f}, lmx[3] = {0.5f, 0.5f, 0.5f};
+    if (o.type == PrimitiveType::Model && modelAabb) {
+        float mn[3], mx[3];
+        if (modelAabb(o, mn, mx))
+            for (int k = 0; k < 3; ++k) lmn[k] = mn[k], lmx[k] = mx[k];
+    }
+    CollisionBox b;
+    for (int k = 0; k < 3; ++k) {
+        float a = lmn[k] * o.scale[k], c = lmx[k] * o.scale[k];
+        if (a > c) std::swap(a, c);  // negative scale mirrors the box
+        b.center[k] = 0.5f * (a + c);
+        b.half[k] = 0.5f * (c - a);
+    }
+    // The content-forward correction turns the mesh between scale and
+    // rotation, so it turns the box the same way. Only an animated model has
+    // one (the property is not offered for anything else, and codegen emits 0
+    // for the rest), which is why the mesh test rides along here.
+    if (o.modelYawOffset != 0.0f && isAnimatedModelPath(o.modelPath))
+        b.yaw = o.modelYawOffset;
+    return b;
 }
 
 bool isSupport(const SceneObject& o) {

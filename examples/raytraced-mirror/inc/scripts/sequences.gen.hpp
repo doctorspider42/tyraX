@@ -17,12 +17,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);
 // flow trigger edge-detects, and what tells a flow-graph camera or
 // letterbox that a cutscene currently owns those.
 bool playing();
-// Letterbox coverage per edge (fractions of the screen) for the
-// Set Letterbox Bars flow node, used by renderOverlay when NO
-// sequence is active. The style -> fraction mapping stays on the
-// host (seqBarsFractions in src/sequence.hpp), so the console needs
-// no table: codegen writes the numbers straight in.
-extern float g_flowBarTB;
-extern float g_flowBarLR;
+// Letterbox mask style for the Set Letterbox Bars flow node, used
+// by renderOverlay when NO sequence is active (0 none, 1 cinema
+// 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its
+// coverage: a letterbox is relative to the picture the console is
+// outputting and widescreen changes that at runtime, so the
+// fractions are resolved per frame (barsFractions in
+// src/gen/sequences.gen.cpp, the twin of seqBarsFractions in the
+// editor's src/sequence.hpp).
+extern int g_flowBarStyle;
 }  // namespace sequences
 }  // namespace Raytraced_mirror

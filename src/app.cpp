@@ -714,6 +714,12 @@ int App::run(const std::string& initialProjectDir) {
     droneAudition(false);
     droneRenderCancel_.store(true);
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
+    // ...and the BLSS coverage estimate, for the plainer reason that a joinable
+    // std::thread destroyed at exit calls std::terminate.
+    blssCovCancel_.store(true);
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    // The importer publishes a result into App members, which must outlive it.
+    if (modelImportThread_.joinable()) modelImportThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
@@ -779,6 +785,15 @@ bool App::captureFrameTo(const std::string& path, int w, int h) {
 }
 
 void App::drawUI() {
+    // Project opening is staged so this cover reaches the framebuffer before
+    // synchronous file parsing / viewport preparation begins. The loader must
+    // stay on this thread: it replaces the custom-node/style registries.
+    projectLoadTick();
+    if (projectLoading_) {
+        drawProjectLoadingScreen();
+        return;
+    }
+
     ImGuizmo::BeginFrame();
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
@@ -858,6 +873,10 @@ void App::drawUI() {
     // or not the window is open, so a reply is never stranded by closing it.
     aiChatTick();
 
+    // The importer never touches ImGui/project_/viewport_ from its worker.
+    // This is the one main-thread handoff point for its finished asset.
+    modelImportTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -882,9 +901,12 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    blssPoll();
+    drawBlssWindow();
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
@@ -893,7 +915,7 @@ void App::drawUI() {
     drawSessionWindow();
     drawPhoneCamWindow();
     drawNewProjectModal();
-    drawPreferencesModal();
+    drawPreferencesWindow();
     drawEditorPreferencesModal();
     drawAiGenerateModal();
     drawErrorModal();
@@ -903,6 +925,7 @@ void App::drawUI() {
     drawNewSceneModal();
     drawDeleteSceneModal();
     drawDeleteAssetModal();
+    drawModelImportModal();
     drawModelSizeModal();
     drawDiscardModal();
     drawLayoutModals();
@@ -934,16 +957,29 @@ void App::drawUI() {
     // Run shortcuts. IsKeyChordPressed matches the modifier state exactly, so
     // plain F5 and Ctrl+F5 stay distinct: F5/F6 build && run, Ctrl+F5/Ctrl+F6
     // run the existing ELF without building.
+    // Each launching chord calls openDebuggerForLaunch() first - the four here
+    // are the paths that do NOT go through runSelectedTarget (they name their
+    // target rather than taking the toolbar's), so this is where a launch would
+    // otherwise slip past it. Ctrl+Shift+B is deliberately not among them: it
+    // builds and does not run, and there is nothing to watch.
     if (hasProject_ && !runner_.busy()) {
         const bool ps2Ready = !project_.ps2LinkIp.empty();
-        if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F5)) {
+            openDebuggerForLaunch();
             runner_.buildAndRun(projectForBuild(), true);
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
+        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5)) {
+            openDebuggerForLaunch();
             runner_.runEmulatorOnly(project_);
-        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
+        }
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6)) {
+            openDebuggerForLaunch();
             runner_.buildAndRunPs2(projectForBuild(), true);
-        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
+        }
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6)) {
+            openDebuggerForLaunch();
             runner_.buildAndRunPs2(projectForBuild(), false);
+        }
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
             runner_.buildAndRun(projectForBuild(), false);
     }
@@ -976,11 +1012,8 @@ void App::drawUI() {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S) &&
             session_.role() != session::Session::Role::Client)
             saveAll("Saved");
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
-            prefTerrain_ = project_.active().terrain;
-            prefSettings_ = project_.settings;
-            openPreferencesPopup_ = true;
-        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
+            openProjectPreferences();
         if (!io.WantTextInput) {
             // While the Material Editor has focus, Ctrl+Z drives ITS undo
             // stack (paint strokes + material edits, saved straight to disk) -
@@ -1354,6 +1387,17 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+                                hasProject_))
+                showCollisionBoxes_ = !showCollisionBoxes_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the box the GAME blocks the player and the "
+                    "third-person\ncamera with (red). A model collides as its "
+                    "bounding box, not its\nmesh, so this is what explains a "
+                    "prop you cannot walk up to or a\ncamera that pulls in "
+                    "early. The running game can draw the same\nboxes - "
+                    "Preferences > Build > Show collision boxes.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -1405,11 +1449,8 @@ void App::drawMenuBar() {
         }
         if (ImGui::BeginMenu("Project", hasProject_)) {
             const bool busy = runner_.busy();
-            if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
-                prefTerrain_ = project_.active().terrain;
-                prefSettings_ = project_.settings;
-                openPreferencesPopup_ = true;
-            }
+            if (ImGui::MenuItem("Preferences...", "Ctrl+,"))
+                openProjectPreferences();
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(projectForBuild());
@@ -1572,6 +1613,14 @@ void App::drawMenuBar() {
                     "posterize - and see the micro memory it costs, the VCL it\n"
                     "generates and what it computes, without a console. Also\n"
                     "VU0 compute kernels.");
+            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The game's central memory: named, typed facts like\n"
+                    "\"the generator is repaired\" or \"marta.trust\", the\n"
+                    "reusable conditions over them, the rules that react,\n"
+                    "and a live blackboard of every one of them while the\n"
+                    "game runs.");
             if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
@@ -1585,6 +1634,13 @@ void App::drawMenuBar() {
                     "Ambient / drone music generator: audition a patch live,\n"
                     "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Train, cross-validate and inspect the reduced-resolution\n"
+                    "reconstruction network, and look at the pictures it makes.\n"
+                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
+                    "without a terminal. Proof of concept - read the notes.");
             ImGui::Separator();
             // Lives in the Ambience Editor now; the menu item still works
             // and simply opens that window on its GI tab.
@@ -1622,7 +1678,26 @@ void App::drawMenuBar() {
 // Runs the toolbar's selected target (runOnPs2_). One place, so the Play
 // button, its dropdown and anything else that grows later cannot disagree
 // about what "Run" means.
+// A game launched WITH the debugger opens the Debugger panel if it is closed.
+// This is the whole of what the old Debug toolbar button did on top of Run, and
+// having it as a separate button meant the ordinary Run silently started a debug
+// session with nowhere to watch it: the game reported every node it fired and
+// the editor put that on a panel nobody had opened. Two conditions, both already
+// meaningful on their own - the debug build profile, and the Live Debugger
+// project setting - so nothing pops up in a release build or for anyone who
+// turned the debugger off.
+//
+// Only when CLOSED, and never the reverse: a panel the user closed mid-session
+// stays closed until the next launch, and a launch never steals focus from or
+// re-docks a panel that is already open.
+void App::openDebuggerForLaunch() {
+    if (!showDebugger_ && project_.settings.buildProfile == "debug" &&
+        project_.settings.liveDebug)
+        showDebugger_ = true;
+}
+
 void App::runSelectedTarget(bool build) {
+    openDebuggerForLaunch();
     if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build);
     else if (build) runner_.buildAndRun(projectForBuild(), true);
     else runner_.runEmulatorOnly(project_);
@@ -1799,16 +1874,6 @@ void App::drawToolbar() {
     const bool debugProfile = project_.settings.buildProfile == "debug";
     const ImU32 colTarget = runOnPs2_ ? colInfo : colOk;
     const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
-    // Debug is Run plus opening the Debugger panel. It needs the debug build
-    // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
-    // but it stays on the bar either way, dimmed, saying where to switch it on.
-    const char* debugTip =
-        !debugProfile ? "Debug needs the Debug build profile (Project > "
-                        "Preferences > Build > Profile).\nLive Link, the Live "
-                        "Debugger and Live Logic only exist in debug builds."
-        : runOnPs2_   ? "Debug on PS2: build && run, and open the Debugger (F9)"
-                      : "Debug in PCSX2: build && run, and open the Debugger (F9)";
-    const bool debugEnabled = !busy && targetReady && debugProfile;
     if (iconButton("##tb_run", gapGroup, !busy && targetReady,
                    !targetReady    ? noIpTip
                    : runOnPs2_     ? "Build && Run on PS2 (F6)"
@@ -1821,28 +1886,11 @@ void App::drawToolbar() {
     if (button("##tb_run_more", 1.0f, h * 0.55f, true,
                "Run target and options...", paintCaret(colText)))
         ImGui::OpenPopup("run_menu");
-    // Debug: the Play triangle in the target color with a breakpoint dot on its
-    // lower-left vertex - "run, with the debugger attached" said in two symbols
-    // the toolbar already uses. The dot sits ON the vertex so the two read as
-    // one mark, and both survive being 10 px wide the way a drawn bug would not.
-    if (iconButton("##tb_debug", gapPair, debugEnabled, debugTip,
-                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                       const float w = b.x - a.x, hh = b.y - a.y;
-                       const float x0 = a.x + w * 0.16f, y1 = b.y - hh * 0.12f;
-                       dl->AddTriangleFilled(
-                           ImVec2(x0, a.y), ImVec2(x0, y1),
-                           ImVec2(b.x, (a.y + y1) * 0.5f),
-                           en ? colTarget : colDim);
-                       dl->AddCircleFilled(ImVec2(x0, y1), w * 0.22f,
-                                           en ? colStop : colDim);
-                   })) {
-        runSelectedTarget(true);
-        showDebugger_ = true;
-    }
     // Stop: cancels a running build, else stops the selected target - closes
     // PCSX2, or on the console kills the file server + resets ps2link. The
-    // emulator side is always available (a stray PCSX2 can't be detected, and
-    // the kill is a no-op when none runs).
+    // emulator side is always available: it looks for the instance booting THIS
+    // project's ELF, which is a no-op when there is none and leaves the other
+    // worktrees' emulators alone.
     const bool stopEnabled = busy || targetReady;
     if (iconButton("##tb_stop", gapPair, stopEnabled,
                    busy            ? "Cancel build"
@@ -1852,7 +1900,41 @@ void App::drawToolbar() {
                    paintStop(stopEnabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else if (runOnPs2_) runner_.stopPs2(project_);
-        else runner_.stopEmulator();
+        else runner_.stopEmulator(project_);
+    }
+
+    // Build profile, where the Debug button used to be. That button was "Run,
+    // and also open the Debugger panel" - which is now what Run itself does
+    // whenever the project is built with the debugger on (runSelectedTarget),
+    // so the button had nothing left of its own to do. What the toolbar was
+    // missing instead is the switch every one of the chips to its right
+    // depends on: Live Link, the Live Debugger and Live Logic exist only in a
+    // debug build, and their dimmed tooltips all ended in "...switch the
+    // profile in Project > Preferences > Build". It is one click from here now,
+    // and the chips appear and disappear as it moves.
+    //
+    // Deliberately a labelled combo rather than another drawn glyph: this is
+    // the one control on the bar whose CURRENT VALUE has to be readable at a
+    // glance - "why is there no LIVE chip" is answered by seeing "Release"
+    // sitting here, and no icon says that.
+    {
+        int profileIdx = debugProfile ? 1 : 0;
+        const char* profileNames[2] = {"Release", "Debug"};
+        ImGui::SameLine(0.0f, gapGroup);
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize("Release").x + h +
+                                ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (ImGui::Combo("##tb_profile", &profileIdx, profileNames, 2)) {
+            project_.settings.buildProfile = profileIdx == 1 ? "debug" : "release";
+            commitChange();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Build profile (same setting as Project > Preferences > "
+                "Build).\n"
+                "Debug carries the devkit channels, the overlays, -g and the "
+                "unstripped\nELF the crash reporter needs - Live Link, the Live "
+                "Debugger and Live\nLogic exist in debug builds only. Release "
+                "carries none of it.");
     }
 
     // Live Link chip: a dot + label after the run group, ALSO the on/off
@@ -2086,12 +2168,12 @@ void App::drawToolbar() {
         if (ImGui::MenuItem("Run without build", noBuildKey, false,
                             !busy && targetReady))
             runSelectedTarget(false);
-        if (ImGui::MenuItem("Debug", nullptr, false, debugEnabled)) {
-            runSelectedTarget(true);
-            showDebugger_ = true;
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", debugTip);
+        // No "Debug" entry: it was Run plus opening the Debugger panel, and Run
+        // now opens it by itself whenever the project is built with the
+        // debugger on (runSelectedTarget). Leaving it here would be a second
+        // name for the same action - and the one that used to be different is
+        // now the default. F9 and Window > Debugger still open the panel
+        // by hand, in a release build too.
         ImGui::EndPopup();
     }
 }
@@ -2120,6 +2202,7 @@ void App::updateProjectedDecals() {
             mix((uint64_t)o.type);
             for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.rotation[k]); mixf(o.scale[k]); }
             mix((uint64_t)o.primDetail);
+            mix(o.primRings ? 1u : 0u);
             for (char c : o.id) mix((uint8_t)c);
             for (char c : o.modelPath) mix((uint8_t)c);
             if (o.type == PrimitiveType::Decal) {
@@ -2474,7 +2557,17 @@ void App::drawViewportWindow() {
         // track wins while it previews; reading the POSED objects means a
         // dollied camera entity is followed live. A stale name (deleted
         // entity) falls back to the free orbit camera.
-        if (!seqCameraPushed_ && !phoneCamPushed_) {
+        // "Look through this shot" (Tools > Neural Upscaler (BLSS) > Training
+        // shots): park the editor camera at an authored training vantage so the
+        // author can SEE the frame the corpus will render. It has to be pushed
+        // every frame like the others - the branch below CLEARS the override
+        // when nothing claims it, so a one-shot call would last exactly one
+        // frame. Below the cutscene and the phone, above the look-through
+        // camera: it is a deliberate, explicit act and it should win over a
+        // camera somebody left selected.
+        if (!seqCameraPushed_ && !phoneCamPushed_ && blssLookThrough_)
+            viewport_.setCameraOverride(blssLookEye_, blssLookAt_, blssLookFov_, 0.0f);
+        if (!seqCameraPushed_ && !phoneCamPushed_ && !blssLookThrough_) {
             const SceneObject* cam = nullptr;
             if (!lookThroughCam_.empty())
                 for (const SceneObject& o : renderObjects)
@@ -2518,6 +2611,7 @@ void App::drawViewportWindow() {
         }
         updateProjectedDecals();
         updateNavOverlay();
+        viewport_.setCollisionOverlay(showCollisionBoxes_);
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
@@ -2557,7 +2651,11 @@ void App::drawViewportWindow() {
             const ImU32 black = IM_COL32(0, 0, 0, 255);
             if (seqBarsNow_ > 0.0f) {
                 float ft, fb, fl, fr;
-                seqBarsFractions(seqBarsStyleNow_, ft, fb, fl, fr);
+                // A letterbox is measured against the picture the console
+                // outputs, so a widescreen project gets thinner Cinema bars and
+                // no Wide ones at all - exactly what the game will composite.
+                seqBarsFractions(seqBarsStyleNow_, ps2ViewportOutput().tvAspect,
+                                 ft, fb, fl, fr);
                 const float t = ft * seqBarsNow_ * avail.y;
                 const float b = fb * seqBarsNow_ * avail.y;
                 const float l = fl * seqBarsNow_ * avail.x;
@@ -3111,18 +3209,25 @@ void App::drawViewportWindow() {
 
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
+        // Clicking the same spot again walks the stack under it (viewportPick).
         if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
             !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
-            const int hit = viewport_.pick(u, v, project_.objects());
+            bool cycled = false;
+            const int hit = viewportPick(u, v, io.MousePos, &cycled);
             if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
                 selectOnly(hit);
             }
+            // A cycle click is hunting through a stack, not a new framing:
+            // leave the orbit pivot where it is (the block below re-snaps it
+            // to the selection otherwise), or the camera walks away under the
+            // cursor while you are still clicking the same spot.
+            if (cycled) navFocusedIndex_ = selectedObject_;
         }
 
         // Orbit around the selected object: snap the pivot to it whenever the
@@ -4228,6 +4333,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
@@ -4236,6 +4342,8 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
+    if (key == "blss") return &showBlss_;
+    if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
 
@@ -4254,11 +4362,15 @@ static const char* const kLayoutWindowKeys[] = {
     "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
     "menupreview", "grading", "ambience", "loading", "disc",  "anim",
     "tree",     "debugger", "phonecam", "assets",   "gibake", "input",
-    "drone",    "pad",      "proc",     "prefabs",  "save",
+    "drone",    "pad",      "proc",     "prefabs",  "save",    "facts",
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat"};
+    "credits",  "vu",       "chat",     "blss",
+    // Project Preferences stopped being a modal in 1.20.0 and became an
+    // ordinary window, so it needs the same deterministic open/close every
+    // other optional window has.
+    "projectprefs"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -4418,6 +4530,18 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Project", left);
         ImGui::DockBuilderDockWindow("Properties", right);
+        // The Debugger is a TAB BEHIND Properties rather than a panel of its
+        // own: a new project should have somewhere for the debugger to appear
+        // the first time it runs the game (Run opens it - runSelectedTarget),
+        // without spending a second column on a panel that is empty until then.
+        //
+        // Properties wins the tab because drawUI submits it first (it is drawn
+        // ~30 lines before drawDebuggerWindow) - a fresh dock node activates
+        // whichever of its windows is submitted first in the frame, which is
+        // the same mechanism documented on the Menu Designer recipe above.
+        // Docking order here does NOT decide it, so do not "fix" this by
+        // swapping these two lines.
+        ImGui::DockBuilderDockWindow("Debugger", right);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
@@ -4615,6 +4739,9 @@ void App::commitChange() {
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
+    // Same contract for a freshly added fact: its id is what a player's save
+    // file is keyed by, so it must exist before the fact can be persisted.
+    project::ensureFactIds(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,
@@ -4702,16 +4829,7 @@ void App::forgetRecentProject(int index) {
 }
 
 void App::openRecentProject(const std::string& dir) {
-    const std::string err = openProjectAt(dir);
-    if (err.empty()) return;
-    // Moved or deleted since it was probed (the probe runs at startup, not per
-    // frame): re-probe so the entry shows as missing, say what went wrong, and
-    // KEEP it - whether a project on an unplugged drive is worth forgetting is
-    // the user's call.
-    const std::string key = recentProjectKey(dir);
-    for (RecentProject& r : recentProjects_)
-        if (recentProjectKey(r.dir) == key) probeRecentProject(r);
-    platform::errorBox("Open Project", err);
+    openProjectAt(dir, true);
 }
 
 void App::requestOpenRecent(const std::string& dir) {
@@ -4761,10 +4879,24 @@ void App::drawRecentProjectsMenu() {
     }
 }
 
-std::string App::openProjectAt(const std::string& dir) {
+void App::openProjectAt(const std::string& dir, bool fromRecent) {
+    if (projectLoading_) return;
+
+    projectLoadDir_ = dir;
+    projectLoadName_ = std::filesystem::path(dir).filename().string();
+    if (projectLoadName_.empty()) projectLoadName_ = dir;
+    projectLoadFromRecent_ = fromRecent;
+    projectLoading_ = true;
+    // Even a tiny project gets a readable transition instead of a one-frame
+    // flash. A genuinely large one simply keeps the same screen animating.
+    projectLoadShowUntil_ = glfwGetTime() + 0.25;
+}
+
+void App::projectLoadTick() {
+    if (!projectLoading_ || glfwGetTime() < projectLoadShowUntil_) return;
+
     Project p;
-    std::string err = project::load(p, dir);
-    if (!err.empty()) return err;
+    std::string err = project::load(p, projectLoadDir_);
 
     // Format gate. load() already refused a file from a NEWER editor (the
     // message names both versions), so every open path that funnels through
@@ -4775,7 +4907,7 @@ std::string App::openProjectAt(const std::string& dir) {
     // next save. A prompt + backup appear exactly when registered migration
     // steps will transform the data, which is the irreversible part.
     if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
-        !steps.empty()) {
+        err.empty() && !steps.empty()) {
         std::string msg = "This project uses an older format (v" +
                           std::to_string(p.formatVersionOnDisk) +
                           "; this editor writes v" +
@@ -4787,36 +4919,98 @@ std::string App::openProjectAt(const std::string& dir) {
         msg += "\nThis cannot be undone. A backup of the project files will be "
                "created in _backup/ first.\n\nMigrate and open?";
         if (!platform::confirmBox("Project Migration", msg))
-            return "Migration declined - \"" + p.name + "\" was not opened.";
+            err = "Migration declined - \"" + p.name + "\" was not opened.";
 
-        std::string backupDir;
-        if (std::string e = migrations::backup(p, p.formatVersionOnDisk, backupDir);
-            !e.empty())
-            return "Backup failed - migration aborted, the project was not "
-                   "modified.\n\n" + e;
-        if (std::string e = migrations::run(p, p.formatVersionOnDisk); !e.empty())
-            return "This project cannot be migrated.\n\n" + e +
-                   "\n\nThe project on disk was not modified. The backup in " +
-                   backupDir + " is intact.";
-        p.formatVersionOnDisk = version::kFormatVersion;
-        // Persist the migrated format right away so disk, undo history and every
-        // later save share one baseline. Same file set as --resave/--migrate: a
-        // migration that wrote less than a resave would DROP what it skipped.
-        std::string e = project::save(p);
-        if (e.empty()) e = project::saveHeights(p);
-        if (e.empty()) e = project::saveSplat(p);
-        if (!e.empty())
-            return "Migration succeeded but saving failed:\n" + e +
-                   "\n\nThe backup in " + backupDir + " is intact.";
+        if (err.empty()) {
+            std::string backupDir;
+            if (std::string e =
+                    migrations::backup(p, p.formatVersionOnDisk, backupDir);
+                !e.empty())
+                err = "Backup failed - migration aborted, the project was not "
+                      "modified.\n\n" + e;
+            if (err.empty())
+                if (std::string e = migrations::run(p, p.formatVersionOnDisk);
+                    !e.empty())
+                    err = "This project cannot be migrated.\n\n" + e +
+                          "\n\nThe project on disk was not modified. The backup in " +
+                          backupDir + " is intact.";
+            if (err.empty()) {
+                p.formatVersionOnDisk = version::kFormatVersion;
+                // Persist the migrated format right away so disk, undo history
+                // and every later save share one baseline.
+                std::string e = project::save(p);
+                if (e.empty()) e = project::saveHeights(p);
+                if (e.empty()) e = project::saveSplat(p);
+                if (!e.empty())
+                    err = "Migration succeeded but saving failed:\n" + e +
+                          "\n\nThe backup in " + backupDir + " is intact.";
+            }
+        }
+    }
+
+    if (!err.empty()) {
+        // A missing recent entry stays in the list, but refresh its badge now:
+        // an unplugged drive may return later and forgetting it is the user's call.
+        if (projectLoadFromRecent_) {
+            const std::string key = recentProjectKey(projectLoadDir_);
+            for (RecentProject& r : recentProjects_)
+                if (recentProjectKey(r.dir) == key) probeRecentProject(r);
+        }
+        projectLoading_ = false;
+        platform::errorBox("Open Project", err);
+        return;
     }
 
     project_ = p;
     hasProject_ = true;
     applyProjectToViewport();
     attachProject();  // resets dirty + window title
-    // project_.dir, not `dir`: load normalizes it (and accepts a .tyra path).
+    // project_.dir, not the requested spelling: load normalizes it.
     rememberRecentProject(project_.dir);
-    return {};
+    projectLoading_ = false;
+}
+
+void App::drawProjectLoadingScreen() {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->Pos);
+    ImGui::SetNextWindowSize(vp->Size);
+    ImGui::SetNextWindowViewport(vp->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.035f, 0.045f, 0.065f, 1.0f));
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    ImGui::Begin("Opening Project##project_load", nullptr, flags);
+
+    const char spinner[] = {'|', '/', '-', '\\'};
+    const char spin = spinner[(int)(ImGui::GetTime() * 10.0) & 3];
+    const char* phase = "Reading project and preparing workspace...";
+    const std::string heading = "Opening " + projectLoadName_;
+    const float panelW = scaled(440.0f);
+    const float panelH = scaled(150.0f);
+    ImGui::SetCursorPos(ImVec2((vp->Size.x - panelW) * 0.5f,
+                               (vp->Size.y - panelH) * 0.5f));
+    ImGui::BeginGroup();
+    const float headingW = ImGui::CalcTextSize(heading.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - headingW) * 0.5f);
+    ImGui::TextUnformatted(heading.c_str());
+    ImGui::Spacing();
+    const std::string status = std::string(1, spin) + "  " + phase;
+    const float statusW = ImGui::CalcTextSize(status.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - statusW) * 0.5f);
+    ImGui::TextDisabled("%s", status.c_str());
+    ImGui::Spacing();
+    // The loader cannot report truthful byte counts, so animate an explicitly
+    // indeterminate bar instead of inventing a percentage.
+    const float wave = (float)std::fmod(ImGui::GetTime() * 0.55, 1.0);
+    ImGui::ProgressBar(wave, ImVec2(panelW, scaled(8.0f)), "");
+    ImGui::EndGroup();
+
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 void App::requestOpenProject() {
@@ -4889,6 +5083,17 @@ void App::closeProject() {
         peerPresence_.clear();
         viewport_.setPeerSelections({});
     }
+    // The BLSS coverage estimate is a worker thread reading project_.dir off
+    // the disk; it must not outlive the project, and its result must not land
+    // in whichever project is opened next. The subprocess half (blssJob_)
+    // already stands down on its own - it holds no reference to the model - so
+    // only this one needs cancelling here.
+    blssCovCancel_.store(true);
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    blssCovRunning_.store(false);
+    blssCovSeen_ = blssCovVersion_.load();
+    blssCov_ = blss::CoverageReport{};
+    blssSpeed_ = blssui::SpeedEstimate{};
 
     project_ = Project();  // one empty scene - objects() stays safe to call
     hasProject_ = false;
@@ -5531,6 +5736,39 @@ void App::redo() {
     statusMessage_ = "Redo";
 }
 
+// One viewport click -> one object index (-1 for empty space). Clicking the
+// same spot AGAIN steps to the next object stacked under the cursor and wraps
+// at the end, so props standing inside each other - and the areas and
+// procedural volumes enclosing them, which the pick order deliberately ranks
+// last - can all be reached without leaving the viewport. Any click a few
+// pixels away starts a fresh cycle at the frontmost hit.
+int App::viewportPick(float u, float v, ImVec2 mouse, bool* cycled) {
+    if (cycled) *cycled = false;
+    const float kSameSpot = 4.0f;  // a click, not a nudge of the mouse
+    const bool sameSpot = std::fabs(mouse.x - pickCyclePos_.x) < kSameSpot &&
+                          std::fabs(mouse.y - pickCyclePos_.y) < kSameSpot;
+    const int n = (int)project_.objects().size();
+    if (sameSpot && pickCycle_.size() > 1) {
+        for (size_t k = 0; k < pickCycle_.size(); ++k) {
+            if (pickCycle_[k] != pickCycleLast_) continue;
+            // Next still-existing candidate, wrapping (an undo or a delete may
+            // have shortened the scene since the cycle started).
+            for (size_t s = 1; s <= pickCycle_.size(); ++s) {
+                const int cand = pickCycle_[(k + s) % pickCycle_.size()];
+                if (cand < 0 || cand >= n) continue;
+                pickCycleLast_ = cand;
+                if (cycled) *cycled = true;
+                return cand;
+            }
+            break;
+        }
+    }
+    viewport_.pickAll(u, v, project_.objects(), pickCycle_);
+    pickCyclePos_ = mouse;
+    pickCycleLast_ = pickCycle_.empty() ? -1 : pickCycle_[0];
+    return pickCycleLast_;
+}
+
 // --- Selection set -------------------------------------------------------
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
@@ -5599,10 +5837,14 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
         const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
         float oMinX = 1e30f, oMinY = 1e30f, oMaxX = -1e30f, oMaxY = -1e30f;
         bool anyFront = false;
+        // The box the object DRAWS as, scale folded in - the same bounds a
+        // click tests, so a marquee over a model's upper half catches it.
+        float bmn[3], bmx[3];
+        viewport_.pickBounds(o, bmn, bmx);
         for (int s = 0; s < 8; ++s) {
-            const float lx = ((s & 1) ? 0.5f : -0.5f) * o.scale[0];
-            const float ly = ((s & 2) ? 0.5f : -0.5f) * o.scale[1];
-            const float lz = ((s & 4) ? 0.5f : -0.5f) * o.scale[2];
+            const float lx = (s & 1) ? bmx[0] : bmn[0];
+            const float ly = (s & 2) ? bmx[1] : bmn[1];
+            const float lz = (s & 4) ? bmx[2] : bmn[2];
             const float y1 = ly * cx - lz * sx, z1 = ly * sx + lz * cx, x1 = lx;  // Rx
             const float x2 = x1 * cy + z1 * sy, z2 = -x1 * sy + z1 * cy, y2 = y1;  // Ry
             const float x3 = x2 * cz - y2 * sz, y3 = x2 * sz + y2 * cz, z3 = z2;  // Rz
@@ -6106,6 +6348,11 @@ void App::addObject(PrimitiveType type, bool commit) {
     o.name = name;
     o.type = type;
     o.primDetail = defaultPrimDetail(type);  // box-like baseline 1, curved 16
+    // A cylinder placed today gets the axial rings; one loaded from a project
+    // that predates them does not (project.cpp's "rings" key defaults off), so
+    // no existing scene silently grows triangles. The tri readout next to the
+    // Properties checkbox is what an author reads before deciding otherwise.
+    o.primRings = type == PrimitiveType::Cylinder;
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -6144,6 +6391,14 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
             if (tr.target == from) tr.target = to;
         for (SeqCameraKey& k : q.cameraKeys)
             if (k.camera == from) k.camera = to;
+    }
+    // Neural-upscaler training shots that borrow a placed Camera object. Same
+    // rule as a cutscene shot's camera binding: a shot whose camera name went
+    // stale is silently dropped by blssResolveShot, so the corpus would quietly
+    // stop covering the vantage the author asked for.
+    for (BlssShot& b : project_.blssShots.shots) {
+        if (b.camera == from) b.camera = to;
+        if (b.cameraTo == from) b.cameraTo = to;
     }
     if (lookThroughCam_ == from) lookThroughCam_ = to;
     for (SceneObject& m : sc.objects) {
@@ -6186,174 +6441,368 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
     }
 }
 
-std::string App::importModelAsset() {
+void App::importModelAsset(const std::string& targetFolder) {
+    if (modelImporting_) return;
     const std::string src = pickModelFile();
-    if (src.empty()) return "";
+    if (src.empty()) return;
 
-    const std::filesystem::path srcPath(src);
-    const std::filesystem::path srcDir = srcPath.parent_path();
-    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-    const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "models";
-    std::error_code ec;
-    std::filesystem::create_directories(destDir, ec);
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    modelImportName_ = sanitizeAssetName(
+        std::filesystem::path(src).filename().string());
+    modelImportResult_ = ModelImportResult{};
+    modelImportProgress_.store(0.0f, std::memory_order_relaxed);
+    modelImportStage_.store(0, std::memory_order_relaxed);
+    modelImportDone_.store(false, std::memory_order_relaxed);
+    modelImporting_ = true;
+    modelImportOpen_ = true;
+    modelImportClose_ = false;
+    modelImportThread_ = std::thread(&App::modelImportWorker, this, src,
+                                     project_.dir, targetFolder);
+}
 
-    // Animated models (.glb/.fbx): copy, then a validation bake for early
-    // feedback. The .tskl the game loads is serialized from the copy on
-    // every build. A .glb is self-contained; an .fbx may reference textures
-    // as separate files, so those are copied next to it.
-    if (isAnimatedModelPath(fileName)) {
-        std::filesystem::copy_file(srcPath, destDir / fileName,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
+void App::modelImportWorker(std::string src, std::string projectDir,
+                            std::string targetFolder) {
+    ModelImportResult result;
+    result.projectDir = projectDir;
+    result.targetFolder = targetFolder;
+    auto progress = [&](int stage, float fraction) {
+        modelImportStage_.store(stage, std::memory_order_relaxed);
+        modelImportProgress_.store(fraction, std::memory_order_relaxed);
+    };
+    auto finish = [&]() {
+        modelImportResult_ = std::move(result);
+        modelImportDone_.store(true, std::memory_order_release);
+    };
+
+    try {
+        const std::filesystem::path srcPath(src);
+        const std::filesystem::path srcDir = srcPath.parent_path();
+        const std::string fileName =
+            sanitizeAssetName(srcPath.filename().string());
+        const std::filesystem::path destDir =
+            std::filesystem::path(projectDir) / "res" / "models";
+        const std::filesystem::path destPath = destDir / fileName;
+        result.relPath = "res/models/" + fileName;
+        result.animated = isAnimatedModelPath(fileName);
+        std::error_code ec;
+        std::filesystem::create_directories(destDir, ec);
         if (ec) {
-            statusMessage_ = "Model import failed: " + ec.message();
-            return "";
+            result.status = "Model import failed: " + ec.message();
+            finish();
+            return;
         }
-        if (fileName.size() > 4 && fileName.compare(fileName.size() - 4, 4, ".fbx") == 0)
-            fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
-        glbparser::Baked baked;
-        std::string error;
-        if (!animimport::bake((destDir / fileName).string(), 12.0f, baked, error)) {
-            statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
-            return "res/models/" + fileName;
+        ec.clear();
+        if (std::filesystem::exists(destPath, ec) && !ec &&
+            std::filesystem::equivalent(srcPath, destPath, ec) && !ec) {
+            // Opening the destination below truncates it. A picker aimed at a
+            // file already inside res/models must never eat the source asset.
+            result.status =
+                "Model import skipped: the selected file is already in res/models";
+            finish();
+            return;
         }
-        statusMessage_ = "Imported " + fileName + " (" +
-                         std::to_string(baked.clips.size()) + " clip(s), " +
-                         std::to_string(baked.totalVertexCount()) + " verts, " +
-                         std::to_string(baked.frameCount) + " baked frames)";
-        // Rough PS2 memory estimate: the skeletal runtime keeps one bind-pose
-        // mesh + keyframe tracks (+ per-instance skinned buffers), not baked
-        // frames - parseSkel knows the actual footprint.
-        glbparser::Skel skel;
-        std::string skelError;
-        const size_t bytes = animimport::parseSkel((destDir / fileName).string(),
-                                                   skel, skelError)
-                                 ? skel.ps2Bytes()
-                                 : 0;
-        if (bytes > 8u * 1024 * 1024)
-            statusMessage_ += " - WARNING: ~" + std::to_string(bytes >> 20) +
-                              " MB on the PS2 (32 MB total) - reduce the mesh";
-        if (!baked.warnings.empty())
-            statusMessage_ += " - " + baked.warnings.front() +
-                              (baked.warnings.size() > 1
-                                   ? " (+" + std::to_string(baked.warnings.size() - 1) +
-                                         " more warning(s), see build log)"
-                                   : "");
-        glbInfoCache_.erase("res/models/" + fileName);
-        beginModelSizing("res/models/" + fileName);
-        modelSizeFresh_ = true;  // ask how big it is in the real world
-        return "res/models/" + fileName;
-    }
+        ec.clear();
 
-    // Parse the source model to find its material libraries and textures -
-    // they get flattened next to the .obj in res/models/. Sanitized names may
-    // differ from the originals, so the mtllib/map_Kd references are rewritten
-    // while copying instead of copying the files verbatim.
-    objparser::Model parsed;
-    const bool parseOk = objparser::load(src, parsed);
+        // Animated models are copied with byte-level progress. Parsing and
+        // baking expose no inner callback, so those phases keep the spinner
+        // moving while the bar holds at its honest stage boundary.
+        if (result.animated) {
+            progress(0, 0.02f);
+            std::ifstream in(srcPath, std::ios::binary | std::ios::ate);
+            std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
+            if (!in || !out) {
+                result.status = "Model import failed: cannot copy " + fileName;
+                finish();
+                return;
+            }
+            const std::streamoff total = in.tellg();
+            in.seekg(0, std::ios::beg);
+            std::vector<char> chunk(4u * 1024u * 1024u);
+            std::streamoff copied = 0;
+            while (in) {
+                in.read(chunk.data(), (std::streamsize)chunk.size());
+                const std::streamsize got = in.gcount();
+                if (got <= 0) break;
+                out.write(chunk.data(), got);
+                if (!out) break;
+                copied += got;
+                const float part = total > 0
+                                       ? (float)((double)copied / (double)total)
+                                       : 1.0f;
+                modelImportProgress_.store(0.02f + part * 0.18f,
+                                           std::memory_order_relaxed);
+            }
+            out.close();
+            if (!in.eof() || !out) {
+                result.status = "Model import failed while copying " + fileName;
+                finish();
+                return;
+            }
+            result.installed = true;
 
-    // texture file (relative to the .obj) -> sanitized basename in res/models
-    std::map<std::string, std::string> textureNames;
-    for (const objparser::Submesh& s : parsed.submeshes)
-        for (const std::string& tex : {s.texture, s.refl})
-            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
-                textureNames.emplace(
-                    tex,
-                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
-    std::map<std::string, std::string> mtlNames;
-    for (const std::string& m : parsed.mtlLibs)
-        mtlNames.emplace(
-            m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+            if (fileName.size() > 4 &&
+                fileName.compare(fileName.size() - 4, 4, ".fbx") == 0) {
+                progress(1, 0.22f);
+                fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
+            }
 
-    int missing = 0;
+            progress(2, 0.34f);
+            glbparser::Baked baked;
+            std::string error;
+            if (!animimport::bake(destPath.string(), 12.0f, baked, error)) {
+                result.status = "Imported " + fileName + " - UNUSABLE: " + error;
+                progress(4, 1.0f);
+                finish();
+                return;
+            }
+            result.measured = true;
+            for (int k = 0; k < 3; ++k) {
+                result.bounds[k] = baked.min[k];
+                result.bounds[k + 3] = baked.max[k];
+            }
+            result.status = "Imported " + fileName + " (" +
+                            std::to_string(baked.clips.size()) + " clip(s), " +
+                            std::to_string(baked.totalVertexCount()) + " verts, " +
+                            std::to_string(baked.frameCount) + " baked frames)";
 
-    // .obj: rewrite mtllib lines to the sanitized library names
-    {
-        std::ifstream in(srcPath);
-        std::ofstream out(destDir / fileName, std::ios::trunc);
-        if (!in || !out) {
-            statusMessage_ = "Model import failed: cannot copy " + fileName;
-            return "";
+            // Rough PS2 memory estimate: the skeletal runtime keeps one
+            // bind-pose mesh + keyframe tracks, not the baked preview frames.
+            progress(3, 0.76f);
+            glbparser::Skel skel;
+            std::string skelError;
+            const size_t bytes = animimport::parseSkel(destPath.string(), skel,
+                                                       skelError)
+                                     ? skel.ps2Bytes()
+                                     : 0;
+            if (bytes > 8u * 1024 * 1024)
+                result.status += " - WARNING: ~" +
+                                 std::to_string(bytes >> 20) +
+                                 " MB on the PS2 (32 MB total) - reduce the mesh";
+            if (!baked.warnings.empty())
+                result.status +=
+                    " - " + baked.warnings.front() +
+                    (baked.warnings.size() > 1
+                         ? " (+" + std::to_string(baked.warnings.size() - 1) +
+                               " more warning(s), see build log)"
+                         : "");
+            progress(4, 1.0f);
+            finish();
+            return;
         }
-        std::string line;
-        while (std::getline(in, line)) {
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "mtllib") {
-                out << "mtllib";
-                std::string name;
-                while (ss >> name) out << " " << mtlNames[name];
-                out << "\n";
-            } else {
-                out << line << "\n";
+
+        // Wavefront import parses the source once, then rewrites the copied
+        // .obj/.mtl references to their sanitized, flattened dependency names.
+        progress(2, 0.08f);
+        objparser::Model parsed;
+        const bool parseOk = objparser::load(src, parsed);
+
+        std::map<std::string, std::string> textureNames;
+        for (const objparser::Submesh& s : parsed.submeshes)
+            for (const std::string& tex : {s.texture, s.refl})
+                if (!tex.empty() && tex != "@sky")
+                    textureNames.emplace(
+                        tex, sanitizeAssetName(
+                                 std::filesystem::path(tex).filename().string()));
+        std::map<std::string, std::string> mtlNames;
+        for (const std::string& m : parsed.mtlLibs)
+            mtlNames.emplace(
+                m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+
+        int missing = 0;
+        progress(0, 0.42f);
+        {
+            std::ifstream in(srcPath);
+            std::ofstream out(destPath, std::ios::trunc);
+            if (!in || !out) {
+                result.status = "Model import failed: cannot copy " + fileName;
+                finish();
+                return;
+            }
+            std::string line;
+            while (std::getline(in, line)) {
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "mtllib") {
+                    out << "mtllib";
+                    std::string name;
+                    while (ss >> name) out << " " << mtlNames[name];
+                    out << "\n";
+                } else {
+                    out << line << "\n";
+                }
             }
         }
-    }
+        result.installed = true;
 
-    // .mtl libraries: rewrite map_Kd to the sanitized (flattened) texture names
-    for (const auto& [mtlRef, mtlDest] : mtlNames) {
-        std::ifstream in(srcDir / mtlRef);
-        if (!in) {
-            ++missing;
-            continue;
+        progress(1, 0.64f);
+        size_t finishedDeps = 0;
+        const size_t totalDeps = mtlNames.size() + textureNames.size();
+        auto dependencyDone = [&]() {
+            ++finishedDeps;
+            if (totalDeps)
+                modelImportProgress_.store(
+                    0.64f + 0.30f * (float)finishedDeps / (float)totalDeps,
+                    std::memory_order_relaxed);
+        };
+        for (const auto& [mtlRef, mtlDest] : mtlNames) {
+            std::ifstream in(srcDir / mtlRef);
+            if (!in) {
+                ++missing;
+                dependencyDone();
+                continue;
+            }
+            std::ofstream out(destDir / mtlDest, std::ios::trunc);
+            if (!out) {
+                dependencyDone();
+                continue;
+            }
+            std::string line;
+            while (std::getline(in, line)) {
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "map_Kd" || tag == "refl") {
+                    std::vector<std::string> toks;
+                    for (std::string t; ss >> t;) toks.push_back(t);
+                    std::string last = toks.empty() ? "" : toks.back();
+                    for (char& c : last)
+                        if (c == '\\') c = '/';
+                    auto it = textureNames.find(last);
+                    out << tag;
+                    if (tag == "refl")
+                        for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                            out << " " << toks[ti];
+                    out << " "
+                        << (it != textureNames.end() ? it->second : last) << "\n";
+                } else {
+                    out << line << "\n";
+                }
+            }
+            dependencyDone();
         }
-        std::ofstream out(destDir / mtlDest, std::ios::trunc);
-        if (!out) continue;
-        std::string line;
-        while (std::getline(in, line)) {
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "map_Kd" || tag == "refl") {
-                // last token = filename, remapped to its flattened name; the
-                // refl options (-type/-mm, the strength) are preserved.
-                std::vector<std::string> toks;
-                for (std::string t; ss >> t;) toks.push_back(t);
-                std::string last = toks.empty() ? "" : toks.back();
-                for (char& c : last)
-                    if (c == '\\') c = '/';
-                auto it = textureNames.find(last);
-                out << tag;
-                if (tag == "refl")
-                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
-                        out << " " << toks[ti];
-                out << " " << (it != textureNames.end() ? it->second : last)
-                    << "\n";
-            } else {
-                out << line << "\n";
+
+        for (const auto& [texRef, texDest] : textureNames) {
+            std::filesystem::copy_file(
+                srcDir / texRef, destDir / texDest,
+                std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) {
+                ++missing;
+                ec.clear();
+            }
+            dependencyDone();
+        }
+
+        result.status = "Imported " + fileName;
+        if (!parseOk)
+            result.status +=
+                " (unparseable - it will render as a placeholder box)";
+        else if (!mtlNames.empty())
+            result.status += " + " + std::to_string(mtlNames.size()) +
+                             " mtl, " + std::to_string(textureNames.size()) +
+                             " texture(s)";
+        if (missing > 0)
+            result.status += " - " + std::to_string(missing) +
+                             " referenced file(s) missing next to the .obj";
+        if (parseOk) {
+            result.measured = true;
+            for (int k = 0; k < 3; ++k) {
+                result.bounds[k] = parsed.min[k];
+                result.bounds[k + 3] = parsed.max[k];
             }
         }
+        progress(4, 1.0f);
+    } catch (const std::exception& e) {
+        result.status = "Model import failed: " + std::string(e.what());
+    } catch (...) {
+        result.status = "Model import failed: unexpected importer error";
+    }
+    finish();
+}
+
+void App::modelImportTick() {
+    if (!modelImporting_ ||
+        !modelImportDone_.load(std::memory_order_acquire))
+        return;
+
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    modelImporting_ = false;
+    modelImportClose_ = true;
+
+    ModelImportResult& result = modelImportResult_;
+    // The modal prevents normal project switching, but keep the handoff
+    // guarded for shutdown/automation paths too: a worker result belongs only
+    // to the project directory it started from.
+    if (!hasProject_ || project_.dir != result.projectDir) return;
+
+    statusMessage_ = result.status;
+    if (!result.installed) return;
+
+    std::string imported = result.relPath;
+    const std::string modelRoot = "res/models";
+    const bool targetInsideModels =
+        result.targetFolder.size() > modelRoot.size() &&
+        result.targetFolder.compare(0, modelRoot.size(), modelRoot) == 0 &&
+        result.targetFolder[modelRoot.size()] == '/';
+    if (targetInsideModels) {
+        // moveAssets needs the just-created root asset in its fresh inventory;
+        // it carries .obj dependencies and retargets existing references.
+        scanAssetTree();
+        const std::string moveError =
+            moveAssets({result.relPath}, result.targetFolder);
+        if (moveError.empty())
+            imported = result.targetFolder + "/" +
+                       std::filesystem::path(result.relPath).filename().string();
+        else
+            statusMessage_ += " - could not move it into " +
+                              result.targetFolder + ": " + moveError;
+    } else {
+        assetsChanged();
     }
 
-    // referenced textures, flattened into res/models/
-    for (const auto& [texRef, texDest] : textureNames) {
-        std::filesystem::copy_file(srcDir / texRef, destDir / texDest,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
-        if (ec) {
-            ++missing;
-            ec.clear();
-        }
+    assetSelection_.assign(1, imported);
+    if (result.measured) {
+        beginModelSizing(imported, result.bounds.data(),
+                         result.bounds.data() + 3);
+        modelSizeFresh_ = true;
+    }
+}
+
+void App::drawModelImportModal() {
+    if (modelImportOpen_) {
+        ImGui::OpenPopup("Importing model");
+        modelImportOpen_ = false;
+    }
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Importing model", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize |
+                                    ImGuiWindowFlags_NoSavedSettings))
+        return;
+
+    if (modelImportClose_) {
+        modelImportClose_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
     }
 
-    // The cache is keyed "<model>|<material override>", so erasing the bare
-    // path missed every entry of a re-imported model (its summary stayed
-    // stale until a project reload) - drop the whole map, it is cheap to
-    // refill and the Assets panel refills it the same frame.
-    modelInfoCache_.clear();
-    statusMessage_ = "Imported " + fileName;
-    if (!parseOk)
-        statusMessage_ += " (unparseable - it will render as a placeholder box)";
-    else if (!mtlNames.empty())
-        statusMessage_ += " + " + std::to_string(mtlNames.size()) + " mtl, " +
-                          std::to_string(textureNames.size()) + " texture(s)";
-    if (missing > 0)
-        statusMessage_ += " - " + std::to_string(missing) +
-                          " referenced file(s) missing next to the .obj";
-    if (parseOk) {
-        beginModelSizing("res/models/" + fileName);
-        modelSizeFresh_ = true;  // an .obj carries no unit at all - ask
-    }
-    return "res/models/" + fileName;
+    static const char* kStages[] = {
+        "Copying model", "Copying materials and textures",
+        "Reading and validating model", "Estimating runtime memory",
+        "Finishing import"};
+    const int stage = std::clamp(modelImportStage_.load(std::memory_order_relaxed),
+                                 0, (int)(std::size(kStages) - 1));
+    const float fraction = std::clamp(
+        modelImportProgress_.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    ImGui::Text("%c  %s", "|/-\\"[(int)(ImGui::GetTime() * 10.0) & 3],
+                kStages[stage]);
+    ImGui::TextDisabled("%s", modelImportName_.c_str());
+    ImGui::Spacing();
+    ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
+    ImGui::TextDisabled(
+        "The editor stays responsive while the importer works in the background.");
+    ImGui::EndPopup();
 }
 
 // --- model real-world size (docs/world-scale.md) ---------------------------
@@ -6373,19 +6822,39 @@ void App::beginModelSizing(const std::string& relPath) {
     modelSizePath_ = relPath;
     modelSizeApplyExisting_ = false;
     modelSizeFresh_ = false;  // the import path raises it after this call
-    // Re-importing over an existing file keeps its name, so the viewport's
-    // path-keyed caches would hand back the OLD geometry's bounds.
-    viewport_.invalidateAssets();
-    // What the file is authored as. modelLocalBounds covers both formats
-    // (static .obj bounds and an animated model's baked pose bounds) and is
-    // the same measurement the placement snapping uses.
-    SceneObject probe;
-    probe.type = PrimitiveType::Model;
-    probe.modelPath = relPath;
-    float mn[3] = {0.0f, 0.0f, 0.0f}, mx[3] = {0.0f, 0.0f, 0.0f};
-    modelSizeMeasured_ = viewport_.modelLocalBounds(probe, mn, mx);
+    // The Asset Browser inspector has already parsed this exact asset to show
+    // its stats. Reuse that parse's bounds: going through modelLocalBounds()
+    // here used to parse/bake a large model all over again on the UI thread,
+    // which made the editor appear frozen immediately after clicking Size.
+    // Imports use the bounds overload below and likewise never pay twice.
+    const float* mn = nullptr;
+    const float* mx = nullptr;
+    if (isAnimatedModelPath(relPath)) {
+        const auto it = glbInfoCache_.find(relPath);
+        if (it != glbInfoCache_.end() && it->second.ok)
+            mn = it->second.min, mx = it->second.max;
+    } else {
+        const auto it = modelInfoCache_.find(relPath + "|");
+        if (it != modelInfoCache_.end() && it->second.ok)
+            mn = it->second.min, mx = it->second.max;
+    }
+    modelSizeMeasured_ = mn && mx;
     for (int c = 0; c < 3; ++c)
         modelSizeSrc_[c] = modelSizeMeasured_ ? mx[c] - mn[c] : 0.0f;
+    auto it = project_.modelUnitMeters.find(relPath);
+    modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
+    modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    modelSizeOpen_ = true;
+}
+
+void App::beginModelSizing(const std::string& relPath, const float mn[3],
+                           const float mx[3]) {
+    modelSizePath_ = relPath;
+    modelSizeApplyExisting_ = false;
+    modelSizeFresh_ = false;
+    viewport_.invalidateAssets();
+    modelSizeMeasured_ = true;
+    for (int c = 0; c < 3; ++c) modelSizeSrc_[c] = mx[c] - mn[c];
     auto it = project_.modelUnitMeters.find(relPath);
     modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
     modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
@@ -6687,6 +7156,10 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath,
         info.verts = model.vertexCount();
         info.tris = info.verts / 3;
         info.positions = model.positionCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = model.min[c];
+            info.max[c] = model.max[c];
+        }
         // texture paths resolve relative to the file that defined them: the
         // override .mtl when one is assigned, the model otherwise
         const std::filesystem::path texBase =
@@ -6737,6 +7210,10 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();
         info.frameCount = baked.frameCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = baked.min[c];
+            info.max[c] = baked.max[c];
+        }
         info.warnings = baked.warnings;
         for (const glbparser::Part& p : baked.parts) {
             GlbInfo::Material mat;
@@ -7037,10 +7514,11 @@ void App::drawAssetsSection() {
         ImGui::SetTooltip("Asset Browser: folders, thumbnails, filters,\n"
                           "drag & drop into the scene, safe move/rename/delete.");
     ImGui::SameLine();
+    ImGui::BeginDisabled(modelImporting_);
     if (ImGui::SmallButton("Import model...")) {
         importModelAsset();
-        assetsChanged();
     }
+    ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
                           ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
@@ -8862,14 +9340,36 @@ void App::drawSaveEditorWindow() {
              " slots x 32 B)")
                 .c_str(),
             bytes(sz.objectsBytes));
+        // World Facts (docs/world-facts.md). Only the ones that RIDE a slot -
+        // a computed or scene-scoped fact stores nothing, and a session-lived
+        // one is not in a save at all.
+        row(("World Facts (" + std::to_string(sz.facts) + " x 16 B)").c_str(),
+            bytes(sz.factsBytes));
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
         ImGui::Text("Save slot file (64-byte aligned)");
         ImGui::TableNextColumn();
         ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
         row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
-        row("All data (3 slots + icon, raw bytes)",
-            bytes(sz.payloadBytes * templates::saveSlotCount(project_) + sz.iconBytes));
+        if (sz.profileBytes > 0) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Profile (%d fact(s), once per card)", sz.profileFacts);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Facts kept in the PROFILE live in their own file beside\n"
+                    "the slots, shared by every save - unlocks, a best time,\n"
+                    "'has seen the intro'. It is padded to a whole cluster\n"
+                    "because a smaller payload did not round-trip through the\n"
+                    "card, so it costs the same 1 KB whatever is in it.");
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", bytes(sz.profileBytes).c_str());
+        }
+        row("All data (slots + icon + profile, raw bytes)",
+            bytes(sz.payloadBytes * templates::saveSlotCount(project_) +
+                  sz.iconBytes + sz.profileBytes));
         // What the card actually loses, which is the number that matters and
         // is always bigger: files are allocated in whole 1 KB clusters and
         // the save directory costs one of its own.
@@ -13129,41 +13629,146 @@ void App::rebakeSplatPreview() {
     viewport_.setTerrainLayers(draws, sc.splat);
 }
 
-void App::drawPreferencesModal() {
-    if (openPreferencesPopup_) {
-        ImGui::OpenPopup("Project Preferences");
-        openPreferencesPopup_ = false;
+// Raise the window (and seed the two scratch values it does not read live).
+void App::openProjectPreferences() {
+    if (!hasProject_) return;
+    prefTerrain_ = project_.active().terrain;
+    prefGridDetail_ = project_.settings.terrainDetail;
+    showProjectPrefs_ = true;
+    focusProjectPrefs_ = true;
+}
+
+// PROJECT PREFERENCES IS A WINDOW, NOT A MODAL, AND IT APPLIES LIVE.
+//
+// It was a modal with OK/Cancel over a staged copy, and the modality was the
+// defect: ImGui blocks every click on anything behind a modal, so the three
+// buttons in here that RAISE another window (Advanced..., Open Ambience Editor,
+// Open Loading Screens editor) could not leave anything usable behind them.
+// The previous pass made them apply-and-close, which was the right answer for a
+// modal and is a workaround for the modality itself. Reported as "clicking
+// Advanced closes Project Preferences completely - could they be a window
+// instead of a modal?", which dissolves the problem rather than trading it.
+//
+// STAGING COULD NOT SURVIVE THE CHANGE, so it is gone, and that is deliberate:
+//
+//  - A non-modal window means the project can be edited underneath while staged
+//    edits wait. Undo, a collaboration peer, the AI Assistant and the windows
+//    these very buttons open all write project_.settings, and an OK pressed
+//    afterwards would silently overwrite all of it with values read minutes ago.
+//  - prefTerrain_ stages the ACTIVE SCENE's terrain. With the window open the
+//    active scene can change, and OK would then write scene A's terrain size
+//    onto scene B. That one is unfixable by any amount of care.
+//  - Live IS the editor's convention (tyra-editor-dev rule 1): every other
+//    panel mutates project_ and calls commitChange(). Preferences was the
+//    exception, which is also why the Advanced... problem existed at all - the
+//    windows it opens edit project_.settings live and the modal did not.
+//
+// What Cancel bought is not lost so much as unified with the rest of the
+// editor: nothing reaches disk until an explicit Save, project-wide settings
+// were never in the undo stack anyway (History::push carries the scenes only,
+// so Cancel was the ONLY way back and it is now "close without saving"), and
+// the footer says so. The one control that is genuinely dangerous to apply
+// keystroke-by-keystroke is the terrain grid, and it is treated specially
+// rather than holding the whole dialog modal - see prefGridDetail_ in app.hpp.
+void App::drawPreferencesWindow() {
+    if (!showProjectPrefs_ || !hasProject_) {
+        // A viewport refresh owed from the last frame the window was open must
+        // still land: it is deferred to the end of an interaction (below), and
+        // a layout switch can close the window in between.
+        if (prefsViewportDirty_) {
+            if (hasProject_) applyProjectToViewport();
+            prefsViewportDirty_ = false;
+        }
+        if (!hasProject_) showProjectPrefs_ = false;
+        return;
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
-
-    if (!ImGui::BeginPopupModal("Project Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
-        return;
-
-    ImGui::SeparatorText("Game");
-    // Read-only on purpose: the preset is picked once, in New Project. It
-    // decides which game-template sources are generated, and those are
-    // user-ownable - switching here would either overwrite work or leave an
-    // owned source no longer matching what the project builds.
-    ImGui::BeginDisabled();
-    {
-        int shown = presetIndexOf(project_.gameTemplate);
-        const char* names[kNewPresetCount];
-        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
-        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
+    ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    // TWO STRUCTURAL CHOICES, and the first is the one that matters.
+    //
+    // (1) AN EXPLICIT SIZE, NOT AlwaysAutoResize. This dialog was one vertical
+    //     stack - Frame delivery, AI navigation, Ambience, Scenes, Shadows,
+    //     Usable objects, the camera, Build and more - with the footer at the
+    //     BOTTOM OF THE CONTENT, so reaching it meant scrolling past everything
+    //     first, and every setting anyone added made that worse. The footer is
+    //     outside the scrolling region now: it is always one click away no
+    //     matter how long the content grows, which is the fix the tabs below do
+    //     NOT provide (a single tab can still outgrow the screen). Same shape as
+    //     Scene Preferences, which hit this first and solved it the same way.
+    // (2) 720 rather than 560 wide. The explanatory text under Frame delivery
+    //     wraps, and at 560 it wrapped into paragraphs several lines deep. This
+    //     is the cheap half of that complaint; the pre-wrapped `\n` prose is
+    //     unaffected either way, which is why it is not wider still.
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(720),
+               std::min(scaled(860), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_FirstUseEver);
+    if (focusProjectPrefs_) {
+        ImGui::SetNextWindowFocus();
+        focusProjectPrefs_ = false;
     }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Fixed when the project was created and not changeable here: it picks\n"
-        "the generated game sources (files with the editor marker), which you\n"
-        "may have taken ownership of. Start a new project to use another\n"
-        "preset. The player's own camera settings stay editable - select the\n"
-        "Player object and see Properties.");
 
-    ImGui::SeparatorText("Build");
+    if (!ImGui::Begin("Project Preferences", &showProjectPrefs_)) {
+        ImGui::End();
+        return;
+    }
+
+    // THE ONE-FRAME COPY. `prefSettings_` is re-seeded from the model here and
+    // written back at the bottom, so an edit lands immediately AND anything
+    // that changed the project underneath is picked up next frame instead of
+    // being clobbered. terrainDetail is excluded because it has its own scratch
+    // (see the grid note in app.hpp).
+    prefSettings_ = project_.settings;
+    bool gridChanged = false;
+
+    // Opening another window is now just that - `show = true` and both stay
+    // open, which is the whole point of this no longer being a modal. The three
+    // buttons below used to go through an applyAndOpen() helper that closed
+    // this dialog first; there is nothing left for it to do.
+    //
+    // It used to be SAID, in a dimmed line under each of those three buttons.
+    // Three copies of one sentence about window management, in a dialog whose
+    // problem was that everything explained itself in prose - and each of the
+    // three buttons already has a tooltip that could hold it. Now they do.
+    const char* kOpensWindow =
+        "\n\nOpens the window alongside this one - both stay usable.";
+
+    // The footer's own height, reserved out of every tab body below: the
+    // separator, three lines of note and the button row.
+    const float footerH = ImGui::GetFrameHeightWithSpacing() +
+                          ImGui::GetTextLineHeightWithSpacing() * 3.0f +
+                          ImGui::GetStyle().ItemSpacing.y * 3.0f;
+    // TABS, and the grouping is derived from the sections that were already
+    // here rather than invented: the old "Build" section was doing two jobs at
+    // once - how the picture reaches the TV, and what goes into the ELF - and
+    // splitting it is most of this. Display holds the signal, the presentation
+    // and the two reconstruction features, so "how does a frame reach the
+    // screen" is one tab and the upscaler is in it. Rendering is what the frame
+    // is made of. World is the space the game happens in. Player is who the
+    // player is and how they control. Build is what the built ELF contains.
+    //
+    // A WIDGET INSIDE AN UNSELECTED TAB DOES NOT EXIST - it is not submitted, so
+    // it is not in `dump` and `--ui-script` cannot reach it. Every script that
+    // drives this dialog has to select its tab first; see docs/ui-scripting.md,
+    // "A widget inside an unselected tab does not exist".
+    if (!ImGui::BeginTabBar("##prefstabs")) {
+        ImGui::End();
+        return;
+    }
+    auto beginTab = [&](const char* name) {
+        if (!ImGui::BeginTabItem(name)) return false;
+        // BeginTabItem pushes the tab's id, so one child name serves them all.
+        ImGui::BeginChild("##body", ImVec2(0, -footerH));
+        return true;
+    };
+    auto endTab = [&]() {
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+    };
+
+    if (beginTab("Display")) {
+    ImGui::SeparatorText("Video signal");
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
                    : prefSettings_.videoSystem == "ntsc" ? 1
                                                          : 0;
@@ -13257,135 +13862,182 @@ void App::drawPreferencesModal() {
         "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
         "the picture also fills more of the screen. HUD sprites stretch\n"
         "with the screen. Runtime switch: the Set Widescreen flow node.");
-    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
-    const char* profileNames[] = {"Release", "Debug"};
-    if (ImGui::Combo("Profile", &profile, profileNames, 2))
-        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
-    ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
-    prefHelp(
-        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
-        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
-        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
-        "editor sets its emulated USB devices automatically) and with real\n"
-        "USB devices on a console. Skipped on ps2link deploys.");
-    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
-    ImGui::Indent(scaled(16));
-    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
-    prefHelp(
-        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
-        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
-        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
-        "engine reuses that resident stack instead of loading its own. The\n"
-        "driver logs show up live in Output / ps2client. Untick only if you\n"
-        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
-        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
-        "and docs/keyboard-mouse.md.");
-    ImGui::Unindent(scaled(16));
+
+    // WHEN a finished frame reaches the TV, as opposed to what is in it. Both
+    // of these used to sit under "Build", which is where nobody deciding how
+    // the picture is presented would look for them.
+    ImGui::SeparatorText("Presentation");
+    // TRIPLE BUFFERING IS ASKED OF EVERY MODE THE PROJECT CAN RUN IN, not only
+    // of the one it boots in - which is what the user's second complaint was
+    // about ("we set it here and then someone changes the resolution in the
+    // game and it goes out of step"). ProjectSettings::supportedModes declares
+    // the scan modes a player can switch into; RendererCore::setDisplayOutput
+    // re-lays the entire VRAM region on such a switch, so allocateVramBuffers
+    // asks the headroom question again with the new framebuffer size and the
+    // answer really can differ from mode to mode. It fits in 512x224 and
+    // 448x448 and does not fit in 512x448, 448x540 or 512x512 (the upscaler's
+    // z shrink can change that - it is in the arithmetic).
+    //
+    // So the setting is a REQUEST, granted per mode at runtime, and the window
+    // says which modes grant it rather than answering for the boot mode alone.
+    const project::TripleBufferModes tbModes =
+        project::tripleBufferingModes(project_, prefSettings_);
+    // Only the TICK is ever blocked, never the untick - the rule the BLSS x
+    // frame-extrapolation exclusion established. A project can arrive with the
+    // flag on from a hand-edited .tyra or an older editor, and every switch
+    // that is on must stay switchable off.
+    const bool tbBlocked = tbModes.fitting.empty();
+    ImGui::BeginDisabled(tbBlocked && !prefSettings_.tripleBuffering);
+    ImGui::Checkbox("Triple buffering", &prefSettings_.tripleBuffering);
     ImGui::EndDisabled();
+    prefHelp(
+        "How a frame that misses its vsync deadline is paid for. Off, the\n"
+        "EE waits for the next vsync before presenting, so a frame taking\n"
+        "20.4 ms on a 20 ms PAL field waits out a whole second field and\n"
+        "the rate halves - 49 fps of work is shown as 25. On, a finished\n"
+        "frame is queued and a vblank interrupt presents it, so it is one\n"
+        "field late instead, and the EE spends the wait rendering: the\n"
+        "same work runs at ~49 fps.\n\n"
+        "Costs a THIRD display buffer of GS VRAM - 0.875 MB of the\n"
+        "~1.08 MB texture budget at 512x448, about half that in\n"
+        "interlaced-field - so it does not fit in every display mode, and\n"
+        "the list below says which of the modes this project supports it\n"
+        "fits in. It is a REQUEST: the engine re-decides on every runtime\n"
+        "scan-mode switch and stays double buffered where there is no room,\n"
+        "so it can never break a build - but a player who changes resolution\n"
+        "can change the frame pacing with it.");
+    // The engine refuses a third buffer that would starve the rest of the
+    // renderer, and until this block the only way to find that out was the
+    // running game's log. project::tripleBufferingFit is the host twin of that
+    // check - same numbers, same answer, now asked once per mode.
+    {
+        auto modeList = [](const std::vector<project::TripleBufferFit>& v,
+                           bool byLabel = false) {
+            std::string s;
+            for (size_t i = 0; i < v.size(); ++i) {
+                if (i) s += i + 1 == v.size() ? " or " : ", ";
+                const DisplayModeInfo& d = project::displayModeInfo(v[i].mode);
+                if (byLabel) {
+                    s += d.label;
+                    continue;
+                }
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%dx%d", d.bufW,
+                              d.halfHeight ? d.logicalH / 2 : d.logicalH);
+                s += buf;
+            }
+            return s;
+        };
+        const ImVec4 amber(1.0f, 0.72f, 0.25f, 1.0f);
+        if (tbBlocked) {
+            // IN LINE, not in the tooltip: a greyed control whose explanation
+            // only appears on hover reads as a bug, because the first question
+            // is "why can I not click this" and nothing on screen answers it.
+            //
+            // The way OUT is computed, never asserted. Which modes have room
+            // depends on the upscaler's z shrink, so "try field rendering" is a
+            // fact about this project rather than about the engine - and at
+            // 512x512 the upscaler does NOT free enough, which is exactly the
+            // sentence a hardcoded hint would have got wrong.
+            const project::TripleBufferFit& f = tbModes.notFitting.front();
+            std::string escape;
+            if (!tbModes.roomElsewhere.empty())
+                escape = " There is room in " +
+                         modeList(tbModes.roomElsewhere, true) + ".";
+            if (!prefSettings_.blssEnabled) {
+                ProjectSettings probe = prefSettings_;
+                probe.blssEnabled = true;
+                if (!project::tripleBufferingModes(project_, probe)
+                         .fitting.empty())
+                    escape +=
+                        " Turning the neural upscaler on also frees enough - "
+                        "the z buffer follows its smaller raster.";
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, amber);
+            ImGui::TextWrapped(
+                "    No room in any supported mode (%s): a third buffer costs "
+                "%.2f MB, leaving %.2f MB of the %.2f MB the renderer and the "
+                "texture heap need.%s",
+                modeList(tbModes.notFitting).c_str(),
+                f.bufferWords / 262144.0f, f.leftWords / 262144.0f,
+                f.needWords / 262144.0f, escape.c_str());
+            ImGui::PopStyleColor();
+        } else if (!tbModes.notFitting.empty()) {
+            // THE DESYNC, named. This is the honest answer and the one the
+            // report asked for: the modes disagree, and the game will too.
+            ImGui::PushStyleColor(ImGuiCol_Text, amber);
+            ImGui::TextWrapped(
+                "    Fits in %s, not in %s (boot mode %s: %s). The engine "
+                "re-decides on every runtime scan-mode switch, so a player who "
+                "changes resolution changes the frame pacing.",
+                modeList(tbModes.fitting).c_str(),
+                modeList(tbModes.notFitting).c_str(),
+                project::displayModeInfo(tbModes.boot).label,
+                tbModes.bootFits ? "fits" : "does not");
+            ImGui::PopStyleColor();
+        } else if (prefSettings_.tripleBuffering) {
+            ImGui::TextDisabled("    Fits in every mode this project supports (%s).",
+                                modeList(tbModes.fitting).c_str());
+        }
+    }
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
         "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
         "of screen tearing. Gameplay speed is unaffected either way.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
-    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
-    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug-profile overlays drawn in the top-left corner of the game:\n"
-        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
-        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
-        "~1s). Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
-        "box, the way the editor viewport shows it. Areas have no geometry on\n"
-        "the console by design, which is exactly why \"why did that layer not\n"
-        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
-        "puts the volume back on screen. Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug builds report what their flow graphs run - every trigger and\n"
-        "action, the flow variables, the save values - so the editor can show\n"
-        "the graph executing live, set breakpoints, stop and step the game,\n"
-        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
-        "counter bump per fired node plus one small file write every few\n"
-        "frames; release builds carry none of it. Tools > Debugger (F9).");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
-    ImGui::EndDisabled();
-    prefHelp(
-        "The game captures everything it mutates - object transforms,\n"
-        "physics, animation, flow variables, save values, where the player\n"
-        "stands - a few times a second, and the editor keeps a history of\n"
-        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
-        "game back into any of them, with no rebuild and no reboot; with Live\n"
-        "Logic on you can fix a graph first and watch the new logic play out\n"
-        "on the situation that just broke. Costs one small file written next\n"
-        "to the ELF every few frames, and nothing at all in a release build.\n"
-        "See docs/time-machine.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
-        "you can click (or drive with the editor's own keyboard), and the game\n"
-        "reads it out of one small file next to the ELF. Nothing needs the\n"
-        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
-        "channel is scriptable from the command line\n"
-        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
-        "an unattended input test possible. Works on real hardware over\n"
-        "ps2link too (polled less often - it is a network round-trip there).\n"
-        "Release builds carry none of it. See docs/remote-pad.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "A real CPU exception (bad pointer, address error, reserved\n"
-        ""
-        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
-        ""
-        "just stops. With this on, a debug build installs the engine's crash\n"
-        ""
-        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
-        ""
-        "backtrace - and the editor resolves those addresses to functions and\n"
-        ""
-        "source lines. The crash also takes the screen, so a dead game says so\n"
-        ""
-        "instead of looking like a hang. Debug builds only - release carries\n"
-        ""
-        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
-        ""
-        "at all, so a report only ever appears on a real console.\n"
-        ""
-        "See docs/devkit.md.");
-    prefHelp(
-        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
-        "changes the RUNNING game with no rebuild: the editor compiles the\n"
-        "graph itself and streams the instructions next to the ELF\n"
-        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
-        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
-        "build - the Debugger's Logic tab names them. Release builds compile\n"
-        "every graph to native C++ and carry no interpreter.");
-    prefHelp(
-        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
-        "stream scene edits into the running game (docs/live-link.md). Turn\n"
-        "off if you don't want your game patched from outside; release\n"
-        "builds never carry the poller. Also toggled by the LIVE chip in\n"
-        "the toolbar and Build > Live Link.");
 
+    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
+    // decisions a person switching the feature on has to make, and nothing
+    // else. What a user meets here is a checkbox, a mode, a raster and one line
+    // saying which side of the measured break-even this project falls on; the
+    // training, evaluation, cross-validation and instrumentation are behind the
+    // Advanced button and stay exactly as they were.
+    //
+    // The reduction is a consequence of plain mode rather than a tidy-up. Until
+    // that landed BLSS MEANT "fit a network to your scene", so the window had to
+    // be the whole feature - but plain mode's break-even is 2.6 coverages
+    // against the neural path's 13.1, a trained net ships embedded in the
+    // editor, and on every project measured that net chooses nothing anyway. So
+    // training is genuinely advanced, and the ordinary interaction is three
+    // controls and a sentence.
+    //
+    // The widgets, the tooltips AND the build-interlock warning still live in
+    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
+    // block one level deeper. They were inlined here once, which made this
+    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
+    // would have made it two mirrors, and two mirrors of an interlock drift the
+    // day either is touched. The staged settings go in, so both the warning and
+    // the verdict answer for what the modal will apply and not for what is on
+    // disk.
+    //
+    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
+    // this engine reconstructs rather than renders - the upscaler (per scene)
+    // and frame extrapolation (per project) - and they refuse each other, so
+    // they have to be read together. It is on the DISPLAY tab for the same
+    // reason: somebody asking "how does a frame reach the screen" arrives at the
+    // signal, the presentation and the reconstruction in one place.
+    ImGui::SeparatorText("Frame delivery (upscaler, extrapolation)");
+    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
+        showBlss_ = true;
+    prefHelp(
+        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
+        "cross-validate it, look at the pictures it makes and at what its input\n"
+        "channels look like, and place a console-measured feature vector inside\n"
+        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
+        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
+        "usable.\n"
+        "\n"
+        "None of it is needed to USE the feature. A trained network ships with\n"
+        "the editor, and in the plain mode above there is no network at all.\n"
+        "\n"
+        "Opens alongside this window - it draws these same controls one level\n"
+        "deeper, over the same live project settings, so the two cannot\n"
+        "disagree.");
+    endTab();
+    }
+
+    if (beginTab("World")) {
     ImGui::SeparatorText("World");
     ImGui::DragFloat("Units per meter", &prefSettings_.unitsPerMeter, 0.05f, 0.001f,
                      1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
@@ -13419,19 +14071,49 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Terrain");
+    // THE THREE CONTROLS THAT DO NOT APPLY PER FRAME (see prefGridDetail_ in
+    // app.hpp). Each of them changes the heightmap's dimensions, and
+    // project::ensureHeightmap answers that with a NEAREST-NEIGHBOUR RESAMPLE -
+    // lossy and not undone by typing the old number back. Applied live, typing
+    // "128" over "64" would resample through 1 and 12 and flatten a sculpted
+    // map, and dragging the detail slider to its left stop would destroy it
+    // outright. `commit` writes back only on IsItemDeactivatedAfterEdit; while
+    // the widget is neither active nor just-committed the scratch is re-seeded
+    // from the model, so undo and a scene switch still show through.
+    auto gridScratch = [&](int& scratch, int model, bool& changed, auto&& apply) {
+        const bool done = ImGui::IsItemDeactivatedAfterEdit();
+        if (done) {
+            apply(scratch);
+            changed = true;
+        } else if (!ImGui::IsItemActive()) {
+            scratch = model;
+        }
+    };
+    auto clampGrid = [](int v) { return v < 1 ? 1 : v > 4096 ? 4096 : v; };
+    SceneData& gridScene = project_.active();
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
+    gridScratch(prefTerrain_.width, gridScene.terrain.width, gridChanged,
+                [&](int v) { gridScene.terrain.width = clampGrid(v); });
     ImGui::InputInt("Depth (units)", &prefTerrain_.depth);
-    prefTerrain_.width = prefTerrain_.width < 1 ? 1 : prefTerrain_.width > 4096 ? 4096
-                                                                                : prefTerrain_.width;
-    prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
-                                                                                : prefTerrain_.depth;
+    gridScratch(prefTerrain_.depth, gridScene.terrain.depth, gridChanged,
+                [&](int v) { gridScene.terrain.depth = clampGrid(v); });
     if (prefSettings_.unitsPerMeter != 1.0f)
         ImGui::TextDisabled("= %.1f x %.1f m",
                             (float)prefTerrain_.width / prefSettings_.unitsPerMeter,
                             (float)prefTerrain_.depth / prefSettings_.unitsPerMeter);
-    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
+    ImGui::SliderInt("Detail (max grid cells)", &prefGridDetail_, 4, 512);
+    gridScratch(prefGridDetail_, project_.settings.terrainDetail, gridChanged,
+                [&](int v) {
+                    // Through BOTH copies: prefSettings_ is what the write-back
+                    // at the bottom of the body compares against.
+                    project_.settings.terrainDetail = prefSettings_.terrainDetail =
+                        v < 4 ? 4 : v > 512 ? 512 : v;
+                });
     prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
-             "but more geometry for the PS2 to push.");
+             "but more geometry for the PS2 to push. Changing it RESAMPLES the\n"
+             "heightmap (nearest neighbour), so sculpted detail finer than the\n"
+             "new grid is lost - it applies when you release the slider, and\n"
+             "Ctrl+Z takes it back.");
 
     ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
                      2000.0f,
@@ -13478,6 +14160,47 @@ void App::drawPreferencesModal() {
             ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
     }
 
+    // Both of these describe the SPACE rather than the picture: where an NPC may
+    // walk, and what is shown while the next space is loaded.
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    prefHelp(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
+
+    ImGui::SeparatorText("Scenes");
+    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
+    prefHelp(
+        "Master switch: shows a loading screen while a scene loads (also at\n"
+        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
+        "(Scene > Preferences), or a project default is used; with none, a\n"
+        "built-in loading.png on black is shown.");
+    if (ImGui::Button("Open Loading Screens editor"))
+        showLoadingEditor_ = true;
+    prefHelp(
+        (std::string("Design the loading screens this project shows between "
+                     "scenes.") +
+         kOpensWindow)
+            .c_str());
+    endTab();
+    }
+
+    if (beginTab("Rendering")) {
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast"      ? 2
                    : prefSettings_.clipping == "precise" ? 1
@@ -13599,45 +14322,15 @@ void App::drawPreferencesModal() {
              "if any, tiles across it - set the tiling on the material's\n"
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
-    ImGui::SeparatorText("AI navigation");
-    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
-                     16.0f, "%.2f units");
-    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
-    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
-                     1.0f, 89.0f, "%.0f deg");
-    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
-                                : prefSettings_.navMaxSlope > 89.0f
-                                    ? 89.0f
-                                    : prefSettings_.navMaxSlope;
-    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
-                     4.0f, "%.2f units");
-    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
-    prefHelp(
-        "The NPC nav grid, baked at build time from the terrain slope and\n"
-        "blocking objects (grid capped at 128x128 cells - big maps get\n"
-        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
-        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
-        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
-        "graphs use no AI nodes carry no nav data at all.");
-
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
     if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
     prefHelp(
-        "Sky gradient, baked lighting and distance fog now live in presets.\n"
-        "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
-        "Scene > Preferences (or uses the default).");
-
-    ImGui::SeparatorText("Scenes");
-    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
-    prefHelp(
-        "Master switch: shows a loading screen while a scene loads (also at\n"
-        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
-        "(Scene > Preferences), or a project default is used; with none, a\n"
-        "built-in loading.png on black is shown.");
-    if (ImGui::Button("Open Loading Screens editor")) {
-        showLoadingEditor_ = true;
-        ImGui::CloseCurrentPopup();
-    }
+        (std::string(
+             "Sky gradient, baked lighting and distance fog now live in presets.\n"
+             "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
+             "Scene > Preferences (or uses the default).") +
+         kOpensWindow)
+            .c_str());
 
     ImGui::SeparatorText("Shadows");
     ImGui::Checkbox("Blob shadows under moving objects", &prefSettings_.blobShadows);
@@ -13669,6 +14362,33 @@ void App::drawPreferencesModal() {
             "Draw over object = a colored glow ON the surface fading outward,\n"
             "instead of only a rim behind the silhouette.");
     }
+    endTab();
+    }
+
+    if (beginTab("Player")) {
+    // The starting preset leads this tab because it is what DECIDES the player:
+    // it picks which game-template sources are generated, and the camera block
+    // below changes shape with it (eye height in FPP, body height in third
+    // person, orbit speed with no player at all).
+    ImGui::SeparatorText("Game");
+    // Read-only on purpose: the preset is picked once, in New Project. It
+    // decides which game-template sources are generated, and those are
+    // user-ownable - switching here would either overwrite work or leave an
+    // owned source no longer matching what the project builds.
+    ImGui::BeginDisabled();
+    {
+        int shown = presetIndexOf(project_.gameTemplate);
+        const char* names[kNewPresetCount];
+        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
+        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Fixed when the project was created and not changeable here: it picks\n"
+        "the generated game sources (files with the editor marker), which you\n"
+        "may have taken ownership of. Start a new project to use another\n"
+        "preset. The player's own camera settings stay editable - select the\n"
+        "Player object and see Properties.");
 
     // Player defaults - shared by both player presets (the height is the eye in
     // FPP, the body in third person, the same way a Player object labels it).
@@ -13773,6 +14493,158 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
     prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
+    endTab();
+    }
+
+    if (beginTab("Build")) {
+    // WHAT GOES INTO THE ELF, which is a different question from what the game
+    // looks like - the video signal and the presentation used to live in this
+    // section and are now on the Display tab, where somebody asking how the
+    // picture reaches the TV will look for them.
+    ImGui::SeparatorText("Build");
+    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
+    const char* profileNames[] = {"Release", "Debug"};
+    if (ImGui::Combo("Profile", &profile, profileNames, 2))
+        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    prefHelp(
+        "Debug carries the devkit channels below, the overlays, -g and the\n"
+        "unstripped ELF copy the crash reporter needs. Release carries none\n"
+        "of it - every one of those toggles is greyed out here because a\n"
+        "release build is verified to contain nothing (--audit-release).");
+    // "&&" was a Win32 habit - ImGui does no accelerator parsing, so it drew
+    // two ampersands and disagreed with every doc page naming this setting.
+    ImGui::Checkbox("Keyboard & mouse controls", &prefSettings_.keyboardMouse);
+    prefHelp(
+        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
+        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
+        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
+        "editor sets its emulated USB devices automatically) and with real\n"
+        "USB devices on a console. Skipped on ps2link deploys.");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
+    ImGui::Indent(scaled(16));
+    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
+    prefHelp(
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
+        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
+        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
+        "engine reuses that resident stack instead of loading its own. The\n"
+        "driver logs show up live in Output / ps2client. Untick only if you\n"
+        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
+        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
+        "and docs/keyboard-mouse.md.");
+    ImGui::Unindent(scaled(16));
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Debug overlays");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
+    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
+    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug-profile overlays drawn in the top-left corner of the game:\n"
+        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
+        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
+        "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
+        "box, the way the editor viewport shows it. Areas have no geometry on\n"
+        "the console by design, which is exactly why \"why did that layer not\n"
+        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
+        "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
+        "wireframe - the same volume View > Collision boxes shows in the\n"
+        "editor, from the same builder. What stops the player and the\n"
+        "third-person camera is that box and not the mesh (a model collides\n"
+        "as its bounding box), so this is what explains a prop that blocks\n"
+        "short of its surface or a camera that pulls in early. The nearest 24\n"
+        "colliders within 60 units of the camera are drawn - it is a look, not\n"
+        "a census. See docs/collision-boxes.md. Stripped from release builds.");
+
+    // THE DEVKIT CHANNELS. Each of these used to be a checkbox with its help
+    // marker somewhere else entirely: Live Link and Live Logic had theirs
+    // stranded at the BOTTOM of the section, chained onto the EE crash
+    // handler's by prefHelp's SameLine, so the crash handler carried three (?)
+    // markers in a row and two of the toggles carried none. A help marker
+    // belongs to the widget it follows - that is the whole idiom.
+    ImGui::SeparatorText("Devkit channels (debug builds only)");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+        "off if you don't want your game patched from outside; release\n"
+        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+        "the toolbar and Build > Live Link.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds report what their flow graphs run - every trigger and\n"
+        "action, the flow variables, the save values - so the editor can show\n"
+        "the graph executing live, set breakpoints, stop and step the game,\n"
+        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
+        "counter bump per fired node plus one small file write every few\n"
+        "frames; release builds carry none of it. Tools > Debugger (F9).");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
+        "changes the RUNNING game with no rebuild: the editor compiles the\n"
+        "graph itself and streams the instructions next to the ELF\n"
+        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
+        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
+        "build - the Debugger's Logic tab names them. Release builds compile\n"
+        "every graph to native C++ and carry no interpreter.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
+    ImGui::EndDisabled();
+    prefHelp(
+        "The game captures everything it mutates - object transforms,\n"
+        "physics, animation, flow variables, save values, where the player\n"
+        "stands - a few times a second, and the editor keeps a history of\n"
+        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
+        "game back into any of them, with no rebuild and no reboot; with Live\n"
+        "Logic on you can fix a graph first and watch the new logic play out\n"
+        "on the situation that just broke. Costs one small file written next\n"
+        "to the ELF every few frames, and nothing at all in a release build.\n"
+        "See docs/time-machine.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+        "you can click (or drive with the editor's own keyboard), and the game\n"
+        "reads it out of one small file next to the ELF. Nothing needs the\n"
+        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
+        "channel is scriptable from the command line\n"
+        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
+        "an unattended input test possible. Works on real hardware over\n"
+        "ps2link too (polled less often - it is a network round-trip there).\n"
+        "Release builds carry none of it. See docs/remote-pad.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "A real CPU exception (bad pointer, address error, reserved\n"
+        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
+        "just stops. With this on, a debug build installs the engine's crash\n"
+        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
+        "backtrace - and the editor resolves those addresses to functions and\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        "at all, so a report only ever appears on a real console.\n"
+        "See docs/devkit.md.");
 
     ImGui::SeparatorText("AI support");
     {
@@ -13803,24 +14675,43 @@ void App::drawPreferencesModal() {
                                 haveCodex ? " Codex" : "",
                                 haveCopilot ? " Copilot" : "");
     }
-
-    ImGui::Separator();
-    ImGui::TextDisabled(
-        "These are project-wide defaults. Scenes inherit them unless a\n"
-        "category is overridden in Scene > Scene Preferences. The emulator\n"
-        "path and dev-PS2 IP are machine-global - set them in Edit > Preferences.");
-    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
-        // gameTemplate is deliberately NOT written back - the preset is fixed
-        // at creation and this dialog only shows it.
-        project_.settings = prefSettings_;
-        project_.active().terrain = prefTerrain_;
-        applyProjectToViewport();  // scenes that inherit follow the new defaults
-        commitChange();
-        ImGui::CloseCurrentPopup();
+    endTab();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+
+    ImGui::EndTabBar();
+
+    // THE WRITE-BACK. One comparison over the whole settings struct, so a
+    // widget added to any tab is covered by construction - the sectionJson
+    // guard's reasoning, applied to a struct that has an operator==.
+    // gameTemplate is deliberately not written back: the preset is fixed at
+    // creation and this window only shows it.
+    bool prefsChanged = gridChanged;
+    if (!(project_.settings == prefSettings_)) {
+        project_.settings = prefSettings_;
+        prefsChanged = true;
+    }
+    if (prefsChanged) prefsViewportDirty_ = true;
+    // Deferred to the end of the interaction: applyProjectToViewport() rebuilds
+    // the terrain mesh and re-reads the GI cache, which must not happen sixty
+    // times a second while a slider is held. The model is already up to date -
+    // this is only the preview catching up. It runs BEFORE the commit because
+    // it is also what resamples the heightmap after a grid change, and the undo
+    // snapshot should carry the resampled result rather than a half-applied one.
+    if (prefsViewportDirty_ && !ImGui::IsAnyItemActive()) {
+        applyProjectToViewport();  // scenes that inherit follow the new defaults
+        prefsViewportDirty_ = false;
+    }
+    if (prefsChanged) commitChange();
+
+    // THE FOOTER, OUTSIDE THE SCROLLING REGION. This is the structural half of
+    // the shape and it matters more than the tabs: every tab body above
+    // reserved `footerH` for it, so it sits at a fixed place in the window
+    // whatever any tab grows into. The tabs make the content shorter TODAY; the
+    // pinned footer is what stops the next setting anybody adds from putting
+    // the dialog back where it was.
+    ImGui::Separator();
+    if (ImGui::Button("Close", ImVec2(scaled(120), 0))) showProjectPrefs_ = false;
+    ImGui::End();
 }
 
 // Machine-global editor settings (Edit > Preferences), stored in editor.ini and
@@ -14333,10 +15224,17 @@ void App::drawScenePreferencesModal() {
 
     // One category: a header, an override toggle, then its widgets disabled
     // (grayed, previewing the inherited value) until the toggle is on.
-    auto category = [&](const char* title, bool& flag, auto widgets) {
+    // `toggle` is the override checkbox's VISIBLE label, and it is a parameter
+    // rather than a constant because a label is what `--ui-script` targets: five
+    // categories all saying "Override project settings" cannot be told apart by
+    // a scripted run (`find` takes the first match, and `visibleLabel()` cuts a
+    // `##` suffix off on purpose, so an invisible discriminator does not help
+    // either). Anything added here that has to be TESTED needs its own wording.
+    auto category = [&](const char* title, bool& flag, auto widgets,
+                        const char* toggle = "Override project settings") {
         ImGui::SeparatorText(title);
         ImGui::PushID(title);
-        ImGui::Checkbox("Override project settings", &flag);
+        ImGui::Checkbox(toggle, &flag);
         ImGui::BeginDisabled(!flag);
         widgets();
         ImGui::EndDisabled();
@@ -14468,6 +15366,82 @@ void App::drawScenePreferencesModal() {
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
+    // The neural upscaler, per scene (docs/neural-upscaler.md, "Per scene").
+    // Deliberately the two questions that HAVE a per-scene answer and nothing
+    // else - the scale, the jitter and the reconstruction tuning stay in
+    // Project > Preferences because one project ships one net and its
+    // provenance records the scale and the sampler that net was fitted for.
+    category("Neural upscaler (BLSS)", ov.upscaler, [&] {
+        // THE SAME TWO CONTROLS, WORDED THE SAME WAY, as the Essentials layer of
+        // Project > Preferences (drawBlssSettings). A per-scene override is a
+        // mechanism users already know from the five categories above it, and
+        // the one thing that would make it feel like a new one is asking the
+        // same question in different words - this said "Reconstruct from a
+        // reduced-resolution render" while Preferences said "Use the upscaler".
+        // Identical labels in two different windows are not an ImGui ID clash
+        // (a window is the scope), and `--ui-script` reaches either by naming
+        // its window.
+        // THE INTERLOCK, AT THE OTHER POINT OF CHOICE, and here it PREVENTS
+        // rather than warns. Frame extrapolation is a project setting and the
+        // upscaler is per scene, so this is the one place a person can create
+        // the refused pair without ever opening Project > Preferences. Same
+        // rule as drawBlssSettings: only the TICK is blocked, so a scene that
+        // already has it on (an older project, a hand-edited .tyra) can always
+        // be turned off, and the warning below covers that state.
+        const bool blockUpscaler =
+            project_.settings.frameExtrapolation && !s.blssEnabled;
+        ImGui::BeginDisabled(blockUpscaler);
+        ImGui::Checkbox("Use the upscaler", &s.blssEnabled);
+        ImGui::EndDisabled();
+        if (blockUpscaler)
+            ImGui::TextDisabled(
+                "Not while frame extrapolation is on for the project. The two\n"
+                "cannot be combined - both rebuild a frame by reprojecting the\n"
+                "previous one, and in motion the pair tears the picture. Untick\n"
+                "it in Project > Preferences > Display > Frame delivery.");
+        ImGui::BeginDisabled(!s.blssEnabled);
+        {
+            int mode = s.blssNetwork ? 1 : 0;
+            const char* modeNames[] = {
+                "Plain - one bilinear pass, no network (far cheaper)",
+                "Neural - a network picks a reconstruction per 32x32 tile"};
+            ImGui::SetNextItemWidth(scaled(360));
+            if (ImGui::Combo("Mode", &mode, modeNames, 2)) s.blssNetwork = mode == 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled(
+            "Everything else about the upscaler - the render scale, the jitter,\n"
+            "the sharpen and temporal knobs - stays in Project > Preferences:\n"
+            "one project ships one blss.net and it was fitted for one of each.");
+        // The whole point of the per-scene setting, said where the decision is
+        // made: a scene that clashes can drop the upscaler on its own. What
+        // mixing COSTS is stated in Project > Preferences, which is the one
+        // place that can see every scene at once and therefore the only place
+        // that can tell whether this project mixes at all.
+        if (project_.scenes.size() > 1 && ov.upscaler &&
+            s.blssEnabled != project_.settings.blssEnabled)
+            ImGui::TextDisabled(
+                "The project default is %s, so this scene disagrees with it.\n"
+                "A project whose scenes disagree gives up the memory saving -\n"
+                "Project > Preferences says what that costs, measured.",
+                project_.settings.blssEnabled ? "ON" : "OFF");
+        // ...and the state prevention cannot reach: both already on, because
+        // this project predates the interlock or its .tyra was edited by hand.
+        // Same sentence as drawBlssClashWarning's, one scene narrower.
+        if (s.blssEnabled && project_.settings.frameExtrapolation)
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                "The BUILD WILL REFUSE this scene: Project > Preferences >\n"
+                "Frame delivery has frame extrapolation on, and the two cannot\n"
+                "be combined. Both rebuild a frame by reprojecting the previous\n"
+                "one, and extrapolation halves the world rate - so the camera\n"
+                "moves twice as far between two rendered frames, which is the\n"
+                "interval the upscaler reprojects across. Measured in motion the\n"
+                "pair tears the picture into cells that disagree; either alone\n"
+                "is clean. Turn the upscaler off for this scene, or turn frame\n"
+                "extrapolation off for the project.");
+    }, "Override the upscaler for this scene");
+
     ImGui::EndChild();
     ImGui::Separator();
     if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
@@ -14491,11 +15465,5 @@ void App::openProjectDialog() {
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
-    const std::string err = openProjectAt(dir);
-    if (!err.empty()) {
-        runner_.clearLog();
-        // Surface the error in the Output window via the runner log is hacky;
-        // show a popup instead on next frame. Simple approach: message box.
-        platform::errorBox("Open Project", err);
-    }
+    openProjectAt(dir);
 }

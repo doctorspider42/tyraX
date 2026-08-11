@@ -53,9 +53,32 @@ constexpr bool P2_JOIN_ON_START = true;
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = true;
+
+// Experimental (Preferences > Display > Frame delivery,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = false;
+
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = 0.0F;
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = false;
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = true;
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -98,5 +121,17 @@ constexpr bool DEBUG_SHOW_PROFILER = false;
 // diagnose from inside the game. Guarded by this constexpr, so a build with it
 // false emits no vertices at all (see rebuildObjectGeometry case 17).
 constexpr bool DEBUG_SHOW_AREAS = false;
+// Draw the COLLISION BOX of every collider (docs/collision-boxes.md) as a red
+// wireframe. The volume the walker and the third-person camera boom test is
+// not the mesh - a model collides as its bounding box - so a prop that blocks
+// the player short of its surface, or a camera that pulls in early, is
+// invisible until you can see the box. Guarded by this constexpr, so a build
+// with it false emits nothing (see renderCollisionBoxes).
+constexpr bool DEBUG_SHOW_COLLISION = false;
+// How far from the camera the overlay reaches, and how many boxes it will draw
+// (nearest first). Both are frame-budget caps, not authoring limits: an edge is
+// 12 vertices, so the whole overlay costs at most COLLISION_BOX_LIMIT * 144.
+constexpr float COLLISION_BOX_RANGE = 60.0F;
+constexpr int COLLISION_BOX_LIMIT = 24;
 
 }  // namespace Vu_lab

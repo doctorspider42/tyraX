@@ -970,6 +970,73 @@ void App::drawFlowGraphWindow() {
                         "Place a custom effect in\nTools > UI Editor first.");
                 endCombo();
             }
+        } else if (t->strKind == FlowParamKind::FactName ||
+                   t->strKind == FlowParamKind::FactQueryName) {
+            // A fact is PICKED, never typed - that is the whole difference
+            // between the catalog and the Variables nodes above it, and the
+            // reason a fact node can say what its value means. The list is the
+            // same one the World Facts window offers, so a fact renamed there
+            // is renamed here (project::renameFactRefs).
+            const bool query = t->strKind == FlowParamKind::FactQueryName;
+            std::string cur = n.str.empty() ? "<none>" : n.str;
+            if (beginCombo(query ? "Query" : "Fact", cur.c_str(), t->strTip)) {
+                int offered = 0;
+                if (query) {
+                    for (size_t i = 0; i < project_.factQueries.size(); ++i) {
+                        const facts::Query& q = project_.factQueries[i];
+                        ++offered;
+                        const std::string lbl =
+                            q.name + "##fq" + std::to_string(i);
+                        if (ImGui::Selectable(lbl.c_str(), q.name == n.str)) {
+                            n.str = q.name;
+                            changed = true;
+                        }
+                        if (ImGui::IsItemHovered() && !q.desc.empty())
+                            ImGui::SetTooltip("%s", q.desc.c_str());
+                    }
+                } else {
+                    // Which facts this node can even mean: the position nodes
+                    // want position facts and nothing else, the rest want
+                    // everything else. Offering the wrong ones would compile
+                    // to a commented-out node with no hint why.
+                    const bool wantPos = n.type == "SetFactPos" ||
+                                         n.type == "GetFactPos";
+                    for (size_t i = 0; i < project_.facts.size(); ++i) {
+                        const facts::Fact& f = project_.facts[i];
+                        const bool isPos = f.type == facts::Type::Position;
+                        if (isPos != wantPos) continue;
+                        // Nothing can write a computed fact, so a writer must
+                        // not offer one.
+                        if (f.isComputed() &&
+                            (n.type == "SetFact" || n.type == "SetFactPos" ||
+                             n.type == "ClearFact"))
+                            continue;
+                        ++offered;
+                        const std::string lbl =
+                            f.name + "##ff" + std::to_string(i);
+                        if (ImGui::Selectable(lbl.c_str(), f.name == n.str)) {
+                            n.str = f.name;
+                            changed = true;
+                        }
+                        if (ImGui::IsItemHovered() && !f.desc.empty())
+                            ImGui::SetTooltip("%s", f.desc.c_str());
+                    }
+                }
+                if (offered == 0)
+                    ImGui::TextDisabled(
+                        "Nothing to pick yet - declare\none in Tools > World "
+                        "Facts.");
+                endCombo();
+            }
+            if (!n.str.empty() && !query) {
+                // A one-of-several fact turns the node's Value param into a
+                // list of names, which is the whole reason to declare one.
+                const int fi = facts::indexOf(project_.facts, n.str);
+                if (fi < 0)
+                    ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.3f, 1.0f),
+                                       "No such fact - it was\nrenamed or "
+                                       "deleted.");
+            }
         } else if (t->strKind == FlowParamKind::VarName ||
                    t->strKind == FlowParamKind::EventName) {
             // Both are free text that EXISTS by being named, so both get the
@@ -1015,6 +1082,49 @@ void App::drawFlowGraphWindow() {
         if (posLinked && t->posIn && t->numCount >= 3 && n.type != "SetDof") {
             ImGui::TextDisabled("Position: from link");
             firstNum = 3;
+        }
+        // A fact node whose Value names a one-of-several fact draws the
+        // OPTION NAMES rather than an index - the same reason the catalog
+        // does, and the difference between "power.state is 2" and
+        // "power.state is Overloaded" in a graph someone reads next year.
+        if ((n.type == "SetFact" || n.type == "FactIs" ||
+             n.type == "FactAtLeast" || n.type == "FactAtMost") &&
+            !n.str.empty()) {
+            const int fi = facts::indexOf(project_.facts, n.str);
+            if (fi >= 0 &&
+                project_.facts[(size_t)fi].type == facts::Type::Enum &&
+                !project_.facts[(size_t)fi].options.empty()) {
+                const facts::Fact& f = project_.facts[(size_t)fi];
+                int idx = (int)std::lround(n.num[0]);
+                if (idx < 0 || idx >= (int)f.options.size()) idx = 0;
+                if (beginCombo(t->numLabels[0], f.options[(size_t)idx].c_str(),
+                               t->numTips[0])) {
+                    for (size_t o = 0; o < f.options.size(); ++o) {
+                        const std::string lbl =
+                            f.options[o] + "##fo" + std::to_string(o);
+                        if (ImGui::Selectable(lbl.c_str(), (int)o == idx)) {
+                            n.num[0] = (float)o;
+                            changed = true;
+                        }
+                    }
+                    endCombo();
+                }
+                firstNum = 1;  // the drag below must not draw it a second time
+            }
+        }
+        // A yes/no fact's Value is a checkbox for the same reason.
+        if (n.type == "SetFact" && !n.str.empty() && firstNum == 0) {
+            const int fi = facts::indexOf(project_.facts, n.str);
+            if (fi >= 0 &&
+                project_.facts[(size_t)fi].type == facts::Type::Bool) {
+                bool v = n.num[0] != 0.0f;
+                if (ImGui::Checkbox(t->numLabels[0], &v)) {
+                    n.num[0] = v ? 1.0f : 0.0f;
+                    changed = true;
+                }
+                paramTip(t->numTips[0]);
+                firstNum = 1;
+            }
         }
         if (n.type == "SetVarBool" || n.type == "SetFlashlight" ||
             n.type == "SetFog" || n.type == "SetParticles" ||
@@ -1255,6 +1365,46 @@ void App::drawFlowGraphWindow() {
                 // and Max), in which case every param stays editable.
                 if (a == 0 && numLinked && !flowNumFolds(*t) && !t->numInExtra) {
                     ImGui::TextDisabled("%s: from link", t->numLabels[0]);
+                    continue;
+                }
+                // A declared choice wins over every label heuristic below:
+                // the node said what this parameter IS, so there is nothing to
+                // guess from its name.
+                if (t->numChoices[a] && *t->numChoices[a]) {
+                    const char* list = t->numChoices[a];
+                    int count = 1;
+                    for (const char* p = list; *p; ++p)
+                        if (*p == '|') ++count;
+                    int idx = (int)(n.num[a] + 0.5f);
+                    if (idx < 0) idx = 0;
+                    if (idx >= count) idx = count - 1;
+                    // Slice the k-th '|'-separated label out of the list.
+                    auto option = [&](int k) {
+                        std::string out;
+                        int at = 0;
+                        for (const char* p = list;; ++p) {
+                            if (*p == '|' || !*p) {
+                                if (at == k) return out;
+                                out.clear();
+                                ++at;
+                                if (!*p) break;
+                            } else {
+                                out.push_back(*p);
+                            }
+                        }
+                        return out;
+                    };
+                    const std::string cur = option(idx);
+                    if (beginCombo(t->numLabels[a], cur.c_str(), t->numTips[a])) {
+                        for (int k = 0; k < count; ++k) {
+                            const std::string lab = option(k);
+                            if (ImGui::Selectable(lab.c_str(), k == idx)) {
+                                n.num[a] = (float)k;
+                                changed = true;
+                            }
+                        }
+                        endCombo();
+                    }
                     continue;
                 }
                 const bool isLoop = std::strcmp(t->numLabels[a], "Loop") == 0 ||

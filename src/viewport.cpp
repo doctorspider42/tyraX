@@ -15,6 +15,7 @@
 #include "aobake.hpp"
 #include "gl_loader.h"
 #include "objparser.hpp"
+#include "placement.hpp"
 #include "primmesh.hpp"
 #include "scrollsim.hpp"
 #include <stb_image.h>
@@ -825,8 +826,9 @@ std::vector<float> unitBox(int detail = kDefaultBoxDetail) {
 std::vector<float> unitSphere(int detail = kDefaultPrimDetail) {
     return shadedMesh(primmesh::unitSphere(detail));
 }
-std::vector<float> unitCylinder(int detail = kDefaultPrimDetail) {
-    return shadedMesh(primmesh::unitCylinder(detail));
+std::vector<float> unitCylinder(int detail = kDefaultPrimDetail,
+                                bool rings = false) {
+    return shadedMesh(primmesh::unitCylinder(detail, rings));
 }
 std::vector<float> unitCone(int detail = kDefaultPrimDetail) {
     return shadedMesh(primmesh::unitCone(detail));
@@ -958,9 +960,11 @@ std::vector<float> unitCameraBody() {
     return v;
 }
 
-std::vector<float> unitWireCube() {
+// h = half size. The selection outline uses 0.52 (slightly larger than the
+// shape, which avoids z-fighting); the collision overlay needs the box's real
+// edges, so it passes 0.5.
+std::vector<float> unitWireCube(float h = 0.52f) {
     std::vector<float> v;
-    const float h = 0.52f;  // slightly larger than the shape, avoids z-fighting
     const float c[8][3] = {{-h, -h, -h}, {h, -h, -h}, {h, -h, h}, {-h, -h, h},
                            {-h, h, -h},  {h, h, -h},  {h, h, h},  {-h, h, h}};
     const int e[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
@@ -1291,6 +1295,7 @@ void Viewport::shutdown() {
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
@@ -1596,6 +1601,7 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(spawnMarker_);
     destroyMesh(playerMarker_);
     destroyMesh(wireCube_);
+    destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
     destroyMesh(cameraBody_);
@@ -1615,6 +1621,7 @@ void Viewport::buildPrimitiveMeshes() {
     spawnMarker_ = uploadMesh(unitSpawnMarker());
     playerMarker_ = uploadMesh(unitPlayerMarker());
     wireCube_ = uploadMesh(unitWireCube());
+    collisionCube_ = uploadMesh(unitWireCube(0.5f));  // exact edges (overlay)
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
     cameraBody_ = uploadMesh(unitCameraBody());
@@ -1647,7 +1654,8 @@ void Viewport::buildPrimitiveMeshes() {
     }
 }
 
-const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
+const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail,
+                                         bool rings) {
     // SavePoint draws as a Box (same tessellation family, shared mesh cache).
     if (type == PrimitiveType::SavePoint) type = PrimitiveType::Box;
     const int d = clampPrimDetail(type, detail);
@@ -1659,12 +1667,17 @@ const Viewport::Mesh& Viewport::primMesh(PrimitiveType type, int detail) {
         case PrimitiveType::Cone: cache = &coneMeshes_; break;
         default: return box_;
     }
-    if (auto it = cache->find(d); it != cache->end()) return it->second;
-    const Mesh m = type == PrimitiveType::Box        ? uploadMesh(unitBox(d))
-                   : type == PrimitiveType::Sphere   ? uploadMesh(unitSphere(d))
-                   : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d))
-                                                     : uploadMesh(unitCone(d));
-    return cache->emplace(d, m).first->second;
+    // Axial rings are a second tessellation axis, so they are part of the
+    // cache KEY - without this the first cylinder of a given detail decides
+    // the mesh every later one at that detail gets, whatever its own flag.
+    const int key = rings ? d | (1 << 16) : d;
+    if (auto it = cache->find(key); it != cache->end()) return it->second;
+    const Mesh m =
+        type == PrimitiveType::Box        ? uploadMesh(unitBox(d))
+        : type == PrimitiveType::Sphere   ? uploadMesh(unitSphere(d))
+        : type == PrimitiveType::Cylinder ? uploadMesh(unitCylinder(d, rings))
+                                          : uploadMesh(unitCone(d));
+    return cache->emplace(key, m).first->second;
 }
 
 void Viewport::clearPrimMeshCache() {
@@ -2235,24 +2248,82 @@ Vec3 rotateInverse(Vec3 v, const float* rotDeg) {
     return v;
 }
 
-// Ray vs unit AABB [-0.5, 0.5]^3 slab test; returns hit distance or -1.
-float rayUnitBox(Vec3 o, Vec3 d) {
+// Ray vs AABB slab test in the ray's own space; returns the entry distance or
+// -1. A ray that STARTS inside reports ~0, so an object the camera sits in
+// wins every ranking - which is why pickAll defers the volume types to their
+// own tier instead of letting a room-sized box swallow the click.
+float rayBox(Vec3 o, Vec3 d, const float mn[3], const float mx[3]) {
     float t0 = 0.0001f, t1 = 1e9f;
     const float* op = &o.x;
     const float* dp = &d.x;
     for (int axis = 0; axis < 3; ++axis) {
         if (std::fabs(dp[axis]) < 1e-8f) {
-            if (op[axis] < -0.5f || op[axis] > 0.5f) return -1.0f;
+            if (op[axis] < mn[axis] || op[axis] > mx[axis]) return -1.0f;
             continue;
         }
-        float ta = (-0.5f - op[axis]) / dp[axis];
-        float tb = (0.5f - op[axis]) / dp[axis];
+        float ta = (mn[axis] - op[axis]) / dp[axis];
+        float tb = (mx[axis] - op[axis]) / dp[axis];
         if (ta > tb) std::swap(ta, tb);
         if (ta > t0) t0 = ta;
         if (tb < t1) t1 = tb;
         if (t0 > t1) return -1.0f;
     }
     return t0;
+}
+
+// The camera ray in the object's own frame: the inverse of modelMatrix's
+// rotation chain, the animated-model yaw correction included (it sits between
+// the scale and the eulers, so going inward it applies after them). The scale
+// is deliberately NOT divided out - it is folded into the box instead, so a
+// fixed-size marker keeps its size and t stays a true world distance.
+void objectLocalRay(const SceneObject& o, Vec3 eye, Vec3 dir, Vec3& lo, Vec3& ld) {
+    lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
+                       o.rotation);
+    ld = rotateInverse(dir, o.rotation);
+    if (o.modelYawOffset != 0.0f && isAnimatedModelPath(o.modelPath)) {
+        const float a = -o.modelYawOffset * kPi / 180.0f;
+        const float c = std::cos(a), s = std::sin(a);
+        auto ry = [&](Vec3 v) {
+            return Vec3{v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
+        };
+        lo = ry(lo);
+        ld = ry(ld);
+    }
+}
+
+// Extents of a vertex array built by the unit* generators above (stride 8:
+// position, color, uv - what uploadMesh takes).
+void meshBoundsOf(const std::vector<float>& v, float mn[3], float mx[3]) {
+    for (int k = 0; k < 3; ++k) mn[k] = 1e9f, mx[k] = -1e9f;
+    for (size_t i = 0; i + 8 <= v.size(); i += 8)
+        for (int k = 0; k < 3; ++k) {
+            mn[k] = std::min(mn[k], v[i + k]);
+            mx[k] = std::max(mx[k], v[i + k]);
+        }
+    for (int k = 0; k < 3; ++k)
+        if (mn[k] > mx[k]) mn[k] = -0.5f, mx[k] = 0.5f;
+}
+
+// The marker meshes' own extents, measured ONCE from the very arrays that
+// draw them - so reshaping a marker moves its hitbox with it instead of
+// leaving a hand-typed box behind. The figure is ~1.8 units tall standing on
+// y=0, which is exactly why the unit cube every pick used to test against
+// covered only its shins.
+struct MarkerBox {
+    float mn[3];
+    float mx[3];
+};
+struct MarkerBoxes {
+    MarkerBox player, spawn, camera;
+    MarkerBoxes() {
+        meshBoundsOf(unitPlayerMarker(), player.mn, player.mx);
+        meshBoundsOf(unitSpawnMarker(), spawn.mn, spawn.mx);
+        meshBoundsOf(unitCameraBody(), camera.mn, camera.mx);
+    }
+};
+const MarkerBoxes& markerBoxes() {
+    static const MarkerBoxes b;
+    return b;
 }
 
 }  // namespace
@@ -2282,57 +2353,162 @@ void Viewport::cameraRay(float u, float v, float outOrigin[3],
     outDir[2] = dir.z;
 }
 
-int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) const {
-    if (fbWidth_ < 1 || fbHeight_ < 1) return -1;
+void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
+    // The unit primitives (box/sphere/cylinder/cone/plane/decal/mirror/portal/
+    // save point, the point-light bulb, the Empty and sound markers) all live
+    // in [-0.5, 0.5]^3, and so do the Area and Scatter wire boxes. A flat quad
+    // deliberately keeps the full cube: a plane seen edge-on would otherwise be
+    // unclickable.
+    float lmn[3] = {-0.5f, -0.5f, -0.5f}, lmx[3] = {0.5f, 0.5f, 0.5f};
+    bool scaled = true;  // fixed-size markers ignore SceneObject::scale
+    auto useBox = [&](const MarkerBox& b) {
+        for (int k = 0; k < 3; ++k) lmn[k] = b.mn[k], lmx[k] = b.mx[k];
+    };
+    auto useCube = [&](float h) {
+        for (int k = 0; k < 3; ++k) lmn[k] = -h, lmx[k] = h;
+    };
+    auto useModel = [&](const float bmn[3], const float bmx[3]) {
+        for (int k = 0; k < 3; ++k) lmn[k] = bmn[k], lmx[k] = bmx[k];
+    };
+
+    switch (o.type) {
+        case PrimitiveType::Model: {
+            // A model is drawn as its MESH, which is usually authored standing
+            // on its own origin - the unit cube around that origin is the
+            // bottom of it and nothing else.
+            float bmn[3], bmx[3];
+            if (modelLocalBounds(o, bmn, bmx)) useModel(bmn, bmx);
+            break;  // unloadable model draws the placeholder box
+        }
+        case PrimitiveType::Player: {
+            // A third-person Player previews as its own avatar model
+            // (renderScene's tppAvatar); everything else is the humanoid
+            // marker, which stands on y=0 and is ~1.8 units tall.
+            if (o.playerMode == 2 && isAnimatedModelPath(o.modelPath)) {
+                const AnimModelDraw* d = animModelDraw(o.modelPath, o.materialPath);
+                if (d && d->ok) {
+                    useModel(d->baked.min, d->baked.max);
+                    break;
+                }
+            }
+            useBox(markerBoxes().player);
+            break;
+        }
+        case PrimitiveType::SpawnPoint: useBox(markerBoxes().spawn); break;
+        case PrimitiveType::Camera: useBox(markerBoxes().camera); break;
+        // Both of these draw a marker at a hardcoded size, so their hitbox is
+        // that size too - the object's scale means something else entirely (an
+        // emitter's is unused, a scroller's belt is described by its segments).
+        case PrimitiveType::Emitter:  // 0.7 cone
+            useCube(0.35f);
+            scaled = false;
+            break;
+        case PrimitiveType::Scroller:  // 0.3 origin sphere
+            useCube(0.15f);
+            scaled = false;
+            break;
+        default: break;
+    }
+
+    // Fold the scale in here rather than dividing the ray by it: the fixed-size
+    // markers above must come out the same whatever the scale says, and a
+    // negative scale mirrors the box instead of inverting it.
+    for (int k = 0; k < 3; ++k) {
+        const float s = scaled ? o.scale[k] : 1.0f;
+        const float a = lmn[k] * s, b = lmx[k] * s;
+        mn[k] = std::min(a, b);
+        mx[k] = std::max(a, b);
+    }
+}
+
+void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects,
+                       std::vector<int>& out) {
+    out.clear();
+    if (fbWidth_ < 1 || fbHeight_ < 1) return;
 
     // Camera ray through the pixel (the same camera render() drew with)
+    const CamView cam = camView(fbWidth_, fbHeight_);
     float ro[3], rd[3];
-    camRay(camView(fbWidth_, fbHeight_), u, v, ro, rd);
+    camRay(cam, u, v, ro, rd);
     const Vec3 eye{ro[0], ro[1], ro[2]};
     const Vec3 dir{rd[0], rd[1], rd[2]};
+    const Vec3 fwd{cam.fwd[0], cam.fwd[1], cam.fwd[2]};
 
-    // Areas are picked only when the click hits nothing else: an area big
+    // Grab margin: kPickPad pixels of screen at the object's OWN distance, so
+    // a small marker or a distant prop is catchable without giving a near one
+    // a box bigger than it draws. A padded-only hit ranks behind every exact
+    // one (see the tiers below), so the margin can never steal a click from
+    // something the cursor is actually on.
+    const float kPickPad = 5.0f;
+    auto padAt = [&](const SceneObject& o) {
+        const Vec3 to = sub({o.position[0], o.position[1], o.position[2]}, eye);
+        const float dist = std::max(dot(to, fwd), 0.001f);
+        const float perPixel = cam.ortho
+                                   ? 2.0f * cam.halfH / (float)fbHeight_
+                                   : 2.0f * cam.tanHalf * dist / (float)fbHeight_;
+        return kPickPad * perPixel;
+    };
+
+    // Volumes (areas, procedural regions) rank behind everything else: one big
     // enough to enclose a room has its front face closer to the camera than
-    // everything inside it, so ranking it with the rest would make the volume
-    // swallow every click in the room. Click empty space inside it (or the
-    // Scene tree) to select the area itself.
-    int best = -1, bestArea = -1;
-    float bestT = 1e9f, bestAreaT = 1e9f;
+    // everything inside it, so ranking it with the rest would make it swallow
+    // every click in the room. They are still in the list, which is what lets a
+    // repeated click reach them without leaving the viewport.
+    struct Cand {
+        int index;
+        int tier;  // 0 exact, 1 within the grab margin, +2 for a volume
+        float t;
+    };
+    std::vector<Cand> cands;
     for (size_t i = 0; i < objects.size(); ++i) {
         if (hiddenAt(i)) continue;  // hidden layers are unclickable
         const SceneObject& o = objects[i];
-        // A scatter volume's box is typically map-sized: letting it win picks
-        // would make every click inside it select the volume instead of the
-        // props. Select it from the outliner or the Procedural window (the
-        // gizmo still works once it is selected). Its baked chunks are build
-        // output and are not drawn at all, so they are not clickable either.
-        if (o.type == PrimitiveType::Scatter || !o.procSource.empty()) continue;
-        // Transform the ray into the object's unit-box space
-        Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
-                                o.rotation);
-        Vec3 ld = rotateInverse(dir, o.rotation);
-        lo = {lo.x / o.scale[0], lo.y / o.scale[1], lo.z / o.scale[2]};
-        ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
+        // A procedural volume's baked chunks are build output and are not
+        // drawn at all, so they are not clickable either.
+        if (!o.procSource.empty()) continue;
 
-        const float t = rayUnitBox(lo, ld);
-        if (t <= 0.0f) continue;
-        if (o.type == PrimitiveType::Area) {
-            if (t < bestAreaT) {
-                bestAreaT = t;
-                bestArea = (int)i;
-            }
-        } else if (t < bestT) {
-            bestT = t;
-            best = (int)i;
+        float mn[3], mx[3];
+        pickBounds(o, mn, mx);
+        // Into the object's rotated frame - the rotation is orthonormal, so t
+        // stays a true world distance and ranks correctly across objects of
+        // any scale (dividing the ray by the scale did not).
+        Vec3 lo, ld;
+        objectLocalRay(o, eye, dir, lo, ld);
+
+        const bool volume = o.type == PrimitiveType::Area ||
+                            o.type == PrimitiveType::Scatter;
+        int tier = volume ? 2 : 0;
+        float t = rayBox(lo, ld, mn, mx);
+        if (t <= 0.0f) {
+            const float pad = padAt(o);
+            float pmn[3], pmx[3];
+            for (int k = 0; k < 3; ++k)
+                pmn[k] = mn[k] - pad, pmx[k] = mx[k] + pad;
+            t = rayBox(lo, ld, pmn, pmx);
+            if (t <= 0.0f) continue;
+            tier += 1;
         }
+        cands.push_back({(int)i, tier, t});
     }
-    return best >= 0 ? best : bestArea;
+
+    std::stable_sort(cands.begin(), cands.end(), [](const Cand& a, const Cand& b) {
+        if (a.tier != b.tier) return a.tier < b.tier;
+        return a.t < b.t;
+    });
+    out.reserve(cands.size());
+    for (const Cand& c : cands) out.push_back(c.index);
+}
+
+int Viewport::pick(float u, float v, const std::vector<SceneObject>& objects) {
+    std::vector<int> hits;
+    pickAll(u, v, objects, hits);
+    return hits.empty() ? -1 : hits[0];
 }
 
 bool Viewport::placementRaycast(float u, float v,
                                 const std::vector<SceneObject>& objects,
                                 const std::vector<char>& skip,
-                                float outPoint[3]) const {
+                                float outPoint[3]) {
     if (fbWidth_ < 1 || fbHeight_ < 1) return false;
 
     const CamView cam = camView(fbWidth_, fbHeight_);
@@ -2341,20 +2517,27 @@ bool Viewport::placementRaycast(float u, float v,
     const Vec3 eye{ro[0], ro[1], ro[2]};
     const Vec3 dir{rd[0], rd[1], rd[2]};
 
-    // Nearest object box along the ray (the same unit-box test picking uses,
-    // so what the cursor rests on is what a click would select).
+    // Nearest object box along the ray (the same bounds picking tests, so what
+    // the cursor rests on is what a click would select). No grab margin here:
+    // this decides where a dragged object LANDS, and a few pixels of slack
+    // would drop it beside the surface it was aimed at.
     float bestT = 1e9f;
     bool hit = false;
     for (size_t i = 0; i < objects.size(); ++i) {
         if (hiddenAt(i)) continue;
         if (i < skip.size() && skip[i]) continue;
         const SceneObject& o = objects[i];
-        Vec3 lo = rotateInverse(sub(eye, {o.position[0], o.position[1], o.position[2]}),
-                                o.rotation);
-        Vec3 ld = rotateInverse(dir, o.rotation);
-        lo = {lo.x / o.scale[0], lo.y / o.scale[1], lo.z / o.scale[2]};
-        ld = {ld.x / o.scale[0], ld.y / o.scale[1], ld.z / o.scale[2]};
-        const float t = rayUnitBox(lo, ld);
+        // Authoring regions are wire boxes with nothing to rest on, and a
+        // procedural volume's is usually map-sized - resting on its front face
+        // would put the object in mid-air.
+        if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
+            !o.procSource.empty())
+            continue;
+        float mn[3], mx[3];
+        pickBounds(o, mn, mx);
+        Vec3 lo, ld;
+        objectLocalRay(o, eye, dir, lo, ld);
+        const float t = rayBox(lo, ld, mn, mx);
         if (t > 0.0f && t < bestT) {
             bestT = t;
             hit = true;
@@ -3273,11 +3456,11 @@ void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
         if (edit && edit->timeScale > 0.001f) speed *= edit->timeScale;
         pos = std::fmod((float)(animClock_ * b.fps * speed), (float)count);
     }
-    uploadAnimPose(draw, first, count, pos);
+    uploadAnimPose(draw, first, count, pos, edit && edit->inPlace);
 }
 
 void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
-                              int frameCount, float frame) {
+                              int frameCount, float frame, bool inPlace) {
     const glbparser::Baked& b = draw.baked;
     if (frameCount < 1) frameCount = 1;
     if (frame < 0.0f || frame >= (float)frameCount)
@@ -3288,6 +3471,18 @@ void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
     const int f0 = firstFrame + local0;
     // looping wraps last -> first, like the engine's loop state
     const int f1 = firstFrame + (local0 + 1) % frameCount;
+
+    Vec3 root0{}, root1{};
+    if (inPlace && b.rootMotion.size() == (size_t)b.frameCount &&
+        firstFrame >= 0 && firstFrame < b.frameCount) {
+        const glbparser::Baked::RootMotionSample& base = b.rootMotion[firstFrame];
+        auto offset = [&](int f) {
+            const glbparser::Baked::RootMotionSample& s = b.rootMotion[f];
+            return Vec3{s.x - base.x, 0.0f, s.z - base.z};
+        };
+        root0 = offset(f0);
+        root1 = offset(f1);
+    }
 
     std::vector<float> interleaved;
     for (size_t pi = 0; pi < draw.parts.size() && pi < b.parts.size(); ++pi) {
@@ -3300,9 +3495,15 @@ void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
         interleaved.clear();
         interleaved.reserve((size_t)src.vertexCount * 8);
         for (int v = 0; v < src.vertexCount; ++v) {
-            const float px = p0[v * 3] + (p1[v * 3] - p0[v * 3]) * alpha;
-            const float py = p0[v * 3 + 1] + (p1[v * 3 + 1] - p0[v * 3 + 1]) * alpha;
-            const float pz = p0[v * 3 + 2] + (p1[v * 3 + 2] - p0[v * 3 + 2]) * alpha;
+            const float px = (p0[v * 3] - root0.x) +
+                             ((p1[v * 3] - root1.x) -
+                              (p0[v * 3] - root0.x)) * alpha;
+            const float py = (p0[v * 3 + 1] - root0.y) +
+                             ((p1[v * 3 + 1] - root1.y) -
+                              (p0[v * 3 + 1] - root0.y)) * alpha;
+            const float pz = (p0[v * 3 + 2] - root0.z) +
+                             ((p1[v * 3 + 2] - root1.z) -
+                              (p0[v * 3 + 2] - root0.z)) * alpha;
             const Vec3 n = {n0[v * 3] + (n1[v * 3] - n0[v * 3]) * alpha,
                             n0[v * 3 + 1] + (n1[v * 3 + 1] - n0[v * 3 + 1]) * alpha,
                             n0[v * 3 + 2] + (n1[v * 3 + 2] - n0[v * 3 + 2]) * alpha};
@@ -4071,7 +4272,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             case PrimitiveType::Sphere:
             case PrimitiveType::Cylinder:
             case PrimitiveType::Cone:
-            case PrimitiveType::SavePoint: return &primMesh(o.type, o.primDetail);
+            case PrimitiveType::SavePoint:
+                return &primMesh(o.type, o.primDetail, o.primRings);
             case PrimitiveType::Plane: return &plane_;
             case PrimitiveType::Decal: return &decal_;
             case PrimitiveType::Mirror: return &decal_;  // glass quad, +Z face
@@ -4650,6 +4852,33 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         if (o.type != PrimitiveType::Area || hiddenAt(oi)) continue;
         draw(wireCube_, GL_LINES, mul(viewProj, modelMatrix(o)), o.color[0],
              o.color[1], o.color[2]);
+    }
+
+    // Collision boxes (View > Collision boxes, docs/collision-boxes.md): what
+    // the GAME blocks the player and the camera boom with, which for a model is
+    // its bounding box and not its mesh. placement::collisionBox is the host
+    // twin of the generated objectCollisionBox, so this overlay and the
+    // console's own (Preferences > Build > Show collision boxes) draw one
+    // answer - including the content-forward yaw, which turns an animated
+    // model's box with its mesh.
+    if (collisionOverlay_) {
+        const aobake::ModelAabbFn bounds = [this](const SceneObject& o, float* mn,
+                                                  float* mx) {
+            return modelLocalBounds(o, mn, mx);
+        };
+        for (size_t oi = 0; oi < objects.size(); ++oi) {
+            const SceneObject& o = objects[oi];
+            if (hiddenAt(oi) || !placement::collides(o)) continue;
+            const placement::CollisionBox b = placement::collisionBox(o, bounds);
+            Mat4 m = scaleM(2.0f * b.half[0], 2.0f * b.half[1], 2.0f * b.half[2]);
+            m = mul(translation(b.center[0], b.center[1], b.center[2]), m);
+            if (b.yaw != 0.0f) m = mul(rotY(b.yaw * kPi / 180.0f), m);
+            m = mul(rotX(o.rotation[0] * kPi / 180.0f), m);
+            m = mul(rotY(o.rotation[1] * kPi / 180.0f), m);
+            m = mul(rotZ(o.rotation[2] * kPi / 180.0f), m);
+            m = mul(translation(o.position[0], o.position[1], o.position[2]), m);
+            draw(collisionCube_, GL_LINES, mul(viewProj, m), 1.0f, 0.25f, 0.25f);
+        }
     }
 
     // Point-light reach: a ring sphere at each light, scaled to its radius and
@@ -5357,7 +5586,9 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
         // shared with the scene, but the scene pass re-poses every visible
         // instance from its own clock - and thus under the scene's light.
         const ScopedShade shade(d.light);
-        uploadAnimPose(*ad, first, count, d.time * (b->fps > 0.01f ? b->fps : 12.0f));
+        uploadAnimPose(*ad, first, count,
+                       d.time * (b->fps > 0.01f ? b->fps : 12.0f),
+                       d.inPlace);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
@@ -5416,10 +5647,24 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     const float dist = radius * 2.6f / zoom;
     const float p = std::clamp(d.pitchDeg, -30.0f, 85.0f) * kPi / 180.0f;
     const float a = d.angleDeg * kPi / 180.0f;
-    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
-                   center.y + dist * std::sin(p),
-                   center.z + dist * std::cos(p) * std::sin(a)};
-    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const Vec3 orbit{dist * std::cos(p) * std::cos(a), dist * std::sin(p),
+                     dist * std::cos(p) * std::sin(a)};
+    // Pan lives in the camera's screen plane, not in model/world X/Y. Thus a
+    // horizontal drag remains horizontal after orbiting around the character.
+    // Values are radius-relative so the same gesture feels useful at any
+    // imported model scale.
+    const Vec3 baseEye{center.x + orbit.x, center.y + orbit.y,
+                       center.z + orbit.z};
+    const Vec3 fwd = normalize(sub(center, baseEye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    const Vec3 target{
+        center.x + radius * (right.x * d.panX + up.x * d.panY),
+        center.y + radius * (right.y * d.panX + up.y * d.panY),
+        center.z + radius * (right.z * d.panX + up.z * d.panY)};
+    const Vec3 eye{target.x + orbit.x, target.y + orbit.y,
+                   target.z + orbit.z};
+    const Mat4 view = lookAt(eye, target, {0, 1, 0});
     const Mat4 proj =
         perspective(45.0f * kPi / 180.0f, (float)width / (float)height,
                     std::max(0.01f, dist * 0.01f), dist + radius * 4.0f + 50.0f);

@@ -14,7 +14,7 @@ counts in words. A default project spends it like this:
 | Region | Words | Notes |
 |---|---|---|
 | Frame buffer × 2 (512×448, 32bpp) | 458 752 | halves in the `InterlacedField` scan mode |
-| Z buffer (512×448, 32bpp) | 229 376 | |
+| Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [neural upscaler](neural-upscaler.md) shrinks it to 57 344 at 2×2 |
 | Post-fx scratch `lowVram[0..1]` + film-grain noise | ~12 288 | bloom/DoF blur chain |
 | Env-map target + its z buffer (128×128) | 32 768 | reflective materials |
 | Camera-feed target + its z buffer (128×128) | 32 768 | texture feeds |
@@ -34,10 +34,47 @@ than their pixel count suggests. Concretely, at 32bpp:
 | 256×256 | 67 584 | 24% |
 | 512×512 | 264 192 | 93% — one texture, basically the whole heap |
 
-Palettizing is the single biggest lever: *Preferences > Build > Textures*
+Palettizing is the single biggest lever: *Preferences > Rendering > Textures*
 at 4-bit turns a 256×256 into ~1/8 of the pixels plus a small CLUT. It is why
 the `showcase` example, which draws a whole village, never comes close to
 filling VRAM.
+
+## An allocation is whole PAGES, not pixels
+
+`getSize()` counts a texture's **pixels**. The GS stores a texture in whole
+8 KB **pages**, a row of pages at a time, so a texture that does not fill its
+last page row still *owns* those pages — and the next allocation has to start
+past them. For anything short and wide the two answers differ by a factor:
+
+| texture | pixels (+ the 2 048-word pad) | pages actually spanned |
+|---|---|---|
+| 256×256 PSMCT32 | 65 536 + 2 048 | 4 × 8 = 65 536 ✔ |
+| 64×64 PSMCT32 | 4 096 + 2 048 | 1 × 2 = 4 096 ✔ |
+| **512×16 PSMCT32** (the debug HUD font) | **10 240** | **8 × 1 = 16 384** ✘ |
+
+A PSMCT32 page is 64×32 texels. The 512×16 font is one page row of **eight**
+pages, so it spans 16 384 words while being sized at 10 240 — and the next
+texture was placed 10 240 words in, which is page 5 of the font's own 8. It
+overwrote pages 5, 6 and 7: **every glyph from x = 320 rightwards**.
+
+That is the bug behind *"opening the menu makes letters disappear"*. The HUD
+read `V AM` because `R` sits at x = 480 and was the only glyph past x = 320 on
+screen (`T`, at 496, was equally gone and simply not being drawn). The menu's
+own font atlas is the allocation that lands on it — which is why a *menu
+opening* triggers it, and why every scene that never opens one was fine.
+
+Upstream's `// TODO: Without this hack, textures are overlapping ourselves`
+sat on that 2 048-word pad. The pad is not the fix: it covers a width of 128
+and nothing wider. `getSize()` now returns **at least** the page footprint,
+`ceil(w / pageW) × ceil(h / pageH) × 2048`, with the page geometry per format
+(PSMCT32 64×32, PSMT8 128×64, PSMT4 128×128, PSM16 64×64; the `8H`/`4HL`/`4HH`
+formats are the high bits of a 32-bit buffer and keep 64×32).
+
+It changes **nothing** for the frame and z buffers — those are page-aligned
+already, and all five display modes come out identical either way — and
+nothing for textures at least 32 rows tall. The one measured cost is the debug
+font growing 10 240 → 16 384 words: **24 KB**, visible as the HUD's own `VRAM`
+line moving 3.21 → 3.23 MB.
 
 ## Two regions
 
@@ -52,9 +89,31 @@ filling VRAM.
   `allocate()` takes a best-fit block; `free()` returns it in **any order** and
   merges it with its neighbours.
 
-The only thing that moves the floor between them is a display-mode switch,
-which calls `vram.reset()` after evicting every texture and then re-runs the
-whole init sequence (`RendererCore::setDisplayOutput`).
+Two things move the floor between them, and both work the same way — evict every
+texture, `vram.reset()`, re-run the allocation sequence:
+
+- a **display-mode switch** (`RendererCore::setDisplayOutput`), which re-runs the
+  whole init including the video mode;
+- **`blss.configure()`** turning the [neural upscaler](neural-upscaler.md) on,
+  through `RendererCore::rebuildPermanentBuffers()` — the same branch minus the
+  mode. The z buffer is sized from the raster and the raster scale is not known
+  until `configure()` runs, which is *after* z was allocated. Generated games
+  call it at the top of `init()`, before `buildScene()` loads a single asset, so
+  the eviction has nothing to evict and the "permanent buffers before any
+  texture" rule below still holds. **A new caller of it later in a frame would
+  break that rule**, which is why the hook is gated on
+  `RendererCoreGS::needsBufferRealloc()` and fires at most once.
+
+  **A game whose SCENES disagree about the upscaler pins the layout instead**
+  (per-scene BLSS, docs/neural-upscaler.md). `RendererCoreGS::setZRasterScale`
+  fixes what the z buffer is sized for independently of the raster scale the
+  projection is currently using, so a project with some scenes upscaled and some
+  native sizes z for the FULL display once, at init, and `needsBufferRealloc()`
+  stays false for the rest of the run. That is what makes a per-scene switch
+  cost no eviction: it never asks for this branch at all. The price is the
+  z-buffer saving — such a project keeps the low-res colour target resident
+  through its native scenes (0.25 MB at 512x512) instead of trading it for a
+  smaller z (0.75 MB).
 
 VRAM-*resident* textures — the dynamic env map and the camera feed, whose
 pixels are rendered into GS memory rather than uploaded — bind their own
@@ -119,6 +178,30 @@ keeps it small in practice (the streaming fixture above returns to a single
 416 KB block), and when a request cannot be served despite enough *total* free
 space, the eviction loop keeps going — worst case it empties the heap, which is
 exactly the old behaviour, so the failure mode degrades rather than breaks.
+
+## Reading it without a debug log
+
+The debug HUD's `VRAM 3.21/4 MB` line, directly under `MEM` (*Preferences >
+Build > Show memory usage*), answers "how much of the 4 MB is gone". It is
+phrased as used-over-total so it reads the same way round as the line above it.
+
+**`MEM` and `VRAM` are different pools, and only one of them moves with the
+display mode.** Reported as *"I keep switching display modes and the editor
+shows the same memory usage the whole time — shouldn't it drop when I go from
+HD to 480p?"* `MEM` is the EE's 32 MB of main memory; a display mode never
+touches it. The frame and z buffers live in the GS' separate 4 MB, and that is
+the pool a taller mode eats. Measured on the same fixture, changing only
+`displayMode`:
+
+| mode | buffers + z | free for textures |
+|---|---|---|
+| 1080i (448×540) | 3.21 MB | **0.79 MB** |
+| 480p (448×448) | 2.76 MB | **1.24 MB** |
+
+0.45 MB between them — 448×92 px × 4 B × three buffers (two display + z), minus
+page alignment. **HD costs about a third of the texture budget**, and on a
+scene with almost nothing in it the reading is still ~3 MB: what fills VRAM
+first is the framebuffers, not the scene.
 
 ## Measuring it
 

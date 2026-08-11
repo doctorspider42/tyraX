@@ -1,0 +1,1 @@
+{ "id": "ulab-rail-2", "name": "rail-2", "type": "box", "position": [22, 1.85, -9.5], "rotation": [0, 0, 0], "scale": [0.3, 0.22, 9], "color": [0.72, 0.7, 0.66], "physics": false, "castShadow": false, "material": "res/materials/stone.mtl" }

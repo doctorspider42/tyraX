@@ -504,6 +504,7 @@ bool App::applyChatObjectProp(SceneData& sc, SceneObject& o,
         o.primDetail = clampPrimDetail(o.type, (int)num((float)o.primDetail));
         return true;
     }
+    if (key == "rings") { o.primRings = boolean(o.primRings); return true; }
     if (key == "drawDistance") {
         o.drawDistance = std::max(0.0f, num(o.drawDistance));
         return true;
@@ -631,21 +632,42 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         if (const json::Value* v = aichat::argValue(c, "position"))
             placed = aichat::vec3(*v, pos);
 
-        // Both insert paths leave the fresh object last, selected and rested on
-        // the surface under it; `commit = false` keeps this whole call one undo
-        // step (the addObject convention - see app.hpp).
+        // All three insert paths leave the fresh object last and selected;
+        // `commit = false` keeps this whole call one undo step (the addObject
+        // convention - see app.hpp).
+        const bool volume = type == PrimitiveType::Scatter;
         if (type == PrimitiveType::Model)
             addModelObject(model, placed ? pos : nullptr, /*commit=*/false);
+        else if (volume)
+            // A Procedural volume is a REGION, not a shape: the editor's own
+            // verb sizes it over the terrain, turns its collision off and seeds
+            // the starter graph. A plain addObject makes a 1x1x1 box with no
+            // graph in it, which generates nothing and looks from the outside
+            // exactly like a broken feature.
+            addScatterVolume(/*commit=*/false);
         else
             addObject(type, /*commit=*/false);
         SceneObject& fresh = project_.objects().back();
         if (!name.empty()) fresh.name = name;
         if (placed && type != PrimitiveType::Model) {
             for (int i = 0; i < 3; ++i) fresh.position[i] = pos[i];
-            snapInsertedObject();  // re-rest it where it actually landed
+            // A volume is meant to STRADDLE the ground (its own Y clip is what
+            // bounds the output), so resting it on the surface would lift the
+            // whole region off the terrain it is supposed to scatter over.
+            if (!volume) snapInsertedObject();
         }
         commitChange();
+        if (volume) procVolumeId_ = fresh.id;
         statusMessage_ = "AI: added " + fresh.name;
+        if (volume)
+            return "Added the Procedural volume \"" + fresh.name + "\" at " +
+                   vecText(fresh.position) + " in scene \"" +
+                   project_.active().name +
+                   "\", sized over the terrain and carrying the starter graph "
+                   "(scatter on the surface, thin by slope, pick an asset, vary "
+                   "the transform, output). Its asset pool is EMPTY, so it "
+                   "generates nothing until get_proc_graph / set_proc_graph "
+                   "fill one in and bake_volume bakes it.";
         return "Added \"" + fresh.name + "\" (" + primitiveTypeName(fresh.type) +
                ") at " + vecText(fresh.position) + " in scene \"" +
                project_.active().name +
@@ -781,6 +803,183 @@ std::string App::runChatTool(aichat::ToolCall& c) {
                std::to_string(o.flowGraph.nodes.size()) + " nodes, " +
                std::to_string(o.flowGraph.links.size()) + " links)." +
                (warnings.empty() ? "" : " " + warnings);
+    }
+
+    if (c.name == "set_proc_graph") {
+        const std::string target = aichat::argStr(c, "object");
+        const int oi = aichat::findObject(sc, target);
+        if (oi < 0) return fail(aichat::noSuchObject(sc, target));
+        SceneObject& o = sc.objects[oi];
+        if (o.type != PrimitiveType::Scatter)
+            return fail(aichat::notAVolume(sc, oi));
+        const json::Value* g = aichat::argValue(c, "graph");
+        if (!g || g->type != json::Value::Type::Object)
+            return fail("\"graph\" must be the graph object itself, not a string "
+                        "or a list.");
+        ProcGraph fresh;
+        // The project's OWN reader, which is what makes this write and a
+        // hand-edited .tyra the same thing: unknown node types and the links
+        // that touched them are dropped exactly as they are on load.
+        if (!project::parseProcGraph(json::write(*g), fresh))
+            return fail("That is not a valid scatter graph object.");
+        const size_t before = o.procGraph.nodes.size();
+        const size_t sentNodes =
+            g->find("nodes") && g->find("nodes")->type == json::Value::Type::Array
+                ? g->find("nodes")->arr.size()
+                : 0;
+        // A manual per-instance edit is bound to a point of the OLD graph; the
+        // new one generates different points, so carrying the overrides over
+        // would silently move things nobody moved.
+        fresh.overrides.clear();
+        fresh.bakedHash = 0;  // whatever is in the scene was built from the old one
+        o.procGraph = std::move(fresh);
+        commitChange();
+        // Show it: the Procedural window opens on the volume that was written.
+        if (si == project_.activeScene) {
+            selectOnly(oi);
+            procVolumeId_ = o.id;
+            showProcedural_ = true;
+        }
+        statusMessage_ = "AI: scatter graph -> " + o.name;
+        std::string msg = "Wrote the scatter graph of \"" + o.name + "\" (" +
+                          std::to_string(before) + " -> " +
+                          std::to_string(o.procGraph.nodes.size()) +
+                          " nodes, " + std::to_string(o.procGraph.links.size()) +
+                          " links).";
+        if (sentNodes > o.procGraph.nodes.size())
+            msg += " " + std::to_string(sentNodes - o.procGraph.nodes.size()) +
+                   " node(s) were dropped as unknown types - list_proc_nodes has "
+                   "the exact keys.";
+        const std::vector<procgraph::ProcIssue> issues =
+            procgraph::validate(o.procGraph);
+        if (issues.empty())
+            msg += " It validates; nothing is generated until it is baked "
+                   "(bake_volume).";
+        else {
+            msg += " It does NOT evaluate yet:";
+            for (const procgraph::ProcIssue& p : issues) {
+                msg += " ";
+                if (p.nodeId) msg += "node " + std::to_string(p.nodeId) + ": ";
+                msg += p.text;
+            }
+        }
+        return msg;
+    }
+
+    if (c.name == "create_prefab") {
+        // Named objects, or whatever the user has selected - "capture what I
+        // have selected" is how the Prefabs window works and how a person
+        // describes it, and the assistant is told the selection in its prompt.
+        std::vector<int> members;
+        if (const json::Value* list = aichat::argValue(c, "objects");
+            list && list->type == json::Value::Type::Array) {
+            for (const json::Value& v : list->arr) {
+                const std::string want = aichat::stringOf(v);
+                if (want.empty()) continue;
+                const int oi = aichat::findObject(sc, want);
+                if (oi < 0) return fail(aichat::noSuchObject(sc, want));
+                members.push_back(oi);
+            }
+        } else if (si == project_.activeScene) {
+            members = selection_;
+        }
+        if (members.empty())
+            return fail(
+                "Nothing to capture: name the objects in \"objects\", or ask "
+                "the user to select them in the viewport first (nothing is "
+                "selected right now).");
+        std::sort(members.begin(), members.end());
+        members.erase(std::unique(members.begin(), members.end()), members.end());
+        std::string wanted = aichat::argStr(c, "name");
+        if (wanted.empty()) wanted = sc.objects[members[0]].name;
+        // uniqueName rather than a refusal: the capture is the expensive part
+        // of the request, and a name collision is worth a note, not a retry.
+        const std::string name = prefab::uniqueName(project_, wanted);
+        Prefab pf = prefab::capture(sc, members, name);
+        if (pf.objects.empty())
+            return fail("Those objects captured to nothing - a prefab needs at "
+                        "least one object with geometry or a marker.");
+        const size_t count = pf.objects.size();
+        project_.prefabs.push_back(std::move(pf));
+        prefabSelected_ = (int)project_.prefabs.size() - 1;
+        showPrefabs_ = true;  // land the user where the prefab now lives
+        commitChange();
+        statusMessage_ = "AI: prefab " + name;
+        std::string msg = "Captured " + std::to_string(count) +
+                          " object(s) into the prefab \"" + name + "\".";
+        if (name != wanted)
+            msg += " (\"" + wanted + "\" was taken, so it got a suffix - use "
+                   "the new name in Pick Prefab rows.)";
+        // The cap is the thing that decides the whole approach downstream, so
+        // it is stated here rather than waited for.
+        msg += " A Pick Prefab pool can place at most " +
+               std::to_string(prefab::kMaxRuntimeInstances) +
+               " prefab instances in the whole game; past that, "
+               "bake_prefab_model turns it into a .obj for a Pick Asset pool.";
+        return msg;
+    }
+
+    if (c.name == "insert_prefab") {
+        const std::string name = aichat::argStr(c, "name");
+        const Prefab* pf = prefab::find(project_, name);
+        if (!pf) {
+            std::string s = "No prefab named \"" + name + "\". Prefabs: ";
+            if (project_.prefabs.empty())
+                s += "(none yet - create_prefab captures scene objects into "
+                     "one)";
+            for (size_t i = 0; i < project_.prefabs.size(); ++i)
+                s += std::string(i ? ", " : "") + "\"" + project_.prefabs[i].name +
+                     "\"";
+            return fail(s);
+        }
+        float pos[3] = {0.0f, 0.0f, 0.0f};
+        if (const json::Value* v = aichat::argValue(c, "position"))
+            aichat::vec3(*v, pos);
+        std::vector<SceneObject> copies =
+            prefab::instantiate(*pf, pos[0], pos[1], pos[2],
+                                (float)aichat::argNum(c, "yaw", 0.0),
+                                (float)aichat::argNum(c, "scale", 1.0), "");
+        if (copies.empty()) return fail("That prefab is empty.");
+        // Unique names within the scene, the same scheme "Insert into scene"
+        // uses. Not cosmetic: a reference is a NAME here, so two objects called
+        // "plaza" make every cutscene track, mirror list and flow node that
+        // says "plaza" mean whichever one comes first.
+        for (SceneObject& o : copies) {
+            std::string want = o.name;
+            for (int n = 2;; ++n) {
+                bool taken = false;
+                for (const SceneObject& other : sc.objects)
+                    taken |= (other.name == want);
+                for (const SceneObject& other : copies)
+                    taken |= (&other != &o && other.name == want);
+                if (!taken) break;
+                want = o.name + " " + std::to_string(n);
+            }
+            o.name = want;
+        }
+        // ONE offset for the whole group, so a stacked prefab keeps its shape
+        // instead of collapsing onto the floor (the paste path's rule).
+        if (si == project_.activeScene) {
+            const float dy = placement::restOffsetYGroup(
+                copies, sc.objects, placementSkip(), placementModelAabb(),
+                placementHeight(), FLT_MAX);
+            for (SceneObject& o : copies) o.position[1] += dy;
+        }
+        const size_t added = copies.size();
+        const size_t first = project_.objects().size();
+        for (SceneObject& o : copies) project_.objects().push_back(std::move(o));
+        if (si == project_.activeScene) {
+            selection_.clear();
+            for (size_t k = first; k < project_.objects().size(); ++k)
+                selection_.push_back((int)k);
+            selectedObject_ = (int)first;
+        }
+        commitChange();  // stamps the fresh ids the copies were left without
+        statusMessage_ = "AI: inserted " + name;
+        return "Inserted \"" + name + "\" (" + std::to_string(added) +
+               " object(s)) at " + vecText(pos) + " in scene \"" + sc.name +
+               "\". The copies are their own objects - editing the prefab from "
+               "now on does not touch them.";
     }
 
     if (c.name == "set_section") {
@@ -1034,6 +1233,96 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         return msg;
     }
 
+    if (c.name == "bake_volume") {
+        // What the bake produced, in the terms that decide whether it fits: the
+        // console pays for triangles and RAM, not for how many instances the
+        // graph felt like making.
+        auto report = [](const procbake::Report& r) {
+            std::string s = std::to_string(r.instances) + " instance(s) merged "
+                            "into " + std::to_string(r.chunks) +
+                            " chunk mesh(es), " + std::to_string(r.triangles) +
+                            " triangles, ~" +
+                            std::to_string(r.vertexBytes / 1024) + " KB of PS2 "
+                            "RAM.";
+            if (r.overBudget)
+                s += " That is OVER the budget for this machine - say so and "
+                     "offer to thin it (lower density, fewer levels, a coarser "
+                     "instance detail).";
+            for (const std::string& w : r.warnings) s += " " + w;
+            return s;
+        };
+        const std::string target = aichat::argStr(c, "object");
+        if (target.empty()) {
+            if (!procbake::anyStale(project_))
+                return "Every Procedural volume in the project is already baked "
+                       "- nothing to do.";
+            const procbake::Report rep = bakeStaleProcVolumes();
+            if (!rep.error.empty()) return fail("The bake failed: " + rep.error);
+            statusMessage_ = "AI: baked procedural volumes";
+            return "Baked " + std::to_string(rep.volumes) + " stale volume(s): " +
+                   report(rep);
+        }
+        // One volume goes through the editor's own bake verb, which works on the
+        // scene the editor is SHOWING - so a named volume elsewhere is refused
+        // rather than silently baking the wrong one.
+        if (si != project_.activeScene)
+            return fail("\"bake_volume\" works on the scene the editor is "
+                        "showing (\"" + project_.active().name +
+                        "\"). Call set_scene first, then repeat this call.");
+        const int oi = aichat::findObject(sc, target);
+        if (oi < 0) return fail(aichat::noSuchObject(sc, target));
+        if (sc.objects[oi].type != PrimitiveType::Scatter)
+            return fail(aichat::notAVolume(sc, oi));
+        if (sc.objects[oi].procGraph.empty())
+            return fail("\"" + target +
+                        "\" has no scatter graph, so there is nothing to bake. "
+                        "set_proc_graph gives it one.");
+        const procbake::Report rep = bakeProcVolume(oi);
+        if (!rep.error.empty()) return fail("The bake failed: " + rep.error);
+        statusMessage_ = "AI: baked " + target;
+        return "Baked \"" + target + "\": " + report(rep) +
+               " The generated chunk objects are in the scene now and the "
+               "viewport shows them.";
+    }
+
+    if (c.name == "bake_prefab_model") {
+        const std::string name = aichat::argStr(c, "name");
+        const Prefab* pf = prefab::find(project_, name);
+        if (!pf) {
+            std::string s = "No prefab named \"" + name + "\". Prefabs: ";
+            if (project_.prefabs.empty())
+                s += "(none yet - create_prefab captures scene objects into "
+                     "one)";
+            for (size_t i = 0; i < project_.prefabs.size(); ++i)
+                s += std::string(i ? ", " : "") + "\"" + project_.prefabs[i].name +
+                     "\"";
+            return fail(s);
+        }
+        const prefab::BakeReport r = prefab::bakeToModel(project_, *pf);
+        if (!r.error.empty()) return fail("The bake failed: " + r.error);
+        prefabBakeReport_ = r;
+        prefabBakeFor_ = pf->id;
+        prefabBakeDiskKey_.clear();  // the window's on-disk readout just changed
+        statusMessage_ = "AI: baked " + name + " to a model";
+        std::string msg = "Baked " + std::to_string(r.members) +
+                          " member(s) of \"" + name + "\" into " + r.modelPath +
+                          " - " + std::to_string(r.triangles) + " triangles, " +
+                          std::to_string(r.materials) + " material(s). Put that "
+                          "path in a Pick Asset row to scatter it without "
+                          "touching the prefab instance pool.";
+        // Named, never silent: a member that did not merge is geometry the
+        // user can see in the prefab and will not see in the scatter.
+        if (!r.skipped.empty()) {
+            msg += " Not merged (" + std::to_string(r.skipped.size()) + "): ";
+            for (size_t i = 0; i < r.skipped.size() && i < 8; ++i)
+                msg += std::string(i ? ", " : "") + r.skipped[i];
+            if (r.skipped.size() > 8) msg += ", ...";
+            msg += ".";
+        }
+        for (const std::string& w : r.warnings) msg += " " + w;
+        return msg;
+    }
+
     if (c.name == "build_game") {
         if (!chatAllowBuild_)
             return fail(
@@ -1116,21 +1405,45 @@ void App::drawAiChatHistory() {
         return;
     }
     const theme::Semantics& sem = theme::semantics();
+    const ImGuiStyle& st = ImGui::GetStyle();
+    // Two COLUMNS measured over the whole list, because the rows used to lay
+    // themselves out by flowing after each other's text: a title one word
+    // longer pushed that row's age and its delete button further right than the
+    // row above, and in an auto-sized popup the widest row set the width while
+    // every narrower one had its `x` floating somewhere in the middle.
+    auto metaText = [](const aichat::ChatRecord& r) {
+        return "- " + aichat::chatAge(r.ageSeconds) + ", " +
+               std::to_string(r.messages) + " message(s)";
+    };
+    float titleW = 0.0f, metaW = 0.0f;
+    for (const aichat::ChatRecord& r : chatHistory_) {
+        titleW = std::max(titleW, ImGui::CalcTextSize(r.title.c_str()).x);
+        metaW = std::max(metaW, ImGui::CalcTextSize(metaText(r).c_str()).x);
+    }
+    const float btnW = ImGui::CalcTextSize("x").x + st.FramePadding.x * 2.0f;
+    const float rowW = titleW + st.ItemSpacing.x + metaW + st.ItemSpacing.x * 2.0f +
+                       btnW;
     std::string deleted;
     for (size_t i = 0; i < chatHistory_.size(); ++i) {
         const aichat::ChatRecord& r = chatHistory_[i];
         ImGui::PushID((int)i);
         const bool current = r.file == chatFile_;
         if (current) ImGui::PushStyleColor(ImGuiCol_Text, sem.accent);
+        const float x0 = ImGui::GetCursorPosX();
+        // Without this the Selectable OWNS its whole rect and the delete button
+        // drawn on top of it is visible but dead - the click goes to the row
+        // underneath and opens the chat you were trying to throw away.
+        ImGui::SetNextItemAllowOverlap();
         // Selectable rather than a button: the row is the whole width, which is
         // what makes a list of titles clickable at the length titles run to.
-        if (ImGui::Selectable(r.title.c_str(), current) && !current)
+        if (ImGui::Selectable(r.title.c_str(), current, ImGuiSelectableFlags_None,
+                              ImVec2(rowW, 0.0f)) &&
+            !current)
             aiChatOpen(r.file);
         if (current) ImGui::PopStyleColor();
-        ImGui::SameLine();
-        ImGui::TextDisabled("- %s, %d message(s)", aichat::chatAge(r.ageSeconds).c_str(),
-                            r.messages);
-        ImGui::SameLine();
+        ImGui::SameLine(x0 + titleW + st.ItemSpacing.x);
+        ImGui::TextDisabled("%s", metaText(r).c_str());
+        ImGui::SameLine(x0 + rowW - btnW);
         if (ImGui::SmallButton("x")) deleted = r.file;
         if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this chat");
         ImGui::PopID();
@@ -1172,7 +1485,18 @@ void App::drawAiChatWindow() {
             "The backend is the machine-wide one in Edit > Preferences >\n"
             "AI assistant - the same setting the Flow Graph window's\n"
             "\"Generate with AI\" uses.");
-    ImGui::SameLine(ImGui::GetContentRegionMax().x - scaled(160));
+    ImGui::SameLine(ImGui::GetContentRegionMax().x - scaled(226));
+    ImGui::BeginDisabled(chat_.messages.empty());
+    if (ImGui::Button("Copy chat", ImVec2(scaled(72), 0))) {
+        ImGui::SetClipboardText(aichat::conversationText(chat_).c_str());
+        statusMessage_ = "AI chat copied to the clipboard";
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "The whole conversation as plain text - what was asked, what was\n"
+            "answered and what every tool returned.");
+    ImGui::SameLine();
     if (ImGui::Button("History", ImVec2(scaled(70), 0))) {
         chatHistoryScanned_ = false;  // re-scan on every open, never per frame
         ImGui::OpenPopup("##chathistory");
@@ -1227,36 +1551,111 @@ void App::drawAiChatWindow() {
                 ImGui::PopID();
             }
         }
+        // Clicking a message COPIES it, and there is no button anywhere: one on
+        // every message turned the transcript into a column of chrome, which is
+        // the opposite of what a conversation should look like. The affordance
+        // is the hand cursor plus the toolbar's own faded hover highlight, and
+        // the acknowledgement is the tooltip - which is the whole reason the
+        // gesture is discoverable at all, since nothing about wrapped text says
+        // "clickable" on its own. (Selecting the text is not an alternative:
+        // ImGui labels cannot be selected.)
+        //
+        // The highlight has to be drawn UNDER text that is already submitted,
+        // hence the draw-list channel split - the toolbar can draw its
+        // rectangle first because its buttons are a fixed size, and a message
+        // is not.
+        //
+        // `body` is what the click copies, which is not always the whole
+        // message: a tool row copies its RESULT, because that is the thing
+        // anyone wants out of it.
+        auto clickToCopy = [this](const std::string& body, auto&& draw) {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const float width = ImGui::GetContentRegionAvail().x;
+            dl->ChannelsSplit(2);
+            dl->ChannelsSetCurrent(1);
+            ImGui::BeginGroup();
+            draw();
+            ImGui::EndGroup();
+            const ImVec2 mn = ImGui::GetItemRectMin();
+            const ImVec2 mx = ImGui::GetItemRectMax();
+            // The hit box goes back over what was just drawn, and spans the
+            // full width so the empty space beside a short line is part of the
+            // target rather than a dead strip through the middle of it.
+            const ImVec2 resume = ImGui::GetCursorScreenPos();
+            ImGui::SetCursorScreenPos(mn);
+            // Named rather than "##copy": an InvisibleButton draws nothing
+            // either way, and a widget with no label is one --ui-script cannot
+            // target - which would leave the only way to copy anything in this
+            // window untestable without a human (see docs/ui-scripting.md).
+            ImGui::InvisibleButton("Copy message",
+                                   ImVec2(std::max(width, 1.0f),
+                                          std::max(mx.y - mn.y, 1.0f)));
+            const bool hovered = ImGui::IsItemHovered();
+            const ImGuiID id = ImGui::GetItemID();
+            if (hovered) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+            if (ImGui::IsItemClicked()) {
+                ImGui::SetClipboardText(body.c_str());
+                chatCopiedId_ = id;
+                chatCopiedAt_ = ImGui::GetTime();
+            }
+            const float t = theme::hoverAnim(id, hovered, 12.0f);
+            ImGui::SetCursorScreenPos(resume);
+            dl->ChannelsSetCurrent(0);
+            if (t > 0.0f)
+                dl->AddRectFilled(ImVec2(mn.x - scaled(4), mn.y - scaled(2)),
+                                  ImVec2(mn.x + width + scaled(4), mx.y + scaled(2)),
+                                  ImGui::GetColorU32(ImGuiCol_ButtonHovered, t * 0.45f),
+                                  ImGui::GetStyle().FrameRounding);
+            dl->ChannelsMerge();
+            if (!hovered) return;
+            // "Copied" wins for a moment after the click; the invitation is on
+            // ImGui's usual hover delay, so reading the transcript does not put
+            // a tooltip under the cursor every time it passes over a message.
+            if (chatCopiedId_ == id && ImGui::GetTime() - chatCopiedAt_ < 1.6)
+                ImGui::SetTooltip("Copied to the clipboard");
+            else if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip("Click to copy");
+        };
         for (size_t i = 0; i < chat_.messages.size(); ++i) {
             const aichat::Message& m = chat_.messages[i];
             ImGui::PushID((int)i);
             switch (m.role) {
                 case aichat::Message::Role::User:
-                    ImGui::TextColored(sem.accent,
-                                       "You");
-                    ImGui::TextWrapped("%s", m.text.c_str());
+                    clickToCopy(aichat::messageText(m), [&] {
+                        ImGui::TextColored(sem.accent, "You");
+                        ImGui::TextWrapped("%s", m.text.c_str());
+                    });
                     break;
                 case aichat::Message::Role::Assistant:
-                    ImGui::TextColored(sem.ok,
-                                       "Assistant");
-                    if (!m.text.empty()) ImGui::TextWrapped("%s", m.text.c_str());
-                    for (const aichat::ToolCall& c : m.calls)
-                        ImGui::TextDisabled("-> %s %s", c.name.c_str(),
-                                            aichat::argsText(c).c_str());
+                    clickToCopy(aichat::messageText(m), [&] {
+                        ImGui::TextColored(sem.ok, "Assistant");
+                        if (!m.text.empty())
+                            ImGui::TextWrapped("%s", m.text.c_str());
+                        for (const aichat::ToolCall& c : m.calls)
+                            ImGui::TextDisabled("-> %s %s", c.name.c_str(),
+                                                aichat::argsText(c).c_str());
+                    });
                     break;
-                case aichat::Message::Role::Summary:
+                case aichat::Message::Role::Summary: {
                     // Collapsed: it stands in for messages that are gone, and
-                    // the point of compacting was to stop reading them.
+                    // the point of compacting was to stop reading them. The
+                    // header stays a tree node (clicking it must unfold), so
+                    // only the recap itself is click-to-copy.
                     ImGui::PushStyleColor(ImGuiCol_Text, sem.textDim);
-                    if (ImGui::TreeNodeEx("Earlier conversation, summarised",
-                                          ImGuiTreeNodeFlags_SpanAvailWidth)) {
-                        ImGui::PushTextWrapPos(0.0f);
-                        ImGui::TextUnformatted(m.text.c_str());
-                        ImGui::PopTextWrapPos();
+                    const bool openSummary =
+                        ImGui::TreeNodeEx("Earlier conversation, summarised",
+                                          ImGuiTreeNodeFlags_SpanAvailWidth);
+                    ImGui::PopStyleColor();
+                    if (openSummary) {
+                        clickToCopy(m.text, [&] {
+                            ImGui::PushTextWrapPos(0.0f);
+                            ImGui::TextUnformatted(m.text.c_str());
+                            ImGui::PopTextWrapPos();
+                        });
                         ImGui::TreePop();
                     }
-                    ImGui::PopStyleColor();
                     break;
+                }
                 case aichat::Message::Role::Tool:
                     // Collapsed by default: the results are for the model, and a
                     // 40 KB doc page would bury the conversation. Open one to see
@@ -1272,10 +1671,16 @@ void App::drawAiChatWindow() {
                         const bool open = ImGui::TreeNodeEx(
                             label.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth);
                         ImGui::PopStyleColor();
+                        // Clicking the row unfolds it, so the RESULT is what
+                        // click-to-copy covers - which is the half anyone wants
+                        // out of a tool row anyway (a doc page, the tail of a
+                        // build log). Copy chat has the rest.
                         if (open) {
-                            ImGui::PushTextWrapPos(0.0f);
-                            ImGui::TextUnformatted(c.result.c_str());
-                            ImGui::PopTextWrapPos();
+                            clickToCopy(c.result, [&] {
+                                ImGui::PushTextWrapPos(0.0f);
+                                ImGui::TextUnformatted(c.result.c_str());
+                                ImGui::PopTextWrapPos();
+                            });
                             ImGui::TreePop();
                         }
                         ImGui::PopID();

@@ -39,6 +39,10 @@
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
+// The frame-timing rig (docs/profiling.md, "Timing a frame that BLSS is in").
+// TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
+// a preprocessor pass and nothing else.
+#include "debug/frame_profile.hpp"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -272,6 +276,32 @@ V3 invRotated(const V3& v, const float* rotDeg) {
   }
   return r;
 }
+
+// The box's frame: R(rotation) * Ryaw(modelYaw). The content-forward
+// correction turns the MESH between scale and rotation (see the animated model
+// matrix in updateAndRenderAnimObjects), so it has to turn the mesh's box too -
+// without it an X-forward-authored character collided and blocked the camera
+// across its own body.
+V3 boxRotate(const V3& v, const SceneObjectData& d) {
+  V3 p = v;
+  if (d.modelYaw != 0.0F) {
+    const float a = d.modelYaw * (PI / 180.0F);
+    const float c = cosf(a), s = sinf(a);
+    p = {p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+  }
+  return rotated(p, d.rotation);
+}
+
+V3 boxInvRotate(const V3& v, const SceneObjectData& d) {
+  V3 p = invRotated(v, d.rotation);
+  if (d.modelYaw != 0.0F) {
+    const float a = -d.modelYaw * (PI / 180.0F);
+    const float c = cosf(a), s = sinf(a);
+    p = {p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+  }
+  return p;
+}
+
 
 /** Directional light (Project > Preferences), baked into vertex colors.
  * Returns per-channel multipliers: brightness * (ambient + diffuse*d*lightColor). */
@@ -1093,6 +1123,18 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
                  std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
+  // Rings along the axis (mirror of primCylinderStacks in project.hpp - keep
+  // the two in sync), opt-in per object. Without them every vertex-baked term
+  // that varies with HEIGHT - a baked point light overhead, the contact
+  // darkening at the foot, a probe gradient - is one linear ramp per segment
+  // quad, and its diagonal seam paints a full-height stripe that more radial
+  // detail only makes narrower. With nothing lighting the cylinder vertically
+  // they are triangles no shading reads, hence the flag rather than always-on.
+  int rings = 1;
+  if (o.primRings) {
+    rings = seg / 4;
+    if (rings < 1) rings = 1;
+  }
   const float r = 0.5F, h = 0.5F;
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
@@ -1102,12 +1144,16 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const V3 n0 = {cosf(a0), 0, sinf(a0)}, n1 = {cosf(a1), 0, sinf(a1)};
     // side (smooth) - atlas region 0
     g_aoRegion = 0;
-    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
-    pushVert(verts, cols, sts, o, {x0, h, z0}, n0, u0, 0);
-    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
-    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
-    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
-    pushVert(verts, cols, sts, o, {x1, -h, z1}, n1, u1, 1);
+    for (int k = 0; k < rings; ++k) {
+      const float tt = (float)k / rings, tb = (float)(k + 1) / rings;
+      const float yt = h - 2.0F * h * tt, yb = h - 2.0F * h * tb;
+      pushVert(verts, cols, sts, o, {x0, yb, z0}, n0, u0, tb);
+      pushVert(verts, cols, sts, o, {x0, yt, z0}, n0, u0, tt);
+      pushVert(verts, cols, sts, o, {x1, yt, z1}, n1, u1, tt);
+      pushVert(verts, cols, sts, o, {x0, yb, z0}, n0, u0, tb);
+      pushVert(verts, cols, sts, o, {x1, yt, z1}, n1, u1, tt);
+      pushVert(verts, cols, sts, o, {x1, yb, z1}, n1, u1, tb);
+    }
     // caps (planar mapping) - atlas regions 1 (+Y) and 2 (-Y)
     g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, h, 0}, {0, 1, 0}, 0.5F, 0.5F);
@@ -1334,6 +1380,10 @@ void drawIconAt(Engine* engine, int i, float x, float y, float box) {
   sp->size = Vec2((float)ir.w, (float)ir.h);
   sp->offset = Vec2((float)ir.u, (float)ir.v);
   sp->scale = box / (float)ir.h;
+  // The icon sheet is ONE shared sprite (iconSheetSprite) and drawFontText
+  // gives it a per-axis drawSize for squeezed text - clear it, or a widescreen
+  // menu leaves every later icon drawn at that width.
+  sp->drawSize = Vec2(0.0F, 0.0F);
   sp->position = Vec2(x, y);
   engine->renderer.renderer2D.render(*sp);
 }
@@ -1345,16 +1395,20 @@ int liveIconForAction(int action) {
   return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
 }
 
-float fontTextWidth(int fontIdx, const char* s, float size) {
+/** Width of a string in framebuffer pixels. `sx` squeezes the horizontal axis
+ * (1 = square glyphs): a menu panel compensated for anamorphic widescreen is
+ * narrower than the buffer says, and text measured without the same factor
+ * would be laid out for a panel that is not there. */
+float fontTextWidth(int fontIdx, const char* s, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs) return 0.0F;
-  const float k = size / (float)f.baseSize;
+  const float k = (size / (float)f.baseSize) * sx;
   float w = 0.0F;
   while (*s) {
     int tokenLen = 0;
     const int icon = resolveIconToken(s, &tokenLen);
     if (icon >= 0) {
-      w += iconAdvanceFor(icon, size);
+      w += iconAdvanceFor(icon, size) * sx;
       s += tokenLen;
       continue;
     }
@@ -1366,8 +1420,12 @@ float fontTextWidth(int fontIdx, const char* s, float size) {
   return w;
 }
 
+/** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
+ * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
+ * compensated for anamorphic widescreen, where the glyphs have to be squeezed
+ * with the panel or they come out fatter than the baked rows around them. */
 void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size) {
+                  float cy, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs || !f.atlas[0]) return;
 
@@ -1385,10 +1443,11 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
 
   Sprite& sp = glyph[fontIdx];
   const float k = size / (float)f.baseSize;
+  const float kx = k * sx;  // the same factor with the horizontal squeeze in
   sp.scale = k;
 
   // Center anchor, like the baked HUD text sprites.
-  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float startX = cx - fontTextWidth(fontIdx, s, size, sx) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
   // The shared icon-sheet sprite (one texture, see iconSheetSprite).
@@ -1413,16 +1472,20 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       int tokenLen = 0;
       const int icon = resolveIconToken(c, &tokenLen);
       if (icon >= 0) {
-        const float adv = iconAdvanceFor(icon, size);
-        const float box = adv - size * 0.12F;
+        // The box is the icon's HEIGHT, so it never takes the squeeze; only
+        // the advance and the drawn width do.
+        const float box = iconAdvanceFor(icon, size) - size * 0.12F;
+        const float adv = iconAdvanceFor(icon, size) * sx;
         const IconRect& ir = ICONS[icon];
         if (ir.h > 0 && pass == 1 && iconSp) {
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;
+          iconSp->drawSize =
+              Vec2((float)ir.w * (box / (float)ir.h) * sx, box);
           // Sit on the line box like a capital does, not on the baseline.
           iconSp->position =
-              Vec2(pen + size * 0.06F + ox,
+              Vec2(pen + size * 0.06F * sx + ox,
                    top + ((float)f.lineH * k - box) * 0.5F + ox);
           engine->renderer.renderer2D.render(*iconSp);
         }
@@ -1437,11 +1500,12 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       if (g.w > 0 && g.h > 0) {
         sp.size = Vec2((float)g.w, (float)g.h);
         sp.offset = Vec2((float)g.u, (float)g.v);
-        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+        sp.drawSize = Vec2((float)g.w * kx, (float)g.h * k);
+        sp.position = Vec2(pen + (float)g.xoff * kx + ox,
                            top + (float)g.yoff * k + ox);
         engine->renderer.renderer2D.render(sp);
       }
-      pen += (float)g.adv * k;
+      pen += (float)g.adv * kx;
     }
   }
 }
@@ -1461,18 +1525,288 @@ static inline u32 profTicks() {
   return v;
 }
 
+#if TYRA_FRAME_PROFILE
+// ---------------------------------------------------------------------------
+// The FRAMETIME line: the frame-timing rig's output half (the counters live in
+// the engine, inc/debug/frame_profile.hpp; the protocol is docs/profiling.md).
+//
+// ONCE A SECOND, never once a frame. TyraDebug::writeInLogFile does a full
+// ofstream open + append + flush PER LINE (vendor/tyra/engine/src/debug/
+// debug.cpp), over host: on real hardware - a per-frame line would be
+// measuring the logger. One snprintf, one TYRA_LOG, the same 1 Hz cadence
+// RendererCoreBlss::logFeatureSpread already uses.
+//
+// The whole block charges its own cost to FrameProfile::tExcluded, which
+// endFrame() subtracts from tFrameWork - otherwise one frame in fifty is a
+// 20 ms outlier made entirely of measurement apparatus.
+// ---------------------------------------------------------------------------
+namespace ftrig {
+
+constexpr int kWindow = 50;    // frames per FRAMETIME line
+constexpr int kRaw = 512;      // buffered per-frame samples (paired stats)
+constexpr float kTicksPerMs = 294912.0F;
+constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
+
+u32 work[kWindow], drain[kWindow];
+u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+// The split of the two big EE terms. The first hardware A/B read the
+// composite's EE half off ONE counter and got "~3.9 ms of scene submission"
+// by SUBTRACTION, which is not a measurement; these make both attributable.
+u64 sPrx = 0, sAcc = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
+int n = 0;
+u32 frame = 0;  // frames since boot - the alignment key between runs A and B
+u32 raw[kRaw];
+int rawN = 0;
+u32 rawFirst = 0;
+// One-frame delay line. drawDebugHud runs BEFORE endFrame, so the BLSS
+// counters it can see are THIS frame's while tFrameWork/tDrain are still last
+// frame's. Holding the BLSS values back by one frame makes every record
+// coherent instead of skewed.
+u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
+u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
+bool pValid = false;
+
+// u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
+// a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
+// wrapped and printed BELOW the median - which is how a 500 ms frame first
+// reported itself as 37 ms. Per-frame values (median, p95) were always fine;
+// only the accumulators were wrong.
+inline float ms(u64 ticks, int count) {
+  return (float)ticks / (kTicksPerMs * (float)count);
+}
+
+void sortU32(u32* a, int cnt) {
+  for (int i = 1; i < cnt; i++) {
+    const u32 v = a[i];
+    int j = i - 1;
+    while (j >= 0 && a[j] > v) {
+      a[j + 1] = a[j];
+      j--;
+    }
+    a[j + 1] = v;
+  }
+}
+
+// Dumps the buffered per-frame work ticks so runs A and B can be compared as
+// PAIRED samples (frame k of A against frame k of B - the fixture's camera is
+// frame-indexed, so those are the same view). Same I/O cost as one summary
+// line, 512x the data; 64 values a line keeps each line under 600 bytes.
+void dumpRaw() {
+  char line[600];
+  for (int base = 0; base < rawN; base += 64) {
+    int at = snprintf(line, sizeof(line), "FTRAW %lu",
+                      (unsigned long)(rawFirst + (u32)base));
+    const int end = base + 64 < rawN ? base + 64 : rawN;
+    for (int i = base; i < end; i++)
+      at += snprintf(line + at, sizeof(line) - at, " %lx",
+                     (unsigned long)raw[i]);
+    TYRA_LOG(line);
+  }
+  rawN = 0;
+}
+
+void tick(const Vec4& camPos, const Vec4& camAt) {
+  namespace FP = Tyra::FrameProfile;
+  const int i = n;
+  work[i] = FP::tFrameWork;
+  drain[i] = FP::tDrain;
+  if (pValid) {
+    sBeg += pBeg;
+    sEnd += pEnd;
+    sCmp += pCmp;
+    sCmpEe += pCmpEe;
+    sPrx += pPrx;
+    sAcc += pAcc;
+    sRep += pRep;
+    sFea += pFea;
+    sNet += pNet;
+    sPkt += pPkt;
+  }
+  pBeg = FP::tBlssBegin;
+  pEnd = FP::tBlssEnd;
+  pCmp = FP::tBlssComposite;
+  pCmpEe = FP::tBlssCompositeEe;
+  pPrx = FP::tBlssProxy;
+  pAcc = FP::tBlssAccum;
+  pRep = FP::tBlssReproj;
+  pFea = FP::tBlssFeat;
+  pNet = FP::tBlssNet;
+  pPkt = FP::tBlssPacket;
+  pValid = true;
+  if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
+  if (rawN == 1) rawFirst = frame;
+  frame++;
+  if (++n < kWindow) return;
+  n = 0;
+
+  u32 sorted[kWindow];
+  u64 sumW = 0, sumD = 0;
+  int over = 0;
+  for (int k = 0; k < kWindow; k++) {
+    sorted[k] = work[k];
+    sumW += work[k];
+    sumD += drain[k];
+    if (work[k] > kBudget20ms) over++;
+  }
+  sortU32(sorted, kWindow);
+
+  // Heading, not orbit angle: it is defined for any fixture camera, and it is
+  // the independent confirmation that frame f of run A really was looking
+  // where frame f of run B was. `f` is the exact key; `cam` is the check.
+  const float cam = atan2f(camAt.x - camPos.x, camAt.z - camPos.z);
+  const float mean = ms(sumW, kWindow);
+  const float dr = ms(sumD, kWindow);
+
+  char line[320];
+  snprintf(line, sizeof(line),
+           "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
+           "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
+           kWindow, (unsigned long)(frame - kWindow), (double)mean,
+           (double)ms(sorted[kWindow / 2], 1),
+           (double)ms(sorted[(kWindow * 95) / 100], 1), (double)(mean - dr),
+           (double)dr, (double)ms(sBeg, kWindow), (double)ms(sEnd, kWindow),
+           (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
+           (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
+  TYRA_LOG(line);
+  // The attribution line. `proxy` is charged inside StaPipCore (scene
+  // SUBMISSION, not the composite); the other four split the composite's EE
+  // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
+  // figure above to within the counters' own overhead.
+  //
+  // `proxy=total/accum` splits the proxy feed itself: `accum` is
+  // RendererCoreBlss::addBag, the read-modify-write per (proxy, TILE), and
+  // `total - accum` is the projection half - eight corners through the MVP,
+  // the near clip, the bbox reduce, once per VU1 package. They are the two
+  // halves the same millisecond can be taken off in completely different ways,
+  // and this feature has already paid once for splitting a term by
+  // subtraction instead of measuring it.
+  // THREE decimals, not two, and the reason is that this line has outlived the
+  // sizes it was written for. When it was added the terms it splits ran 2-4 ms
+  // and 0.01 was noise; the cuts since have taken reproj to 0.28 and feat to
+  // 0.19, where a real 0.05 ms saving is five units of the last digit and a
+  // 0.02 one is two. A term measured to 0.01 ms cannot resolve a cut worth
+  // 0.03, and rounding is not something more paired windows can average away.
+  snprintf(line, sizeof(line),
+           "FTSPLIT f=%lu proxy=%.3f/%.3f reproj=%.3f feat=%.3f net=%.3f "
+           "pkt=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
+           (double)ms(sAcc, kWindow),
+           (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
+           (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
+  TYRA_LOG(line);
+  sBeg = sEnd = sCmp = sCmpEe = 0;
+  sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
+  if (rawN >= kRaw) dumpRaw();
+}
+
+#if TYRA_FRAME_PROFILE_CALIB
+// The calibration gate. K full-screen textured alpha-blended sprites a frame,
+// each with its own draw_finish + wait; the slope of the sweep is what one
+// full-screen GS pass costs on THIS machine. PCSX2 runs a software rasteriser
+// and is not fill-rate accurate, and BLSS trades GS fill for GS fill - a slope
+// near zero means no emulator number about this feature's GS cost is
+// admissible. Real hardware should read ~0.2-0.4 ms per pass at 512x448.
+constexpr int kCalibK[5] = {0, 2, 4, 8, 16};
+u32 calSum[5] = {0, 0, 0, 0, 0};
+int calN[5] = {0, 0, 0, 0, 0};
+int calFrame = 0;
+// THE RESOLUTION THE SWEEP RAN AT. The probe sizes its sprite from the current
+// framebuffer, so `slope` is ms per full-screen pass AT THIS RASTER and means
+// nothing without it - the 0.5872 this rig published was measured on a PAL 576i
+// fixture (512x512) and then read against 512x448 coverages for a year, which
+// is 14.3 % more pixels than the constant describes. Printed on the line, next
+// to a per-megapixel figure that does not depend on the mode at all.
+int calW = 0, calH = 0;
+
+void calibrate(Engine* engine) {
+  const int slot = (calFrame / 10) % 5;  // 10 frames per K, then rotate
+  calFrame++;
+  auto& core = engine->renderer.core;
+  const u32 t = Tyra::FrameProfile::gsFillProbe(&core.gs, &core.sync,
+                                                core.getPath1(),
+                                                kCalibK[slot], &calW, &calH);
+  calSum[slot] += t;
+  calN[slot]++;
+  if (calFrame % 250) return;
+  char line[200];
+  int at = snprintf(line, sizeof(line), "GSFILL");
+  for (int i = 0; i < 5; i++)
+    at += snprintf(line + at, sizeof(line) - at, " k%d=%.3f", kCalibK[i],
+                   calN[i] ? (double)ms(calSum[i], calN[i]) : 0.0);
+  // Least-squares slope of ms against K, i.e. ms per full-screen pass.
+  float sx = 0.0F, sy = 0.0F, sxx = 0.0F, sxy = 0.0F;
+  for (int i = 0; i < 5; i++) {
+    const float x = (float)kCalibK[i];
+    const float y = calN[i] ? ms(calSum[i], calN[i]) : 0.0F;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
+  }
+  const float den = 5.0F * sxx - sx * sx;
+  const float slope = den != 0.0F ? (5.0F * sxy - sx * sy) / den : 0.0F;
+  // raster= is what `slope` is per; perMpx= is the same measurement with the
+  // mode divided out, so two consoles - or two display modes on one console -
+  // can be compared without anybody having to remember which fixture booted in
+  // which resolution.
+  const float mpx = (float)calW * (float)calH * 1e-6F;
+  snprintf(line + at, sizeof(line) - at, " raster=%dx%d slope=%.4f perMpx=%.4f",
+           calW, calH, (double)slope, mpx > 0.0F ? (double)(slope / mpx) : 0.0);
+  TYRA_LOG(line);
+}
+#endif  // TYRA_FRAME_PROFILE_CALIB
+
+}  // namespace ftrig
+#endif  // TYRA_FRAME_PROFILE
+
 /** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
  * (used/total EE MB) and the per-phase EE-time profiler in the top-left
  * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
- * in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
+ * in terrain_config.hpp fold the calls away). The camera is passed in for the
+ * frame-timing rig's `cam` field - it is the only thing here that needs it,
+ * and it is unused when TYRA_FRAME_PROFILE is 0. */
+void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
+#if TYRA_FRAME_PROFILE
+  {
+    // Everything in here is apparatus, so it comes straight back out of
+    // tFrameWork (see FrameProfile::tExcluded).
+    const u32 fpE0 = Tyra::FrameProfile::ticks();
+#if TYRA_FRAME_PROFILE_CALIB
+    ftrig::calibrate(engine);
+#endif
+    ftrig::tick(camPos, camAt);
+    Tyra::FrameProfile::tExcluded += Tyra::FrameProfile::ticks() - fpE0;
+  }
+#else
+  (void)camPos;
+  (void)camAt;
+#endif
   if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
   static int memRefresh = 0;
   static float memFreeMB = 0.0F;
   char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
-    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    // RENDERED frames per second, averaged over the engine's stated 0.5 s
+    // window (Info::getFps - it reads COP0 Count, not the video mode's
+    // scanline timer). Frame extrapolation presents a synthesised frame after
+    // endFrame() returns, so the game then shows about twice the rate it
+    // renders: SHOWN is that second number, and it appears only when the two
+    // genuinely differ. docs/profiling.md, "The three frame rate counters".
+    // The CAP is printed beside the rate because without it the same game
+    // reads 25 in PAL 576i and 30-40 in 1080i and looks like a counting bug -
+    // it is not. Those modes refresh at 50 and 60 Hz, and a frame that misses
+    // its field halves to 25 or 30 respectively; getRefreshRate() is the
+    // engine's own answer (DTV modes 60, Pal576i 50, the rest follow the video
+    // mode). Reported as "coś tu chyba źle liczy".
+    const float cap = engine->renderer.core.getSettings().getRefreshRate();
+    if (engine->info.isPresentingExtraFrames())
+      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f/%.0f",
+               (double)engine->info.getFps(),
+               (double)engine->info.getPresentedFps(), (double)cap);
+    else
+      snprintf(line, sizeof(line), "FPS %.1f/%.0f",
+               (double)engine->info.getFps(), (double)cap);
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -1485,6 +1819,22 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
+    drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+    // GS VRAM, beside it and deliberately so. MEM is the EE's 32 MB of main
+    // memory and does NOT move when the display mode changes - the
+    // framebuffers and the z buffer live in the GS' separate 4 MB, and that
+    // is the pool a taller mode eats. Reported as "I change the display mode
+    // and the memory reading never moves", which was the HUD answering a
+    // question it was never asked. Free rather than used: the texture heap is
+    // what a mode change takes from, and free space is what the next texture
+    // upload actually has (docs/gs-vram.md) - but it is printed as USED over
+    // the GS' 4 MB so it reads the same way round as MEM above it. Note the
+    // HUD glyph atlas is digits, '.' and UPPERCASE only: a lowercase word
+    // here silently draws nothing (the first cut of this line ended in
+    // "free" and rendered as blank).
+    snprintf(line, sizeof(line), "VRAM %.2f/4 MB",
+             4.0F - (double)engine->renderer.core.gs.vram.getFreeSpaceInMB());
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -1797,7 +2147,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -2017,6 +2367,16 @@ void TerrainGame::loop() {
   // it requests lands this frame.
   applyMenuBindings();
   applyInputBindings();  // saved rebinds -> live bindings (Input Map)
+  // World Facts: the profile is written when a profile fact MOVES, never on a
+  // timer - factProfileDirty() is the store telling us one did, and clears
+  // itself so a single change costs a single write.
+  if (FACT_PROFILE_COUNT > 0 && factProfileDirty()) {
+    static SaveProfileData prof;
+    prof.magic = SAVE_MAGIC;
+    prof.version = SAVE_VERSION;
+    prof.factCount = factProfileCapture(prof.facts, FACT_PROFILE_MAX);
+    profileWrite(prof);
+  }
   // Portal crossing test: the walker's position before this frame's movement
   // (Player entity when the scene has one, the built-in FPP walker otherwise)
   const bool portalEnt = PLAYER_INDEX >= 0;
@@ -2429,10 +2789,167 @@ void TerrainGame::loop() {
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
-    drawDebugHud(engine);
+    drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 
 void TerrainGame::buildScene() {
@@ -2552,6 +3069,20 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // World Facts: the profile tier is read once at boot and then only written,
+  // so an unlock earned in a previous session is already true before the first
+  // scene loads (docs/world-facts.md "Saving"). It MUST come after saveInit():
+  // that call is what decides whether the transport is the memory card or the
+  // host file next to the ELF, and a read taken before it silently used the
+  // host path while every write went to the card - which looks exactly like a
+  // profile that does not persist. A missing profile is the normal first-run
+  // state; the catalog defaults stand and the file appears the first time one
+  // of them moves.
+  if (FACT_PROFILE_COUNT > 0) {
+    static SaveProfileData prof;  // a few dozen bytes, kept off the stack
+    if (profileRead(prof)) factProfileRestore(prof.facts, prof.factCount);
+    factProfileDirty();  // swallow the restore's own writes
+  }
   // Read which slots already hold a save. The menu refreshes this when it
   // opens, but a Commit Checkpoint in "next free slot" mode can fire long
   // before the player ever opens it - and against an all-false table it would
@@ -3975,15 +4506,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // The carried object rides in front of the face - letting it block its
     // own carrier would wedge the player against thin air.
     if (oi == carryIndex) continue;
-    if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
-        o.data.type == 14 ||                       // 14 = camera marker
-        o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
-        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
-        o.data.type == 19)                         // 19 = scroller belt marker
-      continue;
-    if (o.data.collision == 2) continue;  // none
+    // Markers, lights, decals, areas, volumes, belts and "collision: none"
+    // block nothing - one list, shared with the camera sweep (objectCollides).
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
     // Portal pass-through (updatePortalPass): while the walker stands in a
     // linked portal's opening, objects fully behind that portal's plane
     // stop colliding - the mounting wall becomes a doorway. Exact OBB
@@ -4094,28 +4619,16 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 
     // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
     // animated models: the baked AABB, a union over every clip's poses -
-    // mesh mode is a static-model feature, so .glb objects collide as boxes)
-    const SkelModel* anim = nullptr;
-    if (o.data.type == 5 && o.data.animModel >= 0 &&
-        o.data.animModel < (int)gameAnimModels.size())
-      anim = gameAnimModels[o.data.animModel].src.get();
-    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-          ez = 0.5F * o.data.scale[2];
-    V3 localCenter = {0.0F, 0.0F, 0.0F};  // box center in the object's own frame
-    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
-    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
-    if (mn && mx) {
-      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
-                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
-                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
-      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
-      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
-      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
-    }
+    // mesh mode is a static-model feature, so .glb objects collide as boxes).
+    // The box comes from objectCollisionBox, the same one the camera boom
+    // sweeps and the editor's overlay draws.
+    const CollisionBox cb = objectCollisionBox(o);
+    const float ex = cb.half[0], ey = cb.half[1], ez = cb.half[2];
     // World box center: the model-AABB offset lives in the object's own frame,
     // so it rotates with the object (a primitive's offset is 0, so this is
     // just its position).
-    const V3 cWorld = rotated(localCenter, o.data.rotation);
+    const V3 cWorld =
+        boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
     const float cx = o.data.position[0] + cWorld.x;
     const float cy = o.data.position[1] + cWorld.y;
     const float cz = o.data.position[2] + cWorld.z;
@@ -4139,7 +4652,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // "inside" and the back-projection contracts the committed position
     // toward the box center (the player teleported into thrown objects and
     // stuck inside them).
-    const float yaw = o.data.rotation[1] * PI / 180.0F;
+    // modelYaw rides along: it is a rotation about the same (model) Y, so for
+    // the yaw-only frame the two simply add.
+    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
     const float yawC = cosf(yaw), yawS = sinf(yaw);
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
       const float dx = wx - cx, dz = wz - cz;
@@ -5966,6 +6481,9 @@ void TerrainGame::captureState(SaveGameData& d) {
   d.textCount = SAVE_TEXT_COUNT;
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
+  // World Facts: whatever the catalog declared as checkpoint- or save-lived,
+  // each row carrying its fact's own id (docs/world-facts.md).
+  d.factCount = factSaveCapture(d.facts, FACT_SAVE_MAX);
   d.objectCount = 0;
   for (int i = 0;
        i < SCENE_OBJECT_COUNT && d.objectCount < SAVE_OBJECT_MAX; ++i) {
@@ -6025,6 +6543,12 @@ void TerrainGame::doLoad(int slot) {
 void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
+  // Facts are matched to slots BY ID, so a payload written before a fact was
+  // renamed, moved or removed still restores everything it still shares with
+  // this build - and silently drops the rest instead of writing a value into
+  // whatever now sits at that position.
+  if (d.factCount > 0 && d.factCount <= FACT_SAVE_MAX)
+    factSaveRestore(d.facts, d.factCount);
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
     d.texts[i][SAVE_TEXT_LEN - 1] = '\0';  // corrupted cards happen
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s", d.texts[i]);
@@ -6594,8 +7118,16 @@ void TerrainGame::renderGameMenu() {
   // across the same raster, so 448 columns cover exactly the width 512 do.
   // That also means the two axes scale by different factors - hence
   // Sprite::drawSize rather than Sprite::scale.
+  // Widescreen is ANAMORPHIC (docs/menu-styles.md "Widescreen"): the
+  // framebuffer does not change shape, the TV stretches the same signal across
+  // a 16:9 raster. A panel drawn with the resolution scale alone would come out
+  // a third wider than it was baked, with the text fattened to match - so the
+  // horizontal factor divides the window's shape back out and the panel keeps
+  // the physical size and proportions it was authored at, whatever the player
+  // picks. In 4:3 the ratio is exactly 1 and nothing moves.
   const auto& uiScr = engine->renderer.core.getSettings();
-  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiAspectFix = (4.0F / 3.0F) / uiScr.getWindowAspect();
+  const float uiSX = uiScr.getWidth() / 512.0F * uiAspectFix;
   const float uiSY = uiScr.getHeight() / 448.0F;
   auto sxi = [&](int v) { return (float)v * uiSX; };
   auto syi = [&](int v) { return (float)v * uiSY; };
@@ -6868,16 +7400,19 @@ void TerrainGame::renderGameMenu() {
       // resolutions anyway).
       float size = (float)m.rowH * 0.8F * uiSY;
       const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
-      float w = fontTextWidth(m.font, txt, size);
+      // The panel around this text is squeezed for widescreen (uiAspectFix),
+      // so the binding has to be measured and drawn squeezed too - otherwise
+      // it is a third wider than the row it is supposed to sit in.
+      float w = fontTextWidth(m.font, txt, size, uiAspectFix);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
-        w = fontTextWidth(m.font, txt, size);
+        w = fontTextWidth(m.font, txt, size, uiAspectFix);
       }
       drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
                    baseY + syi(m.row0Y + (i - first) * m.rowH) +
                        syi(m.rowH) * 0.5F,
-                   size);
+                   size, uiAspectFix);
     }
   }
 }
@@ -7146,6 +7681,7 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colorBag->many = sb.colors.data();
@@ -7296,6 +7832,10 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
+    // ...and it rides the dome, so it is a shell fragment too - see the dome's
+    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
+    // would read as "the far plane, everywhere it covers".
+    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;
@@ -8448,6 +8988,198 @@ void TerrainGame::updateAndRenderDynTexts() {
 constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
                                       // exceed the 0.15 near clip
 constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
+// --- the collision box -------------------------------------------------------
+// One builder for the box every collision consumer reduces an object to (the
+// walker's box mode, the camera's spring arm, the split-screen band cull and,
+// in a debug build, the wireframe overlay). Host twin: placement::collisionBox.
+bool TerrainGame::objectCollides(const SceneObjectData& d) {
+  if (d.collision == 2) return false;  // "none" opts out
+  switch (d.type) {
+    // Everything with no geometry in the game. This list used to be written
+    // out by number at each call site, and they had drifted: the scroller belt
+    // marker (19) was missing from the camera sweep, so an invisible belt
+    // origin pushed the boom in.
+    case 4:   // spawn point
+    case 6:   // player marker
+    case 7:   // particle emitter
+    case 8:   // sound emitter
+    case 9:   // point light
+    case 11:  // empty
+    case 13:  // decal
+    case 14:  // camera marker
+    case 17:  // area (a volume, not a wall)
+    case 18:  // procedural volume (authoring only)
+    case 19:  // scroller belt marker
+      return false;
+    default: return true;
+  }
+}
+
+TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
+    const RuntimeObject& o) const {
+  // A model collides as its MESH bounds (a static .tmdl's, or an animated
+  // model's baked all-clips AABB) - the unit scale box is only the fallback,
+  // and for a model authored standing on its own origin it is its ankles.
+  const float* mn = nullptr;
+  const float* mx = nullptr;
+  if (o.data.type == 5) {
+    if (o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
+      mn = gameModels[o.data.model].mn;
+      mx = gameModels[o.data.model].mx;
+    } else if (o.data.animModel >= 0 &&
+               o.data.animModel < (int)gameAnimModels.size()) {
+      const SkelModel* anim = gameAnimModels[o.data.animModel].src.get();
+      if (anim) mn = anim->min, mx = anim->max;
+    }
+  }
+  const float lmn[3] = {mn ? mn[0] : -0.5F, mn ? mn[1] : -0.5F,
+                        mn ? mn[2] : -0.5F};
+  const float lmx[3] = {mx ? mx[0] : 0.5F, mx ? mx[1] : 0.5F,
+                        mx ? mx[2] : 0.5F};
+  CollisionBox b;
+  float c[3], h[3];
+  for (int k = 0; k < 3; ++k) {
+    float a = lmn[k] * o.data.scale[k], e = lmx[k] * o.data.scale[k];
+    if (a > e) {  // negative scale mirrors the box, it does not invert it
+      const float t = a;
+      a = e;
+      e = t;
+    }
+    c[k] = 0.5F * (a + e);
+    h[k] = 0.5F * (e - a);
+  }
+  for (int k = 0; k < 3; ++k) b.center[k] = c[k], b.half[k] = h[k];
+  b.yaw = o.data.modelYaw;
+  return b;
+}
+
+// Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
+// reduces to, drawn where it actually is. The walker and the camera boom test
+// a volume nothing renders, so "why did I stop here", "why did the camera jump
+// in" and "why does that character block a doorway sideways" are questions the
+// screen cannot answer - this puts the volume on screen, in the same red the
+// editor overlay uses (View > Collision boxes), from the SAME objectCollisionBox.
+//
+// Rebuilt every frame rather than baked into each object's geometry: a box has
+// to follow a tumbling physics body and a flow-node-moved prop, and those never
+// dirty-rebuild. That is affordable because of two caps - only colliders within
+// COLLISION_BOX_RANGE of the camera, and at most COLLISION_BOX_LIMIT of them
+// (the nearest win; the rest are silently absent, which is why the range is
+// generous rather than the count) - and because an edge is a CROSS of two thin
+// quads (12 vertices) instead of a beam box (36): nothing here backface-culls,
+// so a cross reads as a solid edge from every angle at a third of the cost.
+void TerrainGame::renderCollisionBoxes() {
+  if (!DEBUG_SHOW_COLLISION) return;
+  const float kRange = COLLISION_BOX_RANGE;
+  collisionBoxVerts.clear();
+  collisionBoxCols.clear();
+  const Color red(255.0F, 48.0F, 48.0F, 128.0F);
+
+  // Nearest-first without a sort: the list is short and a partial insertion
+  // over COLLISION_BOX_LIMIT entries costs less than sorting the scene.
+  int picked[COLLISION_BOX_LIMIT];
+  float pickedD[COLLISION_BOX_LIMIT];
+  int count = 0;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > kRange * kRange) continue;
+    int at = count;
+    if (count == COLLISION_BOX_LIMIT) {
+      // full: replace the farthest, and only if this one is nearer
+      int worst = 0;
+      for (int k = 1; k < count; ++k)
+        if (pickedD[k] > pickedD[worst]) worst = k;
+      if (pickedD[worst] <= d2) continue;
+      at = worst;
+    } else {
+      ++count;
+    }
+    picked[at] = oi;
+    pickedD[at] = d2;
+  }
+
+  for (int k = 0; k < count; ++k) {
+    const RuntimeObject& o = runtimeObjects[picked[k]];
+    const CollisionBox b = objectCollisionBox(o);
+    // The box frame in world space: unit axes plus the world centre.
+    const V3 ax[3] = {boxRotate({1.0F, 0.0F, 0.0F}, o.data),
+                      boxRotate({0.0F, 1.0F, 0.0F}, o.data),
+                      boxRotate({0.0F, 0.0F, 1.0F}, o.data)};
+    const V3 cw = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
+    const float cx = o.data.position[0] + cw.x;
+    const float cy = o.data.position[1] + cw.y;
+    const float cz = o.data.position[2] + cw.z;
+    const float half[3] = {b.half[0], b.half[1], b.half[2]};
+    float big = half[0] > half[1] ? half[0] : half[1];
+    if (half[2] > big) big = half[2];
+    float t = big * 0.02F;  // edge thickness: readable at any box size
+    if (t < 0.02F) t = 0.02F;
+
+    auto vtx = [&](float px, float py, float pz) {
+      collisionBoxVerts.push_back(Vec4(px, py, pz, 1.0F));
+      collisionBoxCols.push_back(red);
+    };
+    // One quad as two triangles, from four world points.
+    auto quad = [&](const V3& p0, const V3& p1, const V3& p2, const V3& p3) {
+      vtx(p0.x, p0.y, p0.z);
+      vtx(p1.x, p1.y, p1.z);
+      vtx(p2.x, p2.y, p2.z);
+      vtx(p0.x, p0.y, p0.z);
+      vtx(p2.x, p2.y, p2.z);
+      vtx(p3.x, p3.y, p3.z);
+    };
+    for (int a = 0; a < 3; ++a) {
+      const int u = (a + 1) % 3, v = (a + 2) % 3;
+      for (int corner = 0; corner < 4; ++corner) {
+        const float su = (corner & 1) ? 1.0F : -1.0F;
+        const float sv = (corner & 2) ? 1.0F : -1.0F;
+        // Edge midpoint, then half the edge vector along `a`.
+        const float mx = cx + ax[u].x * su * half[u] + ax[v].x * sv * half[v];
+        const float my = cy + ax[u].y * su * half[u] + ax[v].y * sv * half[v];
+        const float mz = cz + ax[u].z * su * half[u] + ax[v].z * sv * half[v];
+        const V3 e = {ax[a].x * half[a], ax[a].y * half[a], ax[a].z * half[a]};
+        // Two thin quads crossing along the edge - one spread along u, one
+        // along v - so the edge is visible whichever way the camera looks.
+        for (int p = 0; p < 2; ++p) {
+          const V3& w = p == 0 ? ax[u] : ax[v];
+          const V3 wt = {w.x * t, w.y * t, w.z * t};
+          quad({mx - e.x - wt.x, my - e.y - wt.y, mz - e.z - wt.z},
+               {mx + e.x - wt.x, my + e.y - wt.y, mz + e.z - wt.z},
+               {mx + e.x + wt.x, my + e.y + wt.y, mz + e.z + wt.z},
+               {mx - e.x + wt.x, my - e.y + wt.y, mz - e.z + wt.z});
+        }
+      }
+    }
+  }
+
+  if (collisionBoxVerts.empty()) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  if (!collisionBoxBag) {
+    collisionBoxColorBag = std::make_unique<StaPipColorBag>();
+    collisionBoxBag = std::make_unique<StaPipBag>();
+    collisionBoxBag->info = batchInfoBag.get();
+    collisionBoxBag->color = collisionBoxColorBag.get();
+    collisionBoxBag->lighting = nullptr;
+    collisionBoxBag->texture = nullptr;
+  }
+  collisionBoxColorBag->many = collisionBoxCols.data();
+  collisionBoxBag->vertices = collisionBoxVerts.data();
+  collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
+  collisionBoxBag->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(collisionBoxBag.get());
+}
+
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
   // Camera boom: the camera's own radius, ignoring the carried object (it
@@ -8472,11 +9204,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     const RuntimeObject& o = runtimeObjects[oi];
     if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
-    const int ty = o.data.type;
-    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14 || ty == 17 || ty == 18)
-      continue;  // markers / emitters / decals / areas / the avatar - not blockers
-    if (o.data.collision == 2) continue;  // "none": the sweep passes through
+    // Markers, lights, decals, areas, volumes, belts and "collision: none"
+    // are not blockers - one list, shared with the walker (objectCollides).
+    if (!objectCollides(o.data)) continue;
     if (sweepPassOn) {
       // Portal pass-through for a thrown object's sweep: obstacles fully
       // behind the aimed portal's plane open up (exact OBB extent along
@@ -8501,32 +9231,12 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
       if (sd < -re + 0.1F) continue;
     }
 
-    // Oriented box, sized exactly like box-mode player collision (the real
-    // mesh or baked anim AABB when the object has one, else the unit scale
-    // box) - and cast in the box's OWN frame, so a yaw-rotated block stops the
-    // boom at its real faces instead of leaking through the corners of an
-    // axis-aligned stand-in.
-    const GameModel* gm = nullptr;
-    if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
-      gm = &gameModels[o.data.model];
-    const SkelModel* anim = nullptr;
-    if (ty == 5 && o.data.animModel >= 0 &&
-        o.data.animModel < (int)gameAnimModels.size())
-      anim = gameAnimModels[o.data.animModel].src.get();
-    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-          ez = 0.5F * o.data.scale[2];
-    V3 localCenter = {0.0F, 0.0F, 0.0F};
-    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
-    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
-    if (mn && mx) {
-      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
-                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
-                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
-      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
-      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
-      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
-    }
-    const V3 cW = rotated(localCenter, o.data.rotation);
+    // The shared collision box, cast in the box's OWN frame - so a rotated
+    // block stops the boom at its real faces instead of leaking through the
+    // corners of an axis-aligned stand-in.
+    const CollisionBox b = objectCollisionBox(o);
+    const float ex = b.half[0], ey = b.half[1], ez = b.half[2];
+    const V3 cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
     const float cx = o.data.position[0] + cW.x;
     const float cy = o.data.position[1] + cW.y;
     const float cz = o.data.position[2] + cW.z;
@@ -8535,9 +9245,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     // per axis), inflated by r, vs the boom segment AABB. Conservative - it
     // never rejects an object the local slab test could still hit (the old
     // scale-box AABB was too small for a rotated block and leaked candidates).
-    const V3 hxv = rotated({ex, 0.0F, 0.0F}, o.data.rotation);
-    const V3 hyv = rotated({0.0F, ey, 0.0F}, o.data.rotation);
-    const V3 hzv = rotated({0.0F, 0.0F, ez}, o.data.rotation);
+    const V3 hxv = boxRotate({ex, 0.0F, 0.0F}, o.data);
+    const V3 hyv = boxRotate({0.0F, ey, 0.0F}, o.data);
+    const V3 hzv = boxRotate({0.0F, 0.0F, ez}, o.data);
     const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
     const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
     const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
@@ -8546,10 +9256,10 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
         cz + wez + r < sminZ || cz - wez - r > smaxZ)
       continue;  // broad phase: nowhere near the boom
 
-    // Narrow phase: slab test in the box's local frame. invRotated is
+    // Narrow phase: slab test in the box's local frame. The frame is
     // orthonormal, so the hit parameter t is still a world-space distance.
-    const V3 lo = invRotated({px - cx, py - cy, pz - cz}, o.data.rotation);
-    const V3 ld = invRotated({dx, dy, dz}, o.data.rotation);
+    const V3 lo = boxInvRotate({px - cx, py - cy, pz - cz}, o.data);
+    const V3 ld = boxInvRotate({dx, dy, dz}, o.data);
     float t0 = 0.0F, t1 = best;
     bool miss = false;
     auto slab = [&](float o1, float d1, float lo1, float hi1) {
@@ -9114,6 +9824,13 @@ void TerrainGame::buildSkyDome() {
   // The dome is centered on the camera - a nearby dynamic light would win
   // its pick and tint the whole sky.
   skyDome.infoBag->dynLightPick = false;
+  // ...and for the same reason it cannot be described to the BLSS upscaler:
+  // a shell around the eye has no screen bounding box that means anything.
+  // Its package boxes wrap the near plane, so each one reports "the frame,
+  // fully covered, at the nearest representable depth" and flattens coverage,
+  // depth and depthGrad wherever it lands. Measured: with the dome in, the
+  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
+  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -11451,6 +12168,9 @@ void TerrainGame::renderScene() {
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
   renderProcChunks();
+  // Debug overlay: the collision boxes the walker and the camera boom test
+  // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
+  renderCollisionBoxes();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -14457,29 +15177,11 @@ bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
 // under-cull but never over-cull.
 bool TerrainGame::objectOutsideSplitBand(int i) const {
   const RuntimeObject& o = runtimeObjects[i];
-  const GameModel* gm = nullptr;
-  if (o.data.type == 5 && o.data.model >= 0 &&
-      o.data.model < (int)gameModels.size())
-    gm = &gameModels[o.data.model];
-  const SkelModel* anim = nullptr;
-  if (o.data.type == 5 && o.data.animModel >= 0 &&
-      o.data.animModel < (int)gameAnimModels.size())
-    anim = gameAnimModels[o.data.animModel].src.get();
+  const CollisionBox b = objectCollisionBox(o);
   float cx = o.data.position[0], cy = o.data.position[1],
         cz = o.data.position[2];
-  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-        ez = 0.5F * o.data.scale[2];
-  float ox = 0.0F, oy = 0.0F, oz = 0.0F;  // local AABB center offset
-  const float* mnp = gm ? gm->mn : (anim ? anim->min : nullptr);
-  const float* mxp = gm ? gm->mx : (anim ? anim->max : nullptr);
-  if (mnp && mxp) {
-    ox = 0.5F * (mnp[0] + mxp[0]) * o.data.scale[0];
-    oy = 0.5F * (mnp[1] + mxp[1]) * o.data.scale[1];
-    oz = 0.5F * (mnp[2] + mxp[2]) * o.data.scale[2];
-    ex = 0.5F * (mxp[0] - mnp[0]) * o.data.scale[0];
-    ey = 0.5F * (mxp[1] - mnp[1]) * o.data.scale[1];
-    ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
-  }
+  float ex = b.half[0], ey = b.half[1], ez = b.half[2];
+  float ox = b.center[0], oy = b.center[1], oz = b.center[2];
   const float* rot = o.data.rotation;
   if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F ||
       o.data.modelYaw != 0.0F) {

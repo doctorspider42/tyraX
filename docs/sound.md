@@ -97,12 +97,53 @@ sound chip — and runs once per frame. The channel choice for a Play Sound cost
 finished (its `ENDX` register) rather than guessing. That is per *trigger*,
 never per frame; a play already costs two or three such calls.
 
+### Emitters and streaming music no longer fight over audsrv
+
+An emitter's *Interval* is how often it tries to start its sample again.
+**Interval 0 means every frame** — that is what makes a loop seamless (the
+retry is skipped while the voice is still busy, so the sample restarts on the
+first frame after it ends), and it is also one audsrv call per frame for as
+long as the emitter is audible. Playing music at the same time used to make
+those calls ruinously expensive, and the fix is worth knowing about because the
+symptom pointed nowhere near the cause.
+
+audsrv has **one RPC server thread on the IOP and one completion semaphore on
+the EE**, so every call in the program is serialized — including the music
+stream's, which runs on the engine's audio thread. The song used to hand the
+ring `audsrv_wait_audio()`, whose handler *blocks* until there is room; for as
+long as that wait ran, nobody else could reach audsrv. An emitter asking for a
+volume change or retriggering its sample paid the remainder of that wait.
+Measured on `examples/showcase` in PCSX2 with the frame profiler (EE ms,
+averaged over ~1 s):
+
+| | whole frame | sound step |
+|---|---|---|
+| 1 emitter, interval 0, music streaming — **before** | 27–31 ms (25 FPS) | 9–10 ms |
+| 4 emitters, interval 0, music streaming — **before** | 28–30 ms (25 FPS) | 7.7–11.8 ms |
+| 4 emitters, interval 0, music streaming — **after** | 19.9–20.4 ms (50 FPS) | 0.25–0.54 ms |
+
+Nothing else moved in any of those runs — scene, particles and scripts sat at
+5.7 / 0.12 / 0.3 ms throughout, which is what made the profiler blame the sound
+step for what was really the music holding a lock. The engine now polls
+`audsrv_available()` instead of blocking (`AudioSong::work`, see the
+`tyra-engine-dev` skill), so the lock is taken in short bursts and the game
+thread slips in between.
+
+What is left is ordinary: an audible emitter costs one IOP call per *interval*,
+and interval 0 means per frame. That is affordable now — four of them measure
+0.25 ms a frame — but it is still the most expensive way to hold a loop
+together, so an ambience that does not need frame-exact restarting is better
+authored with an interval **under its sample length** (a quarter second
+restarts the loop inaudibly), and *Range* is worth setting to where the sound
+is meant to be heard, because an emitter outside it costs nothing at all.
+
 ## When something is not heard
 
 | Symptom | Cause |
 |---|---|
 | An emitter near the player is silent while distant ones play | It lost the ranking — check *Priority* on the ones that are playing. |
 | An emitter fires the instant you walk into range | That is the intended reset of its interval; shorten the interval if you want it sooner. |
+| The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |
 | Nothing plays at all, on hardware, but PCSX2 is fine | Not this page. See the EE cache write-back in the `tyra-engine-dev` skill's audio section. |

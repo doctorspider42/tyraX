@@ -367,7 +367,8 @@ run triangles turn **blue** when the console is the target and green for PCSX2.
 
 What the editor does, in order:
 
-1. kills any previous `ps2client` (one file server at a time);
+1. clears the previous `ps2client` — **its own**, and only its own
+   ([below](#one-file-server-at-a-time));
 2. clears the stale devkit channel files in `bin/` (`log.txt`, `livedbg.bin`,
    `livetime.bin`…) so the panels do not read yesterday's session;
 3. writes the **`bin/ps2link.run`** marker — the game probes it over `host:` to
@@ -388,6 +389,50 @@ over the network while the game runs. Its output — including the console's
 > and the game loses `host:` mid-session: the devkit files freeze exactly where
 > they were while the console happily keeps running. The cure is a redeploy, not
 > a retry.
+
+### One file server at a time
+
+A console can have exactly one `ps2client` serving it, and this PC can run one
+at all — it binds the ports below, which are fixed. So a deploy has to clear the
+field before it starts, and **which** servers it may clear is the whole question.
+
+Until 1.22.0 the answer was `taskkill /F /IM ps2client.exe` — machine-wide, by
+name. Deploying project B therefore killed project A's file server, and A's
+console kept running, blocked on `host:`, with `bin/livedbg.bin` and
+`bin/livetime.bin` frozen to the second B was deployed. The `[ps2]` log kept
+scrolling the whole time, because that stream is UDP straight to whichever
+`ps2client` is listening and never passes through the file server: **two
+transports, one of them dead, and only the live one visible.** It read as "the
+debugger shows nothing" rather than as "you just killed the other session". This
+repo routinely runs several editors from several worktrees at once, so it was not
+an edge case.
+
+A deploy now reaps only what it owns:
+
+| What it finds | What it does |
+|---|---|
+| The `ps2client` **this editor** spawned | Killed by handle, as before — the common case and the only certain one. |
+| A `ps2client` serving **this project's** ELF on **this** console | Reaped, and said so. This is the stale server a crashed or killed run leaves behind; without this, only the first deploy after a crash would work. |
+| A `ps2client` a **running editor** owns | **Refused.** The log names the project holding the channel and what to do: *Stop on PS2* there, or close that editor. |
+| A `ps2client` **nobody** is running an editor for | Reaped as an orphan, and said so — otherwise a crashed editor would block every later deploy with no way out. |
+| Anything transient (the `listen` witness a reset runs) | Waited out for 3 s before any of the above is decided. |
+
+Ownership is read off the process's **own command line** — `-h <ip>` says which
+console and `execee host:<name>.elf` says which game — matched against the
+running editors that publish themselves (`--debug-state`). A server whose command
+line cannot be read is never a target: guessing is the bug this replaced. The one
+limit worth knowing is that the ELF name is the project's *name*, so two copies
+of one project look alike; the console check is what separates them, and two
+copies serving one console cannot exist anyway.
+
+`--debug-state` prints the same inventory, so "whose `ps2client` is that" is one
+command rather than a `Get-CimInstance` by hand.
+
+**PCSX2 got the same treatment.** `--build --run` used to reap every emulator on
+the machine by name, which repeatedly interrupted measurements in another
+worktree; it now closes only the instance whose `-elf` names *this* project's
+ELF. Several emulators running at once is normal here and is no longer anybody
+else's problem.
 
 Ports, if a firewall is in the way:
 
@@ -419,9 +464,11 @@ Differences on real hardware:
   ([`tools/ps2client`](../tools/ps2client/README.md)) with `TCP_NODELAY` on the
   request socket. Without it, Nagle plus the PS2's delayed ACKs stall every
   exchange ~200 ms — measured ~4 KB/s, a 10-minute game boot.
-- **No process to query.** `--debug-state` finds a PCSX2 session by reading the
-  emulator's command line; on hardware there is none, which is why the editor's
-  session pointer records the transport (`ps2link`) instead.
+- **No game process to query.** `--debug-state` finds a PCSX2 session by reading
+  the emulator's command line; on hardware there is no such process, which is why
+  the editor's session pointer records the transport (`ps2link`) instead. What
+  there *is* on the PC is the `ps2client` file server, and `--debug-state` lists
+  it with the console and the game its command line names.
 - **The game's log arrives over the network, not in `bin/log.txt`.** A PCSX2
   run writes that file over `host:`; a ps2link run would pay a network
   round-trip per line, so the generated `main.cpp` leaves
@@ -446,7 +493,10 @@ Differences on real hardware:
 **Stop on PS2** kills the file server and sends `reset` — the file server
 first, both because the game polling `host:` every frame is what the command
 has to cut through and because the port is then free for the `ps2client listen`
-the editor runs as a witness. The reset is fire-and-forget UDP, so the editor
+the editor runs as a witness. It clears servers by the same ownership rule as a
+deploy, and a refusal stops the **reset** too: if another editor holds the
+channel, the game on the console is theirs, and resetting it would stop their
+game on a button that promises to stop yours. The reset is fire-and-forget UDP, so the editor
 watches that listener for the console's own log and repeats the command up to
 three times; if nothing ever comes back it says the console is hung instead of
 reporting success it cannot know. ps2link r3 silences the SPU2 itself (see
@@ -478,7 +528,9 @@ whose driver has not finished its handshake.
 | Assets crawl in, boot takes minutes | An unpatched `ps2client` on `PATH` is being used instead of `tools/ps2client/bin`. |
 | `KbdMouse: mouse skipped (no resident USB stack…)` | The running ps2link has no USB stack — a stock one. |
 | Both drivers "ready" but nothing responds | The devices. `ps2kbd`/`ps2mouse` only speak the USB HID **boot protocol**; test them in uLaunchELF first. |
-| Devkit panels frozen, game still running | The editor (and with it `ps2client`) was closed. Redeploy. |
+| Devkit panels frozen, game still running | The editor (and with it `ps2client`) was closed. Redeploy. Before 1.22.0 a deploy of *any other* project did this to you too — see [One file server at a time](#one-file-server-at-a-time). |
+| `[editor] The ps2link channel is already taken: ps2client pid N serving host:<other>.elf` | Another editor is holding the file server; the deploy refused rather than killing its session. *Stop on PS2* in the editor it names, or close it, then run again. |
+| `[editor] Reaping an orphaned file server` | A `ps2client` was left behind by an editor that is no longer running. Expected after a crash; the deploy continues. |
 
 ## Changing the patch
 

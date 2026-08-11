@@ -177,16 +177,33 @@ inline float seqSample(const float* times, const float* values, const int* easin
     return values[i] + (values[i + 1] - values[i]) * e;
 }
 
-// Screen fraction each widescreen mask covers per edge, assuming the 4:3
-// display the PS2 outputs. Cinema/Wide letterbox to 2.39:1 / 16:9 inside the
-// 4:3 image; Pillar/Frame are stylistic. Codegen bakes these numbers into the
-// generated player, the editor overlays them on the viewport - one source.
-inline void seqBarsFractions(int style, float& top, float& bottom, float& left,
-                             float& right) {
+// The 4:3 picture the PS2 outputs unless the project asks for widescreen.
+constexpr float kSeqAspect43 = 4.0f / 3.0f;
+
+// Screen fraction each widescreen mask covers per edge on a display of the
+// given PHYSICAL aspect (`kSeqAspect43`, 16/9 anamorphic, or the pillarboxed
+// widescreen 1080i window). Cinema/Wide letterbox to 2.39:1 / 16:9 INSIDE that
+// picture, so the answer depends on what shape the picture already is - on a
+// 16:9 output the Wide mask covers nothing and Cinema is thinner than it is on
+// 4:3. Pillar/Frame are stylistic and do not target an aspect at all.
+//
+// The display aspect is only known at RUNTIME (Set Widescreen, and the
+// widescreen option row, flip it mid-game), so unlike every other cutscene
+// number this one is NOT baked: the generated player carries a twin of this
+// function and the sequence table carries the style. The editor's viewport
+// overlay reads the project's own aspect.
+inline void seqBarsFractions(int style, float displayAspect, float& top,
+                             float& bottom, float& left, float& right) {
     top = bottom = left = right = 0.0f;
+    // A mask that would come out negative means the picture is already wider
+    // than the format asks for - no bars, rather than bars that add picture.
+    auto letterbox = [&](float target) {
+        const float f = 0.5f * (1.0f - displayAspect / target);
+        return f > 0.0f ? f : 0.0f;
+    };
     switch (style) {
-        case kSeqBarsCinema: top = bottom = 0.5f * (1.0f - (4.0f / 3.0f) / 2.39f); break;
-        case kSeqBarsWide: top = bottom = 0.5f * (1.0f - (4.0f / 3.0f) / (16.0f / 9.0f)); break;
+        case kSeqBarsCinema: top = bottom = letterbox(2.39f); break;
+        case kSeqBarsWide: top = bottom = letterbox(16.0f / 9.0f); break;
         case kSeqBarsPillar: left = right = 0.13f; break;
         case kSeqBarsFrame: top = bottom = left = right = 0.08f; break;
         default: break;

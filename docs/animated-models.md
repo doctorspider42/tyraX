@@ -119,8 +119,8 @@ what ships.
 | **Speed** | Playback multiplier (1.00x = authored speed, itself scaled by the project's animation fps and the clip's own time scale - see [Animation editor](#animation-editor)). |
 | **Color** | *Not used by animated models.* Their look comes from the model's own materials (or the `.mtl` override below); the console folds only the part color into the lit pass, so the field only tints the placeholder box shown while a model is missing. |
 | **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
-| **Collision** | Box from the model's all-clips pose AABB, or none. Per-triangle mesh collision is a static-model (.obj) feature. |
-| **Model yaw offset** | Content-forward correction in degrees around the model's own Y, applied between scale and rotation (viewport preview matches). A model authored facing **±X** (a common Blender habit — facing the red axis; both the glTF and FBX exporters treat Blender's **-Y** as front) walks sideways as an avatar or AI agent; set **±90** here and the mesh renders turned while the authored rotation, the avatar's turn-to-face and AI facing stay convention-pure. |
+| **Collision** | Box from the model's all-clips pose AABB, or none - turned by the model yaw offset like the mesh is ([collision-boxes.md](collision-boxes.md)). Per-triangle mesh collision is a static-model (.obj) feature. |
+| **Model faces / Yaw correction** | Tell the editor which way the imported mesh points in its own file: **+Z** is already correct, **-Z** fixes a backwards model with an explicit 180° turn, and **±X** fixes a sideways model with a 90° turn. The correction rotates only the mesh around its own Y (viewport preview matches); authored object rotation, avatar turn-to-face and AI facing stay convention-pure. The angle below the preset remains available for unusual files. |
 
 ### Material override (.mtl)
 
@@ -159,10 +159,16 @@ tints/textures as usual but does not add a reflection pass.
 **Tools > Animation Editor** edits a model's clips **non-destructively**: the
 `.glb`/`.fbx` on disk is never rewritten. Your changes are stored in the
 project file and folded into the `.tskl` at build time, so the console
-receives clips that are already retimed, trimmed and renamed and pays nothing
+receives clips that are already retimed, trimmed, made in-place and renamed and pays nothing
 for it at runtime. The panel previews the model playing the clip with your
 staged values, and the scene viewport applies exactly the same numbers to
 every placed object - what you scrub is what ships.
+
+The preview camera is interactive: drag with the **right mouse button to
+rotate**, drag with the **middle mouse button to pan**, and use the wheel to
+zoom. **Reset view** restores the default framing. Camera navigation is editor
+view state only; it does not alter the model, clip, scene camera or project
+file.
 
 Pick a model at the top, a clip on the left, and edit:
 
@@ -171,6 +177,7 @@ Pick a model at the top, a clip on the left, and edit:
 | **Name in game** | The name scripts, flow nodes and the Start clip picker use. Empty = the name authored in the file. Renaming retargets the clip references of objects using this model (including Animation nodes in their own graphs). |
 | **Time scale** | Playback speed of this clip. `2.00x` plays it twice as fast (half as long). Stacks on top of the project's animation fps below; the object's **Speed** property and a flow node's **Speed** param still multiply on top at runtime. |
 | **Trim start / Trim end** | Cut the clip down to a range of the **source** animation. Seconds as authored, so changing the speed never moves the handles. The trimmed clip is rebased to start at 0 and gets interpolated boundary poses, so it starts and ends exactly where you cut. |
+| **In place** | Removes horizontal root motion from this one clip. The editor finds the highest translating root that owns the whole skeleton (normally Root, or Hips when its parents stay put), transforms its travel into model space, removes horizontal X/Z there, then maps the preserved vertical bob back into the rig's local axes. This also handles FBX rigs whose parent rotation stores forward travel in local Y instead of local Z. Turn it on for every walk/run clip used by a Player, because the Player object already moves the avatar through the world; an object playing another Start clip is unaffected. |
 | **Loop by default** | Seeds the **Loop** checkbox of objects that later pick this clip as their Start clip. Objects already placed keep their setting, and a flow node's own Loop param always wins at runtime. |
 
 A line under the fields spells out the result (`authored 2.000 s -> ships as
@@ -179,7 +186,7 @@ this clip** puts it back to exactly what the file contains.
 
 Because the edits are baked at build time, a running game cannot receive them
 over [Live Link](live-link.md) - the LIVE chip turns amber (rebuild) when you
-retime a clip.
+retime, trim or make a clip in-place.
 
 ### Preview lighting
 
@@ -252,6 +259,7 @@ in *Properties*:
 | Field | Meaning |
 | --- | --- |
 | **Idle / Walk clip** | Required; fall back to the model's first clip if left unset. |
+| **Model faces** | Imported avatar facing the wrong way? Pick the axis it currently faces. **-Z (backwards)** applies the common 180° correction without rotating the Player object, so runtime locomotion can still own its facing. |
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
 | **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
@@ -289,8 +297,12 @@ eases back out when the way is clear.
 *Distance* is therefore the maximum boom length, not a guarantee. Objects set to
 collision **none** are ignored by the arm (the camera passes through them),
 which doubles as the opt-out for scenery that should never shove the camera.
-The arm tests **AABBs only**, even for mesh-collision models - camera collision
-needs no triangle precision, and the cost has to fit a per-frame EE budget.
+The arm tests **collision boxes only**, even for mesh-collision models - camera
+collision needs no triangle precision, and the cost has to fit a per-frame EE
+budget. The box is the model's own bounds, oriented with the object (including
+the *Model yaw offset* below, so an X-forward-authored avatar's box turns with
+its mesh); *View > Collision boxes* and *Preferences > Build > Show collision
+boxes* draw exactly what the arm tests. See [collision-boxes.md](collision-boxes.md).
 
 The runtime auto-selects idle/walk/run/jump from the player's **actual planar
 speed** each frame, cross-fades on change (0.18 s) and matches playback speed to
@@ -460,6 +472,7 @@ need no special handling in version control (they regenerate on build).
 | Animation too fast/slow on NTSC vs PAL | It isn't - playback is wall-clock normalized. Compare against a stopwatch, not frames. |
 | Everything from Blender plays too slow (or too fast) | The export's frame rate does not match what the animation was made for - set *Preferences > Rendering > Animation fps* (see [Project-wide animation fps](#project-wide-animation-fps)). |
 | One clip is off while the rest are fine | *Tools > Animation Editor* > **Time scale** on that clip. |
+| A walk/run clip moves the model away from its object | Check the object's actual **Start clip**, then enable **In place** for that same clip in *Tools > Animation Editor* and rebuild. The setting is per clip; editing `Jog` does not change an object playing `Walk`. |
 | `matrix-palette slots` error on import/build | The file needs more than 256 bones + rigid mesh nodes - simplify the rig. |
 | Point lights don't light the model | By design: point lights are baked into static vertex colors. Animated models receive the scene's directional light + ambient. |
 | Highlight rim (usable objects) missing on animated models | Known limitation - the rim shell is built from static geometry parts. |

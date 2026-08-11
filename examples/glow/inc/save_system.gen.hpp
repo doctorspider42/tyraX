@@ -2,6 +2,7 @@
 #pragma once
 
 #include "scene_data.hpp"
+#include "facts.gen.hpp"  // FactSaveRow + FACT_SAVE_MAX
 
 namespace Glow {
 
@@ -16,7 +17,12 @@ constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // "TYSV"
 // v3: the objects array is sized by the save-flagged object
 // count (SAVE_OBJECT_MAX), not the scene size - older, larger
 // slot files fail the size/version check and read as empty.
-constexpr int SAVE_VERSION = 3;
+// v4: the World Facts block. Unlike every block above it, the
+// rows are keyed by the fact's own id and NOT by position, so
+// renaming, reordering or deleting a fact leaves an existing
+// card readable - the rows that still match are restored and the
+// rest are ignored (docs/world-facts.md "Saving").
+constexpr int SAVE_VERSION = 4;
 
 // Runtime state of one save-flagged object (SceneObjectData.saveState).
 struct SaveObjectState {
@@ -40,7 +46,32 @@ struct alignas(64) SaveGameData {
   char texts[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1][SAVE_TEXT_LEN];
   int objectCount;
   SaveObjectState objects[SAVE_OBJECT_MAX];
+  int factCount;
+  FactSaveRow facts[FACT_SAVE_MAX];
 };
+
+// The PROFILE: facts declared with profile persistence, in one
+// file per card outside the save slots and shared by all of them
+// - unlocks, a best time, 'has seen the intro'. Its own tiny
+// payload rather than a slot, because it is written whenever a
+// profile fact moves and must never cost a slot-sized transfer.
+struct alignas(64) SaveProfileData {
+  unsigned int magic;
+  int version;
+  int factCount;
+  FactSaveRow facts[FACT_PROFILE_MAX];
+  // Padded to a full 1 KiB memory-card CLUSTER. A card allocates
+  // in clusters and the libmc RPC transfers by DMA, and a 64-byte
+  // payload did not round-trip: the write reported success and the
+  // next boot read a full-size block of something else back (magic
+  // mismatch, so it was correctly rejected - which reads as 'the
+  // profile does not persist'). The slot payload is kilobytes and
+  // never hit this.
+  char pad[1024 - (int)sizeof(unsigned int) - 2 * (int)sizeof(int) -
+           FACT_PROFILE_MAX * (int)sizeof(FactSaveRow)];
+};
+bool profileWrite(const SaveProfileData& data);
+bool profileRead(SaveProfileData& out);
 
 // Loads the BIOS memory card modules once (sio2man is already
 // resident - the engine loads it for the pads).

@@ -75,9 +75,15 @@ It is written once per card, not once per slot.
 
 The table breaks down one slot byte for byte: the header (scene index, player
 position and facing), four bytes per save value, a fixed 32 bytes per save text,
-and 32 bytes per save-flagged object state — sized by the largest per-scene
-count of objects with *Save state* ticked, which the tree below the table lists
-by name. The slot file itself is that sum rounded up to a 64-byte boundary.
+32 bytes per save-flagged object state — sized by the largest per-scene count of
+objects with *Save state* ticked, which the tree below the table lists by name —
+and 16 bytes per **World Fact** that rides a slot (an id plus three floats; see
+[world-facts.md](world-facts.md)). The slot file itself is that sum rounded up
+to a 64-byte boundary.
+
+A catalog with **profile**-lived facts adds one more row: those live in a file
+of their own beside the slots, shared by every save, and it costs a whole 1 KB
+cluster whatever is in it.
 
 Two totals are shown, and they deliberately disagree:
 

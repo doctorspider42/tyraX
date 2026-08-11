@@ -18,7 +18,7 @@ TyraXScript2TDCLVU1Program::TyraXScript2TDCLVU1Program()
                        &TyraXScript2TDCL_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
-                       3, 3) {}
+                       3, 4) {}
 
 TyraXScript2TDCLVU1Program::~TyraXScript2TDCLVU1Program() {}
 

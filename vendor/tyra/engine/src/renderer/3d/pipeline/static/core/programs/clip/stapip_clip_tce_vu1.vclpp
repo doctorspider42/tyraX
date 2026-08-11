@@ -66,11 +66,15 @@
 #vuprog StaPipVU1ClipTCE
 
     ResetClipFlags{ }
+    LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; env (matcap) camera basis
-    LoadTyraEnvBasis{ envRight, envUp, envConsts }
+    LoadTyraEnvBasis{ envBasisX, envBasisY, envBasisZ }
     ; single color (the enabled flag is reloaded per triangle - VI pressure)
     lq          singleColor, VU1_SINGLE_COLOR_ADDR(vi00)
     ; clip constants: x = nearZ-GUARD, y = -farZ-GUARD, z = 0, w = GUARD
@@ -78,22 +82,14 @@
     ; judge vertex: x/y/w rewritten per use
     move        sjudge,     cvec
 
-    ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
-    ; (below, next to the store that is their only reader) rather than here.
-    ; `begin:` is a loop, so a register loaded above it has to stay live across the
-    ; whole body - and the from-source assembler reuses these four for per-vertex
-    ; values instead, so every batch after the first one stored GARBAGE GIF TAGS and
-    ; its geometry never reached the GS. Free either way: the tag block is written
-    ; once per batch, so the loads simply moved to their reader, and peak register
-    ; pressure drops with them. Three sibling programs already carry this change;
-    ; see "A miscompile this uncovered" in docs/toolchain-image.md.
-
 begin:
     xtop buffer
     LoadTyraBufferTags{ scale, primTag, buffer }
 
     iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
     ilw.w   vertexCount,        0(buffer)
+    iaddiu  countMask,          vi00,           VU1_STAPIP_COUNT_MASK
+    iand    vertexCount,        vertexCount,    countMask
     iadd    stqData,            vertexData,     vertexCount
     iadd    colorData,          stqData,        vertexCount
     ilw.x   sceFlag,            VU1_OPTIONS_ADDR(vi00)
@@ -104,11 +100,6 @@ setDestAddrMultiColor:
     iadd    destAddress,        colorData,      vertexCount
 setDestAddr:
 
-    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
-    LoadTyraStaticData{ gifSetTag }
-    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
-    ; Modified by TyraX: per-mesh GS blend equation, in-band
-    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     iaddiu  outCount,       vi00,           0
@@ -138,24 +129,18 @@ processing:
         ; matcap ST from the object-space normals, BEFORE the transform
         ; and the crossing judgement (the macro's rsqrt uses Q; every
         ; later Q write - edge lerps, emit divides - comes after)
-        CalculateTyraEnvStq{ stq1, envRight, envUp, envConsts }
-        CalculateTyraEnvStq{ stq2, envRight, envUp, envConsts }
-        CalculateTyraEnvStq{ stq3, envRight, envUp, envConsts }
+        CalculateTyraEnvStq{ stq1, envBasisX, envBasisY, envBasisZ }
+        CalculateTyraEnvStq{ stq2, envBasisX, envBasisY, envBasisZ }
+        CalculateTyraEnvStq{ stq3, envBasisX, envBasisY, envBasisZ }
 
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
 
         ; --- crossing judgement (see stapip_clip_c_vu1.vclpp) ---
-        ; Modified by TyraX: the six tests feed one OR, and the CLIP register is a
-        ; 24-bit window of four 6-bit entries (newest at 0..5), so four of them are
-        ; pushed and read at once. Masks below place each test at its entry:
-        ; v1 0xF<<18 | s1 0xA<<12 | v2 0xF<<6 | s2 0xA, then v3 0xF<<6 | s3 0xA.
+        ; Modified by TyraX: batch the six retained CLIP judgements into two
+        ; reads; sjudge.w remains the guard initialized from cvec above begin:.
         clipw.xyz   vertex1,    vertex1
-        ; Modified by TyraX: sjudge.w is the guard, and the `move sjudge, cvec`
-        ; above begin: already put cvec.w there. Nothing writes .w afterwards -
-        ; every other store into sjudge is .x, .y or .xy - so recomputing it as
-        ; 1 * cvec.w once per vertex and once per edge was dead work.
         sub.x       sjudge,     cvec,       vertex1[z]
         add.y       sjudge,     cvec,       vertex1[z]
         clipw.xyz   sjudge,     sjudge
@@ -194,10 +179,16 @@ processing:
         ibeq    triOr,      vi00,       fanStart
 
         ; --- Sutherland-Hodgman against the 6 planes ---
+        ; buffer base is dead until the kick's xtop: reuse its VI for the mask
+        xtop    buffer
+        ilw.w   buffer,     0(buffer)
         iaddiu  planePtr,   vi00,       VU1_CLIP_PLANES_ADDR
         iaddiu  dstBase,    vi00,       VU1_CLIP_POLY_B_ADDR
 
 planeLoop:
+        ibltz   buffer,     planeActive
+        b       planeAdvance
+planeActive:
         lq      planeV,     0(planePtr)
         lq      planeE,     1(planePtr)
 
@@ -277,7 +268,9 @@ edgeAdvance:
         iadd    vertMask,   srcBase,    vi00
         iadd    srcBase,    dstBase,    vi00
         iadd    dstBase,    vertMask,   vi00
+planeAdvance:
         iaddiu  planePtr,   planePtr,   2
+        iadd    buffer,     buffer,     buffer
         iaddiu  vertMask,   vi00,       VU1_CLIP_PLANES_ADDR+12
         ibne    planePtr,   vertMask,   planeLoop
 
@@ -319,17 +312,13 @@ triNext:
         ibgtz   vertexCounter,  triLoop
 
     ; rebuild the kick address and patch the prim giftag NLOOP (the
-    ; texture tag block is 9 qwords (incl. ALPHA); the prim tag sits at +8)
-    xtop    buffer
-    iaddiu  vertexData, buffer,     VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w   vertexCount, 0(buffer)
-    iadd    vertexData, vertexData, vertexCount
-    iadd    vertexData, vertexData, vertexCount
+    ; advanced ST/color pointers already end at the texture tag block
     ilw.x   sceFlag,    VU1_OPTIONS_ADDR(vi00)
     iblez   sceFlag,    kickMulti
+    iadd    vertexData, stqData,    vi00
     b       kickPatch
 kickMulti:
-    iadd    vertexData, vertexData, vertexCount
+    iadd    vertexData, colorData,  vi00
 kickPatch:
     iaddiu  vertMask,   outCount,   0x4000
     iaddiu  vertMask,   vertMask,   0x4000

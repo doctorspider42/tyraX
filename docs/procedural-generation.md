@@ -66,9 +66,11 @@ type is still written to the project file as `scatter`, and the enum is still
 region after one of its source nodes made it look like a choice of method.)
 
 The volume itself is authoring-only: a wireframe box in the editor, nothing at
-all in the game. It is not click-selectable in the viewport (its box usually
-covers half the map, which would swallow every click) — select it in the
-Project panel or from the Procedural window, then the gizmo works as usual.
+all in the game. Its box usually covers half the map, so it never wins a click
+outright — everything else under the cursor is offered first. Click the **same
+spot again** and the pick steps through what is stacked there, the volume
+included; selecting it in the Project panel or the Procedural window works as
+before. Either way the gizmo then works as usual.
 
 A scene can hold as many volumes as you like: one per species mix, one per
 region, one for the roadside lamps.
@@ -313,6 +315,25 @@ an array. Change the density upstream, add a node, re-open the project — the
 edits still apply to the same instances. The window shows how many edits exist,
 how many no longer match a point (kept, because a point may come back when a
 slider moves) and offers an explicit *Drop unmatched*.
+
+### Asking the AI Assistant for a graph
+
+The [AI Assistant](ai-chat.md) can author a scatter graph: it reads the node
+catalog and the volume's current graph, writes the whole graph back, and bakes
+it — "*scatter rocks and pine trees over the north half, thin them on slopes
+above 30 degrees*" is a request it can carry out end to end, including telling
+you the triangle and RAM cost it came to.
+
+Three things worth knowing when you use it that way:
+
+- **It writes the graph whole.** Your per-instance hand edits are dropped by such
+  a write (they are bound to points the old graph made), so do the hand pass
+  after the graph has settled.
+- **It cannot import assets.** A `Pick Asset` pool can only name files already
+  under `res/models/`; ask it to scatter something you have not imported and it
+  will say so and point at the Asset Browser.
+- **Nothing appears until it bakes** — same rule as for you. It is told this, and
+  the bake report it quotes is the real one from `procbake`.
 
 ---
 

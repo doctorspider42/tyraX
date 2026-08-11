@@ -21,6 +21,20 @@ the game really draws it. Switch modes in-game and the panel keeps the same
 physical size and position on the TV — the framebuffer is 512x448 interlaced but
 448x540 in 1080i, and the runtime scales the menu by both factors.
 
+**STANDARD 4:3 / WIDESCREEN 16:9 is the same test one axis over**, and the most
+useful thing this project shows: 16:9 on the PS2 is *anamorphic* — the
+framebuffer does not change and the TV stretches it — so the panel is squeezed
+horizontally to exactly cancel that (see
+[menu-styles.md](../../docs/menu-styles.md) "Widescreen"). Toggle it with the
+menu open and watch: the panel narrows to three quarters of its width **in the
+framebuffer**, which on a 16:9 set is the same physical panel it was before,
+with the same letter shapes. Measured on the console at 512x448: 575 px wide in
+4:3, 431 px in 16:9 (0.7496 against the 0.75 the arithmetic asks for), the same
+height and the same centre. In a PCSX2 window left at 4:3 both the world and the
+panel look horizontally squeezed — that is the anamorphic signal being shown
+un-stretched, not a bug. The Menu Editor's **Aspect** control previews both
+without touching the project.
+
 ## The VIDEO OPTIONS menu
 
 The menu opens **automatically at boot** (title screen) and any time later
@@ -67,7 +81,7 @@ blind.
 - 480p and 1080i output **only over component (YPbPr) cables**; on RGB/composite
   the screen goes dark until the auto-revert kicks in (that is the prompt's
   whole point). PCSX2 displays every mode regardless.
-- The interlaced modes (stock and field rendering) follow Preferences > Build >
+- The interlaced modes (stock and field rendering) follow Preferences > Display >
   Target system (PAL/NTSC/auto); the DTV modes always run at 60 Hz.
 - Field rendering outputs the same 480i/576i signal as the stock mode, so it
   works on any cable/TV; expect a slightly softer static picture (each field

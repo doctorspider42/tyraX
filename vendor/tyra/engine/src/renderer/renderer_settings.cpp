@@ -21,11 +21,15 @@ void RendererSettings::copy(RendererSettings* out, const RendererSettings* in) {
   out->far = in->far;
   out->projectionScale = in->projectionScale;
   out->aspectRatio = in->aspectRatio;
+  out->windowAspect = in->windowAspect;  // Modified by TyraX
   out->interlacedHeightF = in->interlacedHeightF;
   out->interlacedHeightUI = in->interlacedHeightUI;
   out->videoMode = in->videoMode;
-  out->displayMode = in->displayMode;  // Modified by TyraX
-  out->widescreen = in->widescreen;    // Modified by TyraX
+  out->displayMode = in->displayMode;      // Modified by TyraX
+  out->widescreen = in->widescreen;        // Modified by TyraX
+  out->rasterScaleX = in->rasterScaleX;    // Modified by TyraX (BLSS)
+  out->rasterScaleY = in->rasterScaleY;    // Modified by TyraX (BLSS)
+  out->tripleBuffering = in->tripleBuffering;  // Modified by TyraX
 }
 
 void RendererSettings::set(const RendererSettings& v) { copy(this, &v); }

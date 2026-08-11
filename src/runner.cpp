@@ -1,5 +1,6 @@
 #include "runner.hpp"
 
+#include "devsession.hpp"
 #include "isoexport.hpp"
 #include "elfsym.hpp"
 #include "pcsx2_config.hpp"
@@ -38,6 +39,120 @@ std::vector<std::string> emulatorProcessNames(const std::string& exe) {
 constexpr const char* kPurgeVuObjects =
     "find /tyra/engine/obj \\( -name '*vu1.o*' -o -name 'draw_finish.o*' "
     "-o -name 'vu0_rt_kernel.o*' \\) -delete 2>/dev/null; ";
+// --- who owns the ps2link file server --------------------------------------
+//
+// Exactly one `ps2client` can serve a console: it is the host: filesystem for
+// the whole session, and the local ports it binds (TCP 18193 out, UDP 18194 in)
+// are a machine-wide resource. That is why a deploy has to clear the field
+// first - and for a long time it did so with `taskkill /F /IM ps2client.exe`,
+// machine-wide, by name. Measured consequence: deploying project B killed
+// project A's file server, and A's console kept running blocked on host: with
+// its devkit files frozen at their last write, while the [ps2] log lines kept
+// arriving (that stream is UDP straight to whichever ps2client is listening and
+// never passes through the file server, so only the LIVE half of the transport
+// was visible). See docs/ps2link-setup.md.
+//
+// A server identifies itself in its own command line, which is what the deploy
+// spawns: `ps2client -h <ip> execee host:<name>.elf -ps2link`. So the console
+// and the game are both in there, and the two together decide whether a server
+// is this project's to reap. The residual limit is honest and worth knowing:
+// the ELF name is the project's NAME, so two copies of one project (a worktree,
+// a scratch copy of an example) look alike - the console check is what
+// separates them, and two copies serving one console cannot both exist anyway.
+struct Ps2Client {
+    unsigned long long pid = 0;
+    std::string ip;   // -h <ip>
+    std::string elf;  // execee host:<elf>; empty for a `listen` witness
+};
+
+// Command line -> arguments. Deliberately small: it has to survive both a
+// Windows command line (quoted paths) and a /proc/<pid>/cmdline joined with
+// spaces, and all it is asked for is flags and bare tokens.
+std::vector<std::string> splitArgs(const std::string& cmd) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool quoted = false, started = false;
+    for (char c : cmd) {
+        if (c == '"') {
+            quoted = !quoted;
+            started = true;
+        } else if (!quoted && (c == ' ' || c == '\t')) {
+            if (started) out.push_back(cur);
+            cur.clear();
+            started = false;
+        } else {
+            cur += c;
+            started = true;
+        }
+    }
+    if (started) out.push_back(cur);
+    return out;
+}
+
+std::vector<Ps2Client> ps2Clients() {
+    std::vector<Ps2Client> out;
+    for (const platform::RunningProcess& proc : platform::processesNamed("ps2client")) {
+        Ps2Client c;
+        c.pid = proc.pid;
+        const std::vector<std::string> args = splitArgs(proc.commandLine);
+        for (size_t i = 0; i < args.size(); i++) {
+            if (args[i] == "-h" && i + 1 < args.size()) c.ip = args[i + 1];
+            else if (args[i].rfind("host:", 0) == 0) c.elf = args[i].substr(5);
+        }
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+// Is this server this project's, i.e. ours to clean up? Both halves matter: the
+// ELF says which game and -h says which console, and a deploy must never reach
+// across consoles even for a server running the same game. An unreadable
+// command line leaves both empty, which fails the test - by design.
+bool servesProject(const Ps2Client& c, const Project& p) {
+    if (c.elf.empty() || c.elf != p.elfName()) return false;
+    return c.ip.empty() || p.ps2LinkIp.empty() || c.ip == p.ps2LinkIp;
+}
+
+// The project directory of a running editor that owns this server, or "" when
+// nobody does. A session already publishes its project (devsession.hpp) and the
+// deployed ELF is <name>.elf, so the two match up with no second registry.
+//
+// "Running" is checked TWO ways on purpose. The heartbeat is the normal answer,
+// but it stops while an editor sits in a native file dialog - that call blocks
+// the UI thread - so a minute with a picker open would make a perfectly live
+// session look abandoned. The pid being a live tyrax-editor process is the
+// backstop, and the pair is what makes reaping an orphan safe: we only ever
+// take a server nobody could still be using.
+std::string ps2ClientOwner(const Ps2Client& c) {
+    if (c.elf.empty()) return "";
+    // Both the name we are running under and the stock one, so a harness or a
+    // renamed check binary still SEES the real editor - the direction that must
+    // not fail is "nobody owns it", since that one ends in a kill.
+    std::vector<unsigned long long> editors;
+    std::vector<std::string> names{"tyrax-editor"};
+    if (const std::string self = fs::path(platform::exePath()).filename().string();
+        !self.empty() && self != "tyrax-editor" && self != "tyrax-editor.exe")
+        names.push_back(self);
+    for (const std::string& n : names)
+        for (const platform::RunningProcess& e : platform::processesNamed(n))
+            editors.push_back(e.pid);
+    for (const devsession::Info& s : devsession::list()) {
+        if (s.project.empty() || s.name + ".elf" != c.elf) continue;
+        if (s.pid == devsession::selfPid()) continue;  // us; our own is killed by handle
+        bool alive = s.live();
+        for (unsigned long long pid : editors) alive = alive || pid == (unsigned long long)s.pid;
+        if (alive) return s.project;
+    }
+    return "";
+}
+
+std::string describe(const Ps2Client& c) {
+    std::string s = "ps2client pid " + std::to_string(c.pid);
+    if (!c.elf.empty()) s += " serving host:" + c.elf;
+    else s += " (a listener, no game)";
+    if (!c.ip.empty()) s += " on " + c.ip;
+    return s;
+}
 
 }  // namespace
 
@@ -104,16 +219,15 @@ void Runner::clean(const Project& p) {
         appendLine("[editor] === Clean: " + p.name + " ===");
         // bin\ is locked by anything running out of it: ps2client keeps it as
         // its cwd (file server), PCSX2 holds the ELF. Kill ours by handle AND
-        // strays by name - an orphan from a previous editor instance survives
-        // killPs2Client() and made remove_all fail with "Access is denied".
-        // (POSIX has no such locking, but reaping the strays is right there
-        // too: they would otherwise keep serving a half-deleted bin/.)
-        killPs2Client();
-        {
-            std::vector<std::string> names = emulatorProcessNames(lastEmulator_);
-            names.push_back("ps2client");
-            exec(platform::killByName(names), "");
-        }
+        // the strays THIS PROJECT owns - an orphan from a previous editor
+        // instance survives killPs2Client() and made remove_all fail with
+        // "Access is denied". (POSIX has no such locking, but reaping our own
+        // strays is right there too: they would otherwise keep serving a
+        // half-deleted bin/.) A refusal is not fatal here - Clean never touches
+        // the console, and the per-file report below names whatever stays
+        // locked, which is a better answer than killing somebody else's server.
+        claimPs2Channel(p);
+        killEmulatorsFor(p, lastEmulator_);
         // Container game volume (obj + bin). Failure is fine - a stopped
         // container just means there is nothing cached there to clean.
         if (exec("docker compose exec -T compiler sh -c " +
@@ -361,8 +475,8 @@ bool Runner::launchPCSX2(const Project& p) {
                    "including bin/<name>.elf).");
     }
 
-    // Kill a previous emulator instance, if any (ignore errors).
-    exec(platform::killByName(emulatorProcessNames(exe)), "");
+    // Close a previous run of THIS project, and nothing else (see the function).
+    killEmulatorsFor(p, exe);
 
     // The game appends its TYRA_LOG output to bin/log.txt (host fs); drop the
     // stale file so the Debug window shows only this run's log. The
@@ -478,6 +592,123 @@ void Runner::killPs2Client() {
     if (ps2Pump_.joinable()) ps2Pump_.join();
 }
 
+// Claim the ps2link file-server channel for this project, or explain who has it.
+//
+// The order is the whole design: OURS BY HANDLE first, because that is the
+// common case (this editor redeploying) and the only certain one - the Process
+// we spawned, killed as a tree. A SEARCH only for what the handle cannot reach:
+// a server left behind by a run of this same project that did not shut down, or
+// somebody else's session. Those are told apart by servesProject() above, and
+// what is not ours is never killed on the strength of its name.
+//
+// Returns false when the caller must leave the console alone. The two ways that
+// happens are deliberately different: a server a RUNNING editor owns is refused
+// with the project named, because taking it is exactly the defect this replaced;
+// a server nobody is running any more is an orphan and gets reaped, or a first
+// deploy after a crash would be impossible to make and the fix would have traded
+// one bug for "only one deploy per boot works".
+bool Runner::claimPs2Channel(const Project& p) {
+    killPs2Client();
+
+    std::vector<unsigned long long> reported;
+    auto seen = [&reported](unsigned long long pid) {
+        for (unsigned long long r : reported)
+            if (r == pid) return true;
+        reported.push_back(pid);
+        return false;
+    };
+
+    // A foreign server may be a couple of seconds old and about to leave -
+    // resetPs2Link runs a `ps2client listen` witness while it works, and another
+    // editor mid-teardown holds one just as briefly. Poll before refusing.
+    constexpr int kSettleTries = 12;  // 3 s
+    std::vector<Ps2Client> blocking;
+    for (int attempt = 0; attempt < kSettleTries; attempt++) {
+        if (cancelRequested_) return false;
+        blocking.clear();
+        bool killedAny = false;
+        for (const Ps2Client& c : ps2Clients()) {
+            if (!servesProject(c, p)) {
+                blocking.push_back(c);
+                continue;
+            }
+            if (!seen(c.pid))
+                appendLine("[editor] Reaping this project's own stale file "
+                           "server (" + describe(c) +
+                           ") - left behind by a run that did not shut down.");
+            platform::killProcess(c.pid);
+            killedAny = true;
+        }
+        if (!killedAny && blocking.empty()) return true;  // the field is clear
+        platform::sleepMs(killedAny && blocking.empty() ? 150 : 250);
+    }
+
+    // Out of patience. Reap what nobody owns - a crashed editor's server is an
+    // orphan, and refusing on one would make the first deploy after a crash
+    // impossible - and refuse for anything a running editor still owns.
+    bool refused = false;
+    for (const Ps2Client& c : blocking) {
+        const std::string owner = ps2ClientOwner(c);
+        if (owner.empty()) {
+            appendLine("[editor] Reaping an orphaned file server (" + describe(c) +
+                       ") - no editor is running that could own it.");
+            platform::killProcess(c.pid);
+            continue;
+        }
+        refused = true;
+        // Name the right shared thing: the same console can hold one file
+        // server, and this PC can run one ps2client at all (it binds the tty
+        // and file-request ports, docs/ps2link-setup.md). Both refuse; saying
+        // "the console" about a server on a different one would read as a bug.
+        const bool sameConsole =
+            c.ip.empty() || p.ps2LinkIp.empty() || c.ip == p.ps2LinkIp;
+        appendLine("[editor] The ps2link channel is already taken: " + describe(c) +
+                   ", for the editor open on " + owner + ". " +
+                   (sameConsole
+                        ? "Only one ps2client can serve a console at a time"
+                        : "Only one ps2client can run on this PC at a time - it "
+                          "binds the ports the console answers on") +
+                   ", so this would have killed that session - it does not. Stop "
+                   "the game there (Build > Stop on PS2) or close that editor, "
+                   "then run this again.");
+    }
+    if (refused) return false;
+    platform::sleepMs(200);
+    if (ps2Clients().empty()) return true;
+    appendLine("[editor] A ps2client is still running and would not go away - "
+               "the deploy needs the host: channel to itself.");
+    return false;
+}
+
+// Close the PCSX2 instances booting THIS project's ELF, and only those.
+//
+// Nothing about an emulator is singular - several run at once here as a matter
+// of course, one per worktree - so reaping every process called `pcsx2` ended
+// measurements this editor had no business touching. The `-elf <path>` the
+// launcher passes is the discriminator, and it is a PATH, so two copies of one
+// project stay apart. An instance whose command line cannot be read is left
+// alone and counted: guessing wrong is the failure this replaced.
+void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
+    int unreadable = 0;
+    for (const std::string& name : emulatorProcessNames(exe)) {
+        for (const platform::RunningProcess& proc : platform::processesNamed(name)) {
+            if (proc.commandLine.empty()) {
+                unreadable++;
+                continue;
+            }
+            if (!platform::commandLineNamesPath(proc.commandLine, p.elfPath()))
+                continue;
+            appendLine("[editor] Closing the PCSX2 instance running this project "
+                       "(pid " + std::to_string(proc.pid) + ").");
+            platform::killProcess(proc.pid);
+        }
+    }
+    if (unreadable > 0)
+        appendLine("[editor] Left " + std::to_string(unreadable) +
+                   " other PCSX2 process(es) alone - their command line could "
+                   "not be read, so there is no telling whose they are.");
+}
+
 // Resets ps2link, and reports whatever the console says while it happens -
 // WITHOUT treating silence as a verdict.
 //
@@ -545,8 +776,18 @@ void Runner::stopPs2(const Project& p) {
         // the IOP with per-frame polls, which is what the reset has to cut
         // through), and the tty port is freed for the listener resetPs2Link
         // runs to hear the console with.
-        killPs2Client();
-        exec(platform::killByName({"ps2client"}), "");
+        //
+        // A refusal stops the RESET, which is the half that matters: if another
+        // editor's server has the console, whatever is running there is theirs,
+        // and resetting would stop their game on a button that promises to stop
+        // ours. Our own server is dead either way - claimPs2Channel kills it by
+        // handle before it looks at anybody else's.
+        if (!claimPs2Channel(p)) {
+            appendLine("[editor] Not resetting the console - the game running "
+                       "on it belongs to the session named above.");
+            state_ = State::Failed;
+            return;
+        }
         if (!p.ps2LinkIp.empty()) {
             if (resetPs2Link(p) == ResetResult::Failed)
                 appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
@@ -559,14 +800,14 @@ void Runner::stopPs2(const Project& p) {
     });
 }
 
-void Runner::stopEmulator() {
+void Runner::stopEmulator(const Project& p) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread([this] {
+    thread_ = std::thread([this, p] {
         appendLine("[editor] Stopping PCSX2...");
-        exec(platform::killByName(emulatorProcessNames(lastEmulator_)), "");
+        killEmulatorsFor(p, lastEmulator_);
         state_ = State::Success;
     });
 }
@@ -585,12 +826,13 @@ bool Runner::deployToPs2(const Project& p) {
     const std::string client = findPs2Client();
     const std::string binDir = (fs::path(p.dir) / "bin").string();
 
-    // One file server at a time: kill the previous deploy's ps2client (ours
-    // by handle, strays by name - a leftover from a crashed editor would hold
-    // the local tty port and starve this one). It also has to be gone before
-    // the reset: see resetPs2Link.
-    killPs2Client();
-    exec(platform::killByName({"ps2client"}), "");
+    // One file server at a time: clear the previous deploy's ps2client (ours by
+    // handle, this project's strays by their command line - a leftover from a
+    // crashed editor would hold the local tty port and starve this one). It also
+    // has to be gone before the reset: see resetPs2Link. A server that belongs
+    // to somebody else's live session stops the deploy here, with the reason in
+    // the log, rather than being killed the way it used to be.
+    if (!claimPs2Channel(p)) return false;
 
     // Reset exactly like Stop does, and do not launch into a console that
     // never answered - the execee would just sit there until the 15 s timeout

@@ -159,6 +159,106 @@ TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
 ```
 
+The neural upscaler trains and measures headlessly too
+(`docs/neural-upscaler.md`), which is the whole test layer that feature has:
+
+```
+TYRAX --blss-train [<projectDir>] [--all-shots] [--threads N] [-o out.net]
+TYRAX --blss-eval  [<projectDir>] [-i net] [--cv] [--features] [--dump <dir>]
+TYRAX --blss-emit  [-o inc/blss_net.gen.hpp]
+TYRAX --blss-coverage <projectDir> [--frames N] [--raster N] [--threads N]
+                                   [--out WxH] [--verbose]
+```
+
+**`--blss-coverage` is the SPEED half of "should this project have BLSS on"**,
+and the headless twin of the window's *Will the frame get faster?* button — same
+`blss::measureCoverage`, same verdict arithmetic, in-process, about a second. It
+prints per-shot and overall mean/p95 coverages with the **geometry/emitter
+split**, the derived verdict, and machine-readable `[blss] coverage …` lines.
+Use the project's own raster (the default) or the verb and the button answer
+slightly different questions. It also reads the project's **reconstruction mode**
+(`blssNetwork`) and prices the verdict for it — plain mode's EE bill is a
+seventh of the neural one, so the same coverage count lands against a **2.6**
+break-even instead of a 13.1 one — and prints the OTHER mode's line beside it,
+because the two verdicts routinely disagree and the switch is one setting away. It exists because the round that *measured* the
+speed model could not re-derive the estimator's own figure — it was a button in
+a GUI — and **a number nobody can re-run is a number nobody can check.** Its
+first run disagreed with the hardware anchor (72.63 against 58.7 blended-pass
+equivalents on `examples/upscaler-lab`), and that gap has since been **located**
+rather than closed: it is a constant scale error in the emitter term, not the
+unit and not the camera. Walked under the fixture's own parked gameplay camera -
+authored as a training vantage, which is what makes the check possible - it reads
+**78.99**, i.e. HIGHER than the six-move mean, and the counted-to-measured ratio
+holds at 1.35 / 1.26 / 1.27 / 1.36 with the haze stepped 6 / 4 / 2 / 0 banks. So
+read its output as an overdraw **index** that over-states its scale by about a
+third, not as milliseconds: docs/neural-upscaler.md, "The overdraw count is an
+INDEX", and docs/profiling.md, "Calibrating the speed model against hardware".
+
+**Eight flags measure a configuration no project can currently ask for, and each
+prints a line saying so** — `--tile N`, `--scale WxH` (the raster scale; the
+ENGINE is generic, it is `blssScale` that can only name 2x2 and 1x2),
+`--act-table N`, `--no-anim`, `--still` (freeze each shot at one camera and one
+pose so only the jitter phase advances — the period-2 metric's fixture, refused
+by `--blss-train` and by `--cv`), `--proxy-budget` (the fifth twin-contract
+rule, off on both sides), **`--emitter-proxy`** (the SIXTH twin-contract rule —
+give each enabled particle emitter a bag proxy; also off on both sides, the
+engine's half being `TYRA_BLSS_EMITTER_PROXY`. Mind what it does and does not
+change: it makes the six channels DESCRIBE the particles, and the corpus
+renderer still DRAWS none, so a PSNR from an `--emitter-proxy` run prices the
+description against a particle-free truth. Read `--features` and a console
+`BLSSFEAT` line through `--probe`, not the dB) and `--ignore-shot-plan` (do not
+read the project's
+training-shot plan — six automatic moves, takes on, an equal frame share, which
+is how a table taken before the plan existed stays runnable). A table of decibels
+whose configuration is not written down is a table nobody can reproduce, which is
+how this feature published five wrong numbers — and a **sixth**: the row that set
+the "fit the project you ship" rule had its ceiling measured at jitter ON and its
+margins at jitter OFF. The sampler is announced in both directions now.
+
+**Several positionals is a UNION corpus, and `bestiary` is a member.**
+`--blss-eval <a> <b> bestiary --cv --cv-groups` is **leave-one-PROJECT-out**: the
+held-out shot's whole project is removed from the training set, which is the only
+form of "can I ship one net" that means anything. Plain `--cv` holds out one shot
+and trains on eleven other moves of the same scene. See docs/neural-upscaler.md,
+"Can one net ship for every project?".
+
+**Verify a change to any parallel phase with `--threads`, not by reading the
+code.** `--threads N` (0 = every core, clamped to 32) bounds the corpus render,
+the oracle and `--blss-eval`'s per-method loop, and it is a wall-clock knob and
+nothing else: the same `--seed` must write a byte-identical `blss.net` **and a
+character-identical eval table** at any thread count. So the check is two
+runs and `md5sum` —
+
+```bash
+build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 \
+    --all-shots --threads 1 -o /tmp/t1.net
+build/tyrax-editor --blss-train examples/procedural --frames 156 --epochs 400 \
+    --all-shots            -o /tmp/auto.net
+md5sum /tmp/t1.net /tmp/auto.net    # must be identical
+```
+
+— and the stronger form, which is what actually protects the published numbers,
+is to build the commit *before* the change into its own worktree and check that
+its `blss.net` matches too. Every measured table in `docs/neural-upscaler.md`
+came off a seeded run, so a thread-dependent result would silently unmake all of
+them. On 6 cores that run is ~68 s at `--threads 1` and ~18 s at auto; use
+`--frames 78 --epochs 200` for a faster smoke check (still deterministic, just a
+different net). **All three verbs end with a `blss: timing` phase line** —
+`corpus X, oracle Y, fit Z` for `--blss-train`, `corpus X, eval Y` for
+`--blss-eval`, `corpus X, oracle Y, folds Z` for `--cv` — and the per-shot corpus
+lines report **cpu ms, not wall ms**: summing them will not give you the wall
+clock of a threaded run.
+
+`--blss-eval <projectDir>` is also the "should this project have the feature on
+at all" check: the **oracle** row is the scene's ceiling, and on some scenes it
+is +0.00 dB. **It needs no trained net for that** — with no `-i` and no
+`blss.net` to find it runs net-free, drops the `BLSS (trained)` row and still
+prints the verdict, exit 0. (So `-i` IS required when you are checking twin
+parity, which is a claim about that row.) Two lines are printed for a caller
+rather than a reader: `[blss] verdict headroom=… passes=… bilinear=… oracle=…
+native=…` from every `--blss-eval`, and `[blss] fold k of n` from `--cv` as each
+fold lands. Never quote a plain `--blss-eval`'s held-out column — use `--cv`.
+
 VU1 microprogram work has its own layer, faster than everything below
 (`docs/vu-framework.md`):
 
@@ -570,15 +670,50 @@ Notes:
   the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
   EE's stdout was buffered and never flushed) — rebuild before believing silence.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
-  script — a GDI capture that works reliably:
+  script, which has **two capture back-ends** — and picking the wrong one is how
+  a whole run becomes fiction, so read this before the flags:
 
   ```powershell
-  powershell -File .claude/skills/tyra-testing/scripts/screenshot-window.ps1 `
-      -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png
+  powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
+      -ProcessName pcsx2-qt -OutFile <scratchpad>\shot.png              # GDI (default)
+  powershell -File .agents/skills/tyra-testing/scripts/screenshot-window.ps1 `
+      -ProcessName pcsx2-qt -PrintWindow -Auto -OutFile <scratchpad>\shot.png
   ```
+
+  | | default (GDI `CopyFromScreen`) | `-PrintWindow` |
+  |---|---|---|
+  | reads | the SCREEN | the window's own content |
+  | occluded window | **captures whatever covers it, silently** | works, fully covered |
+  | focus | raises the window first (steals it) | raises nothing, moves nothing |
+  | fails by | looking perfectly fine | coming back black — and saying so |
+
+  **Use `-PrintWindow` whenever a human is at the machine, whenever anything
+  might be in front of the window, and whenever you must not steal focus** —
+  which on this repo's constraints is most of the time. Use the GDI default when
+  the window is demonstrably clear and you want the exact path every `-Watch`
+  number below was measured on. The default is still GDI for one reason: a
+  renderer that refuses to redraw on demand prints black, and no flag can make
+  that window's pixels appear — whereas GDI's hazard is at least fixable by
+  uncovering the window. So the script MEASURES the first `-PrintWindow` grab and
+  warns once if it is entirely black, rather than handing back a plausible
+  screenshot of a game that looks like it never booted. It never falls back to
+  GDI on its own: a silent switch to the unsafe path is the bug this exists to
+  prevent.
+
+  Verified on PCSX2 v2.3.205 (software renderer, `examples/upscaler-lab`):
+  `-PrintWindow -Auto` captures the render child (958x965, `-Trim` → 958x828)
+  during live 50 FPS gameplay **without the window ever coming to the front**,
+  drives the whole `-Watch` path unchanged, and on an unoccluded window returns
+  the same rect and the same picture as the GDI arm.
 
   It also works for the editor itself (`-ProcessName tyrax-editor`) — useful for
   verifying viewport rendering without a human.
+
+  **`-ProcessId <pid>` picks WHICH instance.** `-ProcessName` takes the first
+  match, and with parallel worktree sessions each running their own PCSX2 that
+  silently captures somebody else's game (the script now warns when more than one
+  window matches). Select the pid off the `-elf` path:
+  `Get-CimInstance Win32_Process -Filter "name='pcsx2-qt.exe'" | Where-Object CommandLine -like '*<project>*'`.
 
   **To WATCH the game over time, use `-Watch DIR`** — the Windows twin of
   `wayland-control.py watch` (below), with the same flag names, the same output
@@ -612,14 +747,21 @@ Notes:
     status-bar noise the whole window carries (87 px in one second here) — a
     clean instrument, so any non-zero row means the game.
   - **A GDI grab reads the SCREEN, so an occluded window captures whatever is on
-    top of it** — silently, and for every frame of a long run. This bit during
-    development: a plain `SetForegroundWindow` from a background shell does
-    nothing at all (the same trap as synthetic input above), and the "PCSX2
-    screenshot" came back as another application's window. The script now raises
-    the window with the ALT-tap + `AttachThreadInput` trick, VERIFIES
-    `GetForegroundWindow` and **warns** when it still failed — if you see that
-    warning the frames are worthless, so uncover the window, or pass
-    `-NoActivate` when it is already clear and you do not want the focus stolen.
+    top of it** — silently, and for every frame of a long run. This has now bitten
+    twice. First during development: a plain `SetForegroundWindow` from a
+    background shell does nothing at all (the same trap as synthetic input
+    above), and the "PCSX2 screenshot" came back as another application's window.
+    The script answered that by raising the window with the ALT-tap +
+    `AttachThreadInput` trick, VERIFYING `GetForegroundWindow` and **warning**
+    when it still failed. Then it bit again in the field, the expensive way: with
+    the owner sitting at the machine an agent captured **their browser instead of
+    the emulator** and did not notice, because a wrong-window capture is a
+    perfectly good-looking PNG. **That is what `-PrintWindow` is for** (see the
+    table above) — it reads the window's own content, so nothing has to be in
+    front and nothing gets raised. Reach for it by default when a human is
+    present; keep `-NoActivate` for the case where the window is already clear
+    and you merely do not want the focus stolen, and remember that `-NoActivate`
+    alone removes the raise **without** removing the hazard.
   - `-Area X,Y,W,H` is **window-relative** — the coordinates you read straight
     off a capture — and it is deliberately NOT cached the way Linux caches
     `area.txt`: the window may have moved since the last run, and its geometry is
@@ -645,7 +787,7 @@ Notes:
   synthetic keyboard/mouse, no human in the loop:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py shot -o <scratchpad>/shot.png
   ```
 
   It talks straight to **mutter's own D-Bus APIs** (`org.gnome.Mutter.ScreenCast`
@@ -664,7 +806,7 @@ Notes:
   PipeWire every time (~0.6 s each) and drops pointer state in between:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py script - <<'EOF'
   key ctrl+n
   sleep 0.6
   click --at 917,382
@@ -697,7 +839,7 @@ Notes:
   single screenshot instead of thirty:
 
   ```bash
-  python3 .claude/skills/tyra-testing/scripts/wayland-control.py \
+  python3 .agents/skills/tyra-testing/scripts/wayland-control.py \
       watch <scratchpad>/w --auto --aspect 4:3 --every 1 --for 20 --tile 224
   ```
 
@@ -793,7 +935,53 @@ Notes:
   So `click 'Preview in'` and `click Style` work, and a combo's OPTION can be
   clicked by its own text once the dropdown is open. Two limits remain: the hash
   path needs the EXACT label (a hash has no prefixes) and only reaches widgets
-  submitted at a window's own scope. **A widget whose whole label is
+  submitted at a window's own scope.
+
+  **AND A TAB ONLY HAS CONTENTS WHILE IT IS THE SELECTED ONE. SELECT IT FIRST.**
+  `BeginTabItem` returns false for every tab but the front one and its body is
+  never submitted, so nothing inside it reaches the registry at all: `dump` does
+  not list it, `expect` fails, `click` fails - and the failure reads as "that
+  control has been removed" rather than "that tab is shut". Every script that
+  drove *Project > Preferences* broke the day it grew tabs, and the fix in each
+  was one step (`click 'Project Preferences/Display'; frames 5`) before the
+  control. Three rules go with it:
+  - **Qualify a tab with its window.** Tab labels are short common words and
+    `find` takes the first match: *Project Preferences* has a `Build` tab while
+    the menu bar has a `Build` menu, so a bare `click Build` opens the MENU. Its
+    five tabs are `Display`, `World`, `Rendering`, `Player`, `Build`.
+  - **A tab pushes an id, which moves what the hash fallback can see.**
+    `BeginTabItem` ends in `PushOverrideID(tab->ID)`, so a widget submitted
+    DIRECTLY in a tab is seeded by the tab and not by the window the fallback
+    hashes against. Wrapping the tab body in a `BeginChild` restores it (a child
+    is a window and reseeds the stack) - which is what Project Preferences does,
+    verified: `click 'Project Preferences/Mode'` opens the BLSS mode combo four
+    levels in. A tab body with no child needs real labels on anything scripted.
+  - **A tabbed dialog stops needing `wheel` and starts needing tab clicks.** The
+    trickle trap below still applies to every other long window, but Project
+    Preferences no longer scrolls to reach its footer - the footer is pinned
+    outside the scrolling region, so `click 'Project Preferences/Close'` lands
+    from any tab. A tab BODY still scrolls: with the upscaler on, the Display
+    tab's *Advanced...* button is submitted below the child's bottom edge, where
+    `dump` prints a rect and NO label and a click on it lands on the footer's
+    Close button instead - the clipped-item trap two bullets down, measured
+    here.
+
+  **Project Preferences is a WINDOW, not a modal, since 1.20.0.** Its footer
+  button is `Close`; there is no `OK` and no `Cancel`, because every edit
+  applies as it is made - so a scripted run asserts by reading the model back
+  (`key ctrl+s` then grep the `.tyra`, or `--dump`) instead of pressing a
+  confirm button. Nothing is blocked behind it any more: `click 'Project
+  Preferences/Advanced...'` leaves it AND *Neural Upscaler (BLSS)* open and both
+  take clicks, which is the end-to-end check for that change. Two consequences.
+  A bare label is ambiguous with two windows up (`Use the upscaler` is in both -
+  qualify it), and the upscaler window opens ON TOP, so a `click` on a covered
+  Preferences item lands on the window in front; assert covered items with
+  `expect-checked`, which does not click. The terrain grid (*Width (units)*,
+  *Depth (units)*, *Detail (max grid cells)*) is the one thing that does not
+  apply as you type - it writes back on release, so `text` needs a `key enter`
+  after it (measured: an uncommitted `text 2` leaves the stored width at 100).
+
+  **A widget whose whole label is
   hidden behind `##`** - a compact search field (`##assetsearch`,
   `##objsearch`) - still has nothing to name and dumps as `-` with a rect and
   nothing to name, so a filter row like the Scene panel's is only reachable by
@@ -811,6 +999,55 @@ Notes:
   widgets ARE ordinary items, so their rects give you the scale factor and the
   offsets between them give you whether the layout stayed self-similar
   (PROGRESS 233 measures both to under 0.1%).
+
+  **`wheel` is also how you reach a widget below a long modal's fold - and it
+  keeps scrolling for far longer than the step takes.** ImGui trickles queued
+  input ONE EVENT PER FRAME (`io.ConfigInputTrickleEventQueue`), so a
+  `wheel X -19` hands the window nineteen notches over the following nineteen
+  frames *at least*, and a `frames 10` after it is not enough: the view is still
+  moving when the next `click` computes its target, the window slides out from
+  under it, and the click lands on whatever arrives there instead. It reports
+  SUCCESS - the item existed when it was looked up - so this reads as "the button
+  does nothing" and costs an hour. Measured driving *Project > Preferences* to its
+  BLSS block: at `frames 10` the view moved another 300 px between the `dump` and
+  the click and the button was never pressed; at `frames 90` two consecutive dumps
+  agree and the click lands. So: **`frames 60`-`90` after any `wheel`, then `dump`
+  TWICE and require the rects to agree** before clicking anything. The same
+  trickle applies to `text`, which is why the chat recipe below needs its
+  `frames 5`. (That measurement was taken on the one-long-stack version of
+  Project Preferences; that dialog is tabbed now and its BLSS block is two
+  clicks away with no wheel at all. The trap is unchanged for every other long
+  window - it is about ImGui, not about that dialog.)
+
+  **Two more `--ui-script` traps, both about a label being an id.** A label with
+  an APOSTROPHE cannot be named at all - the tokenizer opens a quoted run on a
+  single quote at a token boundary, so `'Will this project's frames get shorter?'`
+  parses as two tokens and the step dies with *"click needs one target"*; a button
+  that has to be scripted must not have one (that is why the Preferences verdict
+  button reads *Will the frames get shorter?*). **An apostrophe in GENERATED TEXT
+  is the same hazard wearing another hat**: an unpaired `'` (or `"`) after a
+  `#error` is read by GCC as an unterminated character constant, so every
+  translation unit that reads the file gets a *missing terminating ' character*
+  warning on top of the real diagnostic. The BLSS interlock shipped
+  "the upscaler's temporal pass" and put a bogus warning on all fourteen; the
+  guard is `errorSafe()` in templates.cpp, now applied to the whole line. Reach
+  for a plain word - the hazard is invisible in the C++ that writes the string.
+  And **the same label in two
+  different windows is legal in ImGui and ambiguous to `find`**, which takes the
+  first match - a bare `click Mode` with both *Project Preferences* and the BLSS
+  window open pressed the wrong one and then failed on the option that never
+  appeared. Qualify as `'Project Preferences/Mode'`. The same rule catches
+  `click Project`, which matches the Project PANEL'S DOCK TAB long before the menu
+  bar; the menu is `'##MainMenuBar/Project'`.
+
+  **On Windows PowerShell 5.1, put the script in DOUBLE quotes and its targets in
+  SINGLE ones** - not the other way round. Native-command argument passing
+  re-parses the string and eats embedded `"`, so
+  `TYRAX --ui-script $P 'click "Remote Pad"'` reaches the editor as
+  `click Remote Pad` and fails; `"click 'Remote Pad'"` survives intact. Both
+  spellings are equally valid to the tokenizer, so this costs nothing - but it is
+  the same class of mangling as the `Start-Process -ArgumentList` trap in the
+  `--pad` bullet above, and it fails with the same unhelpful message.
 
   Two things about the node canvases specifically (PROGRESS 247, which needed a
   screenshot of a node tooltip). **A node's param widgets register only while
@@ -919,17 +1156,65 @@ Notes:
   `bin/log.txt` (texture binds/hits/uploads/re-uploads/evictions, resident
   count, free MB, largest free block) — the honest way to tell "the scene is
   thrashing textures" from "the scene is just heavy"; see
-  [docs/gs-vram.md](../../../docs/gs-vram.md). A `--build --run` also kills
-  every other PCSX2 instance, and parallel worktree sessions run their own —
-  when several are up, `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs
-  whichever it finds first, so check the window title in the capture (or
-  select the process by `MainWindowTitle`) before trusting a screenshot.
+  [docs/gs-vram.md](../../../docs/gs-vram.md). Parallel worktree sessions each
+  run their own emulator, so when several are up
+  `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs whichever it finds first
+  (it warns, but the frames are already wrong) — pass **`-ProcessId <pid>`**
+  with the pid whose `-elf` path is your project. A `--build --run` used to reap
+  **every** PCSX2 on the machine by name and interrupted those sessions
+  repeatedly; since 1.22.0 it closes only the instance whose `-elf` names your
+  own ELF, so a launch of your project no longer ends somebody else's
+  measurement. Their *build* is still shared ground (one container per project
+  name, one engine volume per checkout), so when another agent's session is live
+  it is still politer to build with plain `--build` and launch PCSX2 yourself on
+  `bin/<name>.elf` (`-logfile <path>` keeps your emulog out of theirs).
   For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
   counters) is written up in [docs/profiling.md](../../../docs/profiling.md) —
   frames are almost always EE-bound; `endFrame` time is mostly vsync idle, not
-  GS load.
+  GS load. **For a real A/B in milliseconds** — an engine change, a feature that
+  claims to make frames shorter — the same page's *frame-timing rig* is the
+  instrument: engine counters behind `TYRA_FRAME_PROFILE` (default 0, so a
+  shipped build carries nothing) and a once-a-second `FRAMETIME` line with
+  mean/median/p95, plus a raw per-frame dump so two runs can be compared as
+  PAIRED samples. Three rules from it that generalise: drive the camera from a
+  **frame index in an object script**, not `--pad` (whose driver refreshes off
+  the host wall clock, so the two runs never show the same view); turn Live
+  Link / Live Debugger / Live Logic / Remote Pad / Time Machine **off** (a
+  debug build polls `livepad.bin` through HostFs every frame); and **run the
+  page's GS fill calibration before quoting any PCSX2 number about GS cost** —
+  measured, PCSX2 under-reports fill by **76x**.
+- **Testing whether a picture is STILL needs a period-2 test, not a diff** — and
+  **three** instruments in a row got this wrong before it stuck, so the full
+  rules live in docs/profiling.md, "The stability gate". The short form, each
+  clause paid for: freeze the camera **and every emitter** (on
+  `examples/upscaler-lab` the running particles change more between frames than
+  the artefact does, and they bury it); point it at **textured** content (a
+  quarter-pixel resample cannot change an untextured box, so a minimal fixture
+  measures clean and truthfully and tells you nothing); capture **back to back**
+  rather than on a stride (an even stride lands on the same phase forever);
+  **never `-Trim`** and take the crop once (trimming black borders re-registers
+  a shifted picture to an identical image, so a displacement becomes invisible
+  by construction); report a **cross-correlation lag** as well as a pixel count;
+  and cluster by pairwise difference — two balanced clusters, near-zero within
+  and large between, IS the alternation. Then check the verdict against a
+  labelled A/B/C where you already know the answer, rather than against a
+  threshold you chose.
+  And on Windows **select the PCSX2 instance by the
+  project on its command line** (`Get-CimInstance Win32_Process ... CommandLine
+  -like "*<project>*"`, then `-ProcessId` that pid) — `-ProcessName pcsx2-qt`
+  takes the first one it finds, and with parallel worktrees running that silently
+  captures somebody else's game and looks exactly like a screenshot. **A GDI grab
+  reads the SCREEN**, so an occluded PCSX2 captures as whatever is on top of it
+  and yields a plausible, entirely fictional "stable" table — capture with
+  **`-PrintWindow`**, which cannot see anything but the window itself, and diff
+  frame 0 of one arm against frame 0 of another before believing any of it.
+  **And then read "The motion gate" below**: freezing the camera and the
+  emitters is what made this artefact reproducible, and it is also what makes
+  this instrument blind to every fault that only exists while the picture is
+  moving — four of which reached the owner on this branch.
+
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess
   at project paths — their projects live wherever they put them, and a blind
@@ -991,6 +1276,39 @@ Notes:
   `livedbg.bin` stops advancing while the console still answers `ping`. The fix
   is a redeploy (*Run on PS2*, F6), not a retry — and it is why
   `--debug-state` reports the transport.
+
+  **A deploy no longer kills anybody else's file server, and the story of why
+  is worth keeping.** `deployToPs2`, `stopPs2` and `clean` used to run
+  `platform::killByName({"ps2client"})` — `taskkill /F /IM ps2client.exe`,
+  **machine-wide, by name** — so a *Run on PS2* of a DIFFERENT project (or of
+  the same project from another worktree's editor, which this repo routinely
+  has several of) silently took down the file server of the session you were
+  watching. Diagnosed once from timestamps alone: `livedbg.bin` and
+  `livetime.bin` in project A froze to the second at the moment project B was
+  deployed, while `[ps2]` log lines kept scrolling in the editor's Output
+  panel. **That log is the trap** — it is UDP straight from the console to
+  whichever `ps2client` is listening, so it does not go through the file server
+  at all and keeps arriving after the file channel is dead. Two transports, one
+  dead, and only the live one is visible.
+
+  Since 1.22.0 the Runner reaps only the servers it owns (its own by handle, a
+  stale one of the SAME project by its command line, an orphan no running
+  editor claims) and **refuses**, naming the project that holds the channel,
+  for anything else — docs/ps2link-setup.md, "One file server at a time". So
+  when a channel is dead now, ask `--debug-state`: it lists every `ps2client`
+  with the console (`-h`) and the game (`execee host:<name>.elf`) its command
+  line names, which is the same identity the Runner decides ownership by. If
+  that ELF is not the project you are debugging, somebody else has the channel
+  and your deploy will say so rather than stealing it.
+
+  **`platform::killByName` is gone from the tree, deliberately.** Use
+  `platform::processesNamed(name)` + `platform::killProcess(pid)` and decide
+  ownership from the command line; a process whose command line cannot be read
+  is never a target. Note the discriminator is the command line and not the
+  working directory, even though cwd would be sharper (the deploy runs its
+  server with cwd = `<project>/bin`): Linux answers that with one readlink of
+  `/proc/<pid>/cwd` and Windows has no supported way to ask, and a key only one
+  platform can compute is worse than a slightly weaker key both can.
 
   That leaves a bind for **scripted** hardware debugging: a probe needs the file
   server alive, but the editor that hosts it also drives `livedbg.cmd`, and two
@@ -1282,6 +1600,269 @@ test rather than a screenshot:
 - **crop the status bar out** if you want a cleaner number: it is the only thing
   moving in an idle frame, so its rows are pure noise for every comparison.
 
+### The motion gate: does the picture survive being MOVED?
+
+**Every check above this line freezes the camera.** That is what makes them
+reproducible, and it is exactly what makes them blind. Four defects on the
+upscaler branch reached the owner because no harness could see them:
+
+| defect | why every gate missed it |
+|---|---|
+| the jitter shake | the sampler used an **even frame stride**, so every capture landed on the same jitter phase and it reported a perfectly still picture |
+| terrain streaking at grazing angles | nothing ever *looked* at a moving ground plane |
+| BLSS x frame extrapolation tearing | **parked, all four arms are indistinguishable**; it exists only in motion |
+| black frames with triple buffering | found because a human happened to watch an agent's emulator |
+
+**A frozen fixture buys repeatability at the price of a whole class of faults.**
+The motion gate is the other half:
+
+```powershell
+# one arm = one four-leg run of the fixed route
+powershell -File .claude\skills\tyra-testing\scripts\motion-gate.ps1 `
+    -Project $env:TEMP\tyra-editor-test\mgate -Out <scratch>\armB -NoAnalyse
+# then compare it against the arm with ONE knob changed
+python .claude\skills\tyra-testing\scripts\motion-gate.py <scratch>\armB `
+    --baseline <scratch>\armC --bands 8
+```
+
+`motion-gate.ps1` captures; `motion-gate.py` decides (and is the cross-platform
+half - point it at any burst directory, so a Linux capture can feed it). Exit 0
+= nothing flagged, 1 = something flagged, 2 = the burst is not usable. A
+four-leg run is ~25 s of capture and ~1.5 GB of raw frames; analysing two arms
+is ~3 min.
+
+#### The fixture
+
+`scripts/routecam.cpp` is the route: a **global script** (`TYRA_SCRIPT`, no
+attachment) that drives `ctx.cameraOverride`/`cameraEye`/`cameraAt` from its own
+**frame index**, in four 200-frame legs that close into a loop -
+
+| leg | what it is | what it is for |
+|---|---|---|
+| `hold` | parked at one pose | the parked stability gate, as a leg: the noise floor, and the one place where "the picture moved" needs no argument |
+| `pan` | 50 deg of yaw | a near-rigid lateral move - the cleanest case for the residual |
+| `dolly` | 6 units forward, camera dropping 1.6 -> 0.9 | textured ground at a **grazing angle**, and a zoom that has no global translation at all |
+| `return` | the way back | reverse dolly plus reverse pan |
+
+Copy it into a fixture project's `src/scripts/`, fix the namespace, and set:
+**`displayMode: progressive`** (interlaced alternates fields, which is a
+period-2 signal by construction), **`showFps`/`showMemory`/`showProfiler` off**
+(a live frame counter inside the picture is pure noise), **`liveDebug` on** (the
+gate reads the game's frame counter out of `bin/livedbg.bin`), and the emitters
+left **RUNNING** - one of the four faults lives in exactly that combination.
+`examples/upscaler-lab` copied to a short path is the fixture this was built and
+measured on.
+
+#### Determinism: a frame-indexed route, and the pad as a ONE-SHOT trigger
+
+The Remote Pad refreshes at 25 Hz off the **host** wall clock, so a stick lands
+at a different frame offset in every run - which is why every measurement on
+this branch used a frame-indexed script camera instead. This gate does the same:
+the route is a pure function of the script's frame index, so two runs traverse
+identical content. **The pad's only job is to zero that index once.** A one-shot
+event's arrival jitter shifts the whole route equally instead of perturbing each
+capture, and if the press never lands the route still runs - only its phase is
+unknown. Three things fell out of building it:
+
+- **`getClicked()` did not reach a global script from `--pad`.** Measured: a
+  `press cross` reset nothing and three runs landed at three different route
+  phases; the same script reading **`getPressed()` with its own edge** resyncs
+  every time. `livepad::tick` raises `clicked` inside the frame it polls, so
+  anything reading it on the wrong side of that call never sees a remote press
+  at all. Use `getPressed()` and find the edge yourself.
+- **Schedule the legs in GAME FRAMES, not seconds.** The emulator does not run
+  at 100 % and its rate is not constant: this fixture measured 50-61 fps across
+  its own four legs, and **28.8 fps with frame extrapolation on** (the world
+  runs at half rate by design). Wall-clock scheduling walks the burst out of the
+  leg it belongs to within one loop; polling `livedbg.bin`'s frame counter
+  between bursts does not, and costs nothing.
+- **A parked leg whose picture is bobbing measures as "moving".** Take
+  parked-vs-moving from the ROUTE (the leg's name), never from the measurement,
+  or the gate switches to the moving-leg statistic and discards the one finding
+  that needed no argument at all.
+
+#### The statistic, which is the hard part
+
+Particles on `upscaler-lab` change more between frames than the artefact the
+parked gate hunts, and a walking camera moves every pixel. "% of pixels that
+changed" is not a signal here, it is a description of the route. So the gate
+does not measure the difference between two captures - it measures **the part of
+that difference that a rigid move of the whole picture cannot explain**:
+
+```
+d       global displacement, by phase correlation (integer + sub-pixel)
+raw     mean |A - B|                      <- dominated by the route
+mc      mean |shift(A, round(d)) - B|     <- what the move did not explain
+mc/raw  the unexplained FRACTION - scale-free, so it does not care how much
+        time passed or how far the camera went
+```
+
+Legitimate motion lands in `d`. Parallax, disocclusion and the emitters put a
+floor under `mc`, and that floor grows with the amount of change, which is what
+dividing by `raw` removes. Each defect is then something a rigid move cannot
+express - and each has its own column:
+
+- **a bob** is a displacement on top of the route. On the `hold` leg it is the
+  ENTIRE displacement, reported in pixels, needing no threshold argument. `mc`
+  compensates only the INTEGER part on purpose, so a sub-pixel bob stays in the
+  residual rather than being absorbed by the estimator meant to find it.
+- **a tear** is two displacements in one picture. Correlate horizontal BANDS and
+  look for a **step**, not for disagreement: forward motion makes every band
+  disagree with the whole frame (measured: dy of 0,0,0,0,+3,+6 sky to ground,
+  every frame of the dolly leg), so the statistic is the largest adjacent-band
+  jump *in excess of* the typical one. A band votes only when its own
+  correlation is at least 0.4 as confident as the whole frame's - the good bands
+  of a panning frame score 0.65-0.85 and the two that reported a bogus 30 px
+  scored 0.26-0.33, so an absolute floor does not separate them.
+- **a black frame** is a luma collapse. No statistic; just say it.
+- **streaking** is spatial, so every residual is reported PER BAND as well:
+  "the ground band is 6x the sky band" is the shape that artefact makes.
+- **something that stopped being DRAWN** is a per-tile question, and it is the
+  one that hands over a diagnosis. When a hardcoded `ZBUF` mask made a
+  full-screen pass stamp depth through the texture heap, the tell was not the
+  missing terrain everyone was looking at - it was that the **crosshair** had
+  gone too, in an arm whose terrain was untextured. On the `hold` leg both arms
+  are parked at the SAME pose, so their per-pixel MEDIAN frames (the median
+  removes the particles) compare tile by tile with no alignment and no
+  statistics: a tile that changed while its local variance collapsed **stopped
+  being drawn**; a tile that changed and kept its detail merely looks different,
+  and is reported as the much weaker thing it is.
+
+**Runs are compared as DISTRIBUTIONS over the same route, per leg** - never
+capture k against capture k. The captures are not frame-locked to anything (see
+below), so a paired comparison would report the sampler's own phase as a
+finding. **Change ONE knob between the arms** and the route, the emitters and
+the reconstruction are common mode; a verdict the baseline also produces on the
+same leg is dropped rather than reported.
+
+#### Rules this branch paid for, and that the scripts encode
+
+- **CONSECUTIVE CAPTURES, NEVER A STRIDE.** The capture loop sleeps for nothing.
+  It reports the interval it achieved (measured: **48-59 Hz** through
+  `PrintWindow` against a 50-60 fps game, i.e. ~1.0-1.3 game frames per capture)
+  and **warns when that lands within 0.04 of a whole number of frames** - an
+  even stride samples one phase of a period-2 artefact forever, which is exactly
+  how the shake survived its first harness.
+- **`-PrintWindow` by default.** A GDI `CopyFromScreen` reads the SCREEN, so an
+  occluded window captures whatever is physically in front of it - that once
+  grabbed the owner's browser instead of the emulator and produced a perfectly
+  plausible table. PrintWindow reads the window's own content, raises nothing
+  and steals no focus. **Select the emulator by the project on its command
+  line** (`-Project` does it; `-ProcessName` takes the first of several
+  worktrees' emulators).
+- **INSTRUMENT OUTSIDE THE LOOP YOU ARE PERTURBING.** The game's frame counter
+  is read from `bin/livedbg.bin` once before a burst and once after, never per
+  capture, and the per-capture index is interpolated and labelled as an
+  estimate. Adding 24 per-frame log lines inside the boot-banner loop moved the
+  black-frame defect's trigger and made it vanish; 45 HostFs reads a second is
+  the same kind of poking.
+- **`Start-Process -ArgumentList` does not quote its array elements**, so a
+  `;`-separated pad script arrives as loose argv and the driver dies on a stderr
+  nobody reads - which looks exactly like a dead pad channel. The `--pad` call
+  lives inside the `.ps1`, and **its stderr and exit code are read out loud**.
+- **A frame missing geometry entirely is a different question from a frame
+  drawing it wrong.** The gate writes the two frames of its worst capture plus
+  the 8x-amplified unexplained residual into `<leg>/look/`, because that
+  distinction discarded two wrong theories in an hour and only a picture answers
+  it.
+- **Take the crop ONCE** and never `-Trim`: a crop that follows the content
+  re-registers a picture that slid by a line into an identical image. The crop
+  is found from the first frame of the first arm and reused for both (`--box`),
+  and it needs a *coverage* rule rather than a bounding box - PCSX2's own FPS
+  readout sits in the letterbox, and one line of thin white text drags a plain
+  bounding box back over the black bars.
+
+#### What it caught, and what it could not (2026-08-11)
+
+**The acceptance test is retrospective**: a gate that cannot flag a defect we
+already understand is not a gate, and saying so is a better outcome than tuning
+a threshold until something trips. Fixture `examples/upscaler-lab` copied to
+`%TEMP%\tyra-editor-test\mgate`, PCSX2 software renderer, progressive 480p,
+emitters running, 110 captures per leg. **Arm C is the reference** (BLSS on,
+`blssJitter` off, no extrapolation - the shipped default) and every other arm is
+**one knob** away from it.
+
+| arm | leg | measurement | verdict |
+|---|---|---|---|
+| **C** reference | hold | move **0.00 px**, raw **0.120/255** | the noise floor, with the emitters running |
+| | pan | move 4.12 px, mc/raw 0.514 | - |
+| | dolly | no global shift at all; band mc ramps 0.22 -> 14.7 sky to ground | the zoom signature |
+| | (own flag) | PERIOD-2 on `pan`, 74/34 at 0.121 | present in EVERY arm, so dropped from every comparison |
+| **B** `blssJitter` **on** | hold | **5.34 px** of displacement per capture pair on a PARKED camera; mc **43.2x** the reference | `PICTURE MOVES`, `WORSE WHEN PARKED` |
+| | pan | **2.41x** the reference's unexplained residual | `WORSE IN MOTION` |
+| | dolly / return | mc/raw splits **53/56 at 12.1x** and **55/54 at 7.2x** | `PERIOD-2`, new against the reference |
+| **D** BLSS **x** frame extrapolation | (whole run) | the world rate halves to **28.8 fps** by design | frame-scheduled legs absorbed it with no change |
+| | hold | 0.24 px on a parked camera; mc **26.7x** the reference | `PICTURE MOVES`, `WORSE WHEN PARKED` |
+| | return | **2.24x** in motion; band mc **0.37 sky -> 29.6 ground, an 80x ratio** | `WORSE IN MOTION` - and that ratio IS the grazing-angle ground artefact, localised |
+| | dolly | mc/raw splits **50/59 at 5.3x** | `PERIOD-2`, new against the reference |
+
+**Run to run it repeats**: a second, independent capture of arm D on the same
+build read **26.93x** against the same reference where the first read 26.66x,
+and 0.23 px of parked displacement against 0.24. That is the number that says
+the sampler's own phase is not in the answer.
+
+Three things in that table are worth more than the numbers:
+
+- **The jitter shake is caught on the parked leg AND in motion**, which is the
+  whole point - the parked gate could only ever see the first.
+- **BLSS x extrapolation separates even PARKED, at 26.7x** - and the reason is
+  the fixture rule everything else fought: the **emitters are running**. Every
+  other frame is synthesised and a synthesised frame freezes the particles, so
+  the arm that froze the emitters for repeatability is exactly the arm in which
+  all four configurations look identical. Extrapolation is also a period-2
+  process by construction (real, synthetic, real, synthetic), which is why the
+  clustering comes out perfectly balanced.
+- **The gate flags the reference arm's own `pan` leg** (74/34 at 0.121, 4.0x).
+  That is honest and it is not the upscaler being exonerated: it is either the
+  24 fps model animation stepping under a 60 fps camera or BLSS' temporal pass
+  under motion, and this instrument cannot tell those apart. It is reported as
+  the baseline's own flag and subtracted from every comparison, which is what
+  keeps it from being read as a finding about the arm under test.
+
+**Forcing the refused combination.** BLSS x frame extrapolation is a build-time
+`#error`, and the whole refusal lives in one generated TU:
+`--refresh-gen` writes `src/gen/blss_interlock.gen.cpp` (and deletes it the
+moment the clash is gone). So a scratch fixture gets past it by **deleting that
+file and then building in the container by hand** - `--build` would regenerate
+it:
+
+```powershell
+tyrax-editor --refresh-gen $P            # prints "[blss] BUILD WILL BE REFUSED"
+Remove-Item "$P\src\gen\blss_interlock.gen.cpp"
+docker compose --project-directory $P -f "$P\docker-compose.yml" up -d
+docker compose ... exec -T compiler sh -c "rsync -a --delete --exclude=.git --exclude=obj --exclude=bin /host/ /src/"
+docker compose ... exec -T compiler sh -c 'cd /src && make -j$(nproc)'
+docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/** --exclude=* /src/ /host/"
+```
+
+**What it could NOT do.**
+
+- **The black-frame / triple-buffering defect was not reproduced.** Its fix is
+  three hunks inside `vendor/tyra`, and reverting them was out of this change's
+  scope. The DETECTOR is verified instead, against a real burst with three
+  captures blacked out: it named all three by capture index, route leg, time,
+  game frame and file. That is a check of the test and its reporting, not of the
+  defect - and the difference matters. What says the capture path would see the
+  real thing is the fix's own diagnosis: three of eight consecutive PrintWindow
+  captures came back black.
+- **"What stopped being drawn" refuses to answer on a bobbing leg**, by design.
+  A shaking picture smears its own median, local variance falls everywhere, and
+  the tile test then reports the whole textured half of the frame as gone - 41
+  tiles on the jitter arm, none of which stopped being drawn. So it prints
+  `NOT ASKED` above 0.5 px of bob. Fix the bob, then ask.
+  Even below it, read the tile list as a SHAPE rather than a count: a handful of
+  scattered tiles in the sky and at the edges is the translucent particle field
+  reconstructing differently between two arms (three GONE and three NEW on the
+  extrapolation arm, all of them haze), while the case this exists for - the
+  terrain, or a crosshair - is a contiguous block or a lone tile that holds a
+  sprite. `--tiles-x/--tiles-y` set the grain; 24x18 is ~40 px here.
+- **It cannot separate "the scene legitimately animated" from "the
+  reconstruction hiccupped"** inside one arm - see the reference arm's own `pan`
+  flag. The arm comparison is what makes a finding, and that needs a second
+  build.
+- **PCSX2 only.** Admissible for correctness (which is all this measures);
+  never quote a GS-fill or per-function number from it.
+
 ## Verifying the AI Assistant (docs/ai-chat.md)
 
 An AI feature looks untestable and is not: three of its four layers need no
@@ -1318,7 +1899,28 @@ g++ -std=c++20 -O0 -I src -I build-dev/generated -I vendor/imgui -I vendor/imgui
 (Everything but `main.cpp.o`, plus a harness with its own `main()`. The GUI code
 comes along unused - it costs a link, not a display.) The same recipe works for
 any host-only module that a plain `g++ aichat.cpp` cannot link on its own because
-it reaches `project.cpp`.
+it reaches `project.cpp`. **On Windows** it is `src/*.obj`, no `main.cpp.obj`,
+and the libraries CMake links: `-static -lopengl32 -lgdi32 -lcomdlg32 -lshell32
+-lole32 -luuid -lws2_32 -limm32` (miss `comdlg32` and the only error you get is
+`GetOpenFileNameW` from `platform.cpp`, which says nothing about a file dialog).
+That harness is how the procedural read tools were checked without a backend -
+`runReadTool` for `get_proc_graph` / `list_proc_nodes` over
+`examples/procedural`, plus a `procGraphJson` -> `parseProcGraph` -> `procGraphJson`
+round trip over all six of its volumes, which must come out **byte-identical** or
+`set_proc_graph` loses whatever differs.
+
+**2b. A malformed reply is its own test, and it needs no editor at all.**
+`aigen::repairJson` + `json::parse` are the path a model's broken envelope takes
+(a bare `"` left in prose is the common one, and it makes the whole document
+unparseable). Copy `repairJson` and `extractJsonObject` into a scratch file next
+to `src/json.cpp` and assert on the recovered `say` and on whether the tool calls
+SURVIVED - that second half is the one that catches the interesting bugs, because
+salvaging the prose while silently dropping the calls looks fine on screen and
+ends the turn. Cases worth having: a clean envelope (must be untouched), a stray
+quote with and without calls, a lone backslash, a markdown fence, `\uXXXX`
+escapes (they must come out as UTF-8, not `?`), and plain prose (must NOT parse
+as an envelope). Reuse ONE `json::Value` across the failed parse and the retry,
+too - that is exactly how the stale-partial-parse bug in `json::parse` surfaced.
 
 **3. The whole loop, with a FAKE backend and no tokens.** The backends are
 external commands found on `PATH`, so a shell script called `claude` earlier on
@@ -1335,6 +1937,11 @@ case "$n" in
 *) echo '{ "say": "Done." }' ;;
 esac
 ```
+
+A fake is also the only convenient way to feed the window a reply that is
+BROKEN in a specific way - answer with an unescaped quote (`{ "say": "the "main"
+scene" }`) or a lone backslash and check that the window shows prose rather than
+JSON, which is what the repair path exists for.
 
 Drive the window with `--ui-script` (no focus needed, see above) and check the
 RESULT in the project rather than on screen - that is what makes it a test:
@@ -1414,4 +2021,5 @@ multi-step turn needs, and closing the window mid-turn does not strand it.
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
+| Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |

@@ -18,6 +18,7 @@
 
 #include "animedit.hpp"
 #include "aobake.hpp"
+#include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
 #include "decalproj.hpp"
 #include "fbxparser.hpp"
@@ -443,15 +444,15 @@ int main(int argc, char** argv) {
   // The Engine(options) ctor re-applies this flag, so it must be set here
   // too or the static above gets reset to the default (console logging).
   options.writeLogsToFile = !ps2link;
-  // Target system (Project > Preferences > Build): Auto follows the console
+  // Target system (Project > Preferences > Display): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
-  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // Scan mode (Project > Preferences > Display > Display mode): interlaced
   // 480i/576i (whole frames or true field rendering), progressive 480p,
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
   // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
-  // PAL picture (Preferences > Build > PAL picture): with the
+  // PAL picture (Preferences > Display > PAL picture): with the
   // region-following interlaced mode, a PAL console (or a forced-PAL
   // target system) boots the full-height 512-line 576i frame instead of
   // the letterboxed NTSC-size picture. Resolved here, before engine init,
@@ -463,8 +464,14 @@ int main(int argc, char** argv) {
        (options.videoMode == Tyra::VideoMode::Auto &&
         graph_get_region() == GRAPH_MODE_PAL)))
     options.displayMode = Tyra::DisplayMode::Pal576i;
-  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  // 16:9 anamorphic output (Preferences > Display > Widescreen).
   options.widescreen = {{WIDESCREEN}};
+  // Triple buffering (Preferences > Display > Triple buffering, docs/
+  // frame-pacing.md): present from a vblank interrupt instead of stalling
+  // the EE on vsync, so a frame that overruns its field is shown one field
+  // late instead of halving the frame rate. Costs a third display buffer of
+  // GS VRAM; the engine reports and stays double buffered if it does not fit.
+  options.tripleBuffering = {{TRIPLE_BUFFERING}};
   // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
@@ -539,9 +546,32 @@ constexpr bool P2_JOIN_ON_START = {{P2_JOIN_ON_START}};
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
+
+// Experimental (Preferences > Display > Frame delivery,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = {{FRAME_EXTRAPOLATION}};
+
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = {{FRAME_EXTRAPOLATION_PLANE}};
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = {{FRAME_EXTRAPOLATION_FORCE}};
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = {{FRAME_EXTRAPOLATION_GROUND}};
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -584,6 +614,18 @@ constexpr bool DEBUG_SHOW_PROFILER = {{DEBUG_SHOW_PROFILER}};
 // diagnose from inside the game. Guarded by this constexpr, so a build with it
 // false emits no vertices at all (see rebuildObjectGeometry case 17).
 constexpr bool DEBUG_SHOW_AREAS = {{DEBUG_SHOW_AREAS}};
+// Draw the COLLISION BOX of every collider (docs/collision-boxes.md) as a red
+// wireframe. The volume the walker and the third-person camera boom test is
+// not the mesh - a model collides as its bounding box - so a prop that blocks
+// the player short of its surface, or a camera that pulls in early, is
+// invisible until you can see the box. Guarded by this constexpr, so a build
+// with it false emits nothing (see renderCollisionBoxes).
+constexpr bool DEBUG_SHOW_COLLISION = {{DEBUG_SHOW_COLLISION}};
+// How far from the camera the overlay reaches, and how many boxes it will draw
+// (nearest first). Both are frame-budget caps, not authoring limits: an edge is
+// 12 vertices, so the whole overlay costs at most COLLISION_BOX_LIMIT * 144.
+constexpr float COLLISION_BOX_RANGE = 60.0F;
+constexpr int COLLISION_BOX_LIMIT = 24;
 
 }  // namespace {{NAME_UPPER_NS}}
 )";
@@ -1209,6 +1251,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -1448,10 +1506,39 @@ class TerrainGame : public Tyra::Game {
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   // The general sweep behind springArm: first blocked distance along d for a
-  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
-  // (the swept object itself). Also carries/throws pickable objects.
+  // sphere of `radius`, vs object collision boxes + the terrain; skipIndex is
+  // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+
+  // --- the collision box (docs/collision-boxes.md) --------------------------
+  // What an object reduces to for the walker, the camera boom and the
+  // split-screen cull. ONE builder: these three used to size the box
+  // themselves, by hand, from the same fields - and had already drifted (the
+  // scroller belt marker blocked the camera but not the player, and none of
+  // them turned the box by an animated model's content-forward yaw, so an
+  // X-forward-authored character collided across its own mesh).
+  // Twin of placement::collisionBox on the host, which is what the editor's
+  // View > Collision boxes overlay draws.
+  struct CollisionBox {
+    float center[3] = {0.0F, 0.0F, 0.0F};  // MODEL frame, scale folded in
+    float half[3] = {0.5F, 0.5F, 0.5F};
+    float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
+  };
+  CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+  // Debug overlay: draws those boxes as red wireframes in the running game
+  // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
+  // constexpr, so a shipping build emits nothing). Rebuilt every frame from
+  // the nearest COLLISION_BOX_LIMIT colliders, so it follows physics bodies
+  // and anything a flow node moves.
+  void renderCollisionBoxes();
+  std::vector<Tyra::Vec4> collisionBoxVerts;
+  std::vector<Tyra::Color> collisionBoxCols;
+  std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
+  std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
+  // Does this object take part in collision at all? Geometry-less markers and
+  // "collision: none" objects do not.
+  static bool objectCollides(const SceneObjectData& d);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -2417,6 +2504,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -2656,10 +2759,39 @@ class TerrainGame : public Tyra::Game {
   float springArm(float px, float py, float pz, float dx, float dy, float dz,
                   float maxDist) const;
   // The general sweep behind springArm: first blocked distance along d for a
-  // sphere of `radius`, vs object AABBs + the terrain; skipIndex is excluded
-  // (the swept object itself). Also carries/throws pickable objects.
+  // sphere of `radius`, vs object collision boxes + the terrain; skipIndex is
+  // excluded (the swept object itself). Also carries/throws pickable objects.
   float sweepSphere(float px, float py, float pz, float dx, float dy, float dz,
                     float maxDist, float radius, int skipIndex) const;
+
+  // --- the collision box (docs/collision-boxes.md) --------------------------
+  // What an object reduces to for the walker, the camera boom and the
+  // split-screen cull. ONE builder: these three used to size the box
+  // themselves, by hand, from the same fields - and had already drifted (the
+  // scroller belt marker blocked the camera but not the player, and none of
+  // them turned the box by an animated model's content-forward yaw, so an
+  // X-forward-authored character collided across its own mesh).
+  // Twin of placement::collisionBox on the host, which is what the editor's
+  // View > Collision boxes overlay draws.
+  struct CollisionBox {
+    float center[3] = {0.0F, 0.0F, 0.0F};  // MODEL frame, scale folded in
+    float half[3] = {0.5F, 0.5F, 0.5F};
+    float yaw = 0.0F;  // the model frame's own Y rotation (modelYaw), degrees
+  };
+  CollisionBox objectCollisionBox(const RuntimeObject& o) const;
+  // Debug overlay: draws those boxes as red wireframes in the running game
+  // (Preferences > Build > Show collision boxes; DEBUG_SHOW_COLLISION is a
+  // constexpr, so a shipping build emits nothing). Rebuilt every frame from
+  // the nearest COLLISION_BOX_LIMIT colliders, so it follows physics bodies
+  // and anything a flow node moves.
+  void renderCollisionBoxes();
+  std::vector<Tyra::Vec4> collisionBoxVerts;
+  std::vector<Tyra::Color> collisionBoxCols;
+  std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
+  std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
+  // Does this object take part in collision at all? Geometry-less markers and
+  // "collision: none" objects do not.
+  static bool objectCollides(const SceneObjectData& d);
 
   // Multiple scenes: the game starts in scene 0; the flow graph Switch
   // Scene node requests a change applied between frames.
@@ -3046,7 +3178,11 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
-#include <math.h>
+// The frame-timing rig (docs/profiling.md, "Timing a frame that BLSS is in").
+// TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
+// a preprocessor pass and nothing else.
+#include "debug/frame_profile.hpp"
+{{BLSS_INCLUDE}}#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -3279,6 +3415,32 @@ V3 invRotated(const V3& v, const float* rotDeg) {
   }
   return r;
 }
+
+// The box's frame: R(rotation) * Ryaw(modelYaw). The content-forward
+// correction turns the MESH between scale and rotation (see the animated model
+// matrix in updateAndRenderAnimObjects), so it has to turn the mesh's box too -
+// without it an X-forward-authored character collided and blocked the camera
+// across its own body.
+V3 boxRotate(const V3& v, const SceneObjectData& d) {
+  V3 p = v;
+  if (d.modelYaw != 0.0F) {
+    const float a = d.modelYaw * (PI / 180.0F);
+    const float c = cosf(a), s = sinf(a);
+    p = {p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+  }
+  return rotated(p, d.rotation);
+}
+
+V3 boxInvRotate(const V3& v, const SceneObjectData& d) {
+  V3 p = invRotated(v, d.rotation);
+  if (d.modelYaw != 0.0F) {
+    const float a = -d.modelYaw * (PI / 180.0F);
+    const float c = cosf(a), s = sinf(a);
+    p = {p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+  }
+  return p;
+}
+
 
 /** Directional light (Project > Preferences), baked into vertex colors.
  * Returns per-channel multipliers: brightness * (ambient + diffuse*d*lightColor). */
@@ -4100,6 +4262,18 @@ void addSphere(std::vector<Vec4>& verts, std::vector<Color>& cols,
 void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
                  std::vector<Vec4>& sts, const SceneObjectData& o) {
   const int seg = o.primDetail < 3 ? 3 : (o.primDetail > 64 ? 64 : o.primDetail);
+  // Rings along the axis (mirror of primCylinderStacks in project.hpp - keep
+  // the two in sync), opt-in per object. Without them every vertex-baked term
+  // that varies with HEIGHT - a baked point light overhead, the contact
+  // darkening at the foot, a probe gradient - is one linear ramp per segment
+  // quad, and its diagonal seam paints a full-height stripe that more radial
+  // detail only makes narrower. With nothing lighting the cylinder vertically
+  // they are triangles no shading reads, hence the flag rather than always-on.
+  int rings = 1;
+  if (o.primRings) {
+    rings = seg / 4;
+    if (rings < 1) rings = 1;
+  }
   const float r = 0.5F, h = 0.5F;
   for (int i = 0; i < seg; ++i) {
     const float a0 = 2.0F * PI * i / seg, a1 = 2.0F * PI * (i + 1) / seg;
@@ -4109,12 +4283,16 @@ void addCylinder(std::vector<Vec4>& verts, std::vector<Color>& cols,
     const V3 n0 = {cosf(a0), 0, sinf(a0)}, n1 = {cosf(a1), 0, sinf(a1)};
     // side (smooth) - atlas region 0
     g_aoRegion = 0;
-    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
-    pushVert(verts, cols, sts, o, {x0, h, z0}, n0, u0, 0);
-    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
-    pushVert(verts, cols, sts, o, {x0, -h, z0}, n0, u0, 1);
-    pushVert(verts, cols, sts, o, {x1, h, z1}, n1, u1, 0);
-    pushVert(verts, cols, sts, o, {x1, -h, z1}, n1, u1, 1);
+    for (int k = 0; k < rings; ++k) {
+      const float tt = (float)k / rings, tb = (float)(k + 1) / rings;
+      const float yt = h - 2.0F * h * tt, yb = h - 2.0F * h * tb;
+      pushVert(verts, cols, sts, o, {x0, yb, z0}, n0, u0, tb);
+      pushVert(verts, cols, sts, o, {x0, yt, z0}, n0, u0, tt);
+      pushVert(verts, cols, sts, o, {x1, yt, z1}, n1, u1, tt);
+      pushVert(verts, cols, sts, o, {x0, yb, z0}, n0, u0, tb);
+      pushVert(verts, cols, sts, o, {x1, yt, z1}, n1, u1, tt);
+      pushVert(verts, cols, sts, o, {x1, yb, z1}, n1, u1, tb);
+    }
     // caps (planar mapping) - atlas regions 1 (+Y) and 2 (-Y)
     g_aoRegion = 1;
     pushVert(verts, cols, sts, o, {0, h, 0}, {0, 1, 0}, 0.5F, 0.5F);
@@ -4341,6 +4519,10 @@ void drawIconAt(Engine* engine, int i, float x, float y, float box) {
   sp->size = Vec2((float)ir.w, (float)ir.h);
   sp->offset = Vec2((float)ir.u, (float)ir.v);
   sp->scale = box / (float)ir.h;
+  // The icon sheet is ONE shared sprite (iconSheetSprite) and drawFontText
+  // gives it a per-axis drawSize for squeezed text - clear it, or a widescreen
+  // menu leaves every later icon drawn at that width.
+  sp->drawSize = Vec2(0.0F, 0.0F);
   sp->position = Vec2(x, y);
   engine->renderer.renderer2D.render(*sp);
 }
@@ -4352,16 +4534,20 @@ int liveIconForAction(int action) {
   return (pad >= 0 && pad < 16) ? ICON_FOR_PAD[pad] : -1;
 }
 
-float fontTextWidth(int fontIdx, const char* s, float size) {
+/** Width of a string in framebuffer pixels. `sx` squeezes the horizontal axis
+ * (1 = square glyphs): a menu panel compensated for anamorphic widescreen is
+ * narrower than the buffer says, and text measured without the same factor
+ * would be laid out for a panel that is not there. */
+float fontTextWidth(int fontIdx, const char* s, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs) return 0.0F;
-  const float k = size / (float)f.baseSize;
+  const float k = (size / (float)f.baseSize) * sx;
   float w = 0.0F;
   while (*s) {
     int tokenLen = 0;
     const int icon = resolveIconToken(s, &tokenLen);
     if (icon >= 0) {
-      w += iconAdvanceFor(icon, size);
+      w += iconAdvanceFor(icon, size) * sx;
       s += tokenLen;
       continue;
     }
@@ -4373,8 +4559,12 @@ float fontTextWidth(int fontIdx, const char* s, float size) {
   return w;
 }
 
+/** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
+ * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
+ * compensated for anamorphic widescreen, where the glyphs have to be squeezed
+ * with the panel or they come out fatter than the baked rows around them. */
 void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size) {
+                  float cy, float size, float sx = 1.0F) {
   const FontData& f = FONTS[fontIdx];
   if (!f.glyphs || !f.atlas[0]) return;
 
@@ -4392,10 +4582,11 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
 
   Sprite& sp = glyph[fontIdx];
   const float k = size / (float)f.baseSize;
+  const float kx = k * sx;  // the same factor with the horizontal squeeze in
   sp.scale = k;
 
   // Center anchor, like the baked HUD text sprites.
-  const float startX = cx - fontTextWidth(fontIdx, s, size) * 0.5F;
+  const float startX = cx - fontTextWidth(fontIdx, s, size, sx) * 0.5F;
   const float top = cy - (float)f.lineH * k * 0.5F;
 
   // The shared icon-sheet sprite (one texture, see iconSheetSprite).
@@ -4420,16 +4611,20 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       int tokenLen = 0;
       const int icon = resolveIconToken(c, &tokenLen);
       if (icon >= 0) {
-        const float adv = iconAdvanceFor(icon, size);
-        const float box = adv - size * 0.12F;
+        // The box is the icon's HEIGHT, so it never takes the squeeze; only
+        // the advance and the drawn width do.
+        const float box = iconAdvanceFor(icon, size) - size * 0.12F;
+        const float adv = iconAdvanceFor(icon, size) * sx;
         const IconRect& ir = ICONS[icon];
         if (ir.h > 0 && pass == 1 && iconSp) {
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;
+          iconSp->drawSize =
+              Vec2((float)ir.w * (box / (float)ir.h) * sx, box);
           // Sit on the line box like a capital does, not on the baseline.
           iconSp->position =
-              Vec2(pen + size * 0.06F + ox,
+              Vec2(pen + size * 0.06F * sx + ox,
                    top + ((float)f.lineH * k - box) * 0.5F + ox);
           engine->renderer.renderer2D.render(*iconSp);
         }
@@ -4444,11 +4639,12 @@ void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
       if (g.w > 0 && g.h > 0) {
         sp.size = Vec2((float)g.w, (float)g.h);
         sp.offset = Vec2((float)g.u, (float)g.v);
-        sp.position = Vec2(pen + (float)g.xoff * k + ox,
+        sp.drawSize = Vec2((float)g.w * kx, (float)g.h * k);
+        sp.position = Vec2(pen + (float)g.xoff * kx + ox,
                            top + (float)g.yoff * k + ox);
         engine->renderer.renderer2D.render(sp);
       }
-      pen += (float)g.adv * k;
+      pen += (float)g.adv * kx;
     }
   }
 }
@@ -4468,18 +4664,288 @@ static inline u32 profTicks() {
   return v;
 }
 
+#if TYRA_FRAME_PROFILE
+// ---------------------------------------------------------------------------
+// The FRAMETIME line: the frame-timing rig's output half (the counters live in
+// the engine, inc/debug/frame_profile.hpp; the protocol is docs/profiling.md).
+//
+// ONCE A SECOND, never once a frame. TyraDebug::writeInLogFile does a full
+// ofstream open + append + flush PER LINE (vendor/tyra/engine/src/debug/
+// debug.cpp), over host: on real hardware - a per-frame line would be
+// measuring the logger. One snprintf, one TYRA_LOG, the same 1 Hz cadence
+// RendererCoreBlss::logFeatureSpread already uses.
+//
+// The whole block charges its own cost to FrameProfile::tExcluded, which
+// endFrame() subtracts from tFrameWork - otherwise one frame in fifty is a
+// 20 ms outlier made entirely of measurement apparatus.
+// ---------------------------------------------------------------------------
+namespace ftrig {
+
+constexpr int kWindow = 50;    // frames per FRAMETIME line
+constexpr int kRaw = 512;      // buffered per-frame samples (paired stats)
+constexpr float kTicksPerMs = 294912.0F;
+constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
+
+u32 work[kWindow], drain[kWindow];
+u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+// The split of the two big EE terms. The first hardware A/B read the
+// composite's EE half off ONE counter and got "~3.9 ms of scene submission"
+// by SUBTRACTION, which is not a measurement; these make both attributable.
+u64 sPrx = 0, sAcc = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
+int n = 0;
+u32 frame = 0;  // frames since boot - the alignment key between runs A and B
+u32 raw[kRaw];
+int rawN = 0;
+u32 rawFirst = 0;
+// One-frame delay line. drawDebugHud runs BEFORE endFrame, so the BLSS
+// counters it can see are THIS frame's while tFrameWork/tDrain are still last
+// frame's. Holding the BLSS values back by one frame makes every record
+// coherent instead of skewed.
+u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
+u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
+bool pValid = false;
+
+// u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
+// a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
+// wrapped and printed BELOW the median - which is how a 500 ms frame first
+// reported itself as 37 ms. Per-frame values (median, p95) were always fine;
+// only the accumulators were wrong.
+inline float ms(u64 ticks, int count) {
+  return (float)ticks / (kTicksPerMs * (float)count);
+}
+
+void sortU32(u32* a, int cnt) {
+  for (int i = 1; i < cnt; i++) {
+    const u32 v = a[i];
+    int j = i - 1;
+    while (j >= 0 && a[j] > v) {
+      a[j + 1] = a[j];
+      j--;
+    }
+    a[j + 1] = v;
+  }
+}
+
+// Dumps the buffered per-frame work ticks so runs A and B can be compared as
+// PAIRED samples (frame k of A against frame k of B - the fixture's camera is
+// frame-indexed, so those are the same view). Same I/O cost as one summary
+// line, 512x the data; 64 values a line keeps each line under 600 bytes.
+void dumpRaw() {
+  char line[600];
+  for (int base = 0; base < rawN; base += 64) {
+    int at = snprintf(line, sizeof(line), "FTRAW %lu",
+                      (unsigned long)(rawFirst + (u32)base));
+    const int end = base + 64 < rawN ? base + 64 : rawN;
+    for (int i = base; i < end; i++)
+      at += snprintf(line + at, sizeof(line) - at, " %lx",
+                     (unsigned long)raw[i]);
+    TYRA_LOG(line);
+  }
+  rawN = 0;
+}
+
+void tick(const Vec4& camPos, const Vec4& camAt) {
+  namespace FP = Tyra::FrameProfile;
+  const int i = n;
+  work[i] = FP::tFrameWork;
+  drain[i] = FP::tDrain;
+  if (pValid) {
+    sBeg += pBeg;
+    sEnd += pEnd;
+    sCmp += pCmp;
+    sCmpEe += pCmpEe;
+    sPrx += pPrx;
+    sAcc += pAcc;
+    sRep += pRep;
+    sFea += pFea;
+    sNet += pNet;
+    sPkt += pPkt;
+  }
+  pBeg = FP::tBlssBegin;
+  pEnd = FP::tBlssEnd;
+  pCmp = FP::tBlssComposite;
+  pCmpEe = FP::tBlssCompositeEe;
+  pPrx = FP::tBlssProxy;
+  pAcc = FP::tBlssAccum;
+  pRep = FP::tBlssReproj;
+  pFea = FP::tBlssFeat;
+  pNet = FP::tBlssNet;
+  pPkt = FP::tBlssPacket;
+  pValid = true;
+  if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
+  if (rawN == 1) rawFirst = frame;
+  frame++;
+  if (++n < kWindow) return;
+  n = 0;
+
+  u32 sorted[kWindow];
+  u64 sumW = 0, sumD = 0;
+  int over = 0;
+  for (int k = 0; k < kWindow; k++) {
+    sorted[k] = work[k];
+    sumW += work[k];
+    sumD += drain[k];
+    if (work[k] > kBudget20ms) over++;
+  }
+  sortU32(sorted, kWindow);
+
+  // Heading, not orbit angle: it is defined for any fixture camera, and it is
+  // the independent confirmation that frame f of run A really was looking
+  // where frame f of run B was. `f` is the exact key; `cam` is the check.
+  const float cam = atan2f(camAt.x - camPos.x, camAt.z - camPos.z);
+  const float mean = ms(sumW, kWindow);
+  const float dr = ms(sumD, kWindow);
+
+  char line[320];
+  snprintf(line, sizeof(line),
+           "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
+           "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
+           kWindow, (unsigned long)(frame - kWindow), (double)mean,
+           (double)ms(sorted[kWindow / 2], 1),
+           (double)ms(sorted[(kWindow * 95) / 100], 1), (double)(mean - dr),
+           (double)dr, (double)ms(sBeg, kWindow), (double)ms(sEnd, kWindow),
+           (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
+           (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
+  TYRA_LOG(line);
+  // The attribution line. `proxy` is charged inside StaPipCore (scene
+  // SUBMISSION, not the composite); the other four split the composite's EE
+  // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
+  // figure above to within the counters' own overhead.
+  //
+  // `proxy=total/accum` splits the proxy feed itself: `accum` is
+  // RendererCoreBlss::addBag, the read-modify-write per (proxy, TILE), and
+  // `total - accum` is the projection half - eight corners through the MVP,
+  // the near clip, the bbox reduce, once per VU1 package. They are the two
+  // halves the same millisecond can be taken off in completely different ways,
+  // and this feature has already paid once for splitting a term by
+  // subtraction instead of measuring it.
+  // THREE decimals, not two, and the reason is that this line has outlived the
+  // sizes it was written for. When it was added the terms it splits ran 2-4 ms
+  // and 0.01 was noise; the cuts since have taken reproj to 0.28 and feat to
+  // 0.19, where a real 0.05 ms saving is five units of the last digit and a
+  // 0.02 one is two. A term measured to 0.01 ms cannot resolve a cut worth
+  // 0.03, and rounding is not something more paired windows can average away.
+  snprintf(line, sizeof(line),
+           "FTSPLIT f=%lu proxy=%.3f/%.3f reproj=%.3f feat=%.3f net=%.3f "
+           "pkt=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
+           (double)ms(sAcc, kWindow),
+           (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
+           (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
+  TYRA_LOG(line);
+  sBeg = sEnd = sCmp = sCmpEe = 0;
+  sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
+  if (rawN >= kRaw) dumpRaw();
+}
+
+#if TYRA_FRAME_PROFILE_CALIB
+// The calibration gate. K full-screen textured alpha-blended sprites a frame,
+// each with its own draw_finish + wait; the slope of the sweep is what one
+// full-screen GS pass costs on THIS machine. PCSX2 runs a software rasteriser
+// and is not fill-rate accurate, and BLSS trades GS fill for GS fill - a slope
+// near zero means no emulator number about this feature's GS cost is
+// admissible. Real hardware should read ~0.2-0.4 ms per pass at 512x448.
+constexpr int kCalibK[5] = {0, 2, 4, 8, 16};
+u32 calSum[5] = {0, 0, 0, 0, 0};
+int calN[5] = {0, 0, 0, 0, 0};
+int calFrame = 0;
+// THE RESOLUTION THE SWEEP RAN AT. The probe sizes its sprite from the current
+// framebuffer, so `slope` is ms per full-screen pass AT THIS RASTER and means
+// nothing without it - the 0.5872 this rig published was measured on a PAL 576i
+// fixture (512x512) and then read against 512x448 coverages for a year, which
+// is 14.3 % more pixels than the constant describes. Printed on the line, next
+// to a per-megapixel figure that does not depend on the mode at all.
+int calW = 0, calH = 0;
+
+void calibrate(Engine* engine) {
+  const int slot = (calFrame / 10) % 5;  // 10 frames per K, then rotate
+  calFrame++;
+  auto& core = engine->renderer.core;
+  const u32 t = Tyra::FrameProfile::gsFillProbe(&core.gs, &core.sync,
+                                                core.getPath1(),
+                                                kCalibK[slot], &calW, &calH);
+  calSum[slot] += t;
+  calN[slot]++;
+  if (calFrame % 250) return;
+  char line[200];
+  int at = snprintf(line, sizeof(line), "GSFILL");
+  for (int i = 0; i < 5; i++)
+    at += snprintf(line + at, sizeof(line) - at, " k%d=%.3f", kCalibK[i],
+                   calN[i] ? (double)ms(calSum[i], calN[i]) : 0.0);
+  // Least-squares slope of ms against K, i.e. ms per full-screen pass.
+  float sx = 0.0F, sy = 0.0F, sxx = 0.0F, sxy = 0.0F;
+  for (int i = 0; i < 5; i++) {
+    const float x = (float)kCalibK[i];
+    const float y = calN[i] ? ms(calSum[i], calN[i]) : 0.0F;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
+  }
+  const float den = 5.0F * sxx - sx * sx;
+  const float slope = den != 0.0F ? (5.0F * sxy - sx * sy) / den : 0.0F;
+  // raster= is what `slope` is per; perMpx= is the same measurement with the
+  // mode divided out, so two consoles - or two display modes on one console -
+  // can be compared without anybody having to remember which fixture booted in
+  // which resolution.
+  const float mpx = (float)calW * (float)calH * 1e-6F;
+  snprintf(line + at, sizeof(line) - at, " raster=%dx%d slope=%.4f perMpx=%.4f",
+           calW, calH, (double)slope, mpx > 0.0F ? (double)(slope / mpx) : 0.0);
+  TYRA_LOG(line);
+}
+#endif  // TYRA_FRAME_PROFILE_CALIB
+
+}  // namespace ftrig
+#endif  // TYRA_FRAME_PROFILE
+
 /** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
  * (used/total EE MB) and the per-phase EE-time profiler in the top-left
  * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
- * in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
+ * in terrain_config.hpp fold the calls away). The camera is passed in for the
+ * frame-timing rig's `cam` field - it is the only thing here that needs it,
+ * and it is unused when TYRA_FRAME_PROFILE is 0. */
+void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
+#if TYRA_FRAME_PROFILE
+  {
+    // Everything in here is apparatus, so it comes straight back out of
+    // tFrameWork (see FrameProfile::tExcluded).
+    const u32 fpE0 = Tyra::FrameProfile::ticks();
+#if TYRA_FRAME_PROFILE_CALIB
+    ftrig::calibrate(engine);
+#endif
+    ftrig::tick(camPos, camAt);
+    Tyra::FrameProfile::tExcluded += Tyra::FrameProfile::ticks() - fpE0;
+  }
+#else
+  (void)camPos;
+  (void)camAt;
+#endif
   if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
   static int memRefresh = 0;
   static float memFreeMB = 0.0F;
   char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
-    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    // RENDERED frames per second, averaged over the engine's stated 0.5 s
+    // window (Info::getFps - it reads COP0 Count, not the video mode's
+    // scanline timer). Frame extrapolation presents a synthesised frame after
+    // endFrame() returns, so the game then shows about twice the rate it
+    // renders: SHOWN is that second number, and it appears only when the two
+    // genuinely differ. docs/profiling.md, "The three frame rate counters".
+    // The CAP is printed beside the rate because without it the same game
+    // reads 25 in PAL 576i and 30-40 in 1080i and looks like a counting bug -
+    // it is not. Those modes refresh at 50 and 60 Hz, and a frame that misses
+    // its field halves to 25 or 30 respectively; getRefreshRate() is the
+    // engine's own answer (DTV modes 60, Pal576i 50, the rest follow the video
+    // mode). Reported as "coś tu chyba źle liczy".
+    const float cap = engine->renderer.core.getSettings().getRefreshRate();
+    if (engine->info.isPresentingExtraFrames())
+      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f/%.0f",
+               (double)engine->info.getFps(),
+               (double)engine->info.getPresentedFps(), (double)cap);
+    else
+      snprintf(line, sizeof(line), "FPS %.1f/%.0f",
+               (double)engine->info.getFps(), (double)cap);
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -4492,6 +4958,22 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
+    drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+    // GS VRAM, beside it and deliberately so. MEM is the EE's 32 MB of main
+    // memory and does NOT move when the display mode changes - the
+    // framebuffers and the z buffer live in the GS' separate 4 MB, and that
+    // is the pool a taller mode eats. Reported as "I change the display mode
+    // and the memory reading never moves", which was the HUD answering a
+    // question it was never asked. Free rather than used: the texture heap is
+    // what a mode change takes from, and free space is what the next texture
+    // upload actually has (docs/gs-vram.md) - but it is printed as USED over
+    // the GS' 4 MB so it reads the same way round as MEM above it. Note the
+    // HUD glyph atlas is digits, '.' and UPPERCASE only: a lowercase word
+    // here silently draws nothing (the first cut of this line ended in
+    // "free" and rendered as blank).
+    snprintf(line, sizeof(line), "VRAM %.2f/4 MB",
+             4.0F - (double)engine->renderer.core.gs.vram.getFreeSpaceInMB());
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -4800,7 +5282,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -4817,7 +5299,7 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+{{BLSS_INIT}}  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -4993,6 +5475,16 @@ void TerrainGame::loop() {
   // it requests lands this frame.
   applyMenuBindings();
   applyInputBindings();  // saved rebinds -> live bindings (Input Map)
+  // World Facts: the profile is written when a profile fact MOVES, never on a
+  // timer - factProfileDirty() is the store telling us one did, and clears
+  // itself so a single change costs a single write.
+  if (FACT_PROFILE_COUNT > 0 && factProfileDirty()) {
+    static SaveProfileData prof;
+    prof.magic = SAVE_MAGIC;
+    prof.version = SAVE_VERSION;
+    prof.factCount = factProfileCapture(prof.facts, FACT_PROFILE_MAX);
+    profileWrite(prof);
+  }
   // Portal crossing test: the walker's position before this frame's movement
   const float portalPrevX = players[0].x, portalPrevY = players[0].y,
               portalPrevZ = players[0].z;
@@ -5309,8 +5801,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      renderScene();
-    }
+{{BLSS_SCENE_RENDER}}    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -5365,10 +5856,167 @@ void TerrainGame::loop() {
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
-    drawDebugHud(engine);
+    drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -5491,6 +6139,20 @@ void TerrainGame::buildScene() {
   scriptCtx.saveTexts = saveTexts.data();
   scriptCtx.saveTextCount = SAVE_TEXT_COUNT;
   saveInit();
+  // World Facts: the profile tier is read once at boot and then only written,
+  // so an unlock earned in a previous session is already true before the first
+  // scene loads (docs/world-facts.md "Saving"). It MUST come after saveInit():
+  // that call is what decides whether the transport is the memory card or the
+  // host file next to the ELF, and a read taken before it silently used the
+  // host path while every write went to the card - which looks exactly like a
+  // profile that does not persist. A missing profile is the normal first-run
+  // state; the catalog defaults stand and the file appears the first time one
+  // of them moves.
+  if (FACT_PROFILE_COUNT > 0) {
+    static SaveProfileData prof;  // a few dozen bytes, kept off the stack
+    if (profileRead(prof)) factProfileRestore(prof.facts, prof.factCount);
+    factProfileDirty();  // swallow the restore's own writes
+  }
   // Read which slots already hold a save. The menu refreshes this when it
   // opens, but a Commit Checkpoint in "next free slot" mode can fire long
   // before the player ever opens it - and against an all-false table it would
@@ -6914,15 +7576,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // The carried object rides in front of the face - letting it block its
     // own carrier would wedge the player against thin air.
     if (oi == carryIndex) continue;
-    if (!o.active || !o.visible || o.data.type == 4 || o.data.type == 6 ||
-        o.data.type == 7 || o.data.type == 8 || o.data.type == 9 ||
-        o.data.type == 11 || o.data.type == 13 ||  // 13 = decal (visual only)
-        o.data.type == 14 ||                       // 14 = camera marker
-        o.data.type == 17 ||                       // 17 = area (a volume, not a wall)
-        o.data.type == 18 ||                       // 18 = scatter volume (authoring only)
-        o.data.type == 19)                         // 19 = scroller belt marker
-      continue;
-    if (o.data.collision == 2) continue;  // none
+    // Markers, lights, decals, areas, volumes, belts and "collision: none"
+    // block nothing - one list, shared with the camera sweep (objectCollides).
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
     // Portal pass-through (updatePortalPass): while the walker stands in a
     // linked portal's opening, objects fully behind that portal's plane
     // stop colliding - the mounting wall becomes a doorway. Exact OBB
@@ -7033,28 +7689,16 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
 
     // --- box mode --- (models: real mesh AABB; primitives: unit scale box;
     // animated models: the baked AABB, a union over every clip's poses -
-    // mesh mode is a static-model feature, so .glb objects collide as boxes)
-    const SkelModel* anim = nullptr;
-    if (o.data.type == 5 && o.data.animModel >= 0 &&
-        o.data.animModel < (int)gameAnimModels.size())
-      anim = gameAnimModels[o.data.animModel].src.get();
-    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-          ez = 0.5F * o.data.scale[2];
-    V3 localCenter = {0.0F, 0.0F, 0.0F};  // box center in the object's own frame
-    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
-    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
-    if (mn && mx) {
-      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
-                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
-                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
-      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
-      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
-      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
-    }
+    // mesh mode is a static-model feature, so .glb objects collide as boxes).
+    // The box comes from objectCollisionBox, the same one the camera boom
+    // sweeps and the editor's overlay draws.
+    const CollisionBox cb = objectCollisionBox(o);
+    const float ex = cb.half[0], ey = cb.half[1], ez = cb.half[2];
     // World box center: the model-AABB offset lives in the object's own frame,
     // so it rotates with the object (a primitive's offset is 0, so this is
     // just its position).
-    const V3 cWorld = rotated(localCenter, o.data.rotation);
+    const V3 cWorld =
+        boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
     const float cx = o.data.position[0] + cWorld.x;
     const float cy = o.data.position[1] + cWorld.y;
     const float cz = o.data.position[2] + cWorld.z;
@@ -7078,7 +7722,9 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // "inside" and the back-projection contracts the committed position
     // toward the box center (the player teleported into thrown objects and
     // stuck inside them).
-    const float yaw = o.data.rotation[1] * PI / 180.0F;
+    // modelYaw rides along: it is a rotation about the same (model) Y, so for
+    // the yaw-only frame the two simply add.
+    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
     const float yawC = cosf(yaw), yawS = sinf(yaw);
     auto toLocalXZ = [&](float wx, float wz, float& lx, float& lz) {
       const float dx = wx - cx, dz = wz - cz;
@@ -7527,7 +8173,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
-  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
@@ -8905,6 +9551,9 @@ void TerrainGame::captureState(SaveGameData& d) {
   d.textCount = SAVE_TEXT_COUNT;
   for (int i = 0; i < SAVE_TEXT_COUNT; ++i)
     snprintf(d.texts[i], SAVE_TEXT_LEN, "%s", &saveTexts[i * SAVE_TEXT_LEN]);
+  // World Facts: whatever the catalog declared as checkpoint- or save-lived,
+  // each row carrying its fact's own id (docs/world-facts.md).
+  d.factCount = factSaveCapture(d.facts, FACT_SAVE_MAX);
   d.objectCount = 0;
   for (int i = 0;
        i < SCENE_OBJECT_COUNT && d.objectCount < SAVE_OBJECT_MAX; ++i) {
@@ -8964,6 +9613,12 @@ void TerrainGame::doLoad(int slot) {
 void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
+  // Facts are matched to slots BY ID, so a payload written before a fact was
+  // renamed, moved or removed still restores everything it still shares with
+  // this build - and silently drops the rest instead of writing a value into
+  // whatever now sits at that position.
+  if (d.factCount > 0 && d.factCount <= FACT_SAVE_MAX)
+    factSaveRestore(d.facts, d.factCount);
   for (int i = 0; i < d.textCount && i < SAVE_TEXT_COUNT; ++i) {
     d.texts[i][SAVE_TEXT_LEN - 1] = '\0';  // corrupted cards happen
     snprintf(&saveTexts[i * SAVE_TEXT_LEN], SAVE_TEXT_LEN, "%s", d.texts[i]);
@@ -9533,8 +10188,16 @@ void TerrainGame::renderGameMenu() {
   // across the same raster, so 448 columns cover exactly the width 512 do.
   // That also means the two axes scale by different factors - hence
   // Sprite::drawSize rather than Sprite::scale.
+  // Widescreen is ANAMORPHIC (docs/menu-styles.md "Widescreen"): the
+  // framebuffer does not change shape, the TV stretches the same signal across
+  // a 16:9 raster. A panel drawn with the resolution scale alone would come out
+  // a third wider than it was baked, with the text fattened to match - so the
+  // horizontal factor divides the window's shape back out and the panel keeps
+  // the physical size and proportions it was authored at, whatever the player
+  // picks. In 4:3 the ratio is exactly 1 and nothing moves.
   const auto& uiScr = engine->renderer.core.getSettings();
-  const float uiSX = uiScr.getWidth() / 512.0F;
+  const float uiAspectFix = (4.0F / 3.0F) / uiScr.getWindowAspect();
+  const float uiSX = uiScr.getWidth() / 512.0F * uiAspectFix;
   const float uiSY = uiScr.getHeight() / 448.0F;
   auto sxi = [&](int v) { return (float)v * uiSX; };
   auto syi = [&](int v) { return (float)v * uiSY; };
@@ -9807,16 +10470,19 @@ void TerrainGame::renderGameMenu() {
       // resolutions anyway).
       float size = (float)m.rowH * 0.8F * uiSY;
       const float room = (sxi(m.panelW) * 0.5F) - 24.0F * uiSX;
-      float w = fontTextWidth(m.font, txt, size);
+      // The panel around this text is squeezed for widescreen (uiAspectFix),
+      // so the binding has to be measured and drawn squeezed too - otherwise
+      // it is a third wider than the row it is supposed to sit in.
+      float w = fontTextWidth(m.font, txt, size, uiAspectFix);
       if (w > room && w > 0.0F) {
         const float k = room / w;
         size *= k < 0.5F ? 0.5F : k;
-        w = fontTextWidth(m.font, txt, size);
+        w = fontTextWidth(m.font, txt, size, uiAspectFix);
       }
       drawFontText(engine, m.font, txt, baseX + sxi(m.panelW - 24) - w * 0.5F,
                    baseY + syi(m.row0Y + (i - first) * m.rowH) +
                        syi(m.rowH) * 0.5F,
-                   size);
+                   size, uiAspectFix);
     }
   }
 }
@@ -10085,6 +10751,7 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colorBag->many = sb.colors.data();
@@ -10235,6 +10902,10 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
+    // ...and it rides the dome, so it is a shell fragment too - see the dome's
+    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
+    // would read as "the far plane, everywhere it covers".
+    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;
@@ -11387,6 +12058,198 @@ void TerrainGame::updateAndRenderDynTexts() {
 constexpr float CAM_RADIUS = 0.3F;    // eye clearance kept off surfaces; must
                                       // exceed the 0.15 near clip
 constexpr float CAM_MIN_DIST = 0.6F;  // never pull closer than this to the head
+// --- the collision box -------------------------------------------------------
+// One builder for the box every collision consumer reduces an object to (the
+// walker's box mode, the camera's spring arm, the split-screen band cull and,
+// in a debug build, the wireframe overlay). Host twin: placement::collisionBox.
+bool TerrainGame::objectCollides(const SceneObjectData& d) {
+  if (d.collision == 2) return false;  // "none" opts out
+  switch (d.type) {
+    // Everything with no geometry in the game. This list used to be written
+    // out by number at each call site, and they had drifted: the scroller belt
+    // marker (19) was missing from the camera sweep, so an invisible belt
+    // origin pushed the boom in.
+    case 4:   // spawn point
+    case 6:   // player marker
+    case 7:   // particle emitter
+    case 8:   // sound emitter
+    case 9:   // point light
+    case 11:  // empty
+    case 13:  // decal
+    case 14:  // camera marker
+    case 17:  // area (a volume, not a wall)
+    case 18:  // procedural volume (authoring only)
+    case 19:  // scroller belt marker
+      return false;
+    default: return true;
+  }
+}
+
+TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
+    const RuntimeObject& o) const {
+  // A model collides as its MESH bounds (a static .tmdl's, or an animated
+  // model's baked all-clips AABB) - the unit scale box is only the fallback,
+  // and for a model authored standing on its own origin it is its ankles.
+  const float* mn = nullptr;
+  const float* mx = nullptr;
+  if (o.data.type == 5) {
+    if (o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
+      mn = gameModels[o.data.model].mn;
+      mx = gameModels[o.data.model].mx;
+    } else if (o.data.animModel >= 0 &&
+               o.data.animModel < (int)gameAnimModels.size()) {
+      const SkelModel* anim = gameAnimModels[o.data.animModel].src.get();
+      if (anim) mn = anim->min, mx = anim->max;
+    }
+  }
+  const float lmn[3] = {mn ? mn[0] : -0.5F, mn ? mn[1] : -0.5F,
+                        mn ? mn[2] : -0.5F};
+  const float lmx[3] = {mx ? mx[0] : 0.5F, mx ? mx[1] : 0.5F,
+                        mx ? mx[2] : 0.5F};
+  CollisionBox b;
+  float c[3], h[3];
+  for (int k = 0; k < 3; ++k) {
+    float a = lmn[k] * o.data.scale[k], e = lmx[k] * o.data.scale[k];
+    if (a > e) {  // negative scale mirrors the box, it does not invert it
+      const float t = a;
+      a = e;
+      e = t;
+    }
+    c[k] = 0.5F * (a + e);
+    h[k] = 0.5F * (e - a);
+  }
+  for (int k = 0; k < 3; ++k) b.center[k] = c[k], b.half[k] = h[k];
+  b.yaw = o.data.modelYaw;
+  return b;
+}
+
+// Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
+// reduces to, drawn where it actually is. The walker and the camera boom test
+// a volume nothing renders, so "why did I stop here", "why did the camera jump
+// in" and "why does that character block a doorway sideways" are questions the
+// screen cannot answer - this puts the volume on screen, in the same red the
+// editor overlay uses (View > Collision boxes), from the SAME objectCollisionBox.
+//
+// Rebuilt every frame rather than baked into each object's geometry: a box has
+// to follow a tumbling physics body and a flow-node-moved prop, and those never
+// dirty-rebuild. That is affordable because of two caps - only colliders within
+// COLLISION_BOX_RANGE of the camera, and at most COLLISION_BOX_LIMIT of them
+// (the nearest win; the rest are silently absent, which is why the range is
+// generous rather than the count) - and because an edge is a CROSS of two thin
+// quads (12 vertices) instead of a beam box (36): nothing here backface-culls,
+// so a cross reads as a solid edge from every angle at a third of the cost.
+void TerrainGame::renderCollisionBoxes() {
+  if (!DEBUG_SHOW_COLLISION) return;
+  const float kRange = COLLISION_BOX_RANGE;
+  collisionBoxVerts.clear();
+  collisionBoxCols.clear();
+  const Color red(255.0F, 48.0F, 48.0F, 128.0F);
+
+  // Nearest-first without a sort: the list is short and a partial insertion
+  // over COLLISION_BOX_LIMIT entries costs less than sorting the scene.
+  int picked[COLLISION_BOX_LIMIT];
+  float pickedD[COLLISION_BOX_LIMIT];
+  int count = 0;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > kRange * kRange) continue;
+    int at = count;
+    if (count == COLLISION_BOX_LIMIT) {
+      // full: replace the farthest, and only if this one is nearer
+      int worst = 0;
+      for (int k = 1; k < count; ++k)
+        if (pickedD[k] > pickedD[worst]) worst = k;
+      if (pickedD[worst] <= d2) continue;
+      at = worst;
+    } else {
+      ++count;
+    }
+    picked[at] = oi;
+    pickedD[at] = d2;
+  }
+
+  for (int k = 0; k < count; ++k) {
+    const RuntimeObject& o = runtimeObjects[picked[k]];
+    const CollisionBox b = objectCollisionBox(o);
+    // The box frame in world space: unit axes plus the world centre.
+    const V3 ax[3] = {boxRotate({1.0F, 0.0F, 0.0F}, o.data),
+                      boxRotate({0.0F, 1.0F, 0.0F}, o.data),
+                      boxRotate({0.0F, 0.0F, 1.0F}, o.data)};
+    const V3 cw = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
+    const float cx = o.data.position[0] + cw.x;
+    const float cy = o.data.position[1] + cw.y;
+    const float cz = o.data.position[2] + cw.z;
+    const float half[3] = {b.half[0], b.half[1], b.half[2]};
+    float big = half[0] > half[1] ? half[0] : half[1];
+    if (half[2] > big) big = half[2];
+    float t = big * 0.02F;  // edge thickness: readable at any box size
+    if (t < 0.02F) t = 0.02F;
+
+    auto vtx = [&](float px, float py, float pz) {
+      collisionBoxVerts.push_back(Vec4(px, py, pz, 1.0F));
+      collisionBoxCols.push_back(red);
+    };
+    // One quad as two triangles, from four world points.
+    auto quad = [&](const V3& p0, const V3& p1, const V3& p2, const V3& p3) {
+      vtx(p0.x, p0.y, p0.z);
+      vtx(p1.x, p1.y, p1.z);
+      vtx(p2.x, p2.y, p2.z);
+      vtx(p0.x, p0.y, p0.z);
+      vtx(p2.x, p2.y, p2.z);
+      vtx(p3.x, p3.y, p3.z);
+    };
+    for (int a = 0; a < 3; ++a) {
+      const int u = (a + 1) % 3, v = (a + 2) % 3;
+      for (int corner = 0; corner < 4; ++corner) {
+        const float su = (corner & 1) ? 1.0F : -1.0F;
+        const float sv = (corner & 2) ? 1.0F : -1.0F;
+        // Edge midpoint, then half the edge vector along `a`.
+        const float mx = cx + ax[u].x * su * half[u] + ax[v].x * sv * half[v];
+        const float my = cy + ax[u].y * su * half[u] + ax[v].y * sv * half[v];
+        const float mz = cz + ax[u].z * su * half[u] + ax[v].z * sv * half[v];
+        const V3 e = {ax[a].x * half[a], ax[a].y * half[a], ax[a].z * half[a]};
+        // Two thin quads crossing along the edge - one spread along u, one
+        // along v - so the edge is visible whichever way the camera looks.
+        for (int p = 0; p < 2; ++p) {
+          const V3& w = p == 0 ? ax[u] : ax[v];
+          const V3 wt = {w.x * t, w.y * t, w.z * t};
+          quad({mx - e.x - wt.x, my - e.y - wt.y, mz - e.z - wt.z},
+               {mx + e.x - wt.x, my + e.y - wt.y, mz + e.z - wt.z},
+               {mx + e.x + wt.x, my + e.y + wt.y, mz + e.z + wt.z},
+               {mx - e.x + wt.x, my - e.y + wt.y, mz - e.z + wt.z});
+        }
+      }
+    }
+  }
+
+  if (collisionBoxVerts.empty()) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  if (!collisionBoxBag) {
+    collisionBoxColorBag = std::make_unique<StaPipColorBag>();
+    collisionBoxBag = std::make_unique<StaPipBag>();
+    collisionBoxBag->info = batchInfoBag.get();
+    collisionBoxBag->color = collisionBoxColorBag.get();
+    collisionBoxBag->lighting = nullptr;
+    collisionBoxBag->texture = nullptr;
+  }
+  collisionBoxColorBag->many = collisionBoxCols.data();
+  collisionBoxBag->vertices = collisionBoxVerts.data();
+  collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
+  collisionBoxBag->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(collisionBoxBag.get());
+}
+
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
   // Camera boom: the camera's own radius, ignoring the carried object (it
@@ -11411,11 +12274,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     const RuntimeObject& o = runtimeObjects[oi];
     if (oi == skipIndex) continue;  // the swept object itself
     if (!o.active || !o.visible) continue;
-    const int ty = o.data.type;
-    if (ty == 4 || ty == 6 || ty == 7 || ty == 8 || ty == 9 || ty == 11 ||
-        ty == 13 || ty == 14 || ty == 17 || ty == 18)
-      continue;  // markers / emitters / decals / areas / the avatar - not blockers
-    if (o.data.collision == 2) continue;  // "none": the sweep passes through
+    // Markers, lights, decals, areas, volumes, belts and "collision: none"
+    // are not blockers - one list, shared with the walker (objectCollides).
+    if (!objectCollides(o.data)) continue;
     if (sweepPassOn) {
       // Portal pass-through for a thrown object's sweep: obstacles fully
       // behind the aimed portal's plane open up (exact OBB extent along
@@ -11440,32 +12301,12 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
       if (sd < -re + 0.1F) continue;
     }
 
-    // Oriented box, sized exactly like box-mode player collision (the real
-    // mesh or baked anim AABB when the object has one, else the unit scale
-    // box) - and cast in the box's OWN frame, so a yaw-rotated block stops the
-    // boom at its real faces instead of leaking through the corners of an
-    // axis-aligned stand-in.
-    const GameModel* gm = nullptr;
-    if (ty == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
-      gm = &gameModels[o.data.model];
-    const SkelModel* anim = nullptr;
-    if (ty == 5 && o.data.animModel >= 0 &&
-        o.data.animModel < (int)gameAnimModels.size())
-      anim = gameAnimModels[o.data.animModel].src.get();
-    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-          ez = 0.5F * o.data.scale[2];
-    V3 localCenter = {0.0F, 0.0F, 0.0F};
-    const float* mn = gm ? gm->mn : (anim ? anim->min : nullptr);
-    const float* mx = gm ? gm->mx : (anim ? anim->max : nullptr);
-    if (mn && mx) {
-      localCenter = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
-                     0.5F * (mn[1] + mx[1]) * o.data.scale[1],
-                     0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
-      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
-      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
-      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
-    }
-    const V3 cW = rotated(localCenter, o.data.rotation);
+    // The shared collision box, cast in the box's OWN frame - so a rotated
+    // block stops the boom at its real faces instead of leaking through the
+    // corners of an axis-aligned stand-in.
+    const CollisionBox b = objectCollisionBox(o);
+    const float ex = b.half[0], ey = b.half[1], ez = b.half[2];
+    const V3 cW = boxRotate({b.center[0], b.center[1], b.center[2]}, o.data);
     const float cx = o.data.position[0] + cW.x;
     const float cy = o.data.position[1] + cW.y;
     const float cz = o.data.position[2] + cW.z;
@@ -11474,9 +12315,9 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     // per axis), inflated by r, vs the boom segment AABB. Conservative - it
     // never rejects an object the local slab test could still hit (the old
     // scale-box AABB was too small for a rotated block and leaked candidates).
-    const V3 hxv = rotated({ex, 0.0F, 0.0F}, o.data.rotation);
-    const V3 hyv = rotated({0.0F, ey, 0.0F}, o.data.rotation);
-    const V3 hzv = rotated({0.0F, 0.0F, ez}, o.data.rotation);
+    const V3 hxv = boxRotate({ex, 0.0F, 0.0F}, o.data);
+    const V3 hyv = boxRotate({0.0F, ey, 0.0F}, o.data);
+    const V3 hzv = boxRotate({0.0F, 0.0F, ez}, o.data);
     const float wex = fabsf(hxv.x) + fabsf(hyv.x) + fabsf(hzv.x);
     const float wey = fabsf(hxv.y) + fabsf(hyv.y) + fabsf(hzv.y);
     const float wez = fabsf(hxv.z) + fabsf(hyv.z) + fabsf(hzv.z);
@@ -11485,10 +12326,10 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
         cz + wez + r < sminZ || cz - wez - r > smaxZ)
       continue;  // broad phase: nowhere near the boom
 
-    // Narrow phase: slab test in the box's local frame. invRotated is
+    // Narrow phase: slab test in the box's local frame. The frame is
     // orthonormal, so the hit parameter t is still a world-space distance.
-    const V3 lo = invRotated({px - cx, py - cy, pz - cz}, o.data.rotation);
-    const V3 ld = invRotated({dx, dy, dz}, o.data.rotation);
+    const V3 lo = boxInvRotate({px - cx, py - cy, pz - cz}, o.data);
+    const V3 ld = boxInvRotate({dx, dy, dz}, o.data);
     float t0 = 0.0F, t1 = best;
     bool miss = false;
     auto slab = [&](float o1, float d1, float lo1, float hi1) {
@@ -12053,6 +12894,13 @@ void TerrainGame::buildSkyDome() {
   // The dome is centered on the camera - a nearby dynamic light would win
   // its pick and tint the whole sky.
   skyDome.infoBag->dynLightPick = false;
+  // ...and for the same reason it cannot be described to the BLSS upscaler:
+  // a shell around the eye has no screen bounding box that means anything.
+  // Its package boxes wrap the near plane, so each one reports "the frame,
+  // fully covered, at the nearest representable depth" and flattens coverage,
+  // depth and depthGrad wherever it lands. Measured: with the dome in, the
+  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
+  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -14390,6 +15238,9 @@ void TerrainGame::renderScene() {
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
   renderProcChunks();
+  // Debug overlay: the collision boxes the walker and the camera boom test
+  // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
+  renderCollisionBoxes();
   // Highlighted-in-reach usables get a separate shell pass after the scene.
   // RIM mode (default): the body is deferred out of the main pass and drawn
   // AFTER its shells, erasing the shell wash over the object's own receding
@@ -17396,29 +18247,11 @@ bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
 // under-cull but never over-cull.
 bool TerrainGame::objectOutsideSplitBand(int i) const {
   const RuntimeObject& o = runtimeObjects[i];
-  const GameModel* gm = nullptr;
-  if (o.data.type == 5 && o.data.model >= 0 &&
-      o.data.model < (int)gameModels.size())
-    gm = &gameModels[o.data.model];
-  const SkelModel* anim = nullptr;
-  if (o.data.type == 5 && o.data.animModel >= 0 &&
-      o.data.animModel < (int)gameAnimModels.size())
-    anim = gameAnimModels[o.data.animModel].src.get();
+  const CollisionBox b = objectCollisionBox(o);
   float cx = o.data.position[0], cy = o.data.position[1],
         cz = o.data.position[2];
-  float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
-        ez = 0.5F * o.data.scale[2];
-  float ox = 0.0F, oy = 0.0F, oz = 0.0F;  // local AABB center offset
-  const float* mnp = gm ? gm->mn : (anim ? anim->min : nullptr);
-  const float* mxp = gm ? gm->mx : (anim ? anim->max : nullptr);
-  if (mnp && mxp) {
-    ox = 0.5F * (mnp[0] + mxp[0]) * o.data.scale[0];
-    oy = 0.5F * (mnp[1] + mxp[1]) * o.data.scale[1];
-    oz = 0.5F * (mnp[2] + mxp[2]) * o.data.scale[2];
-    ex = 0.5F * (mxp[0] - mnp[0]) * o.data.scale[0];
-    ey = 0.5F * (mxp[1] - mnp[1]) * o.data.scale[1];
-    ez = 0.5F * (mxp[2] - mnp[2]) * o.data.scale[2];
-  }
+  float ex = b.half[0], ey = b.half[1], ez = b.half[2];
+  float ox = b.center[0], oy = b.center[1], oz = b.center[2];
   const float* rot = o.data.rotation;
   if (rot[0] != 0.0F || rot[1] != 0.0F || rot[2] != 0.0F ||
       o.data.modelYaw != 0.0F) {
@@ -17548,7 +18381,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -17565,7 +18398,7 @@ void TerrainGame::init() {
   // HOST at build time - this header is a stub until the build container has
   // done that, so a project builds the same with or without one.
   vuscript::install(stapip.core);
-  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
+{{BLSS_INIT}}  engine->renderer.core.postFx.setBloom(POSTFX_BLOOM);
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
@@ -17768,6 +18601,16 @@ void TerrainGame::loop() {
   // it requests lands this frame.
   applyMenuBindings();
   applyInputBindings();  // saved rebinds -> live bindings (Input Map)
+  // World Facts: the profile is written when a profile fact MOVES, never on a
+  // timer - factProfileDirty() is the store telling us one did, and clears
+  // itself so a single change costs a single write.
+  if (FACT_PROFILE_COUNT > 0 && factProfileDirty()) {
+    static SaveProfileData prof;
+    prof.magic = SAVE_MAGIC;
+    prof.version = SAVE_VERSION;
+    prof.factCount = factProfileCapture(prof.facts, FACT_PROFILE_MAX);
+    profileWrite(prof);
+  }
   // Portal crossing test: the walker's position before this frame's movement
   // (Player entity when the scene has one, the built-in FPP walker otherwise)
   const bool portalEnt = PLAYER_INDEX >= 0;
@@ -18124,8 +18967,7 @@ void TerrainGame::loop() {
       core.renderer3D.update(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       splitPassActive = false;
     } else {
-      renderScene();
-    }
+{{BLSS_SCENE_RENDER}}    }
     // Depth of field composites right after the 3D scene, BEFORE any 2D:
     // sprites stamp z = max across their whole rect (transparent margins
     // included), which would punch sharp rectangles into a later z-tested
@@ -18180,10 +19022,167 @@ void TerrainGame::loop() {
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
-    drawDebugHud(engine);
+    drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 )";
 
@@ -19269,6 +20268,11 @@ struct ScriptContext {
   // timer runs out (a mode the TV can't display would otherwise strand the
   // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
   // The game applies and resets all three.
+  // Frame extrapolation (docs/frame-extrapolation.md), written by the Set
+  // Frame Extrapolation flow node: -1 = leave alone, 0 = off, 1 = on (still
+  // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
+  // latches it and clears it back to -1.
+  int frameExtrapolation = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
@@ -20078,8 +21082,14 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << ", \"" << escapeCString(o.animClip) << "\", "
         << (o.animAutoplay ? 1 : 0) << ", " << (o.animLoop ? 1 : 0) << ", "
         << floatLit(o.animSpeed) << ", " << floatLit(o.animLodOverride) << ", "
-        << floatLit(o.meshLodOverride) << ", " << floatLit(o.modelYawOffset)
-        << ", " << clampPrimDetail(o.type, o.primDetail) << ", " << layerIdx
+        << floatLit(o.meshLodOverride) << ", "
+        // The content-forward correction only means anything on the animated
+        // path (it is not offered for anything else). Emitting a stale value
+        // for a static model would turn its collision box away from its mesh,
+        // because the box honors modelYaw and the static render does not.
+        << floatLit(animModelIndexOf(p, o) >= 0 ? o.modelYawOffset : 0.0f)
+        << ", " << clampPrimDetail(o.type, o.primDetail) << ", "
+        << (o.primRings ? 1 : 0) << ", " << layerIdx
         << ", " << batchStatic << ", {" << floatLit(o.vuParams[0]) << ", "
         << floatLit(o.vuParams[1]) << ", " << floatLit(o.vuParams[2]) << ", "
         << floatLit(o.vuParams[3]) << "}},  // " << o.name << "\n";
@@ -20963,6 +21973,12 @@ static bool staticBatchEligible(const SceneObject& o,
     return blocked.find(o.name) == blocked.end();
 }
 
+// The neural upscaler's build interlock, defined with the rest of the BLSS
+// codegen far below and emitted into a TU OF ITS OWN - see blssClashes() for
+// why it is a hard #error and blssInterlock() for why it stopped living in
+// inc/scene_data.hpp.
+static std::string blssInterlock(const Project& p);
+
 // inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build
 static std::string sceneDataContent(const Project& p, const std::string& ns) {
     std::ostringstream out;
@@ -21017,7 +22033,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float emitWeight;  // custom: air drag ~ 1/weight\n"
            "  float emitLife;    // custom: particle lifetime, seconds\n"
            "  float emitGrow;    // custom: size multiplier at end of life\n"
-           "  float emitOpacity; // custom: base alpha 0..1\n"
+           "  float emitOpacity; // fog/custom: base alpha 0..1\n"
            "  int emitDieGround; // custom: 1 = particle dies on the terrain\n"
            "  int snd;        // sound emitters: index into SND_PATHS, -1 = none\n"
            "  int sndAuto;    // sound emitters: 1 = plays while in range\n"
@@ -21060,6 +22076,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "                  // between scale and rotation - X-forward-authored models\n"
            "                  // set +-90; runtime facing (faceYaw/AI) stays pure\n"
            "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
+           "  int primRings;  // cylinders: 1 = also subdivide the side along\n"
+           "                  // the axis (one ring per four segments), which is\n"
+           "                  // what a light overhead needs to shade smoothly\n"
            "  int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:\n"
            "                  // always resident, never streamed out\n"
            "  int batchStatic; // 1 = may merge into a combined static batch bag\n"
@@ -22759,6 +23778,75 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
+    // The neural upscaler (docs/neural-upscaler.md). Mostly project-wide, like
+    // the blob shadows above: the scale, the jitter, the sharpen/temporal
+    // tuning and the debug view are one net's properties and are plain
+    // constants. Two of them - whether the scene rasterises reduced at all, and
+    // whether the MLP reconstructs it - resolve PER SCENE, and get tables like
+    // the POSTFX_* ones below, but ONLY when the project's scenes actually
+    // disagree (project::blssUse().mixed). A project whose scenes all resolve
+    // alike keeps the scalars it had, which is what makes its regeneration
+    // byte-identical.
+    //
+    // The whole block is emitted only while some scene has it ON, like the rest
+    // of the feature. A project with the upscaler off must generate the header
+    // it generated before BLSS existed, byte for byte - and nothing references
+    // these constants there, because the init block and the frame bracket are
+    // equally absent.
+    const project::BlssUse blssU = project::blssUse(p);
+    if (blssU.any) {
+        // The refusal itself is NOT here any more - it is its own translation
+        // unit (src/gen/blss_interlock.gen.cpp), because this header is included
+        // by about fourteen of them and the compiler repeated the whole
+        // diagnostic in every one. See blssInterlock().
+        const blss::Scale sc =
+            p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
+        // BLSS_ENABLED / BLSS_NETWORK are the WIDEST configuration the run will
+        // take, i.e. what init() has to allocate and bake for; in a mixed
+        // project the per-scene tables below narrow it at every scene load. In
+        // a uniform project the two say exactly what they always said.
+        out << "constexpr int BLSS_ENABLED = " << (blssU.any ? 1 : 0)
+            << ";\n"
+            << "constexpr int BLSS_SCALE_X = " << blss::scaleX(sc) << ";\n"
+            << "constexpr int BLSS_SCALE_Y = " << blss::scaleY(sc) << ";\n"
+            << "constexpr float BLSS_SHARPEN = "
+            << floatLit(p.settings.blssSharpen) << ";\n"
+            << "constexpr int BLSS_TEMPORAL = "
+            << (p.settings.blssTemporal ? 1 : 0) << ";\n"
+            // The +-1/4-pixel per-frame raster jitter. 0 is the kill switch
+            // for the period-2 bob (docs/neural-upscaler.md, "The
+            // oscillation") at the cost of the temporal supersampling.
+            << "constexpr int BLSS_JITTER = "
+            << (p.settings.blssJitter ? 1 : 0) << ";\n"
+            // PLAIN MODE. 0 = the reduced raster and one bilinear pass, with
+            // no proxy feed, no reprojection, no feature grid and no MLP. The
+            // four constants above are still emitted and still say what the
+            // project holds: configure() is what decides which of them plain
+            // mode reads (none of them, and it forces the jitter off), so the
+            // policy lives in one place instead of being restated here.
+            << "constexpr int BLSS_NETWORK = "
+            << (blssU.anyNetwork ? 1 : 0) << ";\n"
+            << "constexpr int BLSS_DEBUG_VIEW = " << p.settings.blssDebugView
+            << ";\n";
+        // PER SCENE (docs/neural-upscaler.md, "Per scene"). Emitted only when
+        // the scenes disagree, because a table of identical values is a table
+        // that changes every existing project's generated header for nothing.
+        if (blssU.mixed) {
+            out << "// This project's scenes do not all resolve the upscaler "
+                   "alike, so it is\n"
+                   "// switched per scene at load (RendererCoreBlss::setScene, "
+                   "free - configure()\n"
+                   "// below already sized the z buffer for the WIDEST raster "
+                   "any scene uses).\n"
+                   "constexpr int BLSS_NATIVE_SCENES = 1;\n";
+            sceneBools("BLSS_ENABLEDS", [&](int si) { return rs[si].blssEnabled; });
+            sceneBools("BLSS_NETWORKS", [&](int si) {
+                return rs[si].blssEnabled && rs[si].blssNetwork;
+            });
+            out << "#define BLSS_SCENE_ON BLSS_ENABLEDS[g_activeScene]\n"
+                   "#define BLSS_SCENE_NET BLSS_NETWORKS[g_activeScene]\n";
+        }
+    }
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
     {
@@ -23293,6 +24381,655 @@ static std::string screenFxSource(const Project& p) {
     return out.str();
 }
 
+// ---------------------------------------------------------- BLSS upscaler ---
+// The neural upscaler (docs/neural-upscaler.md) is baked at build time, so
+// every piece of it is a pure function of the Project - which is what lets
+// fillTemplate (a pure function too) decide whether the boot log has to admit
+// the network is untrained.
+//
+// Two of its settings resolve PER SCENE - whether the scene rasterises reduced,
+// and whether the MLP reconstructs it (project::blssUse). So everything below
+// asks blssUse(p) rather than p.settings.blssEnabled, and emits NOTHING while
+// no scene resolves it on. That is the contract for the whole feature: a
+// project with the upscaler off must generate byte-for-byte the sources it
+// generated before BLSS existed - and, since per-scene arrived, a project whose
+// scenes all resolve ALIKE must generate byte-for-byte what the project-wide
+// setting generated.
+
+// --- The interlock ---------------------------------------------------------
+// BLSS cannot be combined with depth of field, portals or split screen: all
+// three read or write real GS depth at DISPLAY resolution, which since the z
+// buffer started following the raster is not merely unwritten but unallocated
+// (docs/neural-upscaler.md). Until this block existed nothing in codegen knew
+// that. Three documents claimed "the generated game does not emit them
+// together" and none of them was ever true; the preferences dialog warned, and
+// a user who went past the warning got an ELF that compiled, booted, and drew
+// the wrong picture. Split screen is the worst of the three: the frame bracket
+// wraps only the single-view branch and configure() leaves zBuffer.mask = 1
+// outside it, so a split frame renders at FULL resolution with scene depth
+// writes masked - a broken picture, not a degraded one.
+//
+// So the generated sources REFUSE TO COMPILE. The alternative shape - emit the
+// game with the upscaler quietly dropped and a loud warning - lost on three
+// counts:
+//
+//  - It makes the ELF disagree with the project. `blssEnabled` would still be
+//    true in the .tyra while the binary has no upscaler in it, so the boot log,
+//    the VRAM figures and any timing would describe a configuration the project
+//    does not. For a proof of concept whose whole purpose is being MEASURED,
+//    "the build succeeded, and quietly measured something else" is the worst
+//    outcome on the table.
+//  - A build warning is not loud. `--build` streams a Docker log and a line in
+//    it scrolls past; what people read is the reason a build stopped.
+//  - The build is not the first thing to see the clash. The editor's
+//    preferences dialog already enumerates the same features, per feature, live
+//    (App::drawPreferencesWindow). This is the backstop for somebody who went
+//    past that, and a backstop that lets the build through is not one.
+//
+// The remedy is one click in every case, including the data-dependent ones
+// (a portal dropped into a scene), because BLSS is the newer, opt-in, off-by-
+// default half of every one of these pairs: turning the upscaler off always
+// resolves the clash, whichever feature tripped it. The message says so first
+// and names the clashing feature - and where it is - second.
+//
+// It lives in the generated SOURCE and not in the editor's build button,
+// because the button is not the only road to a wrong ELF: `docker compose up`
+// + `make` by hand in the project directory is one, and so is a CI job that
+// never runs the editor. Nothing that produces an ELF gets past a #error.
+//
+// A COMPILER DIAGNOSTIC IS A BAD PLACE FOR PROSE, and this had to learn it the
+// expensive way. The messages used to carry the whole argument - the measured
+// artefact, the mechanism, the remedy in three variants, ~340 characters each -
+// and they were emitted into inc/scene_data.hpp, which about fourteen
+// translation units include. GCC prints an #error three times over (the
+// diagnostic, the quoted source line, the caret), so one clash on one project
+// was one paragraph printed forty-two times, and the user who hit it reported
+// their whole build log as that wall. Two changes, and both are about SHAPE
+// rather than wording:
+//
+//  - Each line NAMES the pair, the scene and one place to fix it, and points at
+//    the doc page for the why. The long form is not gone - it lives in
+//    docs/neural-upscaler.md and docs/frame-extrapolation.md, and verbatim in
+//    the dialog (drawBlssClashWarning), which is where a person reads at their
+//    own pace and can click the thing being described.
+//  - It is emitted into a TU OF ITS OWN (src/gen/blss_interlock.gen.cpp), so it
+//    is compiled ONCE. That file is generated only while the project actually
+//    clashes and swept away by refreshGenerated when it stops - a stale one
+//    would refuse a build that is fine, which is the one failure mode worse
+//    than a noisy one. It is a plain generated source with no ownership marker,
+//    so nobody can switch the guard off by taking ownership of it, and
+//    Makefile.base globs src/**/*.cpp so it needs no Makefile change.
+//
+// The BLSS_* constants and the init/composite calls stay in scene_data.hpp and
+// are still emitted under a refusal on purpose - suppressing them would bury
+// the one diagnostic that matters under a page of "BLSS_SCALE_X was not
+// declared in this scope".
+
+// Text that is safe to put after a `#error`. The directive's operand is not
+// lexed as C++ tokens, but an unpaired apostrophe in it still draws a "missing
+// terminating ' character" warning out of GCC - which is not theoretical: the
+// authored words "the upscaler's temporal pass" put one such warning on every
+// one of those fourteen translation units, so every legitimate refusal shipped
+// with a bogus warning attached to it. A double quote does the same.
+//
+// So this is applied to the WHOLE #error line and not only to the user text
+// interpolated into it (scene and object names, which were the original
+// reason). The messages below are authored without either character, which
+// makes this a backstop rather than a filter - but a backstop is exactly what
+// the apostrophe bug proves is needed, because the hazard is invisible in the
+// C++ source that writes it. Anything outside a conservative printable set
+// becomes '?'.
+static std::string errorSafe(const std::string& s) {
+    static const std::string kPunct = " .,:;()[]<>+-_=/*&#@!%?";
+    std::string out;
+    out.reserve(s.size());
+    for (unsigned char c : s) {
+        const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') ||
+                        kPunct.find((char)c) != std::string::npos;
+        out += ok ? (char)c : '?';
+    }
+    return out;
+}
+
+// One line per feature this project uses that the upscaler cannot be combined
+// with; empty means the combination is buildable. Each condition mirrors the
+// one the GENERATED GAME will actually take, not the coarser one the
+// preferences dialog paints its warning from - a build that refuses more often
+// than the game would break is a build that blocks work for nothing.
+static std::vector<std::string> blssClashes(const Project& p) {
+    std::vector<std::string> out;
+    if (!project::blssUse(p).any) return out;
+    // EVERY clashing feature is reported, but only the first place each one
+    // shows up: a project with a portal AND split screen should learn both in
+    // one build rather than fix one, rebuild, and be refused again - while
+    // eleven scenes with depth of field are eleven copies of one sentence.
+    //
+    // PER SCENE (docs/neural-upscaler.md, "Per scene"). Every question below is
+    // asked of a scene that RESOLVES the upscaler on, and of no other. That is
+    // the whole second half of making this setting per-scene: the interlock was
+    // project-wide, so one portal anywhere refused the build for a project
+    // whose other nine scenes had neither a portal nor anything to do with it.
+    // The remedy is now local too - turn the upscaler off in THAT scene, in
+    // Scene > Scene Preferences.
+    const auto sceneUpscales = [&](size_t si) {
+        return project::resolvedSettings(p, p.scenes[si]).blssEnabled;
+    };
+
+    auto sceneName = [&](size_t si) {
+        return errorSafe(p.scenes[si].name.empty()
+                             ? ("scene #" + std::to_string(si))
+                             : ("scene " + p.scenes[si].name));
+    };
+    // POSTFX_DOFS stores the amount in 1/128ths (the sceneInts fx128 above),
+    // and RendererCorePostFx::applyPostFx runs the pass only for
+    // `dof > 0 && dofFocus > 0` - so an amount under 1/128, or a zero focus
+    // distance, is depth of field that never draws and never clashes.
+    auto dofActive = [](float amount, float focus) {
+        const int fx = (int)(amount * 128.0f + 0.5f);
+        return fx > 0 && focus > 0.0f;
+    };
+    // A plain decimal, not floatLit: this ends up in a sentence somebody
+    // reads, and a C++ float suffix in the middle of one reads as a typo.
+    auto amountText = [](float v) {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f", (double)v);
+        return std::string(buf);
+    };
+
+    // 1. Depth of field. Per SCENE, not per project: the project value is only
+    //    the default and a scene can override the whole post-fx group
+    //    (SceneOverrides::postFx), which is exactly what the POSTFX_DOFS table
+    //    is a table of.
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const ProjectSettings rs = project::resolvedSettings(p, p.scenes[si]);
+        if (!rs.blssEnabled) continue;
+        if (!dofActive(rs.dofAmount, rs.dofFocus)) continue;
+        out.push_back("BLSS x DEPTH OF FIELD in " + sceneName(si) +
+                      " (amount " + amountText(rs.dofAmount) +
+                      ") - turn one of them off. Why, and where: "
+                      "docs/neural-upscaler.md, Limitations.");
+        break;
+    }
+    // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
+    //    in a project whose authored amount is 0 everywhere. Mode 1 turns depth
+    //    of field off and mode 2 restores the scene's authored value (caught by
+    //    the loop above when that value is non-zero); only mode 0 sets its own.
+    //    The amount is a literal in the emitted code - nothing can wire it - so
+    //    this reads the same numbers the emitter does.
+    if (out.empty()) {
+        bool found = false;
+        for (size_t si = 0; si < p.scenes.size() && !found; ++si) {
+            if (!sceneUpscales(si)) continue;
+            for (const SceneObject& o : p.scenes[si].objects) {
+                const FlowNode* hit = nullptr;
+                for (const FlowNode& n : o.flowGraph.nodes) {
+                    if (n.type != "SetDof" || (int)n.num[3] != 0) continue;
+                    bool posWired = false;
+                    for (const FlowLink& l : o.flowGraph.links)
+                        posWired |= (l.kind == FlowLinkPos && l.toNode == n.id);
+                    // A wired position replaces Focus with the live
+                    // player-to-point distance, which is > 0.
+                    if (dofActive(n.num[2], posWired ? 1.0f : n.num[0])) {
+                        hit = &n;
+                        break;
+                    }
+                }
+                if (!hit) continue;
+                out.push_back(
+                    "BLSS x DEPTH OF FIELD in " + sceneName(si) +
+                    ": the flow graph of " + errorSafe(o.name) +
+                    " turns it on at runtime (amount " +
+                    amountText(hit->num[2]) +
+                    ") - turn one of them off. Why, and where: "
+                    "docs/neural-upscaler.md, Limitations.");
+                found = true;
+                break;
+            }
+        }
+    }
+    // 3. Portals. Objects in a scene, so this is data and not a preference -
+    //    and only a LINKED pair renders a through-view (renderPortalView skips
+    //    target < 0), so an unlinked portal is a tinted surface and no clash.
+    //    Same resolution rule as the PORTALS table: the target names another
+    //    Portal in the same scene.
+    bool portalFound = false;
+    for (size_t si = 0; si < p.scenes.size() && !portalFound; ++si) {
+        if (!sceneUpscales(si)) continue;
+        const auto& objs = p.scenes[si].objects;
+        for (size_t oi = 0; oi < objs.size(); ++oi) {
+            const SceneObject& o = objs[oi];
+            if (o.type != PrimitiveType::Portal || o.portalTarget.empty())
+                continue;
+            const SceneObject* target = nullptr;
+            for (size_t ti = 0; ti < objs.size(); ++ti)
+                if (ti != oi && objs[ti].type == PrimitiveType::Portal &&
+                    objs[ti].name == o.portalTarget)
+                    target = &objs[ti];
+            if (!target) continue;
+            out.push_back("BLSS x PORTALS in " + sceneName(si) +
+                          ": the linked portal " + errorSafe(o.name) + " -> " +
+                          errorSafe(target->name) +
+                          " - turn one of them off. Why, and where: "
+                          "docs/neural-upscaler.md, Limitations.");
+            portalFound = true;
+            break;
+        }
+    }
+    // 4. Split screen. A preference (MULTIPLAYER_MODE == 2) AND scene data: the
+    //    generated frame takes the split branch only when the active scene has
+    //    a SECOND Player object (PLAYER2_INDEXES), so a project set to split
+    //    with no player two anywhere never renders a split frame and is not a
+    //    clash. The preferences dialog does not make that distinction; this
+    //    does, because it is the one that stops the build.
+    if (p.settings.multiplayer == "split") {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!sceneUpscales(si)) continue;
+            int players = 0;
+            for (const SceneObject& o : p.scenes[si].objects)
+                if (o.type == PrimitiveType::Player) ++players;
+            if (players < 2) continue;
+            out.push_back(
+                "BLSS x SPLIT SCREEN in " + sceneName(si) +
+                " (Multiplayer is set to split screen and the scene has a "
+                "second Player object) - turn one of them off. Why, and where: "
+                "docs/neural-upscaler.md, Limitations.");
+            break;
+        }
+    }
+    // 5. Frame extrapolation. A PROJECT preference x scene data, the same shape
+    //    as split screen above - and the one condition here that is not about
+    //    the z buffer.
+    //
+    //    Both features reconstruct a frame from the PREVIOUS one by reprojecting
+    //    it through the camera delta, and both are approximations whose error
+    //    grows with that delta. Extrapolation presents twice per loop, so the
+    //    world runs at HALF the field rate and the camera moves TWICE as far
+    //    between two RENDERED frames - which is exactly the interval BLSS'
+    //    temporal pass reprojects across. So turning extrapolation on does not
+    //    merely add a second approximation beside the first, it doubles the
+    //    input to the first one as well.
+    //
+    //    Measured on the reporter's own project (raytracing-test: progressive,
+    //    three buffers, neural mode at 2x2, PCSX2 software renderer, player
+    //    driven by --pad). Parked, all four arms are indistinguishable. In
+    //    MOTION: the upscaler alone is clean, extrapolation alone is clean, and
+    //    the pair tears the frame into cells that disagree - a second displaced
+    //    copy of near geometry, hard rectangular seams across the sky, object
+    //    silhouettes pasted at 32-pixel granularity. The instrument that names
+    //    it is the reprojection displacement itself: BLSS' own per-corner offset
+    //    peaks at 158 px of a 448 px raster with extrapolation off and 201 px
+    //    with it on, and the warp's grid is being displaced by the same doubled
+    //    delta at the same time.
+    //
+    //    It is NOT the two-buffer history degeneration composite() guards, and
+    //    that guard is not what is missing: with three buffers the rotation was
+    //    LOGGED frame by frame and the history is always the previous RENDERED
+    //    frame, intact and never a synthesised one. Nor is it raster state
+    //    leaking across the warp - a leaked SCISSOR/XYOFFSET/FRAME is static
+    //    register state and would wreck a parked frame too.
+    //
+    //    Refused rather than degraded because no partial measure fixed it:
+    //    dropping the temporal pass (the strongest single contributor) reduced
+    //    the tearing but left the warp's own grid coming apart under the same
+    //    doubled delta. Turning EITHER feature off is clean, so the honest
+    //    answer is that the project picks one.
+    //
+    //    THIS ONE IS ALSO PREVENTED IN THE EDITOR, and it is the only one of the
+    //    five that can be: it is setting against SETTING, and both switches sit
+    //    in one block (drawBlssSettings), so the dialogs grey out whichever of
+    //    the two is not already on and say why. The other four are setting
+    //    against scene CONTENT - you cannot grey out a portal somebody placed -
+    //    and keep the live warning plus this refusal, unchanged. That does not
+    //    make this branch dead code: a .tyra can be hand-edited, an older editor
+    //    never knew about the pair, and a Set Frame Extrapolation flow node
+    //    turns it on at runtime. Prevention and refusal are belt and braces.
+    if (p.settings.frameExtrapolation) {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!sceneUpscales(si)) continue;
+            out.push_back(
+                "BLSS x FRAME EXTRAPOLATION in " + sceneName(si) +
+                " - turn one of them off in Project > Preferences > Frame "
+                "delivery. Why, and where: docs/frame-extrapolation.md, Why not "
+                "with the upscaler.");
+            break;
+        }
+    }
+    return out;
+}
+
+// The refusal as it lands in src/gen/blss_interlock.gen.cpp - a TU whose entire
+// job is to stop the build, so the diagnostic is printed ONCE. "" when the
+// project is clean, and refreshGenerated then DELETES the file: a stale copy
+// would refuse a build that is fine, which is worse than the noise this
+// replaced. Nothing else may go in here, and nothing else includes it.
+//
+// The banner comment carries the argument the #error lines no longer do. It
+// costs nothing (a comment is not a diagnostic) and it is what somebody sees
+// when they open the file the compiler named.
+static std::string blssInterlock(const Project& p) {
+    const std::vector<std::string> clashes = blssClashes(p);
+    if (clashes.empty()) return "";
+    std::string s =
+        "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+        "// ==========================================================="
+        "===============\n"
+        "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
+        "//\n"
+        "// The neural upscaler (BLSS) is on in a SCENE that uses a feature it\n"
+        "// cannot be combined with. Both halves would compile and boot; the\n"
+        "// picture would be wrong, quietly, which is why this is an error and\n"
+        "// not a warning.\n"
+        "//\n"
+        "// This file exists only to stop the build. It is generated while the\n"
+        "// clash is present and deleted the moment it is fixed, so there is\n"
+        "// nothing to clean up and nothing to take ownership of. Fix EITHER\n"
+        "// side - one click resolves it:\n"
+        "//\n"
+        "//   Scene > Scene Preferences > Neural upscaler (BLSS): tick\n"
+        "//     Override the upscaler for this scene and untick Use the\n"
+        "//     upscaler. Every OTHER scene keeps it.\n"
+        "//   ...or project-wide, Project > Preferences > Display > Frame\n"
+        "//     delivery > Use the upscaler   (turn it off)\n"
+        "//\n"
+        "// ...or remove the clashing feature named below, then rebuild.\n"
+        "// The editor says all of this live, with the measurements, in that\n"
+        "// same block - this is the backstop for a build that never met it.\n"
+        "// ==========================================================="
+        "===============\n";
+    // Short by design (see the essay above blssClashes): one line per clash,
+    // naming the pair, the scene and one place to fix it. errorSafe covers the
+    // WHOLE line - an apostrophe anywhere in it is a GCC warning on every TU
+    // that reads it.
+    for (const std::string& c : clashes) s += "#error " + errorSafe(c) + "\n";
+    return s;
+}
+
+// WHICH NETWORK THIS BUILD BAKES, and the answer is no longer "the project's or
+// noise".
+//
+// It used to be. A project with BLSS on and no `blss.net` was compiled with the
+// random initialisation the trainer starts from, behind a comment banner in a
+// generated header and a boot-log line - which is the most a build can do when
+// there is genuinely nothing else to bake. But there IS something else now: the
+// editor ships a default network fitted on seven example projects AND the
+// bestiary, and leave-one-PROJECT-out measured that net at +0.29 dB on a project
+// it had never seen against +0.31 dB for that project's own net
+// (docs/neural-upscaler.md, "Can one net ship for every project?"). Random
+// weights are not a neutral fallback - they are a per-tile blend chosen by
+// noise - so "the game will be built with RANDOM weights" was a footgun with a
+// fix sitting next to it.
+//
+// The order is: the project's own net, then the editor's built-in default, then
+// (only if the shipped asset cannot be read by this build at all) the random
+// initialisation. Every step is named in the generated header AND in the boot
+// log, because the one thing worse than the wrong net is not knowing which net
+// you got.
+struct BlssBake {
+    blss::Net net;
+    enum class Source { Random, Default, Project };
+    Source source = Source::Random;
+    blss::Provenance prov;
+    std::vector<std::string> warnings;  // fitted for a different configuration
+    std::vector<std::string> notes;     // why a candidate was passed over
+};
+
+static BlssBake blssBake(const Project& p) {
+    BlssBake b;
+    // What this project will RUN the net in. A net is not wrong because it was
+    // fitted elsewhere; it is wrong when it was fitted for a different raster
+    // scale or a different sampler, and that is a comparison the file could not
+    // support until it grew a provenance sidecar.
+    const blss::NetExpect want{
+        p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2,
+        p.settings.blssJitter ? 1 : 0,
+        // The ENGINE's table, not the host's live `--act-table` setting: this
+        // process never ran a BLSS verb, so that global is 0 here.
+        blss::kEngineActTable};
+    const std::filesystem::path netPath = std::filesystem::path(p.dir) / "blss.net";
+    const std::string path = netPath.string();
+
+    std::string err;
+    if (blss::load(b.net, path, &err)) {
+        const blss::Provenance prov = blss::readProvenance(path);
+        const blss::NetIssues iss = blss::checkProvenance(prov, want);
+        if (iss.fatal.empty()) {
+            b.source = BlssBake::Source::Project;
+            b.prov = prov;
+            b.warnings = iss.warn;
+            return b;
+        }
+        // A net that loads into a differently shaped world is exactly the
+        // "reconstructing garbage" case: refuse it and fall through rather than
+        // bake weights that mean something else.
+        for (const std::string& f : iss.fatal)
+            b.notes.push_back("this project's blss.net was refused - " + f);
+    } else {
+        std::error_code ec;
+        if (std::filesystem::exists(netPath, ec))
+            b.notes.push_back("this project's blss.net was refused - " + err);
+    }
+
+    if (blss::defaultNet(b.net, &err)) {
+        b.source = BlssBake::Source::Default;
+        b.prov = blss::defaultProvenance();
+        const blss::NetIssues iss = blss::checkProvenance(b.prov, want);
+        b.warnings = iss.warn;
+        for (const std::string& f : iss.fatal)
+            b.notes.push_back("the editor's built-in default disagrees with itself - " + f);
+        return b;
+    }
+    b.notes.push_back(err);
+    // The trainer's own starting seed, so an untrained bake is exactly the net
+    // --blss-train begins from rather than a second arbitrary constant.
+    b.net.randomize(blss::TrainConfig{}.seed);
+    return b;
+}
+
+// One sentence naming the network, used by both the generated header's banner
+// and the boot log so the two cannot describe different things.
+static std::string blssNetSummary(const BlssBake& b) {
+    switch (b.source) {
+        case BlssBake::Source::Project:
+            return "this project's own blss.net" +
+                   (b.prov.corpus.empty() ? std::string(" (no provenance recorded)")
+                                          : " (fitted on " + b.prov.corpus + ")");
+        case BlssBake::Source::Default:
+            return "the editor's built-in default network" +
+                   (b.prov.corpus.empty() ? std::string()
+                                          : " (fitted on " + b.prov.corpus + ")");
+        default:
+            return "RANDOM WEIGHTS - no network could be loaded";
+    }
+}
+
+// inc/blss_net.gen.hpp: blss::emitGeneratedSource is THE emitter (it is the
+// twin of the host forward pass, so reimplementing the table here would be a
+// second thing to keep in sync). Only the untrained banner is added.
+static std::string blssNetHeader(const Project& p) {
+    const BlssBake b = blssBake(p);
+    // A comment, so anything user text can reach it has to survive being one -
+    // the corpus and the command come out of a sidecar file somebody may have
+    // edited, and a newline in either would end the comment and start emitting
+    // the file's contents as C++.
+    const auto commentLine = [](const std::string& s) {
+        std::string out = "// ";
+        for (char c : s) out += (c == '\n' || c == '\r') ? ' ' : c;
+        return out + "\n";
+    };
+    std::string s = "// ============================================================"
+                    "==========\n";
+    s += commentLine("Network: " + blssNetSummary(b));
+    if (!b.prov.command.empty()) s += commentLine("  rebuild it with: " + b.prov.command);
+    for (const std::string& n : b.notes) s += commentLine("  " + n);
+    for (const std::string& w : b.warnings) s += commentLine("  WARNING: " + w);
+    if (b.source == BlssBake::Source::Default)
+        s += "//\n"
+             "// This project has no blss.net of its own, so it is built with the\n"
+             "// network the editor ships. Measured leave-one-PROJECT-out, that\n"
+             "// net scores +0.29 dB on a project it has never seen against the\n"
+             "// project's own net's +0.31 - a tie - and fitting your own scene\n"
+             "// still reaches the highest number in distribution:\n"
+             "//\n"
+             "//     tyrax-editor --blss-eval <projectDir>    (is there a ceiling?)\n"
+             "//     tyrax-editor --blss-train <projectDir> --all-shots\n"
+             "//\n"
+             "// then rebuild. See docs/neural-upscaler.md.\n";
+    if (b.source == BlssBake::Source::Random)
+        s += "//\n"
+             "// WARNING: THIS NETWORK IS UNTRAINED. No network could be loaded -\n"
+             "// not the project's, and not the editor's built-in default - so the\n"
+             "// weights below are the random initialisation the trainer STARTS\n"
+             "// from. The upscaler will composite, but its per-tile choices are\n"
+             "// noise. This is a defect in the editor build, not in the project.\n"
+             "//\n"
+             "//     tyrax-editor --blss-train        (writes blss.net)\n"
+             "//     tyrax-editor --blss-eval         (the PSNR table)\n"
+             "//\n"
+             "// then rebuild. See docs/neural-upscaler.md.\n";
+    s += "// ============================================================"
+         "==========\n";
+    s += blss::emitGeneratedSource(b.net);
+    return s;
+}
+
+// The prolog's include line for the baked net.
+//
+// PLAIN MODE INCLUDES NOTHING, and that is the point of doing it here rather
+// than leaving a header nobody reads: the weights are ~2 KB of .rodata and the
+// banner above them describes a network that will not run, so a plain build
+// would ship - and a plain boot log would announce - a net it never loads. The
+// FILE is still generated (blssNetHeader is emitted whenever the upscaler is
+// on), so which files a BLSS project has stays a function of blssEnabled alone.
+static std::string blssInclude(const Project& p) {
+    const project::BlssUse u = project::blssUse(p);
+    if (!u.any || !u.anyNetwork) return "";
+    return "#include \"blss_net.gen.hpp\"  // the trained BLSS network "
+           "(--blss-train)\n";
+}
+
+// TerrainGame::init(): configure the low-res target and hand over the net.
+static std::string blssInit(const Project& p) {
+    const project::BlssUse u = project::blssUse(p);
+    if (!u.any) return "";
+    // The uniform project's comment is left EXACTLY as it was before per-scene
+    // existed, down to the wording: this text lands in src/terrain_game.cpp,
+    // and a project whose scenes all resolve alike has to regenerate byte for
+    // byte (it is still project-wide, so the old sentence is still true).
+    std::string s =
+        u.mixed
+            ? "  // The neural upscaler (docs/neural-upscaler.md): baked -\n"
+              "  // nothing at runtime turns it on or off, but this project's\n"
+              "  // scenes do not all resolve it alike, so the eighth argument\n"
+              "  // tells configure() to size the z buffer for the FULL display\n"
+              "  // raster. The layout is then decided once and loadScene()'s\n"
+              "  // setScene() switches the upscaler per scene, touching no VRAM.\n"
+              "  // configure() sizes the low-res render target and the\n"
+              "  // reconstruction knobs; in PLAIN mode (BLSS_NETWORK 0) it also\n"
+              "  // switches off the proxy feed, the reprojection, the feature\n"
+              "  // grid and the MLP, leaving one bilinear composite pass.\n"
+            : "  // The neural upscaler (docs/neural-upscaler.md): project-wide and\n"
+              "  // baked - nothing at runtime turns it on or off. configure() sizes\n"
+              "  // the low-res render target and the reconstruction knobs; in PLAIN\n"
+              "  // mode (BLSS_NETWORK 0) it also switches off the proxy feed, the\n"
+              "  // reprojection, the feature grid and the MLP, leaving the reduced\n"
+              "  // raster and one bilinear composite pass.\n";
+    s += "  engine->renderer.core.blss.configure(BLSS_SCALE_X, BLSS_SCALE_Y, "
+         "BLSS_SHARPEN,\n"
+         "                                       BLSS_TEMPORAL, "
+         "BLSS_DEBUG_VIEW,\n";
+    s += u.mixed ? "                                       BLSS_JITTER, "
+                   "BLSS_NETWORK,\n"
+                   "                                       BLSS_NATIVE_SCENES);\n"
+                 : "                                       BLSS_JITTER, "
+                   "BLSS_NETWORK);\n";
+    if (u.anyNetwork)
+        s += "  engine->renderer.core.blss.setNet(BLSS_NET_W1, BLSS_NET_B1, "
+             "BLSS_NET_W2,\n"
+             "                                    BLSS_NET_B2);\n";
+    // WHICH RECONSTRUCTION, AND WHICH NET, IN THE BOOT LOG, ALWAYS. Said here
+    // and not only in a generated header, because the person wondering why the
+    // picture looks wrong is reading bin/log.txt. It used to be printed only in
+    // the untrained case, which meant the interesting cases - "I trained one
+    // and it is not being used" and "I never trained one and it works anyway" -
+    // were both silent. Plain mode is a third such case and the loudest of
+    // them: a reader who does not know the mode exists would otherwise measure
+    // a frame with no network in it and attribute the numbers to one.
+    if (!u.anyNetwork) {
+        s += "  TYRA_LOG(\"BLSS: reconstruction = PLAIN (no network) - the reduced "
+             "raster is blown up by one bilinear pass. No proxies, no reprojection, "
+             "no feature grid, no MLP.\");\n";
+        return s;
+    }
+    const BlssBake b = blssBake(p);
+    s += "  TYRA_LOG(\"BLSS: network = " + escapeCString(blssNetSummary(b)) + "\");\n";
+    for (const std::string& n : b.notes)
+        s += "  TYRA_LOG(\"BLSS: " + escapeCString(n) + "\");\n";
+    for (const std::string& w : b.warnings)
+        s += "  TYRA_LOG(\"BLSS: WARNING - " + escapeCString(w) + "\");\n";
+    if (b.source == BlssBake::Source::Random)
+        s += "  TYRA_LOG(\"BLSS: the baked network is UNTRAINED (random weights) - run"
+             " 'tyrax-editor --blss-train' in the project directory and rebuild.\");\n";
+    return s;
+}
+
+// TerrainGame::loadScene(): the PER-SCENE half (docs/neural-upscaler.md, "Per
+// scene"). Emitted only when the project's scenes actually disagree, so a
+// project that resolves the upscaler alike everywhere generates the loadScene()
+// it always generated, byte for byte.
+//
+// It sits next to setVU1Clipping() on purpose: that is the same shape of thing
+// - a renderer-wide mode a scene may override, re-applied at every load - and
+// putting the two together is what says a per-scene BLSS is not special.
+//
+// The cost is a raster scale, a projection re-derivation and two flags. It is
+// free because configure() already sized the z buffer for the widest raster any
+// scene uses; without that, this call would evict every resident texture and
+// re-lay the permanent VRAM region, which is exactly why a PER-FRAME toggle was
+// rejected (docs/backlog.md).
+static std::string blssSceneSetup(const Project& p) {
+    if (!project::blssUse(p).mixed) return "";
+    return "  // The neural upscaler, per scene (docs/neural-upscaler.md). No\n"
+           "  // VRAM is touched: the z buffer was sized at init for the widest\n"
+           "  // raster any scene uses, so this is a flag and a projection.\n"
+           "  engine->renderer.core.blss.setScene(BLSS_SCENE_ON, "
+           "BLSS_SCENE_NET);\n";
+}
+
+// The frame loop's 3D bracket. Off = the plain call the loop always had, byte
+// for byte. On = the raster redirect around it plus the composite, which MUST
+// run before applyPostFx and before any 2D: the HUD, the menus and every post
+// effect keep drawing at display resolution.
+//
+// Only the non-split branch is ever bracketed - splitView.end() restores the
+// display raster, and split screen is one of the three features BLSS cannot be
+// combined with anyway. That is not left to the docs and a warning any more:
+// blssClashes() above refuses the build when a SCENE actually has both, so
+// this branch is unreachable in a game that compiles (docs/neural-upscaler.md,
+// docs/blss-reconstruction.md section 7).
+//
+// PER SCENE NEEDS NO BRANCH HERE, and that is not an accident to be tidied
+// away: beginScene(), endScene() and composite() all return immediately when
+// `enabled` is false, so a scene that setScene() switched to native runs the
+// same three calls as three no-ops around a plain renderScene(). Adding an
+// `if (blss.isEnabled())` would put a second copy of that decision in the
+// hottest loop in the game and make the mixed and uniform builds differ for
+// nothing.
+static std::string blssSceneRender(const Project& p) {
+    if (!project::blssUse(p).any) return "      renderScene();\n";
+    return "      // The neural upscaler (docs/neural-upscaler.md): the 3D "
+           "scene\n"
+           "      // renders into the low-res target, then the composite blows "
+           "it\n"
+           "      // back up into the display buffer - before the depth of "
+           "field,\n"
+           "      // the post effects and every 2D pass below.\n"
+           "      engine->renderer.core.blss.beginScene(scriptCtx.skyColor);\n"
+           "      renderScene();\n"
+           "      engine->renderer.core.blss.endScene();\n"
+           "      engine->renderer.core.blss.composite();\n";
+}
+
 static std::string fillTemplate(const Project& p, const char* tpl) {
     // docker compose project name: lowercase, must start with letter/digit,
     // and SUFFIXED WITH THE DIRECTORY.
@@ -23398,6 +25135,14 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{JUMP_SPEED}}", floatLit(st.jumpSpeed));
     s = replaceAll(s, "{{LOADING_SCREEN}}", st.loadingScreen ? "true" : "false");
     s = replaceAll(s, "{{FRAME_LIMIT}}", st.disableVsync ? "false" : "true");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION}}",
+                   st.frameExtrapolation ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_PLANE}}",
+                   floatLit(st.frameExtrapolationPlane));
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_FORCE}}",
+                   st.frameExtrapolationForce ? "true" : "false");
+    s = replaceAll(s, "{{FRAME_EXTRAPOLATION_GROUND}}",
+                   st.frameExtrapolationGround ? "true" : "false");
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
@@ -23415,6 +25160,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
+    s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
+                   st.tripleBuffering ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
@@ -23427,6 +25174,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    debugProfile && st.showProfiler ? "true" : "false");
     s = replaceAll(s, "{{DEBUG_SHOW_AREAS}}",
                    debugProfile && st.showAreas ? "true" : "false");
+    s = replaceAll(s, "{{DEBUG_SHOW_COLLISION}}",
+                   debugProfile && st.showCollision ? "true" : "false");
     s = replaceAll(s, "{{ENGINE_SRC}}", engineSourceDir());
     s = replaceAll(s, "{{ENGINE_HASH}}", engineSourceHash());
     // Custom screen effect dispatch injected into the frame loop (empty when
@@ -23434,6 +25183,15 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // after it (topmost, layer -1).
     s = replaceAll(s, "{{SCREEN_FX_IN_LOOP}}", screenFxDispatch(p, true));
     s = replaceAll(s, "{{SCREEN_FX_TOP}}", screenFxDispatch(p, false));
+    // The neural upscaler (docs/neural-upscaler.md). Three slots, all empty
+    // while it is off - which is what keeps an existing project's generated
+    // sources byte-identical: the baked net's include, the init that configures
+    // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
+    // the plain renderScene() call the loop always had).
+    s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
+    s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
+    s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
+    s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
     return s;
 }
 
@@ -23550,13 +25308,15 @@ std::string sequencesHeader(const Project& p) {
            "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
            "// letterbox that a cutscene currently owns those.\n"
            "bool playing();\n"
-           "// Letterbox coverage per edge (fractions of the screen) for the\n"
-           "// Set Letterbox Bars flow node, used by renderOverlay when NO\n"
-           "// sequence is active. The style -> fraction mapping stays on the\n"
-           "// host (seqBarsFractions in src/sequence.hpp), so the console needs\n"
-           "// no table: codegen writes the numbers straight in.\n"
-           "extern float g_flowBarTB;\n"
-           "extern float g_flowBarLR;\n"
+           "// Letterbox mask style for the Set Letterbox Bars flow node, used\n"
+           "// by renderOverlay when NO sequence is active (0 none, 1 cinema\n"
+           "// 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its\n"
+           "// coverage: a letterbox is relative to the picture the console is\n"
+           "// outputting and widescreen changes that at runtime, so the\n"
+           "// fractions are resolved per frame (barsFractions in\n"
+           "// src/gen/sequences.gen.cpp, the twin of seqBarsFractions in the\n"
+           "// editor's src/sequence.hpp).\n"
+           "extern int g_flowBarStyle;\n"
            "}  // namespace sequences\n"
            "}  // namespace "
         << ns << "\n";
@@ -23938,7 +25698,6 @@ std::string sequencesScript(const Project& p) {
            "             int hidePlayer;  // hide the third-person avatar while playing\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
            "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
-           "             float barTB; float barLR;  // mask coverage per edge\n"
            "             const Track* tracks; int trackCount;\n"
            "             const CamKey* camKeys; int camKeyCount; };\n\n";
 
@@ -24024,26 +25783,25 @@ std::string sequencesScript(const Project& p) {
         out << "};\n\n";
     }
 
-    // The sequence table. The widescreen-mask coverage fractions come from the
-    // same seqBarsFractions the editor overlays on the viewport.
+    // The sequence table. The mask STYLE travels, not its coverage: a mask
+    // letterboxes inside the picture the console is actually outputting and
+    // that shape is only known at runtime (see barsFractions below).
     out << "static const Seq kSeqs[] = {";
     for (size_t si = 0; si < p.sequences.size(); ++si) {
         const Sequence& s = p.sequences[si];
         const std::string sp = "kS" + std::to_string(si);
-        float bt, bb, bl, br;
-        seqBarsFractions(s.bars, bt, bb, bl, br);
         out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
             << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
             << (s.cameraEnabled ? 1 : 0) << ", " << (s.hidePlayer ? 1 : 0) << ", "
             << s.bars << ", "
             << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
             << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
-            << floatLit(s.barsSlideOut) << ", " << floatLit(bt) << ", "
-            << floatLit(bl) << ", " << sp << "Tracks, " << s.tracks.size() << ", "
-            << sp << "Cam, " << s.cameraKeys.size() << "}";
+            << floatLit(s.barsSlideOut) << ", " << sp << "Tracks, "
+            << s.tracks.size() << ", " << sp << "Cam, " << s.cameraKeys.size()
+            << "}";
     }
     if (p.sequences.empty())
-        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, "
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
                "nullptr, 0, nullptr, 0}";  // non-empty array
     out << "\n};\n"
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
@@ -24336,11 +26094,40 @@ void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
 
-// Set Letterbox Bars (flow graph): coverage per edge while NO cutscene is
+// Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame
 // and clears everything on release.
-float g_flowBarTB = 0.0F;
-float g_flowBarLR = 0.0F;
+int g_flowBarStyle = 0;
+
+// Style -> coverage per edge, the runtime twin of seqBarsFractions in
+// src/sequence.hpp (the editor's viewport overlay reads that one). It cannot be
+// baked like the rest of a cutscene: Cinema and Wide letterbox INSIDE the
+// picture the console is currently outputting, and Set Widescreen / the
+// widescreen option row change that shape while the game runs. On a 16:9 output
+// the Wide mask therefore covers nothing at all, which is the correct answer
+// and not a missing feature.
+static void barsFractions(int style, float displayAspect, float* tb,
+                          float* lr) {
+  *tb = 0.0F;
+  *lr = 0.0F;
+  float target = 0.0F;
+  if (style == 1) {
+    target = 2.39F;  // cinema scope
+  } else if (style == 2) {
+    target = 16.0F / 9.0F;  // TV widescreen
+  } else if (style == 3) {
+    *lr = 0.13F;  // pillarbox
+    return;
+  } else if (style == 4) {
+    *tb = 0.08F;  // vintage frame, all four edges
+    *lr = 0.08F;
+    return;
+  } else {
+    return;
+  }
+  const float f = 0.5F * (1.0F - displayAspect / target);
+  *tb = f > 0.0F ? f : 0.0F;
+}
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -24367,11 +26154,14 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
-  // A cutscene's baked style, or the flow node's coverage when none is
-  // playing - the two never both apply, so one pair of fractions is enough.
+  // A cutscene's style, or the flow node's when none is playing - the two never
+  // both apply, so one pair of fractions is enough. Resolved against the shape
+  // of the picture on the TV, which widescreen changes without touching the
+  // framebuffer these quads are measured in.
   const int idx = g_seqDirector.activeIndex();
-  const float barTB = idx >= 0 ? kSeqs[idx].barTB : g_flowBarTB;
-  const float barLR = idx >= 0 ? kSeqs[idx].barLR : g_flowBarLR;
+  const int barStyle = idx >= 0 ? kSeqs[idx].bars : g_flowBarStyle;
+  float barTB = 0.0F, barLR = 0.0F;
+  barsFractions(barStyle, scr.getWindowAspect(), &barTB, &barLR);
   if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
     const float tb = barTB * ctx.barsAmount * H;
     const float lr = barLR * ctx.barsAmount * W;
@@ -24492,6 +26282,65 @@ void collectFlowVars(const Project& p, std::vector<std::string>& intVars,
             }
 }
 
+// --- World Facts codegen (docs/world-facts.md) -------------------------------
+// The catalog resolves to indices here and nowhere else: facts::layoutOf gives
+// every stored fact its slot in one of two flat runtime arrays, and every
+// reference - a flow node's param, a query leaf, a rule action - becomes that
+// number. The editor's blackboard builds the SAME layout from the SAME
+// function, which is what makes the index a graph was compiled against and the
+// index the debugger reads the same number by construction rather than by
+// agreement.
+
+struct FactPlan {
+    const std::vector<facts::Fact>* facts = nullptr;
+    const std::vector<facts::Query>* queries = nullptr;
+    const std::vector<facts::Rule>* rules = nullptr;
+    facts::Layout layout;
+    std::vector<bool> queryCyclic;
+    // Stored facts riding the checkpoint/save payload, and the profile file,
+    // as indices into `facts`. Two walks, because they are written at
+    // different moments and to different places.
+    std::vector<int> saveFacts;
+    std::vector<int> profileFacts;
+    bool any() const { return facts && !facts->empty(); }
+};
+
+FactPlan factPlanOf(const Project& p) {
+    FactPlan fp;
+    fp.facts = &p.facts;
+    fp.queries = &p.factQueries;
+    fp.rules = &p.factRules;
+    fp.layout = facts::layoutOf(p.facts);
+    fp.queryCyclic = facts::cyclicQueries(p.factQueries);
+    for (size_t i = 0; i < p.facts.size(); ++i) {
+        const facts::Fact& f = p.facts[i];
+        if (f.isComputed()) continue;  // no storage, nothing to persist
+        // A scene-scoped fact is overwritten by its default on the next scene
+        // load, so persisting it would store something already doomed. The
+        // validator says so; codegen simply does not walk it.
+        if (f.scope == facts::Scope::Scene) continue;
+        if (f.persist == facts::Persist::Checkpoint ||
+            f.persist == facts::Persist::Save)
+            fp.saveFacts.push_back((int)i);
+        else if (f.persist == facts::Persist::Profile)
+            fp.profileFacts.push_back((int)i);
+    }
+    return fp;
+}
+
+// The low 32 bits of a fact's 16-hex id - what a save file is keyed by. 32
+// bits rather than 64 keeps the payload small, and the birthday odds over a
+// few hundred facts are negligible; a collision would be caught by the
+// editor's own duplicate-id repair long before it reached a card.
+uint32_t factSaveKey(const facts::Fact& f) {
+    uint32_t h = 2166136261u;  // FNV-1a over the id text: stable everywhere
+    for (char c : f.id) {
+        h ^= (uint32_t)(unsigned char)c;
+        h *= 16777619u;
+    }
+    return h ? h : 1u;  // 0 is the "empty row" marker in the payload
+}
+
 // Graph events (Send Event / On Event) live in one game-global namespace, like
 // the flow variables above and for the same reason: an event exists by being
 // named on either node, and the slot index has to be the same answer for
@@ -24546,6 +26395,25 @@ DbgSymbols debugSymbols(const Project& p) {
     // Save values ride in the same watch array (read straight off
     // ScriptContext), so a paused game shows its persistent state too.
     for (const SaveValue& v : p.saveValues) s.vars.push_back({'s', v.name});
+    // World Facts complete it, in the layout's own order - scalars, then
+    // positions. The runtime's readVar() walks exactly this, so the slot the
+    // blackboard asks for and the slot the game answers with are the same
+    // number by construction rather than by two lists agreeing.
+    {
+        const facts::Layout lay = facts::layoutOf(p.facts);
+        std::vector<const facts::Fact*> scalars(std::max(0, lay.numCount),
+                                                nullptr);
+        std::vector<const facts::Fact*> positions(std::max(0, lay.posCount),
+                                                  nullptr);
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (lay.numOf[i] >= 0) scalars[(size_t)lay.numOf[i]] = &p.facts[i];
+            if (lay.posOf[i] >= 0) positions[(size_t)lay.posOf[i]] = &p.facts[i];
+        }
+        for (const facts::Fact* f : scalars)
+            s.vars.push_back({'f', f ? f->name : std::string()});
+        for (const facts::Fact* f : positions)
+            s.vars.push_back({'F', f ? f->name : std::string()});
+    }
 
     std::ostringstream t;
     t << "nodes " << s.nodes.size() << "\n";
@@ -24966,6 +26834,104 @@ std::string flowGraphScript(const Project& p) {
     };
     auto intLit = [](float f) { return std::to_string((long)std::lround(f)); };
 
+    // --- World Facts -------------------------------------------------------
+    // Every fact reference below goes through these three, so a fact that is
+    // not in the catalog (a graph authored against a fact since deleted)
+    // produces a commented-out node rather than a compile error - the same
+    // courtesy an unknown object name already gets.
+    const FactPlan factPlan = factPlanOf(p);
+    auto factOf = [&](const std::string& name) -> const facts::Fact* {
+        const int i = facts::indexOf(p.facts, name);
+        return i < 0 ? nullptr : &p.facts[(size_t)i];
+    };
+    auto factNumSlot = [&](const std::string& name) {
+        const int i = facts::indexOf(p.facts, name);
+        return i < 0 ? -1 : factPlan.layout.numOf[(size_t)i];
+    };
+    auto factPosSlot = [&](const std::string& name) {
+        const int i = facts::indexOf(p.facts, name);
+        return i < 0 ? -1 : factPlan.layout.posOf[(size_t)i];
+    };
+    auto factQueryIdx = [&](const std::string& name) {
+        return facts::queryIndexOf(p.factQueries, name);
+    };
+    // A fact READ, as a float expression. A computed fact is its query -
+    // which is the whole reason it costs no storage - and an unknown one is
+    // 0, never a dangling index.
+    auto factReadExpr = [&](const std::string& name) -> std::string {
+        const facts::Fact* f = factOf(name);
+        if (!f) return "0.0F";
+        if (f->isComputed()) {
+            const int qi = factQueryIdx(f->computed);
+            if (qi < 0) return "0.0F";
+            return "(factQuery" + std::to_string(qi) + "() ? 1.0F : 0.0F)";
+        }
+        const int slot = factNumSlot(name);
+        if (slot < 0) return "0.0F";
+        return "factNum[" + std::to_string(slot) + "]";
+    };
+
+    // A condition tree, as one self-contained C++ bool expression. Mutually
+    // recursive with itself through queries only, and a query that takes part
+    // in a cycle folds to `false` (facts::cyclicQueries) - a catalog the
+    // author has not fixed yet must not make the GENERATOR recurse forever.
+    std::function<std::string(const facts::Condition&)> factCondExpr =
+        [&](const facts::Condition& c) -> std::string {
+        switch (c.kind) {
+            case facts::Condition::Kind::All:
+            case facts::Condition::Kind::Any:
+            case facts::Condition::Kind::Not: {
+                // Empty ALL is true and empty ANY is false - the same
+                // arithmetic the host evaluator uses, so the editor's answer
+                // and the console's cannot disagree on a half-built group.
+                if (c.children.empty())
+                    return c.kind == facts::Condition::Kind::All ? "true"
+                                                                 : "false";
+                const char* op =
+                    c.kind == facts::Condition::Kind::All ? " && " : " || ";
+                std::string s = "(";
+                for (size_t i = 0; i < c.children.size(); ++i)
+                    s += (i ? op : "") + factCondExpr(c.children[i]);
+                s += ")";
+                // NOT folds with OR and negates: one child is plain negation,
+                // several read as "none of these".
+                if (c.kind == facts::Condition::Kind::Not) return "(!" + s + ")";
+                return s;
+            }
+            case facts::Condition::Kind::Compare: {
+                const facts::Fact* f = factOf(c.fact);
+                if (!f || f->type == facts::Type::Position) return "false";
+                const std::string lhs = factReadExpr(c.fact);
+                std::string rhs;
+                if (!c.rhsFact.empty()) {
+                    const facts::Fact* r = factOf(c.rhsFact);
+                    if (!r || r->type == facts::Type::Position) return "false";
+                    rhs = factReadExpr(c.rhsFact);
+                } else {
+                    rhs = floatLit(c.value);
+                }
+                // Equality on a float plane needs a tolerance, and it must be
+                // the same one facts.cpp uses or the editor's "Why?" and the
+                // console disagree at the boundary.
+                if (c.cmp == facts::Cmp::Equal)
+                    return "(fabsf((" + lhs + ") - (" + rhs + ")) <= 1e-4F)";
+                if (c.cmp == facts::Cmp::NotEqual)
+                    return "(fabsf((" + lhs + ") - (" + rhs + ")) > 1e-4F)";
+                return "((" + lhs + ") " + facts::cmpCpp(c.cmp) + " (" + rhs +
+                       "))";
+            }
+            case facts::Condition::Kind::Query: {
+                const int qi = factQueryIdx(c.query);
+                if (qi < 0) return "false";
+                if ((size_t)qi < factPlan.queryCyclic.size() &&
+                    factPlan.queryCyclic[(size_t)qi])
+                    return "false /* query cycle */";
+                return "factQuery" + std::to_string(qi) + "()";
+            }
+        }
+        return "false";
+    };
+
     // Spawn Object nodes: each gets a global handle slot holding the index
     // of the clone it spawned last (-1 = none). Handles are runtime data -
     // the one object reference that cannot resolve statically - and reset
@@ -25051,7 +27017,8 @@ std::string flowGraphScript(const Project& p) {
            "#include \"scripts/credits.gen.hpp\"  // Play/Stop Credits, On "
            "Credits Finished\n"
            "#include \"scripts/flow_nodes.hpp\"  // custom-node C++ bodies\n"
-           "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n";
+           "#include \"input_map.gen.hpp\"  // On Action / Set Input Preset\n"
+           "#include \"facts.gen.hpp\"  // World Facts store + save walks\n";
     if (anyRaycast || anyTerrainQuery)
         out << "#include \"terrain_heights.gen.hpp\"  // Raycast / Snap To "
                "Terrain\n";
@@ -25658,6 +27625,341 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         registrations << "TYRA_SCRIPT(" << ns << "::FlowEventBus);\n";
     }
 
+    // --- World Facts: the store, the queries, the rules --------------------
+    // Emitted unconditionally (the arrays are declared extern in
+    // facts.gen.hpp, which every consumer includes), so a project with no
+    // facts still links - it just gets two one-element arrays nothing reads.
+    {
+        const int numCount = factPlan.layout.numCount;
+        const int posCount = factPlan.layout.posCount;
+        out << "\n// World Facts (docs/world-facts.md): the declared state of\n"
+               "// the game world. One float array for every scalar fact, one\n"
+               "// for positions; a computed fact has no slot because it IS a\n"
+               "// query. factWrite() is the only door in - it exists so the\n"
+               "// Live Debugger can record WHO changed a fact, and folds to a\n"
+               "// plain store when the debugger is off.\n"
+               "float factNum["
+            << std::max(1, numCount) << "] = {";
+        if (numCount == 0) {
+            out << "0.0F";
+        } else {
+            bool first = true;
+            for (size_t i = 0; i < p.facts.size(); ++i) {
+                if (factPlan.layout.numOf[i] < 0) continue;
+                out << (first ? "" : ", ")
+                    << floatLit(facts::defaultNum(p.facts[i]));
+                first = false;
+            }
+        }
+        out << "};\n"
+               "float factPos["
+            << std::max(1, posCount) << "][3] = {";
+        if (posCount == 0) {
+            out << "{0.0F, 0.0F, 0.0F}";
+        } else {
+            bool first = true;
+            for (size_t i = 0; i < p.facts.size(); ++i) {
+                if (factPlan.layout.posOf[i] < 0) continue;
+                out << (first ? "" : ", ") << "{" << floatLit(p.facts[i].pos[0])
+                    << ", " << floatLit(p.facts[i].pos[1]) << ", "
+                    << floatLit(p.facts[i].pos[2]) << "}";
+                first = false;
+            }
+        }
+        out << "};\n\n";
+
+        // The profile tier is written when it MOVES, so the store has to know
+        // that something moved. One flag, set by the writer, cleared by the
+        // reader - cheaper than diffing the array every frame and exactly as
+        // correct.
+        if (!factPlan.profileFacts.empty())
+            out << "static bool g_factProfileDirty = false;\n";
+
+        // Which scalar slots belong to the profile tier - only needed when
+        // there is a profile at all.
+        if (!factPlan.profileFacts.empty()) {
+            std::vector<int> prof(std::max(1, numCount), 0);
+            for (int fi : factPlan.profileFacts)
+                if (factPlan.layout.numOf[(size_t)fi] >= 0)
+                    prof[(size_t)factPlan.layout.numOf[(size_t)fi]] = 1;
+            out << "static const unsigned char FACT_NUM_PROFILE["
+                << prof.size() << "] = {";
+            for (size_t i = 0; i < prof.size(); ++i)
+                out << (i ? ", " : "") << prof[i];
+            out << "};\n";
+        }
+
+        // `src` is who wrote it: an instrumented node's key, or -(rule+1) for
+        // the rule engine. The debugger turns that back into a place in the
+        // editor - which is the entire "who changed this fact, and when"
+        // feature, for one int per write in a debug build and nothing at all
+        // in a release one.
+        out << "static inline void factWrite(int slot, float v, int src) {\n";
+        if (!factPlan.profileFacts.empty()) {
+            out << "  if (factNum[slot] != v && FACT_NUM_PROFILE[slot])\n"
+                   "    g_factProfileDirty = true;\n";
+        }
+        if (dbgOn)
+            out << "  if (factNum[slot] != v) livedbg::factWrite(slot, v, src);\n";
+        else
+            out << "  (void)src;\n";
+        out << "  factNum[slot] = v;\n"
+               "}\n"
+               "static inline void factWritePos(int slot, float x, float y,\n"
+               "                                float z, int src) {\n";
+        if (!factPlan.profileFacts.empty())
+            out << "  (void)0;  // positions never ride the profile file\n";
+        if (dbgOn)
+            out << "  if (factPos[slot][0] != x || factPos[slot][1] != y ||\n"
+                   "      factPos[slot][2] != z)\n"
+                   "    livedbg::factWritePos(slot, x, y, z, src);\n";
+        else
+            out << "  (void)src;\n";
+        out << "  factPos[slot][0] = x;\n"
+               "  factPos[slot][1] = y;\n"
+               "  factPos[slot][2] = z;\n"
+               "}\n";
+
+        // Enum labels, for Get Fact As Text. Emitted only when something
+        // actually prints a fact - the strings are the one part of the
+        // catalog that costs the console anything.
+        if (uses("GetFactText")) {
+            bool anyEnum = false;
+            for (size_t i = 0; i < p.facts.size(); ++i) {
+                const facts::Fact& f = p.facts[i];
+                if (f.type != facts::Type::Enum || f.options.empty()) continue;
+                if (f.isComputed()) continue;
+                anyEnum = true;
+                out << "static const char* const factEnum" << i << "["
+                    << f.options.size() << "] = {";
+                for (size_t k = 0; k < f.options.size(); ++k)
+                    out << (k ? ", " : "") << "\"" << escapeCString(f.options[k])
+                        << "\"";
+                out << "};  // " << f.name << "\n";
+            }
+            if (anyEnum)
+                out << "static inline std::string flowEnumText(float v,\n"
+                       "                                       const char* "
+                       "const* opts,\n"
+                       "                                       int count) {\n"
+                       "  const long i = lroundf(v);\n"
+                       "  if (i < 0 || i >= count) return std::to_string(i);\n"
+                       "  return std::string(opts[i]);\n"
+                       "}\n";
+        }
+
+        out << "\nvoid factResetAll() {\n"
+               "  for (int i = 0; i < FACT_NUM_COUNT; ++i)\n"
+               "    factNum[i] = FACT_NUM_DEFAULT[i];\n"
+               "  for (int i = 0; i < FACT_POS_COUNT; ++i)\n"
+               "    for (int a = 0; a < 3; ++a)\n"
+               "      factPos[i][a] = FACT_POS_DEFAULT[i][a];\n"
+               "}\n"
+               "\n"
+               "void factResetScene() {\n"
+               "  for (int i = 0; i < FACT_NUM_COUNT; ++i)\n"
+               "    if (FACT_NUM_SCENE[i]) factNum[i] = FACT_NUM_DEFAULT[i];\n"
+               "  for (int i = 0; i < FACT_POS_COUNT; ++i)\n"
+               "    if (FACT_POS_SCENE[i])\n"
+               "      for (int a = 0; a < 3; ++a)\n"
+               "        factPos[i][a] = FACT_POS_DEFAULT[i][a];\n"
+               "}\n";
+
+        // --- the save / profile walks, keyed by id
+        auto emitWalk = [&](const char* capName, const char* resName,
+                            const std::vector<int>& list, bool profile) {
+            out << "\nint " << capName << "(FactSaveRow* out, int max) {\n"
+                   "  int n = 0;\n";
+            for (int fi : list) {
+                const facts::Fact& f = p.facts[(size_t)fi];
+                const int ns_ = factPlan.layout.numOf[(size_t)fi];
+                const int ps_ = factPlan.layout.posOf[(size_t)fi];
+                out << "  if (n < max) {  // " << f.name << "\n"
+                    << "    out[n].id = " << factSaveKey(f) << "u;\n";
+                if (ps_ >= 0)
+                    out << "    out[n].v[0] = factPos[" << ps_ << "][0];\n"
+                        << "    out[n].v[1] = factPos[" << ps_ << "][1];\n"
+                        << "    out[n].v[2] = factPos[" << ps_ << "][2];\n";
+                else
+                    out << "    out[n].v[0] = factNum[" << ns_ << "];\n"
+                        << "    out[n].v[1] = 0.0F;\n"
+                        << "    out[n].v[2] = 0.0F;\n";
+                out << "    ++n;\n  }\n";
+            }
+            out << "  return n;\n}\n";
+
+            out << "\nvoid " << resName
+                << "(const FactSaveRow* rows, int count) {\n"
+                   "  for (int i = 0; i < count; ++i) {\n"
+                   "    switch (rows[i].id) {\n";
+            for (int fi : list) {
+                const facts::Fact& f = p.facts[(size_t)fi];
+                const int ns_ = factPlan.layout.numOf[(size_t)fi];
+                const int ps_ = factPlan.layout.posOf[(size_t)fi];
+                out << "      case " << factSaveKey(f) << "u:  // " << f.name
+                    << "\n";
+                if (ps_ >= 0)
+                    out << "        factPos[" << ps_ << "][0] = rows[i].v[0];\n"
+                        << "        factPos[" << ps_ << "][1] = rows[i].v[1];\n"
+                        << "        factPos[" << ps_ << "][2] = rows[i].v[2];\n";
+                else
+                    out << "        factNum[" << ns_ << "] = rows[i].v[0];\n";
+                out << "        break;\n";
+            }
+            out << "      default: break;  // a fact this build no longer has\n"
+                   "    }\n"
+                   "  }\n";
+            if (profile) out << "  g_factProfileDirty = false;\n";
+            out << "}\n";
+        };
+        emitWalk("factSaveCapture", "factSaveRestore", factPlan.saveFacts, false);
+        emitWalk("factProfileCapture", "factProfileRestore",
+                 factPlan.profileFacts, !factPlan.profileFacts.empty());
+
+        out << "\nbool factProfileDirty() {\n";
+        if (factPlan.profileFacts.empty())
+            out << "  return false;\n";
+        else
+            out << "  const bool d = g_factProfileDirty;\n"
+                   "  g_factProfileDirty = false;\n"
+                   "  return d;\n";
+        out << "}\n";
+
+        // --- named queries
+        if (!p.factQueries.empty()) {
+            out << "\n// Named conditions (Tools > World Facts > Queries).\n"
+                   "// Forward-declared as a block so one query may name\n"
+                   "// another whatever order they were authored in; a query\n"
+                   "// that takes part in a cycle is emitted as false.\n";
+            for (size_t i = 0; i < p.factQueries.size(); ++i)
+                out << "static bool factQuery" << i << "();  // "
+                    << p.factQueries[i].name << "\n";
+            for (size_t i = 0; i < p.factQueries.size(); ++i) {
+                out << "static bool factQuery" << i << "() {  // \""
+                    << p.factQueries[i].name << "\"\n";
+                if (factPlan.queryCyclic[i])
+                    out << "  return false;  // this query is part of a "
+                           "reference cycle\n";
+                else
+                    out << "  return " << factCondExpr(p.factQueries[i].root)
+                        << ";\n";
+                out << "}\n";
+            }
+        }
+
+        // --- the rule engine
+        if (!p.factRules.empty()) {
+            out << "\n// Fact rules (Tools > World Facts > Rules): the\n"
+                   "// reactive half. Registered after the event bus and\n"
+                   "// before every graph script, so a fact a rule writes is\n"
+                   "// already there by the time a graph looks - and an event\n"
+                   "// a rule sends rides the next frame's mail like any\n"
+                   "// other.\n"
+                   "class WorldFactRules : public Script {\n"
+                   " public:\n"
+                   "  void update(ScriptContext& ctx) override {\n";
+            if (dbgOn)
+                out << "    if (livedbg::halted()) return;\n";
+            out << "    if (ctx.sceneGeneration != generation_) {\n"
+                   "      generation_ = ctx.sceneGeneration;\n"
+                   "      factResetScene();\n"
+                   "      // Re-arm the edge latches: entering a level must\n"
+                   "      // re-fire what that level's state already implies.\n"
+                   "      // `spent_` is deliberately NOT cleared - 'once per\n"
+                   "      // run' means the run, not the scene.\n"
+                   "      for (int i = 0; i < FACT_RULE_COUNT; ++i)\n"
+                   "        was_[i] = false;\n"
+                   "      return;\n"
+                   "    }\n"
+                   "    for (int pass = 0; pass < FACT_RULE_PASSES; ++pass) {\n"
+                   "      bool changed = false;\n";
+            for (size_t ri = 0; ri < p.factRules.size(); ++ri) {
+                const facts::Rule& r = p.factRules[ri];
+                out << "      {  // rule \"" << r.name << "\"\n";
+                if (!r.enabled) {
+                    out << "        // disabled in the editor\n      }\n";
+                    continue;
+                }
+                out << "        const bool c = " << factCondExpr(r.when) << ";\n";
+                switch (r.policy) {
+                    case facts::RulePolicy::OnBecomeTrue:
+                        out << "        const bool fire = c && !was_[" << ri
+                            << "];\n";
+                        break;
+                    case facts::RulePolicy::WhileTrue:
+                        // Pass 0 only: a while-true rule that fired once per
+                        // cascade pass would run up to FACT_RULE_PASSES times
+                        // in one frame, which is never what "every frame"
+                        // means.
+                        out << "        const bool fire = c && pass == 0;\n";
+                        break;
+                    case facts::RulePolicy::Once:
+                        out << "        const bool fire = c && !was_[" << ri
+                            << "] && !spent_[" << ri << "];\n";
+                        break;
+                }
+                out << "        was_[" << ri << "] = c;\n"
+                    << "        if (fire) {\n"
+                    << "          spent_[" << ri << "] = true;\n";
+                for (const facts::RuleAction& a : r.then) {
+                    if (a.kind == facts::RuleAction::Kind::SendEvent) {
+                        const int ei = eventIndex(a.target);
+                        if (ei < 0) {
+                            out << "          // no graph listens for event '"
+                                << a.target << "'\n";
+                        } else {
+                            out << "          flowEvtNext[" << ei << "] = 1;\n"
+                                << "          flowEvtNextVal[" << ei << "] = "
+                                << floatLit(a.value) << ";\n";
+                        }
+                        continue;
+                    }
+                    const int slot = factNumSlot(a.target);
+                    if (slot < 0) {
+                        out << "          // unknown or unwritable fact '"
+                            << a.target << "'\n";
+                        continue;
+                    }
+                    // -(rule + 2), NOT -(rule + 1): -1 already means "a
+                    // write with nothing to attribute it to" (a graph node in
+                    // a build with the debugger off), so rule 0 would have
+                    // been indistinguishable from it in the blackboard.
+                    const std::string src = std::to_string(-(int)ri - 2);
+                    switch (a.kind) {
+                        case facts::RuleAction::Kind::SetFact:
+                            out << "          factWrite(" << slot << ", "
+                                << floatLit(a.value) << ", " << src << ");\n";
+                            break;
+                        case facts::RuleAction::Kind::AddFact:
+                            out << "          factWrite(" << slot
+                                << ", factNum[" << slot << "] + "
+                                << floatLit(a.value) << ", " << src << ");\n";
+                            break;
+                        case facts::RuleAction::Kind::ToggleFact:
+                            out << "          factWrite(" << slot
+                                << ", factNum[" << slot
+                                << "] != 0.0F ? 0.0F : 1.0F, " << src << ");\n";
+                            break;
+                        case facts::RuleAction::Kind::SendEvent:
+                            break;  // handled above
+                    }
+                }
+                out << "          changed = true;\n"
+                    << "        }\n      }\n";
+            }
+            out << "      if (!changed) break;\n"
+                   "    }\n"
+                   "  }\n"
+                   "\n private:\n"
+                   "  unsigned int generation_ = 0;\n"
+                   "  bool was_[FACT_RULE_COUNT] = {};\n"
+                   "  bool spent_[FACT_RULE_COUNT] = {};\n"
+                   "};\n";
+            registrations << "TYRA_SCRIPT(" << ns << "::WorldFactRules);\n";
+        }
+    }
+
+
     for (size_t si = 0; si < p.scenes.size(); ++si) {
     const auto& sceneObjs = p.scenes[si].objects;
     auto objectIndex = [&](const std::string& name) {
@@ -25697,6 +27999,15 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             const int k = dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
             return k < 0 ? std::string()
                          : pad + "livedbg::hit(" + std::to_string(k) + ");\n";
+        };
+
+        // Who wrote a fact, for the blackboard's change history: this node's
+        // debugger key, or -1 when there is nothing to attribute it to. The
+        // rule engine uses -(rule + 1) in the same field, so one number
+        // answers "which node or which rule" - see factWrite in the store.
+        auto factSrc = [&](const FlowNode& n) {
+            if (!dbgOn) return -1;
+            return dbgKeyOf(si, sceneObjs[ownerIdx].id, n.id);
         };
 
         // Which object a node refers to: incoming data link (follow the
@@ -25915,6 +28226,13 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const std::string base = "flowPos[" + std::to_string(vi) + "][";
                 return {base + "0]", base + "1]", base + "2]"};
             }
+            if (n.type == "GetFactPos") {
+                const int slot = factPosSlot(n.str);
+                if (slot < 0) return {"0.0F", "0.0F", "0.0F"};
+                const std::string base =
+                    "factPos[" + std::to_string(slot) + "][";
+                return {base + "0]", base + "1]", base + "2]"};
+            }
             // Nodes whose own X/Y/Z params ARE their position when nothing is
             // wired (a rotation triple counts - it rides this plane too).
             if (n.type == "SetPosition" || n.type == "SetVarPos" ||
@@ -26012,6 +28330,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) return "0.0F";
                 return "(float)flowInt[" + std::to_string(vi) + "]";
             }
+            // A fact READ folds to its slot, or - for a computed fact - to
+            // the query behind it, which is why a computed fact costs no
+            // storage and no per-frame work beyond the condition itself.
+            if (n.type == "GetFact") return factReadExpr(n.str);
             if (n.type == "GetSaveValue") {
                 const int vi = saveValueIndex(n.str);
                 if (vi < 0) return "0.0F";
@@ -26310,6 +28632,29 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (vi < 0) return "false";
                 return "flowBool[" + std::to_string(vi) + "]";
             }
+            if (n.type == "GetFactBool")
+                return "(" + factReadExpr(n.str) + " != 0.0F)";
+            if (n.type == "FactAtLeast" || n.type == "FactAtMost" ||
+                n.type == "FactIs") {
+                if (!factOf(n.str)) return "false";
+                const std::string lhs = factReadExpr(n.str);
+                // A wired number replaces the threshold param, so one fact
+                // can be compared against another with no extra node.
+                const std::string e = numInput(n);
+                const std::string rhs = e.empty() ? floatLit(n.num[0]) : e;
+                if (n.type == "FactIs")
+                    return "(fabsf((" + lhs + ") - (" + rhs + ")) <= 1e-4F)";
+                return "((" + lhs + (n.type == "FactAtMost" ? ") <= (" : ") >= (") +
+                       rhs + "))";
+            }
+            if (n.type == "FactQuery") {
+                const int qi = factQueryIdx(n.str);
+                if (qi < 0) return "false";
+                if ((size_t)qi < factPlan.queryCyclic.size() &&
+                    factPlan.queryCyclic[(size_t)qi])
+                    return "false";
+                return "factQuery" + std::to_string(qi) + "()";
+            }
             if (n.type == "VarAtLeast") {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) return "false";
@@ -26439,6 +28784,27 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 const int vi = varIndex(intVars, n.str);
                 if (vi < 0) return "std::string(\"?\")";
                 return "std::to_string(flowInt[" + std::to_string(vi) + "])";
+            }
+            if (n.type == "GetFactText") {
+                const facts::Fact* f = factOf(n.str);
+                if (!f) return "std::string(\"?\")";
+                // A one-of-several fact prints its OPTION NAME - the reason to
+                // declare one instead of using a bare int. The label table is
+                // baked next to the reader so nothing has to be looked up.
+                if (f->type == facts::Type::Enum && !f->options.empty()) {
+                    std::string tbl = "factEnum" +
+                                      std::to_string(facts::indexOf(p.facts,
+                                                                    n.str));
+                    return "flowEnumText(" + factReadExpr(n.str) + ", " + tbl +
+                           ", " + std::to_string(f->options.size()) + ")";
+                }
+                if (f->type == facts::Type::Bool)
+                    return "std::string(" + factReadExpr(n.str) +
+                           " != 0.0F ? \"true\" : \"false\")";
+                if (f->type == facts::Type::Int)
+                    return "std::to_string((long)lroundf(" +
+                           factReadExpr(n.str) + "))";
+                return "flowNumText(" + factReadExpr(n.str) + ")";
             }
             if (n.type == "PosToText") {
                 const auto e = posExpr(n);
@@ -26960,6 +29326,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
                   << ";\n";
+            } else if (n.type == "SetFrameExtrapolation") {
+                int m = (int)(n.num[0] + 0.5f);
+                if (m < 0) m = 0;
+                if (m > 2) m = 2;
+                c << pad << "ctx.frameExtrapolation = " << m << ";\n";
             } else if (n.type == "SetWidescreen") {
                 c << pad << "ctx.widescreen = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
@@ -27156,6 +29527,73 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                       << (e.empty() ? (n.num[0] != 0.0f ? "true" : "false")
                                     : "(" + e + " != 0.0F)")
                       << ";  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "SetFact") {
+                const facts::Fact* f = factOf(n.str);
+                const int slot = factNumSlot(n.str);
+                if (!f) {
+                    c << pad << "// node " << n.id
+                      << " (Set Fact): no fact named '" << n.str << "'\n";
+                } else if (f->isComputed()) {
+                    c << pad << "// node " << n.id << " (Set Fact): '" << n.str
+                      << "' is computed - nothing can write to it\n";
+                } else if (slot < 0) {
+                    c << pad << "// node " << n.id << " (Set Fact): '" << n.str
+                      << "' is a position - use Set Fact Position\n";
+                } else {
+                    // pin 0 set, 1 add, 2 toggle. A whole-number or
+                    // one-of-several fact rounds on the way in: the plane is
+                    // float and the declared type is not, and a fact that
+                    // drifted to 2.9999 would fail every "is" test against 3.
+                    const std::string e = numInput(n);
+                    std::string v = e.empty() ? floatLit(n.num[0]) : e;
+                    const bool whole = f->type == facts::Type::Int ||
+                                       f->type == facts::Type::Enum;
+                    const std::string src = std::to_string(factSrc(n));
+                    const std::string cur = "factNum[" + std::to_string(slot) + "]";
+                    std::string val;
+                    if (pin == 2)
+                        val = cur + " != 0.0F ? 0.0F : 1.0F";
+                    else if (pin == 1)
+                        val = cur + " + (" + v + ")";
+                    else if (f->type == facts::Type::Bool)
+                        val = "((" + v + ") != 0.0F ? 1.0F : 0.0F)";
+                    else
+                        val = v;
+                    if (whole && pin != 2)
+                        val = "(float)lroundf(" + val + ")";
+                    c << pad << "factWrite(" << slot << ", " << val << ", "
+                      << src << ");  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "SetFactPos") {
+                const int slot = factPosSlot(n.str);
+                if (slot < 0) {
+                    c << pad << "// node " << n.id
+                      << " (Set Fact Position): no position fact named '"
+                      << n.str << "'\n";
+                } else {
+                    const auto e = posExpr(n);  // a wired position beats X/Y/Z
+                    c << pad << "factWritePos(" << slot << ", " << e[0] << ", "
+                      << e[1] << ", " << e[2] << ", " << factSrc(n)
+                      << ");  // \"" << n.str << "\"\n";
+                }
+            } else if (n.type == "ClearFact") {
+                const facts::Fact* f = factOf(n.str);
+                const int ns_ = factNumSlot(n.str);
+                const int ps_ = factPosSlot(n.str);
+                if (!f || (ns_ < 0 && ps_ < 0)) {
+                    c << pad << "// node " << n.id
+                      << " (Clear Fact): no stored fact named '" << n.str
+                      << "'\n";
+                } else if (ps_ >= 0) {
+                    c << pad << "factWritePos(" << ps_ << ", FACT_POS_DEFAULT["
+                      << ps_ << "][0], FACT_POS_DEFAULT[" << ps_
+                      << "][1], FACT_POS_DEFAULT[" << ps_ << "][2], "
+                      << factSrc(n) << ");  // \"" << n.str << "\"\n";
+                } else {
+                    c << pad << "factWrite(" << ns_ << ", FACT_NUM_DEFAULT["
+                      << ns_ << "], " << factSrc(n) << ");  // \"" << n.str
+                      << "\"\n";
                 }
             } else if (n.type == "SetVarPos") {
                 const int vi = varIndex(posVars, n.str);
@@ -27522,16 +29960,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << pad << "  ctx.fadeAlpha = a;\n"
                   << pad << "}\n";
             } else if (n.type == "SetBars") {
-                // The style -> coverage mapping is resolved HERE (the host's own
-                // seqBarsFractions), so the console carries no table: codegen
-                // writes the two fractions in as literals.
+                // Only the STYLE travels: a letterbox is measured against the
+                // picture the console is outputting, and Set Widescreen can
+                // change that shape after this node has run - so the coverage
+                // is resolved every frame by sequences::barsFractions.
                 int style = (int)std::lround(n.num[0]);
                 if (style < 0) style = 0;
                 if (style > 4) style = 4;
-                float bt = 0.0f, bb = 0.0f, bl = 0.0f, br = 0.0f;
-                seqBarsFractions(style, bt, bb, bl, br);
-                c << pad << "sequences::g_flowBarTB = " << floatLit(bt) << ";\n"
-                  << pad << "sequences::g_flowBarLR = " << floatLit(bl) << ";\n"
+                c << pad << "sequences::g_flowBarStyle = " << style << ";\n"
                   << pad << "{\n"
                   << pad << "  float a = " << numOperand(n) << ";\n"
                   << pad << "  if (a < 0.0F) a = 0.0F;\n"
@@ -28088,8 +30524,20 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         for (const FlowNode& n : fg.nodes) {
             const FlowNodeType* t = flowNodeType(n.type);
             if (!t || !t->trigger) continue;
+            // Output 0 is the trigger's own "then" and stays what `body`
+            // means for every trigger that has only one. A trigger with more
+            // (On Fact Changed) still has to answer "is ANYTHING wired" over
+            // all of them, or a graph using only its "became true" branch
+            // would be skipped here as if it were empty.
+            auto pinChain = [&](int pin, const char* pad) {
+                std::vector<int> vis;
+                return emitExec(n.id, pin, pad, vis);
+            };
             const std::string chain = linkedActions(n.id, "      ");
-            if (chain.empty()) continue;
+            std::string anyChain = chain;
+            for (int p = 1; p < flowExecOutCount(*t); ++p)
+                anyChain += pinChain(p, "      ");
+            if (anyChain.empty()) continue;
             const std::string body = dbgHit(n, "      ") + chain;
 
             // Debugger "Fire": the trigger's whole branch, reachable on demand
@@ -28297,6 +30745,79 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        << "      if (ended != " << flag << ") {\n"
                        << "        " << flag << " = ended;\n" << body
                        << "      }\n    }\n";
+            } else if (n.type == "OnFactChanged") {
+                // The reactive door in. A latch of the PREVIOUS value rather
+                // than a rising edge, because "changed" has to cover a count
+                // going up, an enum moving sideways and a bool going false -
+                // and it has to fire whoever wrote it, graph or rule, which a
+                // condition on the fact's value cannot express.
+                const facts::Fact* f = factOf(n.str);
+                const int ns_ = factNumSlot(n.str);
+                const int ps_ = factPosSlot(n.str);
+                if (!f) {
+                    clsOut << "    // node " << n.id
+                           << " (On Fact Changed): no fact named '" << n.str
+                           << "'\n";
+                    continue;
+                }
+                // The three outputs, emitted from ONE comparison: "changed"
+                // is the edge itself, "became true" / "became false" are the
+                // crossings of zero either way. Two extra `if`s on a float
+                // already in a register - the whole cost of the node.
+                auto edges =
+                    [&](const std::string& cur, const std::string& prev) {
+                        std::string e;
+                        const std::string t1 = pinChain(1, "        ");
+                        const std::string t2 = pinChain(2, "        ");
+                        if (!t1.empty())
+                            e += "      if (" + cur + " != 0.0F && " + prev +
+                                 " == 0.0F) {\n" + t1 + "      }\n";
+                        if (!t2.empty())
+                            e += "      if (" + cur + " == 0.0F && " + prev +
+                                 " != 0.0F) {\n" + t2 + "      }\n";
+                        return e;
+                    };
+                if (f->isComputed()) {
+                    // A computed fact has no storage, so there is nothing to
+                    // latch against except the query's own answer - which is
+                    // exactly what we want and costs one bool.
+                    const std::string flag = "factWas" + std::to_string(n.id);
+                    addMember("float", flag, "-1.0F", 'f', 1);
+                    flagResets << "      " << flag << " = -1.0F;\n";
+                    clsOut << "    {\n      const float v = " << factReadExpr(n.str)
+                           << ";\n      if (v != " << flag << ") {\n"
+                           << "        const float was = " << flag << ";\n"
+                           << "        " << flag << " = v;\n" << body
+                           << edges("v", "was") << "      }\n    }\n";
+                    continue;
+                }
+                if (ps_ >= 0) {
+                    const std::string flag = "factWas" + std::to_string(n.id);
+                    addMember("float", flag + "[3]", "{}", 'f', 3);
+                    // Seeded from the LIVE value on a scene reload, not from
+                    // zero: a fact that has held its value since the last
+                    // level is not news to a graph starting now.
+                    flagResets << "      for (int a = 0; a < 3; ++a) " << flag
+                               << "[a] = factPos[" << ps_ << "][a];\n";
+                    clsOut << "    if (" << flag << "[0] != factPos[" << ps_
+                           << "][0] || " << flag << "[1] != factPos[" << ps_
+                           << "][1] ||\n        " << flag << "[2] != factPos["
+                           << ps_ << "][2]) {  // only \"changed\" - three\n"
+                           << "      // coordinates have no truth to cross.\n"
+                           << "      for (int a = 0; a < 3; ++a) " << flag
+                           << "[a] = factPos[" << ps_ << "][a];\n" << body
+                           << "    }\n";
+                    continue;
+                }
+                const std::string flag = "factWas" + std::to_string(n.id);
+                addMember("float", flag, "0.0F", 'f', 1);
+                flagResets << "      " << flag << " = factNum[" << ns_ << "];\n";
+                const std::string cur = "factNum[" + std::to_string(ns_) + "]";
+                clsOut << "    if (" << flag << " != " << cur << ") {  // \""
+                       << n.str << "\"\n"
+                       << "      const float was = " << flag << ";\n"
+                       << "      " << flag << " = " << cur << ";\n"
+                       << body << edges(cur, "was") << "    }\n";
             } else if (n.type == "OnCondition") {
                 // bridge bool -> exec: fire on the rising edge of the input
                 const std::string expr = boolInputsOr(n);
@@ -28502,13 +31023,19 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         // liveTimeSource sizes its buffer from collectFlowEvents, so the two
         // counts agree by construction.
         const size_t evSlots = flowEvents.size() * 2;
+        // World Facts join the same walk (docs/world-facts.md): a rewind that
+        // put the world back but left the facts in the future would restore a
+        // door to closed while "the generator is repaired" stayed true, which
+        // is exactly the silent kind of wrong this walk exists to prevent.
+        const size_t factSlots =
+            (size_t)factPlan.layout.numCount + (size_t)factPlan.layout.posCount;
         out << "\n// Time machine (docs/time-machine.md): the flow variables and "
                "the event bus, both directions.\n"
                "int flowTimeVarCount() { return "
-            << (total + evSlots) << "; }\n"
+            << (total + evSlots + factSlots) << "; }\n"
                "void flowTimeRead(int index, float* out3) {\n"
                "  out3[0] = out3[1] = out3[2] = 0.0F;\n";
-        if (total + evSlots == 0) {
+        if (total + evSlots + factSlots == 0) {
             out << "  (void)index;  // this project defines no flow variables\n";
         } else {
             out << "  switch (index) {\n";
@@ -28533,11 +31060,18 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     << "];\n      break;  // event \"" << flowEvents[i]
                     << "\" (in flight)\n";
             }
+            for (int i = 0; i < factPlan.layout.numCount; ++i)
+                out << "    case " << slot++ << ": out3[0] = factNum[" << i
+                    << "]; break;\n";
+            for (int i = 0; i < factPlan.layout.posCount; ++i)
+                out << "    case " << slot++ << ":\n      out3[0] = factPos["
+                    << i << "][0]; out3[1] = factPos[" << i
+                    << "][1]; out3[2] = factPos[" << i << "][2];\n      break;\n";
             out << "    default: break;\n  }\n";
         }
         out << "}\n"
                "void flowTimeWrite(int index, const float* in3) {\n";
-        if (total + evSlots == 0) {
+        if (total + evSlots + factSlots == 0) {
             out << "  (void)index; (void)in3;\n";
         } else {
             out << "  switch (index) {\n";
@@ -28562,6 +31096,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     << "] = in3[1];\n      break;  // event \"" << flowEvents[i]
                     << "\" (in flight)\n";
             }
+            for (int i = 0; i < factPlan.layout.numCount; ++i)
+                out << "    case " << slot++ << ": factNum[" << i
+                    << "] = in3[0]; break;\n";
+            for (int i = 0; i < factPlan.layout.posCount; ++i)
+                out << "    case " << slot++ << ":\n      factPos[" << i
+                    << "][0] = in3[0]; factPos[" << i
+                    << "][1] = in3[1]; factPos[" << i
+                    << "][2] = in3[2];\n      break;\n";
             out << "    default: break;\n  }\n";
         }
         out << "}\n";
@@ -29436,6 +31978,20 @@ bool forced(int key);
  * frame per Delay node with its current counter; 0 = not armed. */
 void timer(int key, int framesLeft);
 
+/** A World Fact changed (docs/world-facts.md). `src` is WHO changed it - an
+ * instrumented node's key, or -(rule + 1) for the fact rule engine - which is
+ * what lets the blackboard's history say "Set Fact in Main / Door" rather than
+ * just showing a number that moved. Called only from the fact store's
+ * factWrite(), which already compared old against new, so every call here is
+ * a real change. */
+void factWrite(int slot, float v, int src);
+void factWritePos(int slot, float x, float y, float z, int src);
+
+/** The editor's manual overrides, applied once per frame after the graphs and
+ * rules have run - so what the author typed wins over what the world computed
+ * for exactly the frame they typed it, and the world takes over again. */
+void applyFactOverrides();
+
 /** Per-frame pump. The generated loop calls tickFromLoop() before anything
  * reads halted(); tickFromScript() is the fallback for projects that took
  * ownership of terrain_game.cpp (it does nothing once the loop hook is seen).
@@ -29464,6 +32020,9 @@ inline void hit(int) {}
 inline bool halted() { return false; }
 inline bool forced(int) { return false; }
 inline void timer(int, int) {}
+inline void factWrite(int, float, int) {}
+inline void factWritePos(int, float, float, float, int) {}
+inline void applyFactOverrides() {}
 inline void tickFromLoop(ScriptContext&) {}
 inline void tickFromScript(ScriptContext&) {}
 
@@ -29498,6 +32057,7 @@ static const char* TPL_LIVE_DEBUG_CPP = R"DBG(// Generated by TyraX. Do not edit
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
 #include "scripts/live_debug.gen.hpp"
+#include "facts.gen.hpp"  // the World Facts store, for the blackboard
 
 namespace {{NS}} {
 namespace livedbg {
@@ -29507,10 +32067,10 @@ namespace {
 const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
 
 const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
-const unsigned int SNAP_VERSION = 4U;  // v4 appends the stats + flush map
+const unsigned int SNAP_VERSION = 5U;  // v5 appends the fact block
 const int SNAP_HEADER = 64;
 const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
-const unsigned int CMD_VERSION = 1U;
+const unsigned int CMD_VERSION = 2U;  // v2 appends fact overrides
 const int CMD_HEADER = 32;
 const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
 
@@ -29527,7 +32087,9 @@ const int OBJ_RING = {{OBJ_RING}};    // samples kept per watched object
 // moved since this build, so node keys would point at the wrong nodes.
 const unsigned int HASH_LO = {{HASH_LO}}U, HASH_HI = {{HASH_HI}}U;
 
-unsigned int hits[NODES] = {};
+// A project with no flow graph instruments no node, and a zero-length array is
+// not a C++ array - the runtime is still built for everything else it carries.
+unsigned int hits[NODES > 0 ? NODES : 1] = {};
 unsigned short evKey[EVENTS] = {};
 unsigned int evFrame[EVENTS] = {};
 int evCount = 0;  // valid ring entries
@@ -29563,6 +32125,33 @@ struct ObjSample {
 ObjSample watchRing[MAX_WATCH][OBJ_RING];
 int watchRingNext[MAX_WATCH] = {};
 int watchRingCount[MAX_WATCH] = {};
+
+// World Facts (docs/world-facts.md). The blackboard reads the live values out
+// of the watch table like any other variable; what needs state HERE is the
+// change history - a small ring of (slot, value, who, age) that answers "when
+// did this become true, and what did it" without the author having to guess
+// which graph to breakpoint. Positions ride the same ring as their X, which is
+// enough to see one move; the value itself is in the watch table.
+const int FACT_EVENTS = {{FACT_EVENTS}};
+struct FactEvent {
+  unsigned short slot;
+  short src;          // node key, or -(rule + 1)
+  unsigned int frame;
+  float value;
+};
+FactEvent factEv[FACT_EVENTS > 0 ? FACT_EVENTS : 1] = {};
+int factEvCount = 0, factEvNext = 0;
+// Manual overrides: the editor's "make it so" list, re-applied every frame it
+// stays in the command file. Not one-shot on purpose - a fact a rule rewrites
+// every frame would otherwise flicker back before anyone could see it.
+const int MAX_FACT_SET = {{MAX_FACT_SET}};
+struct FactSet {
+  unsigned short slot;
+  unsigned char isPos;
+  float v[3];
+};
+FactSet factSets[MAX_FACT_SET > 0 ? MAX_FACT_SET : 1] = {};
+int factSetCount = 0;
 
 int lastScene = 0;  // for the crash report
 // VU1 packet capture state (the buffer + the tap live further down).
@@ -29614,10 +32203,13 @@ bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
 
 // One static snapshot buffer - the EE has no business allocating per flush.
-// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry.
+// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry; v5 adds 2 +
+// 12 per fact change. A buffer one entry short here is a stack smash on a
+// console, so every block that can grow is in this sum.
 unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
                       MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) +
-                      64 + 2 + MAX_FLUSHMAP * 8 + 4];
+                      64 + 2 + MAX_FLUSHMAP * 8 +
+                      2 + (FACT_EVENTS > 0 ? FACT_EVENTS : 1) * 12 + 4];
 
 inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -29629,11 +32221,29 @@ void readVar(ScriptContext& ctx, int i, float* out) {
     return;
   }
   const int s = i - FLOW_VARS;
-  if (ctx.saveValues && s < ctx.saveValueCount) out[0] = ctx.saveValues[s];
+  if (s < ctx.saveValueCount) {
+    if (ctx.saveValues) out[0] = ctx.saveValues[s];
+    return;
+  }
+  // World Facts share the watch table with everything else, in catalog order:
+  // scalars first, then positions. The editor builds the same order from
+  // facts::layoutOf, so a slot means the same thing on both ends.
+  int f = s - ctx.saveValueCount;
+  if (f < FACT_NUM_COUNT) {
+    out[0] = factNum[f];
+    return;
+  }
+  f -= FACT_NUM_COUNT;
+  if (f < FACT_POS_COUNT) {
+    out[0] = factPos[f][0];
+    out[1] = factPos[f][1];
+    out[2] = factPos[f][2];
+  }
 }
 
 void pollCommand() {
-  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 + 4];
+  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
+                        MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
   if (!f) return;  // no editor attached (or a shipped build)
   const size_t got = fread(c, 1, sizeof(c), f);
@@ -29655,10 +32265,15 @@ void pollCommand() {
   int watchLen;
   memcpy(&watchLen, c + 28, 4);
   if (watchLen < 0 || watchLen > MAX_WATCH) return;
-  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2 + 4))
-    return;
+  // Fact overrides ride the top byte of `flags`: the header is full, and a
+  // count that small has nowhere better to live. An editor that predates
+  // them sets those bits to 0, which reads as "no overrides".
+  int factc = (int)((flags >> 24) & 0xFFU);
+  if (factc > MAX_FACT_SET) return;
+  const int listLen = bpc * 2 + firec * 2 + watchLen * 2;
+  if (got != (size_t)(CMD_HEADER + listLen + factc * 16 + 4)) return;
   unsigned int foot;
-  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2, 4);
+  memcpy(&foot, c + CMD_HEADER + listLen + factc * 16, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
   cmdSeq = seq;
@@ -29686,6 +32301,15 @@ void pollCommand() {
         memcpy(&watchIdx[i], w + i * 2, 2);
         watchRingNext[i] = watchRingCount[i] = 0;
       }
+    }
+  }
+  {
+    const unsigned char* fs = c + CMD_HEADER + listLen;
+    factSetCount = factc;
+    for (int i = 0; i < factc; ++i, fs += 16) {
+      memcpy(&factSets[i].slot, fs, 2);
+      factSets[i].isPos = fs[2];
+      memcpy(factSets[i].v, fs + 4, 12);
     }
   }
   const bool halt = (flags & 1U) != 0;
@@ -29783,8 +32407,18 @@ void flush(ScriptContext& ctx) {
   unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
   unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
   unsigned short resident = 0, peak = 0;
+  // Tenths of a frame per second, in the four spare bytes at the end of the
+  // stats block: the whole-number field above cannot say 19.6, and it cannot
+  // say whether the game PRESENTS more often than it renders. Additive, so an
+  // editor that predates them reads the same block it always did and a game
+  // that predates them leaves the zeros memset put there.
+  unsigned short fpsX10 = 0, fpsShownX10 = 0;
   if (ctx.engine) {
-    fps = ctx.engine->info.getFps();
+    const float renderedFps = ctx.engine->info.getFps();
+    const float shownFps = ctx.engine->info.getPresentedFps();
+    fps = (unsigned int)(renderedFps + 0.5F);
+    fpsX10 = (unsigned short)(renderedFps * 10.0F + 0.5F);
+    fpsShownX10 = (unsigned short)(shownFps * 10.0F + 0.5F);
     Tyra::RendererCore& rc = ctx.engine->renderer.core;
     const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
     binds = vs.binds;
@@ -29821,6 +32455,8 @@ void flush(ScriptContext& ctx) {
   put32(st + 48, ramFrame);
   put32(st + 52, binds);
   put32(st + 56, hits);
+  put16(st + 60, fpsX10);
+  put16(st + 62, fpsShownX10);
   p += 64;
   put16(p, (unsigned short)flushMapCount);
   p += 2;
@@ -29829,6 +32465,26 @@ void flush(ScriptContext& ctx) {
     put16(p + 2, flushMap[i].unpacks);
     put16(p + 4, flushMap[i].verts);
     put16(p + 6, flushMap[i].program);
+  }
+
+  // --- v5: the World Facts change ring -------------------------------------
+  // Oldest first, each with its AGE in frames like the node events above, so
+  // the editor rebuilds absolute frame numbers from the header's counter.
+  put16(p, (unsigned short)factEvCount);
+  p += 2;
+  {
+    const int start = factEvCount == FACT_EVENTS ? factEvNext : 0;
+    for (int i = 0; i < factEvCount; ++i, p += 12) {
+      const FactEvent& e = factEv[(start + i) % FACT_EVENTS];
+      put16(p + 0, e.slot);
+      short src = e.src;
+      memcpy(p + 2, &src, 2);
+      unsigned int age = frameNo - e.frame;
+      if (age > 65535U) age = 65535U;
+      put16(p + 4, (unsigned short)age);
+      put16(p + 6, 0);
+      memcpy(p + 8, &e.value, 4);
+    }
   }
 
   put32(p, outSeq ^ FOOTER_XOR);
@@ -29842,6 +32498,11 @@ void flush(ScriptContext& ctx) {
 
 void tickImpl(ScriptContext& ctx) {
   lastScene = ctx.scene;
+  // The editor's manual fact overrides, re-asserted at the top of the frame so
+  // the graphs and rules that run after this SEE them. Re-applied every frame
+  // the command file still lists them, which is what makes overriding a fact a
+  // rule rewrites continuously actually visible.
+  applyFactOverrides();
   // Install the EE crash handler on the first tick (idempotent). This call is
   // ALSO what pulls the engine's crash-handler object out of libtyra.a - a
   // release build never reaches it, so it links none of it.
@@ -30200,6 +32861,36 @@ const bool g_pumpRegistered = []() {
 }  // namespace
 
 
+void factWrite(int slot, float v, int src) {
+  FactEvent& e = factEv[factEvNext];
+  e.slot = (unsigned short)slot;
+  e.src = (short)src;
+  e.frame = frameNo;
+  e.value = v;
+  factEvNext = (factEvNext + 1) % FACT_EVENTS;
+  if (factEvCount < FACT_EVENTS) ++factEvCount;
+}
+
+void factWritePos(int slot, float x, float y, float z, int src) {
+  (void)y;
+  (void)z;
+  // One ring entry per position write, carrying X: the point of the history
+  // is WHEN and BY WHAT, and the full value is a watch-table read away.
+  factWrite(FACT_NUM_COUNT + slot, x, src);
+}
+
+void applyFactOverrides() {
+  for (int i = 0; i < factSetCount; ++i) {
+    const FactSet& f = factSets[i];
+    if (f.isPos) {
+      if (f.slot < FACT_POS_COUNT)
+        for (int a = 0; a < 3; ++a) factPos[f.slot][a] = f.v[a];
+    } else if (f.slot < FACT_NUM_COUNT) {
+      factNum[f.slot] = f.v[0];
+    }
+  }
+}
+
 void hit(int key) {
   if (key < 0 || key >= NODES) return;
   ++hits[key];
@@ -30259,21 +32950,29 @@ void tickFromScript(ScriptContext& ctx) {
 )DBG";
 
 static std::string liveDebugHeader(const Project& p) {
-    const DbgSymbols syms = debugSymbols(p);
     const std::string ns = sanitizeNamespace(p.name);
-    return replaceAll(liveDebugOn(p, syms) ? TPL_LIVE_DEBUG_HPP_ON
-                                           : TPL_LIVE_DEBUG_HPP_OFF,
+    return replaceAll(liveDebugEnabled(p) ? TPL_LIVE_DEBUG_HPP_ON
+                                          : TPL_LIVE_DEBUG_HPP_OFF,
                       "{{NS}}", ns);
 }
 
 static std::string liveDebugSource(const Project& p) {
     const DbgSymbols syms = debugSymbols(p);
-    if (!liveDebugOn(p, syms)) {
+    // NOT liveDebugOn: this used to also require at least one instrumented
+    // flow-graph node, which silently took the WHOLE channel away from any
+    // project without a graph - and the channel carries far more than node
+    // hits. The Stats tab (frame rate, bag flushes, GS VRAM, free EE RAM),
+    // the VU1 capture and the crash report are properties of the FRAME, not
+    // of anybody's logic, and a project with no graphs is exactly the kind of
+    // bare fixture somebody opens the Debugger on. Reported as "the Live
+    // Debugger shows nothing while the log keeps arriving": the game wrote no
+    // livedbg.bin at all, so the panel waited forever with nothing to say.
+    // The zero-cost rule is unchanged - liveDebugEnabled is still debug
+    // profile AND the preference, so a release build gets the empty TU below.
+    if (!liveDebugEnabled(p)) {
         std::string why = "the \"Live Debugger\" preference is off";
         if (p.settings.buildProfile != "debug")
             why = "this is a release build";
-        else if (p.settings.liveDebug)
-            why = "no flow graph has a runnable node to instrument";
         return "// Generated by TyraX. Do not edit - regenerated on every "
                "build.\n// Live Debugger: nothing to compile here - " +
                why +
@@ -30298,6 +32997,8 @@ static std::string liveDebugSource(const Project& p) {
                          "nothing links it in.");
     s = replaceAll(s, "{{MAX_WATCH}}",
                    std::to_string(livedbg::kMaxWatchObjects));
+    s = replaceAll(s, "{{FACT_EVENTS}}", std::to_string(livedbg::kMaxFactEvents));
+    s = replaceAll(s, "{{MAX_FACT_SET}}", std::to_string(livedbg::kMaxFactSets));
     s = replaceAll(s, "{{OBJ_RING}}", std::to_string(livedbg::kObjRing));
     s = replaceAll(s, "{{HASH_LO}}",
                    std::to_string((unsigned int)(syms.hash & 0xFFFFFFFFULL)));
@@ -30319,9 +33020,12 @@ static std::string liveDebugSymFile(const Project& p) {
     char hex[32];
     std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)syms.hash);
     out << "hash " << hex << "\n";
-    if (!liveDebugOn(p, syms))
+    if (!liveDebugEnabled(p))
         out << "# The build this was generated with carries no debugger "
                "runtime.\n";
+    else if (syms.nodes.empty())
+        out << "# No flow-graph node to instrument; the runtime is still "
+               "built (frame stats, VU capture, crash report).\n";
     out << syms.text;
     return out.str();
 }
@@ -30720,8 +33424,14 @@ static std::string liveTimeSource(const Project& p) {
     // same two collectors.
     std::vector<std::string> flowEvents;
     collectFlowEvents(p, flowEvents);
+    // World Facts take one slot each (a position fact still one, carrying
+    // three floats) at the end of the same walk - flowTimeVarCount() in
+    // flow_graph.gen.cpp counts them identically, from this same layout.
+    const facts::Layout factLayout = facts::layoutOf(p.facts);
     const size_t vars = intVars.size() + boolVars.size() + posVars.size() +
-                        flowEvents.size() * 2;
+                        flowEvents.size() * 2 +
+                        (size_t)factLayout.numCount +
+                        (size_t)factLayout.posCount;
     // Upper bound on the graphs' own state. The exact figure is a sum of
     // per-class constants in flow_graph.gen.cpp, which this translation unit
     // can only ask for at runtime - so size the buffer for the worst case a
@@ -30743,8 +33453,9 @@ static std::string liveTimeSource(const Project& p) {
     auto mix = [&layout](uint64_t v) {
         layout = (layout ^ v) * 1099511628211ull;
     };
-    mix(4);  // layout version - bump when the walk above changes
+    mix(5);  // layout version - bump when the walk above changes
              // (4: graph events joined the variable slots)
+             // (5: World Facts joined them after the events)
     mix(maxObjects);
     mix(vars);
     mix(saves);
@@ -31719,6 +34430,158 @@ static std::vector<int> waypointIndices(const std::vector<SceneObject>& objs,
     std::vector<int> out;
     for (const auto& f : found) out.push_back(f.second);
     return out;
+}
+
+// inc/facts.gen.hpp - the World Facts store, as the game sees it
+// (docs/world-facts.md).
+//
+// Tables plus declarations only: the ARRAYS live in flow_graph.gen.cpp, which
+// is the TU that owns every other piece of graph state for the same reason -
+// one place holds the values, and everything that needs them (the save system,
+// the Live Debugger's watch table, the time machine) goes through the
+// accessors below. A project with no facts still gets a valid header with
+// zero counts, so no consumer needs a `#if`.
+static std::string factsDataHeader(const Project& p) {
+    const std::string ns = sanitizeNamespace(p.name);
+    const FactPlan fp = factPlanOf(p);
+    std::ostringstream out;
+    out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
+           "#pragma once\n\nnamespace "
+        << ns << " {\n\n";
+
+    const int numCount = fp.layout.numCount;
+    const int posCount = fp.layout.posCount;
+    out << "// The fact store: every scalar fact (yes/no, whole number,\n"
+           "// number, one-of-several) shares one float array, positions get\n"
+           "// their own. A COMPUTED fact has no slot at all - it is an\n"
+           "// expression folded into whoever reads it.\n"
+           "constexpr int FACT_NUM_COUNT = "
+        << numCount << ";\n"
+           "constexpr int FACT_POS_COUNT = " << posCount << ";\n"
+           "constexpr int FACT_SAVE_MAX = "
+        << std::max<size_t>(1, fp.saveFacts.size()) << ";\n"
+           "constexpr int FACT_PROFILE_MAX = "
+        << std::max<size_t>(1, fp.profileFacts.size()) << ";\n"
+           "constexpr int FACT_SAVE_COUNT = " << fp.saveFacts.size() << ";\n"
+           "constexpr int FACT_PROFILE_COUNT = " << fp.profileFacts.size()
+        << ";\n"
+           "constexpr int FACT_RULE_COUNT = "
+        << (p.factRules.empty() ? 0 : (int)p.factRules.size()) << ";\n"
+           "// The rule engine re-runs until nothing changes, bounded by this:\n"
+           "// 'until nothing changes' is otherwise a hang with no way to\n"
+           "// break in on a console.\n"
+           "constexpr int FACT_RULE_PASSES = "
+        << facts::kMaxRulePasses << ";\n\n";
+
+    // Names, for the log line and for anyone reading the generated source.
+    if (fp.any()) {
+        out << "// Catalog:\n";
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            const facts::Fact& f = p.facts[i];
+            out << "//   " << f.name << " : " << facts::typeKey(f.type) << " / "
+                << facts::persistKey(f.persist);
+            if (f.scope == facts::Scope::Scene) out << " / scene";
+            if (f.isComputed()) out << " = query \"" << f.computed << "\"";
+            else if (f.type == facts::Type::Position)
+                out << "  -> factPos[" << fp.layout.posOf[i] << "]";
+            else
+                out << "  -> factNum[" << fp.layout.numOf[i] << "]";
+            out << "\n";
+        }
+        out << "\n";
+    }
+
+    auto emitFloatTable = [&](const char* name, const std::vector<float>& v) {
+        out << "constexpr float " << name << "[" << std::max<size_t>(1, v.size())
+            << "] = {";
+        if (v.empty())
+            out << "0.0F";
+        else
+            for (size_t i = 0; i < v.size(); ++i)
+                out << (i ? ", " : "") << floatLit(v[i]);
+        out << "};\n";
+    };
+
+    std::vector<float> numDefaults;
+    std::vector<uint32_t> numScene;
+    for (size_t i = 0; i < p.facts.size(); ++i) {
+        if (fp.layout.numOf[i] < 0) continue;
+        numDefaults.push_back(facts::defaultNum(p.facts[i]));
+        numScene.push_back(p.facts[i].scope == facts::Scope::Scene ? 1u : 0u);
+    }
+    emitFloatTable("FACT_NUM_DEFAULT", numDefaults);
+    out << "constexpr unsigned char FACT_NUM_SCENE["
+        << std::max<size_t>(1, numScene.size()) << "] = {";
+    if (numScene.empty()) out << "0";
+    for (size_t i = 0; i < numScene.size(); ++i)
+        out << (i ? ", " : "") << numScene[i];
+    out << "};\n";
+
+    out << "constexpr float FACT_POS_DEFAULT["
+        << std::max(1, posCount) << "][3] = {";
+    if (posCount == 0) {
+        out << "{0.0F, 0.0F, 0.0F}";
+    } else {
+        bool first = true;
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (fp.layout.posOf[i] < 0) continue;
+            out << (first ? "" : ", ") << "{" << floatLit(p.facts[i].pos[0])
+                << ", " << floatLit(p.facts[i].pos[1]) << ", "
+                << floatLit(p.facts[i].pos[2]) << "}";
+            first = false;
+        }
+    }
+    out << "};\n";
+    out << "constexpr unsigned char FACT_POS_SCENE["
+        << std::max(1, posCount) << "] = {";
+    if (posCount == 0) {
+        out << "0";
+    } else {
+        bool first = true;
+        for (size_t i = 0; i < p.facts.size(); ++i) {
+            if (fp.layout.posOf[i] < 0) continue;
+            out << (first ? "" : ", ")
+                << (p.facts[i].scope == facts::Scope::Scene ? 1 : 0);
+            first = false;
+        }
+    }
+    out << "};\n\n";
+
+    out << "// The fact store, and every door into it. Defined in\n"
+           "// src/gen/flow_graph.gen.cpp.\n"
+           "extern float factNum[FACT_NUM_COUNT > 0 ? FACT_NUM_COUNT : 1];\n"
+           "extern float factPos[FACT_POS_COUNT > 0 ? FACT_POS_COUNT : 1][3];\n"
+           "\n"
+           "// Puts every fact back to the value a new game starts it at.\n"
+           "void factResetAll();\n"
+           "// The same, for scene-scoped facts only - run on every scene load.\n"
+           "void factResetScene();\n"
+           "\n"
+           "// One row of the save payload. Keyed by the fact's own stable id\n"
+           "// and NOT by its position, which is what lets the catalog be\n"
+           "// renamed, reordered and pruned without a player's card turning\n"
+           "// into a different world (docs/world-facts.md \"Saving\").\n"
+           "struct FactSaveRow {\n"
+           "  unsigned int id;\n"
+           "  float v[3];\n"
+           "};\n"
+           "\n"
+           "// Fills `out` with the facts that ride a checkpoint/save slot and\n"
+           "// returns how many. Restore matches rows to slots BY ID and\n"
+           "// silently ignores a row naming a fact that no longer exists.\n"
+           "int factSaveCapture(FactSaveRow* out, int max);\n"
+           "void factSaveRestore(const FactSaveRow* rows, int count);\n"
+           "// The same pair for the profile tier, which lives in its own file\n"
+           "// outside the slots.\n"
+           "int factProfileCapture(FactSaveRow* out, int max);\n"
+           "void factProfileRestore(const FactSaveRow* rows, int count);\n"
+           "// True when a profile fact changed since the last call - the cue\n"
+           "// to write the profile file, so it is saved when it moves rather\n"
+           "// than on a timer.\n"
+           "bool factProfileDirty();\n"
+           "\n}  // namespace "
+        << ns << "\n";
+    return out.str();
 }
 
 // inc/nav_data.gen.hpp - the baked walkable grid, one bitmap per scene
@@ -34180,14 +37043,27 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
         if (flagged > maxObjects) maxObjects = flagged;
     }
     s.objectSlots = (int)maxObjects;
-    // magic + version + scene + playerPos[3] + playerYaw + the 3 counters
-    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4;
+    // magic + version + scene + playerPos[3] + playerYaw + the 4 counters
+    // (the fourth is factCount - keep this in step with SaveGameData in
+    // saveSystemHeader below, which is the whole reason this function exists).
+    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4 + 4;
     s.valuesBytes = 4 * (s.values > 0 ? s.values : 1);
     s.textsBytes = 32 * (s.texts > 0 ? s.texts : 1);  // SAVE_TEXT_LEN
     s.objectsBytes = 32 * s.objectSlots;
-    const int raw =
-        s.headerBytes + s.valuesBytes + s.textsBytes + s.objectsBytes;
+    const FactPlan fp = factPlanOf(p);
+    s.facts = (int)fp.saveFacts.size();
+    s.profileFacts = (int)fp.profileFacts.size();
+    // FactSaveRow: an id plus three floats. FACT_SAVE_MAX is floored at 1 the
+    // same way the value and text blocks are, so an empty catalog still costs
+    // the one row the generated array declares.
+    s.factsBytes = 16 * (s.facts > 0 ? s.facts : 1);
+    const int raw = s.headerBytes + s.valuesBytes + s.textsBytes +
+                    s.objectsBytes + s.factsBytes;
     s.payloadBytes = (raw + 63) / 64 * 64;  // alignas(64)
+    // SaveProfileData: magic + version + factCount + its own rows, padded to a
+    // full cluster (see the note on the struct - a smaller payload did not
+    // round-trip through the card).
+    s.profileBytes = s.profileFacts > 0 ? 1024 : 0;
     // list.icn size depends on the icon source (flat quad vs a project
     // model's triangle/shape count) - ask the baker.
     s.iconSysBytes = savebake::kIconSysBytes;
@@ -34207,7 +37083,8 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
     s.cardFootprintBytes =
         (1 /* the save directory itself */
          + saveSlotCount(p) * clustersFor(s.payloadBytes) +
-         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes)) *
+         clustersFor(s.iconSysBytes) + clustersFor(s.iconIcnBytes) +
+         (s.profileBytes > 0 ? clustersFor(s.profileBytes) : 0)) *
         cluster;
     return s;
 }
@@ -34235,7 +37112,9 @@ static std::string saveSystemHeader(const Project& p) {
     const savebake::SpinnerInfo spin = savebake::spinnerInfo(p);
     std::ostringstream out;
     out << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
-           "#pragma once\n\n#include \"scene_data.hpp\"\n\nnamespace "
+           "#pragma once\n\n#include \"scene_data.hpp\"\n"
+           "#include \"facts.gen.hpp\"  // FactSaveRow + FACT_SAVE_MAX\n\n"
+           "namespace "
         << ns
         << " {\n\n"
            "// Memory card save system: fixed slots under SAVE_MC_DIR on card 1\n"
@@ -34253,7 +37132,12 @@ static std::string saveSystemHeader(const Project& p) {
            "// v3: the objects array is sized by the save-flagged object\n"
            "// count (SAVE_OBJECT_MAX), not the scene size - older, larger\n"
            "// slot files fail the size/version check and read as empty.\n"
-           "constexpr int SAVE_VERSION = 3;\n"
+           "// v4: the World Facts block. Unlike every block above it, the\n"
+           "// rows are keyed by the fact's own id and NOT by position, so\n"
+           "// renaming, reordering or deleting a fact leaves an existing\n"
+           "// card readable - the rows that still match are restored and the\n"
+           "// rest are ignored (docs/world-facts.md \"Saving\").\n"
+           "constexpr int SAVE_VERSION = 4;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -34277,7 +37161,32 @@ static std::string saveSystemHeader(const Project& p) {
            "  char texts[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1][SAVE_TEXT_LEN];\n"
            "  int objectCount;\n"
            "  SaveObjectState objects[SAVE_OBJECT_MAX];\n"
+           "  int factCount;\n"
+           "  FactSaveRow facts[FACT_SAVE_MAX];\n"
            "};\n"
+           "\n"
+           "// The PROFILE: facts declared with profile persistence, in one\n"
+           "// file per card outside the save slots and shared by all of them\n"
+           "// - unlocks, a best time, 'has seen the intro'. Its own tiny\n"
+           "// payload rather than a slot, because it is written whenever a\n"
+           "// profile fact moves and must never cost a slot-sized transfer.\n"
+           "struct alignas(64) SaveProfileData {\n"
+           "  unsigned int magic;\n"
+           "  int version;\n"
+           "  int factCount;\n"
+           "  FactSaveRow facts[FACT_PROFILE_MAX];\n"
+           "  // Padded to a full 1 KiB memory-card CLUSTER. A card allocates\n"
+           "  // in clusters and the libmc RPC transfers by DMA, and a 64-byte\n"
+           "  // payload did not round-trip: the write reported success and the\n"
+           "  // next boot read a full-size block of something else back (magic\n"
+           "  // mismatch, so it was correctly rejected - which reads as 'the\n"
+           "  // profile does not persist'). The slot payload is kilobytes and\n"
+           "  // never hit this.\n"
+           "  char pad[1024 - (int)sizeof(unsigned int) - 2 * (int)sizeof(int) -\n"
+           "           FACT_PROFILE_MAX * (int)sizeof(FactSaveRow)];\n"
+           "};\n"
+           "bool profileWrite(const SaveProfileData& data);\n"
+           "bool profileRead(SaveProfileData& out);\n"
            "\n"
            "// Loads the BIOS memory card modules once (sio2man is already\n"
            "// resident - the engine loads it for the pads).\n"
@@ -34530,6 +37439,79 @@ static std::string hostSlotPath(int slot) {
   char buf[32];
   snprintf(buf, sizeof(buf), "save%d.sav", slot);  // next to the ELF
   return Tyra::FileUtils::fromCwd(buf);
+}
+
+// --- The profile file (docs/world-facts.md "Saving") -------------------------
+// Same two transports as a slot, one fixed name, no slot index. Deliberately
+// blocking: the payload is a few dozen bytes and it is written when a profile
+// fact moves, which is rare - the async machinery below exists for the
+// slot-sized transfers and would be pure complication here.
+static std::string mcProfileName() {
+  char buf[96];
+  snprintf(buf, sizeof(buf), "%s/profile.sav", SAVE_MC_DIR);
+  return std::string(buf);
+}
+
+static std::string hostProfilePath() {
+  return Tyra::FileUtils::fromCwd("profile.sav");
+}
+
+bool profileWrite(const SaveProfileData& data) {
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcWronly | kMcCreat);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd < 0) return false;
+    int wrote = -1, ret = 0;
+    mcWrite(fd, &data, sizeof(data));
+    mcSync(MC_WAIT, nullptr, &wrote);
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &ret);
+    return wrote == (int)sizeof(data);
+  }
+  FILE* f = fopen(hostProfilePath().c_str(), "wb");
+  if (!f) return false;
+  const size_t written = fwrite(&data, 1, sizeof(data), f);
+  fclose(f);
+  return written == sizeof(data);
+}
+
+bool profileRead(SaveProfileData& out) {
+  SaveProfileData d;
+  bool got = false;
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcRdonly);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd >= 0) {
+      int read = -1, ret = 0;
+      mcRead(fd, &d, sizeof(d));
+      mcSync(MC_WAIT, nullptr, &read);
+      mcClose(fd);
+      mcSync(MC_WAIT, nullptr, &ret);
+      // A card read reports FEWER bytes than it delivered for a payload this
+      // small - measured: a 1 KiB profile came back with the whole header and
+      // its rows intact and a reported count of less than sizeof(d), so an
+      // exact-size test rejected a perfectly good profile and the tier read as
+      // "never persists". The payload is self-describing (magic + version +
+      // factCount), so validate THAT and treat a short count as a delivered
+      // read. The slot payload is kilobytes and never hit this.
+      got = read > 0 || d.magic == SAVE_MAGIC;
+    }
+  } else {
+    FILE* f = fopen(hostProfilePath().c_str(), "rb");
+    if (f) {
+      got = fread(&d, 1, sizeof(d), f) == sizeof(d);
+      fclose(f);
+    }
+  }
+  // A profile from a build with a different layout is not migrated, it is
+  // ignored: every row is id-keyed, so the honest answer to "I cannot read
+  // this" is a fresh profile rather than half of an old one.
+  if (!got || d.magic != SAVE_MAGIC || d.version != SAVE_VERSION) return false;
+  if (d.factCount < 0 || d.factCount > FACT_PROFILE_MAX) return false;
+  out = d;
+  return true;
 }
 
 bool saveWrite(int slot, const SaveGameData& data) {
@@ -35193,10 +38175,11 @@ std::vector<File> bakeAnimAssets(const Project& p,
 
         // Non-destructive clip edits (Tools > Animation Editor) + the
         // project's animation-fps ratio are folded in here, right before
-        // serialization: trim, retime, rename. The source .glb/.fbx is never
-        // touched, and the console pays nothing - it just receives clips of
-        // the edited length under the edited names. Runs after the LOD
-        // generation because it only rewrites keyframe tracks, never meshes.
+        // serialization: trim, remove root motion, retime, rename. The source
+        // .glb/.fbx is never touched, and the console pays nothing - it just
+        // receives clips of the edited length under the edited names. Runs
+        // after the LOD generation because it only rewrites keyframe tracks,
+        // never meshes.
         animedit::applyClipEdits(p, relPath, skel);
 
         // Extracted textures land next to the .tskl, prefixed with the model
@@ -35905,6 +38888,19 @@ std::vector<File> generate(const Project& p) {
     const VuBuild vuBuild = buildVuFiles(p);
     for (const std::string& w : vuBuild.warnings)
         std::printf("[vu] %s\n", w.c_str());
+    // The neural upscaler's interlock (blssClashes) says the same thing on the
+    // host, before Docker is even started, so `--refresh-gen` reports it too
+    // and `--build` does not make anyone wait for a compiler to reach the
+    // #error. THIS is the earliest and cheapest signal there is; the generated
+    // source is the guard, this is the courtesy copy.
+    for (const std::string& c : blssClashes(p))
+        std::printf("[blss] BUILD WILL BE REFUSED: %s\n", c.c_str());
+    // ...and the guard itself, in a TU of its own so the compiler prints it
+    // once instead of once per translation unit that includes scene_data.hpp.
+    // Absent (not empty) when the project is clean, which is what keeps every
+    // clean project's file list byte-identical - refreshGenerated sweeps a
+    // leftover away.
+    const std::string blssRefusal = blssInterlock(p);
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +
@@ -35932,6 +38928,7 @@ std::vector<File> generate(const Project& p) {
         {"inc\\scripts\\credits.gen.hpp", creditsHeader(p)},
         {"src\\gen\\credits.gen.cpp", creditsScript(p)},
         {"inc\\terrain_heights.gen.hpp", terrainHeightsHeader(p)},
+        {"inc\\facts.gen.hpp", factsDataHeader(p)},
         {"inc\\nav_data.gen.hpp", navDataHeader(p)},
         {"inc\\scripts\\navigation.gen.hpp", navigationHeader(p)},
         {"src\\gen\\navigation.gen.cpp", navigationSource(p)},
@@ -36010,6 +39007,19 @@ std::vector<File> generate(const Project& p) {
         files.push_back(
             {"inc\\scripts\\vu0_kernels.gen.hpp", vuKernelsStubHeader()});
     }
+    // The baked BLSS network (docs/neural-upscaler.md), and ONLY while the
+    // upscaler is on - a project with it off must generate exactly the file set
+    // it generated before the feature existed. The body comes from
+    // blss::emitGeneratedSource, the twin of the host forward pass; a missing
+    // <projectDir>/blss.net is not an error, it is random weights with a banner
+    // in the header and a TYRA_LOG line in the generated init.
+    if (project::blssUse(p).any)
+        files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
+    // The build refusal, when there is one. Its own TU so the compiler prints
+    // it once; absent while the project is clean, so a clean project's file set
+    // is what it always was. project::refreshGenerated deletes a leftover.
+    if (!blssRefusal.empty())
+        files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }

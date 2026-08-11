@@ -689,6 +689,33 @@ void App::livedbgTick() {
     }
 
     const fs::path binDir = fs::path(project_.dir) / "bin";
+
+    // How old the snapshot FILE is, which is a different question from
+    // "did a new snapshot arrive". The two channels this rides on fail
+    // differently and only one of them is visible from here: a ps2link
+    // session's file server is a ps2client the editor spawned, and when it
+    // goes the console keeps running while every devkit file freezes at its
+    // last write. That leaves a valid, parseable, permanently stale
+    // livedbg.bin - which without this reads exactly like "no data yet".
+    if (now >= dbgSnapFileNextStat_) {
+        dbgSnapFileNextStat_ = now + 0.5;
+        std::error_code ec;
+        const fs::path snapPath = binDir / "livedbg.bin";
+        const fs::file_time_type t = fs::last_write_time(snapPath, ec);
+        if (ec) {
+            dbgSnapFileAge_ = -1.0;  // not there at all
+        } else {
+            // NEVER against the system clock: file_clock's epoch is
+            // implementation-defined and on this libstdc++ sits in the
+            // future, so a system_clock difference is nonsense. Its own
+            // clock's now() is the only correct comparand.
+            const auto d = fs::file_time_type::clock::now() - t;
+            dbgSnapFileAge_ =
+                std::chrono::duration<double>(d).count();
+            if (dbgSnapFileAge_ < 0.0) dbgSnapFileAge_ = 0.0;
+        }
+    }
+
     livedbg::Snapshot snap;
     if (livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
         (snap.seq != dbgSnap_.seq || snap.frame != dbgSnap_.frame)) {
@@ -987,6 +1014,49 @@ static void dbgVuDrawFindings(const vucap::Capture& c) {
     ImGui::Separator();
 }
 
+// Why the panel is empty, in one sentence, with the remedy. An empty panel is
+// the single most expensive failure this channel has: a dead transport and a
+// game that has not booted yet look identical, and the difference is on disk
+// the whole time (see livedbgTick's file-age stat). Called by the Debugger's
+// state block AND the Stats tab, so the two cannot tell different stories.
+std::string App::dbgSilenceReason() const {
+    if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)
+        return {};
+    if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
+    if (dbgSnapFileAge_ < 0.0)
+        return "bin/livedbg.bin has not appeared. Nothing is reporting yet - "
+               "Build & Run (F5 for PCSX2, F6 for a console). If the game IS "
+               "running, it was built before the Live Debugger was switched "
+               "on: rebuild it.";
+    // The game rewrites this every 6 frames locally and every 25 over ps2link
+    // - about 0.5 s either way at a healthy frame rate. Several seconds of
+    // silence is a dead channel, not a slow one; a collapsed frame rate makes
+    // it late, never absent.
+    // Big enough for the whole sentence: snprintf TRUNCATES rather than
+    // failing, and a message about a silent failure that is itself silently
+    // cut off would be a poor joke.
+    char buf[768];
+    const double age = dbgSnapFileAge_;
+    std::string when;
+    if (age < 90.0)
+        when = std::to_string((int)(age + 0.5)) + " seconds";
+    else
+        when = std::to_string((int)(age / 60.0 + 0.5)) + " minutes";
+    std::snprintf(
+        buf, sizeof(buf),
+        "bin/livedbg.bin is STALE - it stopped changing %s ago, so what is on "
+        "disk is a snapshot of a session that is over. The game may well still "
+        "be running: over ps2link the file server is a ps2client this editor "
+        "spawned, and closing the editor, stopping the game or redeploying THIS "
+        "project takes it down - the console then keeps running with no host: "
+        "to write to. (Deploying a DIFFERENT project no longer does: since "
+        "1.22.0 that refuses and names this session instead of killing it.) The "
+        "cure is a redeploy (Run on PS2, F6), not a retry. Under PCSX2 it means "
+        "the game itself stopped.",
+        when.c_str());
+    return buf;
+}
+
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
 // what the variables hold, where it is stopped - plus the transport controls
 // and the breakpoint list. The graph itself is the other half of this UI (the
@@ -1051,7 +1121,13 @@ void App::drawDebuggerWindow() {
             chip = {IM_COL32(140, 140, 140, 255), "NO SYMBOLS"};
             break;
         case DbgState::Waiting:
-            chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
+            // A frozen file is a DIFFERENT thing from an absent one and must
+            // not share a chip with it: one is "not started yet", the other is
+            // "the transport died and the console is still running".
+            if (dbgSnapFileAge_ >= 0.0)
+                chip = {IM_COL32(240, 175, 70, 255), "STALE SNAPSHOT"};
+            else
+                chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
             break;
         case DbgState::Stale:
             chip = {IM_COL32(240, 175, 70, 255), "STALE (rebuild)"};
@@ -1083,7 +1159,12 @@ void App::drawDebuggerWindow() {
     }
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
         ImGui::SameLine(0.0f, scaled(12.0f));
-        ImGui::TextDisabled("frame %u \xc2\xb7 %.0f fps \xc2\xb7 scene %d",
+        // "rendered" is not decoration: this is the game's frame counter over
+        // the EDITOR's wall clock, and the frame counter counts loop
+        // iterations - so on a game with frame extrapolation on, the picture
+        // changes about twice as often as this says. The Stats tab has the
+        // game's own measurement of both.
+        ImGui::TextDisabled("frame %u \xc2\xb7 %.1f fps rendered \xc2\xb7 scene %d",
                             dbgSnap_.frame, dbgFps_, dbgSnap_.scene);
     }
 
@@ -1107,10 +1188,10 @@ void App::drawDebuggerWindow() {
                 "game starts reporting as soon as it boots.");
             break;
         case DbgState::Waiting:
-            ImGui::TextWrapped(
-                "Symbols loaded (%d nodes). Waiting for a game to report - "
-                "Build & Run (F5) for PCSX2, or F6 for a real console.",
-                (int)dbgSyms_.nodes.size());
+            ImGui::TextWrapped("%s", dbgSilenceReason().c_str());
+            if (dbgSnapFileAge_ < 0.0)
+                ImGui::TextDisabled("Symbols loaded (%d nodes).",
+                                    (int)dbgSyms_.nodes.size());
             break;
         case DbgState::Stale:
             ImGui::TextWrapped(
@@ -1338,50 +1419,146 @@ void App::drawDebuggerWindow() {
         if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() &&
             !frames[dbgScrub_].vars.empty())
             vals = &frames[dbgScrub_].vars;
+        // What a row's Kind column says - and one of the two things the search
+        // below matches against, so it stays in one place.
+        //
+        // Four sources share this table and the symbol file distinguishes all
+        // of them: the Variables nodes ('i'/'b'/'p'), save values ('s') and
+        // World Facts, which come in scalar ('f') and POSITION ('F') flavours.
+        // Everything but the first three used to fall through to "save value"
+        // and one %g - which is why a position fact read as a lone float that
+        // happened to be its X.
+        auto kindOf = [](char k) {
+            switch (k) {
+                case 'i': return "int";
+                case 'b': return "bool";
+                case 'p': return "position";
+                case 'f': return "fact";
+                case 'F': return "fact (position)";
+                default: return "save value";
+            }
+        };
+        // A scalar fact is one float in the game and a TYPE in the catalog, so
+        // the editor can print it the way the catalog means it - true/false,
+        // an enum's option name - instead of the number the console stores.
+        // The blackboard already does this; the watch had no reason not to.
+        auto factNamed = [&](const std::string& n) -> const facts::Fact* {
+            for (const facts::Fact& f : project_.facts)
+                if (f.name == n) return &f;
+            return nullptr;
+        };
+        auto lower = [](std::string s) {
+            std::transform(s.begin(), s.end(), s.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            return s;
+        };
+        const std::string needle = lower(dbgWatchFilter_);
+        auto matches = [&](const livedbg::VarSym& v) {
+            if (needle.empty()) return true;
+            return lower(v.name + " " + kindOf(v.kind)).find(needle) !=
+                   std::string::npos;
+        };
+
         if (dbgSyms_.vars.empty()) {
             ImGui::TextDisabled(
                 "This project has no flow variables and no save values.");
             ImGui::TextWrapped(
                 "Variables nodes (Set/Get Int, Bool, Position) and Save values "
                 "show up here automatically.");
-        } else if (ImGui::BeginTable("##watch", 3,
-                                     ImGuiTableFlags_RowBg |
-                                         ImGuiTableFlags_SizingStretchProp |
-                                         ImGuiTableFlags_ScrollY)) {
+        } else {
+        // A search box, because a fact catalog puts EVERY declared fact in
+        // here: past a dozen rows the panel is a list to scroll rather than a
+        // reading. It matches the name and the Kind text together, so "marta"
+        // narrows to a character and "bool" or "save" narrows to a column's
+        // worth - one field instead of a filter row of checkboxes.
+        {
+            char fbuf[128];
+            std::snprintf(fbuf, sizeof(fbuf), "%s", dbgWatchFilter_.c_str());
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::InputTextWithHint("##watchfilter", "Filter...", fbuf,
+                                         sizeof(fbuf)))
+                dbgWatchFilter_ = fbuf;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Matches the name and the kind: \"marta\", \"bool\", "
+                    "\"save\".");
+            int shown = 0;
+            for (const livedbg::VarSym& v : dbgSyms_.vars)
+                if (matches(v)) ++shown;
+            ImGui::SameLine();
+            if (dbgWatchFilter_.empty()) {
+                ImGui::TextDisabled("%d row(s)", (int)dbgSyms_.vars.size());
+            } else {
+                if (ImGui::SmallButton("Clear##watchfilter"))
+                    dbgWatchFilter_.clear();
+                ImGui::SameLine();
+                ImGui::TextDisabled("%d of %d", shown,
+                                    (int)dbgSyms_.vars.size());
+            }
+            // Say so rather than showing an empty table, which reads as "the
+            // game stopped reporting" - the one thing this panel must never be
+            // ambiguous about.
+            if (shown == 0)
+                ImGui::TextDisabled("Nothing matches \"%s\".",
+                                    dbgWatchFilter_.c_str());
+        }
+
+        if (ImGui::BeginTable("##watch", 3,
+                              ImGuiTableFlags_RowBg |
+                                  ImGuiTableFlags_SizingStretchProp |
+                                  ImGuiTableFlags_ScrollY)) {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.5f);
             ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.2f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.3f);
             ImGui::TableHeadersRow();
             for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
                 const livedbg::VarSym& v = dbgSyms_.vars[i];
+                // The VALUE index is the row's position in the symbol table,
+                // not its position on screen - filtering hides rows, it does
+                // not renumber them.
+                if (!matches(v)) continue;
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextUnformatted(v.name.c_str());
                 ImGui::TableSetColumnIndex(1);
-                const char* kind = v.kind == 'i'   ? "int"
-                                   : v.kind == 'b' ? "bool"
-                                   : v.kind == 'p' ? "position"
-                                                   : "save value";
-                ImGui::TextDisabled("%s", kind);
+                ImGui::TextDisabled("%s", kindOf(v.kind));
                 ImGui::TableSetColumnIndex(2);
                 const size_t o = i * 3;
+                const ImVec4 kTrue(0.45f, 0.85f, 0.5f, 1.0f);
+                const ImVec4 kFalse(0.6f, 0.6f, 0.6f, 1.0f);
+                const facts::Fact* fact =
+                    (v.kind == 'f' || v.kind == 'F') ? factNamed(v.name)
+                                                     : nullptr;
                 if (o + 2 >= vals->size()) {
                     ImGui::TextDisabled("-");
                 } else if (v.kind == 'b') {
-                    ImGui::TextColored((*vals)[o] != 0.0f
-                                           ? ImVec4(0.45f, 0.85f, 0.5f, 1.0f)
-                                           : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                                       "%s", (*vals)[o] != 0.0f ? "true" : "false");
-                } else if (v.kind == 'p') {
+                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
+                                       (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (v.kind == 'p' || v.kind == 'F') {
+                    // Three floats, which is what a position IS. It reaches the
+                    // editor as three slots of the same row, so printing one of
+                    // them was printing X and calling it the position.
                     ImGui::Text("%.2f, %.2f, %.2f", (*vals)[o], (*vals)[o + 1],
                                 (*vals)[o + 2]);
                 } else if (v.kind == 'i') {
                     ImGui::Text("%d", (int)(*vals)[o]);
+                } else if (fact && fact->type == facts::Type::Bool) {
+                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
+                                       (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (fact && fact->type == facts::Type::Enum) {
+                    const int idx = (int)lroundf((*vals)[o]);
+                    if (idx >= 0 && idx < (int)fact->options.size())
+                        ImGui::Text("%s", fact->options[(size_t)idx].c_str());
+                    else  // out of range: say WHICH number, not "?"
+                        ImGui::TextDisabled("%d (no option)", idx);
+                } else if (fact && fact->type == facts::Type::Int) {
+                    ImGui::Text("%d", (int)lroundf((*vals)[o]));
                 } else {
                     ImGui::Text("%g", (*vals)[o]);
                 }
             }
             ImGui::EndTable();
+        }
         }
         ImGui::EndTabItem();
     }
@@ -1577,14 +1754,51 @@ void App::drawDebuggerWindow() {
     if (ImGui::BeginTabItem("Stats")) {
         const livedbg::Stats& st = dbgSnap_.stats;
         if (!live || !st.valid) {
-            ImGui::TextDisabled("No stats yet.");
-            prefHelp(
-                "They arrive with the game's snapshots - run a debug build with\n"
-                "the Live Debugger on. A game built before this panel existed\n"
-                "reports none: rebuild it.");
+            // "No stats yet." was the whole message here, and it was the same
+            // message whether the game had not booted, the build carried no
+            // debugger runtime, or the file server had died half an hour ago
+            // with the console still running. Say WHICH.
+            const std::string why = dbgSilenceReason();
+            if (!why.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImVec4(0.94f, 0.75f, 0.35f, 1.0f));
+                ImGui::TextWrapped("%s", why.c_str());
+                ImGui::PopStyleColor();
+            } else if (!live) {
+                ImGui::TextDisabled("No stats yet.");
+                prefHelp(
+                    "They arrive with the game's snapshots - run a debug build\n"
+                    "with the Live Debugger on.");
+            } else {
+                // Reporting, but the stats block is empty: an older ELF.
+                ImGui::TextDisabled(
+                    "This game reports no stats block - it was built before "
+                    "the Stats tab existed. Rebuild it (F5 / F6).");
+            }
         } else {
             ImGui::SeparatorText("Frame");
-            ImGui::Text("%d FPS", st.fps);
+            // The game's OWN measurement, on its COP0 clock, over its stated
+            // 0.5 s window - a different instrument from the header's
+            // frames-over-the-editor's-wall-clock, and the two should agree.
+            // A game built before the tenths existed reports only whole
+            // frames per second, so fall back rather than printing 0.0.
+            if (st.fpsX10 > 0)
+                ImGui::Text("%.1f FPS rendered", st.fpsX10 / 10.0f);
+            else
+                ImGui::Text("%d FPS rendered", st.fps);
+            if (st.presentedX10 > st.fpsX10 * 115 / 100) {
+                ImGui::SameLine();
+                ImGui::Text("\xc2\xb7 %.1f presented", st.presentedX10 / 10.0f);
+            }
+            prefHelp(
+                "Measured by the game itself: rendered = game loops per\n"
+                "second, presented = buffer flips. Frame extrapolation\n"
+                "synthesises a frame per rendered one, so it shows about\n"
+                "twice as often as it renders and both numbers are quoted.\n"
+                "The number beside the frame counter above is the same\n"
+                "rendered rate timed against this editor's wall clock -\n"
+                "they should agree. Neither is the frame-timing rig, which\n"
+                "measures sub-frame WORK in milliseconds (docs/profiling.md).");
             ImGui::SameLine();
             ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
                                 "%u vertices",

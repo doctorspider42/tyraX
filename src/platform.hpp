@@ -105,11 +105,49 @@ std::string shellArg(const std::string& s);
 // shell command line: "set NAME=value&& " on cmd.exe, "NAME=value " on sh.
 std::string envPrefix(const std::string& name, const std::string& value);
 
-// Kill every process with one of these names (basenames; a ".exe" is appended
-// on Windows when missing). Always succeeds. Matching is by exact process
-// name, so callers that may be dealing with a wrapper - a PCSX2 AppImage, say
-// - should pass the basename of the path they actually launched as well.
-std::string killByName(const std::vector<std::string>& processNames);
+// --- looking at other processes --------------------------------------------
+//
+// There is deliberately no killByName() here any more, and that absence is the
+// point. This editor shares a machine with other editors - several worktrees at
+// once is ordinary working practice in this repo - and with whatever else the
+// user is doing, so "kill every process called X" is never the right verb. It
+// was used twice and was wrong both times: a PS2 deploy reaped every
+// `ps2client` and took down another project's file server mid-session (the
+// console kept running, blocked on host:, with its devkit files frozen), and a
+// PCSX2 launch reaped every emulator and interrupted measurements nobody had
+// asked it to touch. Find the processes, work out which are yours, kill those.
+//
+// The DISCRIMINATOR is the command line, because it is the only thing both
+// platforms will say. A working directory would be the sharper key - the PS2
+// deploy runs its file server with cwd = <project>/bin - and Linux answers it
+// with one readlink of /proc/<pid>/cwd, but Windows has no supported way to
+// read another process's current directory (it lives in the remote PEB, whose
+// layout is undocumented and bitness-dependent). A key only one platform can
+// compute would make the two behave differently, which is worse than a slightly
+// weaker key both can compute.
+
+struct RunningProcess {
+    unsigned long long pid = 0;
+    std::string name;         // executable basename, ".exe" stripped on Windows
+    std::string commandLine;  // "" when the OS would not say - never guessed
+};
+
+// Every running process whose executable basename is `name` (with or without
+// the platform's executable suffix). An empty commandLine means "could not read
+// it", and a caller deciding whether to kill something must read that as "not
+// mine" - guessing is the bug this replaced.
+std::vector<RunningProcess> processesNamed(const std::string& name);
+
+// True when `commandLine` names `path` among its arguments, compared the way
+// this OS compares paths (case-insensitively on Windows) and tolerating the
+// quotes a shell leaves around an argument. This is how a caller asks "is that
+// the emulator booting MY ELF" without growing an #ifdef of its own.
+bool commandLineNamesPath(const std::string& commandLine, const std::string& path);
+
+// Terminate one process by pid. True when it is gone - including "was never
+// there", since a race with its own exit is the expected case; false when it
+// could not be killed at all.
+bool killProcess(unsigned long long pid);
 
 // --- child processes -------------------------------------------------------
 
