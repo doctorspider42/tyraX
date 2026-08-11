@@ -256,7 +256,10 @@ Retired / simplified:
   random trials. Sony VCL measured `C/D` at 326 slots and `TC/TCE` at 316; with
   the specialised 226-slot `TD` image and five cull images the all-class set is
   now **1676 of 2042 slots** — 354 slots smaller than M9, with 366 spare. The
-  final showcase ELF contains no `Clip_D` or `Clip_TCE` code image.
+  final showcase ELF contains no `Clip_D` or `Clip_TCE` code image. A fresh
+  Docker build booted and rendered `examples/showcase` at 50 FPS in PCSX2's
+  software renderer; a remote-pad camera sweep changed the active frustum with
+  no assert, hang or visible clipping corruption.
 
 ## Verification protocol (every milestone)
 
