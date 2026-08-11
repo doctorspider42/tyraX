@@ -46,8 +46,31 @@ the verification, and any fact worth reusing belongs in the relevant
     (docs/frame-extrapolation.md). Reasoned from the buffer arithmetic and
     exercised as a build, never seen firing: the shipped default net asks for no
     temporal weight, so the pass it drops is one that was not running anyway on
-    every project measured. A project with its own trained net is the fixture
-    this needs.
+    every project measured. **RETIRED as a task, 2026-08-11**: the combination
+    it guards is now refused by `blssClashes()`, so no build can reach it. The
+    guard stays in the engine for the next feature that presents without
+    rendering, and the three-buffer rotation it was reasoned about was LOGGED
+    frame by frame in the process - the history is always the previous RENDERED
+    frame, intact.
+- **The upscaler x frame extrapolation interlock is a REFUSAL, not a fix, and
+  what would lift it is named** (docs/frame-extrapolation.md, "Why not with the
+  upscaler"). Both features reproject the previous frame, extrapolation halves
+  the world rate, and the doubled camera delta tears the picture in motion. The
+  shape of a real fix is a temporal pass gated on its own **reprojection
+  magnitude** rather than on the network's weight alone - i.e. distrust history
+  that has moved more than some fraction of a tile. That is a **twin-contract**
+  change: `src/blss.cpp`'s oracle models the same blend and the shipped nets
+  were fitted against it, so it is a retraining question and not a clamp. Two
+  measurements would need re-taking with it: the fold tables in
+  docs/neural-upscaler.md and the hardware A/B.
+- **The motion-only blind spot in every gate on this branch.** The stability
+  gate and the byte-identity harnesses all freeze the camera AND the emitters,
+  deliberately, because that is what made them reproducible - and a fault that
+  exists only under motion is therefore invisible to all of them. This one was
+  found by a user walking around. Worth a paired **moving** fixture: a
+  frame-indexed camera script (docs/profiling.md's rig already prescribes one
+  for timing, for the same reason `--pad` is unusable as a repeatable drive) so
+  two builds can be compared at identical vantages while the camera moves.
 - **OWED before this branch's PR: a merge of `origin/main`.** The branch was
   0 behind when the PR #212 merge started and main landed two commits during
   it - #211 (terrain wrap mode, which moves `renderer_core_gs.hpp`, the same

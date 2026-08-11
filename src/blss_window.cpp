@@ -377,6 +377,15 @@ App::BlssClash App::blssClashesFor(const ProjectSettings& staged,
             r.label += "  (the second Player object)";
             c.split.push_back(r);
         }
+        // Frame extrapolation - a project preference, so it is a property of the
+        // SCENE row rather than of any object in it, like depth of field above.
+        // Staged, because the control now sits in this very block and a person
+        // ticking it must see the consequence before the modal commits.
+        if (staged.frameExtrapolation) {
+            BlssClashRef r = ref(-1, "");
+            r.label += "  (frame extrapolation is on for the project)";
+            c.extrapolation.push_back(r);
+        }
     }
     return c;
 }
@@ -471,6 +480,17 @@ void App::drawBlssClashWarning(const BlssClash& c, bool informational) {
             "        outside the reduced pass - so both halves would render\n"
             "        full-resolution with no working depth buffer.");
     list(c.split);
+    if (!c.extrapolation.empty())
+        ImGui::TextColored(
+            col,
+            "      - Frame extrapolation rebuilds a frame by reprojecting the\n"
+            "        previous one, which is what this feature's temporal pass\n"
+            "        does too - and it halves the world rate, so the camera\n"
+            "        moves TWICE as far between two rendered frames. Measured\n"
+            "        in motion the pair tears the picture into cells that\n"
+            "        disagree; either feature ALONE is clean. Parked, both\n"
+            "        look right, so this does not show until someone walks.");
+    list(c.extrapolation);
     ImGui::TextColored(col, "    Turn one of the two off; either side resolves it.");
 }
 
@@ -880,6 +900,97 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         // if you ticked the box above" - and say so in the block's own wording.
         drawBlssClashWarning(blssClashesFor(s, /*assumeProjectDefaultOn=*/!anyOn), !anyOn);
     }
+
+    // FRAME EXTRAPOLATION LIVES HERE, next to the upscaler, because it is the
+    // same question asked a different way: how does a frame reach the screen,
+    // and how much of it may be reconstructed rather than rendered. It used to
+    // sit four sections away under "Build", beside triple buffering, where the
+    // person choosing a reconstruction never met it - and the two turn out to be
+    // mutually exclusive, which is a thing you can only be told at the point of
+    // choice. It is a PROJECT setting where the upscaler is per scene, and the
+    // interlock above says so whenever both resolve on.
+    ImGui::SeparatorText("Frame extrapolation");
+    if (ImGui::Checkbox("Present a synthesised frame between rendered ones",
+                        &s.frameExtrapolation))
+        changed = true;
+    help(
+        "Frame generation, PS2 style: after each rendered frame the game\n"
+        "presents a SYNTHESISED one, re-drawing it under the camera\n"
+        "extrapolated from its own motion. The world then simulates and renders\n"
+        "at HALF the field rate while the television still gets a fresh picture\n"
+        "every field. It costs no GS VRAM (the source is the display buffer that\n"
+        "already exists) and adds no latency.\n"
+        "\n"
+        "CANNOT BE COMBINED WITH THE UPSCALER ABOVE, and the BUILD REFUSES the\n"
+        "pair. Both rebuild a frame by reprojecting the previous one, and this\n"
+        "one halves the world rate - so the camera moves twice as far between\n"
+        "two rendered frames, which is the interval the upscaler's temporal pass\n"
+        "reprojects across. Measured in motion, the pair tears the picture into\n"
+        "cells that disagree; either feature alone is clean. Parked, both look\n"
+        "right, which is why this has to be said here rather than found later.",
+        "Camera rotation reprojects exactly. Translation is approximated from\n"
+        "the ground plane (or a fixed distance), so strafing shears where\n"
+        "turning does not. Dynamic objects and the HUD freeze for the\n"
+        "synthesised frame, and the frame edge stretches where the source has no\n"
+        "pixels for what just came into view. Experimental - try it on a scene\n"
+        "before shipping it.\n"
+        "\n"
+        "WHEN IT IS A LOSS: presenting twice per loop caps the world at HALF the\n"
+        "field rate (25 Hz on PAL, 30 on NTSC), so this only pays if the game\n"
+        "was already at or below that. Measured on the showcase example: 44.7\n"
+        "real frames a second became 25 real + 25 synthesised - animation and\n"
+        "moving objects lost nearly half their updates to buy camera smoothness\n"
+        "the scene already had. Check the game's FPS readout with this off\n"
+        "before turning it on.\n"
+        "\n"
+        "The generated game GATES this per frame: it synthesises only while the\n"
+        "loop's work already overruns a field (two fields when triple buffered),\n"
+        "so leaving it on costs a fast scene nothing. Each flip is logged to the\n"
+        "game's bin/log.txt.");
+    ImGui::BeginDisabled(!s.frameExtrapolation);
+    if (ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround))
+        changed = true;
+    help(
+        "Take the depth from the FLOOR instead of a fixed distance. A view ray\n"
+        "meets the ground at w = h / -dir.y, so depth grows toward the horizon by\n"
+        "itself and a ray at or above the horizon never meets it - the sky then\n"
+        "does not move at all, which is the worst artefact of a fixed plane.\n"
+        "Costs a few operations per grid corner and needs no depth buffer, and it\n"
+        "overrides the fixed distance below.",
+        "");
+    ImGui::BeginDisabled(s.frameExtrapolationGround);
+    ImGui::SetNextItemWidth(scaled(160));
+    ImGui::DragFloat("Translation plane", &s.frameExtrapolationPlane, 0.5f, 0.0f,
+                     200.0f,
+                     s.frameExtrapolationPlane <= 0.0f ? "rotation only"
+                                                       : "%.1f units");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    help(
+        "How camera TRANSLATION is reprojected when the ground plane is off.\n"
+        "\n"
+        "0 = rotation only. Exact, but a walk in a straight line then reproduces\n"
+        "the previous frame EXACTLY - the synthesised frame is a duplicate,\n"
+        "which reads as judder.\n"
+        "\n"
+        "A positive distance assumes the whole world sits on one plane that far\n"
+        "away. That moves the entire picture uniformly, which looks like a lens\n"
+        "ZOOM rather than parallax - geometrically wrong, but it IS motion, and\n"
+        "on some content that beats a duplicated frame.",
+        "");
+    ImGui::EndDisabled();
+    if (ImGui::Checkbox("Always synthesise (ignore the gate)",
+                        &s.frameExtrapolationForce))
+        changed = true;
+    help(
+        "Skip the per-frame decision and always present a synthesised frame.\n"
+        "\n"
+        "The gate measures EE work, so a scene held back by the GS rather than\n"
+        "the EE keeps it shut - examples/raytraced-mirror sits at 26 fps with the\n"
+        "gate never opening. This is how such a scene gets tested at all without\n"
+        "placing a Set Frame Extrapolation node. Expect it to cost frames where\n"
+        "the gate would have declined.",
+        "");
+    ImGui::EndDisabled();
 
     // EVERYTHING BELOW IS THE NETWORK'S, and a reader who never opens this
     // window never sees it. Four knobs and a debug view that are meaningless

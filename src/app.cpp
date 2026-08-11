@@ -13388,97 +13388,12 @@ void App::drawPreferencesModal() {
             ImGui::PopStyleColor();
         }
     }
-    ImGui::Checkbox("Frame extrapolation (experimental)",
-                    &prefSettings_.frameExtrapolation);
-    prefHelp(
-        "Frame generation, PS2 style: after each rendered frame the game\n"
-        "presents a SYNTHESISED one, re-drawing it under the camera\n"
-        "extrapolated from its own motion. The world then simulates and\n"
-        "renders at HALF the field rate while the television still gets a\n"
-        "fresh picture every field - measured 25 Hz world / 50 Hz picture.\n"
-        "It costs no GS VRAM (the source is the display buffer that already\n"
-        "exists) and adds no latency.\n\n"
-        "Camera rotation reprojects exactly. Translation is approximated by\n"
-        "assuming the world sits on one plane, so strafing shears where\n"
-        "turning does not. Dynamic objects and the HUD FREEZE for the\n"
-        "synthesised frame, and the frame edge stretches where the source\n"
-        "has no pixels for what just came into view. Experimental - try it\n"
-        "on a scene before shipping it.\n\n"
-        "WHEN IT IS A LOSS: presenting twice per loop caps the world at HALF\n"
-        "the field rate (25 Hz on PAL, 30 on NTSC), so this only pays if the\n"
-        "game was already at or below that. Measured on the showcase example:\n"
-        "44.7 real frames a second became 25 real + 25 synthesised - animation\n"
-        "and moving objects lost nearly half their updates to buy camera\n"
-        "smoothness the scene already had. Check the game\'s FPS readout with\n"
-        "this off before turning it on.\n\n"
-        "The generated game now GATES this per frame: it synthesises only\n"
-        "while the loop\'s work already overruns a field (two fields when\n"
-        "triple buffered), so leaving it on costs a fast scene nothing. Each\n"
-        "flip is logged to the game\'s bin/log.txt.");
-    // The one interaction the two features have that neither switch shows.
-    // Extrapolation flips TWICE per loop, so with two display buffers every
-    // rendered frame is composited back into the same buffer - which is the
-    // buffer BLSS samples as its temporal history. The engine drops the
-    // temporal pass rather than sample its own render target (and says so in
-    // the game's log); this is where a person can still choose otherwise.
-    if (prefSettings_.frameExtrapolation) {
-        const auto bu = project::blssUse(project_, prefSettings_);
-        const bool tripled =
-            prefSettings_.tripleBuffering &&
-            project::tripleBufferingFit(project_, prefSettings_).fits;
-        if (bu.anyNetwork && prefSettings_.blssTemporal && !tripled) {
-            ImGui::PushStyleColor(ImGuiCol_Text,
-                                  ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
-            ImGui::TextWrapped(
-                "With the neural upscaler on and only two display buffers, the "
-                "two flips per loop put every rendered frame back into the "
-                "buffer BLSS reads as its temporal history - so the engine "
-                "skips the temporal pass rather than sample what it is "
-                "writing. The picture stays correct, the accumulation is lost. "
-                "Turn on triple buffering above to keep it (see "
-                "docs/frame-extrapolation.md).");
-            ImGui::PopStyleColor();
-        }
-    }
-    ImGui::BeginDisabled(!prefSettings_.frameExtrapolation);
-    ImGui::Checkbox("Ground plane (recommended)",
-                    &prefSettings_.frameExtrapolationGround);
-    prefHelp(
-        "Take the depth from the FLOOR instead of a fixed distance. A view\n"
-        "ray meets the ground at w = h / -dir.y, so depth grows toward the\n"
-        "horizon by itself and a ray at or above the horizon never meets it -\n"
-        "the sky then does not move at all, which is the worst artefact of a\n"
-        "fixed plane. Costs a few operations per grid corner and needs no\n"
-        "depth buffer. Ignored where the neural upscaler supplies real depth,\n"
-        "and it overrides the fixed distance below.");
-    ImGui::BeginDisabled(prefSettings_.frameExtrapolationGround);
-    ImGui::DragFloat("Translation plane", &prefSettings_.frameExtrapolationPlane,
-                     0.5f, 0.0f, 200.0f,
-                     prefSettings_.frameExtrapolationPlane <= 0.0f
-                         ? "rotation only"
-                         : "%.1f units");
-    prefHelp(
-        "How camera TRANSLATION is reprojected when the neural upscaler is\n"
-        "OFF (with it on, its real per-tile depth wins and this is ignored).\n\n"
-        "0 (default) = rotation only. Exact, but a walk in a straight line\n"
-        "then reproduces the previous frame EXACTLY - the synthesised frame\n"
-        "is a duplicate, which reads as judder.\n\n"
-        "A positive distance assumes the whole world sits on one plane that\n"
-        "far away. That moves the entire picture uniformly, which looks like\n"
-        "a lens ZOOM rather than parallax - geometrically wrong, but it IS\n"
-        "motion, and on some content that beats a duplicated frame. 12 is\n"
-        "what the first version shipped with. Worth trying both.");
-    ImGui::EndDisabled();
-    ImGui::Checkbox("Always synthesise (ignore the gate)",
-                    &prefSettings_.frameExtrapolationForce);
-    prefHelp(
-        "Skip the per-frame decision and always present a synthesised frame.\n\n"
-        "The gate measures EE work, so a scene held back by the GS rather\n"
-        "than the EE keeps it shut - examples/raytraced-mirror sits at 26 fps\n"
-        "with the gate never opening. This is how such a scene gets tested at\n"
-        "all without placing a Set Frame Extrapolation node. Expect it to\n"
-        "cost frames where the gate would have declined.");
-    ImGui::EndDisabled();
+    // Frame extrapolation used to sit HERE, beside triple buffering, on the
+    // reasoning that both are about how a finished frame reaches the display.
+    // It has moved into the "Frame delivery" block below, next to the neural
+    // upscaler (drawBlssSettings): the two are siblings - each reconstructs
+    // part of what the player sees instead of rendering it - and they are
+    // mutually exclusive, which is only useful said at the point of choice.
     // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
     // declaration the editor reads (menu previews, the display-row scaffold,
     // the per-resolution menu fit check) - see docs/menu-styles.md
@@ -13890,7 +13805,11 @@ void App::drawPreferencesModal() {
     // day either is touched. The staged settings go in, so both the warning and
     // the verdict answer for what the modal will apply and not for what is on
     // disk.
-    ImGui::SeparatorText("Neural upscaler (BLSS)");
+    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
+    // this engine reconstructs rather than renders - the upscaler (per scene)
+    // and frame extrapolation (per project) - and they refuse each other, so
+    // they have to be read together.
+    ImGui::SeparatorText("Frame delivery (upscaler, extrapolation)");
     drawBlssSettings(prefSettings_, BlssDetail::Essentials);
     if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0))) showBlss_ = true;
     prefHelp(
@@ -14755,6 +14674,23 @@ void App::drawScenePreferencesModal() {
                 "A project whose scenes disagree gives up the memory saving -\n"
                 "Project > Preferences says what that costs, measured.",
                 project_.settings.blssEnabled ? "ON" : "OFF");
+        // THE INTERLOCK, AT THE OTHER POINT OF CHOICE. Frame extrapolation is a
+        // project setting and the upscaler is per scene, so this is the one
+        // place a person can create the refused pair without ever opening
+        // Project > Preferences - and a build error is a poor way to find out.
+        // Same sentence as drawBlssClashWarning's, one scene narrower.
+        if (s.blssEnabled && project_.settings.frameExtrapolation)
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                "The BUILD WILL REFUSE this scene: Project > Preferences >\n"
+                "Frame delivery has frame extrapolation on, and the two cannot\n"
+                "be combined. Both rebuild a frame by reprojecting the previous\n"
+                "one, and extrapolation halves the world rate - so the camera\n"
+                "moves twice as far between two rendered frames, which is the\n"
+                "interval the upscaler reprojects across. Measured in motion the\n"
+                "pair tears the picture into cells that disagree; either alone\n"
+                "is clean. Turn the upscaler off for this scene, or turn frame\n"
+                "extrapolation off for the project.");
     }, "Override the upscaler for this scene");
 
     ImGui::EndChild();

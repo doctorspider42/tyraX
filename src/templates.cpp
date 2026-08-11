@@ -24574,6 +24574,64 @@ static std::vector<std::string> blssClashes(const Project& p) {
             break;
         }
     }
+    // 5. Frame extrapolation. A PROJECT preference x scene data, the same shape
+    //    as split screen above - and the one condition here that is not about
+    //    the z buffer.
+    //
+    //    Both features reconstruct a frame from the PREVIOUS one by reprojecting
+    //    it through the camera delta, and both are approximations whose error
+    //    grows with that delta. Extrapolation presents twice per loop, so the
+    //    world runs at HALF the field rate and the camera moves TWICE as far
+    //    between two RENDERED frames - which is exactly the interval BLSS'
+    //    temporal pass reprojects across. So turning extrapolation on does not
+    //    merely add a second approximation beside the first, it doubles the
+    //    input to the first one as well.
+    //
+    //    Measured on the reporter's own project (raytracing-test: progressive,
+    //    three buffers, neural mode at 2x2, PCSX2 software renderer, player
+    //    driven by --pad). Parked, all four arms are indistinguishable. In
+    //    MOTION: the upscaler alone is clean, extrapolation alone is clean, and
+    //    the pair tears the frame into cells that disagree - a second displaced
+    //    copy of near geometry, hard rectangular seams across the sky, object
+    //    silhouettes pasted at 32-pixel granularity. The instrument that names
+    //    it is the reprojection displacement itself: BLSS' own per-corner offset
+    //    peaks at 158 px of a 448 px raster with extrapolation off and 201 px
+    //    with it on, and the warp's grid is being displaced by the same doubled
+    //    delta at the same time.
+    //
+    //    It is NOT the two-buffer history degeneration composite() guards, and
+    //    that guard is not what is missing: with three buffers the rotation was
+    //    LOGGED frame by frame and the history is always the previous RENDERED
+    //    frame, intact and never a synthesised one. Nor is it raster state
+    //    leaking across the warp - a leaked SCISSOR/XYOFFSET/FRAME is static
+    //    register state and would wreck a parked frame too.
+    //
+    //    Refused rather than degraded because no partial measure fixed it:
+    //    dropping the temporal pass (the strongest single contributor) reduced
+    //    the tearing but left the warp's own grid coming apart under the same
+    //    doubled delta. Turning EITHER feature off is clean, so the honest
+    //    answer is that the project picks one.
+    if (p.settings.frameExtrapolation) {
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            if (!sceneUpscales(si)) continue;
+            out.push_back(
+                "BLSS x FRAME EXTRAPOLATION: Project > Preferences > Neural "
+                "upscaler (BLSS) has frame extrapolation on and " +
+                sceneName(si) +
+                " resolves the upscaler on. Both rebuild a frame by reprojecting "
+                "the previous one, and extrapolation halves the world rate - so "
+                "the camera moves twice as far between two rendered frames, "
+                "which is the interval the upscaler's temporal pass reprojects "
+                "across. Measured in motion the pair tears the picture into "
+                "cells that disagree (a displaced second copy of near geometry, "
+                "hard seams across the sky); either feature ALONE is clean. Turn "
+                "frame extrapolation off, or turn the upscaler off for this "
+                "scene (Scene > Scene Preferences > Neural upscaler) or for the "
+                "project. docs/frame-extrapolation.md, \"Why not with the "
+                "upscaler\".");
+            break;
+        }
+    }
     return out;
 }
 

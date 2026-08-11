@@ -4635,17 +4635,28 @@ Occupancy is a count of grid cells, not a millisecond.
   representative depth per tile. Disocclusion inside a tile ghosts; the net
   learns to distrust history where `depthGrad` is high, which mitigates it
   rather than fixing it.
+- **Cannot be combined with [frame extrapolation](frame-extrapolation.md), and
+  the BUILD REFUSES the pair** — the fifth `blssClashes()` condition, per scene
+  like the other four. Both rebuild a frame by reprojecting the previous one
+  through the camera delta, and extrapolation halves the world rate, so the
+  camera moves **twice as far between two rendered frames** — which is exactly
+  the interval this feature's temporal pass reprojects across. Measured in
+  motion on a user's project, the pair tears the frame into cells that disagree
+  (a displaced second copy of near geometry, hard seams across the sky); either
+  feature **alone** is clean, and parked they are indistinguishable, which is why
+  every frozen-camera gate on this branch missed it. The reprojection offset
+  peaks at 158 px of a 448 px raster with extrapolation off and 201 px with it
+  on. This entry used to say the two were "otherwise compatible" and that only
+  the double-buffered history degeneration needed guarding; the full account,
+  including the two theories that measurement disproved, is in
+  [Why not with the upscaler](frame-extrapolation.md#why-not-with-the-upscaler).
 - **The temporal pass is dropped when the history buffer IS the render
-  target**, which is what happens with
-  [frame extrapolation](frame-extrapolation.md) running double buffered: the
-  two flips per loop put every rendered frame back into the same buffer.
+  target.** That is the double-buffered extrapolation case above:
   `composite()` compares the addresses and skips pass 3 with a one-shot warning
-  rather than sampling what it is writing. Passes 1, 2, 4 and 5 read the
-  low-res target and are unaffected, so the picture is correct and only the
-  accumulation is lost — turn triple buffering on to get it back. The two
-  features are otherwise compatible, and the warp reads this feature's per-tile
-  `1/w` to reproject translation with real parallax; the whole interaction is
-  written up in that page.
+  rather than sampling what it is writing. It is now unreachable from a build —
+  the interlock refuses the combination before it can arise — but the guard
+  stays, because **any future feature that adds a present without a render
+  inherits the same problem**.
 - **FIXED — it is a per-scene setting now**, and the half that matters is the
   build interlock: one portal anywhere used to refuse the build for every scene
   in the project. See [Per scene](#per-scene). Still **no flow-graph control**

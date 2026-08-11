@@ -801,9 +801,10 @@ private:
         std::string label;  // "scene > object", or just the scene name
     };
     struct BlssClash {
-        std::vector<BlssClashRef> dof, dofNode, portals, split;
+        std::vector<BlssClashRef> dof, dofNode, portals, split, extrapolation;
         bool any() const {
-            return !dof.empty() || !dofNode.empty() || !portals.empty() || !split.empty();
+            return !dof.empty() || !dofNode.empty() || !portals.empty() ||
+                   !split.empty() || !extrapolation.empty();
         }
     };
     // `assumeProjectDefaultOn` walks the scenes that INHERIT the project default

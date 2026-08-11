@@ -819,9 +819,31 @@ Eight things here that were paid for, and that any edit must keep:
   reports a perfectly still picture.
 
 
-Incompatible with **depth of field, portals and split view** — all three read or
-write real GS depth at display resolution, which since the z shrink is not merely
-unwritten but unallocated. **The build REFUSES the combination now**
+Incompatible with **depth of field, portals, split view and FRAME
+EXTRAPOLATION**. The first three read or write real GS depth at display
+resolution, which since the z shrink is not merely unwritten but unallocated.
+**The fourth is a different mechanism and cost a user a broken build to find**
+(2026-08-11, docs/frame-extrapolation.md "Why not with the upscaler"): both
+features rebuild a frame by reprojecting the previous one through the camera
+delta, and extrapolation presents twice per loop, so the world runs at half the
+field rate and the camera moves **twice as far between two RENDERED frames** —
+which is exactly the interval BLSS' temporal pass reprojects across. Turning it
+on does not add a second approximation beside the first, it doubles the input to
+the first one as well. **It is invisible parked and only appears in MOTION**, so
+every frozen-camera gate on this branch (the stability gate, the byte-identity
+harnesses — all of which freeze the camera AND the emitters on purpose) was
+built not to see it. Measured on the reporter's project, PCSX2 software
+renderer, `--pad`-driven: upscaler alone clean, extrapolation alone clean, the
+pair tearing the frame into cells that disagree; BLSS' own per-corner
+reprojection offset peaks at 158 px of a 448 px raster with extrapolation off
+and 201 px with it on. **Two theories were disproved by measurement and must not
+be re-opened**: it is NOT the two-buffer history degeneration `composite()`
+guards (with three buffers the rotation was LOGGED frame by frame — the history
+is always the previous RENDERED frame, intact), and it is NOT raster state
+leaking across the warp (that is static register state and would wreck a parked
+frame too). Dropping the temporal pass reduced but did not remove it, which is
+why this is an interlock and not a degradation. **The build REFUSES the
+combination now**
 (`332f3193`): `blssClashes()` + `blssInterlock()` in `src/templates.cpp` put
 `#error` lines into the generated `inc/scene_data.hpp` naming the feature and the
 scene, and `generate()` prints the same on the host. Until then the editor's
@@ -829,8 +851,11 @@ warning was the whole interlock, and this paragraph's and both docs' claim that
 "codegen does not emit them together" was simply false. Each condition mirrors
 what the generated game does — DoF per scene *and* the `Set Depth Of Field` flow
 node, portals only when **linked**, split view only with a **second `Player`
-object** — so it refuses nothing that would have worked; the preferences dialog
-asks the same four questions live. Env maps, camera feeds and projected shadows
+object**, frame extrapolation whenever the project preference is on and a scene
+resolves the upscaler on — so it refuses nothing that would have worked; the
+preferences dialog asks the same five questions live, and *Scene > Scene
+Preferences* asks the extrapolation one too, because a per-scene override is the
+one way to create that pair without opening Preferences at all. Env maps, camera feeds and projected shadows
 are **no longer on that list** — they nest now. The HUD, 2D and every post effect
 still draw at full resolution, after the composite, which is the one property an
 upscaler must not spoil.
@@ -1294,6 +1319,15 @@ banner both, so a previously built ELF still reports.
   passes read the low-res target and are unaffected. With three buffers the
   indices are distinct by construction and neither guard fires. **Any future
   feature that adds a present without a render inherits both.**
+  **BOTH GUARDS ARE CORRECT AND BOTH ARE NOW UNREACHABLE FROM A BUILD** - the
+  pair is refused (see the BLSS section above), because the real interaction was
+  never the buffer bookkeeping. Verified by LOGGING the three-buffer rotation
+  frame by frame rather than reasoning about it: `hist` is always the previous
+  RENDERED frame, intact, and `histIsTarget` never fires. What actually breaks
+  is that extrapolation halves the world rate, so the camera delta BLSS'
+  temporal pass reprojects across DOUBLES - and it only shows in MOTION. Keep
+  the guards for the next feature that presents without rendering; do not spend
+  another session looking for the bug here.
 - **The vblank handler owns `DISPFB`, and the queue is lock-free ON PURPOSE.**
   `RendererCoreGS::onVblank` runs in interrupt context and everything it touches
   must stay interrupt-safe - `presentFrameBuffer` is GS privileged-register

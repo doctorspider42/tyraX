@@ -16,6 +16,59 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.17.1 (the upscaler and frame extrapolation refuse each other): a user
+// reported that turning both on makes the picture disintegrate, and it does -
+// but only IN MOTION, which is why nothing on this branch had seen it. Every
+// automated gate here freezes the camera and the emitters on purpose, because
+// that is what made them reproducible, so a motion-only fault is precisely what
+// they were built not to see.
+//
+// Reproduced on the reporter's own project (progressive, three display buffers,
+// neural mode at 2x2), PCSX2 software renderer, player driven by --pad. Parked,
+// all four arms are indistinguishable. Walking: the upscaler alone is clean,
+// extrapolation alone is clean, and the pair tears the frame into cells that
+// disagree - a second displaced copy of near geometry, hard rectangular seams
+// across the sky, silhouettes pasted at 32-pixel granularity.
+//
+// The mechanism is not a bug in either feature's bookkeeping. Both rebuild a
+// frame by reprojecting the previous one through the camera delta, and
+// extrapolation presents twice per loop - so the world runs at half the field
+// rate and the camera moves TWICE as far between two RENDERED frames, which is
+// exactly the interval the upscaler's temporal pass reprojects across. Measured:
+// BLSS' own per-corner reprojection offset peaks at 158 px of a 448 px raster
+// with extrapolation off and 201 px with it on, while the warp's grid is
+// displaced by the same doubled delta at the same time. Two approximations of
+// one displacement, each fed twice its design input.
+//
+// TWO EARLIER THEORIES WERE DISPROVED BY MEASUREMENT AND ARE RECORDED SO THEY
+// ARE NOT RE-OPENED. It is NOT the two-buffer history degeneration composite()
+// guards: with three buffers the rotation was LOGGED frame by frame, and the
+// history is always the previous RENDERED frame, intact and never a synthesised
+// one - the guard is correct and simply never fires here. And it is NOT raster
+// state leaking across the warp: a leaked SCISSOR/XYOFFSET/FRAME is static
+// register state and would wreck a parked frame too, and parked frames are
+// clean.
+//
+// Refused rather than degraded, because no partial measure fixed it: dropping
+// the temporal pass - the strongest single contributor - reduced the tearing but
+// left the warp's own grid coming apart under the same doubled delta. Either
+// feature alone is clean, so the honest answer is that a project picks one.
+// blssClashes() gains its fifth condition beside depth of field, portals and
+// split view, per scene like the rest; the dialog says the same thing live, at
+// both points of choice.
+//
+// AND FRAME EXTRAPOLATION MOVES TO WHERE THAT CHOICE IS MADE. It used to sit
+// under "Build" beside triple buffering; it now sits in the same block as the
+// upscaler, retitled "Frame delivery (upscaler, extrapolation)", because the two
+// are siblings - each reconstructs part of what the player sees instead of
+// rendering it - and a mutual exclusion is only useful said at the point of
+// choice rather than discovered as a build error.
+//
+// PATCH: no capability appears and no default moves; a combination that never
+// worked stops compiling, and a control moves. The format is untouched (still
+// v16, no new field, no migration step) - a project carrying both switches
+// still loads, and is refused with a sentence instead of a broken picture.
+//
 // 1.17.0 (the upscaler stops requiring a hacker): BLSS' user interface becomes
 // two layers. Project > Preferences now asks the three questions a person
 // switching the feature on actually has to answer - use it, which
@@ -204,7 +257,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 17
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

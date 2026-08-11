@@ -362,15 +362,79 @@ forward to an extrapolated one. Folding them into one helper would save no work
 — neither camera pair is available when the other runs — so the sharing stops
 where the sharing is worth something.
 
-**No VRAM is at stake between them, and no `blssClashes()` condition is
-needed.** The warp allocates nothing (it samples a display buffer that already
-exists) and writes no depth: its state block sets `ZMSK = 1` and its restore
-goes through the one shared `emitRasterRestore`, which puts `zBuffer.mask`
-back — so the reduced z allocation BLSS makes is never written outside, in
-either direction. The build interlock exists for features that would make the
-picture silently wrong (`docs/neural-upscaler.md`, Limitations); this one is
-correct with three buffers and degrades in a named, logged way with two, which
-is a warning's job and not an `#error`'s.
+**No VRAM is at stake between them.** The warp allocates nothing (it samples a
+display buffer that already exists) and writes no depth: its state block sets
+`ZMSK = 1` and its restore goes through the one shared `emitRasterRestore`,
+which puts `zBuffer.mask` back — so the reduced z allocation BLSS makes is never
+written outside, in either direction.
+
+## Why not with the upscaler
+
+**The build REFUSES the pair** (`blssClashes()`, `src/templates.cpp` — the fifth
+condition, beside depth of field, portals and split view, and per scene like the
+rest). This paragraph used to say the opposite: that the combination "is correct
+with three buffers and degrades in a named, logged way with two", so no `#error`
+was warranted. **That was wrong, and a user found it by walking around.**
+
+Reported as *"turn on extrapolation and BLSS together and the screen completely
+falls apart"*, and then, decisively: *"it only breaks when the character
+moves."* Reproduced on that project (progressive, **three** display buffers,
+neural mode at 2×2, PCSX2 software renderer, player driven by `--pad`). Parked,
+all four arms are indistinguishable. Walking:
+
+| arm | parked | in motion |
+|---|---|---|
+| upscaler alone | clean | clean |
+| extrapolation alone | clean | clean |
+| **both** | clean | **frame tears into cells that disagree** |
+
+— a second displaced copy of near geometry, hard rectangular seams across the
+sky, object silhouettes pasted at 32-pixel granularity. Flat regions stay clean,
+which is why a still frame and a flat-shaded fixture both pass.
+
+**The mechanism is not a defect in either feature's bookkeeping.** Both rebuild
+a frame by reprojecting the previous one through the camera delta, and both are
+approximations whose error grows with that delta. Extrapolation presents twice
+per loop, so the world runs at **half** the field rate and the camera moves
+**twice as far between two RENDERED frames** — which is exactly the interval
+BLSS's temporal pass reprojects across. Turning extrapolation on therefore does
+not merely add a second approximation beside the first; it doubles the input to
+the first one as well. Measured on that project, BLSS's own per-corner
+reprojection offset (`buildReproj`, instrumented) peaks at **158 px of a 448 px
+raster with extrapolation off and 201 px with it on**, while the warp's grid is
+displaced by the same doubled delta at the same time.
+
+**Two tempting explanations were disproved by measurement — do not re-open
+them.**
+
+- *"The temporal pass is sampling a warped frame."* No. With three buffers the
+  rotation was **logged frame by frame** (`hist`/`target` VRAM addresses against
+  the three buffer bases): rendered frames cycle through all three, warped
+  frames take the one that is neither, and the history is always the previous
+  **rendered** frame with its content intact. The guard in §2 above is correct
+  and simply never fires here.
+- *"Raster state leaks across the warp."* No. A leaked `SCISSOR`/`XYOFFSET`/
+  `FRAME` is **static register state** and would wreck a parked frame too —
+  parked frames are clean, in every arm.
+
+**Refused rather than degraded, because no partial measure fixed it.** Dropping
+the temporal pass — the strongest single contributor — visibly reduced the
+tearing but left the warp's own grid coming apart under the same doubled delta.
+Either feature **alone** is clean, so the honest answer is that a project picks
+one. A build that refuses with a sentence is better than one that disintegrates
+after the player takes a step.
+
+The editor says the same thing live, at both points of choice: *Project >
+Preferences > Frame delivery* (the two controls now sit in one block) and
+*Scene > Scene Preferences > Neural upscaler*, which is the one place a
+per-scene override can create the refused pair without opening Preferences at
+all.
+
+**If you want both anyway**, the shape of a future fix is a temporal pass that
+is gated on its own reprojection magnitude rather than on the network's weight
+alone — but that is a change to the twin contract in
+`docs/blss-reconstruction.md` (the host oracle in `src/blss.cpp` models the same
+blend), so it is a retraining question and not a one-line clamp.
 
 ## Limits
 
