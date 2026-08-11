@@ -158,9 +158,13 @@ void RendererCoreShadowMap::end() {
   // cache before the receiver patches sample them.
   PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
   q++;
+  // Modified by TyraX: the SCREEN's pixel format (PSMCT16 in a 16bpp
+  // project). The shadow slots stay PSMCT32; only this restore follows the
+  // framebuffer.
   PACK_GIFTAG(q,
               GS_SET_FRAME(static_cast<int>(fb->address) >> 11,
-                           static_cast<int>(fb->width) >> 6, GS_PSM_32, 0),
+                           static_cast<int>(fb->width) >> 6,
+                           static_cast<int>(fb->psm), 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_SCISSOR(0, w - 1, 0, h - 1), GS_REG_SCISSOR_1);

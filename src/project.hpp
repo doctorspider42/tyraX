@@ -1011,6 +1011,22 @@ struct ProjectSettings {
     // engine init; fixed display modes ignore it.
     bool palFullHeight = false;
 
+    // Framebuffer colour depth (docs/gs-vram.md). "32bit" is PSMCT32, the
+    // stock 8-8-8-8 buffer. "16bit" is PSMCT16 (5-5-5-1), which HALVES what
+    // the two frame buffers cost in GS memory - 458 KB -> 229 KB at 512x448,
+    // and more at the taller scan modes - and hands all of it to the texture
+    // heap, roughly doubling it. The price is 32 levels per channel instead
+    // of 256: banding in skies, fog and the post-fx blur, which `dither`
+    // exists to break up. The z buffer is NOT affected (it stays 32-bit;
+    // a 16-bit z at this near/far ratio z-fights).
+    std::string colorDepth = "32bit";  // "32bit" | "16bit"
+
+    // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers
+    // when it writes a 16-bit destination, so this does nothing at "32bit"
+    // and is what makes "16bit" look graded rather than posterized. On by
+    // default; off is for anyone who wants the flat bands on purpose.
+    bool dither = true;
+
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
     // the GS display window widens instead). Also switchable at runtime
@@ -1381,6 +1397,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight &&
+           a.colorDepth == b.colorDepth && a.dither == b.dither &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&

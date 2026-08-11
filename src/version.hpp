@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 14
+#define TYRAX_VERSION_MINOR 15
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -77,6 +77,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // AnimClipEdit::inPlace removes horizontal root motion during the .tskl bake.
 // Purely additive and false when absent, so older projects keep their exact
 // authored animation and need no migration step.
-inline constexpr int kFormatVersion = 8;
+// v9 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
+// frame buffers' pixel format (PSMCT32 or the half-size PSMCT16) and
+// ProjectSettings::dither drives the GS's ordered dither. Both are written
+// only when set away from their defaults, and those defaults are exactly what
+// every older project already did, so no migration step. (The two optional
+// render targets that landed with them are NOT in the format at all - they are
+// derived at build time from what the project ships, not stored.)
+inline constexpr int kFormatVersion = 9;
 
 }  // namespace version

@@ -707,9 +707,20 @@ banner both, so a previously built ELF still reports.
   `pointer = address` (a stack pop), so freeing anything but the newest
   allocation handed out the memory of still-live textures: streaming-layer
   unloads reproduced it as surviving objects rendering another object's
-  texture. Budget after the init buffers is **~1.08 MB** (~1 MB in
-  `Pal576i`), and every allocation costs ~8 KB of padding on top of its
-  pixels — a 256×256 32bpp texture is 24% of the heap, a 512×512 is 93%.
+  texture. Budget after the init buffers is **~1.08 MB at 32-bit colour and
+  ~1.95 MB at 16-bit** (see the colour-depth bullet below), plus 256 KB more
+  when a project reserves neither optional render target — a 256×256 32bpp
+  texture is 23% of the 32-bit heap, a 512×512 is 93%. **`getSize()` computes
+  the real swizzled GS footprint** — whole pages above one page, whole blocks
+  inside one, via the PSM's Morton block order (the Z formats' orders are
+  permuted variants for which that shortcut is invalid, so they round to
+  pages). It used to add a flat `1024 * 2` words to every allocation with the
+  comment *"without this hack, textures are overlapping ourselves"*, which
+  charged a 16-entry CLUT **8.25 KB** for 64 bytes of data AND still
+  UNDER-allocated extreme aspect ratios (a 512×32 PSMCT16 strip reaches word
+  15 360 and was handed 10 240 — the overlap the hack was named after was
+  never actually fixed by it). `menulayout.cpp`'s `gsWords` is the editor's
+  host-side mirror of this; the two must agree.
   When a texture does not fit, `RendererCoreTexture::makeRoomFor()` evicts
   coldest-first (`pickVictim`: stale entries by LRU; when the whole resident
   set is in this frame's working set, the MOST recently bound one — plain LRU
@@ -721,8 +732,36 @@ banner both, so a previously built ELF still reports.
   (binds/hits/uploads/**re-uploads**/evictions/resident/free MB/largest free
   block, per frame); `reup` per frame is the number that matters, each one is
   a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
-  0.87 MB free and never evicts anything — if you are chasing a VRAM problem
-  in a palettized project, measure before assuming there is one.
+  1.15 MB free (2.04 MB at 16-bit colour) and never evicts anything — if you
+  are chasing a VRAM problem in a palettized project, measure before assuming
+  there is one.
+- **The framebuffer PSM is a setting, not a constant** (TyraX fork,
+  docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
+  PSMCT16 per the project's colour depth, and **everything that writes a
+  `FRAME` register for the screen must use it**: `draw_setup_environment`, all
+  of `RendererCorePostFx` (`fbPsm` / `psmFor` — the low-res work buffers are
+  allocated in the frame format so the blur chain never converts, while the
+  film-grain noise stays PSMCT32 because it is uploaded rather than rendered),
+  and the env-map / shadow-map brackets' restores. A hardcoded `GS_PSM_32`
+  there decodes a 16-bit frame as 32-bit garbage. The **z buffer stays 32-bit**
+  deliberately: 16-bit z would save as much again, but at `near` 0.1 / `far`
+  51200 its resolution collapses with distance and terrain fights baked
+  shadows. Two traps paid for here: **ps2sdk's `GS_SET_DIMX` masks each entry
+  with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
+  half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
+  dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;
+  and the GS only dithers **16-bit destinations**, so `DTHE` is inert at 32bpp
+  and the switch cannot be tested there.
+- **The env-map and camera-feed targets are opt-in** (TyraX fork). Two
+  128×128 targets plus their z buffers, 128 KB each, were reserved for every
+  project whether or not anything sampled them — a quarter of the 32-bit
+  texture heap. `RendererCoreEnvMap::setEnabled` (driven by
+  `EngineOptions::envMapTarget` / `camFeedTarget`, decided by the editor's
+  `projectNeedsEnvMap` / `projectNeedsCamFeed`) turns them off, and then
+  `getTexture()` returns **nullptr** and `begin()`/`end()` are no-ops. Any new
+  caller must null-check rather than assume a texture; the generated game
+  drops the reflection pass instead. If you add a third such target, make it
+  opt-in from the start.
 - **`endFrame` only throttles when it renders.** It calls `graph_wait_vsync()`
   (gated by `isFrameLimitOn`, default true) then flips buffers — so a loop that
   presents a frame each iteration is paced to 50/60 Hz, but a loop that draws

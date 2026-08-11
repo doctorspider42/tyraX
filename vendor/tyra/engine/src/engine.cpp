@@ -70,7 +70,16 @@ void Engine::initAll(const EngineOptions& options) {
       (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
   const bool loadOwnHid = withKbdMouse && !underPs2Link;
   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
-  renderer.init(options.videoMode, options.displayMode, options.widescreen);
+  // Modified by TyraX: the renderer's init-time knobs travel as a struct.
+  RendererOptions rendererOptions;
+  rendererOptions.videoMode = options.videoMode;
+  rendererOptions.displayMode = options.displayMode;
+  rendererOptions.widescreen = options.widescreen;
+  rendererOptions.colorDepth = options.colorDepth;
+  rendererOptions.dither = options.dither;
+  rendererOptions.envMap = options.envMapTarget;
+  rendererOptions.camFeed = options.camFeedTarget;
+  renderer.init(rendererOptions);
   banner.show(&renderer);
   audio.init();
   pad.init();

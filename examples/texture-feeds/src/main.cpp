@@ -59,6 +59,18 @@ int main(int argc, char** argv) {
     options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Build > Widescreen).
   options.widescreen = false;
+  // Framebuffer colour depth (Preferences > Build > Colour depth) and the
+  // GS's ordered dithering. 16bpp halves what the two frame buffers cost in
+  // GS memory and hands it to the texture heap; the dither is what keeps the
+  // 5-bit channels from banding. See docs/gs-vram.md.
+  options.colorDepth = Tyra::ColorDepth::Bits32;
+  options.dither = true;
+  // Optional GS render targets, 128 KB each, reserved only when this project
+  // has something that reads them: a reflective "@sky" material for the env
+  // map, a feed camera for the camera feed. Computed at build time - see
+  // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
+  options.envMapTarget = false;
+  options.camFeedTarget = true;
   // USB keyboard & mouse (Preferences > Build > Keyboard & mouse): loads the
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,

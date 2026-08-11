@@ -69,7 +69,12 @@ void RendererCoreGS::allocateBuffers() {
   frameBuffers[0].width = static_cast<unsigned int>(settings->getWidth());
   frameBuffers[0].height = settings->getRenderHeightUI();
   frameBuffers[0].mask = 0;
-  frameBuffers[0].psm = GS_PSM_32;
+  // Modified by TyraX: PSMCT32 or PSMCT16 per the project's colour depth.
+  // At 16bpp the pair of frame buffers halves - 458 KB -> 229 KB at
+  // 512x448 - and the whole saving lands in the texture heap. The z buffer
+  // below is deliberately NOT halved with it: a 16-bit z at this near/far
+  // ratio z-fights badly, and it is a separate decision.
+  frameBuffers[0].psm = settings->getFrameBufferPsm();
   frameBuffers[0].address = vram.allocateBuffer(
       frameBuffers[0].width, frameBuffers[0].height, frameBuffers[0].psm);
 
@@ -328,7 +333,10 @@ void RendererCoreGS::enableZTests() {
 }
 
 void RendererCoreGS::initDrawingEnvironment() {
-  packet2_t* packet2 = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  // Modified by TyraX: 40 qwords - draw_setup_environment's register block
+  // plus the CLAMP re-assert, the DIMX/DTHE dither pair, the XYOFFSET and
+  // the finish. An undersized packet2 here overruns its own buffer.
+  packet2_t* packet2 = packet2_create(40, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   packet2_update(packet2, draw_setup_environment(packet2->base, 0, frameBuffers,
                                                  &zBuffer));
   // Modified by TyraX: draw_setup_environment() ends with "Setup whole texture
@@ -345,6 +353,31 @@ void RendererCoreGS::initDrawingEnvironment() {
     q++;
     PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
                 GS_REG_CLAMP_1);
+    q++;
+    packet2_update(packet2, q);
+  }
+  // Modified by TyraX: GS ordered dithering. The GS only dithers when it
+  // writes a 16-bit destination, so this is inert at PSMCT32 and is what
+  // makes PSMCT16 usable: 5 bits per channel band visibly in skies, fog and
+  // the post-fx blur, and the 4x4 offset matrix trades that banding for
+  // noise the TV's own filtering then blurs away.
+  //
+  // Written by hand rather than through ps2sdk's GS_SET_DIMX: each DIMX
+  // entry is a 3-BIT signed value (-4..3) and that macro masks the entries
+  // with 0x03, so the negative half of the standard matrix (encoded 4..7)
+  // silently collapses to 0..3 and the dither comes out one-sided.
+  {
+    static const int dimx[16] = {4, 2, 5, 3, 0, 6, 1, 7,
+                                 5, 3, 4, 2, 1, 7, 0, 6};
+    u64 dimxReg = 0;
+    for (int i = 0; i < 16; i++)
+      dimxReg |= static_cast<u64>(dimx[i] & 0x07) << (i * 4);
+    qword_t* q = packet2->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q, dimxReg, GS_REG_DIMX);
+    q++;
+    PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
     q++;
     packet2_update(packet2, q);
   }

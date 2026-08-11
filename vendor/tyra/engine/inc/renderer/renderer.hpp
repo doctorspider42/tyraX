@@ -28,11 +28,10 @@ class Renderer {
 
   RendererCore core;
 
-  // Modified by TyraX: displayMode selects the scan mode
-  // (480i/480p/1080i), widescreen fits the projection to a 16:9 display.
-  void init(VideoMode videoMode = VideoMode::Auto,
-            DisplayMode displayMode = DisplayMode::Interlaced,
-            bool widescreen = false);
+  // Modified by TyraX: one options struct - scan mode (480i/480p/1080i),
+  // widescreen, framebuffer colour depth + dithering, and which optional
+  // render targets to reserve VRAM for. See RendererOptions.
+  void init(const RendererOptions& options = RendererOptions());
 
   /** World background color */
   void setClearScreenColor(const Color& color) {

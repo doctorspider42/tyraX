@@ -1306,6 +1306,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                        }() +
                        "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
+         // Written only when set away from the default, so an existing
+         // project's manifest does not gain two keys just by being resaved.
+         << (p.settings.colorDepth == "16bit"
+                 ? "    \"colorDepth\": \"16bit\",\n"
+                 : "")
+         << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << "    \"widescreen\": " << (p.settings.widescreen ? "true" : "false")
          << ",\n"
          << "    \"buildProfile\": \"" << p.settings.buildProfile << "\",\n"
@@ -4420,6 +4426,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("palFullHeight"))
             st.palFullHeight = v->boolOr(false);
+        // Framebuffer colour depth + GS dithering (docs/gs-vram.md). Absent
+        // in every project written before they existed, and the defaults are
+        // exactly what those projects already did.
+        if (const auto* v = s->find("colorDepth"))
+            st.colorDepth = v->stringOr("32bit") == "16bit" ? "16bit" : "32bit";
+        if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("widescreen"))
             st.widescreen = v->boolOr(false);
         if (const auto* v = s->find("buildProfile"))

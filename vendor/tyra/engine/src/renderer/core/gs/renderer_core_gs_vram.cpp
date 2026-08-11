@@ -240,12 +240,114 @@ void RendererCoreGSVRam::free(const int& address) {
   touched = true;
 }
 
+// Modified by TyraX: the GS storage geometry of a pixel storage mode - the
+// size of one page in texels, of one block in texels, and which of the two
+// block-order patterns the page uses. Every page is 2048 words (8 KB) and
+// holds 32 blocks; the modes differ in how many texels that is. 8H/4HL/4HH
+// live in the high bits of a 32-bit page, so they share its layout.
+struct GsPsmLayout {
+  int pageW, pageH;    // texels per page
+  int blockW, blockH;  // texels per block
+  int cols, rows;      // blocks per page
+  const unsigned char* order;  // block index at [row * cols + col], or null
+};
+
+// The two block orders that matter here. Both are Morton (bit-interleaved)
+// curves, which is what makes the corner rule below valid: the largest index
+// over any top-left sub-rectangle sits in its bottom-right corner.
+// The Z-buffer orders are permuted variants for which that does NOT hold -
+// they get no sub-page path (a z buffer is never sub-page anyway).
+static const unsigned char kGsOrder8x4[32] = {
+    0,  1,  4,  5,  16, 17, 20, 21,  //
+    2,  3,  6,  7,  18, 19, 22, 23,  //
+    8,  9,  12, 13, 24, 25, 28, 29,  //
+    10, 11, 14, 15, 26, 27, 30, 31};
+static const unsigned char kGsOrder4x8[32] = {
+    0,  2,  8,  10,  //
+    1,  3,  9,  11,  //
+    4,  6,  12, 14,  //
+    5,  7,  13, 15,  //
+    16, 18, 24, 26,  //
+    17, 19, 25, 27,  //
+    20, 22, 28, 30,  //
+    21, 23, 29, 31};
+
+static bool gsPsmLayout(const int& psm, GsPsmLayout* out) {
+  switch (psm) {
+    case GS_PSM_4:
+      *out = {128, 128, 32, 16, 4, 8, kGsOrder4x8};
+      return true;
+    case GS_PSM_8:
+      *out = {128, 64, 16, 16, 8, 4, kGsOrder8x4};
+      return true;
+    case GS_PSM_16:
+      *out = {64, 64, 16, 8, 4, 8, kGsOrder4x8};
+      return true;
+    case GS_PSM_16S:
+      // Same page/block geometry, a permuted order - page path only.
+      *out = {64, 64, 16, 8, 4, 8, nullptr};
+      return true;
+    case GS_PSM_24:
+    case GS_PSM_32:
+    case GS_PSM_8H:
+    case GS_PSM_4HL:
+    case GS_PSM_4HH:
+      *out = {64, 32, 8, 8, 8, 4, kGsOrder8x4};
+      return true;
+    case GS_PSMZ_16:
+    case GS_PSMZ_16S:
+      *out = {64, 64, 16, 8, 4, 8, nullptr};
+      return true;
+    case GS_PSMZ_24:
+    case GS_PSMZ_32:
+      *out = {64, 32, 8, 8, 8, 4, nullptr};
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Modified by TyraX: the real GS footprint instead of a flat +8 KB pad.
+//
+// GS memory is paged and SWIZZLED: the texels of one page are spread over
+// its 32 blocks in a scrambled order, so "width * height words" is NOT what
+// an image occupies. A 64x8 PSMCT32 texture has 8 rows of texels but reaches
+// block 21 of its page - allocate it its 512 words and the next texture
+// lands inside it. Upstream papered over that with `size += 1024 * 2` and the
+// comment "without this hack, textures are overlapping ourselves". That pad
+// is not derived from anything: too little to be a guarantee, far too much
+// for a big texture, and brutal on palettes - a 16-entry CLUT carries 64
+// BYTES of data and was charged 8.25 KB, so twenty palettized textures spent
+// 160 KB of a ~1 MB heap on their palettes' padding alone.
+//
+// What a region actually occupies is the HIGHEST BLOCK it touches: a texel
+// sits at page index (y / pageH) * pagesW + (x / pageW), 32 blocks per page,
+// plus the block the swizzle puts it at inside that page. The last page has
+// the highest index, and 32 * n always beats 32 * (n - 1) + 31, so the whole
+// region's maximum is the last page's bottom-right block - which, the orders
+// being Morton curves, is the entry at the corner of the blocks that page
+// actually uses. Z-buffer orders are permuted and get whole pages instead;
+// a z buffer is never sub-page, so nothing is lost.
+//
+// TBP0 (and CBP) count blocks, and the swizzle is computed relative to that
+// base, so a block-aligned allocation that is not page-aligned is fine.
+//
+// Frame/z/post-fx buffers are unchanged by this (they were always whole
+// pages); a 4-bit 128x128 texture halves, and a 16-entry CLUT drops 33x.
+// Extreme aspect ratios grow, because the old formula UNDER-allocated them:
+// a 512x32 PSMCT16 strip spans 8 pages and reaches word 15360, and was being
+// handed 10240 - the +8 KB pad was never a fix for the overlap it named,
+// only a way of making it less likely.
 int RendererCoreGSVRam::getSize(int width, const int& height, const int& psm,
                                 const int& alignment) {
-  int size = 0;
+  GsPsmLayout l;
+  if (!gsPsmLayout(psm, &l)) return 0;
+  if (width <= 0 || height <= 0) return 0;
 
-  // First correct the buffer width to be a multiple of 64 or 128
-  // If the width is less than or equal to 16, then it's a palette
+  // Correct the buffer width to a multiple of 64 or 128 - that is the width
+  // the GS is handed (TBW), so it is the width that is occupied. A width of
+  // 16 or less is a CLUT, which is addressed by CBP and gets no such rounding
+  // (this is what keeps a 16-entry palette at one block).
   if (width > 16) {
     switch (psm) {
       case GS_PSM_8:
@@ -261,36 +363,24 @@ int RendererCoreGSVRam::getSize(int width, const int& height, const int& psm,
     }
   }
 
-  // Texture storage size is in pixels/word
-  switch (psm) {
-    case GS_PSM_4:
-      size = width * (height >> 3);
-      break;
-    case GS_PSM_8:
-      size = width * (height >> 2);
-      break;
-    case GS_PSM_24:
-    case GS_PSM_32:
-    case GS_PSM_8H:
-    case GS_PSM_4HL:
-    case GS_PSM_4HH:
-    case GS_PSMZ_24:
-    case GS_PSMZ_32:
-      size = width * height;
-      break;
-    case GS_PSM_16:
-    case GS_PSM_16S:
-    case GS_PSMZ_16:
-    case GS_PSMZ_16S:
-      size = width * (height >> 1);
-      break;
-    default:
-      return 0;
-  }
+  const int pagesW = (width + l.pageW - 1) / l.pageW;
+  const int pagesH = (height + l.pageH - 1) / l.pageH;
 
-  if (alignment == GS_VRAM_TEXTURE_ALIGNMENT) {
-    // TODO: Without this hack, textures are overlapping ourselves
-    size += 1024 * 2;
+  int size;
+  if (l.order != nullptr) {
+    // Blocks used inside the LAST page (the partial remainder of each axis).
+    int blocksW = (width - (pagesW - 1) * l.pageW + l.blockW - 1) / l.blockW;
+    int blocksH = (height - (pagesH - 1) * l.pageH + l.blockH - 1) / l.blockH;
+    if (blocksW < 1) blocksW = 1;
+    if (blocksH < 1) blocksH = 1;
+    if (blocksW > l.cols) blocksW = l.cols;
+    if (blocksH > l.rows) blocksH = l.rows;
+    const int lastPage = pagesW * pagesH - 1;
+    const int lastBlock =
+        lastPage * 32 + l.order[(blocksH - 1) * l.cols + (blocksW - 1)];
+    size = (lastBlock + 1) * GRAPH_ALIGN_BLOCK;
+  } else {
+    size = pagesW * pagesH * GRAPH_ALIGN_PAGE;
   }
 
   // The buffer size is dependent on alignment

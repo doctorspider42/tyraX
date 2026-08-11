@@ -201,6 +201,8 @@ the verification, and any fact worth reusing belongs in the relevant
   at bake or load, uploaded contiguously after level 0, `calculation = 0` so LOD
   comes from Q per pixel, and a per-texture K to match its texel density. The
   two things to settle before starting: it costs **+33 % VRAM per mipped
+  (the heap is bigger than it was - 1.08 MB at 32-bit colour, ~1.95 MB at
+  16-bit, docs/gs-vram.md - but a mip chain is still opt-in per texture)
   texture** on a ~1.08 MB heap (so it wants to be opt-in per texture, terrain
   first), and MTBA's auto-addressing has documented quirks for levels whose TBW
   falls to 1 - measure it on hardware before trusting it over explicit
@@ -708,3 +710,32 @@ the verification, and any fact worth reusing belongs in the relevant
   Do not read "no keystrokes on hardware" as a bug in this change and do not go
   debugging it in software; that ground is already burned.
 
+- **A 16-bit Z buffer, if a project can live with it.** The frame buffers are
+  PSMCT16-capable now (docs/gs-vram.md) but the Z buffer is still 32-bit, and
+  it is the single largest remaining block: 229 376 words, as much as both
+  frame buffers cost together at 16-bit colour. `PSMZ16` would halve it. What
+  stops it being a free win is precision: the projection runs `near` 0.1 /
+  `far` 51200 and depth is hyperbolic, so 16 bits resolve roughly 1.5 world
+  units at 100 units out and ~38 at 500 - terrain and baked shadows would
+  z-fight. It is therefore a per-project option gated on raising `near`, not a
+  default, and it wants a fixture with a short view distance to judge it on.
+  The mechanical part is small but crosses four layers: the VU1 z scale is an
+  EE-side constant (`0xFFFFFF / 2` in `stapip_vu1_program.cpp` and its dynpip /
+  mcpip twins), and the SAME constant appears in the generated game's EE
+  clipper (`templates.cpp`), in `vugen`/`vusim` and in `vucap`. Also unsettled:
+  whether `PSMZ16` may pair with a `PSMCT32` frame buffer, which decides
+  whether the two depths can be chosen independently at all.
+
+- **16-bit versions of the small render targets.** The env map, the camera
+  feed and the four shadow slots are PSMCT32 render targets read as textures
+  (~192 KB when a project uses all three). They could follow the project's
+  colour depth like the post-fx work buffers now do, for about half of that -
+  but they are bound through `Texture::vramResident`, whose `TextureBuilderData`
+  has no 16-bit `bpp`, so this needs `TextureBpp` widened first. Left out of
+  the colour-depth work deliberately: the frame buffers were 90% of the win.
+
+- **Let the Menu Editor's fit check know the real heap.** `menulayout.cpp`
+  measures a menu against a hardcoded 282 000-word texture heap, which is now
+  only the 32-bit, both-targets-reserved case - a 16-bit project has nearly
+  twice that and the editor will still warn as if it did not. The number wants
+  to come from the project's settings the way the engine's does.

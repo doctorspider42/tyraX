@@ -29,33 +29,39 @@ RendererCore::RendererCore() {
 }
 RendererCore::~RendererCore() {}
 
-void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
-                        bool widescreen) {
-  settings.setVideoMode(videoMode);
+void RendererCore::init(const RendererOptions& options) {
+  settings.setVideoMode(options.videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
-  settings.setDisplayMode(displayMode);
-  settings.setWidescreen(widescreen);
+  settings.setDisplayMode(options.displayMode);
+  settings.setWidescreen(options.widescreen);
+  // ...and it picks their pixel format + the GS dither state (TyraX fork).
+  settings.setColorDepth(options.colorDepth);
+  settings.setDither(options.dither);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
   // Post fx VRAM sits right above the frame/z buffers; allocate it before
   // any texture buffer so texture free (FIFO) never reclaims it.
   postFx.init(&settings, &gs);
-  // Same rule for the dynamic env map's render target (TyraX fork).
+  // Same rule for the dynamic env map's render target (TyraX fork) - but
+  // only if this project has a reflective "@sky" material at all. The
+  // target and its z are 128 KB of a ~1.08 MB texture heap, and they used
+  // to be reserved whether or not anything ever sampled them.
+  envMap.setEnabled(options.envMap);
   envMap.init(&settings, &gs, &sync, &path1);
   // Projected shadows: wiring only - VRAM is allocated lazily when the game
   // calls shadowMap.allocate() (init() also re-places the buffers after a
   // display-mode VRAM reset if they were on).
   shadowMap.init(&settings, &gs, &sync, &path1);
   // Camera-feed render target (TyraX fork, "texture feeds"): a second
-  // instance of the same redirect bracket, permanently allocated below
-  // every texture for the same FIFO-free reason. Costs 128 KB of VRAM
-  // whether the game uses feeds or not. Clamp: feeds sample through plain
-  // surface UVs and the default Repeat bleeds the opposite edge rows into
-  // the screen border.
+  // instance of the same redirect bracket, another 128 KB, and equally
+  // opt-in. Clamp: feeds sample through plain surface UVs and the default
+  // Repeat bleeds the opposite edge rows into the screen border.
+  camFeed.setEnabled(options.camFeed);
   camFeed.init(&settings, &gs, &sync, &path1);
-  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
-                                        TextureWrap::Clamp);
+  if (camFeed.getTexture())
+    camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                          TextureWrap::Clamp);
   // Split-screen viewports (TyraX fork) - no VRAM, just raster brackets.
   splitView.init(&settings, &gs, &sync, &path1);
   texture.init(&gs, &path3);
