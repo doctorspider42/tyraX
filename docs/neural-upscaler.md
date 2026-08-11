@@ -4904,7 +4904,7 @@ Occupancy is a count of grid cells, not a millisecond.
   from a harness). The window **runs `tyrax-editor --blss-<verb>` as a subprocess
   and parses stdout**; do not give it a second implementation of anything in
   `blss.cpp`. `drawBlssSettings` / `blssClashesFor` / `drawBlssClashWarning` live
-  there too and are drawn by **both** the window and `App::drawPreferencesModal`,
+  there too and are drawn by **both** the window and `App::drawPreferencesWindow`,
   so the conflict warning is one mirror of `blssClashes()`; edit the two together
   or the editor drifts away from the build again. The corpus switch is
   `App::blssCorpusProject_` + `blssCommonArgs()` (one switch, five verbs, the

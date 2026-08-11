@@ -203,15 +203,96 @@ The buffer count reaches the game's `bin/log.txt` at boot, which is the first
 thing to check when the feature seems not to be doing anything:
 
 ```
-LOG: GS buffers: frame 512x224 x3, z 512x224 at 229376
+LOG: GS buffers: frame 512x224 x3, z 512x224 at 229376, drawing into 0, showing 1
 ```
 
 `x2` there means the engine refused — the soft-error line above it says with
-which numbers. The editor asks the same question before you ever build:
+which numbers. The two indices at the end are the **display queue's arming**,
+and they are on that line because of the defect below: the line appears once per
+layout, so a game that re-lays the permanent region prints it twice and the
+second one is the one that matters. The editor asks the same question before you ever build:
 `project::tripleBufferingFit` is the host twin of that check, asked once per
 mode the project supports (see above), and Preferences greys the checkbox when
 no supported mode has room. **Change one, change the other** — the two agree on
 the reserve constants by convention, not by construction.
+
+## The black-frame defect, and the invariant it broke
+
+Fixed in 1.20.1. It is written down because the *shape* of it generalises to
+anything else that re-lays the permanent VRAM region, and because it took two
+sessions to find something that is one expression long.
+
+**The symptom.** Reported from use as the emulator "flickering badly", on a
+project with the neural upscaler AND triple buffering on. The picture alternates
+between the scene and a **fully black frame** — no debug HUD in the black member
+either, and the HUD is drawn at full resolution *after* the composite, so that
+display buffer had received no draws at all rather than a failed composite.
+Eight consecutive `PrintWindow` captures formed two byte-identical clusters
+74.5 % apart, three of the eight black.
+
+**It needed BOTH features and neither alone did anything wrong**, which is what
+made it look like an interaction between the upscaler and the present path. It
+is not. It is this:
+
+```cpp
+displayedBuffer = context ^ 1;   // "the other buffer" — true only when there are TWO
+```
+
+`allocateVramBuffers()` arms the queue with that, and it runs **a second time**
+in any game that re-lays the permanent region after boot. Today the neural
+upscaler is the only thing that asks for one: `configure()` sizes the z buffer
+from the raster, so it goes through `RendererCore::rebuildPermanentBuffers()`.
+By then the ~2 s boot banner (`Banner::show`, a `beginFrame`/`endFrame` loop)
+has flipped ~120 times, so `context` is wherever the **three**-buffer rotation
+left it — and `context ^ 1` is `3` when it left it at 2. That is one index past
+`frameBuffers[]`. `flipBuffers` then computes `3 - shown - finished` =
+`3 - 3 - 2` = −1, wraps it in its `u8` cast, and the rotation runs on indices
+**254 and 3**: it draws through, and *presents* through, `framebuffer_t`s read
+past the end of the array. One of the three presented frames is then VRAM
+nothing ever drew.
+
+So the pair is required by construction: triple buffering to make 2 a reachable
+value of `context`, the upscaler to re-arm the queue **after** boot instead of
+only at `init()` with `context` still 0. With two buffers `context ^ 1` is
+always right; with the upscaler off, the arming only ever runs once.
+
+**Measured**, one fixture (`--new … fpp`, progressive 480p, 2×2 neural, jitter
+off), one build changing only these lines, PCSX2 software renderer:
+
+| | boot log | 12 back-to-back captures |
+|---|---|---|
+| before | `x3, … drawing into 2, showing 3` | black, mean 0.64/255 — and PCSX2 lost its Vulkan GS device seconds later, which is what a `DISPFB` built from garbage does to a host renderer |
+| after | `x3, … drawing into 2, showing 0` | 12 frames of the scene, max pairwise difference **0.019 %** (the HUD's own counter) |
+
+`drawing into 2` in **both** arms is the point: the trigger was reproduced in the
+fixed build and only the arming changed.
+
+Three things came out of it, and the first is the general one:
+
+- **`context ^ 1` is a two-buffer expression.** It is now
+  `(context + 1) % bufferCount`, with `context` clamped into range first —
+  because a rebuild may come back with *fewer* buffers than the one before it
+  (`setDisplayOutput` into a mode with no room), which leaves `context` naming a
+  buffer that no longer exists. Byte-identical behaviour for two buffers.
+- **`reallocateBuffers()` never re-programmed `DISPFB`.** Skipping
+  `programDisplay()` there is deliberate (its `graph_set_mode` resets the GS),
+  but that call was also the only thing that ever wrote that register — and the
+  third buffer's *address* moves when the z buffer shrinks (602112 → 458752 at
+  448×448, 2×2). So the television scanned the texture heap until the next flip.
+  It now presents the newly-armed buffer directly: privileged-register stores,
+  no mode change.
+- **The rotation says so out loud when it comes apart.** `3 - shown - finished`
+  is only "the third one" while the inputs are distinct indices of the three;
+  when that stopped being true it failed silently, and a display rotation that
+  has come apart cannot be diagnosed from the picture. It is guarded and
+  soft-errors once now, and the arming is printed at boot (above).
+
+**How it was found, since none of the automated gates could see it**: the
+buffer index was *logged frame by frame* rather than reasoned about. Two
+theories that read very well were wrong — the composite's in-flight DMA against
+the queue handshake, and BLSS' `frameBuffers[1 - context]` history tap — and
+neither would have produced a frame with no HUD. The one instrument that settled
+it fits on the boot line.
 
 ## Limits
 

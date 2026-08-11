@@ -16,6 +16,40 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.20.1 (the upscaler with triple buffering presented BLACK frames): reported
+// from use as the emulator "flickering badly", isolated to the PAIR of features
+// - either one alone is clean - and fixed in the engine. No editor behaviour
+// changes, no setting moves, the format is untouched: PATCH.
+//
+// One display buffer of the three was being PRESENTED without ever having been
+// drawn - a fully black frame, no debug HUD either, at a third of the field
+// rate. The cause is one expression. `RendererCoreGS::allocateVramBuffers()`
+// arms the display queue with `displayedBuffer = context ^ 1`, which means "the
+// other buffer" only when there are TWO. That function runs a SECOND time in
+// any game that re-lays the permanent VRAM region after boot, and the neural
+// upscaler is the only thing that asks for one (`configure()` sizes the z
+// buffer from the raster, so it calls RendererCore::rebuildPermanentBuffers).
+// By then the ~2 s boot banner has flipped ~120 times and `context` is wherever
+// the three-buffer rotation left it; land on 2 and `context ^ 1` is **3**, one
+// past the end of frameBuffers[]. flipBuffers' `3 - shown - finished` then goes
+// negative and wraps in its u8 cast, so the rotation ran on indices 254 and 3
+// and both DREW and PRESENTED through framebuffer_t's read past the array.
+//
+// That is why it needed both features and neither alone: triple buffering to
+// make 2 a reachable value of `context`, and the upscaler to re-arm the queue
+// after boot instead of only at init with `context` still 0. Measured on the
+// reporter's fixture, progressive 480p, PCSX2 software renderer, one build
+// changing only these lines: the boot log reads `drawing into 2, showing 3`
+// before and `drawing into 2, showing 0` after; 12 back-to-back PrintWindow
+// captures go from black (mean 0.64/255, PCSX2 losing its GS device seconds
+// later) to 12 frames of the scene within 0.019 % of each other.
+//
+// Two smaller holes in the same seam went with it: `reallocateBuffers()` never
+// re-programmed DISPFB although the third buffer's ADDRESS moves when the z
+// buffer shrinks (602112 -> 458752 at 448x448 2x2), so the television scanned
+// the texture heap for a frame; and a rebuild that comes back with FEWER
+// buffers left `context` naming one that no longer exists.
+//
 // 1.20.0 (Project Preferences becomes a window, and triple buffering stops
 // promising what the console will not do): two more defects reported from use,
 // and as in 1.18.0 the fixes are structural.
@@ -428,7 +462,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 20
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

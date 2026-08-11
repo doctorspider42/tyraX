@@ -1547,12 +1547,29 @@ on a real-PS2 pass).
   was reporting only rendered frames. **The general rule: anything derived from
   T3 inherits the video mode; anything derived from COP0 does not.**
   docs/profiling.md, "The three frame rate counters".
-- **OPEN DEFECT, do not be surprised by it: BLSS + triple buffering presents
-  BLACK frames** (progressive 480p, PCSX2, 2026-08-11). Either feature alone is
-  clean; the pair alternates scene/black at 74.5 % of the window with no HUD in
-  the black member, so a display buffer is being presented that nothing drew.
-  Isolated with a three-arm A/B and written up in docs/backlog.md, including
-  what has already been read and excluded. Not fixed.
+- **`context ^ 1` IS A TWO-BUFFER EXPRESSION, and it presented BLACK frames**
+  (FIXED 1.20.1; docs/frame-pacing.md, "The black-frame defect").
+  `RendererCoreGS::allocateVramBuffers()` armed the display queue with
+  `displayedBuffer = context ^ 1`, and that function runs a SECOND time in any
+  game that re-lays the permanent region after boot - which today means every
+  neural-upscaler game, because `blss.configure()` sizes the z buffer from the
+  raster and goes through `RendererCore::rebuildPermanentBuffers()`. By then the
+  ~2 s boot banner has flipped ~120 times, so `context` is wherever the
+  three-buffer rotation left it; at 2, `context ^ 1` is **3** - one past
+  `frameBuffers[]` - and `flipBuffers`' `3 - shown - finished` wraps in its `u8`
+  cast, so the rotation drew and PRESENTED through `framebuffer_t`s read past
+  the array. Symptom: one presented frame in three was a display buffer nothing
+  ever drew (fully black, **no HUD either**, which is what rules out every
+  theory about the composite - the HUD draws at full resolution after it).
+  Needed BOTH features by construction: triple buffering to make 2 reachable,
+  the upscaler to re-arm the queue after boot. Two lessons that outlive the fix:
+  **any expression of the form "the other buffer" is a two-buffer expression**
+  (a rebuild can also come back with FEWER buffers, leaving `context` naming one
+  that is gone - clamped now), and `reallocateBuffers()` must re-present, since
+  skipping `programDisplay()` skips the only write to `DISPFB` while the third
+  buffer's address moves under it. **The instrument is the boot line**: `GS
+  buffers: … x3, z …, drawing into N, showing M`, printed once per layout - a
+  game that re-lays prints it twice and the second is the one that matters.
 
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.

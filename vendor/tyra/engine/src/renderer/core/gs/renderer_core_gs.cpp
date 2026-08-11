@@ -229,11 +229,31 @@ void RendererCoreGS::allocateVramBuffers() {
     }
   }
 
-  // The queue always starts with the frame being drawn into `context` and its
-  // neighbour on screen, in both modes - programDisplay() presents exactly
-  // this buffer, and the first flip derives the free slot from the pair.
-  displayedBuffer = context ^ 1;
-  lastRealBuffer = context ^ 1;
+  // The queue always starts with the frame being drawn into `context` and a
+  // DIFFERENT buffer on screen - programDisplay() presents exactly that one,
+  // and the first flip derives the free slot from the pair (3 - shown -
+  // finished).
+  //
+  // Modified by TyraX: `context ^ 1` used to stand for "the other buffer", and
+  // it only means that when there are TWO. This function runs a second time in
+  // any game that re-lays the permanent region after boot - which today is
+  // every neural-upscaler game, because configure() sizes the z buffer from the
+  // raster and asks RendererCore::rebuildPermanentBuffers() for the layout - and
+  // by then the ~2 s boot banner has flipped ~120 times, so `context` is
+  // wherever the 3-buffer rotation left it. Land on 2 and `context ^ 1` is 3:
+  // an index one past frameBuffers[]. flipBuffers() then computes
+  // 3 - 3 - 2 = -1 and wraps it into a u8, so the rotation runs on 254/3 and
+  // both draws and PRESENTS through garbage framebuffer_t's read past the
+  // array. Symptom: one of the three presented frames is a display buffer
+  // nothing ever drew - a fully black frame with no HUD either, at a third of
+  // the field rate, i.e. violent flicker (docs/frame-pacing.md).
+  //
+  // The clamp above it is the same hole from the other side: a rebuild may come
+  // back with FEWER buffers than the one before it (setDisplayOutput to a mode
+  // with no room), which leaves `context` naming a buffer that no longer exists.
+  if (context >= bufferCount) context = 0;
+  displayedBuffer = (context + 1) % bufferCount;
+  lastRealBuffer = displayedBuffer;
   pendingBuffer = -1;
 
   // The handler IS the third buffer's present path, so the two are decided
@@ -246,10 +266,18 @@ void RendererCoreGS::allocateVramBuffers() {
     removeVblankHandler();
   }
 
+  // Modified by TyraX: the queue's arming is ON this line, and it is not
+  // decoration. This function runs again whenever the permanent region is
+  // re-laid, and what `context` happens to be when it does is what decided
+  // whether a triple-buffered upscaler game presented black frames for a year.
+  // Reading it back is the difference between "the rotation is fine" as an
+  // argument and as a measurement.
   TYRA_LOG("GS buffers: frame ", static_cast<int>(frameBuffers[0].width), "x",
            static_cast<int>(frameBuffers[0].height), " x",
            static_cast<int>(bufferCount), ", z ", zWidth, "x", zHeight, " at ",
-           static_cast<int>(zBuffer.address));
+           static_cast<int>(zBuffer.address), ", drawing into ",
+           static_cast<int>(context), ", showing ",
+           static_cast<int>(displayedBuffer));
 }
 
 // Modified by TyraX (BLSS per scene) - see the header.
@@ -273,6 +301,16 @@ void RendererCoreGS::reallocateBuffers() {
   resetDisplayQueue();  // Modified by TyraX: every address below moves
   vram.reset();
   allocateVramBuffers();
+  // Modified by TyraX: and DISPFB has to move with them. Skipping
+  // programDisplay() skips the only thing that ever wrote that register, so the
+  // GS went on scanning the address the last flip latched - which for the THIRD
+  // buffer is a different address after this call (the z buffer shrank, so
+  // everything above it slid down: 602112 -> 458752 on a 448x448 progressive
+  // raster at 2x2). That left the television scanning the texture heap until
+  // the next flip, and it left `displayedBuffer` describing something that was
+  // not on screen. This is register stores only - none of graph_set_mode's GS
+  // reset, which is why programDisplay() is still not called here.
+  presentFrameBuffer(static_cast<u8>(displayedBuffer));
   initDrawingEnvironment();
 }
 
@@ -356,8 +394,11 @@ void RendererCoreGS::programDisplay() {
     }
   }
   graph_set_bgcolor(0, 0, 0);
-  // Modified by TyraX: the buffer the queue considers on screen, which is
-  // context ^ 1 at init in both buffering modes (see allocateVramBuffers).
+  // Modified by TyraX: the buffer the queue considers on screen - whichever
+  // index allocateVramBuffers() just armed it with, never a literal. Making
+  // this and the arming agree is half the fix for the black-frame defect; the
+  // other half is that reallocateBuffers(), which does NOT come through here,
+  // has to present too.
   presentFrameBuffer(static_cast<u8>(displayedBuffer));
   graph_enable_output();
 }
@@ -674,7 +715,34 @@ void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // stable (see the header). The free slot is the third index: 0+1+2 = 3.
   const s32 shown = displayedBuffer;
   const u8 finished = context;
-  const u8 next = static_cast<u8>(3 - shown - finished);
+  const s32 free3 = 3 - shown - static_cast<s32>(finished);
+
+  // Modified by TyraX: this arithmetic is only "the third one" while the two
+  // inputs are distinct indices of the three, and when that stopped being true
+  // it failed SILENTLY and spectacularly - 3 - 3 - 2 = -1 wrapped in the u8
+  // cast, so the rotation ran on indices 254 and 3 and both drew and PRESENTED
+  // through framebuffer_t's read past the end of the array. One of the three
+  // presented frames was then VRAM nothing had ever drawn: a black frame with
+  // no HUD either, a third of the time, i.e. violent flicker. The arming in
+  // allocateVramBuffers() is what broke the invariant and is what is fixed;
+  // this says so out loud instead of computing a garbage index, because a
+  // display-buffer rotation that has come apart cannot be diagnosed from the
+  // picture (docs/frame-pacing.md, "The black-frame defect").
+  if (free3 < 0 || free3 >= static_cast<s32>(bufferCount) || shown == finished) {
+    static bool rotationWarned = false;
+    if (!rotationWarned) {
+      rotationWarned = true;
+      TYRA_SOFT_ERROR(
+          "Triple buffering: the display rotation lost its third index and the "
+          "frame would have been presented from outside the buffer array.",
+          "Buffer on screen:", static_cast<int>(shown),
+          "Buffer just finished:", static_cast<int>(finished),
+          "Buffers allocated:", static_cast<int>(bufferCount));
+    }
+    displayedBuffer = (finished + 1) % bufferCount;
+  }
+  const u8 next = static_cast<u8>(
+      (3 - displayedBuffer - static_cast<s32>(finished)) % bufferCount);
 
   // Point FRAME at the free buffer BEFORE queueing the finished one. The
   // draw_finish handshake inside is what makes the queue safe: the GIF is

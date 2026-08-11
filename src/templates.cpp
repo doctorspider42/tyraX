@@ -24374,7 +24374,7 @@ static std::string screenFxSource(const Project& p) {
 //    it scrolls past; what people read is the reason a build stopped.
 //  - The build is not the first thing to see the clash. The editor's
 //    preferences dialog already enumerates the same features, per feature, live
-//    (App::drawPreferencesModal). This is the backstop for somebody who went
+//    (App::drawPreferencesWindow). This is the backstop for somebody who went
 //    past that, and a backstop that lets the build through is not one.
 //
 // The remedy is one click in every case, including the data-dependent ones

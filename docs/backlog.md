@@ -20,56 +20,73 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
-## OPEN DEFECT: the upscaler with triple buffering presents BLACK frames
+## FIXED: the upscaler with triple buffering presented BLACK frames
 
-**Found 2026-08-11 while measuring the frame-rate counters, isolated, not
-fixed** — it is a different subsystem from that change and guessing at it is
-exactly how this branch has lost days before. It is severe and it is on a
-configuration a user runs, so it wants the next session rather than a queue.
+**Found 2026-08-11 while measuring the frame-rate counters, fixed the same day
+in 1.20.1.** Kept here rather than deleted because the *shape* of it is a hazard
+for anything else that re-lays the permanent VRAM region, and because two very
+plausible theories about it were wrong.
 
-**The symptom is not subtle: the picture alternates between the scene and a
-fully black frame**, which reads as violent flicker. It was reported by a person
-watching the screen, and the capture agrees — eight consecutive `PrintWindow`
-grabs form **two byte-identical clusters** (distance 0 within, **74.5 % of the
-window** between), and the black member carries no debug HUD either, so that
-display buffer received *no draws at all* rather than a partial or stale frame.
+**The symptom.** Reported by a person watching the screen as the emulator
+"flickering badly": the picture alternates between the scene and a fully black
+frame. Eight consecutive `PrintWindow` grabs formed **two byte-identical
+clusters** (distance 0 within, **74.5 % of the window** between), three of the
+eight black, and the black member carried no debug HUD either - so that display
+buffer had received *no draws at all* rather than a partial or stale frame. That
+last fact is what named the fault, and it is the one every theory has to explain.
 
-**It needs BOTH features. Neither alone does anything wrong** — one fixture, one
+**It needed BOTH features. Neither alone did anything wrong** - one fixture, one
 engine build, one capture-and-measure recipe, only the `.tyra` changing:
 
 | arm | BLSS | triple buffering | result |
 |---|---|---|---|
 | original | on, 2x2 neural | on (3 buffers granted) | **black/scene alternation, 74.5 %** |
-| A | **off** | on (3 buffers granted) | clean — 8 frames within 0.01 % |
-| B | on, 2x2 neural | **off** (2 buffers) | clean — 8 frames within 0.01 % |
+| A | **off** | on (3 buffers granted) | clean - 8 frames within 0.01 % |
+| B | on, 2x2 neural | **off** (2 buffers) | clean - 8 frames within 0.01 % |
 | C | on, 2x2 neural | requested, **refused** (PAL 576i has no room) | clean |
 
-Fixture: `--new … fpp` at `%TEMP%\tyra-editor-test\fpsdiag`, `progressive`
-(480p, 448x448), debug profile, `blssJitter` false, `blssTemporal` on, frame
-extrapolation off (the pair is refused anyway), PCSX2 software renderer.
-`TYRA_FRAME_PROFILE` was **0** throughout. The measuring build carried the
-counter change this defect was found by, and arms A and B were clean **with that
-same engine in**, which is what rules the instrumentation out rather than
-arguing it away.
+**The cause is one expression**, and the full account with the before/after
+numbers is docs/frame-pacing.md, "The black-frame defect".
+`RendererCoreGS::allocateVramBuffers()` arms the display queue with
+`displayedBuffer = context ^ 1`, which means "the other buffer" only when there
+are TWO. That function runs a **second** time in any game that re-lays the
+permanent region after boot, and the neural upscaler is the only thing that asks
+for one (`configure()` sizes the z buffer from the raster, so it goes through
+`rebuildPermanentBuffers()`). By then the ~2 s boot banner has flipped ~120
+times and `context` is wherever the three-buffer rotation left it; land on 2 and
+`context ^ 1` is **3**, one past the end of `frameBuffers[]`. `flipBuffers`'
+`3 - shown - finished` then goes negative, wraps in its `u8` cast, and the
+rotation both draws and PRESENTS through `framebuffer_t`s read past the array.
 
-**Where to start, and what is already excluded.** The obvious suspects have been
-read and do not explain it: `presentFrameBuffer` is index-agnostic;
-`emitPassState` takes the composite's target from `gs->getCurrentFrameBuffer()`
-live, per pass; the third buffer is allocated *after* the z buffer, so they do
-not overlap (`z 224x224 at 401408`, buffer 2 above it); and the 3-buffer
-rotation in `flipBuffers` visits every index. The untested seam is what happens
-**between the composite's DMA and the queue handshake**: without
-`TYRA_FRAME_PROFILE` there is no fairness fence, `applyPostFx` only drains PATH1
-when an effect is on, and the 3-buffer path hands a buffer to an interrupt
-handler that presents it — so a composite still in flight when
-`emitDrawTargetSwitch` runs is the shape to check first. Log the rotation frame
-by frame (the technique that settled the extrapolation history question) rather
-than reasoning about it.
+So the pair was required by construction - triple buffering to make 2 a
+reachable value of `context`, the upscaler to re-arm the queue after boot rather
+than only at `init()` with `context` still 0.
 
-**Not yet known:** whether it reproduces on real hardware, and whether it needs
-`progressive` specifically. Arm C could not answer the second — PAL 576i
-*refuses* the third buffer for VRAM, so the pair cannot even be formed there.
-An `interlaced-field` arm can form it and is the cheap next measurement.
+**Three things are worth carrying forward:**
+
+- **Neither of the two leading theories was right, and both read well.** The
+  composite's in-flight DMA against the queue handshake, and BLSS'
+  `frameBuffers[1 - context]` history tap being a two-buffer expression. The
+  second is genuinely a two-buffer expression and is genuinely worth knowing
+  about - but a wrong *history* corrupts a composite, and it cannot produce a
+  frame carrying **no HUD**, because the HUD is drawn at full resolution after
+  the composite. Holding that one fact fixed is what discarded both.
+- **The instrument was the boot line, not a capture.** Printing the queue's
+  arming (`drawing into N, showing M`) settled in one boot what a day of
+  screenshots had not. It ships now.
+- **The measurement is timing-sensitive, so instrumentation MOVES it.** `context`
+  at the rebuild is a deterministic function of how many frames fit in the
+  banner's COP0-timed 2 s - eight consecutive boots of one ELF gave the same
+  value every time, and adding 24 per-frame log lines during the banner changed
+  it from 2 to 1 and made the defect vanish. If a boot-timing-dependent fault
+  disappears when you instrument it, that is a result, not a dead end: log
+  something that does not run inside the loop you are perturbing.
+
+**Still not known, and cheap to answer next time hardware is up:** whether it
+reproduced on a console (everything above is PCSX2) and whether an
+`interlaced-field` arm - the other mode that can form the pair, since PAL 576i
+refuses the third buffer outright - behaves the same. Neither changes the fix:
+the index arithmetic is mode-independent.
 
 ## Project Preferences, after the tabs
 
@@ -1319,7 +1336,7 @@ reported defects and leaves three smaller things visible:
     offset to 0; the picture then measures indistinguishable from the BLSS-off
     control. Two things it still needs: **a UI control** (the setting is
     hand-edited in the `.tyra` today - `src/blss_window.cpp` and
-    `App::drawPreferencesModal` both draw `drawBlssSettings`, so it goes in
+    `App::drawPreferencesWindow` both draw `drawBlssSettings`, so it goes in
     there), and **the host twin**. `src/blss.cpp`'s oracle and corpus always
     model the jittered sampler, so a net trained today and run with the jitter
     off is being run out of distribution - the flag has to reach the trainer
@@ -1422,7 +1439,7 @@ reported defects and leaves three smaller things visible:
     proof of concept whose point is being measured.
 
     Each condition mirrors the generated game rather than the coarser question,
-    and **`App::drawPreferencesModal` was brought into line with all four**: DoF
+    and **`App::drawPreferencesWindow` was brought into line with all four**: DoF
     per SCENE, quantised to 1/128 and gated on a non-zero focus; **the `Set Depth
     Of Field` flow node**, which raises DoF at runtime in a project whose
     authored amount is 0 everywhere and which the dialog missed entirely;
