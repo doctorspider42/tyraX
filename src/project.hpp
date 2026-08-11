@@ -2884,6 +2884,16 @@ std::string objectJson(const SceneObject& o);
 // (same reader the project load uses).
 bool parseObject(const std::string& body, SceneObject& out);
 
+// One Procedural volume's scatter graph as the JSON the object body carries,
+// and back. Public for the same reason objectJson is: the AI Assistant's
+// get_proc_graph / set_proc_graph hand a graph to a model and take one back,
+// and a second serializer for it would drift from the file format the day
+// anything in ProcNode changed. Reading is TOTAL (`out` is replaced) and drops
+// nodes of unknown types plus the links that touched them, exactly as loading a
+// project does; it returns false only when `body` is not a JSON object.
+std::string procGraphJson(const ProcGraph& g);
+bool parseProcGraph(const std::string& body, ProcGraph& out);
+
 // Project-wide manifest sections (everything in the .tyra except the scene
 // table, the per-object bodies and the editor-side state). Each serializes
 // independently so the collaboration layer can diff and ship them one at a

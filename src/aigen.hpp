@@ -74,6 +74,20 @@ std::string graphJson(const FlowGraph& fg);
 // wrap JSON in markdown fences and prose; every reply parser here starts here.
 std::string extractJsonObject(const std::string& text);
 
+// `doc` with the two mistakes a language model makes inside a JSON string
+// repaired, so a strict parse of the result usually succeeds. It is a fixup for
+// text WE DID NOT AUTHOR and belongs nowhere near the project reader:
+//   - a bare " inside a string ("the „main" scene", a quoted word in prose).
+//     A " is taken as the string's terminator only when the next non-space
+//     character is one of , } ] : - which is what a real terminator is always
+//     followed by, and what an interrupted sentence practically never is;
+//   - an invalid escape (a lone \ before an ordinary letter), which our parser
+//     rejects outright.
+// Returns `doc` unchanged when it finds nothing to repair. It is a heuristic on
+// purpose: the alternative for a reply that will not parse is showing the raw
+// JSON to a human, which is what this exists to stop.
+std::string repairJson(const std::string& doc);
+
 // Parses a model reply into `out` (which is REPLACED). Returns "" on success,
 // a human-readable error otherwise. Non-fatal issues (dropped invalid links,
 // auto-layout applied) are appended to *warnings when given. Accepts both the

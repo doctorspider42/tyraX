@@ -755,7 +755,7 @@ private:
     std::vector<int> procVolumes() const;
     // Inserts a Scatter volume covering most of the terrain, with the starter
     // graph, and opens the Procedural window on it.
-    void addScatterVolume();
+    void addScatterVolume(bool commit = true);
     // Bakes one volume (index into the active scene) or every stale volume in
     // the project, then commits. Returns the report for the status line.
     procbake::Report bakeProcVolume(int objectIndex);
@@ -2485,6 +2485,14 @@ private:
     char chatInputBuf_[4096] = "";
     std::string chatError_;        // backend failure / cancellation
     bool chatScrollPending_ = false;  // stick the transcript to the bottom
+    // Which message was last copied, and when. A Copy button on every message
+    // turned the transcript into a column of chrome, so the message itself is
+    // the click target and this is the acknowledgement: for a moment after the
+    // click, hovering that message says "Copied" instead of "Click to copy".
+    // Keyed by the ImGui id of the hit box rather than by message index,
+    // because one Tool message draws several of them (0 = nothing copied yet).
+    unsigned chatCopiedId_ = 0;
+    double chatCopiedAt_ = 0.0;
     // History (docs/ai-chat.md): the conversation is written to its own file
     // next to editor.ini after every turn, so closing the window, switching
     // chats or restarting the editor does not lose it. chatFile_ is the file the
