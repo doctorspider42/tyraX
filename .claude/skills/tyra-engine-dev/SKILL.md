@@ -171,7 +171,9 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
-`VU1_ENV_BASIS_ADDR`), `RendererCoreShadowMap` (projected silhouette
+`VU1_ENV_BASIS_ADDR`; the EE uploads it transposed and pre-scaled as three
+qwords so VU1 evaluates right/up together in one accumulator chain),
+`RendererCoreShadowMap` (projected silhouette
 shadows: 4 lazy-allocated 64×64 VRAM slots + one shared cleared z, the env
 map's raster-redirect bracket per caster - begin(slot) per caster, ONE end();
 the game re-submits the caster's existing bags under a `pushEnvView` "light
@@ -186,7 +188,7 @@ expands each center into a camera-facing quad — 6 GS vertices — from the
 camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
 once per mesh, and culls per QUAD with one `clipw` judgement per corner.
 The two programs are NOT resident: the VU1-clipping program set fills micro
-memory to 2026/2042, so they live in their own packet swapped in on demand
+memory to 1992/2042, so they live in their own packet swapped in on demand
 (`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
 restored by the next non-billboard bag. The C++ side must keep the prim
 giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
@@ -471,7 +473,7 @@ banner both, so a previously built ELF still reports.
   whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
   state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
   (there is not enough micro memory left to carry it in-band the way the ALPHA
-  qword is - the clip program set sits at 2026/2042). What nobody had noticed is
+  qword is - the clip program set sits at 1992/2042). What nobody had noticed is
   that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
   clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
   generated game sampled clamped**. Harmless for a model whose STs are 0..1;
@@ -603,8 +605,9 @@ banner both, so a previously built ELF still reports.
   per vertex, 6 instructions) is all that fits — adding the matching
   `max.xyz … vf00[x]` floor too (9 per program) tripped the real
   `VU1 pipeline programs overflow into the draw-finish program` assert
-  (path1.cpp:145) on the boot logo. The full clip family has only 16 slots of
-  micro-memory headroom after the 2026-08-11 CLIP-history/dead-guard cleanup;
+  (path1.cpp:145) on the boot logo. The full clip family has 50 slots of
+  micro-memory headroom after the 2026-08-11 CLIP-history and packed-matcap
+  cleanups;
   measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
   after ANY edit there. **And the clip family now has a C++ description**

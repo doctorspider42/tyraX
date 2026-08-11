@@ -264,9 +264,11 @@ class Vu {
      * The normal is RE-NORMALIZED first because the EE clipper lerps it across
      * clip cuts and a lerped normal is short. That costs an rsqrt, which WRITES
      * Q - so this must run BEFORE the position's perspective divide, or the
-     * later mulq picks up the wrong Q. `scratch` supplies four temporaries. */
-    void envStq(Val stq, Val envRight, Val envUp, Val envConsts,
-                const Val scratch[4]);
+     * later mulq picks up the wrong Q. The EE uploads a transposed, pre-scaled
+     * basis so both dot products share one accumulator chain; `scratch`
+     * supplies only the length and normalized-vector temporaries. */
+    void envStq(Val stq, Val envBasisX, Val envBasisY, Val envBasisZ,
+                const Val scratch[2]);
 
    private:
     vuir::Program* p_;

@@ -211,6 +211,17 @@ Retired / simplified:
   trials each; a Docker/Sony-VCL rebuild of `examples/showcase` reduced the
   exact ten-program resident set from 2040 to **2026 of 2042 slots** and
   produced a PS2 ELF successfully.
+- **M7 — pack the matcap basis for VU1. DONE 2026-08-11.** The EE now
+  transposes the camera right/up vectors and folds their `+0.5/-0.5` scales
+  into three basis qwords. `CalculateTyraEnvStq` evaluates both dot products
+  together in the accumulator, reducing the macro from 16 to 10 instructions
+  per input vertex and its scratch set from four VF registers to two. The
+  formula and packet size are unchanged. The exact Sony-VCL sizes fell by 18
+  slots for `as_is_tce`, 18 for `cull_tce`, and 16 for `clip_tce`; the resident
+  VU1-clipping set is now **1992 of 2042 slots**. The host validator stages a
+  valid non-axis-aligned packed basis and kept all 15 handwritten/generated
+  programs bit-identical across 60 trials; Docker rebuilt and linked
+  `examples/showcase` successfully.
 
 ## Verification protocol (every milestone)
 

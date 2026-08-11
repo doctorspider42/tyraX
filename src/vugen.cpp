@@ -598,28 +598,20 @@ void Vu::fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch) {
     emit(in);
 }
 
-void Vu::envStq(Val stq, Val envRight, Val envUp, Val envConsts,
-                const Val scratch[4]) {
-    const Val len = scratch[0], nrm = scratch[1], dotR = scratch[2],
-              dotU = scratch[3];
+void Vu::envStq(Val stq, Val envBasisX, Val envBasisY, Val envBasisZ,
+                const Val scratch[2]) {
+    const Val len = scratch[0], nrm = scratch[1];
     mulInto(len, stq, stq, MXYZ);
     p_->code.back().comment = "CalculateTyraEnvStq: renormalize (uses Q)";
     addInto(len, len, len.broadcast(1), MX);
     addInto(len, len, len.broadcast(2), MX);
     rsqrtQ(zero(), 3, len, 0);
     mulQInto(nrm, stq, MXYZ);
-    mulInto(dotR, nrm, envRight, MXYZ);
-    addInto(dotR, dotR, dotR.broadcast(1), MX);
-    addInto(dotR, dotR, dotR.broadcast(2), MX);
-    mulInto(dotU, nrm, envUp, MXYZ);
-    addInto(dotU, dotU, dotU.broadcast(1), MX);
-    addInto(dotU, dotU, dotU.broadcast(2), MX);
-    emit(floatOp(Op::Add, kAcc, zero(), envConsts.broadcast(3),
-                 (uint8_t)(MX | MY)));
-    emit(floatOp(Op::Add, kAcc, zero(), envConsts.broadcast(2), MZ));
-    maddInto(stq, envConsts, dotR.broadcast(0), MX);
-    maddInto(stq, envConsts, dotU.broadcast(0), MY);
-    maddInto(stq, zero(), zero().broadcast(0), MZ);
+    mulAcc(envBasisX, nrm.broadcast(0), (uint8_t)(MX | MY));
+    maddAcc(envBasisY, nrm.broadcast(1), (uint8_t)(MX | MY));
+    maddInto(stq, envBasisZ, nrm.broadcast(2), (uint8_t)(MX | MY));
+    addInto(stq, stq, envBasisZ.broadcast(3), (uint8_t)(MX | MY));
+    addInto(stq, zero(), envBasisZ.broadcast(2), MZ);
 }
 
 void Vu::resetClipFlags() {
@@ -1799,7 +1791,7 @@ struct Constants {
     Val singleColor{}, mvp[4]{};
     Val lightMatrix[3]{}, lightDirs[3]{}, lightColors[3]{}, ambient{};
     Val spotPos{}, spotDirV{}, spotColV{};
-    Val envRight{}, envUp{}, envConsts{};
+    Val envBasisX{}, envBasisY{}, envBasisZ{};
     IVal singleColorEnabled{}, adcMask{};
 };
 
@@ -1912,8 +1904,8 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
     }
 
     if (d.env) {
-        static const char* en[3] = {"envRight", "envUp", "envConsts"};
-        Val* slot[3] = {&k.envRight, &k.envUp, &k.envConsts};
+        static const char* en[3] = {"envBasisX", "envBasisY", "envBasisZ"};
+        Val* slot[3] = {&k.envBasisX, &k.envBasisY, &k.envBasisZ};
         for (int i = 0; i < 3; ++i) {
             *slot[i] = b.named(en[i]);
             loadK(prog, *slot[i], kEnvBasisAddr + i, MALL,
@@ -2153,11 +2145,10 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         }
     }
 
-    Val envScratch[4];
+    Val envScratch[2];
     if (d.env) {
-        static const char* sn[4] = {"tyraEnvLen", "tyraEnvNrm", "tyraEnvDotR",
-                                    "tyraEnvDotU"};
-        for (int i = 0; i < 4; ++i) envScratch[i] = b.named(sn[i]);
+        static const char* sn[2] = {"tyraEnvLen", "tyraEnvNrm"};
+        for (int i = 0; i < 2; ++i) envScratch[i] = b.named(sn[i]);
     }
 
     // The cull family does its whole per-vertex chain inline, including the fog
@@ -2215,7 +2206,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
         // WRITES Q, and the position's perspective divide below has to be the
         // last Q write before the texture mulq reads it.
-        if (d.env) b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+        if (d.env)
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
         sc.vertex = vertex[i];
         sc.color = color[i];
         sc.st = d.texture ? st[i] : Val{};
@@ -2275,7 +2267,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     for (int i = 0; i < 3 && !d.cull; ++i) {
         // The env ST goes FIRST: its rsqrt writes Q, so the position divide
         // below has to be the last Q write before the perspective mulq.
-        if (d.env) b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+        if (d.env)
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
         // NDC, and this is the MIRROR of the cull half's Ndc slot - not an
         // approximation of it. This program never divides the position: the EE
         // clipper handed it over already projected, and w survives only for
@@ -2529,16 +2522,15 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
                             k.lightColors, k.ambient);
     }
 
-    Val envScratch[4];
+    Val envScratch[2];
     if (d.env) {
-        static const char* sn[4] = {"tyraEnvLen", "tyraEnvNrm", "tyraEnvDotR",
-                                    "tyraEnvDotU"};
-        for (int i = 0; i < 4; ++i) envScratch[i] = b.named(sn[i]);
+        static const char* sn[2] = {"tyraEnvLen", "tyraEnvNrm"};
+        for (int i = 0; i < 2; ++i) envScratch[i] = b.named(sn[i]);
         // The matcap ST, from the object-space normals in the ST slot, BEFORE
         // the transform and the judgement: the macro's rsqrt writes Q and every
         // later Q write - the edge lerps, the emitter's divide - comes after.
         for (int i = 0; i < 3; ++i)
-            b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
     }
 
     Val spotScratch[7];
@@ -3684,6 +3676,21 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
         }
     for (int f = 0; f < 3; ++f)
         putf(kLightsColorsAddr + 3, f, randomFloat(s, 0.0f, 60.0f));
+
+    // Env bags reuse the light-matrix addresses for a transposed, pre-scaled
+    // camera basis. Overwrite the random light data with a valid orthonormal
+    // basis so the TCE equivalence trials exercise the actual packet layout,
+    // including non-zero x/y/z contributions to both dot products.
+    if (d.env) {
+        static const float basis[3][4] = {
+            {0.4f, -0.09f, 0.0f, 0.0f},
+            {0.0f, -0.477f, 0.0f, 0.0f},
+            {-0.3f, -0.12f, 1.0f, 0.5f},
+        };
+        for (int i = 0; i < 3; ++i)
+            for (int f = 0; f < 4; ++f)
+                putf(kEnvBasisAddr + i, f, basis[i][f]);
+    }
 
     // The tag quadwords the program copies through verbatim.
     puti(kSetGifTagAddr, 0, 1u);

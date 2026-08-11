@@ -419,26 +419,25 @@ void StaPipQBufferRenderer::sendObjectData(
     packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
-  // Modified by TyraX: env (matcap) camera basis for the TCE programs -
-  // right, up and the ST constants (see CalculateTyraEnvStq in
-  // tyra_macros.i). Reuses the lights-matrix area; env bags never carry
-  // lighting (asserted in StaPipCore::render).
+  // Modified by TyraX: env (matcap) camera basis for the TCE programs.
+  // Transpose it and fold in the ST scale here so CalculateTyraEnvStq can
+  // evaluate both scaled dot products in one VU1 accumulator chain. Reuses
+  // the lights-matrix area; env bags never carry lighting.
   if (bag->texture != nullptr && bag->texture->coordinatesAreNormals) {
     const Vec4& r = bag->texture->envRight;
     const Vec4& u = bag->texture->envUp;
     packet2_utils_vu_open_unpack(objectDataPacket, VU1_ENV_BASIS_ADDR, false);
     {
-      packet2_add_float(objectDataPacket, r.x);
-      packet2_add_float(objectDataPacket, r.y);
-      packet2_add_float(objectDataPacket, r.z);
+      packet2_add_float(objectDataPacket, r.x * 0.5F);
+      packet2_add_float(objectDataPacket, u.x * -0.5F);
       packet2_add_float(objectDataPacket, 0.0F);
-      packet2_add_float(objectDataPacket, u.x);
-      packet2_add_float(objectDataPacket, u.y);
-      packet2_add_float(objectDataPacket, u.z);
       packet2_add_float(objectDataPacket, 0.0F);
-      // constants: (0.5, -0.5, 1.0, 0.5) - scale.x, scale.y, q, bias
-      packet2_add_float(objectDataPacket, 0.5F);
-      packet2_add_float(objectDataPacket, -0.5F);
+      packet2_add_float(objectDataPacket, r.y * 0.5F);
+      packet2_add_float(objectDataPacket, u.y * -0.5F);
+      packet2_add_float(objectDataPacket, 0.0F);
+      packet2_add_float(objectDataPacket, 0.0F);
+      packet2_add_float(objectDataPacket, r.z * 0.5F);
+      packet2_add_float(objectDataPacket, u.z * -0.5F);
       packet2_add_float(objectDataPacket, 1.0F);
       packet2_add_float(objectDataPacket, 0.5F);
     }

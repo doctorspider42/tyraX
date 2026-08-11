@@ -201,8 +201,8 @@ This specialization is implemented by `vuNeededClasses`: it takes the union of
 scene objects and spawn-pool prefabs, codegen calls `setResidentClasses`, and
 Color is always retained as the fallback. A project with no matcap material does
 not upload the two `tce` programs. The all-class fallback remains deliberately
-available; after the 2026-08-11 CLIP-history cleanup its exact Sony-VCL size is
-2026 of the 2042 usable slots.
+available; after the 2026-08-11 CLIP-history and packed-matcap cleanups its
+exact Sony-VCL size is 1992 of the 2042 usable slots.
 
 ## Commands
 

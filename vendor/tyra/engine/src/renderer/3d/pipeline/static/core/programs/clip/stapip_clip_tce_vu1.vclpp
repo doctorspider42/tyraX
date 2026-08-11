@@ -74,7 +74,7 @@
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     ; env (matcap) camera basis
-    LoadTyraEnvBasis{ envRight, envUp, envConsts }
+    LoadTyraEnvBasis{ envBasisX, envBasisY, envBasisZ }
     ; single color (the enabled flag is reloaded per triangle - VI pressure)
     lq          singleColor, VU1_SINGLE_COLOR_ADDR(vi00)
     ; clip constants: x = nearZ-GUARD, y = -farZ-GUARD, z = 0, w = GUARD
@@ -127,9 +127,9 @@ processing:
         ; matcap ST from the object-space normals, BEFORE the transform
         ; and the crossing judgement (the macro's rsqrt uses Q; every
         ; later Q write - edge lerps, emit divides - comes after)
-        CalculateTyraEnvStq{ stq1, envRight, envUp, envConsts }
-        CalculateTyraEnvStq{ stq2, envRight, envUp, envConsts }
-        CalculateTyraEnvStq{ stq3, envRight, envUp, envConsts }
+        CalculateTyraEnvStq{ stq1, envBasisX, envBasisY, envBasisZ }
+        CalculateTyraEnvStq{ stq2, envBasisX, envBasisY, envBasisZ }
+        CalculateTyraEnvStq{ stq3, envBasisX, envBasisY, envBasisZ }
 
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
