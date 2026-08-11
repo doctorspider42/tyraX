@@ -1,9 +1,9 @@
-name: object-spawning-704ffb2d
+name: object-spawning-5d4220c0
 volumes:
   tyra-game-volume:
   tyra-engine:
     external: true
-    name: tyra-engine-101292b0
+    name: tyra-engine-2d769700
 services:
   compiler:
     environment:
@@ -17,4 +17,4 @@ services:
       - tyra-game-volume:/src
       - tyra-engine:/tyra
       - ./:/host
-      - "/home/spider/Projects/tyra-editor/vendor/tyra:/engine-src:ro"
+      - "C:/Users/papaj/.codex/worktrees/5487/tyra-editor/vendor/tyra:/engine-src:ro"

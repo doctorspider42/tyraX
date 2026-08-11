@@ -239,6 +239,48 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
+    struct FootState {
+      Tyra::Vec4 previousWorld;
+      Tyra::Vec4 lockedWorld;
+      Tyra::Vec4 lockedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+      Tyra::Vec4 plannedWorld;
+      Tyra::Vec4 plannedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+      bool ready = false;
+      bool locked = false;
+      bool restLocked = false;
+      bool releasing = false;
+      bool planReady = false;
+      float contactTime = 0.0F;
+      float releaseTime = 0.0F;
+      float releaseStartWeight = 0.0F;
+      float weight = 0.0F;
+      float previousVy = 0.0F;
+      float clearance = 0.0F;
+      float filteredGap = 0.0F;
+      float filteredVy = 0.0F;
+      float lipMemory = 0.0F;
+      float swingTime = 0.0F;
+      float planScore = -1000.0F;
+      float planWeight = 0.0F;
+      float previousDirX = 0.0F;
+      float previousDirZ = 1.0F;
+    };
+    struct FootIkRuntime {
+      bool resolved = false;
+      bool valid = false;
+      bool objectReady = false;
+      int pelvis = -1;
+      int hip[2] = {-1, -1};
+      int knee[2] = {-1, -1};
+      int ankle[2] = {-1, -1};
+      Tyra::Vec4 previousObject;
+      float objectStillTime = 0.0F;
+      float pelvisWorld = 0.0F;
+      Tyra::Vec4 pelvisOffsetWorld = Tyra::Vec4(0.0F, 0.0F, 0.0F, 0.0F);
+      float bodyPitch = 0.0F;
+      float bodyRoll = 0.0F;
+      FootState foot[2];
+    } footIk;
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -790,6 +832,12 @@ class TerrainGame : public Tyra::Game {
   struct PlayerCtl {
     int objIndex = -1;  // scene object index, -1 = this player doesn't exist
     float x = 0, y = 0, z = 0, velY = 0, yaw = 0, pitch = 0;
+    // Collision owns y and may step it up in one frame.  visualY is the
+    // presentation root used by the avatar/camera, eased across walkable
+    // ledges while the physical capsule is already safely on top.
+    float visualY = 0;
+    bool visualYReady = false;
+    bool grounded = false;
     // Third-person only: yaw/pitch orbit the camera, faceYaw is the avatar's
     // own facing (turns toward the walk direction). Clip indices are resolved
     // from the model's clip table at scene load; -1 = unmapped.
@@ -850,6 +898,10 @@ class TerrainGame : public Tyra::Game {
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
                        bool grounded, float moveLocal);
+  void applyFootIk(int objectIndex, RuntimeObject& object,
+                   ObjectGeometry& geometry, Tyra::SkelInstance& instance);
+  bool footGroundAt(float x, float z, float top, float bottom, int skipIndex,
+                    float* y, Tyra::Vec4* normal = nullptr) const;
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a

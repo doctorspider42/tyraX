@@ -51,7 +51,7 @@ inline const PromptIconSlot USE_PROMPT_ICONS[USE_PROMPT_ICON_COUNT > 0 ? USE_PRO
 };
 constexpr int PICK_PROMPT_ICON_COUNT = 1;
 inline const PromptIconSlot PICK_PROMPT_ICONS[PICK_PROMPT_ICON_COUNT > 0 ? PICK_PROMPT_ICON_COUNT : 1] = {
-    {6, 12, 2, 20},  // use
+    {6, 10, 2, 20},  // use
 };
 
 struct HudTextData {

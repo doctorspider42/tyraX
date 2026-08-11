@@ -89,6 +89,13 @@ struct SceneObjectData {
   float modelYaw; // content-forward correction (deg around model Y),
                   // between scale and rotation - X-forward-authored models
                   // set +-90; runtime facing (faceYaw/AI) stays pure
+  int footIk;     // terrain-aware post-animation two-leg solver
+  int ikNeural;   // learned VU0 landing predictor (raycast-gated)
+  float ikNeuralStrength; // 0..1 residual influence
+  const char *ikLeftHip, *ikLeftKnee, *ikLeftAnkle;
+  const char *ikRightHip, *ikRightKnee, *ikRightAnkle;
+  float ikSole, ikProbeUp, ikProbeDown, ikPlant, ikRelease, ikPelvis;
+  float ikMaxFootAngle, ikToeClearance;
   int primDetail;        // segments (curved) or box subdivisions/edge
   int primRings;  // cylinders: 1 = also subdivide the side along
                   // the axis (one ring per four segments), which is
@@ -213,9 +220,9 @@ constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[3] = {
-    {6, {0.0F, 24.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
-    {18, {0.0F, 8.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {66.0F, 44.0F, 66.0F}, {0.4F, 0.7F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // world
-    {11, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.6F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // regenerator
+    {6, {0.0F, 24.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 0, 0.65F, "", "", "", "", "", "", 0.08F, 0.35F, 0.75F, 0.12F, 0.22F, 0.35F, 35.0F, 0.1F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
+    {18, {0.0F, 8.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {66.0F, 44.0F, 66.0F}, {0.4F, 0.7F, 1.0F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 0, 0.65F, "", "", "", "", "", "", 0.08F, 0.35F, 0.75F, 0.12F, 0.22F, 0.35F, 35.0F, 0.1F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // world
+    {11, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.9F, 0.6F, 0.2F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 0, 0.65F, "", "", "", "", "", "", 0.08F, 0.35F, 0.75F, 0.12F, 0.22F, 0.35F, 35.0F, 0.1F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // regenerator
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {3};

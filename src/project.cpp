@@ -819,6 +819,30 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
     if (o.modelYawOffset != 0.0f)
         json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
+    const FootIkConfig& ik = o.footIk;
+    if (ik.enabled || !ik.leftHip.empty() || !ik.leftKnee.empty() ||
+        !ik.leftAnkle.empty() || !ik.rightHip.empty() ||
+        !ik.rightKnee.empty() || !ik.rightAnkle.empty()) {
+        json += ", \"footIk\": { \"enabled\": " +
+                std::string(ik.enabled ? "true" : "false") +
+                ", \"neural\": " +
+                std::string(ik.neuralAssist ? "true" : "false") +
+                ", \"neuralStrength\": " + fmtFloat(ik.neuralStrength) +
+                ", \"leftHip\": \"" + jsonEscape(ik.leftHip) +
+                "\", \"leftKnee\": \"" + jsonEscape(ik.leftKnee) +
+                "\", \"leftAnkle\": \"" + jsonEscape(ik.leftAnkle) +
+                "\", \"rightHip\": \"" + jsonEscape(ik.rightHip) +
+                "\", \"rightKnee\": \"" + jsonEscape(ik.rightKnee) +
+                "\", \"rightAnkle\": \"" + jsonEscape(ik.rightAnkle) +
+                "\", \"sole\": " + fmtFloat(ik.soleOffset) +
+                ", \"probeUp\": " + fmtFloat(ik.probeUp) +
+                ", \"probeDown\": " + fmtFloat(ik.probeDown) +
+                ", \"plant\": " + fmtFloat(ik.plantDistance) +
+                ", \"release\": " + fmtFloat(ik.releaseDistance) +
+                ", \"pelvis\": " + fmtFloat(ik.maxPelvis) +
+                ", \"maxFootAngle\": " + fmtFloat(ik.maxFootAngle) +
+                ", \"toeClearance\": " + fmtFloat(ik.toeClearance) + " }";
+    }
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
@@ -4313,6 +4337,54 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("modelYaw")) {
             o.modelYawOffset = (float)v->numberOr(0.0);
         }
+        if (const auto* ik = jo.find("footIk")) {
+            if (const auto* v = ik->find("enabled"))
+                o.footIk.enabled = v->boolOr(false);
+            if (const auto* v = ik->find("neural"))
+                o.footIk.neuralAssist = v->boolOr(false);
+            if (const auto* v = ik->find("neuralStrength"))
+                o.footIk.neuralStrength = (float)v->numberOr(0.65);
+            if (const auto* v = ik->find("leftHip"))
+                o.footIk.leftHip = v->stringOr("");
+            if (const auto* v = ik->find("leftKnee"))
+                o.footIk.leftKnee = v->stringOr("");
+            if (const auto* v = ik->find("leftAnkle"))
+                o.footIk.leftAnkle = v->stringOr("");
+            if (const auto* v = ik->find("rightHip"))
+                o.footIk.rightHip = v->stringOr("");
+            if (const auto* v = ik->find("rightKnee"))
+                o.footIk.rightKnee = v->stringOr("");
+            if (const auto* v = ik->find("rightAnkle"))
+                o.footIk.rightAnkle = v->stringOr("");
+            if (const auto* v = ik->find("sole"))
+                o.footIk.soleOffset = (float)v->numberOr(0.08);
+            if (const auto* v = ik->find("probeUp"))
+                o.footIk.probeUp = (float)v->numberOr(0.35);
+            if (const auto* v = ik->find("probeDown"))
+                o.footIk.probeDown = (float)v->numberOr(0.75);
+            if (const auto* v = ik->find("plant"))
+                o.footIk.plantDistance = (float)v->numberOr(0.12);
+            if (const auto* v = ik->find("release"))
+                o.footIk.releaseDistance = (float)v->numberOr(0.22);
+            if (const auto* v = ik->find("pelvis"))
+                o.footIk.maxPelvis = (float)v->numberOr(0.35);
+            if (const auto* v = ik->find("maxFootAngle"))
+                o.footIk.maxFootAngle = (float)v->numberOr(35.0);
+            if (const auto* v = ik->find("toeClearance"))
+                o.footIk.toeClearance = (float)v->numberOr(0.10);
+            if (o.footIk.soleOffset < 0.0f) o.footIk.soleOffset = 0.0f;
+            if (o.footIk.probeUp < 0.01f) o.footIk.probeUp = 0.01f;
+            if (o.footIk.probeDown < 0.01f) o.footIk.probeDown = 0.01f;
+            if (o.footIk.plantDistance < 0.0f) o.footIk.plantDistance = 0.0f;
+            if (o.footIk.releaseDistance < o.footIk.plantDistance)
+                o.footIk.releaseDistance = o.footIk.plantDistance;
+            if (o.footIk.maxPelvis < 0.0f) o.footIk.maxPelvis = 0.0f;
+            if (o.footIk.maxFootAngle < 0.0f) o.footIk.maxFootAngle = 0.0f;
+            if (o.footIk.maxFootAngle > 80.0f) o.footIk.maxFootAngle = 80.0f;
+            if (o.footIk.toeClearance < 0.0f) o.footIk.toeClearance = 0.0f;
+            if (o.footIk.neuralStrength < 0.0f) o.footIk.neuralStrength = 0.0f;
+            if (o.footIk.neuralStrength > 1.0f) o.footIk.neuralStrength = 1.0f;
+        }
         if (const auto* sc = jo.find("scripts");
             sc && sc->type == json::Value::Type::Array) {
             for (const auto& s : sc->arr)
@@ -6275,6 +6347,16 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     fnvMixF(h, o.modelYawOffset);
+    fnvMix(h, o.footIk.enabled ? 1 : 0);
+    fnvMix(h, o.footIk.neuralAssist ? 1 : 0);
+    fnvMixF(h, o.footIk.neuralStrength);
+    fnvMixS(h, o.footIk.leftHip), fnvMixS(h, o.footIk.leftKnee);
+    fnvMixS(h, o.footIk.leftAnkle), fnvMixS(h, o.footIk.rightHip);
+    fnvMixS(h, o.footIk.rightKnee), fnvMixS(h, o.footIk.rightAnkle);
+    fnvMixF(h, o.footIk.soleOffset), fnvMixF(h, o.footIk.probeUp);
+    fnvMixF(h, o.footIk.probeDown), fnvMixF(h, o.footIk.plantDistance);
+    fnvMixF(h, o.footIk.releaseDistance), fnvMixF(h, o.footIk.maxPelvis);
+    fnvMixF(h, o.footIk.maxFootAngle), fnvMixF(h, o.footIk.toeClearance);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, (o.mirrorReflectPlayer ? 1 : 0) | (o.mirrorRaytraced ? 2 : 0));

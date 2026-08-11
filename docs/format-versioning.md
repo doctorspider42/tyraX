@@ -142,3 +142,6 @@ path that needs no GUI dialog.
 |---|---|---|
 | 0 | pre-1.0.0 | everything before versioning existed (legacy shapes are lifted by the tolerant reader: inline objects, single `"layout"` dump, project-level terrain, ...) |
 | 1 | 1.0.0 | the `formatVersion` / `editorVersion` stamp itself (no migration step — nothing to transform) |
+| 8 | 1.10.0 | optional per-animated-object Foot IK bone mapping and solver tuning (purely additive; no migration step) |
+| 9 | 1.11.0 | optional neural VU0 Foot IK assist flag and influence (purely additive, disabled by default; no migration step) |
+| 10 | 1.12.0 | optional Foot IK maximum planted-foot tilt and swing toe-clearance fields (purely additive; no migration step) |

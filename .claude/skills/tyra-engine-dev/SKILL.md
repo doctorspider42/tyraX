@@ -95,6 +95,41 @@ static/dynamic pipelines, core GS/VU1 code), `thread`, `time`; plus
 `engine.hpp` / `game.hpp` and the VCL/VU1 sources under the renderer
 (`*.i`, `*.vcl` — preprocessed by vclpp inside the container).
 
+The skeletal path is split between `loaders/3d/tskl_loader` (the binary model
+and clip data) and `renderer/3d/mesh/dynamic/skel_instance` (per-instance
+playback, pose evaluation and VU0 skinning). `.tskl` v3 adds a length-prefixed
+node name before each node's parent/flags so generated games can resolve
+author-authored IK mappings; v4 adds each clip's baked gait speed (the combined
+horizontal sweep of both auto-detected ankles divided by clip duration) so
+locomotion cadence can follow real movement speed. v1/v2 remain readable with
+empty names and v1-v3 clips default gait speed to zero. The
+editor writer is `src/glbparser.cpp::writeTskl` — change both layouts together.
+Runtime lookup rejects duplicate node names instead of silently choosing one.
+`SkelInstance::setPoseAdjust` is the generic post-clip hook: it applies a
+pelvis translation and up to two analytic hip/knee/ankle targets before the
+palette and skin are built. An adjusted instance must never pose-share; both
+`poseEquals` and generated runtime candidate selection enforce that invariant.
+`nodeGlobal()` deliberately returns the saved pre-adjust clip sample, not the
+skinned adjusted transform: contact logic must observe a planted foot entering
+its authored swing phase, or feeding the locked result back makes the lock
+self-sustaining and stretches the leg behind a moving character.
+`SkelIkLeg` also accepts a model-space support normal, alignment weight and
+maximum angle. The analytic leg solve restores authored ankle orientation,
+then tilts only the ankle subtree from model +Y toward that normal, preserving
+authored yaw. `CollisionMesh::raycast` can optionally return the nearest hit
+triangle's packed normal so generated Foot IK does not need a second query.
+The generated Foot IK runtime's optional 16-16-5 neural landing predictor uses
+VU0 **macro mode**, not a microprogram: 21 four-lane dense products per foot
+use the engine's proven three-lane `Vec4::innerProduct` VU0 reduction plus one
+scalar W lane, with ReLU/clamps on the EE and a full scalar twin for regression.
+That choice is intentional. It consumes no VU0 micro-memory and therefore
+coexists with project kernels and the raytraced-mirror kernel; it is synchronous
+for the same shared-register-file reason as `Vec4` and skinning. Collision
+raycasts validate every predicted point before it reaches `SkelPoseAdjust`.
+`SkelPoseAdjust` also supports a bounded pelvis-subtree translation/pitch/roll
+and a per-leg model-space bend hint. Apply whole-body motion before analytic
+legs: the final solve is what keeps raycast-locked ankles stationary.
+
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
 clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,
 **the default** clipping mode for new projects since M4; the EE clipper stays
@@ -267,8 +302,8 @@ it and re-uploads via `RendererCoreTexture::updateTextureInfo` to the SAME
 VRAM address - see docs/live-link.md; NOTE the engine always constructs the
 clut `TextureData`, a non-paletted texture just has `clut->data == nullptr` -
 test data presence, not the object pointer),
-`physics/CollisionMesh` (XZ-grid
-triangle collider) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
+`physics/CollisionMesh` (XZ-grid triangle collider whose raycast optionally
+returns the nearest hit normal) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
 `rand() % 1000000` object ids (see the pitfall below), **USB keyboard/mouse

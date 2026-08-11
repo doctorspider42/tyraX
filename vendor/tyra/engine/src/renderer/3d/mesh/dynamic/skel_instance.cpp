@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Added by TyraX: per-object skeletal playback; pose evaluation on
 # the EE, vertex skinning on VU0 in macro mode (COP2 inline asm).
+# Modified by TyraX: terrain-aware whole-body pose and knee guidance.
 # The sampling/pose math mirrors the editor's src/glbparser.cpp (the
 # viewport preview and the stage-1 baker) - keep the formulas in sync so
 # what the editor shows is what the console computes. The vertex loop is
@@ -25,6 +26,103 @@
 namespace Tyra {
 
 namespace {
+
+struct F3 {
+  float x, y, z;
+};
+
+F3 add(const F3& a, const F3& b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+F3 sub(const F3& a, const F3& b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+F3 mul(const F3& a, float s) { return {a.x * s, a.y * s, a.z * s}; }
+float dot(const F3& a, const F3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+F3 cross(const F3& a, const F3& b) {
+  return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z,
+          a.x * b.y - a.y * b.x};
+}
+float length(const F3& v) { return sqrtf(dot(v, v)); }
+F3 normalized(const F3& v) {
+  const float l = length(v);
+  return l > 1e-7F ? mul(v, 1.0F / l) : F3{0.0F, 0.0F, 0.0F};
+}
+F3 positionOf(const M4x4& m) { return {m.data[12], m.data[13], m.data[14]}; }
+
+struct R3 {
+  float m[9];  // row-major rotation used only by these scalar helpers
+};
+
+F3 rotate(const R3& r, const F3& v) {
+  return {r.m[0] * v.x + r.m[1] * v.y + r.m[2] * v.z,
+          r.m[3] * v.x + r.m[4] * v.y + r.m[5] * v.z,
+          r.m[6] * v.x + r.m[7] * v.y + r.m[8] * v.z};
+}
+
+R3 axisAngle(const F3& axisIn, float angle) {
+  const F3 a = normalized(axisIn);
+  const float c = cosf(angle), s = sinf(angle), t = 1.0F - c;
+  return {{t * a.x * a.x + c, t * a.x * a.y - s * a.z,
+           t * a.x * a.z + s * a.y, t * a.x * a.y + s * a.z,
+           t * a.y * a.y + c, t * a.y * a.z - s * a.x,
+           t * a.x * a.z - s * a.y, t * a.y * a.z + s * a.x,
+           t * a.z * a.z + c}};
+}
+
+R3 rotationBetween(const F3& fromIn, const F3& toIn) {
+  const F3 from = normalized(fromIn), to = normalized(toIn);
+  float d = dot(from, to);
+  if (d > 1.0F) d = 1.0F;
+  if (d < -1.0F) d = -1.0F;
+  F3 axis = cross(from, to);
+  if (length(axis) < 1e-6F) {
+    if (d > 0.0F) return {{1, 0, 0, 0, 1, 0, 0, 0, 1}};
+    axis = cross(from, fabsf(from.y) < 0.9F ? F3{0, 1, 0} : F3{1, 0, 0});
+  }
+  return axisAngle(axis, acosf(d));
+}
+
+R3 basisRotation(const M4x4& from, const M4x4& to) {
+  F3 fx = normalized({from.data[0], from.data[1], from.data[2]});
+  F3 fy = normalized({from.data[4], from.data[5], from.data[6]});
+  F3 fz = normalized({from.data[8], from.data[9], from.data[10]});
+  F3 tx = normalized({to.data[0], to.data[1], to.data[2]});
+  F3 ty = normalized({to.data[4], to.data[5], to.data[6]});
+  F3 tz = normalized({to.data[8], to.data[9], to.data[10]});
+  // toBasis * transpose(fromBasis)
+  return {{tx.x * fx.x + ty.x * fy.x + tz.x * fz.x,
+           tx.x * fx.y + ty.x * fy.y + tz.x * fz.y,
+           tx.x * fx.z + ty.x * fy.z + tz.x * fz.z,
+           tx.y * fx.x + ty.y * fy.x + tz.y * fz.x,
+           tx.y * fx.y + ty.y * fy.y + tz.y * fz.y,
+           tx.y * fx.z + ty.y * fy.z + tz.y * fz.z,
+           tx.z * fx.x + ty.z * fy.x + tz.z * fz.x,
+           tx.z * fx.y + ty.z * fy.y + tz.z * fz.y,
+           tx.z * fx.z + ty.z * fy.z + tz.z * fz.z}};
+}
+
+bool descendantOf(const std::vector<SkelNode>& nodes, s32 node, s32 root) {
+  for (s32 i = node; i >= 0; i = nodes[i].parent)
+    if (i == root) return true;
+  return false;
+}
+
+void rotateSubtree(std::vector<M4x4>& globals,
+                   const std::vector<SkelNode>& nodes, s32 root,
+                   const F3& pivot, const R3& r) {
+  for (size_t i = 0; i < globals.size(); ++i) {
+    if (!descendantOf(nodes, (s32)i, root)) continue;
+    M4x4& m = globals[i];
+    for (int c = 0; c < 3; ++c) {
+      const F3 v = {m.data[c * 4], m.data[c * 4 + 1], m.data[c * 4 + 2]};
+      const F3 q = rotate(r, v);
+      m.data[c * 4] = q.x;
+      m.data[c * 4 + 1] = q.y;
+      m.data[c * 4 + 2] = q.z;
+    }
+    const F3 q = add(pivot, rotate(r, sub(positionOf(m), pivot)));
+    m.data[12] = q.x;
+    m.data[13] = q.y;
+    m.data[14] = q.z;
+  }
+}
 
 /** r = a * b for column-major 4x4 (plain EE floats - the amounts here are
  * tiny next to the vertex loop, and this keeps bit-parity with the editor's
@@ -267,12 +365,29 @@ SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
   animatedCur.resize(model->nodes.size());
   animatedPrev.resize(model->nodes.size());
   globals.resize(model->nodes.size());
+  sampledGlobals.resize(model->nodes.size());
   palette.resize(model->palette.size());
 
   play(0, true, 0.0F);
 }
 
 SkelInstance::~SkelInstance() {}
+
+void SkelInstance::setPoseAdjust(const SkelPoseAdjust& adjust) {
+  poseAdjust = adjust;
+  poseDirty = true;
+}
+
+void SkelInstance::clearPoseAdjust() {
+  if (poseAdjust.active()) poseDirty = true;
+  poseAdjust = SkelPoseAdjust();
+}
+
+const M4x4* SkelInstance::nodeGlobal(s32 node) const {
+  if (!poseReady || node < 0 || node >= (s32)sampledGlobals.size())
+    return nullptr;
+  return &sampledGlobals[(size_t)node];
+}
 
 void SkelInstance::play(u32 clip, bool loop, float fadeSeconds) {
   if (clip >= model->clips.size()) clip = 0;
@@ -434,9 +549,145 @@ void SkelInstance::evalPose() {
     else
       memcpy(globals[i].data, localPtr, 16 * sizeof(float));
   }
+  // Contact policy reads the previous unadjusted clip sample. Feeding the
+  // already locked pose back here makes a planted ankle report that it never
+  // moved, so the lock cannot observe the swing phase and release.
+  for (size_t i = 0; i < globals.size(); ++i)
+    sampledGlobals[i] = globals[i];
+  applyPoseAdjust();
   for (size_t j = 0; j < model->palette.size(); j++)
     mulM4(palette[j].data, globals[model->palette[j].node].data,
           model->palette[j].ibm.data);
+  poseReady = true;
+}
+
+void SkelInstance::applyPoseAdjust() {
+  if (!poseAdjust.active()) return;
+
+  if (poseAdjust.pelvis >= 0 && poseAdjust.pelvis < (s32)globals.size() &&
+      (poseAdjust.pelvisY != 0.0F || poseAdjust.pelvisOffset.x != 0.0F ||
+       poseAdjust.pelvisOffset.y != 0.0F || poseAdjust.pelvisOffset.z != 0.0F)) {
+    for (size_t i = 0; i < globals.size(); ++i)
+      if (descendantOf(model->nodes, (s32)i, poseAdjust.pelvis)) {
+        globals[i].data[12] += poseAdjust.pelvisOffset.x;
+        globals[i].data[13] += poseAdjust.pelvisY + poseAdjust.pelvisOffset.y;
+        globals[i].data[14] += poseAdjust.pelvisOffset.z;
+      }
+  }
+
+  if (poseAdjust.body >= 0 && poseAdjust.body < (s32)globals.size()) {
+    float pitch = poseAdjust.bodyPitch;
+    float roll = poseAdjust.bodyRoll;
+    const float maxTilt = 0.174532925F;  // generic safety cap: 10 degrees
+    if (pitch > maxTilt) pitch = maxTilt;
+    if (pitch < -maxTilt) pitch = -maxTilt;
+    if (roll > maxTilt) roll = maxTilt;
+    if (roll < -maxTilt) roll = -maxTilt;
+    const F3 pivot = positionOf(globals[poseAdjust.body]);
+    if (fabsf(pitch) > 1e-6F)
+      rotateSubtree(globals, model->nodes, poseAdjust.body, pivot,
+                    axisAngle({1.0F, 0.0F, 0.0F}, pitch));
+    if (fabsf(roll) > 1e-6F)
+      rotateSubtree(globals, model->nodes, poseAdjust.body, pivot,
+                    axisAngle({0.0F, 0.0F, 1.0F}, roll));
+  }
+
+  for (u8 li = 0; li < poseAdjust.legCount && li < 2; ++li) {
+    const SkelIkLeg& leg = poseAdjust.legs[li];
+    if (leg.weight <= 0.0F || leg.hip < 0 || leg.knee < 0 || leg.ankle < 0 ||
+        leg.hip >= (s32)globals.size() || leg.knee >= (s32)globals.size() ||
+        leg.ankle >= (s32)globals.size())
+      continue;
+    if (!descendantOf(model->nodes, leg.knee, leg.hip) ||
+        !descendantOf(model->nodes, leg.ankle, leg.knee))
+      continue;
+
+    const M4x4 ankleOrientation = globals[leg.ankle];
+    const F3 hip = positionOf(globals[leg.hip]);
+    const F3 knee = positionOf(globals[leg.knee]);
+    const F3 ankle = positionOf(globals[leg.ankle]);
+    const F3 rawTarget = {leg.target.x, leg.target.y, leg.target.z};
+    float w = leg.weight > 1.0F ? 1.0F : leg.weight;
+    const F3 target = add(ankle, mul(sub(rawTarget, ankle), w));
+    const F3 upper = sub(knee, hip), lower = sub(ankle, knee);
+    const float upperLen = length(upper), lowerLen = length(lower);
+    if (upperLen < 1e-5F || lowerLen < 1e-5F) continue;
+
+    F3 reach = sub(target, hip);
+    float dist = length(reach);
+    if (dist < 1e-5F) continue;
+    const float minReach = fabsf(upperLen - lowerLen) + 1e-4F;
+    const float maxReach = upperLen + lowerLen - 1e-4F;
+    if (dist < minReach) dist = minReach;
+    if (dist > maxReach) dist = maxReach;
+    const F3 dir = normalized(reach);
+    F3 bendNormal = cross(upper, lower);
+    if (length(bendNormal) < 1e-5F)
+      bendNormal = cross(dir, fabsf(dir.y) < 0.9F ? F3{0, 1, 0} : F3{1, 0, 0});
+    bendNormal = normalized(bendNormal);
+    F3 bend = normalized(cross(bendNormal, dir));
+    const float x = (upperLen * upperLen - lowerLen * lowerLen + dist * dist) /
+                    (2.0F * dist);
+    float y2 = upperLen * upperLen - x * x;
+    if (y2 < 0.0F) y2 = 0.0F;
+    const float y = sqrtf(y2);
+    const F3 oldSide = sub(knee, add(hip, mul(dir, dot(upper, dir))));
+    if (dot(oldSide, bend) < 0.0F) bend = mul(bend, -1.0F);
+    float hintWeight = leg.bendHintWeight;
+    if (hintWeight < 0.0F) hintWeight = 0.0F;
+    if (hintWeight > 1.0F) hintWeight = 1.0F;
+    if (hintWeight > 0.0F) {
+      const F3 hint = {leg.bendHint.x, leg.bendHint.y, leg.bendHint.z};
+      const F3 hintDelta = sub(hint, hip);
+      const F3 hintSide = sub(hintDelta, mul(dir, dot(hintDelta, dir)));
+      if (length(hintSide) > 1e-5F) {
+        const F3 wantedBend = normalized(hintSide);
+        F3 blended = add(mul(bend, 1.0F - hintWeight),
+                         mul(wantedBend, hintWeight));
+        if (length(blended) > 1e-5F) bend = normalized(blended);
+      }
+    }
+    const F3 wantedKnee = add(add(hip, mul(dir, x)), mul(bend, y));
+
+    rotateSubtree(globals, model->nodes, leg.hip, hip,
+                  rotationBetween(upper, sub(wantedKnee, hip)));
+    const F3 knee2 = positionOf(globals[leg.knee]);
+    const F3 ankle2 = positionOf(globals[leg.ankle]);
+    rotateSubtree(globals, model->nodes, leg.knee, knee2,
+                  rotationBetween(sub(ankle2, knee2), sub(target, knee2)));
+
+    // Hip/knee rotations should move the foot, not inherit their twist. Keep
+    // the clip's global ankle orientation and rotate its subtree back around
+    // the solved contact point.
+    const R3 keepFoot = basisRotation(globals[leg.ankle], ankleOrientation);
+    rotateSubtree(globals, model->nodes, leg.ankle,
+                  positionOf(globals[leg.ankle]), keepFoot);
+
+    // Tilt the restored clip orientation from model-up toward the supporting
+    // surface. This preserves the authored yaw and only adds pitch/roll. The
+    // generated runtime clamps both the weight and the normal; clamp again at
+    // this generic engine boundary because learned controllers can feed it too.
+    float align = leg.alignWeight;
+    if (align < 0.0F) align = 0.0F;
+    if (align > 1.0F) align = 1.0F;
+    F3 normal = normalized(
+        {leg.surfaceNormal.x, leg.surfaceNormal.y, leg.surfaceNormal.z});
+    if (align > 0.0F && length(normal) > 1e-6F) {
+      const F3 up = {0.0F, 1.0F, 0.0F};
+      float cosine = dot(up, normal);
+      if (cosine > 1.0F) cosine = 1.0F;
+      if (cosine < -1.0F) cosine = -1.0F;
+      float angle = acosf(cosine);
+      float maxAngle = leg.maxAlignRadians;
+      if (maxAngle < 0.0F) maxAngle = 0.0F;
+      if (angle > maxAngle) angle = maxAngle;
+      const F3 axis = cross(up, normal);
+      if (length(axis) > 1e-6F && angle > 1e-6F)
+        rotateSubtree(globals, model->nodes, leg.ankle,
+                      positionOf(globals[leg.ankle]),
+                      axisAngle(axis, angle * align));
+    }
+  }
 }
 
 void SkelInstance::skinParts(u8 lod) {

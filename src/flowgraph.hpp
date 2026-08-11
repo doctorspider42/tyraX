@@ -592,6 +592,22 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                         "Flips whichever it currently is."},
          .desc = "Turns an object's rendering on and off. Read the state back "
                  "with the pure bool Is Visible."},
+        {.key = "SetFootIk", .title = "Set Foot IK",
+         .category = "Object", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The animated object whose authored Foot IK solver to "
+                   "control. Empty = this graph's own object. Enabling an "
+                   "object that does not have Foot IK configured is a no-op.",
+         .idIn = true, .idOut = true, .execInCount = 3,
+         .execInLabels = {"enable", "disable", "toggle"},
+         .execInTips = {
+             "Runs the object's authored Foot IK solver.",
+             "Returns the object to its unmodified animation pose and clears "
+             "remembered foot contacts.",
+             "Flips the current runtime state. Useful for an in-motion A/B "
+             "comparison without rebuilding the game."},
+         .desc = "Enables, disables or toggles an animated object's Foot IK "
+                 "at runtime. The authored Foot IK checkbox remains the master "
+                 "capability; this node is the live switch."},
         {.key = "SetLight", .title = "Set Light", .category = "Object",
          .strKind = FlowParamKind::ObjectName,
          .strTip = "The Point Light object to drive. Empty = this graph's own "

@@ -19,6 +19,11 @@ constexpr short PHYS_ASLEEP = 0x7FFF;
 struct RuntimeObject {
   SceneObjectData data;
   bool visible = true;
+  // Runtime gate for an object's AUTHORED Foot IK capability. Scripts may
+  // write it directly; the Set Foot IK flow node exposes the same switch.
+  // Turning it back on starts from a fresh contact history because the game
+  // clears the solver cache while this is false.
+  bool footIkEnabled = true;
   // Object physics state (data.physics). Velocities are per-frame
   // displacements (like the player's), spin is degrees/frame. After writing
   // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is

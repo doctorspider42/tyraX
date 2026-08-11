@@ -20,6 +20,26 @@
 
 namespace Tyra {
 
+s32 SkelModel::findNode(const char* name) const {
+  if (!name || !name[0]) return -1;
+  s32 found = -1;
+  for (size_t i = 0; i < nodes.size(); ++i)
+    if (nodes[i].name == name) {
+      if (found >= 0) return -1;  // ambiguous author names never retarget silently
+      found = (s32)i;
+    }
+  return found;
+}
+
+s32 SkelModel::commonAncestor(s32 a, s32 b) const {
+  if (a < 0 || b < 0 || a >= (s32)nodes.size() || b >= (s32)nodes.size())
+    return -1;
+  for (s32 pa = a; pa >= 0; pa = nodes[pa].parent)
+    for (s32 pb = b; pb >= 0; pb = nodes[pb].parent)
+      if (pa == pb) return pa;
+  return -1;
+}
+
 namespace {
 
 /** Whole file read sequentially into memory (host fs fseek is unreliable). */
@@ -62,6 +82,14 @@ struct Reader {
     left -= size;
     return true;
   }
+  bool string(std::string* dst, size_t maxSize) {
+    u32 size = 0;
+    if (!u32le(&size) || size > maxSize || size > left) return false;
+    dst->assign(reinterpret_cast<const char*>(p), size);
+    p += size;
+    left -= size;
+    return true;
+  }
 };
 
 }  // namespace
@@ -79,7 +107,7 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
       clipCount = 0;
   auto model = std::make_unique<SkelModel>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TSKL", 4) != 0 ||
-      !in.u32le(&version) || version < 1 || version > 2 ||
+      !in.u32le(&version) || version < 1 || version > 4 ||
       !in.u32le(&nodeCount) || !in.u32le(&paletteCount) ||
       !in.u32le(&partCount) || !in.u32le(&clipCount)) {
     TYRA_WARN("TsklLoader: bad header in ", relativePath.c_str());
@@ -99,7 +127,8 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
   for (u32 i = 0; i < nodeCount; i++) {
     SkelNode& node = model->nodes[i];
     u32 parent = 0, flags = 0;
-    if (!in.u32le(&parent) || !in.u32le(&flags) ||
+    if ((version >= 3 && !in.string(&node.name, 4096)) ||
+        !in.u32le(&parent) || !in.u32le(&flags) ||
         !in.bytes(node.t, sizeof(node.t)) ||
         !in.bytes(node.r, sizeof(node.r)) ||
         !in.bytes(node.s, sizeof(node.s)) ||
@@ -147,6 +176,7 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
     SkelClip clip;
     u32 channelCount = 0;
     if (!in.fixedString(&clip.name, 32) || !in.f32le(&clip.duration) ||
+        (version >= 4 && !in.f32le(&clip.gaitSpeed)) ||
         !in.u32le(&channelCount))
       return nullptr;
     for (u32 ch = 0; ch < channelCount; ch++) {

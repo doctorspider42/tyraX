@@ -552,6 +552,60 @@ Notes:
   there; the build itself needs no root once the socket is reachable.
 
 ### Reading the results
++
+### Foot IK regression trace
+
+Use the cross-platform runner when Foot IK movement is too subtle for a single
+screenshot. It enables generator-only telemetry, builds and boots the project,
+drives a deterministic Remote Pad script, captures a dense contact sheet, and
+writes the physical/visual player root plus both feet to CSV:
+
+```powershell
+python .agents/skills/tyra-testing/scripts/foot-ik-regression.py `
+    C:\Temp\foot-ik-fixture `
+    --editor build\tyrax-editor.exe `
+    --output C:\Temp\foot-ik-results `
+    --pad-script "stick l 127 0; wait 8; neutral; wait 1"
+```
+
+The result directory contains `player-root.csv`, `feet.csv`,
+`training-frames.csv`, `training-samples.csv`, `summary.json`, and
+`frames/contact-sheet.png`. The summary reports the largest one-frame
+physical and visual root steps, their ratio, contact transitions, and the
+largest change in weighted foot correction. Neural-enabled fixtures also
+report the maximum learned contact confidence and the count of frames where
+the raycast-gated landing residual was actually accepted.
+Surface-following builds additionally report maximum filtered swing clearance,
+minimum support-normal Y and the number of frames with ankle alignment weight;
+use a stair route for clearance and a sculpted-terrain route for the normal.
+`training-frames.csv` is the raw per-foot `FOOTTRAIN` sequence.
+`training-samples.csv` uses the exact 16 normalized runtime features and labels
+each unlocked frame from the next verified contact (at most 18 frames ahead),
+plus the procedural clearance/release decision. Planted frames are excluded
+unless they contain an emergency stair release. Combine several directions and
+surface types into `tools/data/foot-neural-real.csv`, then run
+`python tools/train-foot-neural.py`; its fixed seed makes committed weights
+reproducible.
+For the standard four-direction torture course and one merged training file,
+run `foot-ik-gauntlet.py` with the same project/editor arguments. It boots clean
+forward/lateral/diagonal/reverse runs and aggregates sweep clearance, planner
+acceptance, correction jerk, target penetration, support shift, body tilt and
+VU0/EE parity in `gauntlet-summary.json`.
+Add `--neural-ee`
+to regenerate the same project with `TYRAX_FOOT_NEURAL_EE=1`: dense products
+then use the scalar EE twin instead of VU0 macro mode. Run identical pad scripts
+for both variants and compare `feet.csv`. More importantly, every traced VU0
+inference also evaluates the scalar twin on the **same feature vector** and the
+summary reports `neural_vu0_ee_max_delta`; this is the deterministic arithmetic
+parity check that two separately timed PCSX2 walks cannot provide. The
+generated game logs
+`PLAYERIK` / `FOOTIK` / `FOOTTRAIN` rows only when the runner builds with
+`TYRAX_FOOT_IK_TRACE=1`; normal editor builds replace the trace constant with
+`false`, so the compiler removes the logging and its sample bookkeeping.
+Do not set the environment variable for performance captures. A user-owned
+`terrain_game.cpp` cannot receive new generator instrumentation; use an
+editor-owned scratch copy for this test.
+
 
 - **emulog.txt**: success looks like `ELF <path> is executing`; failure signals
   are `Assertion` lines or an early exit. **`TYRA_LOG`/EE printf does NOT land

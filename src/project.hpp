@@ -262,6 +262,41 @@ struct ScrollSegment {
     std::vector<ScrollMember> objects;
 };
 
+// Per-object terrain-aware post-animation leg placement. Bone names are kept
+// instead of node indices so re-exporting a model may reorder its hierarchy
+// without silently retargeting the solver to unrelated joints. The .tskl bake
+// carries node names and the generated game resolves these once when the
+// skeletal instance is created.
+struct FootIkConfig {
+    bool enabled = false;
+    bool neuralAssist = false;       // learned VU0 landing-point residual
+    float neuralStrength = 0.65f;    // 0 = observe only, 1 = full safe residual
+    std::string leftHip, leftKnee, leftAnkle;
+    std::string rightHip, rightKnee, rightAnkle;
+    float soleOffset = 0.08f;    // model-local ankle -> sole distance
+    float probeUp = 0.35f;       // world units above the previous sole
+    float probeDown = 0.75f;     // world units below the previous sole
+    float plantDistance = 0.12f; // distance at which a descending foot locks
+    float releaseDistance = 0.22f;
+    float maxPelvis = 0.35f;     // maximum world-space pelvis correction
+    float maxFootAngle = 35.0f;  // maximum sole-to-surface tilt, degrees
+    float toeClearance = 0.10f;  // swing lift above an upcoming obstacle
+};
+
+inline bool operator==(const FootIkConfig& a, const FootIkConfig& b) {
+    return a.enabled == b.enabled && a.neuralAssist == b.neuralAssist &&
+           a.neuralStrength == b.neuralStrength && a.leftHip == b.leftHip &&
+           a.leftKnee == b.leftKnee && a.leftAnkle == b.leftAnkle &&
+           a.rightHip == b.rightHip && a.rightKnee == b.rightKnee &&
+           a.rightAnkle == b.rightAnkle && a.soleOffset == b.soleOffset &&
+           a.probeUp == b.probeUp && a.probeDown == b.probeDown &&
+           a.plantDistance == b.plantDistance &&
+           a.releaseDistance == b.releaseDistance &&
+           a.maxPelvis == b.maxPelvis &&
+           a.maxFootAngle == b.maxFootAngle &&
+           a.toeClearance == b.toeClearance;
+}
+
 inline bool operator==(const ScrollSegment& a, const ScrollSegment& b) {
     return a.name == b.name && a.length == b.length && a.objects == b.objects;
 }
@@ -671,6 +706,7 @@ struct SceneObject {
     // +-90 and the runtime facing (walker faceYaw, NPC turn-to-face) stays
     // pure logic while the mesh renders turned. Applies to animated models.
     float modelYawOffset = 0.0f;
+    FootIkConfig footIk;
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -960,6 +996,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
            a.modelYawOffset == b.modelYawOffset &&
+           a.footIk == b.footIk &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
