@@ -111,8 +111,11 @@ ugly patches up close. It fades back in as you step away.
   `stapip_as_is_tce_vu1.vclpp` / `stapip_clip_tce_vu1.vclpp`,
   `CalculateTyraEnvStq` in `tyra_macros.i`) computes
   `u = 0.5 + 0.5·(n·right)`, `v = 0.5 − 0.5·(n·up)` from the per-mesh camera
-  basis uploaded at `VU1_ENV_BASIS_ADDR`. The EE only refreshes two vectors
-  per reflective part per frame — in **both** clipping modes: the clip_tce
+  basis uploaded at `VU1_ENV_BASIS_ADDR`. The EE transposes those two vectors
+  and folds the `+0.5/-0.5` ST scale into the same three-qword packet; VU1 then
+  evaluates both dot products in one accumulator chain (10 instructions per
+  vertex instead of 16). The EE refreshes it per reflective part per frame —
+  in **both** clipping modes: the clip_tce
   variant computes the ST from the normal *before* the Sutherland–Hodgman
   pass, so it interpolates through the cuts like a regular texture
   coordinate (the earlier EE-computed-ST fallback for VU1-clipping scenes

@@ -76,6 +76,12 @@
 // Buffer data (xtop)
 #define VU1_STAPIP_VERT_DATA_ADDR 2
 
+// The clip family packs its conservative six-plane mask into the unused high
+// bits of the 16-bit vertex-count word. Counts are always far below 1024.
+// Cull/as_is/billboard buffers keep the original raw count ABI.
+#define VU1_STAPIP_COUNT_MASK 0x03FF
+#define VU1_STAPIP_CLIP_MASK_SHIFT 10
+
 // Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
 // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END
 // so this area is never part of an xtop half. Contents are transient within

@@ -201,6 +201,88 @@ Retired / simplified:
   2.55× the old precise baseline. The hardware half of the original M4
   gate (real-PS2 clipbench re-run + SW-vs-hardware ADC check) is still
   owed before the EE clipper can be deleted.
+- **M6 — compact the triangle crossing test. DONE 2026-08-11.** The CLIP
+  flag is a four-entry history, so the six per-triangle judgements are now
+  consumed by two positional `fcand` reads rather than six individual reads
+  plus four `ior`s. Four dead `mul.w` copies of the already-live guard were
+  also removed from every clip program. The handwritten family and the C++
+  description changed together. `--vu-check` proves all 15 generated static
+  programs bit-identical to their handwritten twins across 60 randomized
+  trials each; a Docker/Sony-VCL rebuild of `examples/showcase` reduced the
+  exact ten-program resident set from 2040 to **2026 of 2042 slots** and
+  produced a PS2 ELF successfully.
+- **M7 — pack the matcap basis for VU1. DONE 2026-08-11.** The EE now
+  transposes the camera right/up vectors and folds their `+0.5/-0.5` scales
+  into three basis qwords. `CalculateTyraEnvStq` evaluates both dot products
+  together in the accumulator, reducing the macro from 16 to 10 instructions
+  per input vertex and its scratch set from four VF registers to two. The
+  formula and packet size are unchanged. The exact Sony-VCL sizes fell by 18
+  slots for `as_is_tce`, 18 for `cull_tce`, and 16 for `clip_tce`; the resident
+  VU1-clipping set is now **1992 of 2042 slots**. The host validator stages a
+  valid non-axis-aligned packed basis and kept all 15 handwritten/generated
+  programs bit-identical across 60 trials; Docker rebuilt and linked
+  `examples/showcase` successfully.
+- **M8 — opt-in static-pipeline telemetry. DONE 2026-08-11.**
+  `StaPipCore::setTelemetryEnabled` now exposes interval counters for final
+  cull/clip/outside package and triangle routes, a 0–6 active-plane histogram,
+  qbuffer flushes and VIF1/VU1 wait ticks, plus billboard/resident program-set
+  swaps and their full drain/upload time. `takeTelemetry` returns and resets
+  the interval. The disabled path retains the original first-partial-plane
+  AABB early-out and performs no COP0 reads, so a release that does not opt in
+  pays no diagnostic cost. This is the measurement base for active-plane
+  clipping and program-set sorting rather than another temporary global.
+- **M9 — exact active-plane clipping. DONE 2026-08-11.** The EE derives the
+  six VU clip half-spaces from the actual MVP and `clipMargin`, transforms
+  them into object space once per mesh, and classifies each partial package's
+  AABB against them. The resulting one-to-six-bit mask survives qbuffer merges
+  and is packed into the unused high six bits of the clip program's 16-bit
+  vertex-count word. Each VU clip program skips inactive Sutherland-Hodgman
+  passes before touching polygon scratch memory. This is deliberately not
+  derived from the view-frustum planes: the near margin and the widened
+  environment-map frustum make those planes a different contract. Reusing the
+  input pointers for the final GIF kick paid back most of the dispatch cost.
+  The exact Sony-VCL resident set is **2030 of 2042 slots** (12 spare), and
+  `--vu-check` covers both sparse single-plane and full-mask execution across
+  all five handwritten/generated clip twins. Docker rebuilt the engine and
+  linked `examples/showcase` successfully.
+- **M10 — ABI-paired shared clip images. DONE 2026-08-11.** `C/D` now share
+  one two-stream image and `TC/TCE` one three-stream image; `TD` remains fully
+  specialised. `VU1_OPTIONS_ADDR.y` selects only the per-corner preparation
+  branch, after which each pair enters the same scratch clipper, fan emitter
+  and GIF layout. `Path1::createProgramsCache` aliases program objects with an
+  identical source range to one upload and one destination address, including
+  partial resident-class sets and custom overrides. `--vu-check` compares both
+  shared peer paths directly against their former specialised programs over 60
+  random trials. Sony VCL measured `C/D` at 326 slots and `TC/TCE` at 316; with
+  the specialised 226-slot `TD` image and five cull images the all-class set is
+  now **1676 of 2042 slots** — 354 slots smaller than M9, with 366 spare. The
+  final showcase ELF contains no `Clip_D` or `Clip_TCE` code image. A fresh
+  Docker build booted and rendered `examples/showcase` at 50 FPS in PCSX2's
+  software renderer; a remote-pad camera sweep changed the active frustum with
+  no assert, hang or visible clipping corruption.
+- **M10a — the sharing is now declared, generated and enforced. DONE
+  2026-08-12.** M10 left the runtime correct and the FRAMEWORK behind it: the
+  aliasing lived only in two hand-edited engine wrappers, so `--vu-emit` still
+  wrote `D` and `TCE` wrappers pointing at their own images (copying its whole
+  output would have silently relinked five clip bodies and put the set back over
+  2000 slots), and `--vu-check`'s budget added all fifteen descriptions —
+  reporting `1544..3077, depends on how VCL pairs them` for a machine whose
+  largest resident set is `962..1918`. Closed by: `Desc::residentImageAsmName` /
+  `codeOwner` as the single declaration of the pairing; an emitter that writes
+  the owner's symbols plus a "NOT LINKED, and not meant to be" header on the
+  reference `.vclpp`; a budget grouped by physical image and by clipping mode
+  (VU1 clipping 8 images, EE clipper 10); `vu_ui.cpp` reading the pairing off the
+  descriptions instead of three hardcoded `if (mask & ...)` lines; and a
+  `-- EE wrappers --` check that holds both the emitted wrapper and the one in
+  `vendor/tyra` to the description's image and its two `StaPipVU1Program` ABI
+  numbers. Verified negatively: pointing the engine's `D` wrapper back at
+  `StaPipVU1Clip_D` fails `--vu-check` while every microcode section still
+  reports IDENTICAL. The same check found `elementsPerVertex` wrong for the LIT
+  generated wrappers (`2, 2` where the engine's own cull wrapper says `2, 3`) —
+  a single-colour lit mesh would have been packaged a third too large for the
+  VU1 buffer had those been adopted; the two adopted `as_is` lit wrappers were
+  regenerated with it (a value nothing consults, since `getMaxVertCountByBag`
+  always asks the CULL program).
 
 ## Verification protocol (every milestone)
 

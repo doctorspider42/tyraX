@@ -1644,6 +1644,37 @@ simply delegates are not.
   carries the SAME factor the node contents do - the UI scale included, or a 250%
   editor draws grown nodes at un-grown spacing and they overlap.
 
+### VU clip-image aliases
+
+The five built-in clip classes occupy three resident code images: `C/D` share
+the generated C image, `TC/TCE` share TC, and `TD` stays specialised.
+`VU1_OPTIONS_ADDR.y` selects the peer path.
+
+**The pairing is declared in ONE place** - `Desc::residentImageAsmName` /
+`codeOwner`, next to the `sharedClip*` flags that build the two-path body. The
+flags say "my body carries a peer's path"; those two fields say "somebody else's
+body carries mine", and every consumer reads the second: `vugen::residentImage`
+is what the emitted EE wrapper links, what `--vu-check`'s budget charges, and
+what `engineCrossingInstructions` in `vu_ui.cpp` prices (via
+`vugen::engineDesc`, NOT a second copy of the rule - it used to be three
+hardcoded `if (mask & ...)` lines). The one piece that lives in the engine is
+`Path1::createProgramsCache`, which uploads an identical source range once.
+
+Two `--vu-check` sections are mandatory when touching any of it, and neither is
+implied by the per-description equivalence run (that only selects variant zero):
+`-- shared clip images, peer paths --` compares each shared image's variant one
+against the specialised D/TCE source, and `-- EE wrappers ... --` holds both the
+emitted wrapper and the one in `vendor/tyra` to the description's image and its
+two `StaPipVU1Program` ABI numbers. Undo the sharing in a wrapper by hand and
+every microcode section still says IDENTICAL - only that section fails.
+
+`elementsPerVertex` (the last ctor argument) is `attrStreams + 1` for a LIT
+program and `attrStreams` otherwise: `getMaxVertCount` subtracts one element when
+the mesh draws in a single colour, and a lit program never unpacks colours at
+all, so the phantom block is what makes the subtraction land on the truth. Only
+the CULL program's numbers are ever consulted (`getMaxVertCountByBag` asks
+`getCullProgramByBag`).
+
 ## Building the editor
 
 ```powershell

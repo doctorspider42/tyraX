@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -2227,6 +2228,69 @@ static int vuCheckVu0(const std::string& engine) {
     return fails == 0 ? 0 : 1;
 }
 
+// ---------------------------------------------------------------------------
+// The EE-side wrapper: which IMAGE a program links, and on what terms
+// ---------------------------------------------------------------------------
+
+/** The symbol stems of every `extern u32 <stem>_CodeStart` in a wrapper, in the
+ * order they appear. That declaration is the only thing that decides which
+ * microcode image ends up in the ELF - `--vu-emit` writes it, the linker obeys
+ * it, and nothing downstream can tell that two wrappers named the same image on
+ * purpose from a generator that forgot they were supposed to. */
+static std::vector<std::string> wrapperImages(const std::string& text) {
+    std::vector<std::string> out;
+    const std::string tail = "_CodeStart";
+    size_t at = 0;
+    while ((at = text.find(tail, at)) != std::string::npos) {
+        size_t b = at;
+        while (b > 0) {
+            const char c = text[b - 1];
+            const bool ident = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                               (c >= '0' && c <= '9') || c == '_';
+            if (!ident) break;
+            --b;
+        }
+        const std::string stem = text.substr(b, at - b);
+        if (!stem.empty() &&
+            std::find(out.begin(), out.end(), stem) == out.end())
+            out.push_back(stem);
+        at += tail.size();
+    }
+    return out;
+}
+
+/** The last two arguments of the `StaPipVU1Program(...)` base call: the GS
+ * register count per vertex and the per-vertex input elements the engine
+ * charges when it sizes a package. Wrong numbers do not fail to compile and do
+ * not show up in a microcode diff - they resize the VU1 double buffer. */
+static bool wrapperAbi(const std::string& text, int& reglist, int& elements) {
+    const size_t call = text.find("StaPipVU1Program(");
+    if (call == std::string::npos) return false;
+    size_t i = text.find('(', call);
+    int depth = 0;
+    std::vector<size_t> commas;  // at depth 1, i.e. this call's own arguments
+    for (; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '(') ++depth;
+        else if (c == ')') {
+            if (--depth == 0) break;
+        } else if (c == ',' && depth == 1) {
+            commas.push_back(i);
+        }
+    }
+    if (depth != 0 || commas.size() < 2) return false;
+    const size_t closeAt = i;
+    auto intAt = [&](size_t from, size_t to) {
+        while (from < to && (text[from] == ' ' || text[from] == '\n' ||
+                             text[from] == ',' || text[from] == '\r'))
+            ++from;
+        return std::atoi(text.substr(from, to - from).c_str());
+    };
+    reglist = intAt(commas[commas.size() - 2], commas.back());
+    elements = intAt(commas.back(), closeAt);
+    return true;
+}
+
 // Usage:
 //   tyrax-editor --vu-check [engineDir]
 //
@@ -2279,7 +2343,6 @@ static int vuCheckFromCli(int argc, char** argv) {
 
     // 2. Every described program must be bit-identical to its handwritten twin.
     int mismatches = 0;
-    std::vector<std::pair<std::string, const vuir::Program*>> set;
     std::vector<vugen::Built> built;
     built.reserve(vugen::allDescs().size());
     std::printf("-- generated vs handwritten, in the simulator --\n");
@@ -2313,6 +2376,53 @@ static int vuCheckFromCli(int argc, char** argv) {
             if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
         }
     }
+    std::printf("\n");
+
+    // The built-in C/D and TC/TCE clip pairs now share one resident image per
+    // ABI-compatible pair. The ordinary checks above exercise variant zero;
+    // compare variant one directly with the old specialised peer as well.
+    std::printf("-- shared clip images, peer paths --\n");
+    auto checkSharedClip = [&](const char* sharedStem, const char* peerStem,
+                               const char* label) {
+        const std::vector<vugen::Desc> descs = vugen::allDescs();
+        const vugen::Desc* peer = nullptr;
+        for (const vugen::Desc& d : descs)
+            if (d.fileStem == peerStem) peer = &d;
+        if (peer == nullptr) {
+            std::printf("  %-16s FAILED: missing peer description\n", label);
+            ++mismatches;
+            return;
+        }
+        const fs::path root = fs::path(engine) / "src" / "renderer" / "3d" /
+                              "pipeline" / "static" / "core" / "programs" /
+                              "clip";
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program shared, specialised;
+        std::string err;
+        if (!vuasm::parseFile((root / (std::string(sharedStem) + ".vclpp")).string(),
+                              opt, shared, err) ||
+            !vuasm::parseFile((root / (std::string(peerStem) + ".vclpp")).string(),
+                              opt, specialised, err)) {
+            std::printf("  %-16s FAILED: %s\n", label, err.c_str());
+            ++mismatches;
+            return;
+        }
+        vugen::Desc staged = *peer;
+        staged.runtimeClipVariant = 1;
+        const vugen::Equivalence eq = vugen::equivalence(
+            shared, specialised, staged, 60, 0x5A4ECA11u);
+        std::printf("  %-16s %-9s %d trials, up to %d vertices\n", label,
+                    eq.identical ? "IDENTICAL" : "DIFFERENT", eq.trials,
+                    eq.vertices);
+        if (!eq.identical) {
+            ++mismatches;
+            if (!eq.error.empty()) std::printf("      %s\n", eq.error.c_str());
+            if (!eq.detail.empty()) std::printf("      %s\n", eq.detail.c_str());
+        }
+    };
+    checkSharedClip("stapip_clip_c_vu1", "stapip_clip_d_vu1", "Clip C/D");
+    checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_tce_vu1", "Clip TC/TCE");
     std::printf("\n");
 
     // 3. The emitted SOURCE must behave like the IR it came from.
@@ -2352,24 +2462,173 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
-    // 4. The micro-memory budget for the generated set.
-    for (const vugen::Built& b : built)
-        if (!b.program.code.empty()) set.push_back({b.program.name, &b.program});
-    const vugen::Budget bud = vugen::budget(set);
+    // 3b. The EE wrapper must link the RESIDENT image, on the engine's ABI.
+    //
+    // Everything above compares microcode, and microcode is not what decides
+    // how many images the ELF carries - the `extern u32 ..._CodeStart` in the
+    // wrapper is. A wrapper that names its own image where a peer's covers it
+    // links a second copy of the same body: the sharing is undone, the resident
+    // set grows by 300-odd slots, every check here still passes, and the only
+    // symptom is the overflow assert on somebody else's machine. So: compare
+    // the emitted wrapper against the one the engine actually builds, both
+    // ways - the symbols, and the two ABI numbers that resize the VU1 buffer
+    // without changing a single instruction.
+    int wrapperFails = 0;
+    const std::vector<vugen::Desc> descs = vugen::allDescs();
+    std::printf("-- EE wrappers: the image they link, and the buffer ABI --\n");
+    for (size_t i = 0; i < built.size(); ++i) {
+        const vugen::Desc& d = descs[i];
+        const vugen::Built& b = built[i];
+        if (b.eeSource.empty()) continue;
+        const std::string want = vugen::residentImage(d);
+        // The two halves of the declaration have to agree - the symbol the
+        // wrapper links and the description that owns it. Half-filled is how a
+        // new alias gets a wrapper pointing at the right image and a budget
+        // charging it twice, or the reverse.
+        if (d.residentImageAsmName.empty() != d.codeOwner.empty()) {
+            std::printf("  %-16s HALF-DECLARED ALIAS: residentImageAsmName=%s, "
+                        "codeOwner=%s - set both or neither\n",
+                        d.vclName.c_str(),
+                        d.residentImageAsmName.empty()
+                            ? "(empty)"
+                            : d.residentImageAsmName.c_str(),
+                        d.codeOwner.empty() ? "(empty)" : d.codeOwner.c_str());
+            ++wrapperFails;
+            continue;
+        }
+        const std::vector<std::string> emitted = wrapperImages(b.eeSource);
+        int eReg = 0, eElem = 0;
+        const bool eAbi = wrapperAbi(b.eeSource, eReg, eElem);
+        bool bad = false;
+        if (emitted.size() != 1 || emitted[0] != want) {
+            std::printf("  %-16s WRONG IMAGE: links %s, must link %s\n",
+                        d.vclName.c_str(),
+                        emitted.empty() ? "nothing" : emitted[0].c_str(),
+                        want.c_str());
+            bad = true;
+        }
+        if (!eAbi) {
+            std::printf("  %-16s the emitted wrapper has no StaPipVU1Program "
+                        "base call\n", d.vclName.c_str());
+            bad = true;
+        }
+        // And the same two questions of the file in vendor/tyra, which is what
+        // the Docker build compiles. A description that grew a stream while the
+        // handwritten wrapper kept unpacking the old set is the drift this
+        // catches; today it also pins the D and TCE aliases in place.
+        const std::string onDisk =
+            (fs::path(engine) / "src" / "renderer" / "3d" / "pipeline" /
+             "static" / "core" / "programs" / d.dir / (d.fileStem + "_program.cpp"))
+                .string();
+        std::ifstream in(onDisk, std::ios::binary);
+        std::string engineText;
+        if (in) {
+            std::ostringstream buf;
+            buf << in.rdbuf();
+            engineText = buf.str();
+        }
+        int hReg = 0, hElem = 0;
+        if (engineText.empty()) {
+            std::printf("  %-16s cannot read %s\n", d.vclName.c_str(),
+                        onDisk.c_str());
+            bad = true;
+        } else {
+            const std::vector<std::string> hand = wrapperImages(engineText);
+            if (hand.size() != 1 || hand[0] != want) {
+                std::printf("  %-16s THE ENGINE'S WRAPPER LINKS %s, not %s\n",
+                            d.vclName.c_str(),
+                            hand.empty() ? "nothing" : hand[0].c_str(),
+                            want.c_str());
+                bad = true;
+            }
+            if (!wrapperAbi(engineText, hReg, hElem)) {
+                std::printf("  %-16s %s has no StaPipVU1Program base call\n",
+                            d.vclName.c_str(), onDisk.c_str());
+                bad = true;
+            } else if (eAbi && (hReg != eReg || hElem != eElem)) {
+                std::printf("  %-16s ABI DIFFERS: emitted (%d, %d), engine "
+                            "(%d, %d) reglist/elements per vertex\n",
+                            d.vclName.c_str(), eReg, eElem, hReg, hElem);
+                bad = true;
+            }
+        }
+        if (bad) {
+            ++wrapperFails;
+            continue;
+        }
+        std::printf("  %-16s %-9s %s   %d GS regs, %d elements/vertex\n",
+                    d.vclName.c_str(),
+                    vugen::ownsResidentImage(d) ? "OWN" : "ALIAS", want.c_str(),
+                    eReg, eElem);
+    }
+    std::printf("  (ALIAS = no image of its own, and no .vclpp of its own in the "
+                "ELF: the peer's\n   body carries this program's path and "
+                "VU1_OPTIONS_ADDR.y picks it per mesh.)\n\n");
+
+    // 4. The micro-memory budget - per PHYSICAL image and per clipping MODE.
+    //
+    // Summing all fifteen descriptions answers a question nobody asks. VU1
+    // holds one set at a time, and which set that is depends on a run-time
+    // switch: the `cull` family plus either the `clip` twins (VU1 clipping) or
+    // the `as_is` twins (EE clipper), never both. And within the clip family
+    // two of the five are ALIASES that occupy no micro memory of their own, so
+    // counting them is counting a body twice. The old total - every description
+    // added up, D and TCE included - was 1.5x the largest set that can actually
+    // be resident, which is not a conservative estimate but a wrong one: it
+    // reported OVERFLOWS-or-maybe-not for a set with 300 slots to spare.
     std::printf("-- VU1 micro memory (%d slots, %d usable below the draw-finish "
-                "helper) --\n", vugen::kMicroMemSlots, bud.ceiling);
-    for (const vugen::BudgetEntry& e : bud.entries)
-        std::printf("  %-16s %4d instructions -> %4d..%4d slots\n", e.name.c_str(),
-                    e.emitted, e.slotsMin, e.slotsMax);
-    std::printf("  %-16s %4s %17d..%4d slots  %s\n", "TOTAL", "",
-                bud.totalMin, bud.totalMax,
-                bud.certainlyFits()      ? "fits"
-                : bud.certainlyOverflows() ? "OVERFLOWS"
-                                           : "depends on how VCL pairs them");
+                "helper) --\n", vugen::kMicroMemSlots, vugen::kVu1MicroCeiling);
+    // Every described program, aliases marked and charged to nobody.
+    std::map<std::string, const vuir::Program*> byStem;
+    for (size_t i = 0; i < built.size(); ++i)
+        if (!built[i].program.code.empty())
+            byStem[descs[i].fileStem] = &built[i].program;
+    for (size_t i = 0; i < built.size(); ++i) {
+        const vugen::Desc& d = descs[i];
+        const vugen::Built& b = built[i];
+        if (b.program.code.empty()) continue;
+        const std::vector<std::pair<std::string, const vuir::Program*>> one = {
+            {d.vclName, &b.program}};
+        const vugen::BudgetEntry e = vugen::budget(one).entries.front();
+        if (vugen::ownsResidentImage(d))
+            std::printf("  %-16s %4d instructions -> %4d..%4d slots\n",
+                        e.name.c_str(), e.emitted, e.slotsMin, e.slotsMax);
+        else
+            std::printf("  %-16s %4d instructions -> %11s   in %s.vclpp\n",
+                        e.name.c_str(), e.emitted, "no image",
+                        d.codeOwner.c_str());
+    }
+    // Then the two answers that mean something. Both are the ALL-CLASS worst
+    // case; a project that draws fewer material classes uploads a subset
+    // (StaPipQBufferRenderer::setResidentClasses) and the panel prices that.
+    struct ModeRow {
+        const char* label;
+        vugen::ClipMode mode;
+    };
+    static const ModeRow kModes[] = {
+        {"VU1 clipping", vugen::ClipMode::Vu1},
+        {"EE clipper", vugen::ClipMode::Ee},
+    };
+    std::printf("\n");
+    for (const ModeRow& m : kModes) {
+        std::vector<std::pair<std::string, const vuir::Program*>> resident;
+        for (const vugen::Desc& d : vugen::residentSet(m.mode)) {
+            auto it = byStem.find(d.fileStem);
+            if (it == byStem.end()) continue;
+            resident.push_back({d.vclName, it->second});
+        }
+        const vugen::Budget rb = vugen::budget(resident);
+        std::printf("  %-13s %2d images  %4d..%4d of %d slots  %s\n", m.label,
+                    (int)rb.entries.size(), rb.totalMin, rb.totalMax, rb.ceiling,
+                    rb.certainlyFits()        ? "fits"
+                    : rb.certainlyOverflows() ? "OVERFLOWS"
+                                              : "depends on how VCL pairs them");
+    }
     std::printf(
         "  (a range, not a number: VCL packs an upper and a lower op into one\n"
         "   64-bit slot when it can, so the exact size is only known after it "
-        "runs)\n\n");
+        "runs. A\n   project's own look adds an image per class it overrides, on "
+        "top of one of\n   these two sets - see Tools > VU Programs.)\n\n");
 
     // 4b. Register pressure. The IR has unlimited virtual VF registers and VCL
     //     allocates the real 31, so running out is invisible to everything
@@ -2402,10 +2661,11 @@ static int vuCheckFromCli(int argc, char** argv) {
     const int scriptFails = vuCheckScripts(engine) + vuCheckProjectKernels();
 
     const bool ok = parseFailed == 0 && mismatches == 0 && roundTripFails == 0 &&
-                    stageFails == 0 && vu0Fails == 0 &&
+                    wrapperFails == 0 && stageFails == 0 && vu0Fails == 0 &&
                     scriptFails == 0;
     std::printf("%s\n", ok ? "PASS - every described program matches its "
-                             "handwritten twin bit for bit"
+                             "handwritten twin bit for bit, and every wrapper "
+                             "links the image it should"
                            : "FAIL");
     return ok ? 0 : 1;
 }

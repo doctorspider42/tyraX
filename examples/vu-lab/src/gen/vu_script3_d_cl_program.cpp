@@ -17,7 +17,7 @@ TyraXScript3DCLVU1Program::TyraXScript3DCLVU1Program()
     : StaPipVU1Program(StaPipClipDirLights, &TyraXScript3DCL_CodeStart,
                        &TyraXScript3DCL_CodeEnd,
                        ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4,
-                       2, 2) {}
+                       2, 3) {}
 
 TyraXScript3DCLVU1Program::~TyraXScript3DCLVU1Program() {}
 

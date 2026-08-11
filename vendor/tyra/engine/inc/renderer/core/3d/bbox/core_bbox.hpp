@@ -99,19 +99,33 @@ class CoreBBox {
    * given by its min/max corners, against object-space planes from
    * computeObjectSpacePlanes(). Uses the p-vertex/n-vertex trick: per plane
    * only the two extreme corners are tested, which matches testing all 8
-   * corners because the distance function is linear.
+   * corners because the distance function is linear. When `crossingMask` is
+   * non-null, bit i is set if the box straddles plane i; requesting the mask
+   * evaluates the n-vertex for all six planes instead of stopping after the
+   * first crossing.
    */
   static CoreBBoxFrustum frustumCheckAABB(const Plane* objectSpacePlanes,
-                                          const Vec4& min, const Vec4& max);
+                                          const Vec4& min, const Vec4& max,
+                                          u8* crossingMask = nullptr);
 
   /**
    * Modified by TyraX. AABB classification of THIS box (valid only for
    * boxes built from min/max corners - every constructor except the
    * matrix-transforming one, whose corners are not axis-aligned).
    */
-  CoreBBoxFrustum frustumCheckAABB(const Plane* objectSpacePlanes) const {
-    return frustumCheckAABB(objectSpacePlanes, vertices[0], vertices[7]);
+  CoreBBoxFrustum frustumCheckAABB(const Plane* objectSpacePlanes,
+                                   u8* crossingMask = nullptr) const {
+    return frustumCheckAABB(objectSpacePlanes, vertices[0], vertices[7],
+                            crossingMask);
   }
+
+  /**
+   * Bit i is set when any part of an AABB is outside plane i. Unlike the
+   * classification helper, a box fully outside a plane still sets that bit:
+   * the clipper must run that plane to discard the polygon.
+   */
+  static u8 activePlaneMaskAABB(const Plane* objectSpacePlanes,
+                                const Vec4& min, const Vec4& max);
 
  private:
   static std::array<Vec4, 8> frustumCheckVertices;

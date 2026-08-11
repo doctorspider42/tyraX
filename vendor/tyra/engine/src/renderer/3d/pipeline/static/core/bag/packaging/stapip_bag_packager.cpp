@@ -65,7 +65,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
     result[i].endIndexOf1By3BBox =
         (i * size + result[i].size - 1) / (maxVertCount / 3);
 
-    result[i].isInFrustum = checkFrustum(result[i]);
+    result[i].clipPlaneMask = 0;
+    result[i].isInFrustum =
+        checkFrustum(result[i], capturePlaneMasks ? &result[i].clipPlaneMask
+                                                  : nullptr);
   }
 
   return result;
@@ -114,7 +117,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
         pkg.indexOf1By3BBox +
         ((i * size + result[i].size - 1) / (maxVertCount / 3));
 
-    result[i].isInFrustum = checkFrustum(result[i]);
+    result[i].clipPlaneMask = 0;
+    result[i].isInFrustum =
+        checkFrustum(result[i], capturePlaneMasks ? &result[i].clipPlaneMask
+                                                  : nullptr);
   }
 
   return result;
@@ -126,7 +132,8 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
 // (possibly freshly merged) bbox per package and dotted each corner against
 // each world plane - the dominant EE cost of partially-visible geometry
 // after the clipper itself.
-CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
+CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
+                                                u8* crossingMask) {
   if (!renderBBox || !objectSpacePlanes)
     return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
@@ -145,7 +152,20 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg) {
     renderBBox->getMergedMinMax(indexOfPart, partSize, &min, &max);
   }
 
-  return CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max);
+  // VU1 uses guard-band/near-margin clip planes which are not always the same
+  // as the view frustum (env-map passes deliberately widen that frustum).
+  // Classify against the view planes, but derive the functional mask from the
+  // exact VU equations transformed to object space by StaPipCore.
+  u8* frustumMask = clipObjectSpacePlanes == nullptr ? crossingMask : nullptr;
+  const CoreBBoxFrustum result =
+      CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max, frustumMask);
+  if (crossingMask != nullptr && clipObjectSpacePlanes != nullptr) {
+    *crossingMask = result == PARTIALLY_IN_FRUSTUM
+                        ? CoreBBox::activePlaneMaskAABB(
+                              clipObjectSpacePlanes, min, max)
+                        : 0;
+  }
+  return result;
 }
 
 void StaPipBagPackager::setMaxVertCount(const u32& count) {
