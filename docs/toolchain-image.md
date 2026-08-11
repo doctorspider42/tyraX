@@ -2865,6 +2865,58 @@ the link then fails on `undefined reference to SifInitRpc`, which reads exactly 
 compiler broke something. Wipe `/tyra/engine/{obj,bin}` - never the sources, which are a
 read-only bind mount - and it goes away.
 
+### main rewrote the corpus, so every number above is a measurement of a program that no longer exists
+
+`origin/main` landed **#218 - "VU1 clipping: 2040/2042 slots down to 1676, and a framework that
+keeps it that way"** while this branch was working on the assembler. It is not a change this
+branch can absorb quietly, because it moved the thing being measured:
+
+* **The two heaviest clip programs are no longer written in macros.** `stapip_clip_c` and
+  `stapip_clip_tc` are expanded assembly with literal addresses now; the other three still use
+  the macro layer, which is intact. The `.vclpp` files are **emitted by a generator**
+  (`--vu-emit`, `vugen/`, `Desc::…`) and checked by `--vu-check`, so a hand edit in them is a
+  change in the wrong place. Every hand-written comment this branch had added to those five files
+  was resolved *in main's favour* during the merge for exactly that reason - the knowledge lives
+  in this file, not in a generated artifact.
+* **The resident set is 8 physical images, not 10.** One clip image is shared per ABI-compatible
+  pair, so `Clip_D` and `Clip_TCE` are reference `.vclpp` carrying a "NOT LINKED, and not meant
+  to be" header. **`<scratch>/resident-check.sh` is therefore wrong** - it sums ten names, two of
+  which are no longer linked.
+* Plus: inactive Sutherland-Hodgman planes are skipped, the matcap basis is packed on the EE, and
+  there is opt-in VU1 telemetry.
+
+**Every number in main's PR was measured with Sony's `vcl`.** So the first question this branch
+owes is what openvcl does to the new programs. Both arms, same merge commit, engine build outputs
+wiped between them, words from `nm`:
+
+| | Sony | openvcl | delta |
+|---|---:|---:|---:|
+| resident, 8 images (ceiling 2042) | 1678 | **1652** | −26 |
+| all 25 VU programs | 4066 | **4002** | −64 |
+
+That corroborates main's 1676 to within two words on a set whose exact membership we had to infer,
+and openvcl stays under Sony on both totals. **The old gate - `1996 / 3910 / 9242` and the
+70-program md5 `e78d466912af036dfea8d0a9f3b8385c` - is retired.** It described a corpus that no
+longer exists. The regression suite is unaffected: it tests the compiler against hand-written
+sources, not the engine.
+
+**Five programs are now LARGER under openvcl, and that is new.** Before the rewrite openvcl was
+smaller almost everywhere; now `mcpip_cull_vu1` is **+12**, `stapip_cull_tce_vu1` and
+`stapip_billboard_t_vu1` +4 each, `stapip_billboard_c_vu1` and `mcpip_as_is_vu1` +2. None of them
+is resident-critical and the totals still favour openvcl, but a program that got 12% bigger under
+one assembler and not the other is a lead, not a rounding error, and nothing here has read it yet.
+
+**The GIF-tag shape came back, and it no longer miscompiles.** This branch had moved the GIF-tag
+loads *inside* the batch loop in three programs, because a register loaded above `begin:` has to
+stay live across the whole body and openvcl reused those four registers for per-vertex values -
+so every batch after the first stored garbage tags and its geometry never reached the GS. Main's
+rewritten `clip_c` loads them at the top again. Verified rather than assumed: the merged engine
+built with the current openvcl **boots in PCSX2, renders the scene with clean geometry, and logs
+zero asserts**. Whatever closed that hole - the fourteen scheduler and allocator fixes since, or
+the rewrite's own lower pressure - the shape is no longer fatal. It is worth stating plainly that
+this was checked on one scene, and that the mechanism which made it fatal is register pressure,
+which is a property of each program rather than of the compiler.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
