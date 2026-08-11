@@ -2917,6 +2917,64 @@ the rewrite's own lower pressure - the shape is no longer fatal. It is worth sta
 this was checked on one scene, and that the mechanism which made it fatal is register pressure,
 which is a property of each program rather than of the compiler.
 
+### Reading the five programs that got bigger
+
+The merge above left a lead: five programs are larger under openvcl on the rewritten corpus,
+where before the rewrite it was smaller almost everywhere. They were read rather than filed.
+
+First, the difference is the **assembler and nothing else**. Each program's `.vcl` - the
+intermediate the engine build hands to the assembler - was pulled out of the build and assembled
+by both, standalone, words from `nm` on the object:
+
+| program | openvcl | Sony | Δ words | `nop`/`nop` rows, openvcl | Sony | Δ rows |
+|---|---:|---:|---:|---:|---:|---:|
+| `mcpip_cull_vu1` | 112 | 100 | **+12** | 9 | 3 | +6 |
+| `stapip_cull_tce_vu1` | 154 | 150 | +4 | 10 | 6 | +4 |
+| `stapip_billboard_t_vu1` | 110 | 106 | +4 | 9 | 3 | +6 |
+| `stapip_billboard_c_vu1` | 96 | 94 | +2 | 5 | 4 | +1 |
+| `mcpip_as_is_vu1` | 50 | 48 | +2 | 3 | 3 | 0 |
+
+**Most of it is bug 9's fix, doing exactly what it was written to do.** The Minecraft cull program
+is three copies of
+
+```
+clipw.xyz  vertex1, vertex1
+fcand      VI01,    0x3FFFF
+```
+
+with the `fcset` that clears the CLIP register **outside the loop**, at the top. Sony issues that
+`fcand` **one row after** the `clipw`; openvcl pads to four. `0x3FFFF` covers the three newest
+6-bit entries, so if the newest judgement has not landed the read returns the previous three -
+which, with no per-triangle clear, means it misses this vertex and includes one from the previous
+triangle. That is precisely the defect written up as §9: `padForClipFlagWindow` used to exempt
+full-window masks on the reasoning that "is anything outside" is position-independent, and that
+reasoning is wrong for a mask covering a *window* rather than the whole register. Removing the
+exemption is what costs these words.
+
+So this is not a regression to chase. Whether Sony is right here is decidable only by what the
+CLIP flag's visibility is in *instructions*, and this effort's calibration says more than one -
+the same calibration that made §4 and §9 findings rather than opinions. Between a compiler that
+pays four words and one that may read the wrong window, the four words are the answer.
+
+**What would recover them honestly** is already named in §4 and still not done: model *which
+generation* each mask bit selects, instead of padding against the nearest push. SCE pairs a reader
+with a `clip` several rows back rather than the closest one; openvcl has no notion of that, so it
+must assume the newest. That is a real optimisation with a correctness argument, and it is
+different in kind from switching the exemption back on.
+
+**The rest is pairing density, not padding.** `mcpip_as_is_vu1` contains no `fcand` at all and is
+still +2, and `mcpip_cull_vu1`'s twelve words are six padding rows plus six rows that exist
+because instructions did not pair as tightly. That half is the ordinary density gap this file has
+chased before (`--pair-best-of-many`, the ready-list work) and is worth another look on programs
+that are now *expanded assembly* rather than macro output - a shape the pairing heuristics have
+never been tuned against.
+
+**A correction, and the rule it repeats.** The first count of this said Sony emitted **zero**
+padding rows against openvcl's eight. It emits three: `vcl` writes `NOP` in upper case and the
+pattern was lower case. The numbers above are case-insensitive on both sides. This is the third
+time in this effort that a grep finding nothing turned out to be evidence about the grep, and the
+second time it nearly became a published number.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
