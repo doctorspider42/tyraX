@@ -578,6 +578,11 @@ the raycast-gated landing residual was actually accepted.
 Surface-following builds additionally report maximum filtered swing clearance,
 minimum support-normal Y and the number of frames with ankle alignment weight;
 use a stair route for clearance and a sculpted-terrain route for the normal.
+Contact-policy diagnostics count fast contact transitions, moving-gait replants
+within six frames (the intentional idle-to-walk handoff is excluded) and
+frames where the stair sweep requested clearance without recording a raised
+support. A clean route should report zero for all three; these counters catch
+the visible glue/pop cycle even when its eased ankle correction stays small.
 `training-frames.csv` is the raw per-foot `FOOTTRAIN` sequence.
 `training-samples.csv` uses the exact 16 normalized runtime features and labels
 each unlocked frame from the next verified contact (at most 18 frames ahead),

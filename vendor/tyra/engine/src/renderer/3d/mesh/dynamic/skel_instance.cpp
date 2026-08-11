@@ -636,6 +636,16 @@ void SkelInstance::applyPoseAdjust() {
     float hintWeight = leg.bendHintWeight;
     if (hintWeight < 0.0F) hintWeight = 0.0F;
     if (hintWeight > 1.0F) hintWeight = 1.0F;
+    // A nearly straight two-bone chain has no numerically reliable bend
+    // plane: tiny authored/crossfade changes can flip the cross product and
+    // make the knee pop sideways. In that singular region promote the caller's
+    // pole hint toward authority; away from full extension the ordinary
+    // animated bend keeps the requested blend unchanged.
+    float straightBias = dist / (upperLen + lowerLen);
+    straightBias = (straightBias - 0.90F) / 0.08F;
+    if (straightBias < 0.0F) straightBias = 0.0F;
+    if (straightBias > 1.0F) straightBias = 1.0F;
+    hintWeight += (1.0F - hintWeight) * straightBias * 0.92F;
     if (hintWeight > 0.0F) {
       const F3 hint = {leg.bendHint.x, leg.bendHint.y, leg.bendHint.z};
       const F3 hintDelta = sub(hint, hip);

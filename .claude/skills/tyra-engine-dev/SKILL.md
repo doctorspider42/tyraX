@@ -127,8 +127,11 @@ coexists with project kernels and the raytraced-mirror kernel; it is synchronous
 for the same shared-register-file reason as `Vec4` and skinning. Collision
 raycasts validate every predicted point before it reaches `SkelPoseAdjust`.
 `SkelPoseAdjust` also supports a bounded pelvis-subtree translation/pitch/roll
-and a per-leg model-space bend hint. Apply whole-body motion before analytic
-legs: the final solve is what keeps raycast-locked ankles stationary.
+and a per-leg model-space bend hint. As the requested reach approaches full
+leg extension, `SkelInstance` promotes that hint toward authority: the raw
+upper/lower cross product is singular there and otherwise lets tiny pose changes
+flip the knee to the other side. Apply whole-body motion before analytic legs:
+the final solve is what keeps raycast-locked ankles stationary.
 
 Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
 clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,

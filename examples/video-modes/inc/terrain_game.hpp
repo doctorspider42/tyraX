@@ -245,12 +245,15 @@ class TerrainGame : public Tyra::Game {
       Tyra::Vec4 lockedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
       Tyra::Vec4 plannedWorld;
       Tyra::Vec4 plannedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+      Tyra::Vec4 filteredKnee;
       bool ready = false;
+      bool kneeReady = false;
       bool locked = false;
       bool restLocked = false;
       bool releasing = false;
       bool planReady = false;
       float contactTime = 0.0F;
+      float plantCandidateTime = 0.0F;
       float releaseTime = 0.0F;
       float releaseStartWeight = 0.0F;
       float weight = 0.0F;

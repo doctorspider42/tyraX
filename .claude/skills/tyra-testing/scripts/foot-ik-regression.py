@@ -106,6 +106,7 @@ TRAIN_HEADER = [
     "sweep_clearance",
     "plan_score",
     "plan_applied",
+    "sweep_rise",
 ]
 SAMPLE_HEADER = [
     *[f"f{i}" for i in range(16)],
@@ -361,12 +362,48 @@ def summarize(
             previous_correction = correction
             previous_locked = locked
 
+    # Contact-policy diagnostics come from FOOTTRAIN rather than the weighted
+    # output. They catch two visually loud regressions which a root/ankle jerk
+    # metric can miss: planting a fast airborne swing, and asking the stair
+    # footprint sweep for clearance when every sample is on the same flat plane.
+    fast_contact_transition_frames = 0
+    unsupported_sweep_clearance_frames = 0
+    rapid_replant_frames = 0
+    previous_locked_by_leg: dict[tuple[int, int], bool] = {}
+    last_contact_by_leg: dict[tuple[int, int], int] = {}
+    last_contact_moving_by_leg: dict[tuple[int, int], bool] = {}
+    for row in training:
+        if len(row) < 33:
+            continue
+        frame, obj, side = int(row[0]), int(row[1]), int(row[2])
+        key = (obj, side)
+        locked = row[20] > 0.5
+        was_locked = previous_locked_by_leg.get(key, False)
+        if locked and not was_locked:
+            object_speed = math.hypot(row[3], row[4])
+            foot_speed = math.hypot(row[5], row[7])
+            if foot_speed > max(0.55, object_speed * 0.70):
+                fast_contact_transition_frames += 1
+            previous_contact = last_contact_by_leg.get(key)
+            if (previous_contact is not None
+                    and last_contact_moving_by_leg.get(key, False)
+                    and frame - previous_contact <= 6):
+                rapid_replant_frames += 1
+            last_contact_by_leg[key] = frame
+            last_contact_moving_by_leg[key] = object_speed > 0.08
+        previous_locked_by_leg[key] = locked
+        if len(row) >= 34 and row[30] > 0.001 and row[33] <= 0.025:
+            unsupported_sweep_clearance_frames += 1
+
     return {
         "player_samples": len(players),
         "foot_samples": len(feet),
         "training_frames": len(training),
         "training_samples": len(samples),
         "contact_transitions": contact_transitions,
+        "fast_contact_transition_frames": fast_contact_transition_frames,
+        "rapid_replant_frames": rapid_replant_frames,
+        "unsupported_sweep_clearance_frames": unsupported_sweep_clearance_frames,
         "max_physical_root_step": physical_step,
         "max_visual_root_step": visual_step,
         "root_step_reduction_ratio": (

@@ -831,12 +831,15 @@ class TerrainGame : public Tyra::Game {
       Tyra::Vec4 lockedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
       Tyra::Vec4 plannedWorld;
       Tyra::Vec4 plannedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+      Tyra::Vec4 filteredKnee;
       bool ready = false;
+      bool kneeReady = false;
       bool locked = false;
       bool restLocked = false;
       bool releasing = false;
       bool planReady = false;
       float contactTime = 0.0F;
+      float plantCandidateTime = 0.0F;
       float releaseTime = 0.0F;
       float releaseStartWeight = 0.0F;
       float weight = 0.0F;
@@ -2120,12 +2123,15 @@ class TerrainGame : public Tyra::Game {
       Tyra::Vec4 lockedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
       Tyra::Vec4 plannedWorld;
       Tyra::Vec4 plannedNormal = Tyra::Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+      Tyra::Vec4 filteredKnee;
       bool ready = false;
+      bool kneeReady = false;
       bool locked = false;
       bool restLocked = false;
       bool releasing = false;
       bool planReady = false;
       float contactTime = 0.0F;
+      float plantCandidateTime = 0.0F;
       float releaseTime = 0.0F;
       float releaseStartWeight = 0.0F;
       float weight = 0.0F;
@@ -7234,7 +7240,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
   float traceClearance[2] = {0.0F, 0.0F};
   float traceNormalY[2] = {1.0F, 1.0F};
   float traceAlign[2] = {0.0F, 0.0F};
-  float traceSweep[2] = {0.0F, 0.0F};
+    float traceSweep[2] = {0.0F, 0.0F};
   float tracePlan[2] = {0.0F, 0.0F};
   int tracePlanApplied[2] = {0, 0};
   float supportWeight = 0.0F;
@@ -7364,6 +7370,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // four footprint corners at two causal time slices. Every correction still
     // comes from collision geometry; this only closes the tunnelling gap.
     float sweepClearance = 0.0F;
+    float sweepRise = 0.0F;
     if (!foot.locked && hit && travelSpeed > 0.12F &&
         o.data.ikToeClearance > 0.0F) {
       float footprintScale =
@@ -7393,10 +7400,18 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
               probeX, probeZ, pathY + o.data.ikProbeUp,
               pathY - o.data.ikProbeDown, objectIndex, &sweptGround);
           if (!sweptHit) continue;
+          // The swept sole exists to catch a RAISED tread crossed between
+          // frames. Applying its shoe margin to the same support plane turns
+          // ordinary flat-ground contact into permanent clearance and makes
+          // the foot hover/stick instead of entering stance.
+          const bool raisedSupport = sweptGround > ground + 0.025F;
+          if (!raisedSupport) continue;
+          const float supportRise = sweptGround - ground;
+          if (supportRise > sweepRise) sweepRise = supportRise;
           const float needed =
               sweptGround + o.data.ikToeClearance * 0.72F - pathY;
           if (needed > sweepClearance) sweepClearance = needed;
-          if (sweptGround > ground + 0.025F &&
+          if (raisedSupport &&
               (!obstacleHit || sweptGround > obstacleGround)) {
             obstacleHit = true;
             obstacleGround = sweptGround;
@@ -7580,6 +7595,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       foot.releasing = false;
       foot.weight = 0.0F;
       foot.contactTime = 0.0F;
+      foot.plantCandidateTime = 0.0F;
       foot.releaseTime = 0.0F;
     }
     float clearanceBlend = g_frameDt *
@@ -7595,18 +7611,26 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float verticalRelease = foot.restLocked
                                         ? o.data.ikPlant + o.data.ikPelvis
                                         : o.data.ikRelease;
-      if (!hit || soleWorld.y - ground > verticalRelease ||
+      const float contactSpeedLimit =
+          fmaxf(0.55F, objectSpeed * 0.70F);
+      const bool toeOff = !foot.restLocked && objectSpeed > 0.08F &&
+          foot.filteredVy > 0.04F && footSpeed > contactSpeedLimit;
+      if (!hit || soleWorld.y - ground > verticalRelease || toeOff ||
           dx * dx + dz * dz > o.data.ikRelease * o.data.ikRelease ||
           (foot.restLocked && rt.objectStillTime < 0.04F)) {
         foot.locked = false;
         foot.restLocked = false;
         foot.releasing = true;
+        foot.plantCandidateTime = 0.0F;
         foot.releaseTime = 0.0F;
         foot.releaseStartWeight = foot.weight;
       }
-    } else if (candidateHit && wantedClearance <= 0.0F) {
+    } else if (!foot.releasing && candidateHit && wantedClearance <= 0.0F) {
       const float gap = soleWorld.y - candidateGround;
-      const bool normalPlant = gap <= o.data.ikPlant && vy <= 0.25F;
+      const float contactSpeedLimit =
+          fmaxf(0.55F, objectSpeed * 0.70F);
+      const bool normalPlant = gap <= o.data.ikPlant && vy <= 0.25F &&
+          footSpeed <= contactSpeedLimit;
       // A descending foot may acquire a lower neighbouring surface before it
       // enters the narrow ordinary plant band.  Using vertical direction as
       // the extra gate gives split-level walking useful reach without turning
@@ -7614,16 +7638,26 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float descendingReach =
           o.data.ikPlant + o.data.ikPelvis * 0.55F;
       const bool descendingPlant =
-          gap > o.data.ikPlant && gap <= descendingReach && vy <= -0.04F;
+          gap > o.data.ikPlant && gap <= descendingReach && vy <= -0.04F &&
+          footSpeed <= contactSpeedLimit * 0.85F;
       const bool restPlant =
           rt.objectStillTime >= 0.10F && footSpeed <= 0.18F &&
           fabsf(vy) <= 0.18F && gap >= -o.data.ikPlant &&
           gap <= o.data.ikPlant + o.data.ikPelvis;
-      if (normalPlant || descendingPlant || restPlant) {
+      const bool plantCandidate = normalPlant || descendingPlant || restPlant;
+      if (plantCandidate)
+        foot.plantCandidateTime += g_frameDt;
+      else
+        foot.plantCandidateTime = 0.0F;
+      // Require a stable candidate for more than one 60 Hz sample. A fast
+      // descending swing used to lock high above the floor, release on the
+      // next frame and repeatedly kick the knee through the analytic solve.
+      if (plantCandidate && foot.plantCandidateTime >= 0.028F) {
         foot.locked = true;
         foot.restLocked = restPlant && !normalPlant && !descendingPlant;
         foot.releasing = false;
         foot.contactTime = 0.0F;
+        foot.plantCandidateTime = 0.0F;
         foot.lockedWorld = Vec4(candidateX, candidateGround, candidateZ, 1.0F);
         foot.lockedNormal = candidateNormal;
         foot.clearance = 0.0F;
@@ -7648,7 +7682,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     } else if (foot.releasing) {
       foot.contactTime = 0.0F;
       foot.releaseTime += g_frameDt;
-      float releaseT = foot.releaseTime / 0.10F;
+      float releaseT = foot.releaseTime / 0.08F;
       if (releaseT > 1.0F) releaseT = 1.0F;
       const float releaseEase =
           releaseT * releaseT * (3.0F - 2.0F * releaseT);
@@ -7711,10 +7745,23 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
         (foot.locked || foot.releasing) ? foot.weight : 0.0F;
     adjust.legs[side].maxAlignRadians = o.data.ikMaxFootAngle * PI / 180.0F;
     if (kneeM[side]) {
-      adjust.legs[side].bendHint =
-          Vec4(kneeM[side]->data[12], kneeM[side]->data[13],
-               kneeM[side]->data[14], 1.0F);
-      adjust.legs[side].bendHintWeight = legWeight * 0.28F;
+      const Vec4 authoredKnee(kneeM[side]->data[12], kneeM[side]->data[13],
+                              kneeM[side]->data[14], 1.0F);
+      if (!foot.kneeReady) {
+        foot.filteredKnee = authoredKnee;
+        foot.kneeReady = true;
+      } else {
+        float kneeBlend = g_frameDt * 12.0F;
+        if (kneeBlend > 1.0F) kneeBlend = 1.0F;
+        foot.filteredKnee.x +=
+            (authoredKnee.x - foot.filteredKnee.x) * kneeBlend;
+        foot.filteredKnee.y +=
+            (authoredKnee.y - foot.filteredKnee.y) * kneeBlend;
+        foot.filteredKnee.z +=
+            (authoredKnee.z - foot.filteredKnee.z) * kneeBlend;
+      }
+      adjust.legs[side].bendHint = foot.filteredKnee;
+      adjust.legs[side].bendHintWeight = legWeight * 0.62F;
     }
     traceSoleY[side] = soleWorld.y;
     traceGroundY[side] = hit ? ground : -9999.0F;
@@ -7751,7 +7798,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                neuralClearance, ",", neuralRelease, ",", foot.filteredGap,
                ",", foot.filteredVy, ",", foot.lipMemory, ",",
                foot.swingTime, ",", sweepClearance, ",", foot.planScore,
-               ",", neuralApplied ? 1 : 0);
+               ",", neuralApplied ? 1 : 0, ",", sweepRise);
     foot.previousWorld = soleWorld;
     foot.previousVy = vy;
   }

@@ -137,27 +137,33 @@ resolved.
 The solver runs after normal clip evaluation and before VU0 skinning. It uses
 the previous **unadjusted clip** ankle positions for stable vertical probes, supports
 terrain, mesh-collision models and collision-box tops, and ignores the object
-being solved. A slowly moving sole plants at its contact point; it releases
-after the authored clip pulls far enough away, then the ground correction fades
-quickly so the rising foot belongs to the animation instead of being dragged
-through a release-height band. Reading the unadjusted pose is
+being solved. A sole must stay inside the contact band at stance-like horizontal
+speed for a short confirmation window before it may plant; a fast descending
+swing is never turned into a contact merely because it passed within probe
+range. A plant releases as soon as the authored foot begins a measured toe-off
+or pulls far enough away, then the ground correction fades quickly so the rising
+foot belongs to the animation instead of being dragged through a release-height
+band. Reading the unadjusted pose is
 essential: feeding the already locked result back into the contact detector
 would make the foot report that it never moved and stretch the leg behind the
  walking character. The lowest requested foot correction
  also lowers the common pelvis, then an analytic two-bone solve rotates the hip
- and knee. The authored ankle yaw is preserved while an optional pitch/roll
+ and knee. A filtered authored knee pole guides the solve, and approaches full
+ authority near straight-leg singularities where a raw cross product can flip
+ sides. The authored ankle yaw is preserved while an optional pitch/roll
  tilt follows the supporting surface normal. This is deterministic
 procedural IK — there is no model inference or runtime allocation in the loop.
 
-While walking, a foot that is measurably descending gets an additional capture
-range of *Plant distance + 55% of Max pelvis drop*. This is intended for
+While walking, a foot that is measurably descending **and horizontally slowing
+into stance** gets an additional capture range of *Plant distance + 55% of Max
+pelvis drop*. This is intended for
 split-level motion, such as walking with one foot on a curb and the other on the
 road. The extra range is unavailable to a level or rising swing foot, which
 keeps the broader snap from stealing the airborne half of the gait. A new
 contact fades in with a 0.14-second smoothstep envelope instead of applying a
 large correction on its first frame, reducing the visible touchdown kick. A
 released contact keeps its old target while its weight smoothsteps to zero over
-0.10 seconds; target height and influence therefore cannot jump on the same
+0.08 seconds; target height and influence therefore cannot jump on the same
 frame when a probe crosses a stair edge.
 
 During the unlocked swing, two short probes look ahead in the character's
@@ -174,7 +180,9 @@ the previous and current sole poses. This closes the gap where a fast toe can
 cross a thin stair riser between vertical raycasts. It is deliberately a small
 raycast footprint rather than a general convex-physics sweep: every lift still
 comes from scene collision, it allocates nothing, and it is cheap enough for
-the PS2.
+the PS2. A footprint sample contributes clearance only when it finds support
+more than 2.5 cm above the current support plane; equal-height flat ground must
+never manufacture toe clearance or prevent the next plant.
 
 When neural prediction is enabled, its residual seeds a five-point landing
 fan. Each candidate is raycast and scored for center, toe and heel support;
