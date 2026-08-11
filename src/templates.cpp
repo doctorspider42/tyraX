@@ -4909,7 +4909,18 @@ void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
   char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
-    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    // RENDERED frames per second, averaged over the engine's stated 0.5 s
+    // window (Info::getFps - it reads COP0 Count, not the video mode's
+    // scanline timer). Frame extrapolation presents a synthesised frame after
+    // endFrame() returns, so the game then shows about twice the rate it
+    // renders: SHOWN is that second number, and it appears only when the two
+    // genuinely differ. docs/profiling.md, "The three frame rate counters".
+    if (engine->info.isPresentingExtraFrames())
+      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f",
+               (double)engine->info.getFps(),
+               (double)engine->info.getPresentedFps());
+    else
+      snprintf(line, sizeof(line), "FPS %.1f", (double)engine->info.getFps());
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -32345,8 +32356,18 @@ void flush(ScriptContext& ctx) {
   unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
   unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
   unsigned short resident = 0, peak = 0;
+  // Tenths of a frame per second, in the four spare bytes at the end of the
+  // stats block: the whole-number field above cannot say 19.6, and it cannot
+  // say whether the game PRESENTS more often than it renders. Additive, so an
+  // editor that predates them reads the same block it always did and a game
+  // that predates them leaves the zeros memset put there.
+  unsigned short fpsX10 = 0, fpsShownX10 = 0;
   if (ctx.engine) {
-    fps = ctx.engine->info.getFps();
+    const float renderedFps = ctx.engine->info.getFps();
+    const float shownFps = ctx.engine->info.getPresentedFps();
+    fps = (unsigned int)(renderedFps + 0.5F);
+    fpsX10 = (unsigned short)(renderedFps * 10.0F + 0.5F);
+    fpsShownX10 = (unsigned short)(shownFps * 10.0F + 0.5F);
     Tyra::RendererCore& rc = ctx.engine->renderer.core;
     const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
     binds = vs.binds;
@@ -32383,6 +32404,8 @@ void flush(ScriptContext& ctx) {
   put32(st + 48, ramFrame);
   put32(st + 52, binds);
   put32(st + 56, hits);
+  put16(st + 60, fpsX10);
+  put16(st + 62, fpsShownX10);
   p += 64;
   put16(p, (unsigned short)flushMapCount);
   p += 2;

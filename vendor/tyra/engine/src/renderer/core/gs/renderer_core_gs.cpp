@@ -18,6 +18,7 @@
 #include <kernel.h>  // Modified by TyraX: INTC vblank handler (frame pacing)
 #include <packet2_utils.h>
 #include "debug/debug.hpp"
+#include "info/info.hpp"  // Modified by TyraX: the presented-frame counter
 #include "renderer/core/gs/renderer_core_gs.hpp"
 
 namespace Tyra {
@@ -637,6 +638,14 @@ void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
 }
 
 void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
+  // Modified by TyraX: every flip is a frame the player is shown, whether a
+  // game loop rendered it or the frame warp synthesised it - which is what
+  // makes Info::getPresentedFps() a different number from Info::getFps() on
+  // an extrapolating game (docs/profiling.md, "The three frame rate
+  // counters"). Counted here rather than in RendererCore so both the real and
+  // the synthetic present are covered by one line.
+  Info::countPresentedFrame();
+
   // --- Two buffers: the stock path, unchanged. RendererCore::endFrame has
   // already waited for vsync, so presenting here lands in the vertical blank
   // and the EE owns the other buffer the moment this returns.

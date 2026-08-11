@@ -110,7 +110,16 @@ struct FlushInfo {
  * computed - the engine, the tap, the scene - and nobody carried across. */
 struct Stats {
     bool valid = false;
+    // Frames per second the GAME measured, on its own COP0 clock, averaged
+    // over its stated 0.5 s window. `fps` is the whole number an older editor
+    // reads; the two X10 fields are tenths and are 0 from a game built before
+    // they existed. `presentedX10` counts BUFFER FLIPS - about twice `fpsX10`
+    // on a game with frame extrapolation on, since it presents a synthesised
+    // frame per rendered one (docs/profiling.md, "The three frame rate
+    // counters").
     int fps = 0;
+    int fpsX10 = 0;
+    int presentedX10 = 0;
     int flushes = 0;      // bag flushes in the last complete frame
     uint32_t qw = 0;      // quadwords sent to VU1 in that frame
     uint32_t verts = 0;   // position items sent in that frame

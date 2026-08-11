@@ -16,6 +16,51 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.19.0 (the FPS counter reads the wrong clock, and nobody said which frames
+// it counts): reported from use as "the editor's debug panel shows 19 FPS while
+// the game's own HUD shows 10". Both numbers were describing the same game at
+// the same moment. The HUD was wrong, and by an exactly reproducible factor.
+//
+// `Info::calcFps` divided a hardcoded 15625.0 into a single frame's delta of EE
+// **Timer 3** - the kernel's alarm timer, which is clocked by H-BLNK. T3 counts
+// SCANLINES, so its rate is a property of the VIDEO MODE while the constant is
+// PAL 576i's line rate. Measured on one fixture and one build, changing only
+// displayMode: PAL 576i reads 15 626 Hz and the old formula was exact (48.00
+// against a true 48.00); progressive 480p reads 31 470 Hz and it printed 29.76
+// against a true 59.94, i.e. 0.4965x. Every progressive project read HALF its
+// frame rate, on the HUD and in the Live Debugger's Stats tab, which relays the
+// same field. NTSC interlaced is 15 734 Hz - the same bug at 0.7 %.
+//
+// It reads COP0 `Count` now - the clock the frame-timing rig uses, a property
+// of the CPU and not of the signal - averaged over a STATED 0.5 s window and
+// returned as a float rather than as a `const u32&` fed from one (19.6 used to
+// display as 19). The constant was not assumed: on the PAL arm the H-BLNK and
+// COP0 clocks independently give 48.00, and on the progressive arm COP0 (59.94)
+// matches the editor's host clock over 8 s (59.94) and PCSX2's own status bar
+// (59.92).
+//
+// AND THE COUNTER NOW SAYS WHICH FRAMES IT COUNTS, because with frame
+// extrapolation on that is a second factor of two nobody was reporting. The
+// warp presents a synthesised frame after endFrame() returns, so the game shows
+// about twice the rate it renders; every counter in the repo counted rendered
+// frames. `Info::getPresentedFps` counts buffer flips, the HUD prints
+// `FPS 30.0 SHOWN 59.9` when the two differ and the plain line when they do
+// not, and the Live Debugger carries both. Measured: 15 rendered against 30
+// presented per window, PCSX2's own counter 59.89. On the reporter's
+// configuration the old number was therefore **4x low** against what the eye
+// sees - 2.014x of scanline clock times 2x of rendered-versus-presented, two
+// independent faults that happened to stack.
+//
+// MINOR: a capability appears - the presented rate is measurable for the first
+// time - while the format is untouched (still v16). The two tenths-of-a-frame
+// fields ride the four spare bytes at the end of the Live Debugger's existing
+// 64-byte stats block, so an older editor reads the block it always did and an
+// older game leaves the zeros memset already put there; neither needs a
+// snapshot version bump. No published figure moves: every headline on this
+// branch (1.96x, 1.63x, 4.58 ms) came off the COP0 rig, and the three places
+// that did quote this HUD were all PAL interlaced fixtures where its constant
+// was correct. docs/profiling.md, "The three frame rate counters".
+//
 // 1.18.0 (Project Preferences gets a shape, and the refused pair becomes
 // unreachable): two defects reported from use, and the fixes to both are
 // structural rather than cosmetic.
@@ -315,7 +360,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 18
+#define TYRAX_VERSION_MINOR 19
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

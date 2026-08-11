@@ -39,6 +39,73 @@ divide tick deltas by 294912 for milliseconds.
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
 
+## The three frame rate counters, and which one to believe
+
+Three surfaces print a frame rate. They measure **three different quantities**,
+and until 2026-08-11 one of them was wrong by a factor of two on every
+progressive project. Read this before quoting any FPS number, and before
+believing two of them that disagree.
+
+| surface | what it counts | clock | window |
+|---|---|---|---|
+| the game's HUD, `FPS` (`Info::getFps`) | **rendered** frames — game-loop iterations | COP0 `Count`, 294.912 MHz | 0.5 s average |
+| the same line's `SHOWN` (`Info::getPresentedFps`) | **presented** frames — buffer flips | same | same |
+| Live Debugger header, `N fps rendered` | rendered frames | the **editor's** wall clock | ≥ 0.15 s between snapshots |
+| Live Debugger *Stats*, `FPS rendered` / `presented` | relays the game's own two numbers | as row 1 | as row 1 |
+| `FRAMETIME work=` (the rig below) | **not a rate at all** — sub-frame WORK in ms | COP0 | 50 frames |
+
+**The defect, and why it only bit some projects.** `Info::calcFps` read EE
+**Timer 3** — the kernel's alarm timer, which is clocked by **H-BLNK** — and
+divided a hardcoded `15625.0` into a **single frame's** delta. T3 therefore
+counts SCANLINES, so its rate is a property of the video mode, while the
+constant is PAL 576i's line rate. Measured on the same fixture, same build,
+changing only `displayMode`:
+
+| mode | measured T3 rate | true rate | the old formula printed |
+|---|---|---|---|
+| PAL 576i (`interlaced` + `palFullHeight`) | **15 626 Hz** | 48.00 | **48.00** — exact |
+| 480p (`progressive`) | **31 470 Hz** | 59.94 | **29.76** — 0.4965x |
+
+So a PAL interlaced project read correctly and every progressive one read
+**half**, which is the shape of the report this came from ("the editor says 19,
+the game says 10"). NTSC interlaced is 15 734 Hz, i.e. 0.7 % low, and NTSC 480p
+is the same 2x as PAL. Three further faults were in the same six lines: it was
+an **instantaneous** frame-to-frame reading that merely refreshed every fifth
+frame, so it jittered with one frame's noise; `getFps()` returned a `const u32&`
+fed from a float, so 19.6 displayed as 19; and nothing said whether it counted
+rendered or presented frames.
+
+It reads **COP0 `Count`** now — the same clock the rig uses, a property of the
+CPU and not of the video mode — averaged over a stated 0.5 s window and returned
+as a float. That the constant is right is not an assumption either: on the PAL
+576i arm the H-BLNK clock and the COP0 clock independently give 48.00, and on
+the progressive arm the COP0 figure (59.94) matches both the editor's host-clock
+number (59.94, measured over 8 s) and PCSX2's own status bar (59.92). Three
+clocks, one number.
+
+**Rendered is not presented, and only one feature makes them differ.** Frame
+extrapolation presents a synthesised frame from `presentWarpFrame`, after
+`endFrame()` has returned — so the game shows about twice the rate it renders.
+Every other counter in this repo counts rendered frames; `getPresentedFps` is
+the only one that answers "how often did the picture change". Measured on the
+fpp fixture with the gate forced on: **15 rendered against 30 presented per
+0.5 s window**, i.e. `FPS 30.0 SHOWN 59.9`, with PCSX2's own counter reading
+59.89. The HUD prints `SHOWN` only when the two genuinely differ, so an ordinary
+game's line is unchanged.
+
+> **Worth stating plainly, because it is what the reporter was looking at:** on
+> a progressive project with extrapolation on, the old counter was **4x low**
+> against what the eye sees — 2.014x from the scanline clock and 2x from
+> counting rendered frames while the television gets presented ones. The two
+> faults are independent and stacked.
+
+**None of this is the frame-timing rig**, and the rig is still what a
+measurement is quoted from. `work` is milliseconds of sub-frame work, not a
+rate; a vsync-locked frame has a fixed period whatever the work inside it is, so
+a frame rate cannot see a 22 ms -> 17 ms improvement at all. **Quote
+milliseconds from `FRAMETIME`; use these counters to notice that something is
+wrong, never to price it.**
+
 ## Manual deep-dive (finer breakdown)
 
 When you need to see *inside* a phase — e.g. "which branch of the engine's

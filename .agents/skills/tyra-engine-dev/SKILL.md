@@ -1532,5 +1532,27 @@ matrix-transform constructor breaks that, and it must never feed the AABB
 test. Known next target (from `docs/backlog.md`): retire the EE clipper —
 flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
 on a real-PS2 pass).
+- **`Info::getFps()` is NOT a clock you may add a constant to, and it was one
+  for years.** It divided a hardcoded `15625.0` into a single frame's delta of
+  **EE Timer 3**, which the kernel clocks from **H-BLNK** - i.e. it counts
+  SCANLINES, so its rate is a property of the VIDEO MODE while the constant is
+  PAL 576i's line rate. Measured on one fixture, one build, only `displayMode`
+  moving: PAL 576i reads **15 626 Hz** and the formula was exact; progressive
+  480p reads **31 470 Hz** and it printed **29.76 against a true 59.94**. Every
+  progressive project read half its frame rate. It reads **COP0 `Count`** now
+  (294.912 MHz, the rig's clock, mode-independent) over a stated 0.5 s window,
+  returns a float, and has a twin - `getPresentedFps()`, counting buffer flips
+  via `Info::countPresentedFrame()` in `RendererCoreGS::flipBuffers` - because
+  frame extrapolation presents twice per loop and every counter in the engine
+  was reporting only rendered frames. **The general rule: anything derived from
+  T3 inherits the video mode; anything derived from COP0 does not.**
+  docs/profiling.md, "The three frame rate counters".
+- **OPEN DEFECT, do not be surprised by it: BLSS + triple buffering presents
+  BLACK frames** (progressive 480p, PCSX2, 2026-08-11). Either feature alone is
+  clean; the pair alternates scene/black at 74.5 % of the window with no HUD in
+  the black member, so a display buffer is being presented that nothing drew.
+  Isolated with a three-arm A/B and written up in docs/backlog.md, including
+  what has already been read and excluded. Not fixed.
+
 Measure with PCSX2's FPS display on the software renderer, 3+ samples, before
 and after; pixel-compare screenshots to prove output is unchanged.

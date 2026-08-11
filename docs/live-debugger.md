@@ -44,8 +44,12 @@ being edited with its hit count, breakpoint checkbox and Fire button.
 
 The **DBG** chip in the toolbar (next to LIVE) reads like a status light:
 
-- **DBG 50 fps** (green) — the game is reporting; the number is measured against
-  the editor's own clock, so it is the frame rate you are actually seeing.
+- **DBG 50 fps** (green) — the game is reporting; the number is the game's frame
+  counter timed against the editor's own clock. That counter counts **rendered**
+  frames, so on a game with frame extrapolation on the picture changes about
+  twice as often as this says — the *Stats* tab carries the game's own
+  measurement of both rates. See docs/profiling.md, "The three frame rate
+  counters", before comparing this against any other FPS readout.
 - **DBG halted @ 1234** (orange) — the game is stopped, at that frame.
 - **DBG (rebuild)** (amber) — the running ELF was built from different graphs, so
   its node numbering no longer matches the project. Nothing is highlighted until

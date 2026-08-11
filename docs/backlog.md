@@ -20,6 +20,57 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
+## OPEN DEFECT: the upscaler with triple buffering presents BLACK frames
+
+**Found 2026-08-11 while measuring the frame-rate counters, isolated, not
+fixed** — it is a different subsystem from that change and guessing at it is
+exactly how this branch has lost days before. It is severe and it is on a
+configuration a user runs, so it wants the next session rather than a queue.
+
+**The symptom is not subtle: the picture alternates between the scene and a
+fully black frame**, which reads as violent flicker. It was reported by a person
+watching the screen, and the capture agrees — eight consecutive `PrintWindow`
+grabs form **two byte-identical clusters** (distance 0 within, **74.5 % of the
+window** between), and the black member carries no debug HUD either, so that
+display buffer received *no draws at all* rather than a partial or stale frame.
+
+**It needs BOTH features. Neither alone does anything wrong** — one fixture, one
+engine build, one capture-and-measure recipe, only the `.tyra` changing:
+
+| arm | BLSS | triple buffering | result |
+|---|---|---|---|
+| original | on, 2x2 neural | on (3 buffers granted) | **black/scene alternation, 74.5 %** |
+| A | **off** | on (3 buffers granted) | clean — 8 frames within 0.01 % |
+| B | on, 2x2 neural | **off** (2 buffers) | clean — 8 frames within 0.01 % |
+| C | on, 2x2 neural | requested, **refused** (PAL 576i has no room) | clean |
+
+Fixture: `--new … fpp` at `%TEMP%\tyra-editor-test\fpsdiag`, `progressive`
+(480p, 448x448), debug profile, `blssJitter` false, `blssTemporal` on, frame
+extrapolation off (the pair is refused anyway), PCSX2 software renderer.
+`TYRA_FRAME_PROFILE` was **0** throughout. The measuring build carried the
+counter change this defect was found by, and arms A and B were clean **with that
+same engine in**, which is what rules the instrumentation out rather than
+arguing it away.
+
+**Where to start, and what is already excluded.** The obvious suspects have been
+read and do not explain it: `presentFrameBuffer` is index-agnostic;
+`emitPassState` takes the composite's target from `gs->getCurrentFrameBuffer()`
+live, per pass; the third buffer is allocated *after* the z buffer, so they do
+not overlap (`z 224x224 at 401408`, buffer 2 above it); and the 3-buffer
+rotation in `flipBuffers` visits every index. The untested seam is what happens
+**between the composite's DMA and the queue handshake**: without
+`TYRA_FRAME_PROFILE` there is no fairness fence, `applyPostFx` only drains PATH1
+when an effect is on, and the 3-buffer path hands a buffer to an interrupt
+handler that presents it — so a composite still in flight when
+`emitDrawTargetSwitch` runs is the shape to check first. Log the rotation frame
+by frame (the technique that settled the extrapolation history question) rather
+than reasoning about it.
+
+**Not yet known:** whether it reproduces on real hardware, and whether it needs
+`progressive` specifically. Arm C could not answer the second — PAL 576i
+*refuses* the third buffer for VRAM, so the pair cannot even be formed there.
+An `interlaced-field` arm can form it and is the cheap next measurement.
+
 ## Project Preferences, after the tabs
 
 The dialog is five tabs with a pinned footer now (1.18.0), which fixes the two

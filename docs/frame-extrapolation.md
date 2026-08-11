@@ -153,6 +153,16 @@ COP0 cycle counter, the game's FPS HUD (`FPS 25`), and PCSX2's own status bar
 (`FPS: 50  VPS: 50  Speed: 100%`). The world is simulated and rendered 25 times
 a second; the television gets 50 pictures a second.
 
+> **That HUD reading was taken before the counter was fixed, and it stands —
+> this fixture is PAL, where its constant was correct** (docs/profiling.md, "The
+> three frame rate counters"; a progressive fixture would have printed half).
+> Two things about it have changed since. The HUD now prints **both** rates when
+> they differ — `FPS 25.2 SHOWN 50.4` here — so the doubling this page is about
+> is legible on screen instead of having to be inferred from a PCSX2 status bar
+> that counts something else. And it is an average over a stated window rather
+> than one frame's delta, so it no longer jitters. The table above is unchanged
+> by either.
+
 **The identity case is the test that proves the machinery.** With `from == to`
 the warp must reproduce its source exactly, and it does: the screen is a clean,
 correct scene, and any error in the packet, the TEX0 binding, the region clamp,

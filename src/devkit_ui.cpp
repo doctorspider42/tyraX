@@ -1083,7 +1083,12 @@ void App::drawDebuggerWindow() {
     }
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
         ImGui::SameLine(0.0f, scaled(12.0f));
-        ImGui::TextDisabled("frame %u \xc2\xb7 %.0f fps \xc2\xb7 scene %d",
+        // "rendered" is not decoration: this is the game's frame counter over
+        // the EDITOR's wall clock, and the frame counter counts loop
+        // iterations - so on a game with frame extrapolation on, the picture
+        // changes about twice as often as this says. The Stats tab has the
+        // game's own measurement of both.
+        ImGui::TextDisabled("frame %u \xc2\xb7 %.1f fps rendered \xc2\xb7 scene %d",
                             dbgSnap_.frame, dbgFps_, dbgSnap_.scene);
     }
 
@@ -1680,7 +1685,28 @@ void App::drawDebuggerWindow() {
                 "reports none: rebuild it.");
         } else {
             ImGui::SeparatorText("Frame");
-            ImGui::Text("%d FPS", st.fps);
+            // The game's OWN measurement, on its COP0 clock, over its stated
+            // 0.5 s window - a different instrument from the header's
+            // frames-over-the-editor's-wall-clock, and the two should agree.
+            // A game built before the tenths existed reports only whole
+            // frames per second, so fall back rather than printing 0.0.
+            if (st.fpsX10 > 0)
+                ImGui::Text("%.1f FPS rendered", st.fpsX10 / 10.0f);
+            else
+                ImGui::Text("%d FPS rendered", st.fps);
+            if (st.presentedX10 > st.fpsX10 * 115 / 100) {
+                ImGui::SameLine();
+                ImGui::Text("\xc2\xb7 %.1f presented", st.presentedX10 / 10.0f);
+            }
+            prefHelp(
+                "Measured by the game itself: rendered = game loops per\n"
+                "second, presented = buffer flips. Frame extrapolation\n"
+                "synthesises a frame per rendered one, so it shows about\n"
+                "twice as often as it renders and both numbers are quoted.\n"
+                "The number beside the frame counter above is the same\n"
+                "rendered rate timed against this editor's wall clock -\n"
+                "they should agree. Neither is the frame-timing rig, which\n"
+                "measures sub-frame WORK in milliseconds (docs/profiling.md).");
             ImGui::SameLine();
             ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
                                 "%u vertices",
