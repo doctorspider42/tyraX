@@ -119,6 +119,14 @@ class CoreBBox {
                             crossingMask);
   }
 
+  /**
+   * Bit i is set when any part of an AABB is outside plane i. Unlike the
+   * classification helper, a box fully outside a plane still sets that bit:
+   * the clipper must run that plane to discard the polygon.
+   */
+  static u8 activePlaneMaskAABB(const Plane* objectSpacePlanes,
+                                const Vec4& min, const Vec4& max);
+
  private:
   static std::array<Vec4, 8> frustumCheckVertices;
 };

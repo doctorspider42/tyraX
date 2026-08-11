@@ -399,4 +399,19 @@ CoreBBoxFrustum CoreBBox::frustumCheckAABB(const Plane* objectSpacePlanes,
   return result;
 }
 
+u8 CoreBBox::activePlaneMaskAABB(const Plane* objectSpacePlanes,
+                                 const Vec4& min, const Vec4& max) {
+  u8 result = 0;
+  for (u8 i = 0; i < 6; ++i) {
+    const Vec4& n = objectSpacePlanes[i].normal;
+    const float nX = n.x >= 0.0F ? min.x : max.x;
+    const float nY = n.y >= 0.0F ? min.y : max.y;
+    const float nZ = n.z >= 0.0F ? min.z : max.z;
+    const float minDistance = objectSpacePlanes[i].distance + n.x * nX +
+                              n.y * nY + n.z * nZ;
+    if (minDistance <= 0.0F) result |= static_cast<u8>(1U << i);
+  }
+  return result;
+}
+
 }  // namespace Tyra

@@ -63,10 +63,18 @@ void StaPipCore::onFrameEnd() { cacher.onFrameEnd(); }
 
 void StaPipCore::reinitVU1Programs() { qbufferRenderer.reinitVU1(); }
 
+void StaPipCore::setVU1Clipping(const bool& enabled) {
+  qbufferRenderer.setVU1Clipping(enabled);
+  // Functional plane masks are required by the clip microprograms. Telemetry
+  // also requests them while the EE clipper is selected, for its histogram.
+  packager.setCapturePlaneMasks(enabled || telemetryEnabled);
+}
+
 void StaPipCore::setTelemetryEnabled(const bool& enabled) {
   telemetryEnabled = enabled;
   telemetry = StaPipTelemetry{};
-  packager.setCapturePlaneMasks(enabled);
+  packager.setCapturePlaneMasks(
+      enabled || qbufferRenderer.isVU1ClippingEnabled());
   qbufferRenderer.setTelemetry(enabled ? &telemetry : nullptr);
 }
 
@@ -74,6 +82,33 @@ StaPipTelemetry StaPipCore::takeTelemetry() {
   const StaPipTelemetry result = telemetry;
   telemetry = StaPipTelemetry{};
   return result;
+}
+
+void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
+  const float nearZ = rendererCore->getSettings().getNear() -
+                      (-PlanesClipAlgorithm::clipMargin);
+  const float farZ = -rendererCore->getSettings().getFar();
+  const float b = VU1_CLIP_XY_BAND;
+  const float planes[6][5] = {
+      {0.0F, 0.0F, -1.0F, 0.0F, nearZ},  // near
+      {0.0F, 0.0F, 1.0F, 0.0F, -farZ},   // far
+      {-1.0F, 0.0F, 0.0F, b, 0.0F},      // right
+      {1.0F, 0.0F, 0.0F, b, 0.0F},       // left
+      {0.0F, -1.0F, 0.0F, b, 0.0F},      // bottom (projection flips Y)
+      {0.0F, 1.0F, 0.0F, b, 0.0F},       // top
+  };
+
+  const float* m = mvp.data;
+  for (u8 i = 0; i < 6; ++i) {
+    const float* p = planes[i];
+    Plane& out = clipObjectSpacePlanes[i];
+    out.normal.x = p[0] * m[0] + p[1] * m[1] + p[2] * m[2] + p[3] * m[3];
+    out.normal.y = p[0] * m[4] + p[1] * m[5] + p[2] * m[6] + p[3] * m[7];
+    out.normal.z = p[0] * m[8] + p[1] * m[9] + p[2] * m[10] + p[3] * m[11];
+    out.normal.w = 1.0F;
+    out.distance = p[4] + p[0] * m[12] + p[1] * m[13] + p[2] * m[14] +
+                   p[3] * m[15];
+  }
 }
 
 void StaPipCore::recordPackage(const StaPipBagPackage& package,
@@ -240,6 +275,13 @@ void StaPipCore::render(StaPipBag* bag) {
     mvp = rendererCore->renderer3D.getProjection() * *bag->info->model;
   } else {
     mvp = rendererCore->renderer3D.getViewProj() * *bag->info->model;
+  }
+
+  if (qbufferRenderer.isVU1ClippingEnabled()) {
+    computeClipObjectSpacePlanes(mvp);
+    packager.setClipObjectSpacePlanes(clipObjectSpacePlanes);
+  } else {
+    packager.setClipObjectSpacePlanes(nullptr);
   }
 
   // Modified by TyraX: stack storage - sendObjectData consumes the

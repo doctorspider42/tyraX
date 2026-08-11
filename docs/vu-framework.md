@@ -204,8 +204,18 @@ This specialization is implemented by `vuNeededClasses`: it takes the union of
 scene objects and spawn-pool prefabs, codegen calls `setResidentClasses`, and
 Color is always retained as the fallback. A project with no matcap material does
 not upload the two `tce` programs. The all-class fallback remains deliberately
-available; after the 2026-08-11 CLIP-history and packed-matcap cleanups its
-exact Sony-VCL size is 1992 of the 2042 usable slots.
+available. The 2026-08-11 CLIP-history and packed-matcap cleanups reduced the
+set to 1992 slots; exact active-plane dispatch then spent 38 slots to skip
+irrelevant Sutherland-Hodgman passes. Its current exact Sony-VCL size is
+**2030 of the 2042 usable slots**.
+
+Clip packets use a private extension of the standard buffer header. The vertex
+count remains in bits 0..9; bits 10..15 carry the six-plane mask in VU dispatch
+order. The mask is computed from the actual MVP/clip-margin half-spaces in
+object space, not from the view-frustum culling planes, and ORed when source
+packages merge into a qbuffer. Non-clip programs retain the unmodified count
+word. A zero mask is defensively encoded as all six planes, so manually built
+clip qbuffers fail safe instead of silently bypassing clipping.
 
 ## Commands
 

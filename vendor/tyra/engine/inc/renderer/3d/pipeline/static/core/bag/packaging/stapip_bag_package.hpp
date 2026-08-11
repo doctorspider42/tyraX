@@ -33,8 +33,10 @@ class StaPipBagPackage {
 
   /**
    * Modified by TyraX: conservative mask of frustum planes crossed by this
-   * package's AABB. Populated only while StaPip telemetry is enabled for now;
-   * false-positive bits cost work, but a missing bit must never reach VU1.
+   * package's AABB. With VU1 clipping it is in the clip table's exact order
+   * (near, far, right, left, bottom, top); with EE clipping it follows
+   * Renderer3DFrustumPlanes for telemetry only. False-positive bits cost work,
+   * but a missing bit must never reach VU1.
    */
   u8 clipPlaneMask;
 

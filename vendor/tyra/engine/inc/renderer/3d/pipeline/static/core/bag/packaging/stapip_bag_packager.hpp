@@ -48,6 +48,9 @@ class StaPipBagPackager {
    * bag skips frustum culling (packages are then never classified).
    */
   void setObjectSpacePlanes(const Plane* planes) { objectSpacePlanes = planes; }
+  void setClipObjectSpacePlanes(const Plane* planes) {
+    clipObjectSpacePlanes = planes;
+  }
 
   /**
    * @brief Create render packages from provided render data
@@ -70,6 +73,7 @@ class StaPipBagPackager {
   Renderer3DFrustumPlanes* frustumPlanes;
   StaPipBagPackagesBBox* renderBBox;
   const Plane* objectSpacePlanes = nullptr;
+  const Plane* clipObjectSpacePlanes = nullptr;
   bool capturePlaneMasks = false;
   // Two pools because a bag-level package array is still in use while one of
   // its partial packages is split into subpackages (StaPipCore::renderPkgs).

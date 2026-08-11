@@ -188,7 +188,7 @@ expands each center into a camera-facing quad — 6 GS vertices — from the
 camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
 once per mesh, and culls per QUAD with one `clipw` judgement per corner.
 The two programs are NOT resident: the VU1-clipping program set fills micro
-memory to 1992/2042, so they live in their own packet swapped in on demand
+memory to 2030/2042, so they live in their own packet swapped in on demand
 (`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
 restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
 transition count and full wait/upload ticks, plus cull/clip/outside routes,
@@ -476,7 +476,7 @@ banner both, so a previously built ELF still reports.
   whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
   state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
   (there is not enough micro memory left to carry it in-band the way the ALPHA
-  qword is - the clip program set sits at 1992/2042). What nobody had noticed is
+  qword is - the clip program set sits at 2030/2042). What nobody had noticed is
   that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
   clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
   generated game sampled clamped**. Harmless for a model whose STs are 0..1;
@@ -609,8 +609,8 @@ banner both, so a previously built ELF still reports.
   `max.xyz … vf00[x]` floor too (9 per program) tripped the real
   `VU1 pipeline programs overflow into the draw-finish program` assert
   (path1.cpp:145) on the boot logo. The full clip family has 50 slots of
-  micro-memory headroom after the 2026-08-11 CLIP-history and packed-matcap
-  cleanups;
+  micro-memory headroom after the 2026-08-11 active-plane dispatch work is 12
+  slots;
   measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
   after ANY edit there. **And the clip family now has a C++ description**
@@ -642,6 +642,15 @@ banner both, so a previously built ELF still reports.
   boxes.
 - Upstream's default `PlanesClipAlgorithm::clipMargin` pushes the near plane
   ~10 units from the camera; generated games override it.
+- **Do not derive the VU1 active-plane mask from `FrustumPlanes`.** The clipper
+  uses the actual MVP plus `clipMargin`, while environment-map passes widen the
+  view frustum on purpose. `StaPipBagPackager` therefore transforms the six VU
+  clip half-spaces into object space once per mesh and tests partial package
+  AABBs against those exact planes. The six bits travel through qbuffer ORs in
+  bits 10..15 of the clip-only 16-bit count header; bits 0..9 remain the vertex
+  count. A zero mask must fail safe to all six planes for manually built clip
+  qbuffers. The VU program reverses the bits so each `ibltz` consumes the next
+  plane from the VI sign bit without keeping another live integer register.
 - Judge rendering correctness on **PCSX2's software renderer** — it is the
   honest one. See tyra-testing for how.
 - **Object ids must be unique, not random.** `Sprite`/`Mesh`/`MeshFrame`/

@@ -55,9 +55,7 @@ class StaPipCore {
    * program family) instead of the EE clipper. Call right after
    * setRenderer() or between frames.
    */
-  void setVU1Clipping(const bool& enabled) {
-    qbufferRenderer.setVU1Clipping(enabled);
-  }
+  void setVU1Clipping(const bool& enabled);
 
   /** TyraX addition: which material classes keep a resident VU1 program
    * (docs/vu-framework.md). Safe at run time: a level that stops needing, say,
@@ -128,6 +126,8 @@ class StaPipCore {
   // computed once per render(), shared by the main-bbox check and every
   // package classification in the packager.
   Plane objectSpacePlanes[6];
+  Plane clipObjectSpacePlanes[6];
+  void computeClipObjectSpacePlanes(const M4x4& mvp);
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
   bool telemetryEnabled = false;

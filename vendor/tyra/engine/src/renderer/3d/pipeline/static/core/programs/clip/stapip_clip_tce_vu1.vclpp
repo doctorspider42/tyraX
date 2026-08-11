@@ -88,6 +88,8 @@ begin:
 
     iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
     ilw.w   vertexCount,        0(buffer)
+    iaddiu  countMask,          vi00,           VU1_STAPIP_COUNT_MASK
+    iand    vertexCount,        vertexCount,    countMask
     iadd    stqData,            vertexData,     vertexCount
     iadd    colorData,          stqData,        vertexCount
     ilw.x   sceFlag,            VU1_OPTIONS_ADDR(vi00)
@@ -177,10 +179,16 @@ processing:
         ibeq    triOr,      vi00,       fanStart
 
         ; --- Sutherland-Hodgman against the 6 planes ---
+        ; buffer base is dead until the kick's xtop: reuse its VI for the mask
+        xtop    buffer
+        ilw.w   buffer,     0(buffer)
         iaddiu  planePtr,   vi00,       VU1_CLIP_PLANES_ADDR
         iaddiu  dstBase,    vi00,       VU1_CLIP_POLY_B_ADDR
 
 planeLoop:
+        ibltz   buffer,     planeActive
+        b       planeAdvance
+planeActive:
         lq      planeV,     0(planePtr)
         lq      planeE,     1(planePtr)
 
@@ -260,7 +268,9 @@ edgeAdvance:
         iadd    vertMask,   srcBase,    vi00
         iadd    srcBase,    dstBase,    vi00
         iadd    dstBase,    vertMask,   vi00
+planeAdvance:
         iaddiu  planePtr,   planePtr,   2
+        iadd    buffer,     buffer,     buffer
         iaddiu  vertMask,   vi00,       VU1_CLIP_PLANES_ADDR+12
         ibne    planePtr,   vertMask,   planeLoop
 
@@ -302,17 +312,13 @@ triNext:
         ibgtz   vertexCounter,  triLoop
 
     ; rebuild the kick address and patch the prim giftag NLOOP (the
-    ; texture tag block is 9 qwords (incl. ALPHA); the prim tag sits at +8)
-    xtop    buffer
-    iaddiu  vertexData, buffer,     VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w   vertexCount, 0(buffer)
-    iadd    vertexData, vertexData, vertexCount
-    iadd    vertexData, vertexData, vertexCount
+    ; advanced ST/color pointers already end at the texture tag block
     ilw.x   sceFlag,    VU1_OPTIONS_ADDR(vi00)
     iblez   sceFlag,    kickMulti
+    iadd    vertexData, stqData,    vi00
     b       kickPatch
 kickMulti:
-    iadd    vertexData, vertexData, vertexCount
+    iadd    vertexData, colorData,  vi00
 kickPatch:
     iaddiu  vertMask,   outCount,   0x4000
     iaddiu  vertMask,   vertMask,   0x4000

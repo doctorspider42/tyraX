@@ -58,6 +58,7 @@ constexpr float kClipGuard = 4096.0f;
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
 constexpr int kEnvBasisAddr = kLightsMatrixAddr;
 constexpr int kVertDataAddr = 2;  // relative to the double-buffer base
+constexpr int kBufferCountMask = 0x03FF;
 // TyraX addition: the two quadwords a project's own program reads. They sit in
 // the DIRECTIONAL LIGHTS area, which is free in exactly the programs that can
 // carry a custom stage list - the colour ones - and is why the engine only
@@ -1961,7 +1962,8 @@ struct BufferHeader {
     Val scale{}, primTag{};
 };
 
-BufferHeader emitBufferHeader(Vu& b, Program& prog) {
+BufferHeader emitBufferHeader(Vu& b, Program& prog,
+                              bool packedClipCount = false) {
     BufferHeader h;
     h.buffer = b.inamed("buffer");
     b.xtop(h.buffer);
@@ -1974,6 +1976,12 @@ BufferHeader emitBufferHeader(Vu& b, Program& prog) {
     prog.code.back().comment = "VU1_STAPIP_VERT_DATA_ADDR";
     h.vertexCount = b.inamed("vertexCount");
     ilwInto(prog, h.vertexCount, h.buffer, 0, 3);
+    if (packedClipCount) {
+        const IVal countMask = b.inamed("countMask");
+        b.iaddiuInto(countMask, b.izero(), kBufferCountMask);
+        b.iandInto(h.vertexCount, h.vertexCount, countMask);
+        prog.code.back().comment = "strip the packed six-plane mask";
+    }
     return h;
 }
 
@@ -2430,7 +2438,7 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // --- per-buffer ---------------------------------------------------------
     const Lbl begin = b.label("begin");
     b.bind(begin);
-    const BufferHeader hdr = emitBufferHeader(b, prog);
+    const BufferHeader hdr = emitBufferHeader(b, prog, true);
     const IVal buffer = hdr.buffer;
     const IVal vertexData = hdr.vertexData;
     const IVal vertexCount = hdr.vertexCount;
@@ -2699,12 +2707,23 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     const IVal dstPtr = b.inamed("dstPtr");
     const IVal prevPtr = b.inamed("prevPtr");
     const IVal vertMask = b.inamed("vertMask");
+    // The double-buffer base is dead until the final kick rebuilds it with
+    // xtop. Reuse that VI for the plane mask: textured clippers already occupy
+    // all fifteen allocatable integer registers and cannot carry one more.
+    b.xtop(buffer);
+    ilwInto(prog, buffer, buffer, 0, 3);
+    prog.code.back().comment = "next active-plane bit is the VI sign bit";
     b.iaddiuInto(planePtr, b.izero(), kClipPlanesAddr);
     prog.code.back().comment = "VU1_CLIP_PLANES_ADDR - near plane first";
     b.iaddiuInto(dstBase, b.izero(), kClipPolyBAddr);
 
     const Lbl planeLoop = b.label("planeLoop");
+    const Lbl planeActive = b.label("planeActive");
+    const Lbl planeAdvance = b.label("planeAdvance");
     b.bind(planeLoop);
+    b.branchIfLtz(buffer, planeActive);
+    b.branch(planeAdvance);
+    b.bind(planeActive);
     const Val planeV = b.named("planeV");
     const Val planeE = b.named("planeE");
     loadInto(prog, planeV, planePtr, 0, MALL, "inside = dot4(v, ABCD) + E >= 0");
@@ -2804,7 +2823,9 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.iaddInto(vertMask, srcBase, b.izero());
     b.iaddInto(srcBase, dstBase, b.izero());
     b.iaddInto(dstBase, vertMask, b.izero());
+    b.bind(planeAdvance);
     b.iaddiuInto(planePtr, planePtr, 2);
+    b.iaddInto(buffer, buffer, buffer);
     b.iaddiuInto(vertMask, b.izero(), kClipPlanesAddr + 12);
     b.branchIfNotEq(planePtr, vertMask, planeLoop);
 
@@ -2900,24 +2921,20 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
 
     // --- the kick -----------------------------------------------------------
     //
-    // destAddress walked away with the emitter, so the address to kick is
-    // rebuilt from scratch. xtop is stable within one activation, which is what
-    // makes asking a second time legal.
-    b.xtop(buffer);
-    b.iaddiuInto(vertexData, buffer, kVertDataAddr);
-    ilwInto(prog, vertexCount, buffer, 0, 3);
-    b.iaddInto(vertexData, vertexData, vertexCount);
-    if (d.texture) b.iaddInto(vertexData, vertexData, vertexCount);
+    // The input pointers advanced once per source vertex and now already point
+    // at the GIF tag block. Reuse them instead of a second xtop + packed-count
+    // decode + address rebuild.
     if (!colorStream) {
-        b.iaddInto(vertexData, vertexData, vertexCount);
+        b.iaddInto(vertexData, normalData, b.izero());
     } else {
         const Lbl kickMulti = b.label("kickMulti");
         const Lbl kickPatch = b.label("kickPatch");
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
         b.branchIfLez(sceFlag, kickMulti);
+        if (d.texture) b.iaddInto(vertexData, stqData, b.izero());
         b.branch(kickPatch);
         b.bind(kickMulti);
-        b.iaddInto(vertexData, vertexData, vertexCount);
+        b.iaddInto(vertexData, colorData, b.izero());
         b.bind(kickPatch);
     }
     // The prim giftag's word 0 is NLOOP | EOP, and 0x8000 does not fit in one
@@ -3702,7 +3719,19 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     putf(top, 0, 2048.0f);
     putf(top, 1, 2048.0f);
     putf(top, 2, 8388607.5f);
-    puti(top, 3, (uint32_t)verts);
+    uint32_t packedCount = (uint32_t)verts;
+    if (d.clip) {
+        // Exercise both the one-plane hot case and the full conservative
+        // fallback. Bits 10..15 match the real qbuffer wire format.
+        const uint32_t planeMask = (s & 3u) == 0u
+                                       ? 0x3Fu
+                                       : 1u << (xorshift(s) % 6u);
+        uint32_t reversed = 0;
+        for (uint32_t i = 0; i < 6; ++i)
+            reversed |= ((planeMask >> i) & 1u) << (5u - i);
+        packedCount |= reversed << 10;
+    }
+    puti(top, 3, packedCount);
     puti(top + 1, 0, (uint32_t)verts | (1u << 15));
     puti(top + 1, 1, (1u << 14) | (0x13u << 15) |
                          ((uint32_t)regsPerVertex(d) << 28));
@@ -3727,18 +3756,19 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
         // planes below safe to apply at all.
         static const float kPlaneV[6][4] = {
             {0.0f, 0.0f, 1.0f, 0.0f},   // near
+            {0.0f, 0.0f, -1.0f, 0.0f},  // far
             {-1.0f, 0.0f, 0.0f, 1.0f},  // right:  w - x >= 0
             {1.0f, 0.0f, 0.0f, 1.0f},   // left:   w + x >= 0
-            {0.0f, -1.0f, 0.0f, 1.0f},  // top:    w - y >= 0
-            {0.0f, 1.0f, 0.0f, 1.0f},   // bottom: w + y >= 0
-            {0.0f, 0.0f, -1.0f, 0.0f},  // far
+            {0.0f, -1.0f, 0.0f, 1.0f},  // bottom after projection Y flip
+            {0.0f, 1.0f, 0.0f, 1.0f},   // top after projection Y flip
         };
         // The near plane sits where the staged geometry actually reaches:
         // this MVP puts clip z in about -7..3, so z >= -5 cuts roughly half
         // the vertices and the clipper has real work in most trials. Far is
         // parked out of reach - one plane doing nothing is worth keeping, it
         // proves the loop handles a pass that changes nothing.
-        static const float kPlaneE[6] = {5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1000.0f};
+        static const float kPlaneE[6] = {5.0f, 1000.0f, 0.0f,
+                                         0.0f, 0.0f, 0.0f};
         for (int i = 0; i < 6; ++i) {
             for (int f = 0; f < 4; ++f)
                 putf(kClipPlanesAddr + i * 2, f, kPlaneV[i][f]);

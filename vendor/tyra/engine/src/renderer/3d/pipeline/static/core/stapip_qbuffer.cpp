@@ -45,6 +45,7 @@ QBufferPool* poolFor(const void* owner) {
 
 StaPipQBuffer::StaPipQBuffer() {
   size = 0;
+  clipPlaneMask = 0;
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;
@@ -73,6 +74,7 @@ void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {
   colors = const_cast<Vec4*>(pkg.colors);
   normals = const_cast<Vec4*>(pkg.normals);
   size = pkg.size;
+  clipPlaneMask = pkg.clipPlaneMask;
   bag = pkg.bag;
 }
 
@@ -88,6 +90,8 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
 
   deallocateDynamicData();
   size = pkg1.size + pkg2.size + pkg3.size;
+  clipPlaneMask =
+      pkg1.clipPlaneMask | pkg2.clipPlaneMask | pkg3.clipPlaneMask;
   allocateDynamicData(size, pkg1.bag);
 
   const StaPipBagPackage* pkgs[3] = {&pkg1, &pkg2, &pkg3};
@@ -113,6 +117,7 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
 
   deallocateDynamicData();
   size = pkg1.size + pkg2.size;
+  clipPlaneMask = pkg1.clipPlaneMask | pkg2.clipPlaneMask;
   allocateDynamicData(size, pkg1.bag);
 
   const StaPipBagPackage* pkgs[2] = {&pkg1, &pkg2};
@@ -135,6 +140,7 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
 
   deallocateDynamicData();
   size = pkg.size;
+  clipPlaneMask = pkg.clipPlaneMask;
   allocateDynamicData(size, pkg.bag);
 
   const u32 bytes = pkg.size * sizeof(Vec4);
@@ -150,6 +156,7 @@ void StaPipQBuffer::reallocateManually(const u16& t_size) {
   deallocateDynamicData();
   allocateDynamicData(t_size, bag);
   size = t_size;
+  clipPlaneMask = 0;
 }
 
 void StaPipQBuffer::deallocateDynamicData() {

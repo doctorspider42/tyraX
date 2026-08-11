@@ -231,6 +231,20 @@ Retired / simplified:
   AABB early-out and performs no COP0 reads, so a release that does not opt in
   pays no diagnostic cost. This is the measurement base for active-plane
   clipping and program-set sorting rather than another temporary global.
+- **M9 — exact active-plane clipping. DONE 2026-08-11.** The EE derives the
+  six VU clip half-spaces from the actual MVP and `clipMargin`, transforms
+  them into object space once per mesh, and classifies each partial package's
+  AABB against them. The resulting one-to-six-bit mask survives qbuffer merges
+  and is packed into the unused high six bits of the clip program's 16-bit
+  vertex-count word. Each VU clip program skips inactive Sutherland-Hodgman
+  passes before touching polygon scratch memory. This is deliberately not
+  derived from the view-frustum planes: the near margin and the widened
+  environment-map frustum make those planes a different contract. Reusing the
+  input pointers for the final GIF kick paid back most of the dispatch cost.
+  The exact Sony-VCL resident set is **2030 of 2042 slots** (12 spare), and
+  `--vu-check` covers both sparse single-plane and full-mask execution across
+  all five handwritten/generated clip twins. Docker rebuilt the engine and
+  linked `examples/showcase` successfully.
 
 ## Verification protocol (every milestone)
 

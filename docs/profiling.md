@@ -59,10 +59,12 @@ const float swapWaitMs = sample.programSetWaitTicks / 294912.0F;
 ```
 
 `takeTelemetry()` returns the accumulated interval and clears every counter.
-`activePlanePopcount[0..6]` is a histogram for clip-routed packages. Telemetry
-is disabled by default; while disabled, package classification keeps its
-single-partial-plane early-out, no COP0 reads run, and no timing/counter cost is
-added to the release path.
+`activePlanePopcount[0..6]` is a histogram for clip-routed packages. With VU1
+clipping enabled this is the exact mask that the clip program consumes, derived
+from the MVP/clip-margin planes rather than the looser view-frustum culling
+planes. Mask generation stays active when telemetry is off because it is part
+of rendering; only the histogram increments and COP0 timing reads disappear.
+Telemetry is disabled by default.
 
 ## Manual deep-dive (finer breakdown)
 
