@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -205,6 +206,82 @@ struct MaterialBatch {
     std::string name;
     std::vector<SrcVertex> verts;
 };
+
+bool nodeOwns(const ufbx_node* ancestor, const ufbx_node* node) {
+    while (node) {
+        if (node == ancestor) return true;
+        node = node->parent;
+    }
+    return false;
+}
+
+int nodeDepth(const ufbx_node* node) {
+    int depth = 0;
+    while (node) {
+        ++depth;
+        node = node->parent;
+    }
+    return depth;
+}
+
+int motionRootForStack(const ufbx_scene* scene,
+                       const std::vector<Instance>& instances,
+                       const ufbx_anim_stack* stack) {
+    if (!stack) return -1;
+    std::vector<const ufbx_node*> targets;
+    for (const Instance& inst : instances) {
+        const ufbx_skin_deformer* skin = inst.mesh->skin_deformers.count
+                                             ? inst.mesh->skin_deformers.data[0]
+                                             : nullptr;
+        if (skin) {
+            for (size_t i = 0; i < skin->clusters.count; ++i) {
+                const ufbx_node* bone = skin->clusters.data[i]->bone_node;
+                if (std::find(targets.begin(), targets.end(), bone) ==
+                    targets.end())
+                    targets.push_back(bone);
+            }
+        } else if (std::find(targets.begin(), targets.end(), inst.node) ==
+                   targets.end()) {
+            targets.push_back(inst.node);
+        }
+    }
+
+    int bestCommon = -1;
+    int commonDepth = INT_MAX;
+    const double duration = stack->time_end - stack->time_begin;
+    for (size_t i = 0; i < scene->nodes.count; ++i) {
+        const ufbx_node* node = scene->nodes.data[i];
+        float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;
+        for (int s = 0; s < 5; ++s) {
+            const double t = stack->time_begin + duration * (double)s / 4.0;
+            const ufbx_transform tr =
+                ufbx_evaluate_transform(stack->anim, node, t);
+            const ufbx_vec3 model =
+                node->parent
+                    ? ufbx_transform_direction(&node->parent->node_to_world,
+                                               tr.translation)
+                    : tr.translation;
+            const float x = (float)model.x;
+            const float z = (float)model.z;
+            if (s == 0) minX = maxX = x, minZ = maxZ = z;
+            else {
+                minX = std::min(minX, x), maxX = std::max(maxX, x);
+                minZ = std::min(minZ, z), maxZ = std::max(maxZ, z);
+            }
+        }
+        if (maxX - minX < 1e-6f && maxZ - minZ < 1e-6f) continue;
+        const int depth = nodeDepth(node);
+        bool common = !targets.empty();
+        for (const ufbx_node* target : targets)
+            if (!nodeOwns(node, target)) {
+                common = false;
+                break;
+            }
+        if (common && depth < commonDepth)
+            bestCommon = (int)i, commonDepth = depth;
+    }
+    return bestCommon;
+}
 
 void collectBatches(ufbx_scene* scene, std::vector<Instance>& instances,
                     std::vector<MaterialBatch>& batches,
@@ -456,6 +533,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     struct StackFrames {
         const ufbx_anim_stack* stack;
         int frames;
+        int motionRoot;
     };
     std::vector<StackFrames> stacks;
     std::vector<std::string> takenNames;
@@ -471,12 +549,12 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         clip.firstFrame = total;
         clip.frameCount = frames;
         out.clips.push_back(clip);
-        stacks.push_back({st, frames});
+        stacks.push_back({st, frames, motionRootForStack(scene, instances, st)});
         total += frames;
     }
     if (stacks.empty()) {
         out.clips.push_back({"default", 0, 1});
-        stacks.push_back({nullptr, 1});
+        stacks.push_back({nullptr, 1, -1});
         total = 1;
     }
     out.frameCount = total;
@@ -502,6 +580,13 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                                             &err);
                 if (owned) ev = owned;
             }
+            Baked::RootMotionSample root;
+            if (sf.motionRoot >= 0 && sf.motionRoot < (int)ev->nodes.count) {
+                const ufbx_node* node = ev->nodes.data[sf.motionRoot];
+                root.x = (float)node->node_to_world.m03;
+                root.z = (float)node->node_to_world.m23;
+            }
+            out.rootMotion.push_back(root);
             for (size_t bi = 0; bi < batches.size(); ++bi) {
                 Part& part = out.parts[bi];
                 const size_t base =

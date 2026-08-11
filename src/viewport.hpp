@@ -446,7 +446,13 @@ public:
         float angleDeg = 40.0f;   // turntable yaw
         float pitchDeg = 15.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier
+        // Camera-target offset in preview-radius units, expressed in the
+        // current camera's screen plane. This keeps panning equally useful on
+        // a centimetre prop and a ten-metre character.
+        float panX = 0.0f;
+        float panY = 0.0f;
         bool wireframe = false;   // overlay the triangles
+        bool inPlace = false;     // remove horizontal root motion
         PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
@@ -899,7 +905,7 @@ private:
     // baked frame list, wrapped inside [first, first + count). The shared
     // worker behind updateAnimPose and the Animation Editor preview.
     void uploadAnimPose(AnimModelDraw& draw, int firstFrame, int frameCount,
-                        float frame);
+                        float frame, bool inPlace = false);
     double animClock_ = 0.0;  // preview time in seconds (advanced per render)
     // Non-destructive clip edits pushed in by the app (it owns the Project).
     // The preview applies the same trim/retime the build bakes, so a placed

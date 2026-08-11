@@ -111,6 +111,60 @@ reported defects and leaves three smaller things visible:
   upscaled scene) - which is a much bigger idea than a greyed checkbox and is
   not obviously right, since the object may be placed before the setting.
 
+## The terrain streaking is FIXED, and a different upscaler defect was found looking for it
+
+**Closed 2026-08-11 on the merge of origin/main.** A user reported the ground
+texture smearing into long directional streaks toward the horizon at grazing
+angles, on two projects. A background investigation was asked to decide whether
+that was the upscaler's reconstruction cost or an independent terrain bug. It is
+the latter, and **origin/main's #211 fixes it**: `GS_REG_CLAMP` is one global
+register, nothing in 3D ever wrote it, and ps2sdk's `draw_setup_environment()`
+leaves it at CLAMP/CLAMP - so the ground, whose STs are world position x the
+tile factor, was drawn once around the origin with its edge texels stretched
+over the rest of the map. `Path3::clearScreen` asserts REPEAT every frame now.
+
+Re-checked here after the merge, PCSX2 software renderer, on the reported
+reproducer (`examples/showcase`, `materials/ground.png` at tile 0.125 over a
+192-unit map, i.e. STs running -12..+12) at the spawn vantage and at a
+pad-driven grazing horizon angle: the ground **tiles with its own detail all the
+way to the horizon**, no streaks, no washed ground between them. Same on
+`examples/upscaler-lab` (gravel at 0.3) with the upscaler **on**. So the
+symptom is gone with the upscaler both off and on, and the question is closed.
+
+**What the same A/B turned up instead, and it is NOT this and NOT the merge.**
+Forcing the upscaler on for `examples/showcase` - a project never authored for
+it - makes the **terrain disappear entirely**: objects, sky, fog and HUD all
+render, the ground is simply absent and the sky dome shows through where it
+should be. Bisected as far as it is cheap to:
+
+- It is **not the merge**. The pre-merge commit (`897476ee`), built into its own
+  worktree and run on the identical fixture, loses the terrain in exactly the
+  same way. Pre-existing on this branch.
+- It is **not the network**. `blssNetwork` false (plain mode) loses it too - so
+  it is the half plain mode keeps: the reduced raster, the redirect and the
+  shrunken z buffer, not the proxies/MLP/composite.
+- It is **not VRAM**: `VRAMSTAT` reads `evict=0 reup=0 res=6 freeMB=1.31`
+  throughout, and the ground texture is resident.
+- It is **not the clipper**. Flipping showcase's `"clipping"` from the legacy
+  `precise` (EE) to `vu1` - the one obvious difference from upscaler-lab, and
+  the theory that the EE clipper emits screen coordinates for the full raster -
+  changes nothing: the terrain is still absent.
+- `examples/upscaler-lab` with the upscaler on draws ITS terrain correctly, so
+  this is not "BLSS loses terrain" in general - something about this project.
+  With VRAM, the network and the clipper ruled out, the untested differences
+  left are the **post-fx stack** (showcase runs bloom 0.5 + grain 0.25 and
+  allocates four env-map targets; upscaler-lab runs none of it - and post fx is
+  exactly where "a full-screen pass looks right on a bare fixture and wrong in a
+  real scene" has bitten this engine before) and the **terrain AO map / lightmap
+  second pass**, which showcase bakes and which draws the ground as two
+  alpha-blended passes over one vertex array. Both are a one-key edit, a Docker
+  build and a boot; do those before theorising further.
+
+Not urgent by shipping standards - no example ships this combination and the
+Preferences verdict does not recommend it for showcase (the oracle scores
++0.00 dB there) - but a feature that silently deletes the ground when someone
+ticks a checkbox is a bad thing to leave undocumented.
+
 ## Queued (rough order)
 
 - **OWED: a hardware pass on the frame-pacing / neural-upscaler MERGE.** The
@@ -143,6 +197,19 @@ reported defects and leaves three smaller things visible:
     rendering, and the three-buffer rotation it was reasoned about was LOGGED
     frame by frame in the process - the history is always the previous RENDERED
     frame, intact.
+  - **and now origin/main's two engine changes as well**, merged in 2026-08-11
+    and re-verified only as far as this machine goes (clean zero-warning
+    Release build, `--vu-check`, idempotent `--refresh-gen` on three examples,
+    the trainer anchor still `e069f286ea0c524999bfd9dac769608c`, the shipped
+    default net still `879146bd...`, six Docker builds and four PCSX2 boots):
+    the per-bag `GS_REG_CLAMP` bracket in `StaPipCore::render` (#211 - it drains
+    PATH1 twice per clamped bag, which only the render targets ask for, and it
+    now does so **inside** the BLSS raster redirect, a nesting no console has
+    seen), and `AudioSong::work` polling `audsrv_available()` instead of
+    blocking in the IRX (#213 - whose own commit says the 10 ms figure is a
+    PCSX2 measurement and a console pass is owed; the blocking wait is in the
+    IOP module and the EE client, so the mechanism is not emulator-specific,
+    but the number is).
 - **The upscaler x frame extrapolation interlock is a REFUSAL, not a fix, and
   what would lift it is named** (docs/frame-extrapolation.md, "Why not with the
   upscaler"). Both features reproject the previous frame, extrapolation halves
@@ -1529,6 +1596,22 @@ reported defects and leaves three smaller things visible:
   until someone hears the problem. The other half of that question is whether a
   click is masked in practice (a gunshot stealing footsteps hides a lot; two
   quiet voice lines do not).
+- **An interval-0 emitter still costs one audsrv call per frame.** The
+  expensive half of this is fixed - the music stream no longer blocks audsrv
+  for the whole program, so four such emitters plus streaming music measure
+  0.25 ms a frame instead of 10 (docs/sound.md) - but the calls themselves are
+  still per frame, and they are pure waste: the engine knows the sample it is
+  retriggering, so the retry timer could come from the sample's own LENGTH
+  instead of the author's interval. One call per loop, still seamless, and
+  interval 0 would stop being the expensive way to do the ordinary thing. Needs
+  the ADPCM length in samples out of `audsrv_adpcm_t` and a check that the
+  timing holds when a frame is dropped.
+- **Audit the rest of the audsrv surface for blocking calls.** The
+  `audsrv_wait_audio` stall above was found by accident, from a frame-rate
+  complaint. audsrv serializes every call through one IOP thread and one EE
+  semaphore, so anything else that blocks IOP-side has the same reach - worth
+  one pass over the fork's RPC handlers looking for `WaitSema` in a handler,
+  and a note in each caller's comment about what it costs.
 - **Reverb: a third room, and the tail of the cross-fade.** The two reverb
   units are both in use now (docs/reverb.md): a room owns a bus and transitions
   cross-fade across them. Two things were left where the chip runs out. A THIRD
@@ -1603,6 +1686,32 @@ reported defects and leaves three smaller things visible:
   interleaves billboard and ordinary bags pays for a swap at every transition.
   Nothing measures it today; sorting bags by program set would bound it to two
   swaps a frame.
+
+- **Texture minification: the terrain still has no mip chain.** With the wrap
+  bug fixed (the ground repeats again) the remaining distance artefact is
+  ordinary minification aliasing: `max_level = 0` and `LOD_USE_K` with K = 0 in
+  every pipeline (`stapip_core.cpp`, `dynpip_core.cpp`, `renderer_core_2d.cpp`,
+  `minecraft_pipeline.cpp`), i.e. the GS always samples level 0 bilinearly, so
+  a high-frequency tiling ground shimmers and moirés at grazing angles. The GS
+  can do it - `LOD_MIPMAP_CALCULATE` (TEX1.MTBA) derives levels 1..6 from TBP0
+  with no per-mesh register, so this needs **no VU1 change**: a mip chain built
+  at bake or load, uploaded contiguously after level 0, `calculation = 0` so LOD
+  comes from Q per pixel, and a per-texture K to match its texel density. The
+  two things to settle before starting: it costs **+33 % VRAM per mipped
+  texture** on a ~1.08 MB heap (so it wants to be opt-in per texture, terrain
+  first), and MTBA's auto-addressing has documented quirks for levels whose TBW
+  falls to 1 - measure it on hardware before trusting it over explicit
+  MIPTBP1/2, which would need the register in-band and there is no micro memory
+  for that.
+
+- **Terrain ST magnitude on very large maps.** Terrain STs are world position x
+  tiling factor, so they scale with map size: 192 units at `-s 0.125` is a
+  harmless +-12, but 2048 units at `-s 1.0` would be +-1024 (x 2^TW texels),
+  which the GS's fixed-point texture coordinates will not carry. No shipped
+  example hits it (`examples/large-terrain` has no terrain material), and the
+  fix is cheap when someone does - fold each chunk's STs by a whole number of
+  tiles at build, which is invisible under REPEAT and bounds the magnitude by
+  the chunk instead of by the map.
 
 - **Apache boilerplate headers on `src/*.cpp`** — the Apache License 2.0
   *recommends* (does not require) attaching its short header comment to each

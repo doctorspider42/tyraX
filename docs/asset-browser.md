@@ -47,6 +47,23 @@ database, there is no import registry. A file dropped into the folder by hand
 appears here within a second or two, and anything the browser does is a plain
 file operation someone else could have done in the file manager.
 
+## Importing large models
+
+Model import runs on a worker thread after the native file picker closes. The
+modal stays responsive and shows both a spinner and a staged progress bar while
+the editor copies the model and its dependencies, parses and validates the
+geometry or animation, and estimates animated-runtime memory. File copying has
+byte-level progress; parser and animation-bake stages hold at their real stage
+boundary because those libraries do not expose finer progress callbacks, while
+the spinner still makes it clear that work continues. When the worker finishes,
+the imported dependency group is moved into the Asset Browser's current model
+subfolder, caches are invalidated, and the normal real-world-size dialog opens.
+That dialog reuses the bounds the importer already calculated instead of parsing
+the same large model for a third time. Opening **Size...** later is just as
+cheap: the inspector already parsed the model for its triangle/clip readout, so
+the dialog reuses those cached bounds instead of synchronously parsing or baking
+the asset again and freezing the editor.
+
 ## Thumbnails
 
 Static `.obj`, animated `.glb`/`.fbx` and `.mtl` libraries are **rendered** into

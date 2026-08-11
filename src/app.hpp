@@ -327,16 +327,44 @@ private:
     // picker + "Update every frame" + the resolved counts. `verb` is how the
     // panel words what happens to a caught object ("re-drawn", "shown", ...).
     bool catchAreaControls(SceneObject& o, const char* verb);
-    // Copies a picked .obj (with its .mtl + textures, references rewritten to
-    // the sanitized names) into res/models. Returns the project-relative path
-    // of the model, or "" when cancelled/failed. Does NOT create an object.
-    std::string importModelAsset();
+    // Picks a model, then copies and validates it on a worker thread. The
+    // optional target is the Asset Browser folder that requested the import;
+    // completion moves the finished dependency group there on the UI thread.
+    // Does NOT create a scene object.
+    void importModelAsset(const std::string& targetFolder = {});
+    void modelImportWorker(std::string source, std::string projectDir,
+                           std::string targetFolder);
+    void modelImportTick();
+    void drawModelImportModal();
+    struct ModelImportResult {
+        std::string projectDir;
+        std::string targetFolder;
+        std::string relPath;
+        std::string status;
+        std::array<float, 6> bounds{};  // min xyz, max xyz
+        bool installed = false;
+        bool measured = false;
+        bool animated = false;
+    };
+    std::thread modelImportThread_;
+    std::atomic<float> modelImportProgress_{0.0f};
+    std::atomic<int> modelImportStage_{0};
+    std::atomic<bool> modelImportDone_{false};
+    bool modelImporting_ = false;
+    bool modelImportOpen_ = false;
+    bool modelImportClose_ = false;
+    std::string modelImportName_;
+    ModelImportResult modelImportResult_;
     // "Real-world size" of a model asset (docs/world-scale.md): what one unit
     // of the file measures in meters, which combined with the project's world
     // scale is the scale objects made from it are inserted at. Opened right
     // after an import and from the Assets list; nothing about the file itself
     // is touched, only Project::modelUnitMeters.
     void beginModelSizing(const std::string& relPath);
+    // Import already paid to parse/bake the model in the worker, so seed the
+    // dialog from those bounds instead of synchronously loading it yet again.
+    void beginModelSizing(const std::string& relPath, const float mn[3],
+                          const float mx[3]);
     void drawModelSizeModal();
     bool modelSizeOpen_ = false;       // a sizing dialog is requested this frame
     std::string modelSizePath_;        // asset being sized ("" = none staged)
@@ -362,10 +390,13 @@ private:
     // assigns it to o.materialPath and opens the Material Editor on the model.
     // Returns the new material's project-relative path, or "" on failure.
     std::string createMaterialForModel(SceneObject& o);
-    // Per-object LOD override rows. `animated` adds the animation-LOD row and
-    // the model yaw offset (skeletal models + player avatars); a static .obj
-    // model only takes the mesh-LOD distance. Returns true when a value
-    // changed (caller commits).
+    // Friendly authored-forward selector for skeletal models and player
+    // avatars. It writes SceneObject::modelYawOffset, including the common
+    // "backwards" 180-degree correction. Returns true when committed.
+    bool drawModelFacing(SceneObject& o);
+    // Per-object LOD override rows. `animated` adds the animation-LOD row; a
+    // static .obj model only takes the mesh-LOD distance. Returns true when a
+    // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
@@ -569,6 +600,11 @@ private:
     struct ModelInfo {
         bool ok = false;
         int tris = 0;
+        // Model-space bounds from the parse that produced this summary. The
+        // Asset Browser's Size dialog consumes these instead of loading a
+        // large model again on the UI thread.
+        float min[3] = {0.0f, 0.0f, 0.0f};
+        float max[3] = {0.0f, 0.0f, 0.0f};
         // Two different vertex counts, and the difference is the point:
         // `verts` is what actually goes to VU1 (three per triangle, corners
         // split wherever a normal/UV/material does), `positions` is the obj
@@ -594,6 +630,10 @@ private:
         std::string error;
         std::vector<std::string> clips;
         int vertexCount = 0, frameCount = 0;
+        // Frame-zero baked bounds, retained for the Asset Browser's Size
+        // dialog so clicking it never triggers a second animation bake.
+        float min[3] = {0.0f, 0.0f, 0.0f};
+        float max[3] = {0.0f, 0.0f, 0.0f};
         std::vector<std::string> warnings;
         // Baked materials (glTF), one per draw part: the color the game and
         // the viewport tint the mesh with. name + baseColorFactor; textured
@@ -1188,11 +1228,18 @@ private:
     void requestOpenRecent(const std::string& dir);  // dirty-guarded
     void drawRecentProjectsMenu();  // the File menu's submenu
     std::string pendingRecentDir_;  // target of PendingAction::OpenRecent
-    // Load and attach the project in `dir` (a project folder, not the .tyra).
-    // Returns the load error; empty means it is open. The single funnel for
-    // every local open path: the CLI argument, the Open dialog and the
-    // welcome screen's list all go through it, so all three record a recent.
-    std::string openProjectAt(const std::string& dir);
+    // Stage loading `dir` (a project folder, not the .tyra) across frames. The
+    // first frame presents the loading cover; later stages read and attach on
+    // the main thread because project::load replaces project-wide registries.
+    // Single funnel for CLI argument, Open dialog and recent list.
+    void openProjectAt(const std::string& dir, bool fromRecent = false);
+    void projectLoadTick();
+    void drawProjectLoadingScreen();
+    bool projectLoading_ = false;
+    bool projectLoadFromRecent_ = false;
+    double projectLoadShowUntil_ = 0.0;
+    std::string projectLoadDir_;
+    std::string projectLoadName_;
     void drawWelcomeScreen();  // the Viewport's content while nothing is open
 
     // --- Collaboration session (docs/collaboration.md) ----------------------
@@ -1966,6 +2013,7 @@ private:
     bool animEdWireframe_ = false;
     std::string animEdLight_;  // preview lighting, see matEdLight_
     float animEdYaw_ = 40.0f, animEdPitch_ = 15.0f, animEdZoom_ = 1.0f;
+    float animEdPanX_ = 0.0f, animEdPanY_ = 0.0f;  // radius-relative target
     double animEdClock_ = 0.0;  // wall clock of the previous frame
     char animEdRename_[64] = {};  // rename field buffer for the selected clip
 

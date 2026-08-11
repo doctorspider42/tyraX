@@ -185,6 +185,20 @@ class RendererCoreGS {
   void setAlpha(const u64& alpha);
 
   /**
+   * Set the GS CLAMP_1 register - the context-0 texture wrap mode - via
+   * PATH3 (TyraX fork). Same contract as setAlpha: drain in-flight PATH1
+   * rendering first (RendererCoreSync::align3D), or the new mode applies to
+   * triangles already queued, and put REPEAT back when the bag is done.
+   * Path3::clearScreen asserts REPEAT at the top of every frame, so 3D can
+   * rely on it; only a texture that explicitly asked for clamping (the
+   * render targets - camera feeds, the raytraced mirror) needs this.
+   */
+  void setTextureWrap(const texwrap_t& wrap);
+
+  /** The wrap mode 3D is guaranteed at the start of every frame. */
+  static const texwrap_t& repeatWrap();
+
+  /**
    * The DISPLAY buffer currently being drawn to (TyraX fork, for post fx).
    *
    * This is the double-buffered display target and nothing else - it is NOT
@@ -276,6 +290,9 @@ class RendererCoreGS {
   // Modified by TyraX: preallocated ALPHA-register packet (setAlpha
   // runs per reflective mesh per frame - no per-call heap churn).
   packet2_t* alphaPacket;
+  // Modified by TyraX: preallocated CLAMP-register packet (setTextureWrap
+  // brackets every clamped bag - two calls per such mesh per frame).
+  packet2_t* wrapPacket;
   u8 context;
   u8 currentField;
 

@@ -3456,11 +3456,11 @@ void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
         if (edit && edit->timeScale > 0.001f) speed *= edit->timeScale;
         pos = std::fmod((float)(animClock_ * b.fps * speed), (float)count);
     }
-    uploadAnimPose(draw, first, count, pos);
+    uploadAnimPose(draw, first, count, pos, edit && edit->inPlace);
 }
 
 void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
-                              int frameCount, float frame) {
+                              int frameCount, float frame, bool inPlace) {
     const glbparser::Baked& b = draw.baked;
     if (frameCount < 1) frameCount = 1;
     if (frame < 0.0f || frame >= (float)frameCount)
@@ -3471,6 +3471,18 @@ void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
     const int f0 = firstFrame + local0;
     // looping wraps last -> first, like the engine's loop state
     const int f1 = firstFrame + (local0 + 1) % frameCount;
+
+    Vec3 root0{}, root1{};
+    if (inPlace && b.rootMotion.size() == (size_t)b.frameCount &&
+        firstFrame >= 0 && firstFrame < b.frameCount) {
+        const glbparser::Baked::RootMotionSample& base = b.rootMotion[firstFrame];
+        auto offset = [&](int f) {
+            const glbparser::Baked::RootMotionSample& s = b.rootMotion[f];
+            return Vec3{s.x - base.x, 0.0f, s.z - base.z};
+        };
+        root0 = offset(f0);
+        root1 = offset(f1);
+    }
 
     std::vector<float> interleaved;
     for (size_t pi = 0; pi < draw.parts.size() && pi < b.parts.size(); ++pi) {
@@ -3483,9 +3495,15 @@ void Viewport::uploadAnimPose(AnimModelDraw& draw, int firstFrame,
         interleaved.clear();
         interleaved.reserve((size_t)src.vertexCount * 8);
         for (int v = 0; v < src.vertexCount; ++v) {
-            const float px = p0[v * 3] + (p1[v * 3] - p0[v * 3]) * alpha;
-            const float py = p0[v * 3 + 1] + (p1[v * 3 + 1] - p0[v * 3 + 1]) * alpha;
-            const float pz = p0[v * 3 + 2] + (p1[v * 3 + 2] - p0[v * 3 + 2]) * alpha;
+            const float px = (p0[v * 3] - root0.x) +
+                             ((p1[v * 3] - root1.x) -
+                              (p0[v * 3] - root0.x)) * alpha;
+            const float py = (p0[v * 3 + 1] - root0.y) +
+                             ((p1[v * 3 + 1] - root1.y) -
+                              (p0[v * 3 + 1] - root0.y)) * alpha;
+            const float pz = (p0[v * 3 + 2] - root0.z) +
+                             ((p1[v * 3 + 2] - root1.z) -
+                              (p0[v * 3 + 2] - root0.z)) * alpha;
             const Vec3 n = {n0[v * 3] + (n1[v * 3] - n0[v * 3]) * alpha,
                             n0[v * 3 + 1] + (n1[v * 3 + 1] - n0[v * 3 + 1]) * alpha,
                             n0[v * 3 + 2] + (n1[v * 3 + 2] - n0[v * 3 + 2]) * alpha};
@@ -5568,7 +5586,9 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
         // shared with the scene, but the scene pass re-poses every visible
         // instance from its own clock - and thus under the scene's light.
         const ScopedShade shade(d.light);
-        uploadAnimPose(*ad, first, count, d.time * (b->fps > 0.01f ? b->fps : 12.0f));
+        uploadAnimPose(*ad, first, count,
+                       d.time * (b->fps > 0.01f ? b->fps : 12.0f),
+                       d.inPlace);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, animFbo_);
@@ -5627,10 +5647,24 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     const float dist = radius * 2.6f / zoom;
     const float p = std::clamp(d.pitchDeg, -30.0f, 85.0f) * kPi / 180.0f;
     const float a = d.angleDeg * kPi / 180.0f;
-    const Vec3 eye{center.x + dist * std::cos(p) * std::cos(a),
-                   center.y + dist * std::sin(p),
-                   center.z + dist * std::cos(p) * std::sin(a)};
-    const Mat4 view = lookAt(eye, center, {0, 1, 0});
+    const Vec3 orbit{dist * std::cos(p) * std::cos(a), dist * std::sin(p),
+                     dist * std::cos(p) * std::sin(a)};
+    // Pan lives in the camera's screen plane, not in model/world X/Y. Thus a
+    // horizontal drag remains horizontal after orbiting around the character.
+    // Values are radius-relative so the same gesture feels useful at any
+    // imported model scale.
+    const Vec3 baseEye{center.x + orbit.x, center.y + orbit.y,
+                       center.z + orbit.z};
+    const Vec3 fwd = normalize(sub(center, baseEye));
+    const Vec3 right = normalize(cross(fwd, {0, 1, 0}));
+    const Vec3 up = cross(right, fwd);
+    const Vec3 target{
+        center.x + radius * (right.x * d.panX + up.x * d.panY),
+        center.y + radius * (right.y * d.panX + up.y * d.panY),
+        center.z + radius * (right.z * d.panX + up.z * d.panY)};
+    const Vec3 eye{target.x + orbit.x, target.y + orbit.y,
+                   target.z + orbit.z};
+    const Mat4 view = lookAt(eye, target, {0, 1, 0});
     const Mat4 proj =
         perspective(45.0f * kPi / 180.0f, (float)width / (float)height,
                     std::max(0.01f, dist * 0.01f), dist + radius * 4.0f + 50.0f);

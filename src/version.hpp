@@ -16,6 +16,31 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.21.0 (main's animation and loading work arrives): three landings come in
+// from origin/main - the terrain wrap fix (#211), the audsrv music-stream fix
+// (#213, both PATCH there) and the animation/loading workflow set (#214, which
+// main numbered 1.13.0). The merge takes ONE MINOR above both parents rather
+// than picking a side, the 1.10.0 precedent below: the tree now carries a
+// capability neither parent had on its own, and a number strictly greater than
+// either is the only one that keeps "which editor wrote this file" answerable.
+//
+// What arrives: 3D finally owns the texture wrap mode, so a tiling ground
+// texture repeats again instead of smearing its edge texels along the world
+// axes (the CLAMP register is written once per frame by Path3::clearScreen and
+// bracketed per bag for the render targets that genuinely want clamping);
+// AudioSong::work polls audsrv_available() instead of blocking inside audsrv's
+// single RPC handler, so a sound emitter beside a music track stops costing
+// ~10 ms a frame; and the editor gains a project-opening screen, asynchronous
+// model import with cached bounds, a Model faces selector, an Animation Editor
+// preview camera, and IN-PLACE clips (below).
+//
+// Nothing on this branch moves. The one file both sides changed for real is
+// RendererCoreGS - main added setTextureWrap/repeatWrap beside setAlpha while
+// this branch rewrote the display queue around them - and the two are disjoint:
+// the black-frame fix in 1.20.1 is intact, `(context + 1) % bufferCount` and
+// all, and reallocateBuffers() still re-presents. Checked rather than assumed
+// (see the commit message for the boot line and the capture counts).
+//
 // 1.20.1 (the upscaler with triple buffering presented BLACK frames): reported
 // from use as the emulator "flickering badly", isolated to the PAIR of features
 // - either one alone is clean - and fixed in the engine. No editor behaviour
@@ -461,8 +486,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 20
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 21
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -622,6 +647,27 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // names, none of them renames, moves or reinterprets an existing key, and
 // migrations::stepsFor therefore has nothing to register for any of the three
 // - which is what makes a v13 project open silently at v16.)
-inline constexpr int kFormatVersion = 16;
+// v17 (Animation Editor in-place clips, docs/animated-models.md):
+// AnimClipEdit::inPlace removes horizontal root motion during the .tskl bake.
+// Purely additive: it is WRITTEN only when true and read behind a find() that
+// defaults to false, so a project saved before the key existed keeps its exact
+// authored animation and resaves byte for byte. No migration step - checked,
+// not assumed: main's #214 changes nothing else that project::save() writes
+// (the only other new state is the Model faces selector, which rides the
+// existing per-object rotation, and the import/opening screens, which persist
+// nothing), and src/migrations.cpp is untouched on both sides, so
+// migrations::stepsFor has nothing to register and a v16 project opens
+// silently at v17.
+// (Authored as v8 on main and renumbered here. Two features may never share a
+// number, and 8 has been this branch's neural-upscaler entry since well before
+// #214 landed - it is quoted by the entries above, by docs/neural-upscaler.md
+// and by an example .tyra on disk. So the claim that arrives second renumbers,
+// which is the same rule the v8-v10 and v14-v16 notes above applied to this
+// branch's own entries when main got somewhere first. Nothing on disk changes:
+// the entry is additive, so a project written on main at v8 opens at v17
+// unchanged, and no migration step is needed for the renumber either - a file
+// claiming 8 now means "the neural upscaler", which an animation-only project
+// simply does not use.)
+inline constexpr int kFormatVersion = 17;
 
 }  // namespace version
