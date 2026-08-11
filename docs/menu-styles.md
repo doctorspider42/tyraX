@@ -266,6 +266,38 @@ Nothing is baked twice: one panel serves every mode. The trade is softness — a
 1080i the vertical factor is 1.2, so a 4-bit panel scaled up shows its palette
 a little. Author the panel for the mode you ship in and the others follow.
 
+### Centring a raw sprite: the divisor is neither 448 nor the buffer height
+
+Menus get their scaling for free from the rule above. Code that places a bare
+`Sprite` itself does not, and the vertical centre is the one place where the
+obvious answer is wrong in **both** directions. `RendererCore2D::render()`
+shifts the 448-row authored space up by `(renderHeight - 448) / 2`, so in a
+taller mode the sprite space and the framebuffer do not end together: a sprite
+can reach down to row `(renderHeight + 448) / 2`, and the centre of what is
+visible is **half of that**:
+
+```cpp
+sprite.position.y = ((settings.getRenderHeightF() +
+                      RendererCore2D::SPRITE_SPACE_HEIGHT) / 4.0F) -
+                    (sprite.size.y / 2.0F);
+```
+
+Measured in PCSX2 against the debug HUD's known 20-row line pitch, at 1080i
+(448×540), where the three candidates are 46 rows apart:
+
+| divisor | 480p | 1080i | result in 1080i |
+|---|---|---|---|
+| `getHeight() / 2` | 224 | 270 | **23 rows low** |
+| `SPRITE_SPACE_HEIGHT / 2` | 224 | 224 | **25 rows high** |
+| `(renderHeight + 448) / 4` | 224 | 247 | **centred** (−2 rows, measured) |
+
+The three agree at 448 rows and only separate in the taller modes, which is
+exactly why this survives until someone ships 1080i — the boot banner
+(`info/banner.cpp`) is the reference implementation, reported as *"the TYRAX
+logo is not in the middle of the screen in HD"*. Horizontal centring has no
+such trap: sprites keep the raw framebuffer width, so `getWidth() / 2` is
+right.
+
 *Preferences > Display > Supported resolutions* declares which modes a player
 can end up in. It is a declaration the **editor** reads:
 

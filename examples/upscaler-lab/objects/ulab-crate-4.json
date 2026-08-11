@@ -1,0 +1,1 @@
+{ "id": "ulab-crate-4", "name": "crate-4", "type": "box", "position": [-1.6, 0.85, -6.5], "rotation": [0, 17, 0], "scale": [1.7, 1.7, 1.7], "color": [0.72, 0.7, 0.66], "physics": false, "castShadow": false, "material": "res/materials/stone.mtl" }

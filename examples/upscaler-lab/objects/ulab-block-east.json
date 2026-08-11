@@ -1,0 +1,1 @@
+{ "id": "ulab-block-east", "name": "block-east", "type": "model", "position": [16, 0, -13], "rotation": [0, -34, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/depot/block-east.obj" }

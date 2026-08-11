@@ -138,38 +138,15 @@ void RendererCoreEnvMap::end() {
   // Drain the env pass itself, then restore the frame drawing environment.
   if (path1->isVU1Configured()) sync->align3D();
 
-  const auto* fb = gs->getCurrentFrameBuffer();
-  const int zbp = static_cast<int>(gs->zBuffer.address) >> 11;
-  const int zsm = static_cast<int>(gs->zBuffer.zsm);
-  const int w = static_cast<int>(settings->getWidth());
-  // Physical buffer height (half the logical one in InterlacedField) - this
-  // restores the screen FRAME/SCISSOR/XYOFFSET after the env pass.
-  const int h = static_cast<int>(settings->getRenderHeightF());
-
   packet2_reset(endPacket, false);
-  qword_t* q = endPacket->base;
-  PACK_GIFTAG(q, GIF_SET_TAG(4, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
-  q++;
-  // The target was just rendered - drop any stale texels of it from the GS
-  // texture cache before the scene samples it.
-  PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
-  q++;
-  PACK_GIFTAG(q,
-              GS_SET_FRAME(static_cast<int>(fb->address) >> 11,
-                           static_cast<int>(fb->width) >> 6, GS_PSM_32, 0),
-              GS_REG_FRAME_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_SCISSOR(0, w - 1, 0, h - 1), GS_REG_SCISSOR_1);
-  q++;
-  PACK_GIFTAG(q, GS_SET_ZBUF(zbp, zsm, 0), GS_REG_ZBUF_1);
-  q++;
+  // Modified by TyraX: restore whatever was redirected BEFORE this bracket,
+  // not the display buffer unconditionally. This pass runs inside the
+  // generated renderScene(), which BLSS brackets - the old restore cancelled
+  // that redirect and silently drew the rest of the frame at full resolution
+  // (docs/neural-upscaler.md). RendererCoreGS::getRasterTarget() is the one
+  // place that knows which it is.
+  qword_t* q = gs->emitRasterRestore(endPacket->base, true);
   packet2_update(endPacket, q);
-  packet2_update(endPacket, draw_enable_tests(endPacket->next, 0,
-                                              &gs->zBuffer));
-  packet2_update(endPacket,
-                 draw_primitive_xyoffset(endPacket->next, 0,
-                                         2048.0F - (w / 2.0F),
-                                         2048.0F - (h / 2.0F)));
   packet2_update(endPacket, draw_finish(endPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);

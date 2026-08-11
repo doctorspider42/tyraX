@@ -20,27 +20,63 @@ bool Info::writeLogsToFile = false;
 // instead of taking over the screen (see info.hpp and debug/debug.hpp).
 bool Info::drawAssertScreen = false;
 
+u32 Info::presentCounter = 0;
+
+// Modified by TyraX: COP0 Count, the clock the frame-timing rig uses. Wraps
+// every ~14.6 s; u32 subtraction of two reads is wrap-safe, which is why the
+// window accumulates PER-FRAME deltas rather than spanning one long interval.
+static inline u32 cop0Count() {
+  u32 v;
+  asm volatile("mfc0 %0, $9" : "=r"(v));
+  return v;
+}
+
 Info::Info() {
-  fps = 0;
-  fpsDelayer = 0;
+  fps = 0.0F;
+  presentedFps = 0.0F;
+  lastCount = 0;
+  primed = false;
+  windowTicks = 0;
+  windowFrames = 0;
+  windowPresents = 0;
+  lastPresents = 0;
 }
 
 Info::~Info() {}
 
+/**
+ * Modified by TyraX: one rendered frame, and the running average over the
+ * declared window. See getFps() in the header for why the clock changed.
+ *
+ * The old body sampled EE Timer 3 ONCE per frame and divided a hardcoded
+ * 15625 by that single delta - so the number was an instantaneous
+ * frame-to-frame reading that merely REFRESHED every fifth frame, on a clock
+ * whose rate follows the video mode.
+ */
 void Info::update() {
-  if (fpsDelayer++ >= 4) {
-    fps = calcFps();
-    fpsDelayer = 0;
+  const u32 now = cop0Count();
+  const u32 presents = presentCounter;
+  if (!primed) {  // the first call only seeds; there is no previous frame
+    primed = true;
+    lastCount = now;
+    lastPresents = presents;
+    return;
   }
-  timer.prime();
-}
+  const u32 delta = now - lastCount;
+  windowTicks += (u64)delta;
+  ++windowFrames;
+  windowPresents += presents - lastPresents;
+  lastCount = now;
+  lastPresents = presents;
 
-float Info::calcFps() {
-  u32 timeDelta = timer.getTimeDelta();
-
-  if (timeDelta == 0) return -1.0F;
-
-  return 15625.0F / (float)timeDelta;  // PAL
+  if (windowTicks >= (u64)kFpsWindowTicks) {
+    const float seconds = (float)windowTicks / (kTicksPerMs * 1000.0F);
+    fps = (float)windowFrames / seconds;
+    presentedFps = (float)windowPresents / seconds;
+    windowTicks = 0;
+    windowFrames = 0;
+    windowPresents = 0;
+  }
 }
 
 float Info::getAvailableRAM() {

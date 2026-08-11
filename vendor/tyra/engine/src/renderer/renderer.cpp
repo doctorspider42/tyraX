@@ -16,8 +16,8 @@ Renderer::Renderer() {}
 Renderer::~Renderer() {}
 
 void Renderer::init(VideoMode videoMode, DisplayMode displayMode,
-                    bool widescreen) {
-  core.init(videoMode, displayMode, widescreen);
+                    bool widescreen, bool tripleBuffering) {
+  core.init(videoMode, displayMode, widescreen, tripleBuffering);
   renderer2D.init(&core);
   renderer3D.init(&core);
 }
