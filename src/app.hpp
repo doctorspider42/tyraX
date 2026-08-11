@@ -149,6 +149,13 @@ private:
     // Build && run (or run only) on the selected target - what the toolbar's
     // Play button and its dropdown entries call, so the two can never disagree.
     void runSelectedTarget(bool build);
+    // Called by EVERY path that launches the game, immediately before it does:
+    // opens the Debugger panel when the project is built with the debugger on
+    // and the panel is closed. It has to be its own call precisely because the
+    // paths do not share one: the F5/F6 chords reach runner_ directly (they are
+    // target-explicit, so they cannot go through runSelectedTarget), and a
+    // launch that misses this is a debug session with nowhere to watch it.
+    void openDebuggerForLaunch();
     // UI (DPI) scaling. uiScaleUser_ == 0 means "auto" (follow the monitor's
     // content scale); a value > 0 is an explicit multiplier (1.0 == 100%).
     // applyUiScale() recomputes the effective scale and re-applies it to the

@@ -21,9 +21,23 @@ extra transport, no engine change.
 2. Leave **Live Debugger** on (*Project > Preferences > Build*, or *Build > Live
    Debugger*; on by default).
 3. Build & run — **F5** (PCSX2) or **F6** (a console over ps2link).
-4. Open *Tools > Debugger* (**F9**), or click the **DBG** chip in the toolbar.
-   Switch to the built-in **Debugger** window layout (Layout menu) for the full
-   desk: the graph in the middle, the Debugger panel on the right.
+
+That is the whole of it: **launching the game opens the Debugger panel** when
+those first two conditions hold and the panel is closed. There is no separate
+"run with the debugger" action to remember — every launch path does it (the
+toolbar's Play, the run menu, and the F5/F6/Ctrl+F5/Ctrl+F6 chords), and a
+new project starts with the panel already docked as a tab behind **Properties**,
+so the first run has somewhere to report.
+
+It opens only when closed, and never closes it: a panel you shut mid-session
+stays shut until the next launch, and a launch never re-docks or steals focus
+from one already open. In a release build, or with *Live Debugger* off, nothing
+appears — there would be nothing to show.
+
+To open it by hand anyway: *Tools > Debugger* (**F9**), or click the **DBG**
+chip in the toolbar. For the full desk — the graph in the middle, the Debugger
+panel in a column of its own — switch to the built-in **Debugger** window
+layout (Layout menu).
 
 The Flow Graph window becomes a live instrument the moment the game reports:
 
@@ -274,4 +288,5 @@ a slow one. A collapsed frame rate makes the snapshot *late*, never absent.
 - [object-scripts.md](object-scripts.md), [custom-flow-nodes.md](custom-flow-nodes.md)
   — the other halves of the scripting story.
 - `examples/script-demo` is a good playground: open it, set the build profile to
-  debug, F5, then F9.
+  debug (the toolbar's profile dropdown, right of Stop), and press F5 — the
+  panel opens by itself.

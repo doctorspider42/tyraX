@@ -946,16 +946,29 @@ void App::drawUI() {
     // Run shortcuts. IsKeyChordPressed matches the modifier state exactly, so
     // plain F5 and Ctrl+F5 stay distinct: F5/F6 build && run, Ctrl+F5/Ctrl+F6
     // run the existing ELF without building.
+    // Each launching chord calls openDebuggerForLaunch() first - the four here
+    // are the paths that do NOT go through runSelectedTarget (they name their
+    // target rather than taking the toolbar's), so this is where a launch would
+    // otherwise slip past it. Ctrl+Shift+B is deliberately not among them: it
+    // builds and does not run, and there is nothing to watch.
     if (hasProject_ && !runner_.busy()) {
         const bool ps2Ready = !project_.ps2LinkIp.empty();
-        if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F5)) {
+            openDebuggerForLaunch();
             runner_.buildAndRun(projectForBuild(), true);
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
+        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5)) {
+            openDebuggerForLaunch();
             runner_.runEmulatorOnly(project_);
-        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
+        }
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6)) {
+            openDebuggerForLaunch();
             runner_.buildAndRunPs2(projectForBuild(), true);
-        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
+        }
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6)) {
+            openDebuggerForLaunch();
             runner_.buildAndRunPs2(projectForBuild(), false);
+        }
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
             runner_.buildAndRun(projectForBuild(), false);
     }
@@ -1651,7 +1664,26 @@ void App::drawMenuBar() {
 // Runs the toolbar's selected target (runOnPs2_). One place, so the Play
 // button, its dropdown and anything else that grows later cannot disagree
 // about what "Run" means.
+// A game launched WITH the debugger opens the Debugger panel if it is closed.
+// This is the whole of what the old Debug toolbar button did on top of Run, and
+// having it as a separate button meant the ordinary Run silently started a debug
+// session with nowhere to watch it: the game reported every node it fired and
+// the editor put that on a panel nobody had opened. Two conditions, both already
+// meaningful on their own - the debug build profile, and the Live Debugger
+// project setting - so nothing pops up in a release build or for anyone who
+// turned the debugger off.
+//
+// Only when CLOSED, and never the reverse: a panel the user closed mid-session
+// stays closed until the next launch, and a launch never steals focus from or
+// re-docks a panel that is already open.
+void App::openDebuggerForLaunch() {
+    if (!showDebugger_ && project_.settings.buildProfile == "debug" &&
+        project_.settings.liveDebug)
+        showDebugger_ = true;
+}
+
 void App::runSelectedTarget(bool build) {
+    openDebuggerForLaunch();
     if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build);
     else if (build) runner_.buildAndRun(projectForBuild(), true);
     else runner_.runEmulatorOnly(project_);
@@ -1828,16 +1860,6 @@ void App::drawToolbar() {
     const bool debugProfile = project_.settings.buildProfile == "debug";
     const ImU32 colTarget = runOnPs2_ ? colInfo : colOk;
     const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
-    // Debug is Run plus opening the Debugger panel. It needs the debug build
-    // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
-    // but it stays on the bar either way, dimmed, saying where to switch it on.
-    const char* debugTip =
-        !debugProfile ? "Debug needs the Debug build profile (Project > "
-                        "Preferences > Build > Profile).\nLive Link, the Live "
-                        "Debugger and Live Logic only exist in debug builds."
-        : runOnPs2_   ? "Debug on PS2: build && run, and open the Debugger (F9)"
-                      : "Debug in PCSX2: build && run, and open the Debugger (F9)";
-    const bool debugEnabled = !busy && targetReady && debugProfile;
     if (iconButton("##tb_run", gapGroup, !busy && targetReady,
                    !targetReady    ? noIpTip
                    : runOnPs2_     ? "Build && Run on PS2 (F6)"
@@ -1850,24 +1872,6 @@ void App::drawToolbar() {
     if (button("##tb_run_more", 1.0f, h * 0.55f, true,
                "Run target and options...", paintCaret(colText)))
         ImGui::OpenPopup("run_menu");
-    // Debug: the Play triangle in the target color with a breakpoint dot on its
-    // lower-left vertex - "run, with the debugger attached" said in two symbols
-    // the toolbar already uses. The dot sits ON the vertex so the two read as
-    // one mark, and both survive being 10 px wide the way a drawn bug would not.
-    if (iconButton("##tb_debug", gapPair, debugEnabled, debugTip,
-                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                       const float w = b.x - a.x, hh = b.y - a.y;
-                       const float x0 = a.x + w * 0.16f, y1 = b.y - hh * 0.12f;
-                       dl->AddTriangleFilled(
-                           ImVec2(x0, a.y), ImVec2(x0, y1),
-                           ImVec2(b.x, (a.y + y1) * 0.5f),
-                           en ? colTarget : colDim);
-                       dl->AddCircleFilled(ImVec2(x0, y1), w * 0.22f,
-                                           en ? colStop : colDim);
-                   })) {
-        runSelectedTarget(true);
-        showDebugger_ = true;
-    }
     // Stop: cancels a running build, else stops the selected target - closes
     // PCSX2, or on the console kills the file server + resets ps2link. The
     // emulator side is always available: it looks for the instance booting THIS
@@ -1883,6 +1887,40 @@ void App::drawToolbar() {
         if (busy) runner_.cancel();
         else if (runOnPs2_) runner_.stopPs2(project_);
         else runner_.stopEmulator(project_);
+    }
+
+    // Build profile, where the Debug button used to be. That button was "Run,
+    // and also open the Debugger panel" - which is now what Run itself does
+    // whenever the project is built with the debugger on (runSelectedTarget),
+    // so the button had nothing left of its own to do. What the toolbar was
+    // missing instead is the switch every one of the chips to its right
+    // depends on: Live Link, the Live Debugger and Live Logic exist only in a
+    // debug build, and their dimmed tooltips all ended in "...switch the
+    // profile in Project > Preferences > Build". It is one click from here now,
+    // and the chips appear and disappear as it moves.
+    //
+    // Deliberately a labelled combo rather than another drawn glyph: this is
+    // the one control on the bar whose CURRENT VALUE has to be readable at a
+    // glance - "why is there no LIVE chip" is answered by seeing "Release"
+    // sitting here, and no icon says that.
+    {
+        int profileIdx = debugProfile ? 1 : 0;
+        const char* profileNames[2] = {"Release", "Debug"};
+        ImGui::SameLine(0.0f, gapGroup);
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize("Release").x + h +
+                                ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (ImGui::Combo("##tb_profile", &profileIdx, profileNames, 2)) {
+            project_.settings.buildProfile = profileIdx == 1 ? "debug" : "release";
+            commitChange();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Build profile (same setting as Project > Preferences > "
+                "Build).\n"
+                "Debug carries the devkit channels, the overlays, -g and the "
+                "unstripped\nELF the crash reporter needs - Live Link, the Live "
+                "Debugger and Live\nLogic exist in debug builds only. Release "
+                "carries none of it.");
     }
 
     // Live Link chip: a dot + label after the run group, ALSO the on/off
@@ -2116,12 +2154,12 @@ void App::drawToolbar() {
         if (ImGui::MenuItem("Run without build", noBuildKey, false,
                             !busy && targetReady))
             runSelectedTarget(false);
-        if (ImGui::MenuItem("Debug", nullptr, false, debugEnabled)) {
-            runSelectedTarget(true);
-            showDebugger_ = true;
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", debugTip);
+        // No "Debug" entry: it was Run plus opening the Debugger panel, and Run
+        // now opens it by itself whenever the project is built with the
+        // debugger on (runSelectedTarget). Leaving it here would be a second
+        // name for the same action - and the one that used to be different is
+        // now the default. F9 and Window > Debugger still open the panel
+        // by hand, in a release build too.
         ImGui::EndPopup();
     }
 }
@@ -4478,6 +4516,18 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Project", left);
         ImGui::DockBuilderDockWindow("Properties", right);
+        // The Debugger is a TAB BEHIND Properties rather than a panel of its
+        // own: a new project should have somewhere for the debugger to appear
+        // the first time it runs the game (Run opens it - runSelectedTarget),
+        // without spending a second column on a panel that is empty until then.
+        //
+        // Properties wins the tab because drawUI submits it first (it is drawn
+        // ~30 lines before drawDebuggerWindow) - a fresh dock node activates
+        // whichever of its windows is submitted first in the frame, which is
+        // the same mechanism documented on the Menu Designer recipe above.
+        // Docking order here does NOT decide it, so do not "fix" this by
+        // swapping these two lines.
+        ImGui::DockBuilderDockWindow("Debugger", right);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
         ImGui::DockBuilderDockWindow("Flow Graph", center);

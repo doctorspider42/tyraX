@@ -16,6 +16,34 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.24.0 (the Debug button becomes a build-profile dropdown): "run and open the
+// debugger" stops being a thing to remember and becomes what running a debug
+// build does. The button was Run plus opening the Debugger panel, which meant
+// the ordinary Run - the F5 every muscle memory reaches for - silently started
+// a debug session with nowhere to watch it. Now every launch path opens the
+// panel when the profile is debug, Live Debugger is on and the panel is closed;
+// only when closed, so one shut mid-session stays shut, and never re-docking or
+// stealing focus from one already open.
+//
+// THE HOOK IS ITS OWN CALL (App::openDebuggerForLaunch) BECAUSE THE PATHS DO NOT
+// SHARE ONE. Putting it in runSelectedTarget looked complete and was not: the
+// F5/F6 chords name their target rather than taking the toolbar's, so they reach
+// runner_ directly and every one of them would have slipped past it. Caught by
+// driving the built editor with --ui-script rather than by reading the diff.
+// Ctrl+Shift+B is deliberately excluded - it builds without running.
+//
+// IN THE BUTTON'S PLACE, THE BUILD PROFILE. The toolbar was missing the switch
+// that every chip to its right depends on - Live Link, the Live Debugger and
+// Live Logic exist in debug builds only, and their dimmed tooltips all ended by
+// naming a Preferences page. A labelled combo rather than another drawn glyph:
+// this is the one control on the bar whose current VALUE has to be readable at
+// a glance, and "why is there no LIVE chip" is answered by seeing "Release".
+//
+// AND NEW PROJECTS DOCK THE DEBUGGER BEHIND PROPERTIES, so the first run has
+// somewhere to report. Properties stays the selected tab, which is decided by
+// ImGui submission order (drawUI draws it first) and not by docking order -
+// noted where a future reader would otherwise "fix" it by swapping two lines.
+//
 // 1.23.0 (three readings that answered the wrong question): all three came from
 // one session of using the editor rather than from a test, and each is a
 // surface saying something true about a quantity nobody asked about.
@@ -631,7 +659,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 23
+#define TYRAX_VERSION_MINOR 24
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
