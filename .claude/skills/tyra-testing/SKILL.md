@@ -1206,6 +1206,10 @@ Notes:
   and yields a plausible, entirely fictional "stable" table — capture with
   **`-PrintWindow`**, which cannot see anything but the window itself, and diff
   frame 0 of one arm against frame 0 of another before believing any of it.
+  **And then read "The motion gate" below**: freezing the camera and the
+  emitters is what made this artefact reproducible, and it is also what makes
+  this instrument blind to every fault that only exists while the picture is
+  moving — four of which reached the owner on this branch.
 
 - **What is the OWNER debugging right now?** When the user asks about "my
   scene", "the last capture", "why does my model look like that", do NOT guess
@@ -1559,6 +1563,269 @@ test rather than a screenshot:
 - **crop the status bar out** if you want a cleaner number: it is the only thing
   moving in an idle frame, so its rows are pure noise for every comparison.
 
+### The motion gate: does the picture survive being MOVED?
+
+**Every check above this line freezes the camera.** That is what makes them
+reproducible, and it is exactly what makes them blind. Four defects on the
+upscaler branch reached the owner because no harness could see them:
+
+| defect | why every gate missed it |
+|---|---|
+| the jitter shake | the sampler used an **even frame stride**, so every capture landed on the same jitter phase and it reported a perfectly still picture |
+| terrain streaking at grazing angles | nothing ever *looked* at a moving ground plane |
+| BLSS x frame extrapolation tearing | **parked, all four arms are indistinguishable**; it exists only in motion |
+| black frames with triple buffering | found because a human happened to watch an agent's emulator |
+
+**A frozen fixture buys repeatability at the price of a whole class of faults.**
+The motion gate is the other half:
+
+```powershell
+# one arm = one four-leg run of the fixed route
+powershell -File .claude\skills\tyra-testing\scripts\motion-gate.ps1 `
+    -Project $env:TEMP\tyra-editor-test\mgate -Out <scratch>\armB -NoAnalyse
+# then compare it against the arm with ONE knob changed
+python .claude\skills\tyra-testing\scripts\motion-gate.py <scratch>\armB `
+    --baseline <scratch>\armC --bands 8
+```
+
+`motion-gate.ps1` captures; `motion-gate.py` decides (and is the cross-platform
+half - point it at any burst directory, so a Linux capture can feed it). Exit 0
+= nothing flagged, 1 = something flagged, 2 = the burst is not usable. A
+four-leg run is ~25 s of capture and ~1.5 GB of raw frames; analysing two arms
+is ~3 min.
+
+#### The fixture
+
+`scripts/routecam.cpp` is the route: a **global script** (`TYRA_SCRIPT`, no
+attachment) that drives `ctx.cameraOverride`/`cameraEye`/`cameraAt` from its own
+**frame index**, in four 200-frame legs that close into a loop -
+
+| leg | what it is | what it is for |
+|---|---|---|
+| `hold` | parked at one pose | the parked stability gate, as a leg: the noise floor, and the one place where "the picture moved" needs no argument |
+| `pan` | 50 deg of yaw | a near-rigid lateral move - the cleanest case for the residual |
+| `dolly` | 6 units forward, camera dropping 1.6 -> 0.9 | textured ground at a **grazing angle**, and a zoom that has no global translation at all |
+| `return` | the way back | reverse dolly plus reverse pan |
+
+Copy it into a fixture project's `src/scripts/`, fix the namespace, and set:
+**`displayMode: progressive`** (interlaced alternates fields, which is a
+period-2 signal by construction), **`showFps`/`showMemory`/`showProfiler` off**
+(a live frame counter inside the picture is pure noise), **`liveDebug` on** (the
+gate reads the game's frame counter out of `bin/livedbg.bin`), and the emitters
+left **RUNNING** - one of the four faults lives in exactly that combination.
+`examples/upscaler-lab` copied to a short path is the fixture this was built and
+measured on.
+
+#### Determinism: a frame-indexed route, and the pad as a ONE-SHOT trigger
+
+The Remote Pad refreshes at 25 Hz off the **host** wall clock, so a stick lands
+at a different frame offset in every run - which is why every measurement on
+this branch used a frame-indexed script camera instead. This gate does the same:
+the route is a pure function of the script's frame index, so two runs traverse
+identical content. **The pad's only job is to zero that index once.** A one-shot
+event's arrival jitter shifts the whole route equally instead of perturbing each
+capture, and if the press never lands the route still runs - only its phase is
+unknown. Three things fell out of building it:
+
+- **`getClicked()` did not reach a global script from `--pad`.** Measured: a
+  `press cross` reset nothing and three runs landed at three different route
+  phases; the same script reading **`getPressed()` with its own edge** resyncs
+  every time. `livepad::tick` raises `clicked` inside the frame it polls, so
+  anything reading it on the wrong side of that call never sees a remote press
+  at all. Use `getPressed()` and find the edge yourself.
+- **Schedule the legs in GAME FRAMES, not seconds.** The emulator does not run
+  at 100 % and its rate is not constant: this fixture measured 50-61 fps across
+  its own four legs, and **28.8 fps with frame extrapolation on** (the world
+  runs at half rate by design). Wall-clock scheduling walks the burst out of the
+  leg it belongs to within one loop; polling `livedbg.bin`'s frame counter
+  between bursts does not, and costs nothing.
+- **A parked leg whose picture is bobbing measures as "moving".** Take
+  parked-vs-moving from the ROUTE (the leg's name), never from the measurement,
+  or the gate switches to the moving-leg statistic and discards the one finding
+  that needed no argument at all.
+
+#### The statistic, which is the hard part
+
+Particles on `upscaler-lab` change more between frames than the artefact the
+parked gate hunts, and a walking camera moves every pixel. "% of pixels that
+changed" is not a signal here, it is a description of the route. So the gate
+does not measure the difference between two captures - it measures **the part of
+that difference that a rigid move of the whole picture cannot explain**:
+
+```
+d       global displacement, by phase correlation (integer + sub-pixel)
+raw     mean |A - B|                      <- dominated by the route
+mc      mean |shift(A, round(d)) - B|     <- what the move did not explain
+mc/raw  the unexplained FRACTION - scale-free, so it does not care how much
+        time passed or how far the camera went
+```
+
+Legitimate motion lands in `d`. Parallax, disocclusion and the emitters put a
+floor under `mc`, and that floor grows with the amount of change, which is what
+dividing by `raw` removes. Each defect is then something a rigid move cannot
+express - and each has its own column:
+
+- **a bob** is a displacement on top of the route. On the `hold` leg it is the
+  ENTIRE displacement, reported in pixels, needing no threshold argument. `mc`
+  compensates only the INTEGER part on purpose, so a sub-pixel bob stays in the
+  residual rather than being absorbed by the estimator meant to find it.
+- **a tear** is two displacements in one picture. Correlate horizontal BANDS and
+  look for a **step**, not for disagreement: forward motion makes every band
+  disagree with the whole frame (measured: dy of 0,0,0,0,+3,+6 sky to ground,
+  every frame of the dolly leg), so the statistic is the largest adjacent-band
+  jump *in excess of* the typical one. A band votes only when its own
+  correlation is at least 0.4 as confident as the whole frame's - the good bands
+  of a panning frame score 0.65-0.85 and the two that reported a bogus 30 px
+  scored 0.26-0.33, so an absolute floor does not separate them.
+- **a black frame** is a luma collapse. No statistic; just say it.
+- **streaking** is spatial, so every residual is reported PER BAND as well:
+  "the ground band is 6x the sky band" is the shape that artefact makes.
+- **something that stopped being DRAWN** is a per-tile question, and it is the
+  one that hands over a diagnosis. When a hardcoded `ZBUF` mask made a
+  full-screen pass stamp depth through the texture heap, the tell was not the
+  missing terrain everyone was looking at - it was that the **crosshair** had
+  gone too, in an arm whose terrain was untextured. On the `hold` leg both arms
+  are parked at the SAME pose, so their per-pixel MEDIAN frames (the median
+  removes the particles) compare tile by tile with no alignment and no
+  statistics: a tile that changed while its local variance collapsed **stopped
+  being drawn**; a tile that changed and kept its detail merely looks different,
+  and is reported as the much weaker thing it is.
+
+**Runs are compared as DISTRIBUTIONS over the same route, per leg** - never
+capture k against capture k. The captures are not frame-locked to anything (see
+below), so a paired comparison would report the sampler's own phase as a
+finding. **Change ONE knob between the arms** and the route, the emitters and
+the reconstruction are common mode; a verdict the baseline also produces on the
+same leg is dropped rather than reported.
+
+#### Rules this branch paid for, and that the scripts encode
+
+- **CONSECUTIVE CAPTURES, NEVER A STRIDE.** The capture loop sleeps for nothing.
+  It reports the interval it achieved (measured: **48-59 Hz** through
+  `PrintWindow` against a 50-60 fps game, i.e. ~1.0-1.3 game frames per capture)
+  and **warns when that lands within 0.04 of a whole number of frames** - an
+  even stride samples one phase of a period-2 artefact forever, which is exactly
+  how the shake survived its first harness.
+- **`-PrintWindow` by default.** A GDI `CopyFromScreen` reads the SCREEN, so an
+  occluded window captures whatever is physically in front of it - that once
+  grabbed the owner's browser instead of the emulator and produced a perfectly
+  plausible table. PrintWindow reads the window's own content, raises nothing
+  and steals no focus. **Select the emulator by the project on its command
+  line** (`-Project` does it; `-ProcessName` takes the first of several
+  worktrees' emulators).
+- **INSTRUMENT OUTSIDE THE LOOP YOU ARE PERTURBING.** The game's frame counter
+  is read from `bin/livedbg.bin` once before a burst and once after, never per
+  capture, and the per-capture index is interpolated and labelled as an
+  estimate. Adding 24 per-frame log lines inside the boot-banner loop moved the
+  black-frame defect's trigger and made it vanish; 45 HostFs reads a second is
+  the same kind of poking.
+- **`Start-Process -ArgumentList` does not quote its array elements**, so a
+  `;`-separated pad script arrives as loose argv and the driver dies on a stderr
+  nobody reads - which looks exactly like a dead pad channel. The `--pad` call
+  lives inside the `.ps1`, and **its stderr and exit code are read out loud**.
+- **A frame missing geometry entirely is a different question from a frame
+  drawing it wrong.** The gate writes the two frames of its worst capture plus
+  the 8x-amplified unexplained residual into `<leg>/look/`, because that
+  distinction discarded two wrong theories in an hour and only a picture answers
+  it.
+- **Take the crop ONCE** and never `-Trim`: a crop that follows the content
+  re-registers a picture that slid by a line into an identical image. The crop
+  is found from the first frame of the first arm and reused for both (`--box`),
+  and it needs a *coverage* rule rather than a bounding box - PCSX2's own FPS
+  readout sits in the letterbox, and one line of thin white text drags a plain
+  bounding box back over the black bars.
+
+#### What it caught, and what it could not (2026-08-11)
+
+**The acceptance test is retrospective**: a gate that cannot flag a defect we
+already understand is not a gate, and saying so is a better outcome than tuning
+a threshold until something trips. Fixture `examples/upscaler-lab` copied to
+`%TEMP%\tyra-editor-test\mgate`, PCSX2 software renderer, progressive 480p,
+emitters running, 110 captures per leg. **Arm C is the reference** (BLSS on,
+`blssJitter` off, no extrapolation - the shipped default) and every other arm is
+**one knob** away from it.
+
+| arm | leg | measurement | verdict |
+|---|---|---|---|
+| **C** reference | hold | move **0.00 px**, raw **0.120/255** | the noise floor, with the emitters running |
+| | pan | move 4.12 px, mc/raw 0.514 | - |
+| | dolly | no global shift at all; band mc ramps 0.22 -> 14.7 sky to ground | the zoom signature |
+| | (own flag) | PERIOD-2 on `pan`, 74/34 at 0.121 | present in EVERY arm, so dropped from every comparison |
+| **B** `blssJitter` **on** | hold | **5.34 px** of displacement per capture pair on a PARKED camera; mc **43.2x** the reference | `PICTURE MOVES`, `WORSE WHEN PARKED` |
+| | pan | **2.41x** the reference's unexplained residual | `WORSE IN MOTION` |
+| | dolly / return | mc/raw splits **53/56 at 12.1x** and **55/54 at 7.2x** | `PERIOD-2`, new against the reference |
+| **D** BLSS **x** frame extrapolation | (whole run) | the world rate halves to **28.8 fps** by design | frame-scheduled legs absorbed it with no change |
+| | hold | 0.24 px on a parked camera; mc **26.7x** the reference | `PICTURE MOVES`, `WORSE WHEN PARKED` |
+| | return | **2.24x** in motion; band mc **0.37 sky -> 29.6 ground, an 80x ratio** | `WORSE IN MOTION` - and that ratio IS the grazing-angle ground artefact, localised |
+| | dolly | mc/raw splits **50/59 at 5.3x** | `PERIOD-2`, new against the reference |
+
+**Run to run it repeats**: a second, independent capture of arm D on the same
+build read **26.93x** against the same reference where the first read 26.66x,
+and 0.23 px of parked displacement against 0.24. That is the number that says
+the sampler's own phase is not in the answer.
+
+Three things in that table are worth more than the numbers:
+
+- **The jitter shake is caught on the parked leg AND in motion**, which is the
+  whole point - the parked gate could only ever see the first.
+- **BLSS x extrapolation separates even PARKED, at 26.7x** - and the reason is
+  the fixture rule everything else fought: the **emitters are running**. Every
+  other frame is synthesised and a synthesised frame freezes the particles, so
+  the arm that froze the emitters for repeatability is exactly the arm in which
+  all four configurations look identical. Extrapolation is also a period-2
+  process by construction (real, synthetic, real, synthetic), which is why the
+  clustering comes out perfectly balanced.
+- **The gate flags the reference arm's own `pan` leg** (74/34 at 0.121, 4.0x).
+  That is honest and it is not the upscaler being exonerated: it is either the
+  24 fps model animation stepping under a 60 fps camera or BLSS' temporal pass
+  under motion, and this instrument cannot tell those apart. It is reported as
+  the baseline's own flag and subtracted from every comparison, which is what
+  keeps it from being read as a finding about the arm under test.
+
+**Forcing the refused combination.** BLSS x frame extrapolation is a build-time
+`#error`, and the whole refusal lives in one generated TU:
+`--refresh-gen` writes `src/gen/blss_interlock.gen.cpp` (and deletes it the
+moment the clash is gone). So a scratch fixture gets past it by **deleting that
+file and then building in the container by hand** - `--build` would regenerate
+it:
+
+```powershell
+tyrax-editor --refresh-gen $P            # prints "[blss] BUILD WILL BE REFUSED"
+Remove-Item "$P\src\gen\blss_interlock.gen.cpp"
+docker compose --project-directory $P -f "$P\docker-compose.yml" up -d
+docker compose ... exec -T compiler sh -c "rsync -a --delete --exclude=.git --exclude=obj --exclude=bin /host/ /src/"
+docker compose ... exec -T compiler sh -c 'cd /src && make -j$(nproc)'
+docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/** --exclude=* /src/ /host/"
+```
+
+**What it could NOT do.**
+
+- **The black-frame / triple-buffering defect was not reproduced.** Its fix is
+  three hunks inside `vendor/tyra`, and reverting them was out of this change's
+  scope. The DETECTOR is verified instead, against a real burst with three
+  captures blacked out: it named all three by capture index, route leg, time,
+  game frame and file. That is a check of the test and its reporting, not of the
+  defect - and the difference matters. What says the capture path would see the
+  real thing is the fix's own diagnosis: three of eight consecutive PrintWindow
+  captures came back black.
+- **"What stopped being drawn" refuses to answer on a bobbing leg**, by design.
+  A shaking picture smears its own median, local variance falls everywhere, and
+  the tile test then reports the whole textured half of the frame as gone - 41
+  tiles on the jitter arm, none of which stopped being drawn. So it prints
+  `NOT ASKED` above 0.5 px of bob. Fix the bob, then ask.
+  Even below it, read the tile list as a SHAPE rather than a count: a handful of
+  scattered tiles in the sky and at the edges is the translucent particle field
+  reconstructing differently between two arms (three GONE and three NEW on the
+  extrapolation arm, all of them haze), while the case this exists for - the
+  terrain, or a crosshair - is a contiguous block or a lone tile that holds a
+  sprite. `--tiles-x/--tiles-y` set the grain; 24x18 is ~40 px here.
+- **It cannot separate "the scene legitimately animated" from "the
+  reconstruction hiccupped"** inside one arm - see the reference arm's own `pan`
+  flag. The arm comparison is what makes a finding, and that needs a second
+  build.
+- **PCSX2 only.** Admissible for correctness (which is all this measures);
+  never quote a GS-fill or per-function number from it.
+
 ## Verifying the AI Assistant (docs/ai-chat.md)
 
 An AI feature looks untestable and is not: three of its four layers need no
@@ -1691,4 +1958,5 @@ multi-step turn needs, and closing the window mid-turn does not strand it.
 | Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
+| Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |

@@ -488,6 +488,29 @@ Eight things here that were paid for, and that any edit must keep:
   `needsBufferRealloc()`), which is `setDisplayOutput`'s mode-change branch minus
   the mode. It deliberately does **not** call `gs.reinit()` — `programDisplay()`'s
   `graph_set_mode` would reset the GS mid-init for nothing.
+- **That invariant has now been broken TWICE, in two different places, so treat
+  `zBuffer.mask` as owned by whoever made the allocation.**
+  `RendererCorePostFx::apply()`'s restore block re-programmed `ZBUF` with a
+  **hardcoded mask of 0**, and the `draw_enable_tests()` on the next line does
+  not cover for it: disassembled from ps2sdk's `libdraw.a`, it emits one A+D
+  qword at `GS_REG_TEST_1` and nothing else. So that literal was the last word
+  on `ZBUF` for the rest of the frame *and the next one*, and the following
+  frame's full-screen `clearScreen` sprite stamped 512×448 words of depth at the
+  display stride across a 256×224 allocation — into the texture heap, with the
+  same zeroed-4-bit-CLUT ending as above. It read as **"BLSS deletes the
+  terrain"** because `examples/showcase` has exactly one texture in the whole
+  project, the terrain's; and it stayed hidden because `apply()` early-returns
+  when no post-fx pass is enabled, so any project with bloom and grain at 0
+  never reached the line. **Grep `GS_SET_ZBUF` before adding a full-screen
+  pass**, and never write the mask from one. The full account with before/after
+  numbers is in `docs/neural-upscaler.md` §5 ("That invariant has been broken
+  TWICE") and `docs/backlog.md`.
+  The diagnostic worth stealing: the same broken arms were **also missing the
+  crosshair sprite**, including an arm whose terrain was untextured — a second,
+  unrelated-looking thing going missing at the same time is what said "this is
+  not the terrain path" long before any theory did. When a full-screen pass
+  misbehaves, inventory what ELSE stopped being drawn before theorising about
+  the thing you noticed first.
 - **The history is `frameBuffers[1 - context]`** — the previously presented frame,
   full resolution, free. That needed a new accessor on `RendererCoreGS` (the
   stock one returns the buffer being drawn INTO).

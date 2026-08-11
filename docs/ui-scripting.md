@@ -135,6 +135,18 @@ hold, and clears when the editor exits. Neither window was ever focused.
   out over the middle of the window, which is how the flow-graph zoom is tested.
   Every step that ends in a click still excludes whole-window items, or a bare
   window name would "click" whatever sits in its centre.
+- **A `wheel` keeps scrolling long after the step returns, and the next `click`
+  lands on whatever has slid under it.** ImGui trickles queued input **one event
+  per frame** (`io.ConfigInputTrickleEventQueue`), so `wheel X -19` hands the
+  window nineteen notches over the following nineteen frames *at least*. The
+  click that follows still reports SUCCESS - the item existed when it was looked
+  up - so this reads as "the button does nothing" and costs an hour. Measured
+  driving a long dialog: at `frames 10` the view moved another 300 px between
+  the `dump` and the click and the button was never pressed; at `frames 90` two
+  consecutive dumps agree and the click lands. So after any `wheel`: **`frames
+  60`-`90`, then `dump` TWICE and require the rects to agree** before clicking.
+  The same trickle is why `text` needs a `frames 5` before the button that
+  consumes what was typed.
 - A widget must be **visible** to be found: something scrolled out of view, or in
   a collapsed section, has to be scrolled/opened first (the containing tree node
   is a normal item, so `click` it).
