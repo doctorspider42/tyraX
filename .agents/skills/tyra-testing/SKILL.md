@@ -1273,6 +1273,23 @@ Notes:
   is a redeploy (*Run on PS2*, F6), not a retry — and it is why
   `--debug-state` reports the transport.
 
+  **Closing the editor is only the tidiest way to kill it.** `deployToPs2`,
+  `stopPs2` and `clean` each run `platform::killByName({"ps2client"})` —
+  `taskkill /F /IM ps2client.exe`, **machine-wide, by name** — so a *Run on
+  PS2* of a DIFFERENT project (or of the same project from another worktree's
+  editor, which this repo routinely has several of) silently takes down the
+  file server of the session you are watching. Diagnosed once from timestamps
+  alone: `livedbg.bin` and `livetime.bin` in project A froze to the second at
+  the moment project B was deployed, while `[ps2]` log lines kept scrolling in
+  the editor's Output panel. **That log is the trap** — it is UDP straight from
+  the console to whichever `ps2client` is listening, so it does not go through
+  the file server at all and keeps arriving after the file channel is dead.
+  Two transports, one dead, and only the live one is visible. Before blaming a
+  format or a version mismatch, check the surviving `ps2client`'s command line
+  (`Get-CimInstance Win32_Process -Filter "name='ps2client.exe'"`): if its
+  `execee host:<name>.elf` names a different ELF than the project you are
+  debugging, that is your answer.
+
   That leaves a bind for **scripted** hardware debugging: a probe needs the file
   server alive, but the editor that hosts it also drives `livedbg.cmd`, and two
   writers on that file is a known hazard. Break it by hosting the server

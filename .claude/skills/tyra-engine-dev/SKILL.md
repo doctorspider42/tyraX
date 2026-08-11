@@ -1235,6 +1235,29 @@ banner both, so a previously built ELF still reports.
   mode with MAGV=2x is visually equivalent (both fields step through every
   buffer line) and works. That crash is 1080i-specific: SDTV interlaced
   FRAME (the `InterlacedField` half-height mode below) is fine.
+- **The 2D origin follows the framebuffer, and it did not used to**
+  (`RendererCore2D::render`, `SPRITE_SPACE_HEIGHT`). Sprite coordinates are
+  framebuffer pixels with the origin at the top-left of the picture — every 2D
+  consumer assumes it (`drawHudText` at 16,16; the generated menu compositor
+  scaling its authored layout by `height/448`; `Renderer2D::note2dRect` handing
+  the rect to the frame warp as image coordinates). Upstream pinned the
+  vertical `XYOFFSET` for the sprite draw to a bare `SCREEN_CENTER`, which is
+  only the top of the picture while the buffer is the stock 448 rows — every
+  taller mode this fork added moves it. Measured in PCSX2 on `HiDef1080i`
+  (448x540): the whole HUD sat `(540 - 448) / 2 = 46` rows too high, the FPS
+  line was entirely above the visible picture and the MEM line below it was cut
+  in half ("the fps counter in HD is drawn above the screen"). `Pal576i`
+  (512x512) has the same fault, 32 rows. The fix centres the authored 448-row
+  space in `getRenderHeightF()`, so the term is exactly **zero** in the 448-row
+  modes and nothing that worked moved. **The trap inside the fix**: the space
+  must be HALVED for `InterlacedField`, because its sprites are already
+  squeezed into the 224-row buffer by the `v0.y *= 0.5` below — take the
+  unhalved 448 there and every sprite jumps 112 rows up. The X axis keeps the
+  raw constant on purpose: measured correct at both 512 and 448 wide, 2D is not
+  re-centred horizontally, and "fixing" it symmetrically pushes the HUD off the
+  left edge of a 448-wide raster. Verify a change here by BOOTING each mode and
+  looking — the modes differ only in two numbers and reasoning about GS
+  `XYOFFSET` from the source is how this survived so long.
 - **True field rendering (`DisplayMode::InterlacedField`)**: 480i/576i with
   half-height 512x224 frame/z buffers scanned at SMODE2.FFMD=FRAME — a
   fresh image per field, half the fill/VRAM of stock interlaced. The

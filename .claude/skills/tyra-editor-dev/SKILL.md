@@ -1268,6 +1268,35 @@ should watch goes into the ONE watch array: flow variables via
 because that is the TU that owns them), then save values read straight off
 `ScriptContext` - the sym file's per-entry `kind` is what tells the editor which
 is which.
+**The gate is `liveDebugEnabled` (profile + preference) and deliberately NOT
+`liveDebugOn` (which also demands an instrumented node).** It was the latter,
+and that took the WHOLE channel away from any project without a flow graph -
+which is most bare fixtures, and exactly the kind of project somebody opens the
+Debugger on. The channel is not just node hits: the Stats tab's frame rate, bag
+flushes, GS VRAM and free EE RAM, the VU1 capture and the crash report are
+properties of the FRAME. Symptom to recognise: `[ps2]` log lines keep arriving
+and the panel shows nothing forever, because the game wrote no `livedbg.bin` at
+all. If you add a per-node array to the runtime, remember `NODES` can now be 0 -
+`hits[]` is sized `NODES > 0 ? NODES : 1` because a zero-length array is not a
+C++ array.
+**And an empty panel must always SAY WHY** (`App::dbgSilenceReason`, one string
+read by both the state block and the Stats tab). "No stats yet." used to be the
+answer to three completely different situations, one of which is the ps2link
+failure below: a frozen-but-valid `livedbg.bin` sitting on disk. So the tick
+stats the FILE's age independently of whether snapshots are arriving, and the
+chip reads STALE SNAPSHOT rather than WAITING FOR THE GAME. Use
+`fs::file_time_type::clock::now()` for that age and never the system clock -
+`file_clock`'s epoch is implementation-defined and on this libstdc++ sits in the
+future (the chat_ui.cpp trap, in a second place now).
+**A console's file channel dies without a sound, and it is not the editor
+closing that does it most often.** `Runner::deployToPs2`, `stopPs2` and `clean`
+all run `taskkill /F /IM ps2client.exe` - BY NAME, machine-wide - so deploying
+ANY project (or another worktree's editor doing so) takes down the file server
+of every OTHER ps2link session on the machine. The console keeps running,
+blocked on `host:`, its devkit files frozen at their last write, while the UDP
+log stream carries on regardless because it does not go through that server.
+Two transports, one dead, only the live one visible: that is the shape to
+recognise before blaming a format or version mismatch.
 
 **Remote Pad** (`App::remotePadTick` each frame from `drawUI`, docs in
 docs/remote-pad.md) - the fourth direction, and the only one carrying INPUT:

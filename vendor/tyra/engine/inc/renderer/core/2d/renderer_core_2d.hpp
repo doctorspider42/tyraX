@@ -43,6 +43,10 @@ class RendererCore2D {
 
   static const float GS_DRAW_AREA;
   static const float SCREEN_CENTER;
+  // Modified by TyraX: the logical height sprites are authored against (448).
+  // render() centres that space in the actual framebuffer, so the 2D origin
+  // stays on the top of the picture in the taller display modes.
+  static const float SPRITE_SPACE_HEIGHT;
 
   u8 context;
   RendererSettings* settings;

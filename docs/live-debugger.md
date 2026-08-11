@@ -193,11 +193,43 @@ right-click one. Up to 1024 nodes and 64 breakpoints are tracked.
 In a debug build with the debugger on: one counter bump plus a ring write per
 node that fires, and one `fopen`/`fwrite` of a few KB every 6 frames (25 over
 ps2link, where every file operation is a network round-trip). Nothing on the GS.
-In a release build — or with the preference off, or in a project whose graphs
-have no runnable node — the generated runtime is an empty translation unit, every
-`livedbg::` entry point is an inline no-op and `halted()` is a compile-time
-`false`, so the game loop's `|| livedbg::halted()` folds away. There is nothing
-to strip out later.
+In a release build — or with the preference off — the generated runtime is an
+empty translation unit, every `livedbg::` entry point is an inline no-op and
+`halted()` is a compile-time `false`, so the game loop's `|| livedbg::halted()`
+folds away. There is nothing to strip out later.
+
+**A project with no flow graph still gets the runtime.** It used to not: the
+gate was the preference *and* at least one instrumented node, so a bare project
+generated the empty TU, wrote no `bin/livedbg.bin` at all, and the panel waited
+forever with nothing to say. But most of what this channel carries is not about
+anybody's logic — the **Stats** tab's frame rate, bag flushes, GS VRAM and free
+EE RAM, the VU1 capture and the crash report are properties of the *frame* — and
+a fixture with no graph is exactly the kind of project you open the Debugger on.
+The gate is now the debug profile plus the preference; the hit table is simply
+empty.
+
+### When the panel is empty, it says why
+
+An empty panel used to be the most expensive thing this channel could do: *"No
+stats yet."* was the same sentence whether the game had not booted, the build
+carried no runtime, or **the file server died half an hour ago with the console
+still running**. That last one is the ps2link failure mode and it leaves a
+perfectly valid `bin/livedbg.bin` frozen at its last write — indistinguishable
+from "no data yet" unless somebody thinks to look at the file's timestamp.
+
+So the editor stats that file every tick, independently of whether new
+snapshots are arriving, and reports one of two things from a single string that
+both the state block and the *Stats* tab read:
+
+- **no file at all** — nothing has reported yet; build and run, or (if the game
+  *is* running) rebuild it, because it predates the preference being switched on;
+- **a stale file** — the chip goes amber, reads **STALE SNAPSHOT** rather than
+  *WAITING FOR THE GAME*, and the text names **how old the snapshot is** and
+  that the cure is a redeploy rather than a retry.
+
+Because the game rewrites the file every 6 frames (25 over ps2link — roughly
+half a second either way), several seconds of silence is a dead channel and not
+a slow one. A collapsed frame rate makes the snapshot *late*, never absent.
 
 ## Limits
 
@@ -213,6 +245,18 @@ to strip out later.
   from the editor would need a second command channel and is not implemented.
 - **ps2link** serves the same file channel and the code paths are identical, but
   the verified target is PCSX2 (see PROGRESS 191).
+- **On a console the file channel outlives nothing.** It is served by a
+  `ps2client` the Runner spawned, and *one file server at a time* is enforced by
+  name: closing the editor, **Stop on PS2**, a **Clean**, or deploying **any
+  other project** takes it down. The console does not notice — the game keeps
+  running, blocked on `host:`, and every devkit file stays frozen at its last
+  write while the `[ps2]` log keeps scrolling, because the log is UDP and does
+  not go through that server at all. **Two transports, one of them dead, and
+  only the log is visible.** That is what the stale-snapshot report above
+  exists to name. A game that is still running does not need a rebuild — either
+  redeploy (**F6**), or serve it yourself with
+  `ps2client -h <ip> listen` from the project's `bin/` and it resumes within
+  seconds.
 - Sequences, object scripts and custom `.flownode` C++ bodies are not
   instrumented beyond the node that invokes them.
 

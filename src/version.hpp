@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.21.2 (two silences: the Live Debugger reported nothing for a project with
+// no flow graph, and the HD HUD was drawn above the picture). Two independent
+// fixes, no setting moves, the format is untouched: PATCH.
+//
+// (1) The Live Debugger's whole runtime was gated on there being at least one
+// instrumented flow-graph NODE (`liveDebugOn` = the preference AND a node to
+// instrument), so a project without a graph generated an empty
+// live_debug.gen.cpp, wrote no bin/livedbg.bin at all, and the panel waited
+// forever. But the channel carries far more than node hits: the Stats tab's
+// frame rate, bag flushes, GS VRAM and free EE RAM, the VU1 capture and the
+// crash report are properties of the FRAME and have nothing to do with
+// anybody's logic - and a bare fixture with no graph is exactly the kind of
+// project somebody opens the Debugger on. Codegen now emits the runtime for
+// any debug build with the preference on (`liveDebugEnabled`); the zero-cost
+// rule is untouched, because that predicate still requires the debug profile,
+// and a release build still gets the empty TU and the no-op header.
+//
+// (2) The same report had a second half nobody could separate from the first:
+// the panel says the identical "No stats yet." whether the game has not
+// booted, the build carries no runtime, or the file server died half an hour
+// ago with the console still running. That last one is the ps2link failure
+// mode - `bin/livedbg.bin` is a perfectly valid snapshot frozen at its last
+// write - and it is now named as such, with the file's age and the remedy (a
+// redeploy, not a retry), from ONE string both the Debugger's state block and
+// the Stats tab read.
+//
 // 1.21.1 (the upscaler DELETED the terrain of any project with post fx): a
 // second instance of the shrunken-z-buffer hazard 1.19.x fixed in
 // RendererCoreBlss::configure, this time in the post-fx pass, and reported as
@@ -526,7 +552,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 21
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

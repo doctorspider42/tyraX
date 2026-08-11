@@ -3024,6 +3024,18 @@ private:
     double dbgSnapTime_ = 0.0;      // when the newest snapshot arrived
     double dbgSnapPrevTime_ = 0.0;  // and the one before it (for the FPS)
     uint32_t dbgSnapPrevFrame_ = 0;
+    // What bin/livedbg.bin looks like ON DISK, independent of whether it is
+    // still MOVING. A dead channel (the file server went away, the console
+    // kept running) leaves a perfectly valid snapshot frozen at its last
+    // write, and that is indistinguishable from "no data yet" unless the age
+    // is carried across - which is what cost a whole evening once. Seconds
+    // since the file was last written; < 0 means there is no file at all.
+    double dbgSnapFileAge_ = -1.0;
+    double dbgSnapFileNextStat_ = 0.0;  // gate for the stat (it is per tick)
+    /** One sentence naming why no live stats are on screen, plus what to do
+     * about it. Empty while the game is reporting normally. Shared by the
+     * window's state block and the Stats tab so the two cannot disagree. */
+    std::string dbgSilenceReason() const;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
