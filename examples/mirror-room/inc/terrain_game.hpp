@@ -259,6 +259,7 @@ class TerrainGame : public Tyra::Game {
       float weight = 0.0F;
       float previousVy = 0.0F;
       float clearance = 0.0F;
+      float downReach = 0.0F;
       float filteredGap = 0.0F;
       float filteredVy = 0.0F;
       float lipMemory = 0.0F;

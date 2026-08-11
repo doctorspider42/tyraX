@@ -4062,6 +4062,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
   float traceNeural[2] = {0.0F, 0.0F};
   int traceNeuralApplied[2] = {0, 0};
   float traceClearance[2] = {0.0F, 0.0F};
+  float traceDownReach[2] = {0.0F, 0.0F};
   float traceNormalY[2] = {1.0F, 1.0F};
   float traceAlign[2] = {0.0F, 0.0F};
     float traceSweep[2] = {0.0F, 0.0F};
@@ -4418,6 +4419,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       foot.restLocked = false;
       foot.releasing = false;
       foot.weight = 0.0F;
+      foot.downReach = 0.0F;
       foot.contactTime = 0.0F;
       foot.plantCandidateTime = 0.0F;
       foot.releaseTime = 0.0F;
@@ -4428,6 +4430,49 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     foot.clearance += (wantedClearance - foot.clearance) * clearanceBlend;
     if (wantedClearance == 0.0F && foot.clearance < 0.0005F)
       foot.clearance = 0.0F;
+
+    // Downstairs needs a phase between free swing and a real plant. The
+    // contact gate deliberately refuses to lock a fast foot, but leaving the
+    // authored ankle untouched until it slows can make it finish the stride
+    // above a lower tread. Once the sole ray proves reachable support below a
+    // descending foot, guide only Y toward it; XZ stays authored and the foot
+    // remains unlocked, so this cannot recreate flat-ground glue.
+    const float downReachLimit =
+        o.data.ikPlant + o.data.ikPelvis * 0.65F;
+    const float downGap = hit ? soleWorld.y - ground : 0.0F;
+    const ObjectGeometry::FootState& supportFoot = rt.foot[1 - side];
+    const bool lowerTread = supportFoot.locked && supportFoot.weight > 0.15F &&
+        ground < supportFoot.lockedWorld.y - 0.025F;
+    const bool descendingForReach =
+        vy <= -0.04F || (foot.downReach > 0.001F && foot.filteredVy <= 0.04F);
+    float wantedDownReach = 0.0F;
+    if (!foot.locked && !foot.releasing && hit &&
+        wantedClearance <= 0.0F && objectSpeed > 0.08F &&
+        lowerTread && descendingForReach && downGap > o.data.ikPlant &&
+        downGap <= downReachLimit) {
+      float reachT = 1.0F -
+          (downGap - o.data.ikPlant) /
+              fmaxf(0.001F, downReachLimit - o.data.ikPlant);
+      if (reachT < 0.0F) reachT = 0.0F;
+      if (reachT > 1.0F) reachT = 1.0F;
+      reachT = reachT * reachT * (3.0F - 2.0F * reachT);
+      wantedDownReach = 0.22F + reachT * 0.56F;
+    }
+    if (wantedDownReach == 0.0F &&
+        (!hit || wantedClearance > 0.0F || foot.filteredVy > 0.04F ||
+         !lowerTread || objectSpeed <= 0.08F ||
+         downGap <= o.data.ikPlant ||
+         downGap > downReachLimit)) {
+      foot.downReach = 0.0F;
+    } else {
+      float downReachBlend = g_frameDt *
+          (wantedDownReach > foot.downReach ? 14.0F : 20.0F);
+      if (downReachBlend > 1.0F) downReachBlend = 1.0F;
+      foot.downReach +=
+          (wantedDownReach - foot.downReach) * downReachBlend;
+      if (wantedDownReach == 0.0F && foot.downReach < 0.0005F)
+        foot.downReach = 0.0F;
+    }
 
     if (foot.locked) {
       const float dx = soleWorld.x - foot.lockedWorld.x;
@@ -4485,6 +4530,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
         foot.lockedWorld = Vec4(candidateX, candidateGround, candidateZ, 1.0F);
         foot.lockedNormal = candidateNormal;
         foot.clearance = 0.0F;
+        foot.downReach = 0.0F;
         foot.planReady = false;
         foot.planWeight = 0.0F;
       }
@@ -4542,7 +4588,14 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       targetWorld.y += foot.clearance;
       legWeight = 1.0F;
     }
-    if (!foot.locked && !foot.releasing && foot.planReady &&
+    if (!foot.locked && !foot.releasing && foot.clearance <= 0.0F &&
+        foot.downReach > 0.001F && hit) {
+      targetWorld = ankleWorld;
+      targetWorld.y = ground + sole;
+      if (foot.downReach > legWeight) legWeight = foot.downReach;
+    }
+    if (!foot.locked && !foot.releasing && foot.downReach <= 0.001F &&
+        foot.planReady &&
         foot.planWeight > 0.001F) {
       float dx = foot.plannedWorld.x - ankleWorld.x;
       float dz = foot.plannedWorld.z - ankleWorld.z;
@@ -4595,6 +4648,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     traceNeural[side] = neuralConfidence;
     traceNeuralApplied[side] = neuralApplied ? 1 : 0;
     traceClearance[side] = foot.clearance;
+    traceDownReach[side] = foot.downReach;
     traceNormalY[side] = supportNormal.y;
     traceAlign[side] = adjust.legs[side].alignWeight;
     traceSweep[side] = sweepClearance;
@@ -4622,7 +4676,8 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                neuralClearance, ",", neuralRelease, ",", foot.filteredGap,
                ",", foot.filteredVy, ",", foot.lipMemory, ",",
                foot.swingTime, ",", sweepClearance, ",", foot.planScore,
-               ",", neuralApplied ? 1 : 0, ",", sweepRise);
+               ",", neuralApplied ? 1 : 0, ",", sweepRise, ",",
+               foot.downReach, ",", downGap);
     foot.previousWorld = soleWorld;
     foot.previousVy = vy;
   }
@@ -4712,7 +4767,8 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
              traceAlign[1], ",", traceSweep[0], ",", traceSweep[1], ",",
              tracePlan[0], ",", tracePlanApplied[0], ",", tracePlan[1],
              ",", tracePlanApplied[1], ",", rt.pelvisOffsetWorld.x, ",",
-             rt.pelvisOffsetWorld.z, ",", rt.bodyPitch, ",", rt.bodyRoll);
+             rt.pelvisOffsetWorld.z, ",", rt.bodyPitch, ",", rt.bodyRoll,
+             ",", traceDownReach[0], ",", traceDownReach[1]);
   inst.setPoseAdjust(adjust);
 }
 

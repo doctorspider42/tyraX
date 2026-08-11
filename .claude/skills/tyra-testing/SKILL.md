@@ -583,6 +583,10 @@ within six frames (the intentional idle-to-walk handoff is excluded) and
 frames where the stair sweep requested clearance without recording a raised
 support. A clean route should report zero for all three; these counters catch
 the visible glue/pop cycle even when its eased ankle correction stays small.
+Downstairs routes additionally report down-reach frames, the maximum reach
+weight/gap, and how many real contacts followed a reach within 12 frames. This
+distinguishes useful unlocked extension from a contact that merely happened
+after the player root had already dropped.
 `training-frames.csv` is the raw per-foot `FOOTTRAIN` sequence.
 `training-samples.csv` uses the exact 16 normalized runtime features and labels
 each unlocked frame from the next verified contact (at most 18 frames ahead),

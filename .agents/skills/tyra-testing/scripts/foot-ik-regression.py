@@ -71,6 +71,8 @@ FOOT_HEADER = [
     "pelvis_shift_z",
     "body_pitch",
     "body_roll",
+    "left_down_reach_weight",
+    "right_down_reach_weight",
 ]
 TRAIN_HEADER = [
     "frame",
@@ -107,6 +109,8 @@ TRAIN_HEADER = [
     "plan_score",
     "plan_applied",
     "sweep_rise",
+    "down_reach_weight",
+    "down_reach_gap",
 ]
 SAMPLE_HEADER = [
     *[f"f{i}" for i in range(16)],
@@ -372,6 +376,8 @@ def summarize(
     previous_locked_by_leg: dict[tuple[int, int], bool] = {}
     last_contact_by_leg: dict[tuple[int, int], int] = {}
     last_contact_moving_by_leg: dict[tuple[int, int], bool] = {}
+    last_down_reach_by_leg: dict[tuple[int, int], int] = {}
+    down_reach_contact_transitions = 0
     for row in training:
         if len(row) < 33:
             continue
@@ -379,6 +385,8 @@ def summarize(
         key = (obj, side)
         locked = row[20] > 0.5
         was_locked = previous_locked_by_leg.get(key, False)
+        if len(row) >= 36 and row[34] > 0.01:
+            last_down_reach_by_leg[key] = frame
         if locked and not was_locked:
             object_speed = math.hypot(row[3], row[4])
             foot_speed = math.hypot(row[5], row[7])
@@ -391,6 +399,9 @@ def summarize(
                 rapid_replant_frames += 1
             last_contact_by_leg[key] = frame
             last_contact_moving_by_leg[key] = object_speed > 0.08
+            last_down_reach = last_down_reach_by_leg.get(key)
+            if last_down_reach is not None and frame - last_down_reach <= 12:
+                down_reach_contact_transitions += 1
         previous_locked_by_leg[key] = locked
         if len(row) >= 34 and row[30] > 0.001 and row[33] <= 0.025:
             unsupported_sweep_clearance_frames += 1
@@ -404,6 +415,18 @@ def summarize(
         "fast_contact_transition_frames": fast_contact_transition_frames,
         "rapid_replant_frames": rapid_replant_frames,
         "unsupported_sweep_clearance_frames": unsupported_sweep_clearance_frames,
+        "down_reach_frames": sum(
+            1 for row in training if len(row) >= 36 and row[34] > 0.01
+        ),
+        "down_reach_contact_transitions": down_reach_contact_transitions,
+        "max_down_reach_weight": max(
+            (row[34] for row in training if len(row) >= 36), default=0.0
+        ),
+        "max_down_reach_gap": max(
+            (row[35] for row in training
+             if len(row) >= 36 and row[34] > 0.01),
+            default=0.0,
+        ),
         "max_physical_root_step": physical_step,
         "max_visual_root_step": visual_step,
         "root_step_reduction_ratio": (

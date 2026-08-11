@@ -166,6 +166,16 @@ released contact keeps its old target while its weight smoothsteps to zero over
 0.08 seconds; target height and influence therefore cannot jump on the same
 frame when a probe crosses a stair edge.
 
+Descending stairs also use a short **down-reach** phase before contact. When a
+sole ray proves that a tread is both reachable and lower than the opposite
+planted foot, and the authored foot is moving down, the solver gradually
+extends only the ankle's vertical target toward that tread. It does not lock
+the foot or alter its horizontal path, so a fast swing can finish the step
+without hovering while flat-ground toe-off remains free.
+The ordinary speed and confirmation gates still decide when the real plant may
+begin. This geometry-backed phase works with neural prediction disabled; the
+network may improve the upcoming XZ candidate but never invents support.
+
 During the unlocked swing, two short probes look ahead in the character's
 travel direction (or the ankle direction for an in-place animation). The
 current support normal predicts the continuous uphill rise; only an abrupt

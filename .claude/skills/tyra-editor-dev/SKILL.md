@@ -161,6 +161,12 @@ continuous slope does not masquerade as a stair lip. A higher abrupt surface
 cancels a stale lower-step release target before the vertical
 riser can intersect the shoe. Terrain normals use height gradients; mesh hits
 use `CollisionMesh::raycast`'s optional triangle normal.
+Descending stairs have a separate geometry-backed down-reach phase: after a
+sole ray proves support at least 2.5 cm below the opposite planted foot, a
+descending unlocked foot blends only its Y target toward that support while
+preserving authored XZ. It is guidance, not contact; the normal
+horizontal-speed and stable-candidate gates still own the plant, and upward
+motion cancels the reach so flat-ground swing cannot glue.
 The optional neural layer is a deterministic 16-16-5 VU0-macro network trained
 by `tools/train-foot-neural.py` from synthetic geometry plus
 `tools/data/foot-neural-real.csv`. It consumes the same near/far lip residuals
