@@ -1074,8 +1074,13 @@ std::string emitGeneratedSource(const Net& n) {
     // actually shipped broken. A legible #error beats
     // "unable to find numeric literal operator" from inside a Docker build.
     std::string bad;
+    // No apostrophe and no quote in the message: an unpaired one inside a
+    // #error draws a "missing terminating ' character" warning out of GCC on
+    // every translation unit that reads the file - this line used to open one
+    // and never close it. See errorSafe() in templates.cpp.
     if (!literalProbesOk(&bad))
-        s.insert(0, "#error BLSS emitter is producing invalid float literals ('" + bad + ")\n");
+        s.insert(0, "#error BLSS emitter is producing invalid float literals: " +
+                        bad + "\n");
     return s;
 }
 

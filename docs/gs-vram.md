@@ -34,7 +34,7 @@ than their pixel count suggests. Concretely, at 32bpp:
 | 256×256 | 67 584 | 24% |
 | 512×512 | 264 192 | 93% — one texture, basically the whole heap |
 
-Palettizing is the single biggest lever: *Preferences > Build > Textures*
+Palettizing is the single biggest lever: *Preferences > Rendering > Textures*
 at 4-bit turns a 256×256 into ~1/8 of the pixels plus a small CLUT. It is why
 the `showcase` example, which draws a whole village, never comes close to
 filling VRAM.

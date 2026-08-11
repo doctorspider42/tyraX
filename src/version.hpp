@@ -16,6 +16,65 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.18.0 (Project Preferences gets a shape, and the refused pair becomes
+// unreachable): two defects reported from use, and the fixes to both are
+// structural rather than cosmetic.
+//
+// THE ADVANCED... BUTTON DID NOTHING, and so did Open Ambience Editor. A modal
+// blocks every click on anything behind it, so raising a window from inside one
+// leaves it visible, inactive and untouchable - the button looked broken because
+// functionally it was. Open Loading Screens editor had the other half of the
+// bug: it closed the dialog and silently DISCARDED the staged edits. All three
+// are one helper now, over the same apply the OK button uses. It APPLIES rather
+// than cancels, for a reason specific to what it opens: those windows edit
+// project_.settings LIVE, so a cancelled dialog would show them the values on
+// disk while the user is looking at the ones they just set, and the tick made on
+// the way to pressing Advanced... would vanish. It says so on the line under
+// each button, in the tooltip, and in the status bar afterwards.
+//
+// THE OK BUTTON WAS AT THE BOTTOM OF A VERY LONG SCROLL. The dialog was one
+// vertical stack of a dozen sections with the footer inside it, so confirming
+// meant scrolling past everything - and every setting anybody added made that
+// worse. Two fixes, and the first matters more than the one that was asked for:
+// the footer is PINNED OUTSIDE the scrolling region (each tab body reserves it),
+// which is what stops the next setting putting the dialog back where it was; and
+// then five TABS - Display, World, Rendering, Player, Build - derived from the
+// sections that were already there. The old "Build" section was doing two jobs,
+// the video signal and the ELF's contents, and splitting it is most of the
+// regrouping: "how does a frame reach the screen" is now one tab, holding the
+// signal, the presentation and BOTH reconstruction features. The dialog is also
+// 720 px rather than 560, which is the cheap half of the wrapping complaint.
+//
+// AND THE INCOMPATIBLE PAIR IS NOW UNREACHABLE rather than refused four minutes
+// later in Docker. BLSS x frame extrapolation is the only one of the five
+// clashes that CAN be prevented - it is setting against setting, and both
+// switches are in one block - so whichever is already on greys the other out
+// with the reason in line (a greyed control that explains itself only on hover
+// reads as a bug). The other four are setting against scene CONTENT and keep the
+// warning; you cannot grey out a portal somebody placed. Only the TICK is ever
+// blocked, never the untick, so a project that arrives with both on - a
+// hand-edited .tyra, an older editor, a Set Frame Extrapolation node - can
+// always turn one off. The build interlock STAYS as the backstop for exactly
+// those three routes.
+//
+// The interlock's own two defects, also reported from use, are fixed with it: it
+// was emitted into inc/scene_data.hpp, which fourteen translation units include,
+// so one clash printed one 340-character paragraph forty-two times (GCC prints
+// an #error three times over) and the reporter's whole build log was that wall;
+// and the authored words "the upscaler's temporal pass" are an unterminated
+// character constant to the preprocessor, so every one of those TUs also carried
+// a bogus "missing terminating ' character" warning. The messages are one short
+// line each now - the pair, the scene, one place to fix it, and the doc page for
+// the why - errorSafe() covers the whole line rather than only the interpolated
+// names, and the refusal lives in src/gen/blss_interlock.gen.cpp, a TU of its
+// own that refreshGenerated DELETES when the project stops clashing. Measured:
+// 42 diagnostic lines plus 14 warnings became 3 lines and no warning.
+//
+// MINOR: a capability appears - the editor now refuses to let an invalid
+// combination be authored at all, which it previously only complained about -
+// while no default moves and the format is untouched (still v16, no new field,
+// no migration step). The reorganisation on its own would have been PATCH.
+//
 // 1.17.1 (the upscaler and frame extrapolation refuse each other): a user
 // reported that turning both on makes the picture disintegrate, and it does -
 // but only IN MOTION, which is why nothing on this branch had seen it. Every
@@ -256,8 +315,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 17
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 18
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

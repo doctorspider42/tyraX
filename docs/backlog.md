@@ -20,6 +20,29 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
+## Project Preferences, after the tabs
+
+The dialog is five tabs with a pinned footer now (1.18.0), which fixes the two
+reported defects and leaves three smaller things visible:
+
+- **The other long modals have the same shape problem in miniature.** *Scene
+  Preferences* already pins its footer but its body still scrolls a long way -
+  the upscaler block is 25 wheel notches down, which is where `--ui-script`'s
+  trickle trap bites. Tabs there would follow the same category split the
+  category lambda already names.
+- **The `--ui-script` reach into a tab is a hazard worth a tool fix, not just a
+  doc line.** A widget in an unselected tab does not exist, so a script that
+  forgets a tab click fails with "no such item" and reads as a deleted control.
+  A `tab <window>/<name>` step, or a `find` that selects a target's tab before
+  giving up, would remove the whole class. Documented in docs/ui-scripting.md
+  meanwhile.
+- **Only ONE of the five upscaler clashes can be prevented in the dialog.** BLSS
+  x frame extrapolation is setting against setting; the other four are setting
+  against scene content. The nearest thing to prevention for those would be
+  refusing at the point the CONTENT is created (placing a linked portal in an
+  upscaled scene) - which is a much bigger idea than a greyed checkbox and is
+  not obviously right, since the object may be placed before the setting.
+
 ## Queued (rough order)
 
 - **OWED: a hardware pass on the frame-pacing / neural-upscaler MERGE.** The
@@ -116,7 +139,7 @@ the verification, and any fact worth reusing belongs in the relevant
   - **DONE: frame extrapolation** (docs/frame-extrapolation.md) - the engine
     module and `RendererCore::presentWarpFrame` land here; measured 25 Hz world /
     50 Hz picture, plus the project switch that wires it into the generated
-    loop (Preferences > Build). Still owed: a **frame-accurate way
+    loop (Preferences > Display > Frame delivery). Still owed: a **frame-accurate way
     to verify a synthesised frame** (see the doc - the compositor screencast
     cannot isolate one of two images alternating at 50 Hz), redrawing dynamic
     objects and the HUD on top of a warped frame, and hardware.

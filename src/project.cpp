@@ -7109,6 +7109,12 @@ std::string refreshGenerated(const Project& p) {
             // that was just retrained with --blss-train) keeps compiling the
             // untrained weights it was first scaffolded with.
             f.relativePath == "inc\\blss_net.gen.hpp" ||
+            // The BLSS build refusal, in a TU of its own so the compiler prints
+            // it once rather than once per includer of scene_data.hpp. Only in
+            // `generated` while the project actually clashes; the sweep below
+            // deletes it when it stops, which is the half that matters - a
+            // stale refusal would block a build that is fine.
+            f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
             f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\prefab_data.gen.hpp" ||
@@ -7243,6 +7249,22 @@ std::string refreshGenerated(const Project& p) {
             }
             if (grew)
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
+        }
+    }
+
+    // Sweep the BLSS build refusal when the project no longer clashes. Same
+    // reasoning as the VU sweep below - Makefile.base globs src/**/*.cpp, so a
+    // leftover would keep refusing a build that is now perfectly fine, and
+    // there is no worse failure than a guard that fires after the thing it
+    // guards against is gone (docs/neural-upscaler.md, Limitations).
+    {
+        bool wanted = false;
+        for (const auto& f : generated)
+            wanted |= f.relativePath == "src\\gen\\blss_interlock.gen.cpp";
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / "src" / "gen" / "blss_interlock.gen.cpp",
+                       ec);
         }
     }
 

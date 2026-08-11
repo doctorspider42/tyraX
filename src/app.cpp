@@ -13266,33 +13266,102 @@ void App::drawPreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // TWO STRUCTURAL CHOICES, and the first is the one that matters.
+    //
+    // (1) AN EXPLICIT SIZE, NOT AlwaysAutoResize. This dialog was one vertical
+    //     stack - Frame delivery, AI navigation, Ambience, Scenes, Shadows,
+    //     Usable objects, the camera, Build and more - with OK and Cancel at the
+    //     BOTTOM OF THE CONTENT, so confirming meant scrolling past everything
+    //     first, and every setting anyone added made that worse. The footer is
+    //     outside the scrolling region now: it is always one click away no
+    //     matter how long the content grows, which is the fix the tabs below do
+    //     NOT provide (a single tab can still outgrow the screen). Same shape as
+    //     Scene Preferences, which hit this first and solved it the same way.
+    // (2) 720 rather than 560 wide. The explanatory text under Frame delivery
+    //     wraps, and at 560 it wrapped into paragraphs several lines deep. This
+    //     is the cheap half of that complaint; the pre-wrapped `\n` prose is
+    //     unaffected either way, which is why it is not wider still.
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(720),
+               std::min(scaled(860), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Project Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
+    if (!ImGui::BeginPopupModal("Project Preferences", nullptr, 0)) return;
+
+    // What OK does, as a function, because three buttons in here also have to do
+    // it - see the Advanced... note in the Display tab. Two copies of this is
+    // how one of them silently stops applying something.
+    auto applyPrefs = [&]() {
+        // gameTemplate is deliberately NOT written back - the preset is fixed
+        // at creation and this dialog only shows it.
+        project_.settings = prefSettings_;
+        project_.active().terrain = prefTerrain_;
+        applyProjectToViewport();  // scenes that inherit follow the new defaults
+        commitChange();
+    };
+    // A BUTTON IN A MODAL THAT OPENS A WINDOW HAS TO CLOSE THE MODAL, and it has
+    // to decide what happens to the staged edits. Both halves were wrong here:
+    // Advanced... and Open Ambience Editor raised a window BEHIND the modal,
+    // which blocks every click on it, so they read as buttons that do nothing;
+    // Open Loading Screens editor closed the dialog and DISCARDED whatever had
+    // been staged.
+    //
+    // It APPLIES. Not cancels, and the reason is specific rather than a
+    // preference: the windows these buttons open edit `project_.settings`
+    // LIVE - the upscaler window draws the very same block through
+    // drawBlssSettings and commits per widget. Cancelling first would open it
+    // showing the values on disk while the user is looking at the ones they just
+    // set, and the tick they made on the way to pressing Advanced... would
+    // vanish. Applying is also the only reading under which the two windows
+    // cannot disagree.
+    //
+    // "Not silently": each button says so on the line beneath it, its tooltip
+    // repeats it, and the status bar confirms it afterwards.
+    auto applyAndOpen = [&](bool& show) {
+        applyPrefs();
+        show = true;
+        statusMessage_ = "Project preferences applied.";
+        ImGui::CloseCurrentPopup();
+    };
+    const char* kOpensWindow =
+        "Applies these preferences and closes this dialog - the window it opens "
+        "edits the project live, so the two must not disagree.";
+
+    // The footer's own height, reserved out of every tab body below: the
+    // separator, three lines of note and the button row.
+    const float footerH = ImGui::GetFrameHeightWithSpacing() +
+                          ImGui::GetTextLineHeightWithSpacing() * 3.0f +
+                          ImGui::GetStyle().ItemSpacing.y * 3.0f;
+    // TABS, and the grouping is derived from the sections that were already
+    // here rather than invented: the old "Build" section was doing two jobs at
+    // once - how the picture reaches the TV, and what goes into the ELF - and
+    // splitting it is most of this. Display holds the signal, the presentation
+    // and the two reconstruction features, so "how does a frame reach the
+    // screen" is one tab and the upscaler is in it. Rendering is what the frame
+    // is made of. World is the space the game happens in. Player is who the
+    // player is and how they control. Build is what the built ELF contains.
+    //
+    // A WIDGET INSIDE AN UNSELECTED TAB DOES NOT EXIST - it is not submitted, so
+    // it is not in `dump` and `--ui-script` cannot reach it. Every script that
+    // drives this dialog has to select its tab first; see docs/ui-scripting.md,
+    // "A widget inside an unselected tab does not exist".
+    if (!ImGui::BeginTabBar("##prefstabs")) {
+        ImGui::EndPopup();
         return;
-
-    ImGui::SeparatorText("Game");
-    // Read-only on purpose: the preset is picked once, in New Project. It
-    // decides which game-template sources are generated, and those are
-    // user-ownable - switching here would either overwrite work or leave an
-    // owned source no longer matching what the project builds.
-    ImGui::BeginDisabled();
-    {
-        int shown = presetIndexOf(project_.gameTemplate);
-        const char* names[kNewPresetCount];
-        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
-        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
     }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Fixed when the project was created and not changeable here: it picks\n"
-        "the generated game sources (files with the editor marker), which you\n"
-        "may have taken ownership of. Start a new project to use another\n"
-        "preset. The player's own camera settings stay editable - select the\n"
-        "Player object and see Properties.");
+    auto beginTab = [&](const char* name) {
+        if (!ImGui::BeginTabItem(name)) return false;
+        // BeginTabItem pushes the tab's id, so one child name serves them all.
+        ImGui::BeginChild("##body", ImVec2(0, -footerH));
+        return true;
+    };
+    auto endTab = [&]() {
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+    };
 
-    ImGui::SeparatorText("Build");
+    if (beginTab("Display")) {
+    ImGui::SeparatorText("Video signal");
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
                    : prefSettings_.videoSystem == "ntsc" ? 1
                                                          : 0;
@@ -13352,6 +13421,45 @@ void App::drawPreferencesModal() {
             "whatever this resolves to on the player's console. (Field\n"
             "rendering has no full-height variant yet.)");
     }
+    // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
+    // declaration the editor reads (menu previews, the display-row scaffold,
+    // the per-resolution menu fit check) - see docs/menu-styles.md
+    // "Resolutions". Menus scale to whatever mode the player ends up in either
+    // way; this is how the editor knows which ones to check.
+    if (ImGui::TreeNode("Supported resolutions")) {
+        ImGui::TextDisabled(
+            "Which scan modes a player can end up in. Used by the Menu Editor's\n"
+            "per-resolution preview and fit check, and by the scaffolded DISPLAY\n"
+            "menu row. None ticked = only the mode above.");
+        for (const DisplayModeInfo& d : project::displayModes()) {
+            bool on = false;
+            for (const std::string& k : prefSettings_.supportedModes)
+                on |= (k == d.key);
+            const bool isBoot = project::bootDisplayMode(prefSettings_) == d.key;
+            char lbl[96];
+            std::snprintf(lbl, sizeof(lbl), "%s  (%dx%d)%s", d.label, d.bufW,
+                          d.halfHeight ? d.logicalH / 2 : d.logicalH,
+                          isBoot ? "  - boots in this" : "");
+            if (ImGui::Checkbox(lbl, &on)) {
+                auto& v = prefSettings_.supportedModes;
+                v.erase(std::remove(v.begin(), v.end(), std::string(d.key)),
+                        v.end());
+                if (on) v.push_back(d.key);
+            }
+        }
+        ImGui::TreePop();
+    }
+    ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
+    prefHelp(
+        "Widens the projection so proportions are correct on a 16:9 TV\n"
+        "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
+        "the picture also fills more of the screen. HUD sprites stretch\n"
+        "with the screen. Runtime switch: the Set Widescreen flow node.");
+
+    // WHEN a finished frame reaches the TV, as opposed to what is in it. Both
+    // of these used to sit under "Build", which is where nobody deciding how
+    // the picture is presented would look for them.
+    ImGui::SeparatorText("Presentation");
     ImGui::Checkbox("Triple buffering", &prefSettings_.tripleBuffering);
     prefHelp(
         "How a frame that misses its vsync deadline is paid for. Off, the\n"
@@ -13388,187 +13496,65 @@ void App::drawPreferencesModal() {
             ImGui::PopStyleColor();
         }
     }
-    // Frame extrapolation used to sit HERE, beside triple buffering, on the
-    // reasoning that both are about how a finished frame reaches the display.
-    // It has moved into the "Frame delivery" block below, next to the neural
-    // upscaler (drawBlssSettings): the two are siblings - each reconstructs
-    // part of what the player sees instead of rendering it - and they are
-    // mutually exclusive, which is only useful said at the point of choice.
-    // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
-    // declaration the editor reads (menu previews, the display-row scaffold,
-    // the per-resolution menu fit check) - see docs/menu-styles.md
-    // "Resolutions". Menus scale to whatever mode the player ends up in either
-    // way; this is how the editor knows which ones to check.
-    if (ImGui::TreeNode("Supported resolutions")) {
-        ImGui::TextDisabled(
-            "Which scan modes a player can end up in. Used by the Menu Editor's\n"
-            "per-resolution preview and fit check, and by the scaffolded DISPLAY\n"
-            "menu row. None ticked = only the mode above.");
-        for (const DisplayModeInfo& d : project::displayModes()) {
-            bool on = false;
-            for (const std::string& k : prefSettings_.supportedModes)
-                on |= (k == d.key);
-            const bool isBoot = project::bootDisplayMode(prefSettings_) == d.key;
-            char lbl[96];
-            std::snprintf(lbl, sizeof(lbl), "%s  (%dx%d)%s", d.label, d.bufW,
-                          d.halfHeight ? d.logicalH / 2 : d.logicalH,
-                          isBoot ? "  - boots in this" : "");
-            if (ImGui::Checkbox(lbl, &on)) {
-                auto& v = prefSettings_.supportedModes;
-                v.erase(std::remove(v.begin(), v.end(), std::string(d.key)),
-                        v.end());
-                if (on) v.push_back(d.key);
-            }
-        }
-        ImGui::TreePop();
-    }
-    ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
-    prefHelp(
-        "Widens the projection so proportions are correct on a 16:9 TV\n"
-        "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
-        "the picture also fills more of the screen. HUD sprites stretch\n"
-        "with the screen. Runtime switch: the Set Widescreen flow node.");
-    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
-    const char* profileNames[] = {"Release", "Debug"};
-    if (ImGui::Combo("Profile", &profile, profileNames, 2))
-        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
-    ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
-    prefHelp(
-        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
-        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
-        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
-        "editor sets its emulated USB devices automatically) and with real\n"
-        "USB devices on a console. Skipped on ps2link deploys.");
-    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
-    ImGui::Indent(scaled(16));
-    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
-    prefHelp(
-        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
-        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
-        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
-        "engine reuses that resident stack instead of loading its own. The\n"
-        "driver logs show up live in Output / ps2client. Untick only if you\n"
-        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
-        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
-        "and docs/keyboard-mouse.md.");
-    ImGui::Unindent(scaled(16));
-    ImGui::EndDisabled();
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
         "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
         "of screen tearing. Gameplay speed is unaffected either way.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
-    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
-    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug-profile overlays drawn in the top-left corner of the game:\n"
-        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
-        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
-        "~1s). Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
-        "box, the way the editor viewport shows it. Areas have no geometry on\n"
-        "the console by design, which is exactly why \"why did that layer not\n"
-        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
-        "puts the volume back on screen. Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
-        "wireframe - the same volume View > Collision boxes shows in the\n"
-        "editor, from the same builder. What stops the player and the\n"
-        "third-person camera is that box and not the mesh (a model collides\n"
-        "as its bounding box), so this is what explains a prop that blocks\n"
-        "short of its surface or a camera that pulls in early. The nearest 24\n"
-        "colliders within 60 units of the camera are drawn - it is a look, not\n"
-        "a census. See docs/collision-boxes.md. Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug builds report what their flow graphs run - every trigger and\n"
-        "action, the flow variables, the save values - so the editor can show\n"
-        "the graph executing live, set breakpoints, stop and step the game,\n"
-        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
-        "counter bump per fired node plus one small file write every few\n"
-        "frames; release builds carry none of it. Tools > Debugger (F9).");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
-    ImGui::EndDisabled();
-    prefHelp(
-        "The game captures everything it mutates - object transforms,\n"
-        "physics, animation, flow variables, save values, where the player\n"
-        "stands - a few times a second, and the editor keeps a history of\n"
-        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
-        "game back into any of them, with no rebuild and no reboot; with Live\n"
-        "Logic on you can fix a graph first and watch the new logic play out\n"
-        "on the situation that just broke. Costs one small file written next\n"
-        "to the ELF every few frames, and nothing at all in a release build.\n"
-        "See docs/time-machine.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
-        "you can click (or drive with the editor's own keyboard), and the game\n"
-        "reads it out of one small file next to the ELF. Nothing needs the\n"
-        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
-        "channel is scriptable from the command line\n"
-        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
-        "an unattended input test possible. Works on real hardware over\n"
-        "ps2link too (polled less often - it is a network round-trip there).\n"
-        "Release builds carry none of it. See docs/remote-pad.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "A real CPU exception (bad pointer, address error, reserved\n"
-        ""
-        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
-        ""
-        "just stops. With this on, a debug build installs the engine's crash\n"
-        ""
-        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
-        ""
-        "backtrace - and the editor resolves those addresses to functions and\n"
-        ""
-        "source lines. The crash also takes the screen, so a dead game says so\n"
-        ""
-        "instead of looking like a hang. Debug builds only - release carries\n"
-        ""
-        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
-        ""
-        "at all, so a report only ever appears on a real console.\n"
-        ""
-        "See docs/devkit.md.");
-    prefHelp(
-        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
-        "changes the RUNNING game with no rebuild: the editor compiles the\n"
-        "graph itself and streams the instructions next to the ELF\n"
-        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
-        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
-        "build - the Debugger's Logic tab names them. Release builds compile\n"
-        "every graph to native C++ and carry no interpreter.");
-    prefHelp(
-        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
-        "stream scene edits into the running game (docs/live-link.md). Turn\n"
-        "off if you don't want your game patched from outside; release\n"
-        "builds never carry the poller. Also toggled by the LIVE chip in\n"
-        "the toolbar and Build > Live Link.");
 
+    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
+    // decisions a person switching the feature on has to make, and nothing
+    // else. What a user meets here is a checkbox, a mode, a raster and one line
+    // saying which side of the measured break-even this project falls on; the
+    // training, evaluation, cross-validation and instrumentation are behind the
+    // Advanced button and stay exactly as they were.
+    //
+    // The reduction is a consequence of plain mode rather than a tidy-up. Until
+    // that landed BLSS MEANT "fit a network to your scene", so the window had to
+    // be the whole feature - but plain mode's break-even is 2.6 coverages
+    // against the neural path's 13.1, a trained net ships embedded in the
+    // editor, and on every project measured that net chooses nothing anyway. So
+    // training is genuinely advanced, and the ordinary interaction is three
+    // controls and a sentence.
+    //
+    // The widgets, the tooltips AND the build-interlock warning still live in
+    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
+    // block one level deeper. They were inlined here once, which made this
+    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
+    // would have made it two mirrors, and two mirrors of an interlock drift the
+    // day either is touched. The staged settings go in, so both the warning and
+    // the verdict answer for what the modal will apply and not for what is on
+    // disk.
+    //
+    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
+    // this engine reconstructs rather than renders - the upscaler (per scene)
+    // and frame extrapolation (per project) - and they refuse each other, so
+    // they have to be read together. It is on the DISPLAY tab for the same
+    // reason: somebody asking "how does a frame reach the screen" arrives at the
+    // signal, the presentation and the reconstruction in one place.
+    ImGui::SeparatorText("Frame delivery (upscaler, extrapolation)");
+    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
+        applyAndOpen(showBlss_);
+    prefHelp(
+        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
+        "cross-validate it, look at the pictures it makes and at what its input\n"
+        "channels look like, and place a console-measured feature vector inside\n"
+        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
+        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
+        "usable.\n"
+        "\n"
+        "None of it is needed to USE the feature. A trained network ships with\n"
+        "the editor, and in the plain mode above there is no network at all.\n"
+        "\n"
+        "Applies these preferences and closes this dialog: that window edits the\n"
+        "project live, so leaving a staged copy behind would mean two dialogs\n"
+        "disagreeing about the same settings.");
+    ImGui::TextDisabled("    %s", kOpensWindow);
+    endTab();
+    }
+
+    if (beginTab("World")) {
     ImGui::SeparatorText("World");
     ImGui::DragFloat("Units per meter", &prefSettings_.unitsPerMeter, 0.05f, 0.001f,
                      1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
@@ -13661,6 +13647,43 @@ void App::drawPreferencesModal() {
             ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
     }
 
+    // Both of these describe the SPACE rather than the picture: where an NPC may
+    // walk, and what is shown while the next space is loaded.
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    prefHelp(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
+
+    ImGui::SeparatorText("Scenes");
+    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
+    prefHelp(
+        "Master switch: shows a loading screen while a scene loads (also at\n"
+        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
+        "(Scene > Preferences), or a project default is used; with none, a\n"
+        "built-in loading.png on black is shown.");
+    if (ImGui::Button("Open Loading Screens editor"))
+        applyAndOpen(showLoadingEditor_);
+    ImGui::TextDisabled("    %s", kOpensWindow);
+    endTab();
+    }
+
+    if (beginTab("Rendering")) {
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast"      ? 2
                    : prefSettings_.clipping == "precise" ? 1
@@ -13782,86 +13805,13 @@ void App::drawPreferencesModal() {
              "if any, tiles across it - set the tiling on the material's\n"
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
-    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
-    // decisions a person switching the feature on has to make, and nothing
-    // else. What a user meets here is a checkbox, a mode, a raster and one line
-    // saying which side of the measured break-even this project falls on; the
-    // training, evaluation, cross-validation and instrumentation are behind the
-    // Advanced button and stay exactly as they were.
-    //
-    // The reduction is a consequence of plain mode rather than a tidy-up. Until
-    // that landed BLSS MEANT "fit a network to your scene", so the window had to
-    // be the whole feature - but plain mode's break-even is 2.6 coverages
-    // against the neural path's 13.1, a trained net ships embedded in the
-    // editor, and on every project measured that net chooses nothing anyway. So
-    // training is genuinely advanced, and the ordinary interaction is three
-    // controls and a sentence.
-    //
-    // The widgets, the tooltips AND the build-interlock warning still live in
-    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
-    // block one level deeper. They were inlined here once, which made this
-    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
-    // would have made it two mirrors, and two mirrors of an interlock drift the
-    // day either is touched. The staged settings go in, so both the warning and
-    // the verdict answer for what the modal will apply and not for what is on
-    // disk.
-    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
-    // this engine reconstructs rather than renders - the upscaler (per scene)
-    // and frame extrapolation (per project) - and they refuse each other, so
-    // they have to be read together.
-    ImGui::SeparatorText("Frame delivery (upscaler, extrapolation)");
-    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
-    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0))) showBlss_ = true;
-    prefHelp(
-        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
-        "cross-validate it, look at the pictures it makes and at what its input\n"
-        "channels look like, and place a console-measured feature vector inside\n"
-        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
-        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
-        "usable.\n"
-        "\n"
-        "None of it is needed to USE the feature. A trained network ships with\n"
-        "the editor, and in the plain mode above there is no network at all.");
-
-    ImGui::SeparatorText("AI navigation");
-    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
-                     16.0f, "%.2f units");
-    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
-    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
-                     1.0f, 89.0f, "%.0f deg");
-    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
-                                : prefSettings_.navMaxSlope > 89.0f
-                                    ? 89.0f
-                                    : prefSettings_.navMaxSlope;
-    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
-                     4.0f, "%.2f units");
-    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
-    prefHelp(
-        "The NPC nav grid, baked at build time from the terrain slope and\n"
-        "blocking objects (grid capped at 128x128 cells - big maps get\n"
-        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
-        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
-        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
-        "graphs use no AI nodes carry no nav data at all.");
-
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
-    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
+    if (ImGui::Button("Open Ambience Editor")) applyAndOpen(showAmbienceEditor_);
     prefHelp(
         "Sky gradient, baked lighting and distance fog now live in presets.\n"
         "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
         "Scene > Preferences (or uses the default).");
-
-    ImGui::SeparatorText("Scenes");
-    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
-    prefHelp(
-        "Master switch: shows a loading screen while a scene loads (also at\n"
-        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
-        "(Scene > Preferences), or a project default is used; with none, a\n"
-        "built-in loading.png on black is shown.");
-    if (ImGui::Button("Open Loading Screens editor")) {
-        showLoadingEditor_ = true;
-        ImGui::CloseCurrentPopup();
-    }
+    ImGui::TextDisabled("    %s", kOpensWindow);
 
     ImGui::SeparatorText("Shadows");
     ImGui::Checkbox("Blob shadows under moving objects", &prefSettings_.blobShadows);
@@ -13893,6 +13843,33 @@ void App::drawPreferencesModal() {
             "Draw over object = a colored glow ON the surface fading outward,\n"
             "instead of only a rim behind the silhouette.");
     }
+    endTab();
+    }
+
+    if (beginTab("Player")) {
+    // The starting preset leads this tab because it is what DECIDES the player:
+    // it picks which game-template sources are generated, and the camera block
+    // below changes shape with it (eye height in FPP, body height in third
+    // person, orbit speed with no player at all).
+    ImGui::SeparatorText("Game");
+    // Read-only on purpose: the preset is picked once, in New Project. It
+    // decides which game-template sources are generated, and those are
+    // user-ownable - switching here would either overwrite work or leave an
+    // owned source no longer matching what the project builds.
+    ImGui::BeginDisabled();
+    {
+        int shown = presetIndexOf(project_.gameTemplate);
+        const char* names[kNewPresetCount];
+        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
+        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Fixed when the project was created and not changeable here: it picks\n"
+        "the generated game sources (files with the editor marker), which you\n"
+        "may have taken ownership of. Start a new project to use another\n"
+        "preset. The player's own camera settings stay editable - select the\n"
+        "Player object and see Properties.");
 
     // Player defaults - shared by both player presets (the height is the eye in
     // FPP, the body in third person, the same way a Player object labels it).
@@ -13997,6 +13974,158 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
     prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
+    endTab();
+    }
+
+    if (beginTab("Build")) {
+    // WHAT GOES INTO THE ELF, which is a different question from what the game
+    // looks like - the video signal and the presentation used to live in this
+    // section and are now on the Display tab, where somebody asking how the
+    // picture reaches the TV will look for them.
+    ImGui::SeparatorText("Build");
+    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
+    const char* profileNames[] = {"Release", "Debug"};
+    if (ImGui::Combo("Profile", &profile, profileNames, 2))
+        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    prefHelp(
+        "Debug carries the devkit channels below, the overlays, -g and the\n"
+        "unstripped ELF copy the crash reporter needs. Release carries none\n"
+        "of it - every one of those toggles is greyed out here because a\n"
+        "release build is verified to contain nothing (--audit-release).");
+    // "&&" was a Win32 habit - ImGui does no accelerator parsing, so it drew
+    // two ampersands and disagreed with every doc page naming this setting.
+    ImGui::Checkbox("Keyboard & mouse controls", &prefSettings_.keyboardMouse);
+    prefHelp(
+        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
+        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
+        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
+        "editor sets its emulated USB devices automatically) and with real\n"
+        "USB devices on a console. Skipped on ps2link deploys.");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
+    ImGui::Indent(scaled(16));
+    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
+    prefHelp(
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
+        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
+        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
+        "engine reuses that resident stack instead of loading its own. The\n"
+        "driver logs show up live in Output / ps2client. Untick only if you\n"
+        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
+        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
+        "and docs/keyboard-mouse.md.");
+    ImGui::Unindent(scaled(16));
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Debug overlays");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
+    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
+    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug-profile overlays drawn in the top-left corner of the game:\n"
+        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
+        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
+        "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
+        "box, the way the editor viewport shows it. Areas have no geometry on\n"
+        "the console by design, which is exactly why \"why did that layer not\n"
+        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
+        "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
+        "wireframe - the same volume View > Collision boxes shows in the\n"
+        "editor, from the same builder. What stops the player and the\n"
+        "third-person camera is that box and not the mesh (a model collides\n"
+        "as its bounding box), so this is what explains a prop that blocks\n"
+        "short of its surface or a camera that pulls in early. The nearest 24\n"
+        "colliders within 60 units of the camera are drawn - it is a look, not\n"
+        "a census. See docs/collision-boxes.md. Stripped from release builds.");
+
+    // THE DEVKIT CHANNELS. Each of these used to be a checkbox with its help
+    // marker somewhere else entirely: Live Link and Live Logic had theirs
+    // stranded at the BOTTOM of the section, chained onto the EE crash
+    // handler's by prefHelp's SameLine, so the crash handler carried three (?)
+    // markers in a row and two of the toggles carried none. A help marker
+    // belongs to the widget it follows - that is the whole idiom.
+    ImGui::SeparatorText("Devkit channels (debug builds only)");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+        "off if you don't want your game patched from outside; release\n"
+        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+        "the toolbar and Build > Live Link.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds report what their flow graphs run - every trigger and\n"
+        "action, the flow variables, the save values - so the editor can show\n"
+        "the graph executing live, set breakpoints, stop and step the game,\n"
+        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
+        "counter bump per fired node plus one small file write every few\n"
+        "frames; release builds carry none of it. Tools > Debugger (F9).");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
+        "changes the RUNNING game with no rebuild: the editor compiles the\n"
+        "graph itself and streams the instructions next to the ELF\n"
+        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
+        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
+        "build - the Debugger's Logic tab names them. Release builds compile\n"
+        "every graph to native C++ and carry no interpreter.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
+    ImGui::EndDisabled();
+    prefHelp(
+        "The game captures everything it mutates - object transforms,\n"
+        "physics, animation, flow variables, save values, where the player\n"
+        "stands - a few times a second, and the editor keeps a history of\n"
+        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
+        "game back into any of them, with no rebuild and no reboot; with Live\n"
+        "Logic on you can fix a graph first and watch the new logic play out\n"
+        "on the situation that just broke. Costs one small file written next\n"
+        "to the ELF every few frames, and nothing at all in a release build.\n"
+        "See docs/time-machine.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+        "you can click (or drive with the editor's own keyboard), and the game\n"
+        "reads it out of one small file next to the ELF. Nothing needs the\n"
+        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
+        "channel is scriptable from the command line\n"
+        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
+        "an unattended input test possible. Works on real hardware over\n"
+        "ps2link too (polled less often - it is a network round-trip there).\n"
+        "Release builds carry none of it. See docs/remote-pad.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "A real CPU exception (bad pointer, address error, reserved\n"
+        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
+        "just stops. With this on, a debug build installs the engine's crash\n"
+        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
+        "backtrace - and the editor resolves those addresses to functions and\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        "at all, so a report only ever appears on a real console.\n"
+        "See docs/devkit.md.");
 
     ImGui::SeparatorText("AI support");
     {
@@ -14027,19 +14156,24 @@ void App::drawPreferencesModal() {
                                 haveCodex ? " Codex" : "",
                                 haveCopilot ? " Copilot" : "");
     }
+    endTab();
+    }
 
+    ImGui::EndTabBar();
+
+    // THE FOOTER, OUTSIDE THE SCROLLING REGION. This is the structural half of
+    // the fix and it matters more than the tabs: every tab body above reserved
+    // `footerH` for it, so OK and Cancel sit at a fixed place in the dialog
+    // whatever any tab grows into. The tabs make the content shorter TODAY; the
+    // pinned footer is what stops the next setting anybody adds from putting
+    // the dialog back where it was.
     ImGui::Separator();
     ImGui::TextDisabled(
         "These are project-wide defaults. Scenes inherit them unless a\n"
         "category is overridden in Scene > Scene Preferences. The emulator\n"
         "path and dev-PS2 IP are machine-global - set them in Edit > Preferences.");
     if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
-        // gameTemplate is deliberately NOT written back - the preset is fixed
-        // at creation and this dialog only shows it.
-        project_.settings = prefSettings_;
-        project_.active().terrain = prefTerrain_;
-        applyProjectToViewport();  // scenes that inherit follow the new defaults
-        commitChange();
+        applyPrefs();
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();
@@ -14647,7 +14781,24 @@ void App::drawScenePreferencesModal() {
         // Identical labels in two different windows are not an ImGui ID clash
         // (a window is the scope), and `--ui-script` reaches either by naming
         // its window.
+        // THE INTERLOCK, AT THE OTHER POINT OF CHOICE, and here it PREVENTS
+        // rather than warns. Frame extrapolation is a project setting and the
+        // upscaler is per scene, so this is the one place a person can create
+        // the refused pair without ever opening Project > Preferences. Same
+        // rule as drawBlssSettings: only the TICK is blocked, so a scene that
+        // already has it on (an older project, a hand-edited .tyra) can always
+        // be turned off, and the warning below covers that state.
+        const bool blockUpscaler =
+            project_.settings.frameExtrapolation && !s.blssEnabled;
+        ImGui::BeginDisabled(blockUpscaler);
         ImGui::Checkbox("Use the upscaler", &s.blssEnabled);
+        ImGui::EndDisabled();
+        if (blockUpscaler)
+            ImGui::TextDisabled(
+                "Not while frame extrapolation is on for the project. The two\n"
+                "cannot be combined - both rebuild a frame by reprojecting the\n"
+                "previous one, and in motion the pair tears the picture. Untick\n"
+                "it in Project > Preferences > Display > Frame delivery.");
         ImGui::BeginDisabled(!s.blssEnabled);
         {
             int mode = s.blssNetwork ? 1 : 0;
@@ -14674,10 +14825,8 @@ void App::drawScenePreferencesModal() {
                 "A project whose scenes disagree gives up the memory saving -\n"
                 "Project > Preferences says what that costs, measured.",
                 project_.settings.blssEnabled ? "ON" : "OFF");
-        // THE INTERLOCK, AT THE OTHER POINT OF CHOICE. Frame extrapolation is a
-        // project setting and the upscaler is per scene, so this is the one
-        // place a person can create the refused pair without ever opening
-        // Project > Preferences - and a build error is a poor way to find out.
+        // ...and the state prevention cannot reach: both already on, because
+        // this project predates the interlock or its .tyra was edited by hand.
         // Same sentence as drawBlssClashWarning's, one scene narrower.
         if (s.blssEnabled && project_.settings.frameExtrapolation)
             ImGui::TextColored(

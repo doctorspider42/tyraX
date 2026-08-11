@@ -178,7 +178,8 @@ Nothing here has been on real hardware.
 
 ## Turning it on
 
-*Project > Preferences > Build > **Frame extrapolation (experimental)*** - off
+*Project > Preferences > Display > Frame delivery > **Present a synthesised
+frame between rendered ones*** - off
 by default, saved in the `.tyra` only when on, so an existing project's file and
 its generated code are byte-identical until you tick it.
 
@@ -342,7 +343,7 @@ by construction and this cannot arise.
 the temporal pass** when they are equal, warning once in the game's log. It is
 the honest degradation: passes 1, 2, 4 and 5 read the low-res target and are
 unaffected, so the picture stays correct and only the temporal accumulation is
-lost. *Project > Preferences > Build* says the same thing in the dialog when a
+lost. *Project > Preferences > Display* says the same thing in the dialog when a
 project has both features on without room for a third buffer.
 
 Note this is usually latent rather than visible: the pass only runs at all when
@@ -370,9 +371,24 @@ written outside, in either direction.
 
 ## Why not with the upscaler
 
-**The build REFUSES the pair** (`blssClashes()`, `src/templates.cpp` — the fifth
-condition, beside depth of field, portals and split view, and per scene like the
-rest). This paragraph used to say the opposite: that the combination "is correct
+**The editor will not let you switch both on, and the build refuses the pair if
+one arrives anyway.** The dialog half came second and is the one a user meets:
+extrapolation and the upscaler sit in the same *Display ▸ Frame delivery* block,
+and whichever is already on greys the other out with the reason in line — the
+only one of the five upscaler clashes that can be prevented rather than warned
+about, because it is the only one that is setting against **setting** rather than
+setting against scene content. Only the *tick* is ever blocked, so a project that
+already has both (a hand-edited `.tyra`, an older editor, a *Set Frame
+Extrapolation* node) can always turn one off. See
+[The two settings exclude each other](neural-upscaler.md#the-two-settings-exclude-each-other).
+
+Underneath it the build still refuses (`blssClashes()`, `src/templates.cpp` — the
+fifth condition, beside depth of field, portals and split view, and per scene
+like the rest), because a `.tyra` can be hand-edited, an older editor never knew
+about the pair, and a flow node can turn extrapolation on at runtime. The refusal
+is one short `#error` in `src/gen/blss_interlock.gen.cpp` — a TU of its own, so
+it is printed once instead of once per includer of `scene_data.hpp`; the
+reasoning is [here](neural-upscaler.md#the-refusal-is-one-short-line-in-a-file-of-its-own). This paragraph used to say the opposite: that the combination "is correct
 with three buffers and degrades in a named, logged way with two", so no `#error`
 was warranted. **That was wrong, and a user found it by walking around.**
 

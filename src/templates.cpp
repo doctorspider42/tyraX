@@ -427,15 +427,15 @@ int main(int argc, char** argv) {
   // The Engine(options) ctor re-applies this flag, so it must be set here
   // too or the static above gets reset to the default (console logging).
   options.writeLogsToFile = !ps2link;
-  // Target system (Project > Preferences > Build): Auto follows the console
+  // Target system (Project > Preferences > Display): Auto follows the console
   // region, NTSC forces 60 Hz, PAL forces 50 Hz.
   options.videoMode = Tyra::VideoMode::{{VIDEO_MODE}};
-  // Scan mode (Project > Preferences > Build > Display mode): interlaced
+  // Scan mode (Project > Preferences > Display > Display mode): interlaced
   // 480i/576i (whole frames or true field rendering), progressive 480p,
   // 1080i, or the full-height PAL 576i frame (always 50 Hz). The DTV modes
   // need component cables on a real console and always run at 60 Hz.
   options.displayMode = Tyra::DisplayMode::{{DISPLAY_MODE}};
-  // PAL picture (Preferences > Build > PAL picture): with the
+  // PAL picture (Preferences > Display > PAL picture): with the
   // region-following interlaced mode, a PAL console (or a forced-PAL
   // target system) boots the full-height 512-line 576i frame instead of
   // the letterboxed NTSC-size picture. Resolved here, before engine init,
@@ -447,9 +447,9 @@ int main(int argc, char** argv) {
        (options.videoMode == Tyra::VideoMode::Auto &&
         graph_get_region() == GRAPH_MODE_PAL)))
     options.displayMode = Tyra::DisplayMode::Pal576i;
-  // 16:9 anamorphic output (Preferences > Build > Widescreen).
+  // 16:9 anamorphic output (Preferences > Display > Widescreen).
   options.widescreen = {{WIDESCREEN}};
-  // Triple buffering (Preferences > Build > Triple buffering, docs/
+  // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling
   // the EE on vsync, so a frame that overruns its field is shown one field
   // late instead of halving the frame rate. Costs a third display buffer of
@@ -529,11 +529,11 @@ constexpr bool P2_JOIN_ON_START = {{P2_JOIN_ON_START}};
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = {{LOADING_SCREEN}};
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
 
-// Experimental (Preferences > Build > Frame extrapolation,
+// Experimental (Preferences > Display > Frame delivery,
 // docs/frame-extrapolation.md): present one SYNTHESISED frame after each
 // rendered one, by re-drawing it under the camera extrapolated from its own
 // motion. The world then runs at half the field rate while the picture keeps
@@ -542,7 +542,7 @@ constexpr bool FRAME_LIMIT = {{FRAME_LIMIT}};
 // frame edge stretches where the source has no pixels.
 constexpr bool FRAME_EXTRAPOLATION = {{FRAME_EXTRAPOLATION}};
 
-// Frame extrapolation, translation model (Preferences > Build): 0 = rotation
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
 // only; a positive distance folds camera translation in through a single plane
 // that far away, which reads as a lens zoom but IS motion. Ignored while the
 // neural upscaler supplies real per-tile depth.
@@ -5230,7 +5230,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -18329,7 +18329,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -21914,8 +21914,9 @@ static bool staticBatchEligible(const SceneObject& o,
 }
 
 // The neural upscaler's build interlock, defined with the rest of the BLSS
-// codegen far below and emitted from here - see blssClashes() for why it is a
-// hard #error and why scene_data.hpp is the file it has to live in.
+// codegen far below and emitted into a TU OF ITS OWN - see blssClashes() for
+// why it is a hard #error and blssInterlock() for why it stopped living in
+// inc/scene_data.hpp.
 static std::string blssInterlock(const Project& p);
 
 // inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build
@@ -23734,13 +23735,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // equally absent.
     const project::BlssUse blssU = project::blssUse(p);
     if (blssU.any) {
-        // First: refuse the build outright when the project also uses depth of
-        // field, a portal or split screen (blssClashes). "" when it does not,
-        // which is what keeps a clean BLSS project generating what it always
-        // did. The constants below are still emitted under the refusal, so the
-        // compiler reports the #error and not a page of "BLSS_SCALE_X was not
-        // declared in this scope".
-        out << blssInterlock(p);
+        // The refusal itself is NOT here any more - it is its own translation
+        // unit (src/gen/blss_interlock.gen.cpp), because this header is included
+        // by about fourteen of them and the compiler repeated the whole
+        // diagnostic in every one. See blssInterlock().
         const blss::Scale sc =
             p.settings.blssScale == 1 ? blss::Scale::X1Y2 : blss::Scale::X2Y2;
         // BLSS_ENABLED / BLSS_NETWORK are the WIDEST configuration the run will
@@ -24377,25 +24375,50 @@ static std::string screenFxSource(const Project& p) {
 // It lives in the generated SOURCE and not in the editor's build button,
 // because the button is not the only road to a wrong ELF: `docker compose up`
 // + `make` by hand in the project directory is one, and so is a CI job that
-// never runs the editor. Nothing that produces an ELF gets past a #error. The
-// BLSS_* constants and the init/composite calls are still emitted around it on
-// purpose - suppressing them would bury the one diagnostic that matters under
-// a page of "BLSS_SCALE_X was not declared in this scope".
+// never runs the editor. Nothing that produces an ELF gets past a #error.
 //
-// The FILE it goes in is inc/scene_data.hpp, not the prolog of
-// src/terrain_game.cpp where the rest of the BLSS wiring enters. The game cpp
-// carries the ownership marker ("Delete this line to take ownership of this
-// file") and stops regenerating the moment somebody takes it; scene_data.hpp
-// says "regenerated on every build" and means it. A guard a user can silently
-// switch off by editing an unrelated file is not a guard. The price is that
-// every translation unit including the header repeats the refusal (four of
-// them on a fresh project), which is the right way round for something that
-// must not be missed.
+// A COMPILER DIAGNOSTIC IS A BAD PLACE FOR PROSE, and this had to learn it the
+// expensive way. The messages used to carry the whole argument - the measured
+// artefact, the mechanism, the remedy in three variants, ~340 characters each -
+// and they were emitted into inc/scene_data.hpp, which about fourteen
+// translation units include. GCC prints an #error three times over (the
+// diagnostic, the quoted source line, the caret), so one clash on one project
+// was one paragraph printed forty-two times, and the user who hit it reported
+// their whole build log as that wall. Two changes, and both are about SHAPE
+// rather than wording:
+//
+//  - Each line NAMES the pair, the scene and one place to fix it, and points at
+//    the doc page for the why. The long form is not gone - it lives in
+//    docs/neural-upscaler.md and docs/frame-extrapolation.md, and verbatim in
+//    the dialog (drawBlssClashWarning), which is where a person reads at their
+//    own pace and can click the thing being described.
+//  - It is emitted into a TU OF ITS OWN (src/gen/blss_interlock.gen.cpp), so it
+//    is compiled ONCE. That file is generated only while the project actually
+//    clashes and swept away by refreshGenerated when it stops - a stale one
+//    would refuse a build that is fine, which is the one failure mode worse
+//    than a noisy one. It is a plain generated source with no ownership marker,
+//    so nobody can switch the guard off by taking ownership of it, and
+//    Makefile.base globs src/**/*.cpp so it needs no Makefile change.
+//
+// The BLSS_* constants and the init/composite calls stay in scene_data.hpp and
+// are still emitted under a refusal on purpose - suppressing them would bury
+// the one diagnostic that matters under a page of "BLSS_SCALE_X was not
+// declared in this scope".
 
 // Text that is safe to put after a `#error`. The directive's operand is not
 // lexed as C++ tokens, but an unpaired apostrophe in it still draws a "missing
-// terminating ' character" warning out of GCC, and scene and object names are
-// user text. Anything outside a conservative printable set becomes '?'.
+// terminating ' character" warning out of GCC - which is not theoretical: the
+// authored words "the upscaler's temporal pass" put one such warning on every
+// one of those fourteen translation units, so every legitimate refusal shipped
+// with a bogus warning attached to it. A double quote does the same.
+//
+// So this is applied to the WHOLE #error line and not only to the user text
+// interpolated into it (scene and object names, which were the original
+// reason). The messages below are authored without either character, which
+// makes this a backstop rather than a filter - but a backstop is exactly what
+// the apostrophe bug proves is needed, because the hazard is invisible in the
+// C++ source that writes it. Anything outside a conservative printable set
+// becomes '?'.
 static std::string errorSafe(const std::string& s) {
     static const std::string kPunct = " .,:;()[]<>+-_=/*&#@!%?";
     std::string out;
@@ -24462,17 +24485,10 @@ static std::vector<std::string> blssClashes(const Project& p) {
         const ProjectSettings rs = project::resolvedSettings(p, p.scenes[si]);
         if (!rs.blssEnabled) continue;
         if (!dofActive(rs.dofAmount, rs.dofFocus)) continue;
-        out.push_back(
-            "BLSS x DEPTH OF FIELD: " + sceneName(si) +
-            " has a depth-of-field amount of " +
-            amountText(rs.dofAmount) +
-            ". Depth of field composites its blur through the GS depth test at "
-            "DISPLAY resolution, after the composite, and with the upscaler on "
-            "the z buffer is only as big as the reduced render. Set the amount "
-            "to 0 in Tools > UI Editor > [ Depth of field ] (or in the scene "
-            "post-effects override, Scene > Scene Preferences > Post effects), "
-            "or turn the upscaler off for this scene (Scene > Scene Preferences "
-            "> Neural upscaler) or for the project.");
+        out.push_back("BLSS x DEPTH OF FIELD in " + sceneName(si) +
+                      " (amount " + amountText(rs.dofAmount) +
+                      ") - turn one of them off. Why, and where: "
+                      "docs/neural-upscaler.md, Limitations.");
         break;
     }
     // 2. ... and the Set Depth Of Field flow node, which raises it at RUNTIME
@@ -24501,16 +24517,12 @@ static std::vector<std::string> blssClashes(const Project& p) {
                 }
                 if (!hit) continue;
                 out.push_back(
-                    "BLSS x DEPTH OF FIELD: the flow graph of " +
-                    errorSafe(o.name) + " in " + sceneName(si) +
-                    " has a Set Depth Of Field node that turns depth of field "
-                    "ON at runtime (amount " + amountText(hit->num[2]) +
-                    "). Depth of field composites its blur through the GS depth "
-                    "test at DISPLAY resolution, and with the upscaler on the z "
-                    "buffer is only as big as the reduced render. Set that "
-                    "node's Mode to Off, or delete it, or turn the upscaler "
-                    "off for this scene (Scene > Scene Preferences > Neural "
-                    "upscaler) or for the project.");
+                    "BLSS x DEPTH OF FIELD in " + sceneName(si) +
+                    ": the flow graph of " + errorSafe(o.name) +
+                    " turns it on at runtime (amount " +
+                    amountText(hit->num[2]) +
+                    ") - turn one of them off. Why, and where: "
+                    "docs/neural-upscaler.md, Limitations.");
                 found = true;
                 break;
             }
@@ -24535,15 +24547,11 @@ static std::vector<std::string> blssClashes(const Project& p) {
                     objs[ti].name == o.portalTarget)
                     target = &objs[ti];
             if (!target) continue;
-            out.push_back(
-                "BLSS x PORTALS: " + sceneName(si) + " contains the linked "
-                "portal " + errorSafe(o.name) + " -> " +
-                errorSafe(target->name) +
-                ". A portal through-view wants real display-resolution depth, "
-                "and it carves its opening from inside renderScene() with a "
-                "display-sized raster window. Unlink or delete the portal, or "
-                "turn the upscaler off for THIS scene - Scene > Scene "
-                "Preferences > Neural upscaler - and keep it in the others.");
+            out.push_back("BLSS x PORTALS in " + sceneName(si) +
+                          ": the linked portal " + errorSafe(o.name) + " -> " +
+                          errorSafe(target->name) +
+                          " - turn one of them off. Why, and where: "
+                          "docs/neural-upscaler.md, Limitations.");
             portalFound = true;
             break;
         }
@@ -24562,15 +24570,10 @@ static std::vector<std::string> blssClashes(const Project& p) {
                 if (o.type == PrimitiveType::Player) ++players;
             if (players < 2) continue;
             out.push_back(
-                "BLSS x SPLIT SCREEN: Project > Preferences > Multiplayer is "
-                "set to split screen and " + sceneName(si) +
-                " has a second Player object. A split frame is never reduced "
-                "(only the single-view branch is bracketed) and scene depth "
-                "writes stay masked outside that bracket, so both halves would "
-                "render at full resolution into a depth buffer that is smaller "
-                "than the display and never written. Choose shared screen or "
-                "single player, or turn the upscaler off for this scene (Scene "
-                "> Scene Preferences > Neural upscaler).");
+                "BLSS x SPLIT SCREEN in " + sceneName(si) +
+                " (Multiplayer is set to split screen and the scene has a "
+                "second Player object) - turn one of them off. Why, and where: "
+                "docs/neural-upscaler.md, Limitations.");
             break;
         }
     }
@@ -24611,37 +24614,44 @@ static std::vector<std::string> blssClashes(const Project& p) {
     //    the tearing but left the warp's own grid coming apart under the same
     //    doubled delta. Turning EITHER feature off is clean, so the honest
     //    answer is that the project picks one.
+    //
+    //    THIS ONE IS ALSO PREVENTED IN THE EDITOR, and it is the only one of the
+    //    five that can be: it is setting against SETTING, and both switches sit
+    //    in one block (drawBlssSettings), so the dialogs grey out whichever of
+    //    the two is not already on and say why. The other four are setting
+    //    against scene CONTENT - you cannot grey out a portal somebody placed -
+    //    and keep the live warning plus this refusal, unchanged. That does not
+    //    make this branch dead code: a .tyra can be hand-edited, an older editor
+    //    never knew about the pair, and a Set Frame Extrapolation flow node
+    //    turns it on at runtime. Prevention and refusal are belt and braces.
     if (p.settings.frameExtrapolation) {
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             if (!sceneUpscales(si)) continue;
             out.push_back(
-                "BLSS x FRAME EXTRAPOLATION: Project > Preferences > Neural "
-                "upscaler (BLSS) has frame extrapolation on and " +
-                sceneName(si) +
-                " resolves the upscaler on. Both rebuild a frame by reprojecting "
-                "the previous one, and extrapolation halves the world rate - so "
-                "the camera moves twice as far between two rendered frames, "
-                "which is the interval the upscaler's temporal pass reprojects "
-                "across. Measured in motion the pair tears the picture into "
-                "cells that disagree (a displaced second copy of near geometry, "
-                "hard seams across the sky); either feature ALONE is clean. Turn "
-                "frame extrapolation off, or turn the upscaler off for this "
-                "scene (Scene > Scene Preferences > Neural upscaler) or for the "
-                "project. docs/frame-extrapolation.md, \"Why not with the "
-                "upscaler\".");
+                "BLSS x FRAME EXTRAPOLATION in " + sceneName(si) +
+                " - turn one of them off in Project > Preferences > Frame "
+                "delivery. Why, and where: docs/frame-extrapolation.md, Why not "
+                "with the upscaler.");
             break;
         }
     }
     return out;
 }
 
-// The refusal as it lands in inc/scene_data.hpp. "" when the project is
-// clean, which is what keeps a BLSS-on project that clashes with nothing
-// byte-identical to what it generated before this existed.
+// The refusal as it lands in src/gen/blss_interlock.gen.cpp - a TU whose entire
+// job is to stop the build, so the diagnostic is printed ONCE. "" when the
+// project is clean, and refreshGenerated then DELETES the file: a stale copy
+// would refuse a build that is fine, which is worse than the noise this
+// replaced. Nothing else may go in here, and nothing else includes it.
+//
+// The banner comment carries the argument the #error lines no longer do. It
+// costs nothing (a comment is not a diagnostic) and it is what somebody sees
+// when they open the file the compiler named.
 static std::string blssInterlock(const Project& p) {
     const std::vector<std::string> clashes = blssClashes(p);
     if (clashes.empty()) return "";
     std::string s =
+        "// Generated by TyraX. Do not edit - regenerated on every build.\n"
         "// ==========================================================="
         "===============\n"
         "// BUILD REFUSED - see docs/neural-upscaler.md, Limitations.\n"
@@ -24649,23 +24659,29 @@ static std::string blssInterlock(const Project& p) {
         "// The neural upscaler (BLSS) is on in a SCENE that uses a feature it\n"
         "// cannot be combined with. Both halves would compile and boot; the\n"
         "// picture would be wrong, quietly, which is why this is an error and\n"
-        "// not a warning. Fix EITHER side - one click resolves it:\n"
+        "// not a warning.\n"
+        "//\n"
+        "// This file exists only to stop the build. It is generated while the\n"
+        "// clash is present and deleted the moment it is fixed, so there is\n"
+        "// nothing to clean up and nothing to take ownership of. Fix EITHER\n"
+        "// side - one click resolves it:\n"
         "//\n"
         "//   Scene > Scene Preferences > Neural upscaler (BLSS): tick\n"
-        "//     \"Override project settings\" and untick the reduced render.\n"
-        "//     Every OTHER scene keeps the upscaler.\n"
-        "//   ...or project-wide, Project > Preferences > Neural upscaler >\n"
-        "//     \"Reconstruct from a reduced-resolution render\"   (turn it off)\n"
+        "//     Override the upscaler for this scene and untick Use the\n"
+        "//     upscaler. Every OTHER scene keeps it.\n"
+        "//   ...or project-wide, Project > Preferences > Display > Frame\n"
+        "//     delivery > Use the upscaler   (turn it off)\n"
         "//\n"
         "// ...or remove the clashing feature named below, then rebuild.\n"
+        "// The editor says all of this live, with the measurements, in that\n"
+        "// same block - this is the backstop for a build that never met it.\n"
         "// ==========================================================="
-        "===============\n"
-        "#error BLSS BUILD REFUSED: the neural upscaler is on in a scene that "
-        "uses a feature it cannot be combined with. Turn it off for THAT scene "
-        "in Scene > Scene Preferences > Neural upscaler and the others keep it, "
-        "or off for the project in Project > Preferences, or remove the feature "
-        "named below. Details: docs/neural-upscaler.md, Limitations.\n";
-    for (const std::string& c : clashes) s += "#error   " + c + "\n";
+        "===============\n";
+    // Short by design (see the essay above blssClashes): one line per clash,
+    // naming the pair, the scene and one place to fix it. errorSafe covers the
+    // WHOLE line - an apostrophe anywhere in it is a GCC warning on every TU
+    // that reads it.
+    for (const std::string& c : clashes) s += "#error " + errorSafe(c) + "\n";
     return s;
 }
 
@@ -38789,10 +38805,16 @@ std::vector<File> generate(const Project& p) {
     // The neural upscaler's interlock (blssClashes) says the same thing on the
     // host, before Docker is even started, so `--refresh-gen` reports it too
     // and `--build` does not make anyone wait for a compiler to reach the
-    // #error in inc/scene_data.hpp. The refusal itself stays in the generated
-    // source - this is the courtesy copy, not the guard.
+    // #error. THIS is the earliest and cheapest signal there is; the generated
+    // source is the guard, this is the courtesy copy.
     for (const std::string& c : blssClashes(p))
         std::printf("[blss] BUILD WILL BE REFUSED: %s\n", c.c_str());
+    // ...and the guard itself, in a TU of its own so the compiler prints it
+    // once instead of once per translation unit that includes scene_data.hpp.
+    // Absent (not empty) when the project is clean, which is what keeps every
+    // clean project's file list byte-identical - refreshGenerated sweeps a
+    // leftover away.
+    const std::string blssRefusal = blssInterlock(p);
     const std::string gameCpp =
         fill(TPL_GAME_CPP_PROLOG) +
         fill(fpp ? TPL_GAME_CPP_FPP_HEAD : TPL_GAME_CPP_ORBIT_HEAD) +
@@ -38907,6 +38929,11 @@ std::vector<File> generate(const Project& p) {
     // in the header and a TYRA_LOG line in the generated init.
     if (project::blssUse(p).any)
         files.push_back({"inc\\blss_net.gen.hpp", blssNetHeader(p)});
+    // The build refusal, when there is one. Its own TU so the compiler prints
+    // it once; absent while the project is clean, so a clean project's file set
+    // is what it always was. project::refreshGenerated deletes a leftover.
+    if (!blssRefusal.empty())
+        files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
     for (const File& f : vuBuild.files) files.push_back(f);
     return files;
 }

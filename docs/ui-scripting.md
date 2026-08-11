@@ -138,6 +138,35 @@ hold, and clears when the editor exits. Neither window was ever focused.
 - A widget must be **visible** to be found: something scrolled out of view, or in
   a collapsed section, has to be scrolled/opened first (the containing tree node
   is a normal item, so `click` it).
+- **A widget inside an unselected tab does not exist. Select the tab first.**
+  `BeginTabItem` returns false for every tab but the front one and its body is
+  never submitted, so nothing in it reaches the registry: `dump` does not list
+  it, `expect` fails, `click` fails, and the failure reads as "that control is
+  gone" rather than "that tab is not open". The tab strip itself *is*
+  nameable — `uiscript.cpp` holds a tab's label until its box arrives, which is
+  what made tabs targetable at all — so the fix is one step:
+
+  ```
+  click "Project Preferences/Display"
+  frames 5
+  click "Project Preferences/Use the upscaler"
+  ```
+
+  Two things that go with it. **Qualify the tab with its window**: a tab label
+  is a short common word, and *Project Preferences* has a `Build` tab while the
+  menu bar has a `Build` menu — `find` takes the first match, so a bare
+  `click Build` opens the menu. And **a tab changes what the id-hash fallback
+  can reach** (the bullet below): `BeginTabItem` pushes the tab's own id, so a
+  widget submitted *directly* inside a tab is seeded by that id and not by the
+  window's, which is what the fallback hashes against. Wrapping each tab body in
+  a `BeginChild` puts it back — a child is a window and reseeds the stack with
+  its own id — which is what *Project Preferences* does, so `click "Project
+  Preferences/Mode"` still opens a combo four levels in. A tab body submitted
+  without one needs real labels on anything a script has to name.
+
+  The dialogs with tabs today are *Project Preferences* (Display / World /
+  Rendering / Player / Build), the Neural Upscaler window, the Menu Editor, the
+  Material Editor and the World Facts window.
 - **`dump` listing a rect is not a promise the click will land.** A window taller
   than the room it was given still *submits* the items past its bottom edge, so
   `dump` prints them with rects outside the window - and `click` on one hovers,
@@ -147,11 +176,17 @@ hold, and clears when the editor exits. Neither window was ever focused.
   y against its window's rect - both are in the same `dump` - and **pair any
   state-changing click with an assertion**: `expect-checked` / `expect-unchecked`
   around it turns a silent no-op into a failed run.
-- **A combo's dropdown cannot be opened by name.** ImGui reports a label only for
-  the widgets that call its item-info hook, and `BeginCombo` is not one of them —
-  `dump` shows the combo's rect with no label. Pick the value another way (the
-  Project panel's object list, a `Selected object`-style button, or editing the
-  `.tyra` in a scratch copy) and read the result off a `shot`.
+- **A combo dumps with no label, but it can still be clicked.** ImGui reports a
+  label only for the widgets that call its item-info hook, and `BeginCombo` is
+  not one of them, so `dump` shows the combo's rect with a `-` where its name
+  should be. `find` covers that by **re-hashing** the target the way ImGui would
+  (`ImHashStr(label, 0, window->ID)`), so `click "Project Preferences/Mode"`
+  opens the dropdown and the option is then clickable by its own text. Two
+  limits: the hash has no prefixes, so the label must be **exact**, and it only
+  reaches widgets submitted at a **window's own scope** — anything under a
+  `PushID` (a tab item, an explicit `PushID(label)`) is seeded by that instead.
+  A widget whose entire label is hidden behind `##` has nothing to hash and
+  stays unreachable; pick the value another way and read the result off a `shot`.
 - Labels are what the code passes to ImGui, minus anything after `##`. Two
   widgets with the same label in the same window are ambiguous — the first one
   wins (which is also an argument for the `##scope` suffixes the codebase already

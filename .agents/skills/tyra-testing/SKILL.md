@@ -935,7 +935,33 @@ Notes:
   So `click 'Preview in'` and `click Style` work, and a combo's OPTION can be
   clicked by its own text once the dropdown is open. Two limits remain: the hash
   path needs the EXACT label (a hash has no prefixes) and only reaches widgets
-  submitted at a window's own scope. **A widget whose whole label is
+  submitted at a window's own scope.
+
+  **AND A TAB ONLY HAS CONTENTS WHILE IT IS THE SELECTED ONE. SELECT IT FIRST.**
+  `BeginTabItem` returns false for every tab but the front one and its body is
+  never submitted, so nothing inside it reaches the registry at all: `dump` does
+  not list it, `expect` fails, `click` fails - and the failure reads as "that
+  control has been removed" rather than "that tab is shut". Every script that
+  drove *Project > Preferences* broke the day it grew tabs, and the fix in each
+  was one step (`click 'Project Preferences/Display'; frames 5`) before the
+  control. Three rules go with it:
+  - **Qualify a tab with its window.** Tab labels are short common words and
+    `find` takes the first match: *Project Preferences* has a `Build` tab while
+    the menu bar has a `Build` menu, so a bare `click Build` opens the MENU. Its
+    five tabs are `Display`, `World`, `Rendering`, `Player`, `Build`.
+  - **A tab pushes an id, which moves what the hash fallback can see.**
+    `BeginTabItem` ends in `PushOverrideID(tab->ID)`, so a widget submitted
+    DIRECTLY in a tab is seeded by the tab and not by the window the fallback
+    hashes against. Wrapping the tab body in a `BeginChild` restores it (a child
+    is a window and reseeds the stack) - which is what Project Preferences does,
+    verified: `click 'Project Preferences/Mode'` opens the BLSS mode combo four
+    levels in. A tab body with no child needs real labels on anything scripted.
+  - **A tabbed dialog stops needing `wheel` and starts needing tab clicks.** The
+    trickle trap below still applies to every other long window, but Project
+    Preferences no longer scrolls to reach OK - the footer is pinned outside the
+    scrolling region, so `click 'Project Preferences/OK'` lands from any tab.
+
+  **A widget whose whole label is
   hidden behind `##`** - a compact search field (`##assetsearch`,
   `##objsearch`) - still has nothing to name and dumps as `-` with a rect and
   nothing to name, so a filter row like the Scene panel's is only reachable by
@@ -968,14 +994,25 @@ Notes:
   agree and the click lands. So: **`frames 60`-`90` after any `wheel`, then `dump`
   TWICE and require the rects to agree** before clicking anything. The same
   trickle applies to `text`, which is why the chat recipe below needs its
-  `frames 5`.
+  `frames 5`. (That measurement was taken on the one-long-stack version of
+  Project Preferences; that dialog is tabbed now and its BLSS block is two
+  clicks away with no wheel at all. The trap is unchanged for every other long
+  window - it is about ImGui, not about that dialog.)
 
   **Two more `--ui-script` traps, both about a label being an id.** A label with
   an APOSTROPHE cannot be named at all - the tokenizer opens a quoted run on a
   single quote at a token boundary, so `'Will this project's frames get shorter?'`
   parses as two tokens and the step dies with *"click needs one target"*; a button
   that has to be scripted must not have one (that is why the Preferences verdict
-  button reads *Will the frames get shorter?*). And **the same label in two
+  button reads *Will the frames get shorter?*). **An apostrophe in GENERATED TEXT
+  is the same hazard wearing another hat**: an unpaired `'` (or `"`) after a
+  `#error` is read by GCC as an unterminated character constant, so every
+  translation unit that reads the file gets a *missing terminating ' character*
+  warning on top of the real diagnostic. The BLSS interlock shipped
+  "the upscaler's temporal pass" and put a bogus warning on all fourteen; the
+  guard is `errorSafe()` in templates.cpp, now applied to the whole line. Reach
+  for a plain word - the hazard is invisible in the C++ that writes the string.
+  And **the same label in two
   different windows is legal in ImGui and ambiguous to `find`**, which takes the
   first match - a bare `click Mode` with both *Project Preferences* and the BLSS
   window open pressed the wrong one and then failed on the option that never

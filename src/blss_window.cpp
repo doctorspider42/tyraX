@@ -675,7 +675,51 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         prefHelp((std::string(lead) + "\n\n" + rest).c_str());
     };
     bool changed = false;
+
+    // THE ONE CLASH THE EDITOR CAN MAKE UNREACHABLE, and the reason it is worth
+    // doing here rather than only warning about it: BLSS x frame extrapolation
+    // is setting against SETTING, and both settings are in this block. The other
+    // four clashes are setting against scene CONTENT - you cannot grey out a
+    // portal somebody placed - so they keep the live warning below and the build
+    // refusal, unchanged.
+    //
+    // MUTUALLY EXCLUSIVE, SYMMETRICALLY: whichever of the two is already on
+    // greys out the other, and the way to switch is to untick the one that is
+    // on. That is deliberately not "the upscaler always loses" and it is
+    // deliberately not auto-unticking the other switch - flipping a setting the
+    // user never touched is its own bug, and they find out months later.
+    //
+    // The upscaler is per SCENE and extrapolation is per project, so the
+    // question is "does any scene RESOLVE the upscaler on", asked of the STAGED
+    // defaults so a tick in this very dialog moves it. A scene that overrides it
+    // on is named, because "turn the upscaler off" is not actionable when this
+    // dialog is not where it is on.
+    //
+    // ONLY THE TICK IS EVER BLOCKED, NEVER THE UNTICK, and that is what makes
+    // this incapable of producing a dead end. A project can arrive with both on
+    // (a hand-edited .tyra, an older editor, a Set Frame Extrapolation node) and
+    // every switch that is on is still switchable off; there the clash warning
+    // below and the build refusal do the talking. It also disposes of a subtler
+    // trap: with every scene overriding the upscaler off, the project default
+    // can be ON while nothing resolves on - greying it by "does anything
+    // upscale" would have locked a ticked box nobody could untick.
+    bool upscalerOn = false;
+    std::string upscalerWhere = "this project";
+    if (hasProject_)
+        for (const SceneData& sc : project_.scenes) {
+            const bool on =
+                sc.overrides.upscaler ? sc.settings.blssEnabled : s.blssEnabled;
+            if (!on) continue;
+            upscalerOn = true;
+            if (!s.blssEnabled) upscalerWhere = "the scene " + sc.name;
+            break;
+        }
+    const bool blockUpscaler = s.frameExtrapolation && !s.blssEnabled;
+    const bool blockExtrapolation = upscalerOn && !s.frameExtrapolation;
+
+    ImGui::BeginDisabled(blockUpscaler);
     if (ImGui::Checkbox("Use the upscaler", &s.blssEnabled)) changed = true;
+    ImGui::EndDisabled();
     help(
         "Renders the 3D SCENE smaller and blows it back up to fill the display\n"
         "buffer. The HUD, the menus, the text and every post effect still draw\n"
@@ -735,6 +779,15 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         "in the project directory. Check it with cross-validation, never with\n"
         "one split. Without a blss.net the game is built with the net the editor\n"
         "ships and says which one it got in its boot log.");
+    // IN-LINE, not in the tooltip: a greyed control that explains itself only on
+    // hover reads as a bug, because the first question is "why can I not click
+    // this" and nothing on screen answers it.
+    if (blockUpscaler)
+        ImGui::TextDisabled(
+            "    Not while frame extrapolation is on (below). The two cannot be\n"
+            "    combined - both rebuild a frame by reprojecting the previous one,\n"
+            "    and in motion the pair tears the picture into cells that\n"
+            "    disagree. Untick frame extrapolation and this frees up.");
 
     ImGui::BeginDisabled(!s.blssEnabled);
     {
@@ -891,14 +944,19 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // "Informational" is now "no scene resolves it on" and not "this checkbox is
     // off": a project whose default is off while one scene overrides it ON will
     // have its build refused, and calling that informational would be wrong.
+    // With nothing on, ask the hypothetical - "what would refuse the build if
+    // you ticked the box above" - and say so in the block's own wording.
+    // `upscalerOn` is the same walk the exclusion above uses; one answer to
+    // "does any scene resolve it on", asked once at the top.
     {
-        bool anyOn = false;
-        if (hasProject_)
-            for (const SceneData& sc : project_.scenes)
-                anyOn |= sc.overrides.upscaler ? sc.settings.blssEnabled : s.blssEnabled;
-        // With nothing on, ask the hypothetical - "what would refuse the build
-        // if you ticked the box above" - and say so in the block's own wording.
-        drawBlssClashWarning(blssClashesFor(s, /*assumeProjectDefaultOn=*/!anyOn), !anyOn);
+        BlssClash clash = blssClashesFor(s, /*assumeProjectDefaultOn=*/!upscalerOn);
+        // ...except the extrapolation row when the tick it warns about has
+        // already been taken away: the greyed checkbox says this three lines
+        // up, and a hypothetical about an action nobody can perform is noise.
+        // The other four stay - a portal is not something this dialog can
+        // prevent.
+        if (blockUpscaler) clash.extrapolation.clear();
+        drawBlssClashWarning(clash, !upscalerOn);
     }
 
     // FRAME EXTRAPOLATION LIVES HERE, next to the upscaler, because it is the
@@ -907,12 +965,14 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
     // sit four sections away under "Build", beside triple buffering, where the
     // person choosing a reconstruction never met it - and the two turn out to be
     // mutually exclusive, which is a thing you can only be told at the point of
-    // choice. It is a PROJECT setting where the upscaler is per scene, and the
-    // interlock above says so whenever both resolve on.
+    // choice. It is a PROJECT setting where the upscaler is per scene, which is
+    // why the exclusion at the top of this function has to ask every scene.
     ImGui::SeparatorText("Frame extrapolation");
+    ImGui::BeginDisabled(blockExtrapolation);
     if (ImGui::Checkbox("Present a synthesised frame between rendered ones",
                         &s.frameExtrapolation))
         changed = true;
+    ImGui::EndDisabled();
     help(
         "Frame generation, PS2 style: after each rendered frame the game\n"
         "presents a SYNTHESISED one, re-drawing it under the camera\n"
@@ -947,6 +1007,18 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         "loop's work already overruns a field (two fields when triple buffered),\n"
         "so leaving it on costs a fast scene nothing. Each flip is logged to the\n"
         "game's bin/log.txt.");
+    // The other half of the exclusion, in line for the same reason. It NAMES
+    // where the upscaler is on, because "turn the upscaler off" is not
+    // actionable advice when the answer is one scene overriding it and this
+    // dialog is not where that lives.
+    if (blockExtrapolation)
+        ImGui::TextDisabled(
+            "    Not while the upscaler is on for %s. The two cannot be\n"
+            "    combined - both rebuild a frame by reprojecting the previous one,\n"
+            "    and in motion the pair tears the picture into cells that\n"
+            "    disagree. Untick the upscaler (above, or in Scene > Scene\n"
+            "    Preferences for that scene) and this frees up.",
+            upscalerWhere.c_str());
     ImGui::BeginDisabled(!s.frameExtrapolation);
     if (ImGui::Checkbox("Ground plane (recommended)", &s.frameExtrapolationGround))
         changed = true;

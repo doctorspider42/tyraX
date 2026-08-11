@@ -2,7 +2,7 @@
 
 Frame pacing is how a generated game pays for a frame that misses its vsync
 deadline: with double buffering it waits out a whole second field and the frame
-rate halves, and with triple buffering (*Project > Preferences > Build > Triple
+rate halves, and with triple buffering (*Project > Preferences > Display > Triple
 buffering*) it presents that frame one field late instead and keeps the EE
 working. This page covers what the cliff is, what the third buffer costs in GS
 VRAM, and the measurements.

@@ -1552,9 +1552,11 @@ to stdout). The network is 123 floats, so it is a header, not an asset.
 ## Using it
 
 The interface is **two layers**, and which one you meet depends on what you are
-trying to do. *Project ▸ Preferences ▸ Neural upscaler (BLSS)* asks the three
+trying to do. *Project ▸ Preferences ▸ Display ▸ Frame delivery* asks the three
 questions that decide whether to ship the feature and states one line of verdict
-about your own scenes. *Tools ▸ Neural Upscaler (BLSS)* — behind an
+about your own scenes — on the **Display** tab, next to the video signal and the
+presentation, because "how does a frame reach the screen" is one question and
+this is one of its answers. *Tools ▸ Neural Upscaler (BLSS)* — behind an
 `Advanced…` button in that block — is everything else: training, evaluation,
 cross-validation, the comparison renders, the channel report, the console probe
 and the emit step. Off by default.
@@ -2107,6 +2109,75 @@ had the scene and the object in hand.
 > not turn that scene on. With the flag false it answers the build's question
 > verbatim, which is the property that makes it a mirror rather than a second
 > interlock.
+
+#### The two settings exclude each other
+
+Four of the five clashes are **setting against scene content** — you cannot grey
+out a portal somebody placed, so those keep the warning above and the build
+refusal. The fifth, [frame extrapolation](frame-extrapolation.md), is **setting
+against setting**, and both switches live in this one block — so the invalid
+state is simply unreachable: whichever of the two is already on greys the other
+out, with the reason **in line** under the greyed control rather than in a
+tooltip (a greyed control that only explains itself on hover reads as a bug).
+
+Two rules keep it from ever becoming a dead end, and both were reasoned before
+they were written rather than after:
+
+- **Only the tick is blocked, never the untick.** A project can arrive with both
+  on — a hand-edited `.tyra`, an editor that predates the pair, a *Set Frame
+  Extrapolation* flow node that turns it on at runtime — and in that state
+  everything that is on must stay switchable off. There the clash block and the
+  build refusal do the talking.
+- **The upscaler side is gated on the project default, not on "does anything
+  upscale".** The two are not the same: a project whose scenes all override the
+  upscaler off can have the default ON with nothing resolving on, and greying by
+  the second reading would lock a ticked box nobody could untick. The
+  extrapolation side *does* ask the per-scene question (`upscalerOn`), because
+  extrapolation is project-wide and one scene resolving the upscaler on is
+  enough to refuse the build — and the in-line reason names that scene, since
+  "turn the upscaler off" is not actionable advice when the answer is in another
+  dialog.
+
+*Scene ▸ Scene Preferences ▸ Neural upscaler (BLSS)* carries the same rule for
+the same reason: a scene is the other place the refused pair can be created, and
+its tick is greyed while the project has extrapolation on.
+
+**The build interlock is not removed by any of this.** Prevention in the dialog
+and refusal at build are belt and braces: a `.tyra` can be hand-edited, an older
+editor never knew about the pair, and scene content can change after a setting
+was made.
+
+#### The refusal is one short line in a file of its own
+
+`blssInterlock()` writes **`src/gen/blss_interlock.gen.cpp`**, a translation unit
+whose entire job is to stop the build. Both halves of that sentence are fixes for
+a real complaint from somebody who hit the interlock for real:
+
+- It used to be emitted into `inc/scene_data.hpp`, which about **fourteen**
+  translation units include, and GCC prints an `#error` three times over (the
+  diagnostic, the quoted source line, the caret). One clash on one project was
+  therefore one 340-character paragraph printed forty-two times, and the user's
+  entire build log was that wall. In its own TU it is printed **once**.
+- The messages are now **one short line** each — the pair, the scene, one place
+  to fix it, and the doc page for the why. The long form is not gone; it is on
+  this page, in [Why not with the upscaler](frame-extrapolation.md#why-not-with-the-upscaler),
+  and verbatim in the dialog, which is where a person reads at their own pace and
+  can click the thing being described. A compiler diagnostic is the wrong medium
+  for prose.
+- **An apostrophe in a `#error` is a second diagnostic.** The authored words
+  *"the upscaler's temporal pass"* are an unterminated character constant to the
+  preprocessor, so every one of those fourteen TUs also carried a bogus *missing
+  terminating `'` character* warning. `errorSafe()` — which already sanitised
+  interpolated scene and object names — is applied to the **whole line** now, and
+  the messages are authored without apostrophes or quotes so it stays a backstop.
+  The hazard is invisible in the C++ that writes the string, which is exactly why
+  the guard is not left to authoring discipline.
+
+The file is generated **only while the project clashes** and `refreshGenerated`
+**deletes** it when it stops. That sweep is the load-bearing half: `Makefile.base`
+globs `src/**/*.cpp` and the container rsync runs with `--delete`, so a leftover
+would keep refusing a build that is perfectly fine — which is worse than the
+noise this replaced. A clean project's file list is unchanged, byte for byte.
 
 #### What mixing costs, said where mixing is done
 
@@ -4636,8 +4707,11 @@ Occupancy is a count of grid cells, not a millisecond.
   learns to distrust history where `depthGrad` is high, which mitigates it
   rather than fixing it.
 - **Cannot be combined with [frame extrapolation](frame-extrapolation.md), and
-  the BUILD REFUSES the pair** — the fifth `blssClashes()` condition, per scene
-  like the other four. Both rebuild a frame by reprojecting the previous one
+  the editor now REFUSES TO LET YOU** — the fifth `blssClashes()` condition, per
+  scene like the other four, and the only one of the five the dialog can
+  prevent rather than warn about (see
+  [The two settings exclude each other](#the-two-settings-exclude-each-other)).
+  The build interlock stays underneath it as the backstop. Both rebuild a frame by reprojecting the previous one
   through the camera delta, and extrapolation halves the world rate, so the
   camera moves **twice as far between two rendered frames** — which is exactly
   the interval this feature's temporal pass reprojects across. Measured in
