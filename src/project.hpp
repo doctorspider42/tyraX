@@ -2356,8 +2356,9 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
 // and the editor's preview applies the identical math (animedit.hpp).
 //
 // Order of operations, both here and in the preview: trim in SOURCE seconds,
-// then rebase the trimmed range to start at 0, then scale time. The clip the
-// game sees is `rename` (when set) with duration
+// then rebase the trimmed range to start at 0, remove horizontal root motion
+// when `inPlace` is set, then scale time. The clip the game sees is `rename`
+// (when set) with duration
 // (trimEnd - trimStart) / (timeScale * project fps ratio).
 struct AnimClipEdit {
     std::string model;   // project-relative asset, e.g. "res/models/hero.glb"
@@ -2366,20 +2367,22 @@ struct AnimClipEdit {
     float timeScale = 1.0f;   // >1 plays faster; on top of the project fps ratio
     float trimStart = 0.0f;   // seconds into the source clip; 0 = from the start
     float trimEnd = 0.0f;     // seconds into the source clip; 0 = to the end
+    bool inPlace = false;      // pin the motion root's X/Z to the trimmed start
     bool loop = true;         // default Loop for objects that pick this clip
 
     // True when this entry changes nothing - the Animation Editor drops such
     // entries on save so an untouched project keeps an empty list.
     bool isDefault() const {
         return rename.empty() && timeScale == 1.0f && trimStart == 0.0f &&
-               trimEnd == 0.0f && loop;
+               trimEnd == 0.0f && !inPlace && loop;
     }
 };
 
 inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
     return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
            a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
-           a.trimEnd == b.trimEnd && a.loop == b.loop;
+           a.trimEnd == b.trimEnd && a.inPlace == b.inPlace &&
+           a.loop == b.loop;
 }
 
 struct Project {

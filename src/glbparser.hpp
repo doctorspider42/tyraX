@@ -55,9 +55,18 @@ struct Image {
 };
 
 struct Baked {
+    struct RootMotionSample {
+        // Motion-root position in model space. Storing the global result (not
+        // local X/Z) handles FBX rigs whose parent maps forward travel onto
+        // local Y or another arbitrarily oriented axis.
+        float x = 0.0f, z = 0.0f;
+    };
     std::vector<Part> parts;
     std::vector<Clip> clips;  // >= 1; a static .glb gets one 1-frame "default"
     std::vector<Image> images;
+    // Host-preview-only data. One sample per baked frame lets the viewport
+    // remove the same root channel the .tskl bake pins for an in-place edit.
+    std::vector<RootMotionSample> rootMotion;
     int frameCount = 1;   // total baked frames (all clips, concatenated)
     float fps = 12.0f;    // bake sample rate the clips were sampled at
     float min[3] = {0, 0, 0}, max[3] = {0, 0, 0};  // frame-0 AABB, all parts

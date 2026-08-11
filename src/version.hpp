@@ -73,15 +73,19 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // 4 and 5, then the collision-box overlay landed on main and took 6. A branch
 // that lives a while renumbers rather than argues; the number means "what the
 // file may contain", and only main gets to say which is which.)
-// v8 (Foot IK, docs/animated-models.md): an animated model's optional
+// v8 (Animation Editor in-place clips, docs/animated-models.md):
+// AnimClipEdit::inPlace removes horizontal root motion during the .tskl bake.
+// Purely additive and false when absent, so older projects keep their exact
+// authored animation and need no migration step.
+// v9 (Foot IK, docs/animated-models.md): an animated model's optional
 // two-leg bone mapping and ground-probe/plant/pelvis tuning. Purely additive:
 // disabled is the old animation path byte for byte, so no migration step.
-// v9 (neural Foot IK assist, docs/animated-models.md): the optional learned
+// v10 (neural Foot IK assist, docs/animated-models.md): the optional learned
 // VU0 landing-point predictor and its influence. Purely additive and disabled
-// by default, so old projects preserve the v8 procedural solver exactly.
-// v10 (surface-aligned feet, docs/animated-models.md): maximum planted-foot
+// by default, so old projects preserve the v9 procedural solver exactly.
+// v11 (surface-aligned feet, docs/animated-models.md): maximum planted-foot
 // tilt and swing toe-clearance. Purely additive with conservative defaults;
 // no migration step.
-inline constexpr int kFormatVersion = 10;
+inline constexpr int kFormatVersion = 11;
 
 }  // namespace version

@@ -2234,6 +2234,7 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
         if (e.trimStart != 0.0f)
             json << ", \"trimStart\": " << fmtFloat(e.trimStart);
         if (e.trimEnd != 0.0f) json << ", \"trimEnd\": " << fmtFloat(e.trimEnd);
+        if (e.inPlace) json << ", \"inPlace\": true";
         if (!e.loop) json << ", \"loop\": false";
         json << " }";
     }
@@ -5711,6 +5712,7 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
             e.trimStart = (float)v->numberOr(0.0);
         if (const auto* v = je.find("trimEnd"))
             e.trimEnd = (float)v->numberOr(0.0);
+        if (const auto* v = je.find("inPlace")) e.inPlace = v->boolOr(false);
         if (const auto* v = je.find("loop")) e.loop = v->boolOr(true);
         // Same clamp the Animation Editor enforces; a hand-edited file can
         // otherwise stall a clip (0x) or make it unplayably fast.
@@ -6478,13 +6480,14 @@ uint64_t liveLinkContextHash(const Project& p) {
         }
     }
     // Animation clip edits are baked into the .tskl at build time, so a
-    // retimed/trimmed/renamed clip cannot reach a running game - the LIVE
+    // retimed/trimmed/in-place/renamed clip cannot reach a running game - the LIVE
     // chip must flip to "rebuild" instead of silently streaming edits the
     // console will not show.
     fnvMixF(h, p.settings.animSourceFps), fnvMixF(h, p.settings.animPlayFps);
     for (const AnimClipEdit& e : p.animClipEdits) {
         fnvMixS(h, e.model), fnvMixS(h, e.clip), fnvMixS(h, e.rename);
         fnvMixF(h, e.timeScale), fnvMixF(h, e.trimStart), fnvMixF(h, e.trimEnd);
+        fnvMix(h, e.inPlace ? 1u : 0u);
     }
     return h;
 }

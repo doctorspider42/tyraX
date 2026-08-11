@@ -2885,6 +2885,11 @@ void App::drawAnimEditorWindow() {
 
     const AnimClipEdit* cur =
         animedit::findEdit(project_, animEdModel_, animEdClip_);
+    // Snapshot the staged values before any widget can append/prune the vector
+    // and invalidate `cur` during this frame.
+    const float curTimeScale = cur ? cur->timeScale : 1.0f;
+    const bool curInPlace = cur && cur->inPlace;
+    const bool curLoop = cur ? cur->loop : true;
     const float srcDur =
         viewport_.animClipDuration(animEdModel_, std::string(), animEdClip_);
     float trimA = 0.0f, trimB = srcDur;
@@ -2945,7 +2950,10 @@ void App::drawAnimEditorWindow() {
         d.angleDeg = animEdYaw_;
         d.pitchDeg = animEdPitch_;
         d.zoom = animEdZoom_;
+        d.panX = animEdPanX_;
+        d.panY = animEdPanY_;
         d.wireframe = animEdWireframe_;
+        d.inPlace = curInPlace;
         d.light = previewLight(animEdLight_);
         const int pw = (int)std::max(scaled(240), ImGui::GetContentRegionAvail().x);
         const int ph = (int)scaled(300);
@@ -2955,19 +2963,42 @@ void App::drawAnimEditorWindow() {
             ImGui::Image((ImTextureID)(intptr_t)tex,
                          ImVec2((float)pw, (float)ph), ImVec2(0, 1),
                          ImVec2(1, 0));
-            // Drag to orbit, wheel to dolly - the Material Editor's gesture.
-            if (ImGui::IsItemHovered()) {
-                const float wheel = ImGui::GetIO().MouseWheel;
-                if (wheel != 0.0f)
-                    animEdZoom_ = std::clamp(animEdZoom_ * (1.0f + wheel * 0.1f),
-                                             0.1f, 8.0f);
+            // Image() is display-only and does not reliably become active on
+            // a drag. Put a real input item over it, as the Material Editor
+            // does, so every mouse button has a deterministic owner.
+            ImGui::SetCursorScreenPos(origin);
+            ImGui::InvisibleButton(
+                "Animation preview##ae_view", ImVec2((float)pw, (float)ph),
+                ImGuiButtonFlags_MouseButtonRight |
+                    ImGuiButtonFlags_MouseButtonMiddle);
+            const bool hovered = ImGui::IsItemHovered();
+            const bool active = ImGui::IsItemActive();
+            ImGuiIO& io = ImGui::GetIO();
+
+            if (hovered && io.MouseWheel != 0.0f) {
+                animEdZoom_ *= std::pow(1.15f, io.MouseWheel);
+                animEdZoom_ = std::clamp(animEdZoom_, 0.1f, 8.0f);
             }
-            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                const ImVec2 dlt = ImGui::GetIO().MouseDelta;
-                animEdYaw_ += dlt.x * 0.4f;
-                animEdPitch_ = std::clamp(animEdPitch_ - dlt.y * 0.3f, -30.0f, 85.0f);
+
+            if (active) {
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                    animEdYaw_ += io.MouseDelta.x * 0.4f;
+                    animEdPitch_ = std::clamp(
+                        animEdPitch_ - io.MouseDelta.y * 0.3f, -30.0f, 85.0f);
+                } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+                    // Keep the visual travel per pixel stable as zoom changes.
+                    const float s = 0.0065f / std::max(animEdZoom_, 0.1f);
+                    animEdPanX_ = std::clamp(animEdPanX_ - io.MouseDelta.x * s,
+                                             -5.0f, 5.0f);
+                    animEdPanY_ = std::clamp(animEdPanY_ + io.MouseDelta.y * s,
+                                             -5.0f, 5.0f);
+                }
             }
-            (void)origin;
+
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(origin.x + scaled(8), origin.y + scaled(8)),
+                ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                "RMB rotate  |  MMB pan  |  wheel zoom");
         }
     }
 
@@ -2986,6 +3017,15 @@ void App::drawAnimEditorWindow() {
     ImGui::Checkbox("Wireframe", &animEdWireframe_);
     ImGui::SameLine();
     if (previewLightCombo("##ae_light", animEdLight_)) saveGlobalConfig();
+
+    if (ImGui::SmallButton("Reset view")) {
+        animEdYaw_ = 40.0f;
+        animEdPitch_ = 15.0f;
+        animEdZoom_ = 1.0f;
+        animEdPanX_ = animEdPanY_ = 0.0f;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("RMB rotate; MMB pan; wheel zoom");
 
     // --- the edit itself ----------------------------------------------------
     ImGui::SeparatorText("Clip");
@@ -3030,7 +3070,7 @@ void App::drawAnimEditorWindow() {
         "their own graphs; a node that drives another object through an\n"
         "object link keeps its text and may need updating by hand.");
 
-    float timeScale = cur ? cur->timeScale : 1.0f;
+    float timeScale = curTimeScale;
     ImGui::SetNextItemWidth(scaled(240));
     if (ImGui::DragFloat("Time scale", &timeScale, 0.01f, 0.05f, 10.0f,
                          "%.2fx")) {
@@ -3078,7 +3118,21 @@ void App::drawAnimEditorWindow() {
             "boundary poses, so it starts and ends exactly where you cut.");
     }
 
-    bool loop = cur ? cur->loop : true;
+    bool inPlace = curInPlace;
+    if (ImGui::Checkbox("In place", &inPlace)) {
+        animEditFor(animEdModel_, animEdClip_).inPlace = inPlace;
+        pruneAnimEdits();
+        changed = true;
+    }
+    ImGui::SameLine();
+    helpMarker(
+        "Removes horizontal root motion from this clip, pinning the character\n"
+        "to its position at the trimmed start while keeping vertical bob and\n"
+        "all limb animation. This is per clip: an object playing a different\n"
+        "Start clip is unaffected. Use it when the Player object already moves\n"
+        "the avatar through the world; rebuild before testing in the game.");
+
+    bool loop = curLoop;
     if (ImGui::Checkbox("Loop by default", &loop)) {
         animEditFor(animEdModel_, animEdClip_).loop = loop;
         pruneAnimEdits();
@@ -3097,7 +3151,9 @@ void App::drawAnimEditorWindow() {
     else
         ImGui::TextDisabled("static clip (no motion to retime)");
 
-    if (cur && !cur->isDefault()) {
+    const AnimClipEdit* finalEdit =
+        animedit::findEdit(project_, animEdModel_, animEdClip_);
+    if (finalEdit && !finalEdit->isDefault()) {
         if (ImGui::Button("Reset this clip")) {
             const std::string before =
                 animedit::effectiveName(project_, animEdModel_, animEdClip_);
