@@ -395,6 +395,7 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    bool drawFootIk(SceneObject& o);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -
@@ -626,6 +627,8 @@ private:
         bool ok = false;
         std::string error;
         std::vector<std::string> clips;
+        std::vector<std::string> bones;
+        std::vector<int> boneParents;
         int vertexCount = 0, frameCount = 0;
         // Frame-zero baked bounds, retained for the Asset Browser's Size
         // dialog so clicking it never triggers a second animation bake.

@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cfloat>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -362,6 +363,7 @@ void App::drawPropertiesWindow() {
                     rel != o.modelPath) {
                     o.modelPath = rel;
                     o.animClip.clear();  // clip names belong to the old file
+                    o.footIk = FootIkConfig{};
                     committed = true;
                 }
             }
@@ -420,6 +422,7 @@ void App::drawPropertiesWindow() {
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
                 committed |= drawLodOverrides(o);
+                committed |= drawFootIk(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: Play Animation, Stop Animation,\n"
                     "On Animation Finished.");
@@ -1755,6 +1758,7 @@ void App::drawPropertiesWindow() {
                         o.playerBackClip.clear();
                         o.playerStrafeLeftClip.clear();
                         o.playerStrafeRightClip.clear();
+                        o.footIk = FootIkConfig{};
                         committed = true;
                     }
                 }
@@ -1841,6 +1845,7 @@ void App::drawPropertiesWindow() {
                     // two-player scene that gives P1 and P2 independent
                     // avatar LOD settings.
                     committed |= drawLodOverrides(o);
+                    committed |= drawFootIk(o);
                 }
             }
 
@@ -2431,6 +2436,165 @@ bool App::drawModelFacing(SceneObject& o) {
 // checkbox flips between "use the project preference" (-1, the default) and
 // an explicit per-object distance; dragging the value to 0 turns that LOD
 // off for this object entirely.
+bool App::drawFootIk(SceneObject& o) {
+    if (!isAnimatedModelPath(o.modelPath)) return false;
+    const GlbInfo& info = glbInfo(o.modelPath);
+    if (!info.ok) return false;
+
+    bool changed = false;
+    ImGui::SeparatorText("Foot placement");
+    changed |= ImGui::Checkbox("Foot IK", &o.footIk.enabled);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Post-process the sampled clip so both ankles stop on terrain and\n"
+            "solid geometry. The game probes the previous evaluated foot pose,\n"
+            "locks planted feet, offsets the pelvis and solves both leg chains.");
+    if (!o.footIk.enabled) return changed;
+
+    FootIkConfig& ik = o.footIk;
+    changed |= ImGui::Checkbox("Neural landing prediction (VU0)",
+                               &ik.neuralAssist);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Experimental learned 8-8-4 controller. It reads a short ankle\n"
+            "motion history and an ahead-of-foot ground probe, then predicts\n"
+            "a small landing-point residual. A real collision raycast and the\n"
+            "ordinary IK limits still approve every plant.");
+    if (ik.neuralAssist) {
+        ImGui::DragFloat("Neural influence", &ik.neuralStrength, 0.01f, 0.0f,
+                         1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    auto compact = [](const std::string& s) {
+        std::string out;
+        for (unsigned char c : s)
+            if (std::isalnum(c)) out.push_back((char)std::tolower(c));
+        return out;
+    };
+    auto findPattern = [&](std::initializer_list<const char*> patterns) {
+        for (const std::string& name : info.bones) {
+            const std::string n = compact(name);
+            for (const char* p : patterns) {
+                const std::string pat = p;
+                if (n == pat ||
+                    (n.size() > pat.size() &&
+                     n.compare(n.size() - pat.size(), pat.size(), pat) == 0))
+                    return name;
+            }
+        }
+        return std::string{};
+    };
+    if (ImGui::Button("Auto-detect leg bones")) {
+        ik.leftHip = findPattern(
+            {"leftupleg", "upperlegl", "thighl", "lthigh", "legleft1"});
+        ik.leftKnee = findPattern(
+            {"leftleg", "lowerlegl", "calfl", "shinl", "legleft2"});
+        ik.leftAnkle = findPattern(
+            {"leftfoot", "footl", "anklel", "lankle", "legleft3"});
+        ik.rightHip = findPattern(
+            {"rightupleg", "upperlegr", "thighr", "rthigh", "legright1"});
+        ik.rightKnee = findPattern(
+            {"rightleg", "lowerlegr", "calfr", "shinr", "legright2"});
+        ik.rightAnkle = findPattern(
+            {"rightfoot", "footr", "ankler", "rankle", "legright3"});
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("or map explicitly");
+
+    auto boneCombo = [&](const char* label, std::string& bone) {
+        const std::string current = bone.empty() ? "<none>" : bone;
+        if (!ImGui::BeginCombo(label, current.c_str())) return;
+        if (ImGui::Selectable("<none>", bone.empty()) && !bone.empty()) {
+            bone.clear();
+            changed = true;
+        }
+        for (const std::string& name : info.bones) {
+            if (name.empty()) continue;
+            if (ImGui::Selectable(name.c_str(), name == bone) && name != bone) {
+                bone = name;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    };
+    ImGui::PushID("foot-ik-bones");
+    boneCombo("Left hip", ik.leftHip);
+    boneCombo("Left knee", ik.leftKnee);
+    boneCombo("Left ankle", ik.leftAnkle);
+    boneCombo("Right hip", ik.rightHip);
+    boneCombo("Right knee", ik.rightKnee);
+    boneCombo("Right ankle", ik.rightAnkle);
+    ImGui::PopID();
+
+    auto indexOf = [&](const std::string& name) {
+        int found = -1;
+        for (size_t i = 0; i < info.bones.size(); ++i)
+            if (info.bones[i] == name) {
+                if (found >= 0) return -2;
+                found = (int)i;
+            }
+        return found;
+    };
+    auto descendant = [&](int child, int parent) {
+        for (int i = child; i >= 0 && i < (int)info.boneParents.size();
+             i = info.boneParents[(size_t)i])
+            if (i == parent) return true;
+        return false;
+    };
+    const int lh = indexOf(ik.leftHip), lk = indexOf(ik.leftKnee),
+              la = indexOf(ik.leftAnkle), rh = indexOf(ik.rightHip),
+              rk = indexOf(ik.rightKnee), ra = indexOf(ik.rightAnkle);
+    const bool complete = lh >= 0 && lk >= 0 && la >= 0 && rh >= 0 && rk >= 0 &&
+                          ra >= 0;
+    const bool chains = complete && descendant(lk, lh) && descendant(la, lk) &&
+                        descendant(rk, rh) && descendant(ra, rk);
+    if (!complete)
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                           "Map six uniquely named bones; incomplete or ambiguous rigs stay unchanged.");
+    else if (!chains)
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                           "Each chain must be hip > knee > ankle in the hierarchy.");
+
+    if (ImGui::TreeNode("Foot IK tuning")) {
+        ImGui::DragFloat("Sole below ankle", &ik.soleOffset, 0.005f, 0.0f, 2.0f,
+                         "%.3f model units");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Probe above", &ik.probeUp, 0.01f, 0.01f, 5.0f,
+                         "%.2f world units");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Probe below", &ik.probeDown, 0.01f, 0.01f, 5.0f,
+                         "%.2f world units");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Plant distance", &ik.plantDistance, 0.005f, 0.0f, 1.0f,
+                         "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Release distance", &ik.releaseDistance, 0.005f,
+                         ik.plantDistance, 2.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ik.releaseDistance < ik.plantDistance)
+            ik.releaseDistance = ik.plantDistance;
+        ImGui::DragFloat("Max pelvis correction", &ik.maxPelvis, 0.01f, 0.0f,
+                         2.0f, "%.2f world units");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Max foot tilt", &ik.maxFootAngle, 1.0f, 0.0f, 80.0f,
+                         "%.0f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Toe clearance", &ik.toeClearance, 0.005f, 0.0f,
+                         1.0f, "%.3f world units");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "During swing, sample ahead in the foot's travel direction\n"
+                "and lift the ankle above an approaching curb or stair edge.");
+        ImGui::TextDisabled(
+            "The first visible frame establishes the pose; correction starts\n"
+            "on the next frame and is camera-independent after that.");
+        ImGui::TreePop();
+    }
+    return changed;
+}
+
 bool App::drawLodOverrides(SceneObject& o, bool animated) {
     bool committed = false;
     auto row = [&](const char* label, float& v, float projectDefault) {

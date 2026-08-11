@@ -59,6 +59,11 @@ int g_activeScene = 0;
 // without compensation that also meant half-speed gameplay).
 float g_frameRate = 50.0F;
 float g_frameDt = 1.0F / 50.0F;
+u32 g_frameNumber = 0;
+constexpr bool FOOT_IK_TRACE = false;
+// Test-only scalar twin. Normal builds execute the dense products with VU0
+// macro-mode instructions, sharing no micro-memory with project kernels.
+constexpr bool FOOT_NEURAL_FORCE_EE = false;
 // The clock the project's own VU1 stages AND scripts read, in seconds
 // (vu::Ctx::time). Wrapped in the game loop - see the setTime call there.
 float g_vuClock = 0.0F;
@@ -163,6 +168,7 @@ float stickAxis(const u8& raw, float dz, int curve, float e) {
 // [1/4, 4x] nominal - a scene load is a hitch, not a gameplay leap.
 static u32 g_frameClockLast = 0;
 static void updateFrameClock() {
+  ++g_frameNumber;
   u32 now;
   asm volatile("mfc0 %0, $9" : "=r"(now));
   const u32 delta = now - g_frameClockLast;
@@ -2129,6 +2135,9 @@ void TerrainGame::loop() {
     if (PLAYER_INDEX >= 0) {
       players[0].x = scriptCtx.teleportPos.x;
       players[0].y = scriptCtx.teleportPos.y;
+      players[0].visualY = players[0].y;
+      players[0].visualYReady = true;
+      players[0].grounded = false;
       players[0].z = scriptCtx.teleportPos.z;
       // A rewind restores the motion it captured; every other teleport (the
       // Spawn Player At node, a memory-card load) lands standing still.
@@ -2141,6 +2150,9 @@ void TerrainGame::loop() {
         players[1].z = players[0].z;
         players[1].y = PP_MODE(1) == 1 ? players[0].y
                                        : terrainHeightAt(players[1].x, players[1].z);
+        players[1].visualY = players[1].y;
+        players[1].visualYReady = true;
+        players[1].grounded = false;
         players[1].velY = 0.0F;
         players[1].yaw = players[0].yaw;
       }
@@ -3700,6 +3712,1066 @@ void TerrainGame::fillDynLitColors(int i) {
   }
 }
 
+bool TerrainGame::footGroundAt(float x, float z, float top, float bottom,
+                               int skipIndex, float* y, Vec4* normal) const {
+  bool found = false;
+  float best = bottom;
+  Vec4 bestNormal(0.0F, 1.0F, 0.0F, 0.0F);
+  if (TERRAIN_ENABLED) {
+    const float h = terrainHeightAt(x, z);
+    if (h >= bottom && h <= top) {
+      best = h;
+      found = true;
+      const float e = 0.08F;
+      bestNormal.set(terrainHeightAt(x - e, z) - terrainHeightAt(x + e, z),
+                     2.0F * e,
+                     terrainHeightAt(x, z - e) - terrainHeightAt(x, z + e),
+                     0.0F);
+      bestNormal.normalize();
+    }
+  }
+
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    if (oi == skipIndex) continue;
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+
+    const GameModel* gm = nullptr;
+    if (o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+      const float sx = fabsf(o.data.scale[0]) > 0.0001F ? o.data.scale[0] : 0.0001F;
+      const float sy = fabsf(o.data.scale[1]) > 0.0001F ? o.data.scale[1] : 0.0001F;
+      const float sz = fabsf(o.data.scale[2]) > 0.0001F ? o.data.scale[2] : 0.0001F;
+      auto toLocal = [&](float wx, float wy, float wz) {
+        V3 p = {wx - o.data.position[0], wy - o.data.position[1],
+                wz - o.data.position[2]};
+        p = invRotated(p, o.data.rotation);
+        return V3{p.x / sx, p.y / sy, p.z / sz};
+      };
+      auto toWorld = [&](const V3& l) {
+        V3 p = rotated({l.x * sx, l.y * sy, l.z * sz}, o.data.rotation);
+        return V3{p.x + o.data.position[0], p.y + o.data.position[1],
+                  p.z + o.data.position[2]};
+      };
+      const V3 ro = toLocal(x, top, z), rq = toLocal(x, bottom, z);
+      V3 rd = {rq.x - ro.x, rq.y - ro.y, rq.z - ro.z};
+      const float length = sqrtf(rd.x * rd.x + rd.y * rd.y + rd.z * rd.z);
+      if (length > 0.0001F) {
+        rd.x /= length, rd.y /= length, rd.z /= length;
+        float t;
+        Vec4 localNormal;
+        if (gm->collider.raycast(Vec4(ro.x, ro.y, ro.z, 1.0F),
+                                 Vec4(rd.x, rd.y, rd.z, 0.0F), length, &t,
+                                 &localNormal)) {
+          const V3 hit =
+              toWorld({ro.x + rd.x * t, ro.y + rd.y * t, ro.z + rd.z * t});
+          if (hit.y >= bottom && hit.y <= top && (!found || hit.y > best)) {
+            best = hit.y;
+            found = true;
+            V3 wn = rotated({localNormal.x / sx, localNormal.y / sy,
+                             localNormal.z / sz},
+                            o.data.rotation);
+            const float nl = sqrtf(wn.x * wn.x + wn.y * wn.y + wn.z * wn.z);
+            if (nl > 0.0001F) wn.x /= nl, wn.y /= nl, wn.z /= nl;
+            if (wn.y < 0.0F) wn.x = -wn.x, wn.y = -wn.y, wn.z = -wn.z;
+            bestNormal.set(wn.x, wn.y, wn.z, 0.0F);
+          }
+        }
+      }
+      continue;
+    }
+
+    const CollisionBox cb = objectCollisionBox(o);
+    const V3 center = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+    const float cx = o.data.position[0] + center.x;
+    const float cz = o.data.position[2] + center.z;
+    const float surface = o.data.position[1] + center.y + cb.half[1];
+    if (surface < bottom || surface > top || (found && surface <= best)) continue;
+    const float yaw = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+    const float c = cosf(yaw), s = sinf(yaw);
+    const float dx = x - cx, dz = z - cz;
+    const float lx = dx * c - dz * s;
+    const float lz = dx * s + dz * c;
+    if (fabsf(lx) <= cb.half[0] && fabsf(lz) <= cb.half[2]) {
+      best = surface;
+      bestNormal.set(0.0F, 1.0F, 0.0F, 0.0F);
+      found = true;
+    }
+  }
+  if (found) {
+    *y = best;
+    if (normal) *normal = bestNormal;
+  }
+  return found;
+}
+
+// Tiny learned landing/stair controller: 16 inputs -> 16 ReLU -> 5 outputs.
+// tools/train-foot-neural.py reproduces these bootstrap weights; trace builds
+// also emit real PCSX2 trajectories which the same trainer can mix in.  The
+// extra geometry inputs are two stair-lip residuals (after removing the slope
+// predicted by the support normal).  Learned stair outputs may only add a
+// bounded clearance or release a foot after those raycasts prove a real lip.
+// Dense products use VU0 macro mode and consume no micro-memory.
+static const float FOOT_NEURAL_W1[12][12] = {
+  {-0.976524373F, -1.06745576F, 1.10435971F, 1.21180006F, -0.860359026F, 0.228129601F, 0.271024313F, -0.442966524F, -0.249905198F, -0.996500128F, 0.508255637F, 0.114341108F},
+  {1.23683117F, -1.24491459F, 0.340258643F, -0.372071552F, 0.020760371F, -0.0847893803F, 0.0598060831F, -0.148724248F, 0.0770886867F, 0.392565447F, -0.247677361F, 0.105513604F},
+  {-0.211645942F, -0.0230562459F, 0.244537365F, -0.0995637499F, -0.156597893F, -1.12144769F, -0.195253718F, 0.143271706F, 0.131570329F, -0.392060428F, 0.0681149622F, -0.0888505856F},
+  {0.95967616F, 0.997684838F, 0.495771029F, 0.484839691F, 0.314219374F, 0.158763336F, 0.057162024F, -0.261437217F, 0.0768062534F, 0.307591034F, -0.150195278F, -0.0819124435F},
+  {-1.45208043F, 1.45968616F, -0.00669436968F, 0.115756661F, 0.534906507F, -0.178334924F, 0.0954831914F, -0.488832584F, 0.00959752976F, 0.193777391F, 0.372865448F, -0.0413112297F},
+  {0.0758787275F, 0.0384896684F, 0.00470720996F, -0.0580618567F, -0.149635376F, 3.02614454F, -0.109542669F, 0.431384815F, -0.091145962F, -1.26567244F, 0.0318113892F, -0.094987218F},
+  {0.318911883F, -0.422791533F, -0.212432705F, 0.358920358F, 1.29612336F, -0.250591251F, -0.55368126F, -0.8556365F, 0.276785288F, -0.984783939F, -0.132160536F, 0.0482285179F},
+  {-1.17182271F, -1.13448079F, -0.328132458F, -0.522130222F, 0.0875301322F, -0.344562097F, 0.14919526F, -0.434256698F, 0.0864800656F, 0.284113181F, 0.263979332F, 0.104052698F},
+  {0.0136417523F, -0.0560161608F, 0.00992696266F, 0.0834245333F, 0.00639647626F, 0.249391984F, -0.00822342041F, -0.105062611F, -0.142586624F, -1.76826442F, 0.0449816389F, -0.0177771719F},
+  {0.673125373F, -0.601032702F, -0.96598663F, 0.886196878F, -1.1001589F, 0.495901885F, 0.40851338F, 0.368548567F, 0.771229108F, -2.6773334F, -0.340951603F, -0.116165307F},
+  {0.11860494F, 0.0289651608F, -0.0448480483F, -0.0489118732F, -0.118850373F, 2.92260909F, -0.114331498F, 0.392061769F, -0.0652756528F, 0.298595016F, 0.0296748489F, -0.134093726F},
+  {-0.981400551F, 1.03152016F, 1.01028872F, -1.08870906F, 0.20556842F, -0.700516385F, 0.162228309F, -0.365478037F, -0.10887349F, -0.187262295F, 0.568347489F, -0.04170507F},
+};
+static const float FOOT_NEURAL_B1[12] = {
+  0.330317826F, -0.388904254F, 0.461943941F, -0.327982646F,
+  -0.474780179F, -0.082362481F, -0.188471548F, -0.362184763F,
+  0.525236422F, 0.204387275F, -0.0362281926F, 0.302933576F,
+};
+static const float FOOT_NEURAL_W2[5][12] = {
+  {0.318820335F, 0.522166245F, -0.0184466752F, 0.544180562F, -0.539415614F, 0.0420012132F, 0.0369395273F, -0.483280861F, 0.058105649F, -0.278025255F, -0.0287518531F, 0.293589632F},
+  {0.270359072F, -0.497752048F, 0.176079483F, 0.501772751F, 0.489551785F, -0.0860243288F, -0.0627451807F, -0.499460238F, -0.0798828905F, 0.174569231F, -0.0140358485F, -0.272079294F},
+  {-0.114754548F, -0.119888291F, 0.713173363F, -0.102479685F, -0.139458173F, 0.000738905084F, -0.593822498F, -0.158959702F, 0.469566803F, -0.27727343F, -0.134698986F, -0.282837366F},
+  {0.0369320328F, 0.00856246022F, -0.0939056541F, 0.0140382995F, 0.00589768045F, -0.441188481F, -0.0161826913F, 0.000309882925F, -0.710750861F, -0.00682061989F, 0.510399126F, -0.0124831572F},
+  {0.0376579316F, -0.0137165427F, -0.0695446887F, 0.0130924653F, -0.00887524286F, -0.725170787F, -0.00341421856F, 0.0149155047F, -0.300357152F, -0.0376127784F, 0.793649719F, 0.00386435364F},
+};
+static const float FOOT_NEURAL_B2[5] = {
+  -0.188641722F, 0.0481514951F, 0.553322651F,
+  0.389970122F, 0.151190095F,
+};
+
+// v3 adds causal filtered gap/vertical velocity, lip memory and swing phase.
+// The v2 constants above stay in generated source for reproducible project
+// upgrades; inference below exclusively consumes this trained v3 set.
+static const float FOOT_NEURAL_V3_W1[16][16] = {
+  {0.926220789F, 0.129270024F, 0.699034063F, 0.0417397979F, -0.193047185F, 1.36347543F, 0.744365569F, -0.0630148755F, 0.0332483976F, -0.259456714F, 0.00884546557F, -0.0026567093F, 0.196670058F, -2.00470279F, 0.317849873F, -0.0945836793F},
+  {-0.00292087468F, 0.0230610058F, -0.152094322F, 0.0418315467F, 2.79672904F, -0.0316480243F, -0.0666837463F, -0.489331581F, -0.0684935472F, -2.10539449F, 0.121579286F, -0.0332780098F, -1.32511661F, -0.532993334F, -0.0485250666F, -0.0393460068F},
+  {-1.44253818F, -0.11881145F, -0.198934703F, -0.0278622713F, -1.19708172F, -0.24519686F, -0.154219237F, 0.551446553F, -0.317913084F, -0.347953308F, -0.158359224F, 0.017767807F, 0.821337785F, 0.131857284F, -0.180557434F, -0.0623973613F},
+  {-0.0580256782F, -0.649528537F, 0.0754560718F, -0.493944673F, -0.308243661F, 1.95742007F, 1.1974817F, 0.00161293458F, 0.0914281472F, -0.119325782F, -0.0209725828F, 0.0163838925F, 0.354509925F, -3.18247812F, 0.204318893F, -0.157929595F},
+  {-0.058229098F, 0.648625759F, 0.0126288618F, 0.450535936F, 0.0340635571F, 1.82066169F, 1.12517761F, 0.0268348597F, 0.03689111F, -0.0309176396F, 0.00967998924F, 0.0183685668F, 0.0176425188F, -2.98857466F, 0.102266196F, -0.117376066F},
+  {1.2604014F, -1.20979065F, -1.70088571F, -0.676994879F, -0.672342475F, 2.29704156F, 0.992779406F, -0.432030487F, 1.09961303F, 0.00321641394F, 0.598742124F, -0.137493395F, -1.93347605F, -2.61381958F, -19.1768887F, 0.508483366F},
+  {-0.0397586111F, 0.0649414375F, -0.141108297F, -0.0121404053F, 2.79643255F, 1.16964748F, 0.734271354F, -0.639384706F, -0.109420927F, -1.28315286F, 0.160066584F, -0.0242753198F, -0.749722128F, -2.5990697F, -0.0729554356F, 0.000365942474F},
+  {-0.0811317935F, 0.0196537473F, 0.00395929174F, -0.00810419107F, -0.72687753F, -2.83520163F, -1.3975495F, 0.546663843F, -0.0707607222F, 0.42864573F, -0.00188985445F, 0.0100545383F, 0.319206909F, 3.27949241F, -0.303504131F, 0.000460199985F},
+  {0.103060029F, 0.0778092752F, -0.276825729F, -0.184021319F, -0.371101039F, 0.445678674F, 0.247640844F, -0.462798774F, 2.55731609F, 3.34192356F, 0.178466457F, -0.0970392384F, -0.471378511F, -0.61040147F, -13.5279509F, -2.9910627F},
+  {0.193490077F, -0.135580454F, -0.0805024722F, 0.161636659F, -1.1983469F, 2.08139455F, -0.61698258F, 0.47433687F, -0.112381665F, 0.603616742F, -0.0503967109F, 0.0408840581F, 1.12952093F, 0.880187038F, -0.196429973F, -0.139921768F},
+  {0.0770522447F, -0.0591970356F, 0.0988985221F, 0.133438739F, -1.67926507F, 1.82628915F, -0.700266488F, 0.466271385F, -0.169450738F, -3.81089102F, -0.0736246322F, 0.0403695895F, 1.48688183F, 1.07965168F, -0.353865212F, -0.146326482F},
+  {1.39410734F, -1.28430093F, -1.7807017F, -0.793098641F, -2.41203424F, 1.33584024F, 0.200818163F, -0.59536654F, -0.0554749147F, -2.62952745F, 0.689797902F, -0.3080732F, -0.979255087F, -0.803105276F, -15.5969457F, 0.032661889F},
+  {-1.18303347F, -0.210635832F, -0.749977987F, -0.0476115103F, 1.0658347F, 2.49448975F, 1.78286166F, 0.0993050538F, -0.170270086F, 0.194183327F, -0.0259026431F, -0.00618841624F, -0.966804381F, -4.43541729F, -0.432913787F, 0.249002436F},
+  {0.295586669F, 0.157519429F, -0.429169384F, -0.319898438F, -0.824333016F, 0.938568058F, 0.432277992F, -0.712836348F, 9.71318029F, 8.23822681F, 0.305216253F, -0.320669932F, -0.604433279F, -1.04963575F, -36.2252707F, -2.64986394F},
+  {-0.606761107F, 0.61016024F, 0.868533067F, -2.03358094F, 1.07903854F, -1.12375799F, -0.0670259181F, -0.250188836F, 17.2409661F, 13.7300221F, 0.21192903F, 0.0723307521F, -1.18790221F, 1.15217567F, -51.5247003F, 1.40086264F},
+  {-0.101416583F, 0.599031371F, -0.0188295822F, -0.229701758F, -0.432343316F, 1.20896325F, 0.931859381F, 0.0922253189F, 12.6404794F, 17.0096964F, -0.039648728F, 0.0327346335F, -0.175640236F, -2.10090834F, -47.1440715F, 0.421145692F},
+};
+static const float FOOT_NEURAL_V3_B1[16] = {0.423400479F, -0.00826804301F, 0.249019066F, 0.439384406F, 0.496710297F, -0.046720318F, -0.688940775F, 0.0686116704F, -2.51483465F, 0.376257284F, 0.51580643F, -0.135395158F, -0.0593819694F, -1.82705401F, -2.07943747F, -0.120483464F};
+static const float FOOT_NEURAL_V3_W2[5][16] = {
+  {0.809690715F, -0.083811142F, -0.0213566583F, -0.0190194803F, -0.176006362F, 0.273331828F, 0.128621279F, 0.178958864F, -0.386861064F, -0.0263235367F, -0.0217778538F, -0.187466411F, -0.486922557F, 0.00961032139F, 0.37918693F, -0.466833145F},
+  {-0.0106504745F, 0.0616711913F, -0.0406216217F, -0.72589571F, 0.75467015F, -1.0046279F, -0.0656036566F, -0.0528286549F, 0.104373474F, -0.0105286889F, 0.0268236862F, 0.89089518F, -0.00784630006F, -0.30198435F, 2.54099134F, 1.75323308F},
+  {-0.0402118977F, 0.73516985F, -0.430575429F, -0.0275245141F, 0.00113707014F, 0.187219648F, -1.00562816F, 0.803645412F, 0.331233022F, -0.0953774844F, 0.0238463868F, -0.155761347F, 0.361851867F, 0.0784285206F, 0.639850014F, 0.538455283F},
+  {-0.010353046F, -0.477150958F, 0.0778387773F, 0.078551256F, 0.0854057236F, -0.00616190382F, 0.32376672F, -0.0926646285F, -0.634889664F, 0.297319292F, -0.396227436F, -0.0459217297F, -0.0922099766F, 0.167195725F, 0.0257827365F, -0.0318008285F},
+  {0.032595359F, -0.0179642529F, 0.167436888F, -0.0205126127F, -0.0179310736F, 0.0319924541F, -0.014008219F, -0.0649832849F, -4.20045267F, 0.418561869F, -0.437117852F, -0.0685987073F, -0.149859998F, 2.38903848F, 0.0230357925F, 0.0796373206F},
+};
+static const float FOOT_NEURAL_V3_B2[5] = {-0.233279649F, -0.0183421615F, 0.313565869F, 0.247512231F, 0.0622077607F};
+
+struct FootNeuralPrediction {
+  float dx, dz, confidence, clearance, release;
+};
+
+static float footNeuralDot4(const Vec4& a, const Vec4& b, bool forceEe) {
+  if (forceEe)
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+  // Use the engine's battle-tested VU0 macro-mode XYZ dot. The fourth lane is
+  // one scalar EE multiply; this is still where almost all dense-layer work
+  // happens, and avoids maintaining a second hand-scheduled COP2 reduction.
+  return a.innerProduct(b) + a.w * b.w;
+}
+
+static float footNeuralDot16(const Vec4& a0, const Vec4& a1, const Vec4& a2,
+                             const Vec4& a3, const float* weights,
+                             bool forceEe) {
+  const Vec4 w0(weights[0], weights[1], weights[2], weights[3]);
+  const Vec4 w1(weights[4], weights[5], weights[6], weights[7]);
+  const Vec4 w2(weights[8], weights[9], weights[10], weights[11]);
+  const Vec4 w3(weights[12], weights[13], weights[14], weights[15]);
+  return footNeuralDot4(a0, w0, forceEe) +
+         footNeuralDot4(a1, w1, forceEe) +
+         footNeuralDot4(a2, w2, forceEe) +
+         footNeuralDot4(a3, w3, forceEe);
+}
+
+static FootNeuralPrediction footNeuralRunMode(const Vec4& input0,
+                                              const Vec4& input1,
+                                              const Vec4& input2,
+                                              const Vec4& input3,
+                                              bool forceEe) {
+  float hidden[16];
+  for (int h = 0; h < 16; ++h) {
+    hidden[h] = FOOT_NEURAL_V3_B1[h] +
+                footNeuralDot16(input0, input1, input2, input3,
+                                FOOT_NEURAL_V3_W1[h], forceEe);
+    if (hidden[h] < 0.0F) hidden[h] = 0.0F;
+  }
+  const Vec4 h0(hidden[0], hidden[1], hidden[2], hidden[3]);
+  const Vec4 h1(hidden[4], hidden[5], hidden[6], hidden[7]);
+  const Vec4 h2(hidden[8], hidden[9], hidden[10], hidden[11]);
+  const Vec4 h3(hidden[12], hidden[13], hidden[14], hidden[15]);
+  float output[5];
+  for (int o = 0; o < 5; ++o)
+    output[o] = FOOT_NEURAL_V3_B2[o] +
+                footNeuralDot16(h0, h1, h2, h3,
+                                FOOT_NEURAL_V3_W2[o], forceEe);
+  for (int i = 0; i < 2; ++i) {
+    if (output[i] < -1.0F) output[i] = -1.0F;
+    if (output[i] > 1.0F) output[i] = 1.0F;
+  }
+  for (int i = 2; i < 5; ++i) {
+    if (output[i] < 0.0F) output[i] = 0.0F;
+    if (output[i] > 1.0F) output[i] = 1.0F;
+  }
+  return {output[0] * 0.16F, output[1] * 0.16F,
+          output[2], output[3], output[4]};
+}
+
+static float g_footNeuralParityMax = 0.0F;
+
+static FootNeuralPrediction footNeuralRun(const Vec4& input0,
+                                          const Vec4& input1,
+                                          const Vec4& input2,
+                                          const Vec4& input3) {
+  const FootNeuralPrediction result =
+      footNeuralRunMode(input0, input1, input2, input3, FOOT_NEURAL_FORCE_EE);
+  // Trace builds evaluate the scalar twin on the IDENTICAL feature vector.
+  // Normal builds constant-fold this whole branch away.
+  if (FOOT_IK_TRACE && !FOOT_NEURAL_FORCE_EE) {
+    const FootNeuralPrediction ee =
+        footNeuralRunMode(input0, input1, input2, input3, true);
+    const float delta[5] = {fabsf(result.dx - ee.dx),
+                            fabsf(result.dz - ee.dz),
+                            fabsf(result.confidence - ee.confidence),
+                            fabsf(result.clearance - ee.clearance),
+                            fabsf(result.release - ee.release)};
+    for (int i = 0; i < 5; ++i)
+      if (delta[i] > g_footNeuralParityMax) g_footNeuralParityMax = delta[i];
+  }
+  return result;
+}
+
+void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
+                              ObjectGeometry& g, SkelInstance& inst) {
+  if (!o.data.footIk || !o.footIkEnabled) {
+    inst.clearPoseAdjust();
+    // A planted target belongs to the terrain and motion from the moment it
+    // was captured. Keeping it across an off/on comparison can snap the foot
+    // back to an old stair, so disabled means a genuinely clean slate.
+    if (!o.footIkEnabled) g.footIk = ObjectGeometry::FootIkRuntime();
+    return;
+  }
+  ObjectGeometry::FootIkRuntime& rt = g.footIk;
+  if (!rt.resolved) {
+    rt.resolved = true;
+    const SkelModel* model = inst.model;
+    rt.hip[0] = model->findNode(o.data.ikLeftHip);
+    rt.knee[0] = model->findNode(o.data.ikLeftKnee);
+    rt.ankle[0] = model->findNode(o.data.ikLeftAnkle);
+    rt.hip[1] = model->findNode(o.data.ikRightHip);
+    rt.knee[1] = model->findNode(o.data.ikRightKnee);
+    rt.ankle[1] = model->findNode(o.data.ikRightAnkle);
+    rt.pelvis = model->commonAncestor(rt.hip[0], rt.hip[1]);
+    auto below = [&](int child, int parent) {
+      for (int n = child; n >= 0 && n < (int)model->nodes.size();
+           n = model->nodes[n].parent)
+        if (n == parent) return true;
+      return false;
+    };
+    rt.valid = rt.pelvis >= 0 && below(rt.knee[0], rt.hip[0]) &&
+               below(rt.ankle[0], rt.knee[0]) &&
+               below(rt.knee[1], rt.hip[1]) &&
+               below(rt.ankle[1], rt.knee[1]);
+    if (!rt.valid)
+      TYRA_WARN("Foot IK: incomplete or invalid leg mapping");
+  }
+  if (!rt.valid) {
+    inst.clearPoseAdjust();
+    return;
+  }
+
+  const M4x4* ankleM[2] = {inst.nodeGlobal(rt.ankle[0]),
+                           inst.nodeGlobal(rt.ankle[1])};
+  const M4x4* kneeM[2] = {inst.nodeGlobal(rt.knee[0]),
+                          inst.nodeGlobal(rt.knee[1])};
+  if (!ankleM[0] || !ankleM[1]) {
+    // First visible frame establishes the sampled pose. The next frame can
+    // probe it without paying for a second skin of the same mesh.
+    inst.clearPoseAdjust();
+    return;
+  }
+
+  auto modelToWorld = [&](const Vec4& p) { return g.animMat * p; };
+  auto worldToModel = [&](const Vec4& p) {
+    V3 q = {p.x - o.data.position[0], p.y - o.data.position[1],
+            p.z - o.data.position[2]};
+    q = invRotated(q, o.data.rotation);
+    if (o.data.modelYaw != 0.0F) {
+      const float a = o.data.modelYaw * PI / 180.0F;
+      const float c = cosf(a), s = sinf(a);
+      q = {q.x * c - q.z * s, q.y, q.x * s + q.z * c};
+    }
+    const float sx = fabsf(o.data.scale[0]) > 0.0001F ? o.data.scale[0] : 0.0001F;
+    const float sy = fabsf(o.data.scale[1]) > 0.0001F ? o.data.scale[1] : 0.0001F;
+    const float sz = fabsf(o.data.scale[2]) > 0.0001F ? o.data.scale[2] : 0.0001F;
+    return Vec4(q.x / sx, q.y / sy, q.z / sz, 1.0F);
+  };
+  auto worldDirToModel = [&](const Vec4& p) {
+    V3 q = invRotated({p.x, p.y, p.z}, o.data.rotation);
+    if (o.data.modelYaw != 0.0F) {
+      const float a = o.data.modelYaw * PI / 180.0F;
+      const float c = cosf(a), s = sinf(a);
+      q = {q.x * c - q.z * s, q.y, q.x * s + q.z * c};
+    }
+    Vec4 out(q.x, q.y, q.z, 0.0F);
+    out.normalize();
+    return out;
+  };
+  auto worldDeltaToModel = [&](const Vec4& p) {
+    V3 q = invRotated({p.x, p.y, p.z}, o.data.rotation);
+    if (o.data.modelYaw != 0.0F) {
+      const float a = o.data.modelYaw * PI / 180.0F;
+      const float c = cosf(a), s = sinf(a);
+      q = {q.x * c - q.z * s, q.y, q.x * s + q.z * c};
+    }
+    const float sx = fabsf(o.data.scale[0]) > 0.0001F ? o.data.scale[0] : 1.0F;
+    const float sy = fabsf(o.data.scale[1]) > 0.0001F ? o.data.scale[1] : 1.0F;
+    const float sz = fabsf(o.data.scale[2]) > 0.0001F ? o.data.scale[2] : 1.0F;
+    return Vec4(q.x / sx, q.y / sy, q.z / sz, 0.0F);
+  };
+  const float scaleY = fabsf(o.data.scale[1]);
+  const float sole = o.data.ikSole * scaleY;
+  SkelPoseAdjust adjust;
+  adjust.pelvis = rt.pelvis;
+  adjust.legCount = 2;
+  float pelvisWorld = 1e30F;
+  bool havePelvis = false;
+  float traceSoleY[2] = {0.0F, 0.0F};
+  float traceGroundY[2] = {0.0F, 0.0F};
+  float traceTargetY[2] = {0.0F, 0.0F};
+  float traceVy[2] = {0.0F, 0.0F};
+  int traceHit[2] = {0, 0};
+  float traceNeural[2] = {0.0F, 0.0F};
+  int traceNeuralApplied[2] = {0, 0};
+  float traceClearance[2] = {0.0F, 0.0F};
+  float traceDownReach[2] = {0.0F, 0.0F};
+  float traceNormalY[2] = {1.0F, 1.0F};
+  float traceAlign[2] = {0.0F, 0.0F};
+    float traceSweep[2] = {0.0F, 0.0F};
+  float tracePlan[2] = {0.0F, 0.0F};
+  int tracePlanApplied[2] = {0, 0};
+  float supportWeight = 0.0F;
+  Vec4 supportCenter(0.0F, 0.0F, 0.0F, 0.0F);
+  Vec4 supportNormalSum(0.0F, 0.0F, 0.0F, 0.0F);
+
+  // A foot hanging over a ledge is not a swing when the whole character has
+  // stopped. Keep object motion separate from ankle motion: a planted foot is
+  // nearly still during a walk too, but only an actually stationary character
+  // may reach farther down than the normal contact band.
+  float objectSpeed = 0.0F;
+  float objectVx = 0.0F, objectVz = 0.0F;
+  if (rt.objectReady && g_frameDt > 0.0001F) {
+    const float dx = o.data.position[0] - rt.previousObject.x;
+    const float dz = o.data.position[2] - rt.previousObject.z;
+    objectVx = dx / g_frameDt;
+    objectVz = dz / g_frameDt;
+    objectSpeed = sqrtf(objectVx * objectVx + objectVz * objectVz);
+  } else {
+    rt.objectReady = true;
+  }
+  rt.previousObject =
+      Vec4(o.data.position[0], o.data.position[1], o.data.position[2], 1.0F);
+  if (objectSpeed < 0.04F)
+    rt.objectStillTime += g_frameDt;
+  else
+    rt.objectStillTime = 0.0F;
+
+  for (int side = 0; side < 2; ++side) {
+    ObjectGeometry::FootState& foot = rt.foot[side];
+    const Vec4 local(ankleM[side]->data[12], ankleM[side]->data[13],
+                     ankleM[side]->data[14], 1.0F);
+    const Vec4 ankleWorld = modelToWorld(local);
+    Vec4 soleWorld(ankleWorld.x, ankleWorld.y - sole, ankleWorld.z, 1.0F);
+    float ground = 0.0F;
+    Vec4 groundNormal(0.0F, 1.0F, 0.0F, 0.0F);
+    const bool hit = footGroundAt(
+        soleWorld.x, soleWorld.z, soleWorld.y + o.data.ikProbeUp,
+        soleWorld.y - o.data.ikProbeDown, objectIndex, &ground, &groundNormal);
+    const float vy = foot.ready && g_frameDt > 0.0001F
+                         ? (soleWorld.y - foot.previousWorld.y) / g_frameDt
+                         : 0.0F;
+    const float vx = foot.ready && g_frameDt > 0.0001F
+                         ? (soleWorld.x - foot.previousWorld.x) / g_frameDt
+                         : 0.0F;
+    const float vz = foot.ready && g_frameDt > 0.0001F
+                         ? (soleWorld.z - foot.previousWorld.z) / g_frameDt
+                         : 0.0F;
+    const float footSpeed = sqrtf(vx * vx + vz * vz);
+    if (!foot.ready) {
+      foot.ready = true;
+      foot.previousWorld = soleWorld;
+      foot.filteredGap = hit ? soleWorld.y - ground : 0.0F;
+      foot.filteredVy = 0.0F;
+    }
+
+    // Sample the terrain envelope once.  The near/far residuals subtract the
+    // rise predicted by the current support plane: a continuous hillside is
+    // therefore close to zero while a vertical stair lip stays positive.
+    const float travelSpeed = objectSpeed > 0.08F ? objectSpeed : footSpeed;
+    float dirX = 0.0F, dirZ = 0.0F;
+    float nearExcess = 0.0F, farExcess = 0.0F;
+    float obstacleGround = ground;
+    bool obstacleHit = false;
+    float farLead = 0.20F;
+    if (hit && travelSpeed > 0.0001F) {
+      const float invSpeed = 1.0F / travelSpeed;
+      dirX = (objectSpeed > 0.08F ? objectVx : vx) * invSpeed;
+      dirZ = (objectSpeed > 0.08F ? objectVz : vz) * invSpeed;
+      const float normalY = groundNormal.y > 0.1F ? groundNormal.y : 0.1F;
+      const float groundSlope =
+          -(groundNormal.x * dirX + groundNormal.z * dirZ) / normalY;
+      float nearGround = ground;
+      const bool nearHit = footGroundAt(
+          soleWorld.x + dirX * 0.11F, soleWorld.z + dirZ * 0.11F,
+          soleWorld.y + o.data.ikProbeUp,
+          soleWorld.y - o.data.ikProbeDown, objectIndex, &nearGround);
+      if (nearHit) nearExcess = nearGround - ground - groundSlope * 0.11F;
+      farLead = 0.20F + travelSpeed * 0.025F;
+      if (farLead > 0.30F) farLead = 0.30F;
+      float farGround = ground;
+      const bool farHit = footGroundAt(
+          soleWorld.x + dirX * farLead, soleWorld.z + dirZ * farLead,
+          soleWorld.y + o.data.ikProbeUp,
+          soleWorld.y - o.data.ikProbeDown, objectIndex, &farGround);
+      if (farHit) farExcess = farGround - ground - groundSlope * farLead;
+      if (nearHit && nearExcess > 0.025F) {
+        obstacleHit = true;
+        obstacleGround = nearGround;
+      }
+      if (farHit && farExcess > 0.025F &&
+          (!obstacleHit || farGround > obstacleGround)) {
+        obstacleHit = true;
+        obstacleGround = farGround;
+      }
+    }
+    if (dirX * dirX + dirZ * dirZ < 0.25F) {
+      dirX = foot.previousDirX;
+      dirZ = foot.previousDirZ;
+    } else {
+      foot.previousDirX = dirX;
+      foot.previousDirZ = dirZ;
+    }
+
+    // The network and the procedural contact policy both get a causal memory
+    // of the last few frames.  Attack quickly when a lip appears, decay more
+    // slowly after it leaves the probes; that removes one-frame raycast noise
+    // without smearing a whole step into the next one.
+    const float rawGap = hit ? soleWorld.y - ground : foot.filteredGap;
+    float historyBlend = g_frameDt * 12.0F;
+    if (historyBlend > 1.0F) historyBlend = 1.0F;
+    foot.filteredGap += (rawGap - foot.filteredGap) * historyBlend;
+    foot.filteredVy += (vy - foot.filteredVy) * historyBlend;
+    const float rawLip = fmaxf(0.0F, fmaxf(nearExcess, farExcess));
+    float lipBlend = g_frameDt * (rawLip > foot.lipMemory ? 20.0F : 5.0F);
+    if (lipBlend > 1.0F) lipBlend = 1.0F;
+    foot.lipMemory += (rawLip - foot.lipMemory) * lipBlend;
+    if (foot.locked)
+      foot.swingTime = 0.0F;
+    else {
+      foot.swingTime += g_frameDt;
+      if (foot.swingTime > 0.50F) foot.swingTime = 0.50F;
+    }
+
+    // A vertical ray at the ankle can miss the exact stair corner crossed by
+    // the toe between frames. Approximate a continuous shoe volume by sweeping
+    // four footprint corners at two causal time slices. Every correction still
+    // comes from collision geometry; this only closes the tunnelling gap.
+    float sweepClearance = 0.0F;
+    float sweepRise = 0.0F;
+    if (!foot.locked && hit && travelSpeed > 0.12F &&
+        o.data.ikToeClearance > 0.0F) {
+      float footprintScale =
+          0.5F * (fabsf(o.data.scale[0]) + fabsf(o.data.scale[2]));
+      if (footprintScale < 0.55F) footprintScale = 0.55F;
+      if (footprintScale > 1.75F) footprintScale = 1.75F;
+      const float halfLength = 0.13F * footprintScale;
+      const float halfWidth = 0.055F * footprintScale;
+      const float sideX = -dirZ, sideZ = dirX;
+      const float along[4] = {halfLength, halfLength, -halfLength, -halfLength};
+      const float across[4] = {halfWidth, -halfWidth, halfWidth, -halfWidth};
+      for (int slice = 1; slice <= 2; ++slice) {
+        const float t = slice * 0.5F;
+        const float pathX = foot.previousWorld.x +
+                            (soleWorld.x - foot.previousWorld.x) * t;
+        const float pathY = foot.previousWorld.y +
+                            (soleWorld.y - foot.previousWorld.y) * t;
+        const float pathZ = foot.previousWorld.z +
+                            (soleWorld.z - foot.previousWorld.z) * t;
+        for (int corner = 0; corner < 4; ++corner) {
+          const float probeX = pathX + dirX * along[corner] +
+                               sideX * across[corner];
+          const float probeZ = pathZ + dirZ * along[corner] +
+                               sideZ * across[corner];
+          float sweptGround = ground;
+          const bool sweptHit = footGroundAt(
+              probeX, probeZ, pathY + o.data.ikProbeUp,
+              pathY - o.data.ikProbeDown, objectIndex, &sweptGround);
+          if (!sweptHit) continue;
+          // The swept sole exists to catch a RAISED tread crossed between
+          // frames. Applying its shoe margin to the same support plane turns
+          // ordinary flat-ground contact into permanent clearance and makes
+          // the foot hover/stick instead of entering stance.
+          const bool raisedSupport = sweptGround > ground + 0.025F;
+          if (!raisedSupport) continue;
+          const float supportRise = sweptGround - ground;
+          if (supportRise > sweepRise) sweepRise = supportRise;
+          const float needed =
+              sweptGround + o.data.ikToeClearance * 0.72F - pathY;
+          if (needed > sweepClearance) sweepClearance = needed;
+          if (raisedSupport &&
+              (!obstacleHit || sweptGround > obstacleGround)) {
+            obstacleHit = true;
+            obstacleGround = sweptGround;
+          }
+        }
+      }
+      if (sweepClearance < 0.0F) sweepClearance = 0.0F;
+      const float sweepCap = o.data.ikProbeUp + o.data.ikToeClearance;
+      if (sweepClearance > sweepCap) sweepClearance = sweepCap;
+    }
+
+    // Probe a conservative 80 ms object-motion lead, then let the learned
+    // residual refine that XZ landing point.  All learned decisions consume
+    // the exact feature values FOOTTRAIN records for offline supervision.
+    float candidateGround = ground;
+    float candidateX = soleWorld.x, candidateZ = soleWorld.z;
+    Vec4 candidateNormal = groundNormal;
+    bool candidateHit = hit;
+    float neuralConfidence = 0.0F;
+    float neuralClearance = 0.0F;
+    float neuralRelease = 0.0F;
+    bool neuralApplied = false;
+    float aheadGround = ground;
+    const float aheadX = soleWorld.x + objectVx * 0.08F;
+    const float aheadZ = soleWorld.z + objectVz * 0.08F;
+    const bool aheadHit = hit && footGroundAt(
+        aheadX, aheadZ, soleWorld.y + o.data.ikProbeUp,
+        soleWorld.y - o.data.ikProbeDown, objectIndex, &aheadGround);
+    const float aheadHeightDelta = aheadHit ? aheadGround - ground : 0.0F;
+    auto unit = [](float value) {
+      if (value < -1.0F) return -1.0F;
+      if (value > 1.0F) return 1.0F;
+      return value;
+    };
+    const Vec4 input0(unit(objectVx / 4.0F), unit(objectVz / 4.0F),
+                      unit(vx / 6.0F), unit(vz / 6.0F));
+    const Vec4 input1(unit((soleWorld.y - ground) / 0.55F), unit(vy / 3.0F),
+                      unit(foot.previousVy / 3.0F),
+                      unit(aheadHeightDelta / 0.55F));
+    const Vec4 input2(unit(nearExcess / 0.35F), unit(farExcess / 0.35F),
+                      unit(groundNormal.x), unit(groundNormal.z));
+    const Vec4 input3(unit(foot.filteredGap / 0.55F),
+                      unit(foot.filteredVy / 3.0F),
+                      unit(foot.lipMemory / 0.35F),
+                      unit(foot.swingTime / 0.25F - 1.0F));
+    FootNeuralPrediction prediction = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    if (o.data.ikNeural && hit && foot.ready) {
+      prediction = footNeuralRun(input0, input1, input2, input3);
+      const float strength = o.data.ikNeuralStrength;
+      neuralConfidence = prediction.confidence * strength;
+      neuralClearance = prediction.clearance * strength;
+      neuralRelease = prediction.release * strength;
+      const float preferredX = soleWorld.x + objectVx * 0.055F +
+                               prediction.dx * strength;
+      const float preferredZ = soleWorld.z + objectVz * 0.055F +
+                               prediction.dz * strength;
+
+      // Search a tiny raycast-verified fan around the learned residual.  Toe
+      // and heel support are part of the score, so a candidate balanced on a
+      // razor-thin stair corner loses to the middle of a tread.  Replan only
+      // one foot per frame; the cached target makes the cost PS2-friendly.
+      if (!foot.locked && !foot.releasing && travelSpeed > 0.10F &&
+          (((int)g_frameNumber + side) & 1) == 0) {
+        const float sideX = -dirZ, sideZ = dirX;
+        const float forwardOffset[5] = {0.0F, 0.075F, -0.055F, 0.0F, 0.0F};
+        const float sideOffset[5] = {0.0F, 0.0F, 0.0F, 0.070F, -0.070F};
+        float bestScore = -1000.0F;
+        Vec4 bestWorld, bestNormal;
+        for (int option = 0; option < 5; ++option) {
+          const float px = preferredX + dirX * forwardOffset[option] +
+                           sideX * sideOffset[option];
+          const float pz = preferredZ + dirZ * forwardOffset[option] +
+                           sideZ * sideOffset[option];
+          float py = ground;
+          Vec4 pn(0.0F, 1.0F, 0.0F, 0.0F);
+          if (!footGroundAt(px, pz, soleWorld.y + o.data.ikProbeUp,
+                            soleWorld.y - o.data.ikProbeDown, objectIndex,
+                            &py, &pn))
+            continue;
+          float toeY = py, heelY = py;
+          const bool toeHit = footGroundAt(
+              px + dirX * 0.085F, pz + dirZ * 0.085F,
+              soleWorld.y + o.data.ikProbeUp,
+              soleWorld.y - o.data.ikProbeDown, objectIndex, &toeY);
+          const bool heelHit = footGroundAt(
+              px - dirX * 0.085F, pz - dirZ * 0.085F,
+              soleWorld.y + o.data.ikProbeUp,
+              soleWorld.y - o.data.ikProbeDown, objectIndex, &heelY);
+          float support = 1.0F;
+          if (toeHit && fabsf(toeY - py) <= 0.075F) support += 0.65F;
+          if (heelHit && fabsf(heelY - py) <= 0.075F) support += 0.65F;
+          const float ex = px - preferredX, ez = pz - preferredZ;
+          const float heightPenalty = fabsf(py - aheadGround) * 0.8F;
+          const float score = support - (ex * ex + ez * ez) * 12.0F -
+                              heightPenalty;
+          if (score > bestScore) {
+            bestScore = score;
+            bestWorld = Vec4(px, py, pz, 1.0F);
+            bestNormal = pn;
+          }
+        }
+        if (bestScore > -999.0F) {
+          if (foot.planReady) {
+            const float planBlend = 0.42F;
+            foot.plannedWorld.x +=
+                (bestWorld.x - foot.plannedWorld.x) * planBlend;
+            foot.plannedWorld.y +=
+                (bestWorld.y - foot.plannedWorld.y) * planBlend;
+            foot.plannedWorld.z +=
+                (bestWorld.z - foot.plannedWorld.z) * planBlend;
+            foot.plannedNormal.x +=
+                (bestNormal.x - foot.plannedNormal.x) * planBlend;
+            foot.plannedNormal.y +=
+                (bestNormal.y - foot.plannedNormal.y) * planBlend;
+            foot.plannedNormal.z +=
+                (bestNormal.z - foot.plannedNormal.z) * planBlend;
+            foot.plannedNormal.normalize();
+          } else {
+            foot.plannedWorld = bestWorld;
+            foot.plannedNormal = bestNormal;
+          }
+          foot.planReady = true;
+          foot.planScore = bestScore;
+        }
+      }
+
+      // The planner is advice, never authority: this cached point itself came
+      // from raycasts, and touchdown still needs the ordinary descending/contact
+      // gates below. Unlike v2 it may select a different-height tread.
+      if (!foot.locked && !foot.releasing && foot.planReady &&
+          neuralConfidence >= 0.28F && vy <= 0.50F) {
+        candidateHit = true;
+        candidateGround = foot.plannedWorld.y;
+        candidateX = foot.plannedWorld.x;
+        candidateZ = foot.plannedWorld.z;
+        candidateNormal = foot.plannedNormal;
+        neuralApplied = true;
+      }
+    }
+
+    // Swing clearance stays geometry-first.  The model may add at most 35% of
+    // the authored toe margin, and only after the probes above prove a lip.
+    float wantedClearance = 0.0F;
+    if ((!foot.locked || vy > 0.04F) && hit && travelSpeed > 0.12F &&
+        o.data.ikToeClearance > 0.0F && obstacleHit) {
+      const float rise = obstacleGround - ground;
+      if (rise > 0.025F) {
+        wantedClearance = obstacleGround + o.data.ikToeClearance - soleWorld.y;
+        if (wantedClearance < 0.0F) wantedClearance = 0.0F;
+        wantedClearance +=
+            o.data.ikToeClearance * 0.35F * neuralClearance;
+        const float maxClearance = o.data.ikProbeUp + o.data.ikToeClearance;
+        if (wantedClearance > maxClearance) wantedClearance = maxClearance;
+      }
+    }
+    if (sweepClearance > wantedClearance)
+      wantedClearance = sweepClearance;
+    const float wantedPlanWeight =
+        !foot.locked && !foot.releasing && foot.planReady &&
+                neuralConfidence >= 0.28F
+            ? 1.0F
+            : 0.0F;
+    float planBlend = g_frameDt * (wantedPlanWeight > foot.planWeight
+                                        ? 8.0F
+                                        : 12.0F);
+    if (planBlend > 1.0F) planBlend = 1.0F;
+    foot.planWeight += (wantedPlanWeight - foot.planWeight) * planBlend;
+    // A rising authored swing must not keep fading from the old lower-step
+    // lock through the vertical riser. Once the ahead probes prove that the
+    // next support is higher, drop that stale target immediately and let the
+    // clearance path carry the ankle over the lip. The rising gate prevents
+    // the supporting foot from abandoning a legitimate planted phase merely
+    // because the other half of the shoe can already see the next tread.
+    const bool releaseNeeded = wantedClearance > 0.0F &&
+        (foot.releasing || (foot.locked && vy > 0.04F));
+    const bool neuralEarlyRelease = wantedClearance > 0.0F && foot.locked &&
+        vy > -0.02F && neuralRelease >= 0.58F;
+    if (releaseNeeded || neuralEarlyRelease) {
+      foot.locked = false;
+      foot.restLocked = false;
+      foot.releasing = false;
+      foot.weight = 0.0F;
+      foot.downReach = 0.0F;
+      foot.contactTime = 0.0F;
+      foot.plantCandidateTime = 0.0F;
+      foot.releaseTime = 0.0F;
+    }
+    float clearanceBlend = g_frameDt *
+        (wantedClearance > foot.clearance ? 18.0F : 11.0F);
+    if (clearanceBlend > 1.0F) clearanceBlend = 1.0F;
+    foot.clearance += (wantedClearance - foot.clearance) * clearanceBlend;
+    if (wantedClearance == 0.0F && foot.clearance < 0.0005F)
+      foot.clearance = 0.0F;
+
+    // Downstairs needs a phase between free swing and a real plant. The
+    // contact gate deliberately refuses to lock a fast foot, but leaving the
+    // authored ankle untouched until it slows can make it finish the stride
+    // above a lower tread. Once the sole ray proves reachable support below a
+    // descending foot, guide only Y toward it; XZ stays authored and the foot
+    // remains unlocked, so this cannot recreate flat-ground glue.
+    const float downReachLimit =
+        o.data.ikPlant + o.data.ikPelvis * 0.65F;
+    const float downGap = hit ? soleWorld.y - ground : 0.0F;
+    const ObjectGeometry::FootState& supportFoot = rt.foot[1 - side];
+    const bool lowerTread = supportFoot.locked && supportFoot.weight > 0.15F &&
+        ground < supportFoot.lockedWorld.y - 0.025F;
+    const bool descendingForReach =
+        vy <= -0.04F || (foot.downReach > 0.001F && foot.filteredVy <= 0.04F);
+    float wantedDownReach = 0.0F;
+    if (!foot.locked && !foot.releasing && hit &&
+        wantedClearance <= 0.0F && objectSpeed > 0.08F &&
+        lowerTread && descendingForReach && downGap > o.data.ikPlant &&
+        downGap <= downReachLimit) {
+      float reachT = 1.0F -
+          (downGap - o.data.ikPlant) /
+              fmaxf(0.001F, downReachLimit - o.data.ikPlant);
+      if (reachT < 0.0F) reachT = 0.0F;
+      if (reachT > 1.0F) reachT = 1.0F;
+      reachT = reachT * reachT * (3.0F - 2.0F * reachT);
+      wantedDownReach = 0.22F + reachT * 0.56F;
+    }
+    if (wantedDownReach == 0.0F &&
+        (!hit || wantedClearance > 0.0F || foot.filteredVy > 0.04F ||
+         !lowerTread || objectSpeed <= 0.08F ||
+         downGap <= o.data.ikPlant ||
+         downGap > downReachLimit)) {
+      foot.downReach = 0.0F;
+    } else {
+      float downReachBlend = g_frameDt *
+          (wantedDownReach > foot.downReach ? 14.0F : 20.0F);
+      if (downReachBlend > 1.0F) downReachBlend = 1.0F;
+      foot.downReach +=
+          (wantedDownReach - foot.downReach) * downReachBlend;
+      if (wantedDownReach == 0.0F && foot.downReach < 0.0005F)
+        foot.downReach = 0.0F;
+    }
+
+    if (foot.locked) {
+      const float dx = soleWorld.x - foot.lockedWorld.x;
+      const float dz = soleWorld.z - foot.lockedWorld.z;
+      const float verticalRelease = foot.restLocked
+                                        ? o.data.ikPlant + o.data.ikPelvis
+                                        : o.data.ikRelease;
+      const float contactSpeedLimit =
+          fmaxf(0.55F, objectSpeed * 0.70F);
+      const bool toeOff = !foot.restLocked && objectSpeed > 0.08F &&
+          foot.filteredVy > 0.04F && footSpeed > contactSpeedLimit;
+      if (!hit || soleWorld.y - ground > verticalRelease || toeOff ||
+          dx * dx + dz * dz > o.data.ikRelease * o.data.ikRelease ||
+          (foot.restLocked && rt.objectStillTime < 0.04F)) {
+        foot.locked = false;
+        foot.restLocked = false;
+        foot.releasing = true;
+        foot.plantCandidateTime = 0.0F;
+        foot.releaseTime = 0.0F;
+        foot.releaseStartWeight = foot.weight;
+      }
+    } else if (!foot.releasing && candidateHit && wantedClearance <= 0.0F) {
+      const float gap = soleWorld.y - candidateGround;
+      const float contactSpeedLimit =
+          fmaxf(0.55F, objectSpeed * 0.70F);
+      const bool normalPlant = gap <= o.data.ikPlant && vy <= 0.25F &&
+          footSpeed <= contactSpeedLimit;
+      // A descending foot may acquire a lower neighbouring surface before it
+      // enters the narrow ordinary plant band.  Using vertical direction as
+      // the extra gate gives split-level walking useful reach without turning
+      // the rising swing into a ground magnet.
+      const float descendingReach =
+          o.data.ikPlant + o.data.ikPelvis * 0.55F;
+      const bool descendingPlant =
+          gap > o.data.ikPlant && gap <= descendingReach && vy <= -0.04F &&
+          footSpeed <= contactSpeedLimit * 0.85F;
+      const bool restPlant =
+          rt.objectStillTime >= 0.10F && footSpeed <= 0.18F &&
+          fabsf(vy) <= 0.18F && gap >= -o.data.ikPlant &&
+          gap <= o.data.ikPlant + o.data.ikPelvis;
+      const bool plantCandidate = normalPlant || descendingPlant || restPlant;
+      if (plantCandidate)
+        foot.plantCandidateTime += g_frameDt;
+      else
+        foot.plantCandidateTime = 0.0F;
+      // Require a stable candidate for more than one 60 Hz sample. A fast
+      // descending swing used to lock high above the floor, release on the
+      // next frame and repeatedly kick the knee through the analytic solve.
+      if (plantCandidate && foot.plantCandidateTime >= 0.028F) {
+        foot.locked = true;
+        foot.restLocked = restPlant && !normalPlant && !descendingPlant;
+        foot.releasing = false;
+        foot.contactTime = 0.0F;
+        foot.plantCandidateTime = 0.0F;
+        foot.lockedWorld = Vec4(candidateX, candidateGround, candidateZ, 1.0F);
+        foot.lockedNormal = candidateNormal;
+        foot.clearance = 0.0F;
+        foot.downReach = 0.0F;
+        foot.planReady = false;
+        foot.planWeight = 0.0F;
+      }
+    }
+
+    // Outside a real planted phase the authored swing wins immediately. The
+    // old release-band correction kept pulling an unlocked, rising foot back
+    // to the floor and made the first part of every step look submerged.
+    float want = 0.0F;
+    if (hit && foot.locked) {
+      foot.contactTime += g_frameDt;
+      float contactT = foot.contactTime / 0.14F;
+      if (contactT > 1.0F) contactT = 1.0F;
+      want = contactT * contactT * (3.0F - 2.0F * contactT);
+      // Follow the ease-in envelope directly: its gentle first frames remove
+      // the touchdown kick, while its steep middle still establishes a firm
+      // plant quickly enough for a walk cycle.
+      if (want > foot.weight) foot.weight = want;
+    } else if (foot.releasing) {
+      foot.contactTime = 0.0F;
+      foot.releaseTime += g_frameDt;
+      float releaseT = foot.releaseTime / 0.08F;
+      if (releaseT > 1.0F) releaseT = 1.0F;
+      const float releaseEase =
+          releaseT * releaseT * (3.0F - 2.0F * releaseT);
+      foot.weight = foot.releaseStartWeight * (1.0F - releaseEase);
+      if (releaseT >= 1.0F) {
+        foot.weight = 0.0F;
+        foot.releasing = false;
+      }
+    } else {
+      foot.contactTime = 0.0F;
+      foot.weight = 0.0F;
+    }
+    Vec4 targetWorld = ankleWorld;
+    float legWeight = (hit || foot.releasing) ? foot.weight : 0.0F;
+    if (hit || foot.releasing) {
+      if (foot.locked || foot.releasing) {
+        targetWorld.x = foot.lockedWorld.x;
+        targetWorld.y = foot.lockedWorld.y + sole;
+        targetWorld.z = foot.lockedWorld.z;
+      } else {
+        targetWorld.y = ground + sole;
+      }
+      const float d = (targetWorld.y - ankleWorld.y) * foot.weight;
+      // Pelvis compensation is a reach safeguard, not a second ground magnet.
+      // Only a planted foot that needs more downward reach may lower it.
+      if (foot.locked && d < 0.0F) {
+        if (!havePelvis || d < pelvisWorld) pelvisWorld = d;
+        havePelvis = true;
+      }
+    }
+    if (!foot.locked && !foot.releasing && foot.clearance > 0.0F) {
+      targetWorld = ankleWorld;
+      targetWorld.y += foot.clearance;
+      legWeight = 1.0F;
+    }
+    if (!foot.locked && !foot.releasing && foot.clearance <= 0.0F &&
+        foot.downReach > 0.001F && hit) {
+      targetWorld = ankleWorld;
+      targetWorld.y = ground + sole;
+      if (foot.downReach > legWeight) legWeight = foot.downReach;
+    }
+    if (!foot.locked && !foot.releasing && foot.downReach <= 0.001F &&
+        foot.planReady &&
+        foot.planWeight > 0.001F) {
+      float dx = foot.plannedWorld.x - ankleWorld.x;
+      float dz = foot.plannedWorld.z - ankleWorld.z;
+      const float distance = sqrtf(dx * dx + dz * dz);
+      if (distance > 0.16F) {
+        dx *= 0.16F / distance;
+        dz *= 0.16F / distance;
+      }
+      targetWorld.x = ankleWorld.x + dx * foot.planWeight;
+      targetWorld.z = ankleWorld.z + dz * foot.planWeight;
+      const float guideWeight = foot.planWeight * 0.42F;
+      if (guideWeight > legWeight) legWeight = guideWeight;
+    }
+    adjust.legs[side].hip = rt.hip[side];
+    adjust.legs[side].knee = rt.knee[side];
+    adjust.legs[side].ankle = rt.ankle[side];
+    adjust.legs[side].target = worldToModel(targetWorld);
+    adjust.legs[side].weight = legWeight;
+    const Vec4 supportNormal = (foot.locked || foot.releasing)
+                                   ? foot.lockedNormal
+                                   : groundNormal;
+    adjust.legs[side].surfaceNormal = worldDirToModel(supportNormal);
+    adjust.legs[side].alignWeight =
+        (foot.locked || foot.releasing) ? foot.weight : 0.0F;
+    adjust.legs[side].maxAlignRadians = o.data.ikMaxFootAngle * PI / 180.0F;
+    if (kneeM[side]) {
+      const Vec4 authoredKnee(kneeM[side]->data[12], kneeM[side]->data[13],
+                              kneeM[side]->data[14], 1.0F);
+      if (!foot.kneeReady) {
+        foot.filteredKnee = authoredKnee;
+        foot.kneeReady = true;
+      } else {
+        float kneeBlend = g_frameDt * 12.0F;
+        if (kneeBlend > 1.0F) kneeBlend = 1.0F;
+        foot.filteredKnee.x +=
+            (authoredKnee.x - foot.filteredKnee.x) * kneeBlend;
+        foot.filteredKnee.y +=
+            (authoredKnee.y - foot.filteredKnee.y) * kneeBlend;
+        foot.filteredKnee.z +=
+            (authoredKnee.z - foot.filteredKnee.z) * kneeBlend;
+      }
+      adjust.legs[side].bendHint = foot.filteredKnee;
+      adjust.legs[side].bendHintWeight = legWeight * 0.62F;
+    }
+    traceSoleY[side] = soleWorld.y;
+    traceGroundY[side] = hit ? ground : -9999.0F;
+    traceTargetY[side] = targetWorld.y - sole;
+    traceVy[side] = vy;
+    traceHit[side] = hit ? 1 : 0;
+    traceNeural[side] = neuralConfidence;
+    traceNeuralApplied[side] = neuralApplied ? 1 : 0;
+    traceClearance[side] = foot.clearance;
+    traceDownReach[side] = foot.downReach;
+    traceNormalY[side] = supportNormal.y;
+    traceAlign[side] = adjust.legs[side].alignWeight;
+    traceSweep[side] = sweepClearance;
+    tracePlan[side] = foot.planScore;
+    tracePlanApplied[side] = neuralApplied ? 1 : 0;
+    if (foot.locked && foot.weight > 0.001F) {
+      supportCenter.x += foot.lockedWorld.x * foot.weight;
+      supportCenter.y += foot.lockedWorld.y * foot.weight;
+      supportCenter.z += foot.lockedWorld.z * foot.weight;
+      supportNormalSum.x += foot.lockedNormal.x * foot.weight;
+      supportNormalSum.y += foot.lockedNormal.y * foot.weight;
+      supportNormalSum.z += foot.lockedNormal.z * foot.weight;
+      supportWeight += foot.weight;
+    }
+    if (FOOT_IK_TRACE)
+      TYRA_LOG("FOOTTRAIN,", (int)g_frameNumber, ",", objectIndex, ",",
+               side, ",", objectVx, ",", objectVz, ",", vx, ",", vy,
+               ",", vz, ",", soleWorld.y - ground, ",", foot.previousVy,
+               ",", aheadHeightDelta, ",", nearExcess, ",", farExcess,
+               ",", groundNormal.x, ",", groundNormal.z, ",", soleWorld.x,
+               ",", soleWorld.z, ",", foot.lockedWorld.x, ",",
+               foot.lockedWorld.z, ",", hit ? 1 : 0, ",",
+               foot.locked ? 1 : 0, ",", foot.releasing ? 1 : 0, ",",
+               wantedClearance, ",", releaseNeeded ? 1 : 0, ",",
+               neuralClearance, ",", neuralRelease, ",", foot.filteredGap,
+               ",", foot.filteredVy, ",", foot.lipMemory, ",",
+               foot.swingTime, ",", sweepClearance, ",", foot.planScore,
+               ",", neuralApplied ? 1 : 0, ",", sweepRise, ",",
+               foot.downReach, ",", downGap);
+    foot.previousWorld = soleWorld;
+    foot.previousVy = vy;
+  }
+
+  float wantedPelvis = havePelvis ? pelvisWorld : 0.0F;
+  if (wantedPelvis > o.data.ikPelvis) wantedPelvis = o.data.ikPelvis;
+  if (wantedPelvis < -o.data.ikPelvis) wantedPelvis = -o.data.ikPelvis;
+  // Contact weights smooth the legs, but an unsmoothed lowest-foot choice can
+  // still make the whole body chatter when probes trade surfaces at an edge.
+  // Give the common pelvis its own critically simple low-pass state.
+  float pelvisBlend =
+      g_frameDt * (wantedPelvis < rt.pelvisWorld ? 10.0F : 7.0F);
+  if (pelvisBlend > 1.0F) pelvisBlend = 1.0F;
+  rt.pelvisWorld += (wantedPelvis - rt.pelvisWorld) * pelvisBlend;
+  if (fabsf(wantedPelvis - rt.pelvisWorld) < 0.0005F)
+    rt.pelvisWorld = wantedPelvis;
+  const float sy = fabsf(o.data.scale[1]) > 0.0001F ? o.data.scale[1] : 1.0F;
+  adjust.pelvisY = rt.pelvisWorld / sy;
+
+  // Whole-body pass: bias the pelvis a few centimetres toward the weighted
+  // support polygon and lean the pelvis subtree gently with the mean support
+  // normal. The analytic legs run after this, so their contacts stay fixed.
+  Vec4 wantedPelvisOffset(0.0F, 0.0F, 0.0F, 0.0F);
+  float wantedPitch = 0.0F, wantedRoll = 0.0F;
+  if (supportWeight > 0.001F) {
+    supportCenter.x /= supportWeight;
+    supportCenter.y /= supportWeight;
+    supportCenter.z /= supportWeight;
+    wantedPelvisOffset.x =
+        (supportCenter.x - o.data.position[0]) * 0.12F;
+    wantedPelvisOffset.z =
+        (supportCenter.z - o.data.position[2]) * 0.12F;
+    const float shiftLength = sqrtf(wantedPelvisOffset.x * wantedPelvisOffset.x +
+                                    wantedPelvisOffset.z * wantedPelvisOffset.z);
+    if (shiftLength > 0.045F) {
+      wantedPelvisOffset.x *= 0.045F / shiftLength;
+      wantedPelvisOffset.z *= 0.045F / shiftLength;
+    }
+    supportNormalSum.normalize();
+    if (rt.foot[0].locked && rt.foot[1].locked) {
+      const float dx = rt.foot[1].lockedWorld.x - rt.foot[0].lockedWorld.x;
+      const float dz = rt.foot[1].lockedWorld.z - rt.foot[0].lockedWorld.z;
+      const float dy = rt.foot[1].lockedWorld.y - rt.foot[0].lockedWorld.y;
+      const float horizontal2 = dx * dx + dz * dz;
+      if (horizontal2 > 0.01F) {
+        Vec4 splitNormal(-dy * dx / horizontal2, 1.0F,
+                         -dy * dz / horizontal2, 0.0F);
+        splitNormal.normalize();
+        supportNormalSum.x =
+            supportNormalSum.x * 0.65F + splitNormal.x * 0.35F;
+        supportNormalSum.y =
+            supportNormalSum.y * 0.65F + splitNormal.y * 0.35F;
+        supportNormalSum.z =
+            supportNormalSum.z * 0.65F + splitNormal.z * 0.35F;
+        supportNormalSum.normalize();
+      }
+    }
+    const Vec4 modelSupportNormal = worldDirToModel(supportNormalSum);
+    wantedPitch = atan2f(modelSupportNormal.z, modelSupportNormal.y) * 0.13F;
+    wantedRoll = -atan2f(modelSupportNormal.x, modelSupportNormal.y) * 0.13F;
+  }
+  float bodyBlend = g_frameDt * 6.0F;
+  if (bodyBlend > 1.0F) bodyBlend = 1.0F;
+  rt.pelvisOffsetWorld.x +=
+      (wantedPelvisOffset.x - rt.pelvisOffsetWorld.x) * bodyBlend;
+  rt.pelvisOffsetWorld.z +=
+      (wantedPelvisOffset.z - rt.pelvisOffsetWorld.z) * bodyBlend;
+  rt.bodyPitch += (wantedPitch - rt.bodyPitch) * bodyBlend;
+  rt.bodyRoll += (wantedRoll - rt.bodyRoll) * bodyBlend;
+  adjust.pelvisOffset = worldDeltaToModel(rt.pelvisOffsetWorld);
+  adjust.body = rt.pelvis;
+  adjust.bodyPitch = rt.bodyPitch;
+  adjust.bodyRoll = rt.bodyRoll;
+  if (FOOT_IK_TRACE)
+    TYRA_LOG("FOOTIK,", (int)g_frameNumber, ",", objectIndex, ",",
+             o.data.position[1], ",", rt.pelvisWorld, ",", traceSoleY[0],
+             ",", traceGroundY[0], ",", traceTargetY[0], ",",
+             rt.foot[0].weight, ",", traceVy[0], ",", traceHit[0], ",",
+             rt.foot[0].locked ? 1 : 0, ",", traceSoleY[1], ",",
+             traceGroundY[1], ",", traceTargetY[1], ",",
+             rt.foot[1].weight, ",", traceVy[1], ",", traceHit[1], ",",
+             rt.foot[1].locked ? 1 : 0, ",", traceNeural[0], ",",
+             traceNeuralApplied[0], ",", traceNeural[1], ",",
+             traceNeuralApplied[1], ",", g_footNeuralParityMax, ",",
+             traceClearance[0], ",", traceNormalY[0], ",", traceAlign[0],
+             ",", traceClearance[1], ",", traceNormalY[1], ",",
+             traceAlign[1], ",", traceSweep[0], ",", traceSweep[1], ",",
+             tracePlan[0], ",", tracePlanApplied[0], ",", tracePlan[1],
+             ",", tracePlanApplied[1], ",", rt.pelvisOffsetWorld.x, ",",
+             rt.pelvisOffsetWorld.z, ",", rt.bodyPitch, ",", rt.bodyRoll,
+             ",", traceDownReach[0], ",", traceDownReach[1]);
+  inst.setPoseAdjust(adjust);
+}
+
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
   bool any = false;
@@ -3854,6 +4926,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     // AND the same tier (each tier holds its own skinned buffers)
     int meshOwner = i;
     for (const RenderedAnim& r : rendered) {
+      if (o.data.footIk || runtimeObjects[r.obj].data.footIk) continue;
       if (r.meshLod != meshLod) continue;
       if (runtimeObjects[r.obj].data.animModel != o.data.animModel) continue;
       if (!inst->poseEquals(*objectGeometry[r.obj].animInst)) continue;
@@ -3885,10 +4958,11 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* ownerInst = owner.animInst.get();
     // a tier switch always re-skins (the other tier's buffers hold an older
     // skin, or the bind pose before their first ever use)
-    const bool reskinned =
-        meshOwner == i && (allowSkin || inst->currentLod() != meshLod)
-            ? inst->ensurePose(meshLod)
-            : false;
+    bool reskinned = false;
+    if (meshOwner == i && (allowSkin || inst->currentLod() != meshLod)) {
+      if (!splitSecondPass) applyFootIk(i, o, g, *inst);
+      reskinned = inst->ensurePose(meshLod);
+    }
     // Dynamic light pickup: one sample at the model's center added to each
     // part's ambient term - a torch or the flashlight visibly lights the
     // character, without per-vertex VU1 cost (litColors[3] mirrors
@@ -4710,6 +5784,9 @@ void TerrainGame::loadScene(int sceneIndex) {
     P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
               ? SCENE_OBJECTS[P.objIndex].position[1]
               : terrainHeightAt(P.x, P.z);
+    P.visualY = P.y;
+    P.visualYReady = true;
+    P.grounded = PP_MODE(pi) != 1 && TERRAIN_ENABLED;
     P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
     P.velY = 0.0F;
     P.pitch = 0.0F;
@@ -8953,6 +10030,28 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
         P.velY = PP_JUMP_SPEED(pi);
     }
 
+    // A walkable step changes the collision capsule's y immediately.  Keep
+    // that safety property, but feed the avatar and camera a separate visual
+    // root so a 22 cm stair is crossed over several frames instead of one.
+    // Airborne motion follows physics exactly; the filter resumes on contact,
+    // including a landing onto a raised surface after a short gap.
+    if (!P.visualYReady) {
+      P.visualY = P.y;
+      P.visualYReady = true;
+    } else if (grounded) {
+      float rootBlend = g_frameDt * 8.0F;
+      if (rootBlend > 1.0F) rootBlend = 1.0F;
+      P.visualY += (P.y - P.visualY) * rootBlend;
+      if (fabsf(P.y - P.visualY) < 0.0005F) P.visualY = P.y;
+    } else {
+      P.visualY = P.y;
+    }
+    P.grounded = grounded;
+    if (FOOT_IK_TRACE && pi == 0)
+      TYRA_LOG("PLAYERIK,", (int)g_frameNumber, ",", pi, ",", ground,
+               ",", P.y, ",", P.visualY, ",", P.velY, ",",
+               grounded ? 1 : 0);
+
     // Turn the avatar (shortest-arc lerp): toward its movement direction, or
     // with face-camera (strafe) locomotion toward the camera yaw - sideways
     // and backward movement then keep the avatar oriented toward the camera
@@ -8983,7 +10082,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // it hits so the camera never enters geometry or the terrain. Classic
     // spring behavior: pull IN instantly (a late pull-in means a visible clip
     // through a wall) and ease back OUT, so leaving cover doesn't snap.
-    const float headY = P.y + PP_CAM_HEIGHT(pi);
+    const float headY = P.visualY + PP_CAM_HEIGHT(pi);
     const float cp = cosf(P.pitch);
     const float boomX = sinf(P.yaw) * cp;
     const float boomZ = cosf(P.yaw) * cp;
@@ -9054,7 +10153,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     if (P.objIndex >= 0 && P.objIndex < (int)runtimeObjects.size()) {
       RuntimeObject& body = runtimeObjects[P.objIndex];
       body.data.position[0] = P.x;
-      body.data.position[1] = P.y;
+      body.data.position[1] = P.visualY;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
       const float step = PP_WALK_SPEED(pi) * g_frameScale;
@@ -9129,8 +10228,8 @@ void TerrainGame::updateSharedCamera() {
   PlayerCtl& B = players[1];
   const float midX = (A.x + B.x) * 0.5F;
   const float midZ = (A.z + B.z) * 0.5F;
-  const float midY = (A.y + B.y) * 0.5F + PP_CAM_HEIGHT(0);
-  const float dx = A.x - B.x, dy = A.y - B.y, dz = A.z - B.z;
+  const float midY = (A.visualY + B.visualY) * 0.5F + PP_CAM_HEIGHT(0);
+  const float dx = A.x - B.x, dy = A.visualY - B.visualY, dz = A.z - B.z;
   const float sep = sqrtf(dx * dx + dy * dy + dz * dz);
   const float dist = PP_CAM_DIST(0) + sep * 0.7F;
 
@@ -9225,13 +10324,30 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
     body.animRestart = true;
     body.animFade = 0.18F;  // cross-fade from the outgoing pose
   }
-  // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
-  // still animates), otherwise the authored speed.
+  // Match playback to the clip's baked stride speed. The legacy speedFrac
+  // fallback only knew stick deflection, so changing the player's walk speed
+  // changed translation without changing the authored cadence.
   const float base = body.data.animSpeed;
-  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F)
-    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
-  else
+  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F) {
+    float cadence = speedFrac < 0.35F ? 0.35F : speedFrac;
+    if (body.data.animModel >= 0 &&
+        body.data.animModel < (int)gameAnimModels.size() &&
+        want >= 0 && want < (int)gameAnimModels[body.data.animModel].src->clips.size()) {
+      const float authored =
+          gameAnimModels[body.data.animModel].src->clips[want].gaitSpeed;
+      const float scale =
+          (fabsf(body.data.scale[0]) + fabsf(body.data.scale[2])) * 0.5F;
+      if (authored > 0.001F && scale > 0.001F) {
+        const float actualSpeed = speedFrac * PP_WALK_SPEED(pi) * 50.0F;
+        cadence = actualSpeed / (authored * scale);
+        if (cadence < 0.35F) cadence = 0.35F;
+        if (cadence > 3.5F) cadence = 3.5F;
+      }
+    }
+    body.animSpeed = base * cadence;
+  } else {
     body.animSpeed = base;
+  }
 }
 
 void TerrainGame::buildSkyDome() {

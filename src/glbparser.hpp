@@ -102,6 +102,7 @@ std::string writeTanm(const Baked& baked,
 
 // One node of the glTF hierarchy with its bind-pose local transform.
 struct SkelNode {
+    std::string name;  // authored node/bone name (Foot IK rig mapping)
     int parent = -1;
     bool hasMatrix = false;  // matrix nodes are never animated (glTF spec)
     float matrix[16] = {};

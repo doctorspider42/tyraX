@@ -21,6 +21,7 @@ namespace Tyra {
 
 /** One node of the model's hierarchy with its bind-pose local transform. */
 struct SkelNode {
+  std::string name;  // authored node/bone name (v3 files; empty in v1/v2)
   s32 parent = -1;  // -1 = root
   u8 hasMatrix = 0; // 1 = use `matrix` (such nodes are never animated)
   float t[3] = {0.0F, 0.0F, 0.0F};
@@ -48,6 +49,9 @@ struct SkelChannel {
 struct SkelClip {
   std::string name;
   float duration = 0.0F;  // seconds; 0 = static pose
+  // Horizontal units/second implied by both feet's sweep over one in-place
+  // cycle (v4 files). Zero means unavailable and keeps the legacy fallback.
+  float gaitSpeed = 0.0F;
   std::vector<SkelChannel> channels;
 };
 
@@ -92,6 +96,13 @@ struct SkelModel {
   // padded, for whole-instance frustum culling.
   float min[3] = {0.0F, 0.0F, 0.0F};
   float max[3] = {0.0F, 0.0F, 0.0F};
+
+  /** Exact authored-name lookup used by generated pose modifiers such as
+   * Foot IK. Returns -1 when the file predates names or no node matches. */
+  s32 findNode(const char* name) const;
+
+  /** Lowest common ancestor of two nodes, or -1 for invalid/disjoint input. */
+  s32 commonAncestor(s32 a, s32 b) const;
 };
 
 /**

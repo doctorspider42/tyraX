@@ -91,6 +91,7 @@ const std::vector<ActionMap>& actionMap() {
         {"RotateObjectBy", OP_RotateObjectBy},
         {"SetRotation", OP_SetRotation},
         {"SpinObject", OP_SpinObject},
+        {"SetFootIk", OP_SetFootIk},
     };
     return v;
 }
@@ -604,7 +605,8 @@ bool compile(const Project& p, int sceneIndex, size_t ownerIndex, Program& out) 
                     mt->strKind == FlowParamKind::ObjectName ||
                     am->op == OP_SetObjectVisible || am->op == OP_MoveObjectBy ||
                     am->op == OP_SetObjectColor || am->op == OP_SetPosition ||
-                    am->op == OP_MoveObjectTo || am->op == OP_TeleportPlayer;
+                    am->op == OP_MoveObjectTo || am->op == OP_TeleportPlayer ||
+                    am->op == OP_SetFootIk;
                 const bool needsAux =
                     am->op == OP_SetVarInt || am->op == OP_SetVarBool ||
                     am->op == OP_SetVarPos || am->op == OP_SetValue ||

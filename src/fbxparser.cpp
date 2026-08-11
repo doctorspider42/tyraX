@@ -658,6 +658,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     for (size_t i = 0; i < scene->nodes.count; ++i) {
         const ufbx_node* n = scene->nodes.data[i];
         SkelNode& sn = out.nodes[i];
+        sn.name.assign(n->name.data, n->name.length);
         sn.parent = n->parent ? (int)n->parent->typed_id : -1;
         sn.hasMatrix = false;
         sn.t[0] = (float)n->local_transform.translation.x;

@@ -7,6 +7,7 @@
 # Licensed under Apache License 2.0
 # Added by TyraX: per-object skeletal playback; pose evaluation on
 # the EE, vertex skinning on VU0 in macro mode.
+# Modified by TyraX: terrain-aware whole-body pose and knee guidance.
 */
 
 #pragma once
@@ -18,6 +19,52 @@
 #include "./dynamic_mesh.hpp"
 
 namespace Tyra {
+
+/** One analytic two-bone target applied after clip sampling and crossfade,
+ * before the matrix palette is built. All coordinates are model-local. */
+struct SkelIkLeg {
+  s32 hip = -1;
+  s32 knee = -1;
+  s32 ankle = -1;
+  Vec4 target;
+  float weight = 0.0F;
+  // Model-space supporting-surface normal. Alignment is applied after the
+  // analytic target solve, as a tilt from model +Y, so the clip keeps its yaw.
+  Vec4 surfaceNormal = Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+  float alignWeight = 0.0F;
+  float maxAlignRadians = 0.610865238F;  // 35 degrees
+  // Optional model-space pole target.  The solver blends the authored bend
+  // direction toward it instead of letting a nearly straight leg choose an
+  // unstable side at touchdown.
+  Vec4 bendHint;
+  float bendHintWeight = 0.0F;
+};
+
+/** Optional post-animation pose adjustment. The generated game fills this
+ * from terrain/collision probes; future learned controllers can feed the same
+ * small contract without owning or duplicating the skeletal runtime. */
+struct SkelPoseAdjust {
+  s32 pelvis = -1;
+  float pelvisY = 0.0F;
+  Vec4 pelvisOffset;
+  // Model-space pitch/roll applied to the pelvis subtree before the analytic
+  // legs solve.  Re-solving the legs afterwards keeps planted feet planted.
+  s32 body = -1;
+  float bodyPitch = 0.0F;
+  float bodyRoll = 0.0F;
+  SkelIkLeg legs[2];
+  u8 legCount = 0;
+
+  bool active() const {
+    if (pelvis >= 0 && (pelvisY != 0.0F || pelvisOffset.x != 0.0F ||
+                        pelvisOffset.y != 0.0F || pelvisOffset.z != 0.0F))
+      return true;
+    if (body >= 0 && (bodyPitch != 0.0F || bodyRoll != 0.0F)) return true;
+    for (u8 i = 0; i < legCount && i < 2; ++i)
+      if (legs[i].weight > 0.0F || legs[i].alignWeight > 0.0F) return true;
+    return false;
+  }
+};
 
 /**
  * One scene object's view of a SkelModel: playback state (with crossfade),
@@ -102,6 +149,18 @@ class SkelInstance {
   };
   LodArrays lodArrays(size_t part, u8 lod);
 
+  /** Replaces the post-animation adjustment for the next pose evaluation.
+   * Setting or clearing it invalidates the current skin even when playback is
+   * paused, which is required for moving supports and editor scrubbing. */
+  void setPoseAdjust(const SkelPoseAdjust& adjust);
+  void clearPoseAdjust();
+
+  /** Last evaluated model-local node transform before post-animation pose
+   * adjustment. Null until the first pose has been evaluated. Contact policy
+   * must see the authored clip moving away from a planted target; returning
+   * the adjusted pose here creates a self-locking feedback loop. */
+  const M4x4* nodeGlobal(s32 node) const;
+
   // Implementation detail, public only so the .cpp's file-local repack
   // helper can fill it: one part at one LOD level - bind-pose data repacked
   // into 16-byte-aligned qwords for the VU0 skinning loop (positions w = 1,
@@ -129,7 +188,8 @@ class SkelInstance {
    * Instances autoplaying the same clip from scene load stay equal forever;
    * a scripted play()/speed change simply splits the group. */
   bool poseEquals(const SkelInstance& other) const {
-    return model == other.model && cur.clip == other.cur.clip &&
+    return !poseAdjust.active() && !other.poseAdjust.active() &&
+           model == other.model && cur.clip == other.cur.clip &&
            cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F;
   }
 
@@ -148,11 +208,14 @@ class SkelInstance {
   bool oneShotDone = false;
   u8 lastSkinnedLod = 0;          // which level the out arrays hold
   u8 maxLodLevels = 1;            // longest per-part chain incl. the base
+  bool poseReady = false;
+  SkelPoseAdjust poseAdjust;
 
   // scratch buffers, sized once in the constructor
   std::vector<float> localsCur, localsPrev;  // nodes * 10: t[3] r[4] s[3]
   std::vector<u8> animatedCur, animatedPrev; // node had a channel this pose
-  std::vector<M4x4> globals;                 // per node
+  std::vector<M4x4> globals;                 // adjusted, per node
+  std::vector<M4x4> sampledGlobals;          // pre-adjust, per node
   std::vector<M4x4> palette;                 // per palette slot
 
   std::vector<std::vector<PartLod>> partLods;  // [part][lod]
@@ -161,6 +224,7 @@ class SkelInstance {
   void evalLocals(Layer& layer, std::vector<float>& locals,
                   std::vector<u8>& animated);
   void evalPose();
+  void applyPoseAdjust();
   void skinParts(u8 lod);
 };
 

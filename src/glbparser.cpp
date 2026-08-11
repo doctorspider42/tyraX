@@ -261,6 +261,7 @@ std::vector<uint32_t> readIndices(const Doc& doc, int index) {
 // Scene graph
 
 struct Node {
+    std::string name;
     float t[3] = {0, 0, 0};
     float r[4] = {0, 0, 0, 1};
     float s[3] = {1, 1, 1};
@@ -519,6 +520,8 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
         for (size_t i = 0; i < arr->arr.size(); ++i) {
             const json::Value& n = arr->arr[i];
             Node& node = nodes[i];
+            if (const json::Value* name = n.find("name"))
+                node.name = name->stringOr("");
             auto readVec = [&](const char* key, float* dst, int count) {
                 const json::Value* v = n.find(key);
                 if (!v || v->type != json::Value::Type::Array ||
@@ -1132,6 +1135,7 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     for (size_t i = 0; i < P.nodes.size(); ++i) {
         const Node& src = P.nodes[i];
         SkelNode& dst = out.nodes[i];
+        dst.name = src.name;
         dst.parent = P.parent[i];
         dst.hasMatrix = src.hasMatrix;
         std::memcpy(dst.matrix, src.matrix.m, sizeof(dst.matrix));
@@ -1481,14 +1485,15 @@ void generateSkelLods(Skel& skel) {
 }
 
 // Layout (little-endian; keep in sync with the engine's tskl_loader.cpp):
-//   "TSKL" u32(version=2)      (v1 files = the same layout without lodCount)
+//   "TSKL" u32(version=4)      (v1 files = the same layout without lodCount)
 //   u32 nodeCount, u32 paletteCount, u32 partCount, u32 clipCount
 //   f32 min[3], f32 max[3]           (pose AABB union over all clips, sampled)
-//   nodeCount * { s32 parent; u32 flags(bit0 = hasMatrix);
+//   nodeCount * { v3: u32 nameBytes; char name[nameBytes];
+//                 s32 parent; u32 flags(bit0 = hasMatrix);
 //                 f32 t[3]; f32 r[4]; f32 s[3]; f32 matrix[16] }
 //   paletteCount * { u32 node; f32 ibm[16] }
 //   clipCount * {
-//     char name[32]; f32 duration; u32 channelCount;
+//     char name[32]; f32 duration; v4: f32 gaitSpeed; u32 channelCount;
 //     channelCount * { u32 node; u8 path; u8 step; u8 pad[2]; u32 keyCount;
 //                      f32 times[keyCount];
 //                      path==1 ? s16 quat[keyCount*4] (x/32767)
@@ -1503,12 +1508,135 @@ void generateSkelLods(Skel& skel) {
 //       u32 vertexCount; if (texture[0]) f32 uv[...];
 //       f32 pos[...]; f32 nrm[...]; u8 joints[...]; u8 weights[...] }
 //   }
+namespace {
+
+std::string compactBoneName(const std::string& name) {
+    std::string out;
+    for (unsigned char c : name)
+        if (std::isalnum(c)) out.push_back((char)std::tolower(c));
+    return out;
+}
+
+int findFootNode(const Skel& skel, bool left) {
+    const std::initializer_list<const char*> patterns =
+        left ? std::initializer_list<const char*>{"leftfoot", "footl", "anklel",
+                                                  "lankle", "legleft3"}
+             : std::initializer_list<const char*>{"rightfoot", "footr", "ankler",
+                                                  "rankle", "legright3"};
+    for (size_t i = 0; i < skel.nodes.size(); ++i) {
+        const std::string name = compactBoneName(skel.nodes[i].name);
+        for (const char* pattern : patterns) {
+            const size_t n = std::strlen(pattern);
+            if (name == pattern ||
+                (name.size() > n && name.compare(name.size() - n, n, pattern) == 0))
+                return (int)i;
+        }
+    }
+    return -1;
+}
+
+void sampleSkelChannel(const SkelChannel& ch, float time, float* out) {
+    const int comps = ch.path == 1 ? 4 : 3;
+    const size_t count = ch.times.size();
+    if (count == 0 || ch.values.size() < count * (size_t)comps) return;
+    size_t hi = 0;
+    while (hi < count && ch.times[hi] < time) ++hi;
+    if (hi == 0) {
+        std::memcpy(out, ch.values.data(), comps * sizeof(float));
+        return;
+    }
+    if (hi >= count) {
+        std::memcpy(out, &ch.values[(count - 1) * comps], comps * sizeof(float));
+        return;
+    }
+    const size_t lo = hi - 1;
+    const float span = ch.times[hi] - ch.times[lo];
+    float f = span > 0.0f ? (time - ch.times[lo]) / span : 0.0f;
+    if (ch.step) f = 0.0f;
+    const float* a = &ch.values[lo * comps];
+    const float* b = &ch.values[hi * comps];
+    if (ch.path == 1)
+        slerp(a, b, f, out);
+    else
+        for (int c = 0; c < comps; ++c) out[c] = a[c] + (b[c] - a[c]) * f;
+}
+
+// An in-place locomotion cycle says how far its root ought to travel through
+// the horizontal sweep of both feet. Baking that authored speed beside the
+// clip lets the player match animation time to real movement instead of
+// pretending every walk clip was authored for the project's maximum speed.
+float estimateGaitSpeed(const Skel& skel, const SkelClip& clip) {
+    const int foot[2] = {findFootNode(skel, true), findFootNode(skel, false)};
+    if (clip.duration <= 0.001f || foot[0] < 0 || foot[1] < 0) return 0.0f;
+
+    std::vector<int> order;
+    order.reserve(skel.nodes.size());
+    std::vector<unsigned char> added(skel.nodes.size(), 0);
+    while (order.size() < skel.nodes.size()) {
+        bool progress = false;
+        for (size_t i = 0; i < skel.nodes.size(); ++i) {
+            if (added[i]) continue;
+            const int parent = skel.nodes[i].parent;
+            if (parent < 0 || (parent < (int)added.size() && added[parent])) {
+                order.push_back((int)i);
+                added[i] = 1;
+                progress = true;
+            }
+        }
+        if (!progress) return 0.0f;
+    }
+
+    float minX[2] = {1e30f, 1e30f}, minZ[2] = {1e30f, 1e30f};
+    float maxX[2] = {-1e30f, -1e30f}, maxZ[2] = {-1e30f, -1e30f};
+    std::vector<M16> globals(skel.nodes.size());
+    constexpr int samples = 25;
+    for (int sample = 0; sample < samples; ++sample) {
+        const float time = clip.duration * sample / (samples - 1);
+        for (int index : order) {
+            const SkelNode& node = skel.nodes[index];
+            float t[3], r[4], s[3];
+            std::memcpy(t, node.t, sizeof(t));
+            std::memcpy(r, node.r, sizeof(r));
+            std::memcpy(s, node.s, sizeof(s));
+            for (const SkelChannel& ch : clip.channels) {
+                if (ch.node != index) continue;
+                if (ch.path == 0) sampleSkelChannel(ch, time, t);
+                else if (ch.path == 1) sampleSkelChannel(ch, time, r);
+                else sampleSkelChannel(ch, time, s);
+            }
+            M16 local;
+            if (node.hasMatrix)
+                std::memcpy(local.m, node.matrix, sizeof(local.m));
+            else
+                local = fromTrs(t, r, s);
+            globals[index] = node.parent >= 0 ? mul(globals[node.parent], local)
+                                              : local;
+        }
+        for (int side = 0; side < 2; ++side) {
+            const M16& m = globals[foot[side]];
+            minX[side] = std::min(minX[side], m.m[12]);
+            maxX[side] = std::max(maxX[side], m.m[12]);
+            minZ[side] = std::min(minZ[side], m.m[14]);
+            maxZ[side] = std::max(maxZ[side], m.m[14]);
+        }
+    }
+    float travel = 0.0f;
+    for (int side = 0; side < 2; ++side) {
+        const float dx = maxX[side] - minX[side];
+        const float dz = maxZ[side] - minZ[side];
+        travel += std::sqrt(dx * dx + dz * dz);
+    }
+    return travel / clip.duration;
+}
+
+}  // namespace
+
 std::string writeTskl(const Skel& skel,
                       const std::vector<std::string>& textureNames) {
     std::string out;
     out.reserve(4096 + (size_t)skel.totalVertexCount() * 40);
     out += "TSKL";
-    appendU32(out, 2);
+    appendU32(out, 4);
     appendU32(out, (uint32_t)skel.nodes.size());
     appendU32(out, (uint32_t)skel.palette.size());
     appendU32(out, (uint32_t)skel.parts.size());
@@ -1517,6 +1645,8 @@ std::string writeTskl(const Skel& skel,
     for (int c = 0; c < 3; ++c) appendF32(out, skel.max[c]);
 
     for (const SkelNode& node : skel.nodes) {
+        appendU32(out, (uint32_t)node.name.size());
+        appendBytes(out, node.name.data(), node.name.size());
         appendU32(out, (uint32_t)node.parent);  // -1 round-trips through u32
         appendU32(out, node.hasMatrix ? 1u : 0u);
         for (int c = 0; c < 3; ++c) appendF32(out, node.t[c]);
@@ -1531,6 +1661,7 @@ std::string writeTskl(const Skel& skel,
     for (const SkelClip& clip : skel.clips) {
         appendFixedString(out, clip.name, 32);
         appendF32(out, clip.duration);
+        appendF32(out, estimateGaitSpeed(skel, clip));
         appendU32(out, (uint32_t)clip.channels.size());
         for (const SkelChannel& ch : clip.channels) {
             appendU32(out, (uint32_t)ch.node);

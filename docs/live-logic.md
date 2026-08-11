@@ -27,7 +27,7 @@ The interpreter implements the node families you actually iterate on:
 | Family | Nodes |
 |---|---|
 | Triggers | On Start, On Update, Every N Seconds, On Button, Near Object, On Condition |
-| Object | Set Object Visible, Move Object By, Move Object To, Set Object Position, Rotate Object By, Set Object Rotation, Spin Object, Set Object Color, Spawn Player At |
+| Object | Set Object Visible, Set Foot IK, Move Object By, Move Object To, Set Object Position, Rotate Object By, Set Object Rotation, Spin Object, Set Object Color, Spawn Player At |
 | Scene | Set Sky Color, Switch Scene, Set Fog, Set Bloom, Set Grain, Set Particles |
 | HUD | Set HUD Visible, Set Text Visible |
 | Variables | Set Int (both pins: set / add), Set Bool (set / toggle), Set Position (+ Get Bool / Int At Least / Get Position as sources) |

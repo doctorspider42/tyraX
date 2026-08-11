@@ -47,7 +47,7 @@ class CollisionMesh {
    * @param dir must be normalized
    */
   bool raycast(const Vec4& origin, const Vec4& dir, float maxDist,
-               float* outDist) const;
+               float* outDist, Vec4* outNormal = nullptr) const;
 
   /**
    * Pushes a sphere out of every triangle steeper than maxNormalY

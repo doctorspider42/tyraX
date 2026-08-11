@@ -6,6 +6,11 @@ imgui.ini
 
 # PS2 network-deploy tools, fetched by setup.ps1 (ps2client)...
 tools/*
+# ...except the reproducible Foot IK trainer and its labelled PCSX2 samples.
+!tools/train-foot-neural.py
+!tools/data/
+tools/data/*
+!tools/data/foot-neural-real.csv
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/

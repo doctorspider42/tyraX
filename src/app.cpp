@@ -7116,6 +7116,19 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
             mat.textured = p.image >= 0;
             info.materials.push_back(std::move(mat));
         }
+        // The lightweight preview bake has no hierarchy names. Parse the
+        // skeletal representation once as well so Foot IK can map authored
+        // bones by stable name instead of fragile node indices.
+        glbparser::Skel skel;
+        std::string skelError;
+        if (animimport::parseSkel(full.string(), skel, skelError)) {
+            info.bones.reserve(skel.nodes.size());
+            info.boneParents.reserve(skel.nodes.size());
+            for (const glbparser::SkelNode& n : skel.nodes) {
+                info.bones.push_back(n.name);
+                info.boneParents.push_back(n.parent);
+            }
+        }
     }
     return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
 }
