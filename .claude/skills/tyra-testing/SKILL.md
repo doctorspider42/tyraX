@@ -958,8 +958,28 @@ Notes:
     levels in. A tab body with no child needs real labels on anything scripted.
   - **A tabbed dialog stops needing `wheel` and starts needing tab clicks.** The
     trickle trap below still applies to every other long window, but Project
-    Preferences no longer scrolls to reach OK - the footer is pinned outside the
-    scrolling region, so `click 'Project Preferences/OK'` lands from any tab.
+    Preferences no longer scrolls to reach its footer - the footer is pinned
+    outside the scrolling region, so `click 'Project Preferences/Close'` lands
+    from any tab. A tab BODY still scrolls: with the upscaler on, the Display
+    tab's *Advanced...* button is submitted below the child's bottom edge, where
+    `dump` prints a rect and NO label and a click on it lands on the footer's
+    Close button instead - the clipped-item trap two bullets down, measured
+    here.
+
+  **Project Preferences is a WINDOW, not a modal, since 1.20.0.** Its footer
+  button is `Close`; there is no `OK` and no `Cancel`, because every edit
+  applies as it is made - so a scripted run asserts by reading the model back
+  (`key ctrl+s` then grep the `.tyra`, or `--dump`) instead of pressing a
+  confirm button. Nothing is blocked behind it any more: `click 'Project
+  Preferences/Advanced...'` leaves it AND *Neural Upscaler (BLSS)* open and both
+  take clicks, which is the end-to-end check for that change. Two consequences.
+  A bare label is ambiguous with two windows up (`Use the upscaler` is in both -
+  qualify it), and the upscaler window opens ON TOP, so a `click` on a covered
+  Preferences item lands on the window in front; assert covered items with
+  `expect-checked`, which does not click. The terrain grid (*Width (units)*,
+  *Depth (units)*, *Detail (max grid cells)*) is the one thing that does not
+  apply as you type - it writes back on release, so `text` needs a `key enter`
+  after it (measured: an uncommitted `text 2` leaves the stored width at 100).
 
   **A widget whose whole label is
   hidden behind `##`** - a compact search field (`##assetsearch`,

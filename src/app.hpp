@@ -288,7 +288,8 @@ private:
     void drawLogPanel(const char* id, LogView& v);
     void drawDiscLayoutWindow();
     void drawNewProjectModal();
-    void drawPreferencesModal();          // project-wide defaults (Project menu)
+    void drawPreferencesWindow();         // project-wide defaults (Project menu)
+    void openProjectPreferences();        // raise it, seeding the grid scratch
     void drawEditorPreferencesModal();    // machine-global settings (Edit menu)
     void saveGlobalConfig();              // write editor.ini from the App members
     // devsession.hpp: "this editor has that project open, and here is what the
@@ -2704,12 +2705,30 @@ private:
     int discSelected_ = -1;   // index into discPlan_.items (list <-> disc sync)
     int discCapacity_ = 2;    // 0 = fit to data, 1 = CD-R 700 MB, 2 = DVD-5
 
-    // "Project Preferences" modal staging (applied on OK). Edits project-wide
-    // defaults only (project_.settings + terrain). The game template is NOT
-    // staged - it is fixed at creation and the dialog only displays it.
-    bool openPreferencesPopup_ = false;
-    TerrainConfig prefTerrain_;
+    // "Project Preferences" - an ordinary WINDOW, and it applies live like
+    // every other panel in this editor (see drawPreferencesWindow for why the
+    // staged OK/Cancel it used to have could not survive being non-modal).
+    // `prefSettings_` is a ONE-FRAME copy, not a staging buffer: re-seeded from
+    // project_.settings at the top of the body and written back at the bottom.
+    // The game template is not copied - it is fixed at creation and the window
+    // only displays it.
+    bool showProjectPrefs_ = false;
+    bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
+    TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
+    // THE TERRAIN GRID IS THE ONE THING THAT MAY NOT APPLY PER FRAME.
+    // Changing width, depth or the detail cap changes the heightmap's
+    // dimensions, and project::ensureHeightmap answers that with a
+    // NEAREST-NEIGHBOUR RESAMPLE - so live-applying "64" -> "128" keystroke by
+    // keystroke would pass through 1 and 12 and flatten a sculpted map on the
+    // way, and dragging the detail slider down and back would do the same. Also
+    // Viewport::setTerrain re-centres the camera on any size change. These
+    // three therefore write back only on IsItemDeactivatedAfterEdit.
+    int prefGridDetail_ = 64;
+    // The viewport refresh is deferred to the end of an interaction:
+    // applyProjectToViewport() rebuilds the whole terrain mesh, which is not a
+    // per-frame cost while a slider is being dragged.
+    bool prefsViewportDirty_ = false;
 
     // "Editor Preferences" modal staging (Edit > Preferences, applied on Save).
     // Machine-global settings, mirror of globalEmulatorPath_ / globalPs2Ip_.

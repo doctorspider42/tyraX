@@ -129,7 +129,8 @@ const DisplayModeInfo& displayModeInfo(const std::string& key) {
     return displayModes()[0];
 }
 
-TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
+                                   const std::string& modeKey) {
     // GS VRAM in words (1 word = 4 bytes); buffers are page aligned (2048).
     const int kVramWords = 1048576;
     const int kPage = 2048;
@@ -140,7 +141,14 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
     const int kNeed = 98304 + 65536;
     auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
 
-    const DisplayModeInfo& d = displayModeInfo(bootDisplayMode(s));
+    // THE MODE IS A PARAMETER, because the boot mode is not the only mode the
+    // game runs in. `supportedModes` declares the scan modes a player can
+    // switch into, RendererCore::setDisplayOutput re-runs the whole VRAM layout
+    // on each switch, and allocateVramBuffers therefore asks this question
+    // again with a different framebuffer size - so a third buffer that fits at
+    // 512x224 does not fit at 512x512 and the engine silently drops back to
+    // two. The boot mode is just the default answer (the one-argument overload).
+    const DisplayModeInfo& d = displayModeInfo(modeKey);
     const int w = d.bufW;
     const int h = d.halfHeight ? d.logicalH / 2 : d.logicalH;
     const int bufferWords = pageUp(w * h);  // PSMCT32: one word per pixel
@@ -180,7 +188,41 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
     f.leftWords =
         kVramWords - (2 * bufferWords + zWords + lowWords) - bufferWords;
     f.fits = f.leftWords >= kNeed;
+    f.mode = d.key;
     return f;
+}
+
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
+    return tripleBufferingFit(p, s, bootDisplayMode(s));
+}
+
+TripleBufferModes tripleBufferingModes(const Project& p,
+                                       const ProjectSettings& s) {
+    TripleBufferModes m;
+    m.boot = bootDisplayMode(s);
+    // The boot mode first, then everything `supportedModes` declares. The two
+    // are separate questions and a project can declare a set that does not
+    // contain what it boots in, so both go in - deduped, in table order after
+    // the boot entry.
+    std::vector<std::string> keys{m.boot};
+    for (const std::string& k : supportedDisplayModes(s)) {
+        bool seen = false;
+        for (const std::string& h : keys) seen |= (h == k);
+        if (!seen) keys.push_back(k);
+    }
+    for (const std::string& k : keys) {
+        const TripleBufferFit f = tripleBufferingFit(p, s, k);
+        if (k == m.boot) m.bootFits = f.fits;
+        (f.fits ? m.fitting : m.notFitting).push_back(f);
+    }
+    for (const DisplayModeInfo& d : displayModes()) {
+        bool asked = false;
+        for (const std::string& h : keys) asked |= (h == d.key);
+        if (asked) continue;
+        const TripleBufferFit f = tripleBufferingFit(p, s, d.key);
+        if (f.fits) m.roomElsewhere.push_back(f);
+    }
+    return m;
 }
 
 std::string bootDisplayMode(const ProjectSettings& s) {

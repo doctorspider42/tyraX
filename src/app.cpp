@@ -889,7 +889,7 @@ void App::drawUI() {
     drawSessionWindow();
     drawPhoneCamWindow();
     drawNewProjectModal();
-    drawPreferencesModal();
+    drawPreferencesWindow();
     drawEditorPreferencesModal();
     drawAiGenerateModal();
     drawErrorModal();
@@ -972,11 +972,8 @@ void App::drawUI() {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S) &&
             session_.role() != session::Session::Role::Client)
             saveAll("Saved");
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
-            prefTerrain_ = project_.active().terrain;
-            prefSettings_ = project_.settings;
-            openPreferencesPopup_ = true;
-        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
+            openProjectPreferences();
         if (!io.WantTextInput) {
             // While the Material Editor has focus, Ctrl+Z drives ITS undo
             // stack (paint strokes + material edits, saved straight to disk) -
@@ -1409,11 +1406,8 @@ void App::drawMenuBar() {
         }
         if (ImGui::BeginMenu("Project", hasProject_)) {
             const bool busy = runner_.busy();
-            if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
-                prefTerrain_ = project_.active().terrain;
-                prefSettings_ = project_.settings;
-                openPreferencesPopup_ = true;
-            }
+            if (ImGui::MenuItem("Preferences...", "Ctrl+,"))
+                openProjectPreferences();
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(projectForBuild());
@@ -4280,6 +4274,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
     if (key == "blss") return &showBlss_;
+    if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
 
@@ -4302,7 +4297,11 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss"};
+    "credits",  "vu",       "chat",     "blss",
+    // Project Preferences stopped being a modal in 1.20.0 and became an
+    // ordinary window, so it needs the same deterministic open/close every
+    // other optional window has.
+    "projectprefs"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -13258,20 +13257,68 @@ void App::rebakeSplatPreview() {
     viewport_.setTerrainLayers(draws, sc.splat);
 }
 
-void App::drawPreferencesModal() {
-    if (openPreferencesPopup_) {
-        ImGui::OpenPopup("Project Preferences");
-        openPreferencesPopup_ = false;
+// Raise the window (and seed the two scratch values it does not read live).
+void App::openProjectPreferences() {
+    if (!hasProject_) return;
+    prefTerrain_ = project_.active().terrain;
+    prefGridDetail_ = project_.settings.terrainDetail;
+    showProjectPrefs_ = true;
+    focusProjectPrefs_ = true;
+}
+
+// PROJECT PREFERENCES IS A WINDOW, NOT A MODAL, AND IT APPLIES LIVE.
+//
+// It was a modal with OK/Cancel over a staged copy, and the modality was the
+// defect: ImGui blocks every click on anything behind a modal, so the three
+// buttons in here that RAISE another window (Advanced..., Open Ambience Editor,
+// Open Loading Screens editor) could not leave anything usable behind them.
+// The previous pass made them apply-and-close, which was the right answer for a
+// modal and is a workaround for the modality itself. Reported as "clicking
+// Advanced closes Project Preferences completely - could they be a window
+// instead of a modal?", which dissolves the problem rather than trading it.
+//
+// STAGING COULD NOT SURVIVE THE CHANGE, so it is gone, and that is deliberate:
+//
+//  - A non-modal window means the project can be edited underneath while staged
+//    edits wait. Undo, a collaboration peer, the AI Assistant and the windows
+//    these very buttons open all write project_.settings, and an OK pressed
+//    afterwards would silently overwrite all of it with values read minutes ago.
+//  - prefTerrain_ stages the ACTIVE SCENE's terrain. With the window open the
+//    active scene can change, and OK would then write scene A's terrain size
+//    onto scene B. That one is unfixable by any amount of care.
+//  - Live IS the editor's convention (tyra-editor-dev rule 1): every other
+//    panel mutates project_ and calls commitChange(). Preferences was the
+//    exception, which is also why the Advanced... problem existed at all - the
+//    windows it opens edit project_.settings live and the modal did not.
+//
+// What Cancel bought is not lost so much as unified with the rest of the
+// editor: nothing reaches disk until an explicit Save, project-wide settings
+// were never in the undo stack anyway (History::push carries the scenes only,
+// so Cancel was the ONLY way back and it is now "close without saving"), and
+// the footer says so. The one control that is genuinely dangerous to apply
+// keystroke-by-keystroke is the terrain grid, and it is treated specially
+// rather than holding the whole dialog modal - see prefGridDetail_ in app.hpp.
+void App::drawPreferencesWindow() {
+    if (!showProjectPrefs_ || !hasProject_) {
+        // A viewport refresh owed from the last frame the window was open must
+        // still land: it is deferred to the end of an interaction (below), and
+        // a layout switch can close the window in between.
+        if (prefsViewportDirty_) {
+            if (hasProject_) applyProjectToViewport();
+            prefsViewportDirty_ = false;
+        }
+        if (!hasProject_) showProjectPrefs_ = false;
+        return;
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
     // TWO STRUCTURAL CHOICES, and the first is the one that matters.
     //
     // (1) AN EXPLICIT SIZE, NOT AlwaysAutoResize. This dialog was one vertical
     //     stack - Frame delivery, AI navigation, Ambience, Scenes, Shadows,
-    //     Usable objects, the camera, Build and more - with OK and Cancel at the
-    //     BOTTOM OF THE CONTENT, so confirming meant scrolling past everything
+    //     Usable objects, the camera, Build and more - with the footer at the
+    //     BOTTOM OF THE CONTENT, so reaching it meant scrolling past everything
     //     first, and every setting anyone added made that worse. The footer is
     //     outside the scrolling region now: it is always one click away no
     //     matter how long the content grows, which is the fix the tabs below do
@@ -13284,48 +13331,31 @@ void App::drawPreferencesModal() {
     ImGui::SetNextWindowSize(
         ImVec2(scaled(720),
                std::min(scaled(860), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
-        ImGuiCond_Appearing);
+        ImGuiCond_FirstUseEver);
+    if (focusProjectPrefs_) {
+        ImGui::SetNextWindowFocus();
+        focusProjectPrefs_ = false;
+    }
 
-    if (!ImGui::BeginPopupModal("Project Preferences", nullptr, 0)) return;
+    if (!ImGui::Begin("Project Preferences", &showProjectPrefs_)) {
+        ImGui::End();
+        return;
+    }
 
-    // What OK does, as a function, because three buttons in here also have to do
-    // it - see the Advanced... note in the Display tab. Two copies of this is
-    // how one of them silently stops applying something.
-    auto applyPrefs = [&]() {
-        // gameTemplate is deliberately NOT written back - the preset is fixed
-        // at creation and this dialog only shows it.
-        project_.settings = prefSettings_;
-        project_.active().terrain = prefTerrain_;
-        applyProjectToViewport();  // scenes that inherit follow the new defaults
-        commitChange();
-    };
-    // A BUTTON IN A MODAL THAT OPENS A WINDOW HAS TO CLOSE THE MODAL, and it has
-    // to decide what happens to the staged edits. Both halves were wrong here:
-    // Advanced... and Open Ambience Editor raised a window BEHIND the modal,
-    // which blocks every click on it, so they read as buttons that do nothing;
-    // Open Loading Screens editor closed the dialog and DISCARDED whatever had
-    // been staged.
-    //
-    // It APPLIES. Not cancels, and the reason is specific rather than a
-    // preference: the windows these buttons open edit `project_.settings`
-    // LIVE - the upscaler window draws the very same block through
-    // drawBlssSettings and commits per widget. Cancelling first would open it
-    // showing the values on disk while the user is looking at the ones they just
-    // set, and the tick they made on the way to pressing Advanced... would
-    // vanish. Applying is also the only reading under which the two windows
-    // cannot disagree.
-    //
-    // "Not silently": each button says so on the line beneath it, its tooltip
-    // repeats it, and the status bar confirms it afterwards.
-    auto applyAndOpen = [&](bool& show) {
-        applyPrefs();
-        show = true;
-        statusMessage_ = "Project preferences applied.";
-        ImGui::CloseCurrentPopup();
-    };
+    // THE ONE-FRAME COPY. `prefSettings_` is re-seeded from the model here and
+    // written back at the bottom, so an edit lands immediately AND anything
+    // that changed the project underneath is picked up next frame instead of
+    // being clobbered. terrainDetail is excluded because it has its own scratch
+    // (see the grid note in app.hpp).
+    prefSettings_ = project_.settings;
+    bool gridChanged = false;
+
+    // Opening another window is now just that - `show = true` and both stay
+    // open, which is the whole point of this no longer being a modal. The three
+    // buttons below used to go through an applyAndOpen() helper that closed
+    // this dialog first; there is nothing left for it to do.
     const char* kOpensWindow =
-        "Applies these preferences and closes this dialog - the window it opens "
-        "edits the project live, so the two must not disagree.";
+        "Opens the window alongside this one - both stay usable.";
 
     // The footer's own height, reserved out of every tab body below: the
     // separator, three lines of note and the button row.
@@ -13346,7 +13376,7 @@ void App::drawPreferencesModal() {
     // drives this dialog has to select its tab first; see docs/ui-scripting.md,
     // "A widget inside an unselected tab does not exist".
     if (!ImGui::BeginTabBar("##prefstabs")) {
-        ImGui::EndPopup();
+        ImGui::End();
         return;
     }
     auto beginTab = [&](const char* name) {
@@ -13460,7 +13490,29 @@ void App::drawPreferencesModal() {
     // of these used to sit under "Build", which is where nobody deciding how
     // the picture is presented would look for them.
     ImGui::SeparatorText("Presentation");
+    // TRIPLE BUFFERING IS ASKED OF EVERY MODE THE PROJECT CAN RUN IN, not only
+    // of the one it boots in - which is what the user's second complaint was
+    // about ("we set it here and then someone changes the resolution in the
+    // game and it goes out of step"). ProjectSettings::supportedModes declares
+    // the scan modes a player can switch into; RendererCore::setDisplayOutput
+    // re-lays the entire VRAM region on such a switch, so allocateVramBuffers
+    // asks the headroom question again with the new framebuffer size and the
+    // answer really can differ from mode to mode. It fits in 512x224 and
+    // 448x448 and does not fit in 512x448, 448x540 or 512x512 (the upscaler's
+    // z shrink can change that - it is in the arithmetic).
+    //
+    // So the setting is a REQUEST, granted per mode at runtime, and the window
+    // says which modes grant it rather than answering for the boot mode alone.
+    const project::TripleBufferModes tbModes =
+        project::tripleBufferingModes(project_, prefSettings_);
+    // Only the TICK is ever blocked, never the untick - the rule the BLSS x
+    // frame-extrapolation exclusion established. A project can arrive with the
+    // flag on from a hand-edited .tyra or an older editor, and every switch
+    // that is on must stay switchable off.
+    const bool tbBlocked = tbModes.fitting.empty();
+    ImGui::BeginDisabled(tbBlocked && !prefSettings_.tripleBuffering);
     ImGui::Checkbox("Triple buffering", &prefSettings_.tripleBuffering);
+    ImGui::EndDisabled();
     prefHelp(
         "How a frame that misses its vsync deadline is paid for. Off, the\n"
         "EE waits for the next vsync before presenting, so a frame taking\n"
@@ -13471,29 +13523,84 @@ void App::drawPreferencesModal() {
         "same work runs at ~49 fps.\n\n"
         "Costs a THIRD display buffer of GS VRAM - 0.875 MB of the\n"
         "~1.08 MB texture budget at 512x448, about half that in\n"
-        "interlaced-field. Check the game's VRAMSTAT log line before\n"
-        "shipping it: when the buffer does not fit the engine says so and\n"
-        "stays double buffered, so this can never break a build.");
+        "interlaced-field - so it does not fit in every display mode, and\n"
+        "the list below says which of the modes this project supports it\n"
+        "fits in. It is a REQUEST: the engine re-decides on every runtime\n"
+        "scan-mode switch and stays double buffered where there is no room,\n"
+        "so it can never break a build - but a player who changes resolution\n"
+        "can change the frame pacing with it.");
     // The engine refuses a third buffer that would starve the rest of the
-    // renderer, and until this line the only way to find that out was the
+    // renderer, and until this block the only way to find that out was the
     // running game's log. project::tripleBufferingFit is the host twin of that
-    // check - same numbers, same answer.
-    if (prefSettings_.tripleBuffering) {
-        const auto fit = project::tripleBufferingFit(project_, prefSettings_);
-        if (!fit.fits) {
-            const auto& dm =
-                project::displayModeInfo(project::bootDisplayMode(prefSettings_));
-            ImGui::PushStyleColor(ImGuiCol_Text,
-                                  ImVec4(1.0f, 0.72f, 0.25f, 1.0f));
+    // check - same numbers, same answer, now asked once per mode.
+    {
+        auto modeList = [](const std::vector<project::TripleBufferFit>& v,
+                           bool byLabel = false) {
+            std::string s;
+            for (size_t i = 0; i < v.size(); ++i) {
+                if (i) s += i + 1 == v.size() ? " or " : ", ";
+                const DisplayModeInfo& d = project::displayModeInfo(v[i].mode);
+                if (byLabel) {
+                    s += d.label;
+                    continue;
+                }
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%dx%d", d.bufW,
+                              d.halfHeight ? d.logicalH / 2 : d.logicalH);
+                s += buf;
+            }
+            return s;
+        };
+        const ImVec4 amber(1.0f, 0.72f, 0.25f, 1.0f);
+        if (tbBlocked) {
+            // IN LINE, not in the tooltip: a greyed control whose explanation
+            // only appears on hover reads as a bug, because the first question
+            // is "why can I not click this" and nothing on screen answers it.
+            //
+            // The way OUT is computed, never asserted. Which modes have room
+            // depends on the upscaler's z shrink, so "try field rendering" is a
+            // fact about this project rather than about the engine - and at
+            // 512x512 the upscaler does NOT free enough, which is exactly the
+            // sentence a hardcoded hint would have got wrong.
+            const project::TripleBufferFit& f = tbModes.notFitting.front();
+            std::string escape;
+            if (!tbModes.roomElsewhere.empty())
+                escape = " There is room in " +
+                         modeList(tbModes.roomElsewhere, true) + ".";
+            if (!prefSettings_.blssEnabled) {
+                ProjectSettings probe = prefSettings_;
+                probe.blssEnabled = true;
+                if (!project::tripleBufferingModes(project_, probe)
+                         .fitting.empty())
+                    escape +=
+                        " Turning the neural upscaler on also frees enough - "
+                        "the z buffer follows its smaller raster.";
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, amber);
             ImGui::TextWrapped(
-                "Will not fit in %s: a third buffer costs %.2f MB and would "
-                "leave %.2f MB, under the %.2f MB the rest of the renderer and "
-                "the texture heap need. The game will say so in its log and "
-                "stay double buffered. Try the interlaced-field display mode, "
-                "which halves every buffer.",
-                dm.label, fit.bufferWords / 262144.0f, fit.leftWords / 262144.0f,
-                fit.needWords / 262144.0f);
+                "    No room in any supported mode (%s): a third buffer costs "
+                "%.2f MB, leaving %.2f MB of the %.2f MB the renderer and the "
+                "texture heap need.%s",
+                modeList(tbModes.notFitting).c_str(),
+                f.bufferWords / 262144.0f, f.leftWords / 262144.0f,
+                f.needWords / 262144.0f, escape.c_str());
             ImGui::PopStyleColor();
+        } else if (!tbModes.notFitting.empty()) {
+            // THE DESYNC, named. This is the honest answer and the one the
+            // report asked for: the modes disagree, and the game will too.
+            ImGui::PushStyleColor(ImGuiCol_Text, amber);
+            ImGui::TextWrapped(
+                "    Fits in %s, not in %s (boot mode %s: %s). The engine "
+                "re-decides on every runtime scan-mode switch, so a player who "
+                "changes resolution changes the frame pacing.",
+                modeList(tbModes.fitting).c_str(),
+                modeList(tbModes.notFitting).c_str(),
+                project::displayModeInfo(tbModes.boot).label,
+                tbModes.bootFits ? "fits" : "does not");
+            ImGui::PopStyleColor();
+        } else if (prefSettings_.tripleBuffering) {
+            ImGui::TextDisabled("    Fits in every mode this project supports (%s).",
+                                modeList(tbModes.fitting).c_str());
         }
     }
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
@@ -13535,7 +13642,7 @@ void App::drawPreferencesModal() {
     ImGui::SeparatorText("Frame delivery (upscaler, extrapolation)");
     drawBlssSettings(prefSettings_, BlssDetail::Essentials);
     if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
-        applyAndOpen(showBlss_);
+        showBlss_ = true;
     prefHelp(
         "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
         "cross-validate it, look at the pictures it makes and at what its input\n"
@@ -13547,9 +13654,9 @@ void App::drawPreferencesModal() {
         "None of it is needed to USE the feature. A trained network ships with\n"
         "the editor, and in the plain mode above there is no network at all.\n"
         "\n"
-        "Applies these preferences and closes this dialog: that window edits the\n"
-        "project live, so leaving a staged copy behind would mean two dialogs\n"
-        "disagreeing about the same settings.");
+        "Opens alongside this window - it draws these same controls one level\n"
+        "deeper, over the same live project settings, so the two cannot\n"
+        "disagree.");
     ImGui::TextDisabled("    %s", kOpensWindow);
     endTab();
     }
@@ -13588,19 +13695,49 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Terrain");
+    // THE THREE CONTROLS THAT DO NOT APPLY PER FRAME (see prefGridDetail_ in
+    // app.hpp). Each of them changes the heightmap's dimensions, and
+    // project::ensureHeightmap answers that with a NEAREST-NEIGHBOUR RESAMPLE -
+    // lossy and not undone by typing the old number back. Applied live, typing
+    // "128" over "64" would resample through 1 and 12 and flatten a sculpted
+    // map, and dragging the detail slider to its left stop would destroy it
+    // outright. `commit` writes back only on IsItemDeactivatedAfterEdit; while
+    // the widget is neither active nor just-committed the scratch is re-seeded
+    // from the model, so undo and a scene switch still show through.
+    auto gridScratch = [&](int& scratch, int model, bool& changed, auto&& apply) {
+        const bool done = ImGui::IsItemDeactivatedAfterEdit();
+        if (done) {
+            apply(scratch);
+            changed = true;
+        } else if (!ImGui::IsItemActive()) {
+            scratch = model;
+        }
+    };
+    auto clampGrid = [](int v) { return v < 1 ? 1 : v > 4096 ? 4096 : v; };
+    SceneData& gridScene = project_.active();
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
+    gridScratch(prefTerrain_.width, gridScene.terrain.width, gridChanged,
+                [&](int v) { gridScene.terrain.width = clampGrid(v); });
     ImGui::InputInt("Depth (units)", &prefTerrain_.depth);
-    prefTerrain_.width = prefTerrain_.width < 1 ? 1 : prefTerrain_.width > 4096 ? 4096
-                                                                                : prefTerrain_.width;
-    prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
-                                                                                : prefTerrain_.depth;
+    gridScratch(prefTerrain_.depth, gridScene.terrain.depth, gridChanged,
+                [&](int v) { gridScene.terrain.depth = clampGrid(v); });
     if (prefSettings_.unitsPerMeter != 1.0f)
         ImGui::TextDisabled("= %.1f x %.1f m",
                             (float)prefTerrain_.width / prefSettings_.unitsPerMeter,
                             (float)prefTerrain_.depth / prefSettings_.unitsPerMeter);
-    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
+    ImGui::SliderInt("Detail (max grid cells)", &prefGridDetail_, 4, 512);
+    gridScratch(prefGridDetail_, project_.settings.terrainDetail, gridChanged,
+                [&](int v) {
+                    // Through BOTH copies: prefSettings_ is what the write-back
+                    // at the bottom of the body compares against.
+                    project_.settings.terrainDetail = prefSettings_.terrainDetail =
+                        v < 4 ? 4 : v > 512 ? 512 : v;
+                });
     prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
-             "but more geometry for the PS2 to push.");
+             "but more geometry for the PS2 to push. Changing it RESAMPLES the\n"
+             "heightmap (nearest neighbour), so sculpted detail finer than the\n"
+             "new grid is lost - it applies when you release the slider, and\n"
+             "Ctrl+Z takes it back.");
 
     ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
                      2000.0f,
@@ -13678,7 +13815,7 @@ void App::drawPreferencesModal() {
         "(Scene > Preferences), or a project default is used; with none, a\n"
         "built-in loading.png on black is shown.");
     if (ImGui::Button("Open Loading Screens editor"))
-        applyAndOpen(showLoadingEditor_);
+        showLoadingEditor_ = true;
     ImGui::TextDisabled("    %s", kOpensWindow);
     endTab();
     }
@@ -13806,7 +13943,7 @@ void App::drawPreferencesModal() {
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
-    if (ImGui::Button("Open Ambience Editor")) applyAndOpen(showAmbienceEditor_);
+    if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
     prefHelp(
         "Sky gradient, baked lighting and distance fog now live in presets.\n"
         "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
@@ -14161,24 +14298,42 @@ void App::drawPreferencesModal() {
 
     ImGui::EndTabBar();
 
+    // THE WRITE-BACK. One comparison over the whole settings struct, so a
+    // widget added to any tab is covered by construction - the sectionJson
+    // guard's reasoning, applied to a struct that has an operator==.
+    // gameTemplate is deliberately not written back: the preset is fixed at
+    // creation and this window only shows it.
+    bool prefsChanged = gridChanged;
+    if (!(project_.settings == prefSettings_)) {
+        project_.settings = prefSettings_;
+        prefsChanged = true;
+    }
+    if (prefsChanged) prefsViewportDirty_ = true;
+    // Deferred to the end of the interaction: applyProjectToViewport() rebuilds
+    // the terrain mesh and re-reads the GI cache, which must not happen sixty
+    // times a second while a slider is held. The model is already up to date -
+    // this is only the preview catching up. It runs BEFORE the commit because
+    // it is also what resamples the heightmap after a grid change, and the undo
+    // snapshot should carry the resampled result rather than a half-applied one.
+    if (prefsViewportDirty_ && !ImGui::IsAnyItemActive()) {
+        applyProjectToViewport();  // scenes that inherit follow the new defaults
+        prefsViewportDirty_ = false;
+    }
+    if (prefsChanged) commitChange();
+
     // THE FOOTER, OUTSIDE THE SCROLLING REGION. This is the structural half of
-    // the fix and it matters more than the tabs: every tab body above reserved
-    // `footerH` for it, so OK and Cancel sit at a fixed place in the dialog
+    // the shape and it matters more than the tabs: every tab body above
+    // reserved `footerH` for it, so it sits at a fixed place in the window
     // whatever any tab grows into. The tabs make the content shorter TODAY; the
     // pinned footer is what stops the next setting anybody adds from putting
     // the dialog back where it was.
     ImGui::Separator();
     ImGui::TextDisabled(
-        "These are project-wide defaults. Scenes inherit them unless a\n"
-        "category is overridden in Scene > Scene Preferences. The emulator\n"
-        "path and dev-PS2 IP are machine-global - set them in Edit > Preferences.");
-    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
-        applyPrefs();
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+        "Project-wide defaults, applied as you edit them (nothing reaches disk\n"
+        "until you save). Scenes inherit them unless a category is overridden in\n"
+        "Scene > Scene Preferences; the emulator path and dev-PS2 IP are in Edit > Preferences.");
+    if (ImGui::Button("Close", ImVec2(scaled(120), 0))) showProjectPrefs_ = false;
+    ImGui::End();
 }
 
 // Machine-global editor settings (Edit > Preferences), stored in editor.ini and

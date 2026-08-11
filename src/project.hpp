@@ -3028,8 +3028,36 @@ struct TripleBufferFit {
     int bufferWords = 0;  // what a third display buffer costs
     int leftWords = 0;    // what would remain after taking it
     int needWords = 0;    // what the rest of the renderer + textures need
+    std::string mode;     // the display-mode key this answer is for
 };
 TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s);
+// The same question for an EXPLICIT display mode, which is the form that
+// matters: the boot mode is not the only one the game runs in.
+// RendererCore::setDisplayOutput re-lays the whole VRAM region on a runtime
+// scan-mode switch, so allocateVramBuffers asks again with the new framebuffer
+// size and a project may get three buffers in one mode and two in another.
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
+                                   const std::string& modeKey);
+
+// Every mode this project can end up in - the boot mode plus everything
+// `supportedModes` declares - split by whether a third buffer fits. This is
+// what makes the setting honest: it is a REQUEST, granted per mode at runtime,
+// and a project whose modes disagree changes its frame pacing when the player
+// changes resolution. Empty `fitting` means the tick buys nothing anywhere,
+// which is what the Preferences window greys the checkbox on.
+struct TripleBufferModes {
+    std::string boot;
+    bool bootFits = false;
+    std::vector<TripleBufferFit> fitting;
+    std::vector<TripleBufferFit> notFitting;
+    // Modes the project does NOT declare that would have room - the actionable
+    // half of a refusal. Computed rather than asserted: which modes those are
+    // depends on the upscaler's z shrink, so "try field rendering" is a
+    // statement about this project's settings and not a general fact.
+    std::vector<TripleBufferFit> roomElsewhere;
+};
+TripleBufferModes tripleBufferingModes(const Project& p,
+                                       const ProjectSettings& s);
 
 // Creates the project directory, generates all Tyra game sources / build files
 // and the <name>.tyra project file. `preset` picks the starting content, and it

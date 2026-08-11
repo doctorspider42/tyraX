@@ -167,6 +167,28 @@ hold, and clears when the editor exits. Neither window was ever focused.
   The dialogs with tabs today are *Project Preferences* (Display / World /
   Rendering / Player / Build), the Neural Upscaler window, the Menu Editor, the
   Material Editor and the World Facts window.
+
+  **Project Preferences is a WINDOW, not a modal, since 1.20.0**, which changes
+  three things for a script. Its footer button is `Close` and there is no `OK`
+  or `Cancel` — the window applies every edit as it is made, so a run asserts by
+  reading the model back (`--dump`, or `key ctrl+s` then grep the `.tyra`)
+  rather than by pressing a confirm button. Nothing is blocked behind it, so a
+  script may drive another window in the same run — `click 'Project
+  Preferences/Advanced...'` now leaves both it and *Neural Upscaler (BLSS)*
+  open, and both take clicks. And because two windows are open, **a bare label
+  is ambiguous**: `Use the upscaler` exists in both, so qualify it
+  (`'Project Preferences/Use the upscaler'`). Mind the ordinary window hazard
+  that replaces the modal one: the upscaler window opens ON TOP of Preferences
+  and a `click` on a covered item lands on the window in front — assert covered
+  items with `expect-checked` (which does not click) and click only what is
+  clear, or raise the window you want first.
+
+  The one control in it that does **not** apply as you type is the terrain grid
+  — *Width (units)*, *Depth (units)*, *Detail (max grid cells)* — because
+  changing the heightmap's dimensions resamples it. Those write back on
+  release, so a script must `key enter` after `text` (or `drag` the slider and
+  let go) before the value reaches the project; measured, a `text 2` left
+  uncommitted keeps the stored width at 100.
 - **`dump` listing a rect is not a promise the click will land.** A window taller
   than the room it was given still *submits* the items past its bottom edge, so
   `dump` prints them with rects outside the window - and `click` on one hovers,

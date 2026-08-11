@@ -714,7 +714,19 @@ raster and gets none of the shrink. Hence the signature is
 `tripleBufferingFit(const Project&, const ProjectSettings& staged)`: a
 per-scene setting can only be answered from the whole project (`blssUse(p,
 defaults)`, the staged-settings idiom the modal already uses), and a host twin
-that asks the project DEFAULT is a twin of nothing. `frameExtrapolation` is the
+that asks the project DEFAULT is a twin of nothing. **And the mode is a
+parameter now** (`tripleBufferingFit(p, s, modeKey)` +
+`project::tripleBufferingModes`), which is the deeper version of the same
+mistake: the twin asked about `bootDisplayMode` alone, but `supportedModes`
+declares the scan modes a player can switch INTO and
+`RendererCore::setDisplayOutput` re-runs `allocateVramBuffers` on every such
+switch - so the engine grants a third buffer in one mode and refuses it in the
+next, and the setting is a REQUEST rather than a state. The dialog answers per
+mode, greys the tick when no supported mode has room (only the tick, never the
+untick) and names the disagreement when they differ. Note the way OUT of a
+refusal is COMPUTED, never asserted: "turn the upscaler on" is true at 512x448
+and false at 512x512, so the dialog probes a `blssEnabled = true` copy of the
+staged settings instead of printing a general hint. `frameExtrapolation` is the
 reminder that a BEHAVIOUR switch lands in user-ownable sources:
 `presentExtrapolatedFrame` is emitted into `src/terrain_game.cpp` +
 `inc/terrain_game.hpp`, so it has two homes (one per game-cpp head) and its
@@ -729,11 +741,44 @@ in the doc.
 
 That dialog has a **shape**, and the shape is the fix for a defect it grew into
 twice; a new setting has to land inside it rather than beside it.
+- **It is a WINDOW and it applies LIVE** (`drawPreferencesWindow`, window key
+  `projectprefs`). It was a modal staging into `prefSettings_` with OK/Cancel,
+  and the modality was the defect - see the *Advanced…* bullet below. Staging
+  could not survive the change and is gone: a non-modal window means the
+  project can be edited underneath (undo, a session peer, the AI Assistant, the
+  very windows its buttons open), so an OK pressed afterwards would overwrite
+  all of it with minutes-old values, and `prefTerrain_` stages the ACTIVE
+  SCENE's terrain, so a scene switch would have written scene A's size onto
+  scene B. `prefSettings_` is now a ONE-FRAME copy - re-seeded from
+  `project_.settings` at the top of the body, compared and written back at the
+  bottom - which covers a widget added to any tab by construction (the
+  sectionJson-guard reasoning over a struct that has an `operator==`). Cancel's
+  job is the editor-wide one: nothing reaches disk until an explicit Save, and
+  project-wide settings were never in the undo stack anyway
+  (`History::push` carries the scenes only).
+- **ONE control may not apply per frame, and it is treated specially rather
+  than holding the whole dialog modal**: the terrain grid (width, depth, detail
+  cap). Each changes the heightmap's dimensions and `project::ensureHeightmap`
+  answers that with a NEAREST-NEIGHBOUR RESAMPLE, so typing "128" over "64"
+  would pass through 1 and 12 and flatten a sculpted map, and dragging the
+  detail slider to its left stop would destroy it outright (also
+  `Viewport::setTerrain` re-centres the camera on any size change). Those three
+  keep a scratch (`prefTerrain_`, `prefGridDetail_`) written back only on
+  `IsItemDeactivatedAfterEdit`, and re-seeded from the model on any frame the
+  widget is neither active nor just-committed - so undo and a scene switch
+  still show through. Any future setting whose apply is destructive wants that
+  shape, not a modal.
+- **The viewport refresh is deferred to the end of the interaction.**
+  `applyProjectToViewport()` rebuilds the terrain mesh and re-reads the GI
+  cache, which cannot happen sixty times a second while a slider is held: the
+  body sets `prefsViewportDirty_` and the refresh runs on the first frame with
+  `!ImGui::IsAnyItemActive()`. It runs BEFORE the commit, because it is also
+  what resamples the heightmap after a grid change.
 - **The footer is pinned OUTSIDE the scrolling region** - every tab body is a
-  `BeginChild` with `-footerH` reserved, so OK/Cancel sit at a fixed place
+  `BeginChild` with `-footerH` reserved, so the footer sits at a fixed place
   however long a tab grows. This is the structural half and it matters more than
-  the tabs: without it, every setting anybody adds pushes the confirm button
-  further down the scroll again. Scene Preferences hit the same wall first and
+  the tabs: without it, every setting anybody adds pushes the footer further
+  down the scroll again. Scene Preferences hit the same wall first and
   is the precedent; put the same reserve in any new long modal.
 - **Five tabs**, split by the QUESTION and not by the struct: *Display* (video
   signal, presentation, and the two reconstruction features - the neural
@@ -743,17 +788,18 @@ twice; a new setting has to land inside it rather than beside it.
   old single "Build" section was doing two of those jobs at once, which is what
   the split is derived from. A new setting joins the tab whose question it
   answers; a new TAB should be rare and needs the `--ui-script` note below.
-- **A button that opens another window must close the modal AND apply.** ImGui
-  blocks every click on anything behind a modal, so raising a window from inside
-  one produces a button that visibly does nothing - which is exactly what
-  *Advanced…* and *Open Ambience Editor* did, while *Open Loading Screens
-  editor* closed the dialog and silently DISCARDED the staged edits. Both are
-  one helper now (`applyAndOpen`, over the same `applyPrefs` OK uses, so they
-  cannot drift). It applies rather than cancels for a specific reason: the
-  windows it opens edit `project_.settings` LIVE, so a cancelled dialog would
-  open them showing the values on disk while the user looks at the ones they
-  just set. It says so on the line under each button, in the tooltip, and in the
-  status bar afterwards - "not silently" is the whole constraint.
+- **A button that opens another window now just opens it, and that is the
+  point.** ImGui blocks every click on anything behind a modal, so *Advanced…*
+  and *Open Ambience Editor* raised a window nobody could touch, and *Open
+  Loading Screens editor* closed the dialog and silently DISCARDED the staged
+  edits. The 1.18.0 fix - apply, then close - was the right answer FOR A MODAL
+  and a workaround for the modality; reported again as "clicking Advanced
+  closes Project Preferences completely, could it be a window instead". As a
+  window both stay open and both take clicks, and because the settings are live
+  the two cannot disagree about a value. The ordinary window hazard replaces
+  the modal one: the upscaler window opens on top, so a `--ui-script` click on
+  a covered Preferences item lands on the window in front (assert those with
+  `expect-checked`, which does not click).
 - **`prefHelp` belongs to the widget it FOLLOWS.** It is `SameLine` + a dimmed
   `(?)`, so a help marker written a few widgets later chains onto whatever came
   before: Live Link and Live Logic had theirs stranded at the bottom of the

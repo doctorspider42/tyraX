@@ -16,6 +16,73 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.20.0 (Project Preferences becomes a window, and triple buffering stops
+// promising what the console will not do): two more defects reported from use,
+// and as in 1.18.0 the fixes are structural.
+//
+// "CLICKING ADVANCED CLOSES PROJECT PREFERENCES COMPLETELY - COULD IT BE A
+// WINDOW INSTEAD OF A MODAL?" The apply-and-close of 1.18.0 was the right answer
+// FOR A MODAL - ImGui blocks every click behind one, so a window raised from
+// inside it is untouchable - but it was a workaround for the modality rather
+// than a fix, and the report is asking for the modality to go. It does, and both
+// windows now sit open with both usable, which is the whole point.
+//
+// STAGING COULD NOT SURVIVE THAT, so OK/Cancel are gone and the window applies
+// live like every other panel in the editor (rule 1: mutate, then
+// commitChange()). This is the decision in the change, and it is forced rather
+// than chosen: a non-modal window means the project can be edited underneath
+// while staged edits wait - by undo, a session peer, the AI Assistant, or the
+// very windows these buttons open - so an OK pressed afterwards would overwrite
+// all of it with minutes-old values; and prefTerrain_ staged the ACTIVE SCENE's
+// terrain, so a scene switch with the window open would have written scene A's
+// size onto scene B. `prefSettings_` is a one-frame copy now, re-seeded from the
+// model at the top of the body and compared back at the bottom, which covers
+// every widget in every tab by construction. What Cancel bought is not lost so
+// much as unified with the rest of the editor: nothing reaches disk until an
+// explicit Save, and project-wide settings were never in the undo stack anyway
+// (History::push carries the scenes only), so Cancel WAS the only way back and
+// is now "close without saving" - said in the footer.
+//
+// ONE control in there is genuinely dangerous to apply per keystroke, and it is
+// treated specially rather than holding the whole dialog modal for its sake: the
+// terrain grid. Width, depth and the detail cap all change the heightmap's
+// dimensions, and project::ensureHeightmap answers that with a
+// NEAREST-NEIGHBOUR RESAMPLE - so typing "128" over "64" would pass through 1
+// and 12 and flatten a sculpted map on the way, and dragging the detail slider
+// to its left stop would destroy it outright. Those three keep a scratch written
+// back only on IsItemDeactivatedAfterEdit, and re-seeded from the model on any
+// frame the widget is not being edited so undo and a scene switch still show
+// through. Verified: an uncommitted "2" in Width leaves the stored 100 alone;
+// the slider applies once, on release (32 -> 431).
+//
+// AND TRIPLE BUFFERING IS GATED, ACROSS EVERY MODE THE PROJECT SUPPORTS. The
+// checkbox stayed tickable in a display mode with no VRAM for a third buffer -
+// the engine then silently stays double buffered and says so only in the game's
+// log - and the amber warning that named the numbers was answering for
+// bootDisplayMode ALONE. That is the substantive half: ProjectSettings::
+// supportedModes declares the scan modes a player can switch INTO, and
+// RendererCore::setDisplayOutput re-runs allocateVramBuffers on every such
+// switch, so the engine grants a third buffer in one mode and refuses it in the
+// next. The setting is a REQUEST, not a state, and the dialog now says so:
+// project::tripleBufferingFit takes an explicit mode, project::
+// tripleBufferingModes asks it of the boot mode plus every declared one, the
+// tick is greyed out with the reason IN LINE when none of them has room (only
+// the tick, never the untick - the BLSS x frame-extrapolation rule, so a project
+// that arrives with the flag on can always clear it), and when the modes
+// disagree it names them: "Fits in 512x224, not in 512x512 (boot mode 576i full
+// PAL: does not)". Measured at a new project's defaults: room in 512x224 and
+// 448x448, none in 512x448, 448x540 or 512x512. The way OUT is computed and
+// never asserted, which is the trap this avoided: "turn the upscaler on" frees
+// enough at 512x448 and is short by 0.12 MB at 512x512, so the dialog probes a
+// blssEnabled copy of the staged settings rather than printing a general hint.
+//
+// MINOR: capabilities appear - Preferences and the upscaler window are usable at
+// the same time, and the editor can now answer "does a third buffer fit in every
+// mode this project supports", which nothing could ask before. No default moves
+// and the format is untouched (still v16, no new field, no migration step; the
+// window's open state rides the existing per-layout openWindows list as the new
+// key "projectprefs").
+//
 // 1.19.0 (the FPS counter reads the wrong clock, and nobody said which frames
 // it counts): reported from use as "the editor's debug panel shows 19 FPS while
 // the game's own HUD shows 10". Both numbers were describing the same game at
@@ -360,7 +427,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 19
+#define TYRAX_VERSION_MINOR 20
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

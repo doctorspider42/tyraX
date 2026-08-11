@@ -138,6 +138,52 @@ first version of this page did not have:
   default — asking the default alone promised a third buffer to projects that
   cannot have one.
 
+## The setting is a request, granted per display mode
+
+`ProjectSettings::tripleBuffering` is **not** a promise that the game runs on
+three buffers. It is a request, and the grant is decided per **display mode**,
+at runtime, every time the mode changes:
+
+- `ProjectSettings::supportedModes` declares the scan modes a player can switch
+  into (Preferences > Display > *Supported resolutions*), and a menu row or the
+  `Set Display Mode` flow node can make that switch mid-game.
+- `RendererCore::setDisplayOutput` answers a mode change with `gs.reinit()`,
+  which re-runs `allocateVramBuffers` over the new framebuffer size — so the
+  headroom check above is asked **again**, with a different answer, and
+  `installVblankHandler` / `removeVblankHandler` follow it.
+
+So a project can legitimately run on three buffers in one mode and two in the
+next, and the frame pacing changes under the player when they change
+resolution. That is correct behaviour — the alternative is the boot crash
+above — but it is invisible: the drop is a `TYRA_SOFT_ERROR` in a log nobody
+reads mid-session, and the frame rate simply behaves differently.
+
+**The editor therefore asks the question once per mode rather than once.**
+`project::tripleBufferingFit(project, staged, modeKey)` takes an explicit mode
+(the one-argument overload still means "the boot mode"), and
+`project::tripleBufferingModes` runs it over the boot mode plus everything
+`supportedModes` declares, plus the remaining modes as the *way out* of a
+refusal. Preferences reads it and does two things with it:
+
+- **It greys the checkbox when no supported mode has room**, with the reason in
+  line rather than in a tooltip, because a greyed control that explains itself
+  only on hover reads as a bug. Only the **tick** is ever blocked, never the
+  untick — a project can arrive with the flag on from a hand-edited `.tyra` or
+  an older editor, and every switch that is on must stay switchable off. (Same
+  rule as the BLSS × frame-extrapolation exclusion.)
+- **It names the disagreement when the modes differ**: *"Fits in 512x224, not
+  in 512x512 (boot mode 576i full PAL: does not). The engine re-decides on
+  every runtime scan-mode switch, so a player who changes resolution changes
+  the frame pacing."*
+
+The way out of a refusal is **computed, not asserted**, and that distinction is
+load-bearing: which modes have room depends on the upscaler's z shrink, so
+"turn the upscaler on" is true at 512x448 (a third buffer fits) and false at
+512x512 (it does not, by 0.12 MB). The dialog probes both rather than printing
+a general hint. Measured at the default settings of a new project, with no
+upscaler: room in **512x224** (field rendering) and **448x448** (480p); no room
+in 512x448, 448x540 or 512x512.
+
 ## Where it lives
 
 - `RendererSettings::getTripleBuffering` / `getFrameBufferCount` — what the
@@ -161,18 +207,23 @@ LOG: GS buffers: frame 512x224 x3, z 512x224 at 229376
 ```
 
 `x2` there means the engine refused — the soft-error line above it says with
-which numbers. The editor asks the same question before you ever
-build: `project::tripleBufferingFit` is the host twin of that check, and the
-Preferences checkbox warns in the dialog when the current display mode has no
-room. **Change one, change the other** — the two agree on the reserve
-constants by convention, not by construction.
+which numbers. The editor asks the same question before you ever build:
+`project::tripleBufferingFit` is the host twin of that check, asked once per
+mode the project supports (see above), and Preferences greys the checkbox when
+no supported mode has room. **Change one, change the other** — the two agree on
+the reserve constants by convention, not by construction.
 
 ## Limits
 
-- **Not switchable at runtime.** The buffer count is decided when the permanent
-  VRAM region is laid out. `RendererCore::setDisplayOutput` re-runs that layout,
-  so a mode switch re-decides it, and a mode with no room silently drops back to
-  two buffers — correctly, but the game is not told.
+- **Not switchable at runtime, and re-decided by a mode switch.** The buffer
+  count is decided when the permanent VRAM region is laid out; nothing can ask
+  for a different one while a mode is running.
+  `RendererCore::setDisplayOutput` re-runs that layout, so a mode switch
+  re-decides it, and a mode with no room silently drops back to two buffers —
+  correctly, but the game is not told and neither is the player. The editor now
+  says so at authoring time ("The setting is a request, granted per display
+  mode" above); telling the *running game* would mean surfacing
+  `RendererCoreGS::getFrameBufferCount` to script, which nothing needs yet.
 - **Unverified on real hardware.** Everything above is PCSX2. The INTC vblank
   handler and the `DISPFB` latch are exactly the kind of thing an emulator is
   friendlier about than a console, so this owes a hardware pass.
