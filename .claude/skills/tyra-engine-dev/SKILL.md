@@ -626,7 +626,13 @@ banner both, so a previously built ELF still reports.
   of uploading it twice. If a generated override replaces one peer, it gets its
   own image while the built-in image remains for the other. `--vu-check` has a
   separate peer-path section because normal description parity only exercises
-  variant zero.
+  variant zero, and an `-- EE wrappers --` section that reads the `extern u32
+  ..._CodeStart` out of the wrapper in THIS tree and fails if it is not the
+  image the description names. `stapip_clip_d_vu1.vclpp` and
+  `..._tce_vu1.vclpp` are still compiled but never LINKED - nothing references
+  their symbols, so the archive member stays out of the ELF; they exist as the
+  reference the peer-path check runs against. Do not "fix" them by pointing a
+  wrapper back at them.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in

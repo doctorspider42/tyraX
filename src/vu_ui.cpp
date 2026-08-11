@@ -20,6 +20,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 
 #include <imgui.h>
 
@@ -114,21 +116,38 @@ int classBitIndex(unsigned bit) {
     return 0;
 }
 
-/** Crossing-half instruction count with the built-in clip-image aliases
- * applied. C/D share the C image; TC/TCE share the TC image. Cull and as_is
- * remain one image per class. */
+/** Crossing-half instruction count with the built-in image aliases applied: an
+ * image two classes share is uploaded ONCE (`Path1::createProgramsCache`), so
+ * it is charged once.
+ *
+ * Which classes share what is NOT repeated here - it is read off the engine's
+ * own descriptions (`vugen::engineDesc`), so the pairing lives in exactly one
+ * place. It used to be spelled out as three `if (mask & ...)` lines, and a rule
+ * duplicated between the generator and the bar that prices it is a rule that
+ * gets changed in one of them.
+ *
+ * Note the aliased class charges its OWNER's body even when the owner's class
+ * is not drawn at all: a project with lit meshes and no flat-coloured ones still
+ * uploads the C image, because that image is what its D program IS. */
 int engineCrossingInstructions(unsigned mask, int fam) {
-    if (fam != 1) {
-        int total = 0;
-        for (const ClassRow& c : kClasses)
-            if (mask & c.bit)
-                total += engineSizes().instr[classBitIndex(c.bit)][fam];
-        return total;
-    }
+    const vugen::Half half = fam == 1   ? vugen::Half::Clip
+                             : fam == 2 ? vugen::Half::AsIs
+                                        : vugen::Half::Cull;
     int total = 0;
-    if (mask & ((1u << 0) | (1u << 1))) total += engineSizes().instr[0][1];
-    if (mask & (1u << 2)) total += engineSizes().instr[2][1];
-    if (mask & ((1u << 3) | (1u << 4))) total += engineSizes().instr[3][1];
+    std::vector<std::string> charged;
+    for (const ClassRow& c : kClasses) {
+        if ((mask & c.bit) == 0) continue;
+        const vugen::Desc d = vugen::engineDesc(c.bit, half);
+        const std::string image = vugen::residentImage(d);
+        if (std::find(charged.begin(), charged.end(), image) != charged.end())
+            continue;  // a peer in the mask already paid for this image
+        charged.push_back(image);
+        int owner = classBitIndex(c.bit);
+        if (!vugen::ownsResidentImage(d))
+            for (int i = 0; i < 5; ++i)
+                if (vugen::engineDesc(1u << i, half).asmName == image) owner = i;
+        total += engineSizes().instr[owner][fam];
+    }
     return total;
 }
 

@@ -1120,6 +1120,11 @@ Desc descClipTextureColor() {
 Desc descClipDirLights() {
     Desc d = descClipColor();
     d.sharedClipDir = false;
+    // C's image carries this program's shading path too, so the EE wrapper
+    // links C's symbols and the body below is only ever a reference for
+    // `--vu-check`'s peer-path comparison.
+    d.residentImageAsmName = descClipColor().asmName;
+    d.codeOwner = descClipColor().fileStem;
     d.vclName = "StaPipVU1ClipD";
     d.asmName = "StaPipVU1Clip_D";
     d.fileStem = "stapip_clip_d_vu1";
@@ -1132,6 +1137,10 @@ Desc descClipDirLights() {
 
 Desc descClipTextureDirLights() {
     Desc d = descClipDirLights();
+    // TD is the one clip class nothing shares with: three input streams plus
+    // normals is an ABI of its own. Copied from D, so the alias has to go.
+    d.residentImageAsmName.clear();
+    d.codeOwner.clear();
     d.vclName = "StaPipVU1ClipTD";
     d.asmName = "StaPipVU1Clip_TD";
     d.fileStem = "stapip_clip_td_vu1";
@@ -1145,6 +1154,10 @@ Desc descClipTextureDirLights() {
 Desc descClipTextureEnv() {
     Desc d = descClipTextureColor();
     d.sharedClipEnv = false;
+    // Same relationship D has with C, one stream up: TC's image generates the
+    // matcap ST as well, chosen by VU1_OPTIONS_ADDR.y.
+    d.residentImageAsmName = descClipTextureColor().asmName;
+    d.codeOwner = descClipTextureColor().fileStem;
     d.vclName = "StaPipVU1ClipTCE";
     d.asmName = "StaPipVU1Clip_TCE";
     d.fileStem = "stapip_clip_tce_vu1";
@@ -1240,10 +1253,28 @@ const char* halfSymbol(Half h) {
     return h == Half::AsIs ? "AI" : h == Half::Clip ? "CL" : "";
 }
 
-Desc descForClass(unsigned classBit, int lookIndex, Half half) {
-    Desc d;
-    const char* tag = "c";    // file stem, lowercase like every generated file
-    const char* upper = "C";  // symbol stem, matching the engine's own spelling
+/** The lowercase file-stem tag and the uppercase symbol tag of a class, in the
+ * engine's own spelling. */
+const char* classTag(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "d";
+        case 1u << 2: return "td";
+        case 1u << 3: return "tc";
+        case 1u << 4: return "tce";
+        default: return "c";
+    }
+}
+const char* classUpper(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "D";
+        case 1u << 2: return "TD";
+        case 1u << 3: return "TC";
+        case 1u << 4: return "TCE";
+        default: return "C";
+    }
+}
+
+Desc engineDesc(unsigned classBit, Half half) {
     // Which of the three programs of this class is being described. `Cull`
     // draws a package wholly inside the frustum; the other two draw one that
     // crosses, and which of THEM is resident depends on the clipping mode.
@@ -1252,36 +1283,36 @@ Desc descForClass(unsigned classBit, int lookIndex, Half half) {
     };
     switch (classBit) {
         case 1u << 1:
-            d = pick(descCullDirLights(), descAsIsDirLights(),
-                     descClipDirLights());
-            tag = "d";
-            upper = "D";
-            break;
+            return pick(descCullDirLights(), descAsIsDirLights(),
+                        descClipDirLights());
         case 1u << 2:
-            d = pick(descCullTextureDirLights(), descAsIsTextureDirLights(),
-                     descClipTextureDirLights());
-            tag = "td";
-            upper = "TD";
-            break;
+            return pick(descCullTextureDirLights(), descAsIsTextureDirLights(),
+                        descClipTextureDirLights());
         case 1u << 3:
-            d = pick(descCullTextureColor(), descAsIsTextureColor(),
-                     descClipTextureColor());
-            tag = "tc";
-            upper = "TC";
-            break;
+            return pick(descCullTextureColor(), descAsIsTextureColor(),
+                        descClipTextureColor());
         case 1u << 4:
-            d = pick(descCullTextureEnv(), descAsIsTextureEnv(),
-                     descClipTextureEnv());
-            tag = "tce";
-            upper = "TCE";
-            break;
+            return pick(descCullTextureEnv(), descAsIsTextureEnv(),
+                        descClipTextureEnv());
         default:
-            d = pick(descCullColor(), descAsIsColor(), descClipColor());
-            break;
+            return pick(descCullColor(), descAsIsColor(), descClipColor());
     }
+}
+
+Desc descForClass(unsigned classBit, int lookIndex, Half half) {
+    Desc d = engineDesc(classBit, half);
+    const char* tag = classTag(classBit);
+    const char* upper = classUpper(classBit);
     d.custom = true;
     d.sharedClipDir = false;
     d.sharedClipEnv = false;
+    // A look is fully specialised: it has a stage list woven in, so no peer's
+    // body can stand in for it. Cleared rather than left alone because the D
+    // and TCE descriptions this copies from DO alias, and an override that
+    // linked the image it was meant to replace would draw the engine's shading
+    // and look like a broken generator.
+    d.residentImageAsmName.clear();
+    d.codeOwner.clear();
     d.dir = "gen";
     // The look INDEX is in the name because several looks may target the same
     // class - only one is installed at a time, but they all have to exist in
@@ -1309,6 +1340,28 @@ std::vector<Desc> allDescs() {
             descClipColor(),            descClipTextureColor(),
             descClipDirLights(),        descClipTextureDirLights(),
             descClipTextureEnv()};
+}
+
+std::string residentImage(const Desc& d) {
+    return d.residentImageAsmName.empty() ? d.asmName : d.residentImageAsmName;
+}
+
+bool ownsResidentImage(const Desc& d) {
+    return d.residentImageAsmName.empty() ||
+           d.residentImageAsmName == d.asmName;
+}
+
+std::vector<Desc> residentSet(ClipMode mode) {
+    std::vector<Desc> out;
+    for (const Desc& d : allDescs()) {
+        // The crossing half of the OTHER mode is not uploaded at all: as_is is
+        // only fed by the EE clipper, clip only replaces it.
+        if (d.clip && mode != ClipMode::Vu1) continue;
+        if (!d.clip && !d.cull && mode != ClipMode::Ee) continue;
+        if (!ownsResidentImage(d)) continue;  // its peer's image is already in
+        out.push_back(d);
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,6 +1416,31 @@ std::vector<AttrBlock> attrBlocks(const Desc& d) {
 }
 
 int attrStreams(const Desc& d) { return (int)attrBlocks(d).size(); }
+
+/** `StaPipVU1Program::elementsPerVertex` - what the ENGINE charges this program
+ * per vertex when it sizes a package, which is NOT always the number of blocks
+ * above.
+ *
+ * `getMaxVertCount` divides the buffer by `elementsPerVertex + reglistCount`
+ * and subtracts one element when the mesh draws in a single colour, i.e. when
+ * the colour array is absent. A lit program has no colour array at ALL - the
+ * shading comes from the normals, and dropping the unpack is a DMA win the
+ * handwritten wrappers keep too - so the subtraction is only true of it if the
+ * colour block is COUNTED here. Declare the blocks and a single-colour lit mesh
+ * gets a package a third too large for the buffer half: the input arrays, the
+ * tag block and the GS vertices are laid out end to end and the last of them
+ * runs off the end. Declaring the phantom block costs one array of slack on a
+ * multi-colour lit mesh and is what the engine's own cull wrappers do (`2, 3`
+ * for D and `3, 4` for TD - the two numbers this used to emit as `2, 2` and
+ * `3, 3`).
+ *
+ * Only the CULL family's numbers are ever consulted - `StaPipCore::
+ * getMaxVertCountByBag` asks `getCullProgramByBag`, and the crossing-half twin
+ * then runs inside a package the cull program sized - but the value is written
+ * into every wrapper, so it is computed for every wrapper. */
+int eeElementsPerVertex(const Desc& d) {
+    return attrStreams(d) + (d.dirLights ? 1 : 0);
+}
 
 // ---------------------------------------------------------------------------
 // Weaving a stage list into the skeleton
@@ -3069,6 +3147,16 @@ std::string emitVclpp(const Desc& d, const Program& p) {
             line("; AsIs = NO TRANSFORM: the EE clipper already produced NDC positions,");
             line("; with the clip-space W kept for fog and the texture perspective divide.");
         }
+        if (!ownsResidentImage(d)) {
+            line(";");
+            line("; NOT LINKED, and not meant to be: " + residentImage(d) +
+                 " carries");
+            line("; this program's path as well, so the EE wrapper points at THAT");
+            line("; image and nothing references the symbols below. What this file");
+            line("; is for is --vu-check, which runs the shared image's peer path");
+            line("; against it over randomized triangles - the only proof that a");
+            line("; two-path image still does what the specialised one did.");
+        }
     }
     line("");
     line(".syntax new");
@@ -3161,6 +3249,14 @@ std::string emitEeHeader(const Desc& d) {
 
 std::string emitEeSource(const Desc& d) {
     const int regs = regsPerVertex(d);
+    const int elements = eeElementsPerVertex(d);
+    // The image the EE actually uploads for this program. For an aliased peer
+    // that is somebody else's symbol pair, and getting it from the description
+    // rather than from `asmName` is the whole point of the field: an emitted
+    // wrapper that named its own image would link a second copy of a body the
+    // shared image already carries, silently undoing the sharing with nothing
+    // to see in a diff of the microcode.
+    const std::string image = residentImage(d);
     std::string gifRegs;
     if (d.texture)
         gifRegs =
@@ -3183,16 +3279,26 @@ std::string emitEeSource(const Desc& d) {
     s += d.custom ? "#include \"" + d.fileStem + "_program.hpp\"\n\n"
                   : "#include \"renderer/3d/pipeline/static/core/programs/" +
                         d.dir + "/" + d.fileStem + "_program.hpp\"\n\n";
-    s += "extern u32 " + d.asmName + "_CodeStart __attribute__((section(\".vudata\")));\n";
-    s += "extern u32 " + d.asmName + "_CodeEnd __attribute__((section(\".vudata\")));\n\n";
+    if (!ownsResidentImage(d)) {
+        s += "// " + d.title + " has no image of its own: " + image + " carries\n";
+        s += "// this program's path too - same input streams, same scratch\n";
+        s += "// stride, same GIF register list - and VU1_OPTIONS_ADDR.y picks\n";
+        s += "// between them per mesh (StaPipQBufferRenderer::sendObjectData).\n";
+        s += "// Linking " + d.asmName + " here instead would put a second copy\n";
+        s += "// of that body in micro memory; " + d.fileStem + ".vclpp exists\n";
+        s += "// only as the reference --vu-check compares the shared image's\n";
+        s += "// peer path against, and nothing points at its symbols.\n";
+    }
+    s += "extern u32 " + image + "_CodeStart __attribute__((section(\".vudata\")));\n";
+    s += "extern u32 " + image + "_CodeEnd __attribute__((section(\".vudata\")));\n\n";
     s += "namespace Tyra {\n\n";
     s += d.className + "::" + d.className + "()\n";
-    s += "    : StaPipVU1Program(" + d.programEnum + ", &" + d.asmName +
+    s += "    : StaPipVU1Program(" + d.programEnum + ", &" + image +
          "_CodeStart,\n";
-    s += "                       &" + d.asmName + "_CodeEnd,\n";
+    s += "                       &" + image + "_CodeEnd,\n";
     s += "                       " + gifRegs + ",\n";
     s += "                       " + std::to_string(regs) + ", " +
-         std::to_string(regs) + ") {}\n\n";
+         std::to_string(elements) + ") {}\n\n";
     s += d.className + "::~" + d.className + "() {}\n\n";
     s += "std::string " + d.className + "::getStringName() const {\n";
     s += "  return std::string(\"" + d.title + "\");\n";

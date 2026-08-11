@@ -169,8 +169,28 @@ happened once already (`path1.cpp:31`). `--vu-check` reports the budget:
 -- VU1 micro memory (2048 slots, 2042 usable below the draw-finish helper) --
   StaPipVU1AsIsC     99 instructions ->   50..  99 slots
   ...
-  TOTAL                               342.. 681 slots  fits
+  StaPipVU1ClipD    239 instructions ->    no image   in StaPipVU1Clip_C
+  StaPipVU1ClipTCE  257 instructions ->    no image   in StaPipVU1Clip_TC
+
+  VU1 clipping   8 images   962..1918 of 2042 slots  fits
+  EE clipper    10 images   828..1649 of 2042 slots  fits
 ```
+
+The listing prices every description; the two lines under it are the only totals
+that mean anything, and they are what to read. **VU1 holds one set at a time**:
+the five `cull` programs plus either the `clip` twins or the `as_is` twins, never
+both, because the clipping mode is a run-time switch. And two of the five clip
+classes are ALIASES that occupy no micro memory of their own (see the next
+section), so adding them in counts one body twice. Summing all fifteen — which
+this used to do — reports 1544..3077 for a machine whose largest possible
+resident set is 962..1918, i.e. it says "OVERFLOWS, or maybe not" about a set
+with 300-odd slots to spare. That is not a conservative estimate, it is a wrong
+one.
+
+Both totals are the ALL-CLASS worst case. A project that draws fewer material
+classes uploads a subset (`setResidentClasses`), and a project's own look adds an
+image per class it overrides; pricing those two is the Micro memory panel's job
+(`docs/vu-authoring.md`).
 
 A **range**, not a number, and deliberately so: `vcl` packs an upper and a lower
 op into one 64-bit slot when it can, so N emitted instructions occupy between
@@ -179,6 +199,34 @@ Reporting a single number would be a guess dressed as a measurement. The engine'
 own guard is a runtime `TYRA_ASSERT` in `createProgramsCache` — which is
 **compiled out in release**, so the comment in `stapip_qbuffer_renderer.cpp`
 telling you to check with `nm` after touching a program still stands.
+
+## Shared images: five programs, three bodies
+
+`C/D` and `TC/TCE` are ABI-compatible pairs — same input streams, same scratch
+stride, same GIF register list — so each pair rides ONE resident image and
+`VU1_OPTIONS_ADDR.y` selects the per-corner shading path per mesh. `TD` stays
+specialised. This is the difference between 1676 and 2030 measured slots, and it
+lives in three places that have to agree:
+
+- **The description.** `Desc::sharedClipDir`/`sharedClipEnv` say "my body also
+  carries a peer's path"; `Desc::residentImageAsmName`/`codeOwner` say "somebody
+  else's body carries mine". Both directions are needed, and the second is the
+  one every consumer reads: it is what the EE wrapper links, what the budget
+  charges, and what the panel prices.
+- **The EE wrapper.** `extern u32 <image>_CodeStart` is the whole mechanism. An
+  aliased program declares its OWNER's symbols, so its own `.vclpp` object is
+  never pulled out of `libtyra.a` and no second copy of the body reaches the
+  ELF. Getting this wrong compiles, boots, draws correctly, and silently costs
+  300 slots — which is why `--vu-check` compares the emitted wrapper and the one
+  in `vendor/tyra` against the description, both of them, every run.
+- **`Path1::createProgramsCache`**, which uploads a source range once and points
+  both program objects at the one destination address.
+
+An aliased program's `.vclpp` is still generated and still checked: it is the
+REFERENCE that `--vu-check` runs the shared image's peer path against over
+randomised triangles, which is the only proof a two-path image still does what
+the specialised one did. It is simply never linked. A look that overrides one
+peer gets its own image, and the built-in one stays for the other.
 
 ## Loading and unloading programs at run time
 
@@ -236,6 +284,24 @@ The check also exercises variant one of both shared clip images against the old
 specialised `D` and `TCE` programs. Ordinary per-description equivalence only
 selects variant zero and is not sufficient proof for a multi-entry image.
 
+And it checks the EE wrappers, which no amount of microcode comparison can:
+
+```
+-- EE wrappers: the image they link, and the buffer ABI --
+  StaPipVU1ClipD   ALIAS     StaPipVU1Clip_C   2 GS regs, 3 elements/vertex
+  StaPipVU1ClipTD  OWN       StaPipVU1Clip_TD   3 GS regs, 4 elements/vertex
+```
+
+For every description, the emitted wrapper AND the one in `vendor/tyra` must
+declare exactly the image the description says (`vugen::residentImage`) and agree
+on the two numbers passed to `StaPipVU1Program` — the GS registers per vertex and
+the per-vertex input elements the engine charges when it sizes a package. Both
+are invisible everywhere else: a wrapper that links its own image where a peer's
+covers it compiles, boots and draws correctly while quietly undoing the sharing,
+and a wrong `elementsPerVertex` resizes the VU1 double buffer without changing an
+instruction. Reverting the `D` wrapper's symbols by hand is a FAIL here while
+every other section still prints IDENTICAL, which is the hole this closes.
+
 Set `VUGEN_DUMP=1` and a mismatch also prints the whole GIF window from both
 programs side by side, quadword by quadword. One differing field tells you
 almost nothing; the window tells you whether the two disagree about a value, a
@@ -250,6 +316,13 @@ Writes the generated `.vclpp` plus the matching EE-side `.cpp`/`.hpp` for every
 described program. It writes to a directory you name, **not** into
 `vendor/tyra`: adopting generated microcode is a change that has to be built in
 Docker and looked at on hardware, so this stages it for a human to diff first.
+
+The output is copyable as a whole. That is worth saying because it was not: the
+wrappers for the aliased `D` and `TCE` programs used to name their own images, so
+copying everything this wrote would have relinked five clip bodies and silently
+put the resident set back over 2000 slots. They now declare the owner's symbols,
+their `.vclpp` carries a "NOT LINKED, and not meant to be" header, and
+`--vu-check` fails if either drifts.
 
 ```bash
 tyrax-editor --vu-replay <projectDir> [engineDir]
@@ -353,11 +426,28 @@ capture does not contain. Whether the real VU also differs from the simulator in
 the last bits is UNKNOWN and not claimed either way; settling it needs that chain
 captured (see docs/backlog.md).
 
-**Not done:** the `billboard` family is still handwritten. Of the fifteen
-described programs only the five `as_is` are *adopted* — the generated `cull` and
-`clip` families are proven equivalent in the simulator but have not been built in
-Docker or run on hardware, and adoption needs the full e2e pass
-(`tyra-testing`), not a host check.
+**Adopted so far** — i.e. the file in `vendor/tyra` is the generator's output and
+carries the "Generated by TyraX" marker:
+
+| | `.vclpp` (microcode) | `_program.cpp` (EE wrapper) |
+|---|---|---|
+| `as_is` C/TC/D/TD/TCE | generated | generated |
+| `clip` C, TC | generated | handwritten |
+| `clip` D, TD, TCE | handwritten | handwritten |
+| `cull` all five | handwritten | handwritten |
+| `billboard` | handwritten (not described at all) | handwritten |
+
+The two adopted `clip` bodies are the SHARED images: C covers D and TC covers
+TCE, which is what the sharing above is made of, and both were built in Docker
+and run in PCSX2 (`docs/vu1-clipping-plan.md`, M10). Their wrappers stayed
+handwritten because they carry the alias by hand; `--vu-check` now holds them to
+the description instead, so adopting them is a diff-and-copy rather than a
+judgement call.
+
+**Not done:** the `cull` family and the three specialised `clip` bodies are
+proven equivalent in the simulator but their generated form has not been built in
+Docker or run on hardware, and adoption needs the full e2e pass (`tyra-testing`),
+not a host check. The `billboard` family has no description.
 
 The `cull` family cost almost nothing to describe once `as_is` existed, and the
 shape of that diff is the argument for the whole approach: five new descriptions

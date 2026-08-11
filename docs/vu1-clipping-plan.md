@@ -260,6 +260,29 @@ Retired / simplified:
   Docker build booted and rendered `examples/showcase` at 50 FPS in PCSX2's
   software renderer; a remote-pad camera sweep changed the active frustum with
   no assert, hang or visible clipping corruption.
+- **M10a — the sharing is now declared, generated and enforced. DONE
+  2026-08-12.** M10 left the runtime correct and the FRAMEWORK behind it: the
+  aliasing lived only in two hand-edited engine wrappers, so `--vu-emit` still
+  wrote `D` and `TCE` wrappers pointing at their own images (copying its whole
+  output would have silently relinked five clip bodies and put the set back over
+  2000 slots), and `--vu-check`'s budget added all fifteen descriptions —
+  reporting `1544..3077, depends on how VCL pairs them` for a machine whose
+  largest resident set is `962..1918`. Closed by: `Desc::residentImageAsmName` /
+  `codeOwner` as the single declaration of the pairing; an emitter that writes
+  the owner's symbols plus a "NOT LINKED, and not meant to be" header on the
+  reference `.vclpp`; a budget grouped by physical image and by clipping mode
+  (VU1 clipping 8 images, EE clipper 10); `vu_ui.cpp` reading the pairing off the
+  descriptions instead of three hardcoded `if (mask & ...)` lines; and a
+  `-- EE wrappers --` check that holds both the emitted wrapper and the one in
+  `vendor/tyra` to the description's image and its two `StaPipVU1Program` ABI
+  numbers. Verified negatively: pointing the engine's `D` wrapper back at
+  `StaPipVU1Clip_D` fails `--vu-check` while every microcode section still
+  reports IDENTICAL. The same check found `elementsPerVertex` wrong for the LIT
+  generated wrappers (`2, 2` where the engine's own cull wrapper says `2, 3`) —
+  a single-colour lit mesh would have been packaged a third too large for the
+  VU1 buffer had those been adopted; the two adopted `as_is` lit wrappers were
+  regenerated with it (a value nothing consults, since `getMaxVertCountByBag`
+  always asks the CULL program).
 
 ## Verification protocol (every milestone)
 

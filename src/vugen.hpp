@@ -472,6 +472,24 @@ struct Desc {
      * shading branch differs; custom programs remain fully specialised. */
     bool sharedClipDir = false;
     bool sharedClipEnv = false;
+    /** The image an EE wrapper actually UPLOADS for this program, as a
+     * `.name`/linker symbol stem. Empty means the program owns its own image;
+     * otherwise it names the ABI-compatible peer whose image covers this one,
+     * and this description's own `.vclpp` is a REFERENCE - generated, checked
+     * against the shared image's peer path, and never linked, because nothing
+     * points at its symbols. Set on the ALIAS, never on the owner.
+     *
+     * The two flags above say "my body carries a peer's path too"; this says
+     * "somebody else's body carries mine", and the emitter needs the second
+     * fact rather than the first. Deriving it from the flags at the point of
+     * emission is what shipped a D wrapper linking the D image - the sharing
+     * silently undone, five images back in micro memory, and nothing to see in
+     * a diff of the microcode. */
+    std::string residentImageAsmName;
+    /** `fileStem` of the description that owns that image, for callers that
+     * work in descriptions rather than symbols (the budget, the panel). Empty
+     * exactly when the field above is. */
+    std::string codeOwner;
     /** Test-harness value written to VU1_OPTIONS_ADDR.y. It does not change
      * generated code; non-zero selects the shared image's peer path. */
     int runtimeClipVariant = 0;
@@ -520,6 +538,12 @@ struct Desc {
 enum class Half : uint8_t { Cull, AsIs, Clip };
 Desc descForClass(unsigned classBit, int lookIndex = 0,
                   Half half = Half::Cull);
+/** The ENGINE's own description for one material class and half - the built-in
+ * program a look replaces, with its aliasing intact. `descForClass` is this
+ * lookup plus a project's naming, and it drops the aliasing because a look is
+ * always its own image. Ask this one when the question is what the engine
+ * uploads (the budget panel), not what a project generates. */
+Desc engineDesc(unsigned classBit, Half half = Half::Cull);
 /** Every class bit, low to high. */
 const std::vector<unsigned>& customClasses();
 /** "Untextured (vertex colour)", "Textured", ... - THE label for a class, used
@@ -548,6 +572,27 @@ Desc descCullDirLights();
 Desc descCullTextureDirLights();
 Desc descCullTextureEnv();
 std::vector<Desc> allDescs();
+
+/** The linker symbol stem an EE wrapper must reference for `d` - the owner's
+ * when `d` aliases a peer's image, `d.asmName` otherwise. EVERY emitted
+ * `extern u32 ..._CodeStart` goes through here. */
+std::string residentImage(const Desc& d);
+/** False when a peer's image covers `d`, i.e. `d` contributes no code of its
+ * own to the ELF and nothing to the micro-memory budget. */
+bool ownsResidentImage(const Desc& d);
+
+/** Which twin draws a frustum-CROSSING package. It is a run-time switch
+ * (`project::Vu1Clipping`), and the two modes hold different program sets, so
+ * "does the set fit in micro memory" only has an answer per mode. */
+enum class ClipMode : uint8_t { Vu1, Ee };
+/** The built-in images resident in micro memory at once under `mode`, worst
+ * case: one `cull` program per material class plus the crossing-half twin -
+ * `clip` under VU1 clipping, `as_is` under the EE clipper - with aliased peers
+ * dropped, because a shared image is uploaded ONCE (`Path1::
+ * createProgramsCache`). A project that draws fewer material classes uploads a
+ * subset (`StaPipQBufferRenderer::setResidentClasses`), and a look adds its own
+ * images on top; both are the panel's job, not this one's. */
+std::vector<Desc> residentSet(ClipMode mode);
 
 /** Everything generated for one program. */
 struct Built {

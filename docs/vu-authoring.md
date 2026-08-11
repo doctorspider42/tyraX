@@ -1111,8 +1111,14 @@ for a hand-written stage.
 -- VU1 micro memory (2048 slots, 2042 usable below the draw-finish helper) --
   StaPipVU1CullC    205 instructions ->  103.. 205 slots
   ...
-  TOTAL                               846..1685 slots  fits
+  VU1 clipping   8 images   962..1918 of 2042 slots  fits
+  EE clipper    10 images   828..1649 of 2042 slots  fits
 ```
+
+One total per clipping MODE, because VU1 holds one set at a time and the mode is
+a run-time switch: the five `cull` programs plus either the `clip` twins or the
+`as_is` twins. The image count is PHYSICAL - the two aliased clip classes
+(below) are listed but charged to nobody.
 
 The figure is a **range** and deliberately so — VCL packs an upper and a lower op
 into one 64-bit slot when it can, so N emitted instructions occupy between
@@ -1500,7 +1506,7 @@ fold anything that does not depend on the vertex.
 
 ## How this is checked
 
-`tyrax-editor --vu-check` — no Docker, no PCSX2, no console. Seven stages:
+`tyrax-editor --vu-check` — no Docker, no PCSX2, no console. Eight stages:
 
 1. Every `.vclpp` the engine ships parses.
 2. Every described program (all ten StaPip keeps resident) is run against its
@@ -1512,18 +1518,24 @@ fold anything that does not depend on the vertex.
    IR-level check called bit-identical: a dropped `.xyzw` mask on `lq`/`sq`, and
    a `loi` printed with `%g` (six significant digits), which turned the sine's
    2^23 floor bias into a different number.
-4. The micro-memory budget.
-5. **Every stage, both directions**: identity at zero strength (bit-exact
+4. **The EE wrappers**: for every description, the emitted `_program.cpp` *and*
+   the one in `vendor/tyra` must declare exactly the microcode image the
+   description names and agree on the two `StaPipVU1Program` ABI numbers. Both
+   are invisible to every stage above - an aliased clip program that links its
+   own image instead of its owner's compiles, boots and draws correctly while
+   putting a second copy of the same body in micro memory.
+5. The micro-memory budget, per physical image and per clipping mode.
+6. **Every stage, both directions**: identity at zero strength (bit-exact
    against the engine's own program) and *not* identity at full strength. The
    second half exists because a stage that quietly folded to nothing would score
    full marks on the first.
-6. **VU0**: the engine's raytracer kernel is run under the VU0 machine model,
+7. **VU0**: the engine's raytracer kernel is run under the VU0 machine model,
    and a kernel generated from the stage library is run and compared against the
    same arithmetic done in C++ — `Squash` exactly (three multiplies, no
    approximation, so an exact comparison is fair) and `Wobble` against its
    amplitude, since the sine's error is the thing being stated rather than
    hidden.
-7. **Every project script and kernel**, built through the same emitters and run.
+8. **Every project script and kernel**, built through the same emitters and run.
    For a script, over every class it claims and all three halves of each; for a
    kernel, under the VU0 machine model. Both are then run a second time with the
    body removed, and a body whose output matches the bodyless one is reported as
@@ -1533,10 +1545,12 @@ fold anything that does not depend on the vertex.
    an infinity that passes every structural check there is) and to fit VU0's 512
    slots.
 
-What `--vu-check` does **not** cover is the EE side: it stages VU1 memory itself
-and diffs only what the microprogram staged for the GS, so the generated
-`addProgramQBufferDataToPacket` is never executed by it. An adopted program still
-owes a Docker build and a look at the picture.
+What `--vu-check` does **not** cover is the EE side *running*: it stages VU1
+memory itself and diffs only what the microprogram staged for the GS, so the
+generated `addProgramQBufferDataToPacket` is never executed by it. Stage 4 reads
+the wrapper as TEXT — which image it links, and the two numbers that size the
+buffer — and that is as far as a host check goes. An adopted program still owes a
+Docker build and a look at the picture.
 
 ## Adding a stage
 
