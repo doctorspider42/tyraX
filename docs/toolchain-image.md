@@ -2975,6 +2975,31 @@ pattern was lower case. The numbers above are case-insensitive on both sides. Th
 time in this effort that a grep finding nothing turned out to be evidence about the grep, and the
 second time it nearly became a published number.
 
+### Both "loud divergences from Sony" were malformed test programs
+
+Two items had been carried on the open list for two rounds: openvcl **rejects `p` as an alias
+name**, and openvcl **rejects a `.init_vf` placed after the code it initialises**, where Sony's
+`vcl` accepts both. Neither survives contact.
+
+**`p`, `q` and `i` are rejected by *both* assemblers, and Sony says so in as many words:**
+`USER: can't use p as a name for one of the VU User floating point`. They are the EFU result, the
+divider result and the immediate register; refusing them as user names is correct in both, and
+there is no divergence to report.
+
+**`.init_vf` after the code compiles in both.** With a valid program it compiles under `vcl` and
+under `openvcl`, before the code or after it, and so does `.init_vf_all`. It is now
+`init_after_code` in the suite as a VALUE case, so the claim cannot be re-derived.
+
+The reason both were on the list is worth more than the items were. `.init_vf` takes a **VF
+register or range** (`vf:noalias:range` in the operand table) - `.init_vf vf01-vf04` - and *not*
+alias names. A test written as `.init_vf a, b` is rejected for its syntax, and the rejection
+message names the argument, which reads exactly like the feature being refused. The second trap
+was mine, on the next attempt: a program whose `mul.xyz` writes three components and whose `sq`
+reads four earns `Read-attempt from uninitialized float register`, which also reads like the
+directive being refused. **Both times the control case failed alongside the subject** - which is
+the only reason the instrument was blamed instead of the compiler, and is the whole argument for
+never running a probe without one.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
