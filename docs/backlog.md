@@ -239,14 +239,33 @@ use them.
   were fitted against it, so it is a retraining question and not a clamp. Two
   measurements would need re-taking with it: the fold tables in
   docs/neural-upscaler.md and the hardware A/B.
-- **The motion-only blind spot in every gate on this branch.** The stability
-  gate and the byte-identity harnesses all freeze the camera AND the emitters,
-  deliberately, because that is what made them reproducible - and a fault that
-  exists only under motion is therefore invisible to all of them. This one was
-  found by a user walking around. Worth a paired **moving** fixture: a
-  frame-indexed camera script (docs/profiling.md's rig already prescribes one
-  for timing, for the same reason `--pad` is unusable as a repeatable drive) so
-  two builds can be compared at identical vantages while the camera moves.
+- **CLOSED (2026-08-10): the motion-only blind spot in every gate on this
+  branch.** The stability gate and the byte-identity harnesses all froze the
+  camera AND the emitters, deliberately, because that is what made them
+  reproducible - and a fault that exists only under motion was therefore
+  invisible to all of them. Four defects reached the user that way. The motion
+  gate (`tyra-testing`'s `routecam.cpp` / `motion-gate.ps1` / `motion-gate.py`)
+  is the paired **moving** fixture: a frame-indexed four-leg route, back-to-back
+  captures, emitters left RUNNING, compared as distributions per leg against a
+  baseline arm so a verdict the baseline also produces is dropped. Retrospective
+  proof, since a gate that cannot flag a known defect is not a gate: jitter on
+  displaces the parked leg **5.34 px/pair against a 0.00 reference** (mc 43.2x);
+  BLSS x extrapolation forced past the interlock reads **26.7x parked** with a
+  band profile of **0.37 sky -> 29.6 ground**, i.e. the grazing-angle artefact
+  localised; two independent runs of that arm agree at 26.93 vs 26.66.
+- **The motion gate flags the REFERENCE arm's own `pan` leg** (74/34 at 0.121),
+  and this instrument cannot say whether that is the 24 fps animated models
+  under a 60 fps camera or the item below. It is reported as the baseline's own
+  flag and subtracted rather than dressed up as a finding. **A fixture with no
+  animated models would settle it**, and that is the cheapest next step on the
+  temporal-pass question - see "BLSS' temporal pass is shaky under motion on its
+  own", which this is either evidence for or noise against.
+- **The gate's per-tile "stopped being drawn" test refuses to answer above
+  0.5 px of bob** - a smeared median called 41 tiles gone on the jitter arm,
+  none of them real. It exists because a second, unrelated-looking casualty is
+  what named the post-fx z-mask breach (the crosshair sprite vanished alongside
+  the terrain, including in the untextured arm, long before any theory did).
+  Refusing is correct; making it work under displacement is open.
 - **OWED before this branch's PR: a merge of `origin/main`.** The branch was
   0 behind when the PR #212 merge started and main landed two commits during
   it - #211 (terrain wrap mode, which moves `renderer_core_gs.hpp`, the same

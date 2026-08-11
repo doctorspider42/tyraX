@@ -1449,6 +1449,12 @@ that pass and nearly blamed the composite.
 
 ### The stability gate (period-2 / the "bob")
 
+> **A frozen fixture is half the story.** Everything in this section buys its
+> repeatability by holding the camera and the emitters still, and that is
+> exactly why four defects on this branch reached a user without any gate
+> noticing: they existed only under motion. Read **"The motion gate"** below
+> alongside this - the two are a pair, and neither alone covers the feature.
+
 BLSS' ±¼-pixel raster jitter is the confirmed cause of a shaking picture
 (neural-upscaler.md, "The oscillation"). **Three instruments in a row reported a
 still picture at a console a person was watching shake**, each for a different
