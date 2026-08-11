@@ -165,15 +165,16 @@
 ;// materials. The vertex stream's ST slot carries the OBJECT-SPACE NORMAL;
 ;// the ST is computed on VU1 from the per-mesh camera basis uploaded at
 ;// VU1_ENV_BASIS_ADDR (3 qwords, reusing the lights matrix area - env bags
-;// never carry lighting):
-;//   qw+0  camera right (xyz)
-;//   qw+1  camera up    (xyz)
-;//   qw+2  constants (0.5, -0.5, 1.0, 0.5)
+;// never carry lighting). The EE transposes and folds the ST scale into the
+;// basis so VU1 evaluates both dot products in one accumulator chain:
+;//   qw+0  ( right.x * 0.5, up.x * -0.5, 0.0, 0.0 )
+;//   qw+1  ( right.y * 0.5, up.y * -0.5, 0.0, 0.0 )
+;//   qw+2  ( right.z * 0.5, up.z * -0.5, 1.0, 0.5 )
 ;//---------------------------------------------------------
-#macro LoadTyraEnvBasis: t_envRight, t_envUp, t_envConsts
-   lq      t_envRight,     VU1_ENV_BASIS_ADDR(vi00)
-   lq      t_envUp,        VU1_ENV_BASIS_ADDR+1(vi00)
-   lq      t_envConsts,    VU1_ENV_BASIS_ADDR+2(vi00)
+#macro LoadTyraEnvBasis: t_envBasisX, t_envBasisY, t_envBasisZ
+   lq      t_envBasisX,    VU1_ENV_BASIS_ADDR(vi00)
+   lq      t_envBasisY,    VU1_ENV_BASIS_ADDR+1(vi00)
+   lq      t_envBasisZ,    VU1_ENV_BASIS_ADDR+2(vi00)
 #endmacro
 
 ;// Turns the normal in t_stq into a matcap STQ, in place:
@@ -188,27 +189,21 @@
 ;// geometry). Costs an rsqrt; also covers scaled models' normals.
 ;// USES THE Q REGISTER (rsqrt): call this BEFORE the position's div q /
 ;// VertexPersCorr, or the later mulq picks up the wrong Q.
-;// Structure: inlined normalize + two dot products (vclpp does not expand
-;// nested macros), then the bias+scale assembled through the accumulator.
+;// Structure: inlined normalize, then both scaled dot products in the x/y
+;// fields of one accumulator. The final basis qword also carries q=1 and bias.
 ;// WARNING: no ";" comment lines inside a #macro body - vclpp silently
 ;// swallows the whole expansion of such a macro (drops every call site).
-#macro CalculateTyraEnvStq: t_stq, t_envRight, t_envUp, t_envConsts
+#macro CalculateTyraEnvStq: t_stq, t_envBasisX, t_envBasisY, t_envBasisZ
    mul.xyz  tyraEnvLen,  t_stq,       t_stq
    add.x    tyraEnvLen,  tyraEnvLen,  tyraEnvLen[y]
    add.x    tyraEnvLen,  tyraEnvLen,  tyraEnvLen[z]
    rsqrt    q,           vf00[w],     tyraEnvLen[x]
    mul.xyz  tyraEnvNrm,  t_stq,       q
-   mul.xyz  tyraEnvDotR, tyraEnvNrm,  t_envRight
-   add.x    tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[y]
-   add.x    tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[z]
-   mul.xyz  tyraEnvDotU, tyraEnvNrm,  t_envUp
-   add.x    tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[y]
-   add.x    tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[z]
-   add.xy   acc,     vf00,          t_envConsts[w]
-   add.z    acc,     vf00,          t_envConsts[z]
-   madd.x   t_stq,   t_envConsts,   tyraEnvDotR[x]
-   madd.y   t_stq,   t_envConsts,   tyraEnvDotU[x]
-   madd.z   t_stq,   vf00,          vf00[x]
+   mula.xy  acc,         t_envBasisX, tyraEnvNrm[x]
+   madda.xy acc,         t_envBasisY, tyraEnvNrm[y]
+   madd.xy  t_stq,       t_envBasisZ, tyraEnvNrm[z]
+   add.xy   t_stq,       t_stq,       t_envBasisZ[w]
+   add.z    t_stq,       vf00,         t_envBasisZ[z]
 #endmacro
 
 ;//---------------------------------------------------------

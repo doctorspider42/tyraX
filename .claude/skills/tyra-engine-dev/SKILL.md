@@ -171,7 +171,9 @@ superseded by the in-band per-mesh ALPHA qword: `VU1_ALPHA_ADDR` +
 equation, no barriers; dynpip keeps the original 7/5-qword macros), the
 StaPip `TCE` env program family (matcap ST from normals in the ST slot +
 `StaPipTextureBag::coordinatesAreNormals` + the camera basis at
-`VU1_ENV_BASIS_ADDR`), `RendererCoreShadowMap` (projected silhouette
+`VU1_ENV_BASIS_ADDR`; the EE uploads it transposed and pre-scaled as three
+qwords so VU1 evaluates right/up together in one accumulator chain),
+`RendererCoreShadowMap` (projected silhouette
 shadows: 4 lazy-allocated 64×64 VRAM slots + one shared cleared z, the env
 map's raster-redirect bracket per caster - begin(slot) per caster, ONE end();
 the game re-submits the caster's existing bags under a `pushEnvView` "light
@@ -186,10 +188,13 @@ expands each center into a camera-facing quad — 6 GS vertices — from the
 camera right/up basis at `VU1_BILLBOARD_BASIS_ADDR` transformed by the MVP
 once per mesh, and culls per QUAD with one `clipw` judgement per corner.
 The two programs are NOT resident: the VU1-clipping program set fills micro
-memory to ~2036/2042, so they live in their own packet swapped in on demand
+memory to 1676/2042, so they live in their own packet swapped in on demand
 (`StaPipQBufferRenderer::ensureProgramSet`) and the resident set is lazily
-restored by the next non-billboard bag. The C++ side must keep the prim
-giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
+restored by the next non-billboard bag. Opt-in `StaPipTelemetry` records the
+transition count and full wait/upload ticks, plus cull/clip/outside routes,
+active-plane population, qbuffer flushes, and VIF1/VU1 wait ticks; disabled
+telemetry keeps the AABB early-out and performs no COP0 reads. The C++ side
+must keep the prim giftag NLOOP at 6× the input count (`gsVertexCount`) — an undercounting
 NLOOP stalls the GIF. Billboard bags require multi-color, no lighting,
 frustum culling `None` + no clip checks (the one legitimate `None` — the
 program's per-quad ADC replaces the wrap protection), and a texture bag whose image may
@@ -1047,8 +1052,8 @@ banner both, so a previously built ELF still reports.
 - **3D texture wrap is REPEAT, asserted once per frame - it used to be
   whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
   state and NOTHING in the static or dynamic 3D pipeline emits it per mesh
-  (there is no micro memory left to carry it in-band the way the ALPHA qword
-  is - the clip program set sits at ~2036/2042). What nobody had noticed is
+  (there is not enough micro memory left to carry it in-band the way the ALPHA
+  qword is - the clip program set sits at 1676/2042). What nobody had noticed is
   that ps2sdk's `draw_setup_environment()` ends with *"Setup whole texture
   clamping"* and programs CLAMP/CLAMP at init, so **every 3D mesh in every
   generated game sampled clamped**. Harmless for a model whose STs are 0..1;
@@ -1180,14 +1185,31 @@ banner both, so a previously built ELF still reports.
   per vertex, 6 instructions) is all that fits — adding the matching
   `max.xyz … vf00[x]` floor too (9 per program) tripped the real
   `VU1 pipeline programs overflow into the draw-finish program` assert
-  (path1.cpp:145) on the boot logo. The clip family has ~no micro-memory
-  headroom; measure with
+  (path1.cpp:145) on the boot logo. After the 2026-08-11 shared-image work the
+  all-class set has 366 slots of micro-memory headroom;
+  measure with
   `mips64r5900el-ps2-elf-size obj/.../clip/*.o` (bytes / 8 = instructions)
   after ANY edit there. **And the clip family now has a C++ description**
   (`buildClipBody` in `src/vugen.cpp`), so an edit to one of those five files
   has to be made in BOTH places or `--vu-check` fails — which is the point:
   the ceiling above is exactly the kind of change that used to be applied to
   `clip_c` and forgotten on `clip_tc`.
+- **The five logical clip programs occupy three resident images.** `C/D` share
+  the C image (same two-stream input and stride-2 scratch ABI), `TC/TCE` share
+  TC (same three-stream/stride-3 ABI), and `TD` stays specialised.
+  `VU1_OPTIONS_ADDR.y` selects the peer's per-corner shading path. The wrapper
+  objects deliberately point at the same CodeStart/CodeEnd range and
+  `Path1::createProgramsCache` must alias that range to one destination instead
+  of uploading it twice. If a generated override replaces one peer, it gets its
+  own image while the built-in image remains for the other. `--vu-check` has a
+  separate peer-path section because normal description parity only exercises
+  variant zero, and an `-- EE wrappers --` section that reads the `extern u32
+  ..._CodeStart` out of the wrapper in THIS tree and fails if it is not the
+  image the description names. `stapip_clip_d_vu1.vclpp` and
+  `..._tce_vu1.vclpp` are still compiled but never LINKED - nothing references
+  their symbols, so the archive member stays out of the ELF; they exist as the
+  reference the peer-path check runs against. Do not "fix" them by pointing a
+  wrapper back at them.
 - **A GIF A+D giftag whose NLOOP undercounts its register writes stalls the
   GIF forever** — the stray qword parses as a new giftag with a garbage
   NLOOP. Symptom: the game hangs on the loading screen (spinning in
@@ -1212,6 +1234,15 @@ banner both, so a previously built ELF still reports.
   boxes.
 - Upstream's default `PlanesClipAlgorithm::clipMargin` pushes the near plane
   ~10 units from the camera; generated games override it.
+- **Do not derive the VU1 active-plane mask from `FrustumPlanes`.** The clipper
+  uses the actual MVP plus `clipMargin`, while environment-map passes widen the
+  view frustum on purpose. `StaPipBagPackager` therefore transforms the six VU
+  clip half-spaces into object space once per mesh and tests partial package
+  AABBs against those exact planes. The six bits travel through qbuffer ORs in
+  bits 10..15 of the clip-only 16-bit count header; bits 0..9 remain the vertex
+  count. A zero mask must fail safe to all six planes for manually built clip
+  qbuffers. The VU program reverses the bits so each `ibltz` consumes the next
+  plane from the VI sign bit without keeping another live integer register.
 - Judge rendering correctness on **PCSX2's software renderer** — it is the
   honest one. See tyra-testing for how.
 - **Object ids must be unique, not random.** `Sprite`/`Mesh`/`MeshFrame`/

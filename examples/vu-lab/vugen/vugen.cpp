@@ -60,6 +60,7 @@ constexpr float kClipGuard = 4096.0f;
 // never carries lighting, so the two can share (stapip_vu1_shared_defines.h).
 constexpr int kEnvBasisAddr = kLightsMatrixAddr;
 constexpr int kVertDataAddr = 2;  // relative to the double-buffer base
+constexpr int kBufferCountMask = 0x03FF;
 // TyraX addition: the two quadwords a project's own program reads. They sit in
 // the DIRECTIONAL LIGHTS area, which is free in exactly the programs that can
 // carry a custom stage list - the colour ones - and is why the engine only
@@ -600,28 +601,20 @@ void Vu::fogCoefficient(IVal dst, Val vertex, Val fogParams, Val scratch) {
     emit(in);
 }
 
-void Vu::envStq(Val stq, Val envRight, Val envUp, Val envConsts,
-                const Val scratch[4]) {
-    const Val len = scratch[0], nrm = scratch[1], dotR = scratch[2],
-              dotU = scratch[3];
+void Vu::envStq(Val stq, Val envBasisX, Val envBasisY, Val envBasisZ,
+                const Val scratch[2]) {
+    const Val len = scratch[0], nrm = scratch[1];
     mulInto(len, stq, stq, MXYZ);
     p_->code.back().comment = "CalculateTyraEnvStq: renormalize (uses Q)";
     addInto(len, len, len.broadcast(1), MX);
     addInto(len, len, len.broadcast(2), MX);
     rsqrtQ(zero(), 3, len, 0);
     mulQInto(nrm, stq, MXYZ);
-    mulInto(dotR, nrm, envRight, MXYZ);
-    addInto(dotR, dotR, dotR.broadcast(1), MX);
-    addInto(dotR, dotR, dotR.broadcast(2), MX);
-    mulInto(dotU, nrm, envUp, MXYZ);
-    addInto(dotU, dotU, dotU.broadcast(1), MX);
-    addInto(dotU, dotU, dotU.broadcast(2), MX);
-    emit(floatOp(Op::Add, kAcc, zero(), envConsts.broadcast(3),
-                 (uint8_t)(MX | MY)));
-    emit(floatOp(Op::Add, kAcc, zero(), envConsts.broadcast(2), MZ));
-    maddInto(stq, envConsts, dotR.broadcast(0), MX);
-    maddInto(stq, envConsts, dotU.broadcast(0), MY);
-    maddInto(stq, zero(), zero().broadcast(0), MZ);
+    mulAcc(envBasisX, nrm.broadcast(0), (uint8_t)(MX | MY));
+    maddAcc(envBasisY, nrm.broadcast(1), (uint8_t)(MX | MY));
+    maddInto(stq, envBasisZ, nrm.broadcast(2), (uint8_t)(MX | MY));
+    addInto(stq, stq, envBasisZ.broadcast(3), (uint8_t)(MX | MY));
+    addInto(stq, zero(), envBasisZ.broadcast(2), MZ);
 }
 
 void Vu::resetClipFlags() {
@@ -1107,12 +1100,15 @@ Desc descClipColor() {
     d.programEnum = "StaPipClipColor";
     d.title = "StaPip - Clip - C";
     d.clip = true;
+    d.sharedClipDir = true;
     d.dir = "clip";
     return d;
 }
 
 Desc descClipTextureColor() {
     Desc d = descClipColor();
+    d.sharedClipDir = false;
+    d.sharedClipEnv = true;
     d.vclName = "StaPipVU1ClipTC";
     d.asmName = "StaPipVU1Clip_TC";
     d.fileStem = "stapip_clip_tc_vu1";
@@ -1125,6 +1121,12 @@ Desc descClipTextureColor() {
 
 Desc descClipDirLights() {
     Desc d = descClipColor();
+    d.sharedClipDir = false;
+    // C's image carries this program's shading path too, so the EE wrapper
+    // links C's symbols and the body below is only ever a reference for
+    // `--vu-check`'s peer-path comparison.
+    d.residentImageAsmName = descClipColor().asmName;
+    d.codeOwner = descClipColor().fileStem;
     d.vclName = "StaPipVU1ClipD";
     d.asmName = "StaPipVU1Clip_D";
     d.fileStem = "stapip_clip_d_vu1";
@@ -1137,6 +1139,10 @@ Desc descClipDirLights() {
 
 Desc descClipTextureDirLights() {
     Desc d = descClipDirLights();
+    // TD is the one clip class nothing shares with: three input streams plus
+    // normals is an ABI of its own. Copied from D, so the alias has to go.
+    d.residentImageAsmName.clear();
+    d.codeOwner.clear();
     d.vclName = "StaPipVU1ClipTD";
     d.asmName = "StaPipVU1Clip_TD";
     d.fileStem = "stapip_clip_td_vu1";
@@ -1149,6 +1155,11 @@ Desc descClipTextureDirLights() {
 
 Desc descClipTextureEnv() {
     Desc d = descClipTextureColor();
+    d.sharedClipEnv = false;
+    // Same relationship D has with C, one stream up: TC's image generates the
+    // matcap ST as well, chosen by VU1_OPTIONS_ADDR.y.
+    d.residentImageAsmName = descClipTextureColor().asmName;
+    d.codeOwner = descClipTextureColor().fileStem;
     d.vclName = "StaPipVU1ClipTCE";
     d.asmName = "StaPipVU1Clip_TCE";
     d.fileStem = "stapip_clip_tce_vu1";
@@ -1244,10 +1255,28 @@ const char* halfSymbol(Half h) {
     return h == Half::AsIs ? "AI" : h == Half::Clip ? "CL" : "";
 }
 
-Desc descForClass(unsigned classBit, int lookIndex, Half half) {
-    Desc d;
-    const char* tag = "c";    // file stem, lowercase like every generated file
-    const char* upper = "C";  // symbol stem, matching the engine's own spelling
+/** The lowercase file-stem tag and the uppercase symbol tag of a class, in the
+ * engine's own spelling. */
+const char* classTag(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "d";
+        case 1u << 2: return "td";
+        case 1u << 3: return "tc";
+        case 1u << 4: return "tce";
+        default: return "c";
+    }
+}
+const char* classUpper(unsigned classBit) {
+    switch (classBit) {
+        case 1u << 1: return "D";
+        case 1u << 2: return "TD";
+        case 1u << 3: return "TC";
+        case 1u << 4: return "TCE";
+        default: return "C";
+    }
+}
+
+Desc engineDesc(unsigned classBit, Half half) {
     // Which of the three programs of this class is being described. `Cull`
     // draws a package wholly inside the frustum; the other two draw one that
     // crosses, and which of THEM is resident depends on the clipping mode.
@@ -1256,34 +1285,36 @@ Desc descForClass(unsigned classBit, int lookIndex, Half half) {
     };
     switch (classBit) {
         case 1u << 1:
-            d = pick(descCullDirLights(), descAsIsDirLights(),
-                     descClipDirLights());
-            tag = "d";
-            upper = "D";
-            break;
+            return pick(descCullDirLights(), descAsIsDirLights(),
+                        descClipDirLights());
         case 1u << 2:
-            d = pick(descCullTextureDirLights(), descAsIsTextureDirLights(),
-                     descClipTextureDirLights());
-            tag = "td";
-            upper = "TD";
-            break;
+            return pick(descCullTextureDirLights(), descAsIsTextureDirLights(),
+                        descClipTextureDirLights());
         case 1u << 3:
-            d = pick(descCullTextureColor(), descAsIsTextureColor(),
-                     descClipTextureColor());
-            tag = "tc";
-            upper = "TC";
-            break;
+            return pick(descCullTextureColor(), descAsIsTextureColor(),
+                        descClipTextureColor());
         case 1u << 4:
-            d = pick(descCullTextureEnv(), descAsIsTextureEnv(),
-                     descClipTextureEnv());
-            tag = "tce";
-            upper = "TCE";
-            break;
+            return pick(descCullTextureEnv(), descAsIsTextureEnv(),
+                        descClipTextureEnv());
         default:
-            d = pick(descCullColor(), descAsIsColor(), descClipColor());
-            break;
+            return pick(descCullColor(), descAsIsColor(), descClipColor());
     }
+}
+
+Desc descForClass(unsigned classBit, int lookIndex, Half half) {
+    Desc d = engineDesc(classBit, half);
+    const char* tag = classTag(classBit);
+    const char* upper = classUpper(classBit);
     d.custom = true;
+    d.sharedClipDir = false;
+    d.sharedClipEnv = false;
+    // A look is fully specialised: it has a stage list woven in, so no peer's
+    // body can stand in for it. Cleared rather than left alone because the D
+    // and TCE descriptions this copies from DO alias, and an override that
+    // linked the image it was meant to replace would draw the engine's shading
+    // and look like a broken generator.
+    d.residentImageAsmName.clear();
+    d.codeOwner.clear();
     d.dir = "gen";
     // The look INDEX is in the name because several looks may target the same
     // class - only one is installed at a time, but they all have to exist in
@@ -1311,6 +1342,28 @@ std::vector<Desc> allDescs() {
             descClipColor(),            descClipTextureColor(),
             descClipDirLights(),        descClipTextureDirLights(),
             descClipTextureEnv()};
+}
+
+std::string residentImage(const Desc& d) {
+    return d.residentImageAsmName.empty() ? d.asmName : d.residentImageAsmName;
+}
+
+bool ownsResidentImage(const Desc& d) {
+    return d.residentImageAsmName.empty() ||
+           d.residentImageAsmName == d.asmName;
+}
+
+std::vector<Desc> residentSet(ClipMode mode) {
+    std::vector<Desc> out;
+    for (const Desc& d : allDescs()) {
+        // The crossing half of the OTHER mode is not uploaded at all: as_is is
+        // only fed by the EE clipper, clip only replaces it.
+        if (d.clip && mode != ClipMode::Vu1) continue;
+        if (!d.clip && !d.cull && mode != ClipMode::Ee) continue;
+        if (!ownsResidentImage(d)) continue;  // its peer's image is already in
+        out.push_back(d);
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1365,6 +1418,31 @@ std::vector<AttrBlock> attrBlocks(const Desc& d) {
 }
 
 int attrStreams(const Desc& d) { return (int)attrBlocks(d).size(); }
+
+/** `StaPipVU1Program::elementsPerVertex` - what the ENGINE charges this program
+ * per vertex when it sizes a package, which is NOT always the number of blocks
+ * above.
+ *
+ * `getMaxVertCount` divides the buffer by `elementsPerVertex + reglistCount`
+ * and subtracts one element when the mesh draws in a single colour, i.e. when
+ * the colour array is absent. A lit program has no colour array at ALL - the
+ * shading comes from the normals, and dropping the unpack is a DMA win the
+ * handwritten wrappers keep too - so the subtraction is only true of it if the
+ * colour block is COUNTED here. Declare the blocks and a single-colour lit mesh
+ * gets a package a third too large for the buffer half: the input arrays, the
+ * tag block and the GS vertices are laid out end to end and the last of them
+ * runs off the end. Declaring the phantom block costs one array of slack on a
+ * multi-colour lit mesh and is what the engine's own cull wrappers do (`2, 3`
+ * for D and `3, 4` for TD - the two numbers this used to emit as `2, 2` and
+ * `3, 3`).
+ *
+ * Only the CULL family's numbers are ever consulted - `StaPipCore::
+ * getMaxVertCountByBag` asks `getCullProgramByBag`, and the crossing-half twin
+ * then runs inside a package the cull program sized - but the value is written
+ * into every wrapper, so it is computed for every wrapper. */
+int eeElementsPerVertex(const Desc& d) {
+    return attrStreams(d) + (d.dirLights ? 1 : 0);
+}
 
 // ---------------------------------------------------------------------------
 // Weaving a stage list into the skeleton
@@ -1801,7 +1879,7 @@ struct Constants {
     Val singleColor{}, mvp[4]{};
     Val lightMatrix[3]{}, lightDirs[3]{}, lightColors[3]{}, ambient{};
     Val spotPos{}, spotDirV{}, spotColV{};
-    Val envRight{}, envUp{}, envConsts{};
+    Val envBasisX{}, envBasisY{}, envBasisZ{};
     IVal singleColorEnabled{}, adcMask{};
 };
 
@@ -1913,9 +1991,9 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k) {
         }
     }
 
-    if (d.env) {
-        static const char* en[3] = {"envRight", "envUp", "envConsts"};
-        Val* slot[3] = {&k.envRight, &k.envUp, &k.envConsts};
+    if (d.env || d.sharedClipEnv) {
+        static const char* en[3] = {"envBasisX", "envBasisY", "envBasisZ"};
+        Val* slot[3] = {&k.envBasisX, &k.envBasisY, &k.envBasisZ};
         for (int i = 0; i < 3; ++i) {
             *slot[i] = b.named(en[i]);
             loadK(prog, *slot[i], kEnvBasisAddr + i, MALL,
@@ -1971,7 +2049,8 @@ struct BufferHeader {
     Val scale{}, primTag{};
 };
 
-BufferHeader emitBufferHeader(Vu& b, Program& prog) {
+BufferHeader emitBufferHeader(Vu& b, Program& prog,
+                              bool packedClipCount = false) {
     BufferHeader h;
     h.buffer = b.inamed("buffer");
     b.xtop(h.buffer);
@@ -1984,6 +2063,12 @@ BufferHeader emitBufferHeader(Vu& b, Program& prog) {
     prog.code.back().comment = "VU1_STAPIP_VERT_DATA_ADDR";
     h.vertexCount = b.inamed("vertexCount");
     ilwInto(prog, h.vertexCount, h.buffer, 0, 3);
+    if (packedClipCount) {
+        const IVal countMask = b.inamed("countMask");
+        b.iaddiuInto(countMask, b.izero(), kBufferCountMask);
+        b.iandInto(h.vertexCount, h.vertexCount, countMask);
+        prog.code.back().comment = "strip the packed six-plane mask";
+    }
     return h;
 }
 
@@ -2155,11 +2240,10 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         }
     }
 
-    Val envScratch[4];
-    if (d.env) {
-        static const char* sn[4] = {"tyraEnvLen", "tyraEnvNrm", "tyraEnvDotR",
-                                    "tyraEnvDotU"};
-        for (int i = 0; i < 4; ++i) envScratch[i] = b.named(sn[i]);
+    Val envScratch[2];
+    if (d.env || d.sharedClipEnv) {
+        static const char* sn[2] = {"tyraEnvLen", "tyraEnvNrm"};
+        for (int i = 0; i < 2; ++i) envScratch[i] = b.named(sn[i]);
     }
 
     // The cull family does its whole per-vertex chain inline, including the fog
@@ -2217,7 +2301,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // The env ST goes FIRST for the same reason it does in as_is: its rsqrt
         // WRITES Q, and the position's perspective divide below has to be the
         // last Q write before the texture mulq reads it.
-        if (d.env) b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+        if (d.env)
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
         sc.vertex = vertex[i];
         sc.color = color[i];
         sc.st = d.texture ? st[i] : Val{};
@@ -2277,7 +2362,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     for (int i = 0; i < 3 && !d.cull; ++i) {
         // The env ST goes FIRST: its rsqrt writes Q, so the position divide
         // below has to be the last Q write before the perspective mulq.
-        if (d.env) b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+        if (d.env)
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
         // NDC, and this is the MIRROR of the cull half's Ndc slot - not an
         // approximation of it. This program never divides the position: the EE
         // clipper handed it over already projected, and w survives only for
@@ -2400,6 +2486,8 @@ void buildAsIsBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
  * the builder reads best rather than line by line. */
 void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     Vu b(prog);
+    const bool sharedDir = d.sharedClipDir;
+    const bool sharedEnv = d.sharedClipEnv;
     const bool colorStream = !d.dirLights;
     const bool spot = usesSpotLight(d);
     // One scratch-polygon vertex: [pos, colour], or [pos, stq, colour].
@@ -2439,7 +2527,7 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     // --- per-buffer ---------------------------------------------------------
     const Lbl begin = b.label("begin");
     b.bind(begin);
-    const BufferHeader hdr = emitBufferHeader(b, prog);
+    const BufferHeader hdr = emitBufferHeader(b, prog, true);
     const IVal buffer = hdr.buffer;
     const IVal vertexData = hdr.vertexData;
     const IVal vertexCount = hdr.vertexCount;
@@ -2458,8 +2546,20 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     if (colorStream) {
         colorData = b.inamed("colorData");
         b.iaddInto(colorData, lastBlock, vertexCount);
+        if (sharedDir) {
+            normalData = colorData;  // same second-block ABI, different meaning
+        }
         const Lbl multi = b.label("setDestAddrMultiColor");
         const Lbl done = b.label("setDestAddr");
+        const Lbl colorMode = b.label("setDestAddrColor");
+        if (sharedDir) {
+            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1,
+                    "VU1_OPTIONS_ADDR.y = shared clip variant");
+            b.branchIfLez(sceFlag, colorMode);
+            b.iaddInto(destAddress, normalData, vertexCount);
+            b.branch(done);
+            b.bind(colorMode);
+        }
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0,
                 "VU1_OPTIONS_ADDR.x = single colour flag");
         b.branchIfLez(sceFlag, multi);
@@ -2499,10 +2599,10 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         color[i] = b.named(colorNames[i]);
         vertex[i] = b.named(vertexNames[i]);
         if (d.texture) st[i] = b.named(stNames[i]);
-        if (!colorStream) normal[i] = b.named(normalNames[i]);
+        if (!colorStream || sharedDir) normal[i] = b.named(normalNames[i]);
     }
 
-    if (colorStream) {
+    auto loadColors = [&]() {
         const Lbl multiColor = b.label("multiColor");
         const Lbl processing = b.label("processing");
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
@@ -2512,13 +2612,16 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         b.bind(multiColor);
         for (int i = 0; i < 3; ++i) loadInto(prog, color[i], colorData, i);
         b.bind(processing);
-    }
+    };
+    if (colorStream && !sharedDir) loadColors();
+
     for (int i = 0; i < 3; ++i)
         loadInto(prog, vertex[i], vertexData, i, MALL,
                  i == 0 ? "object space - the MVP multiply is below" : nullptr);
     if (d.texture)
         for (int i = 0; i < 3; ++i) loadInto(prog, st[i], stqData, i);
-    if (!colorStream) {
+
+    auto shadeDirectional = [&]() {
         for (int i = 0; i < 3; ++i)
             loadInto(prog, normal[i], normalData, i, MXYZ);
         // Lit on the ORIGINAL three corners; the colours are then interpolated
@@ -2529,18 +2632,12 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         for (int i = 0; i < 3; ++i)
             b.dirLightShade(color[i], normal[i], k.lightMatrix, k.lightDirs,
                             k.lightColors, k.ambient);
-    }
+    };
 
-    Val envScratch[4];
-    if (d.env) {
-        static const char* sn[4] = {"tyraEnvLen", "tyraEnvNrm", "tyraEnvDotR",
-                                    "tyraEnvDotU"};
-        for (int i = 0; i < 4; ++i) envScratch[i] = b.named(sn[i]);
-        // The matcap ST, from the object-space normals in the ST slot, BEFORE
-        // the transform and the judgement: the macro's rsqrt writes Q and every
-        // later Q write - the edge lerps, the emitter's divide - comes after.
-        for (int i = 0; i < 3; ++i)
-            b.envStq(st[i], k.envRight, k.envUp, k.envConsts, envScratch);
+    Val envScratch[2];
+    if (d.env || sharedEnv) {
+        static const char* sn[2] = {"tyraEnvLen", "tyraEnvNrm"};
+        for (int i = 0; i < 2; ++i) envScratch[i] = b.named(sn[i]);
     }
 
     Val spotScratch[7];
@@ -2548,6 +2645,53 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         static const char* sn[7] = {"spotD", "spotSq", "spotDist", "spotTm",
                                     "spotT", "spotC",  "spotA"};
         for (int i = 0; i < 7; ++i) spotScratch[i] = b.named(sn[i]);
+    }
+
+    auto applySpot = [&]() {
+        for (int i = 0; i < 3; ++i)
+            b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
+                        spotScratch);
+        for (int i = 0; i < 3; ++i) {
+            // Clamp before interpolation. The emitter still provides the
+            // matching floor and integer conversion after clipping.
+            b.loadI(255.0f);
+            b.minimumIInto(color[i], color[i], MXYZ);
+        }
+    };
+    auto applyEnv = [&]() {
+        // Matcap ST from the object-space normals, before any Q-consuming
+        // clip interpolation or perspective divide.
+        for (int i = 0; i < 3; ++i)
+            b.envStq(st[i], k.envBasisX, k.envBasisY, k.envBasisZ, envScratch);
+    };
+
+    if (sharedDir) {
+        const Lbl colorMode = b.label("sharedColorMode");
+        const Lbl prepared = b.label("sharedAttributesReady");
+        ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+        b.branchIfLez(sceFlag, colorMode);
+        shadeDirectional();
+        b.branch(prepared);
+        b.bind(colorMode);
+        loadColors();
+        applySpot();
+        b.bind(prepared);
+    } else {
+        if (!colorStream) shadeDirectional();
+
+        if (sharedEnv) {
+            const Lbl envMode = b.label("sharedEnvMode");
+            const Lbl prepared = b.label("sharedAttributesReady");
+            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+            b.branchIfGtz(sceFlag, envMode);
+            applySpot();
+            b.branch(prepared);
+            b.bind(envMode);
+            applyEnv();
+            b.bind(prepared);
+        } else if (d.env) {
+            applyEnv();
+        }
     }
 
     StageCtx sc;
@@ -2602,11 +2746,11 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
         // being displaced.
         if (d.script && d.scriptSlot == Slot::ObjectSpace) runScript(sc, d);
     }
-    if (spot)
+    if (spot && !sharedDir && !sharedEnv)
         for (int i = 0; i < 3; ++i)
             b.spotLight(color[i], vertex[i], k.spotPos, k.spotDirV, k.spotColV,
                         spotScratch);
-    if (spot)
+    if (spot && !sharedDir && !sharedEnv)
         for (int i = 0; i < 3; ++i) {
             // CEILING BEFORE THE CLIPPER INTERPOLATES. The emitter clamps too,
             // but that is after the lerp: a saturated corner left at its raw
@@ -2658,25 +2802,28 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     //
     // Two clipw judgements per corner: the x/y guard band against the vertex's
     // own w (the GS scissor trims the overhang pixel-exactly), then the exact
-    // near/far planes through the biased constants. NOTE that fcand yields 0 or
-    // 1 - "any masked bit set" - and NOT the bit pattern; every read below is
-    // written that way.
+    // near/far planes through the biased constants. The CLIP register is a
+    // 24-bit window of four six-bit judgements, newest at bits 0..5. Push four
+    // tests before the first read and the remaining two before the second, so
+    // the six tests pay for two positional flag reads instead of six. fcand
+    // yields 0 or 1 ("any masked bit set"), not the masked bit pattern.
     const IVal vi01 = b.inamed("VI01");
     const IVal triOr = b.inamed("triOr");
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 2; ++i) {
         b.clipwInto(vertex[i]);
-        b.fcandInto(vi01, 0xF);
-        if (i == 0)
-            b.iaddInto(triOr, vi01, b.izero());
-        else
-            b.iorInto(triOr, triOr, vi01);
         b.subInto(sjudge, cvec, vertex[i].broadcast(2), MX);
         b.addInto(sjudge, cvec, vertex[i].broadcast(2), MY);
-        b.mulInto(sjudge, b.zero(), cvec.broadcast(3), MW);
         b.clipwInto(sjudge);
-        b.fcandInto(vi01, 0xA);
-        b.iorInto(triOr, triOr, vi01);
     }
+    b.fcandInto(vi01, 0x3CA3CA);
+    b.iaddInto(triOr, vi01, b.izero());
+
+    b.clipwInto(vertex[2]);
+    b.subInto(sjudge, cvec, vertex[2].broadcast(2), MX);
+    b.addInto(sjudge, cvec, vertex[2].broadcast(2), MY);
+    b.clipwInto(sjudge);
+    b.fcandInto(vi01, 0x3CA);
+    b.iorInto(triOr, triOr, vi01);
 
     // --- the clip-space triangle into scratch polygon A ---------------------
     for (int i = 0; i < 3; ++i) {
@@ -2706,12 +2853,23 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     const IVal dstPtr = b.inamed("dstPtr");
     const IVal prevPtr = b.inamed("prevPtr");
     const IVal vertMask = b.inamed("vertMask");
+    // The double-buffer base is dead until the final kick rebuilds it with
+    // xtop. Reuse that VI for the plane mask: textured clippers already occupy
+    // all fifteen allocatable integer registers and cannot carry one more.
+    b.xtop(buffer);
+    ilwInto(prog, buffer, buffer, 0, 3);
+    prog.code.back().comment = "next active-plane bit is the VI sign bit";
     b.iaddiuInto(planePtr, b.izero(), kClipPlanesAddr);
     prog.code.back().comment = "VU1_CLIP_PLANES_ADDR - near plane first";
     b.iaddiuInto(dstBase, b.izero(), kClipPolyBAddr);
 
     const Lbl planeLoop = b.label("planeLoop");
+    const Lbl planeActive = b.label("planeActive");
+    const Lbl planeAdvance = b.label("planeAdvance");
     b.bind(planeLoop);
+    b.branchIfLtz(buffer, planeActive);
+    b.branch(planeAdvance);
+    b.bind(planeActive);
     const Val planeV = b.named("planeV");
     const Val planeE = b.named("planeE");
     loadInto(prog, planeV, planePtr, 0, MALL, "inside = dot4(v, ABCD) + E >= 0");
@@ -2758,7 +2916,6 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.addInto(sjudge, b.zero(), pd.broadcast(0), MX);
     b.addInto(sjudge, b.zero(), cd.broadcast(0), MY);
     b.subInto(sjudge, sjudge, cvec.broadcast(3), (uint8_t)(MX | MY));
-    b.mulInto(sjudge, b.zero(), cvec.broadcast(3), MW);
     b.clipwInto(sjudge);
     b.fcandInto(vi01, 0x2);
     prog.code.back().comment = "prev outside?";
@@ -2812,7 +2969,9 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
     b.iaddInto(vertMask, srcBase, b.izero());
     b.iaddInto(srcBase, dstBase, b.izero());
     b.iaddInto(dstBase, vertMask, b.izero());
+    b.bind(planeAdvance);
     b.iaddiuInto(planePtr, planePtr, 2);
+    b.iaddInto(buffer, buffer, buffer);
     b.iaddiuInto(vertMask, b.izero(), kClipPlanesAddr + 12);
     b.branchIfNotEq(planePtr, vertMask, planeLoop);
 
@@ -2908,24 +3067,28 @@ void buildClipBody(const Desc& d, Program& prog, StagePlan* planOut = nullptr) {
 
     // --- the kick -----------------------------------------------------------
     //
-    // destAddress walked away with the emitter, so the address to kick is
-    // rebuilt from scratch. xtop is stable within one activation, which is what
-    // makes asking a second time legal.
-    b.xtop(buffer);
-    b.iaddiuInto(vertexData, buffer, kVertDataAddr);
-    ilwInto(prog, vertexCount, buffer, 0, 3);
-    b.iaddInto(vertexData, vertexData, vertexCount);
-    if (d.texture) b.iaddInto(vertexData, vertexData, vertexCount);
+    // The input pointers advanced once per source vertex and now already point
+    // at the GIF tag block. Reuse them instead of a second xtop + packed-count
+    // decode + address rebuild.
     if (!colorStream) {
-        b.iaddInto(vertexData, vertexData, vertexCount);
+        b.iaddInto(vertexData, normalData, b.izero());
     } else {
         const Lbl kickMulti = b.label("kickMulti");
         const Lbl kickPatch = b.label("kickPatch");
+        const Lbl kickColor = b.label("kickColor");
+        if (sharedDir) {
+            ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 1);
+            b.branchIfLez(sceFlag, kickColor);
+            b.iaddInto(vertexData, colorData, b.izero());
+            b.branch(kickPatch);
+            b.bind(kickColor);
+        }
         ilwInto(prog, sceFlag, b.izero(), kOptionsAddr, 0);
         b.branchIfLez(sceFlag, kickMulti);
+        if (d.texture) b.iaddInto(vertexData, stqData, b.izero());
         b.branch(kickPatch);
         b.bind(kickMulti);
-        b.iaddInto(vertexData, vertexData, vertexCount);
+        b.iaddInto(vertexData, colorData, b.izero());
         b.bind(kickPatch);
     }
     // The prim giftag's word 0 is NLOOP | EOP, and 0x8000 does not fit in one
@@ -2985,6 +3148,16 @@ std::string emitVclpp(const Desc& d, const Program& p) {
         } else {
             line("; AsIs = NO TRANSFORM: the EE clipper already produced NDC positions,");
             line("; with the clip-space W kept for fog and the texture perspective divide.");
+        }
+        if (!ownsResidentImage(d)) {
+            line(";");
+            line("; NOT LINKED, and not meant to be: " + residentImage(d) +
+                 " carries");
+            line("; this program's path as well, so the EE wrapper points at THAT");
+            line("; image and nothing references the symbols below. What this file");
+            line("; is for is --vu-check, which runs the shared image's peer path");
+            line("; against it over randomized triangles - the only proof that a");
+            line("; two-path image still does what the specialised one did.");
         }
     }
     line("");
@@ -3078,6 +3251,14 @@ std::string emitEeHeader(const Desc& d) {
 
 std::string emitEeSource(const Desc& d) {
     const int regs = regsPerVertex(d);
+    const int elements = eeElementsPerVertex(d);
+    // The image the EE actually uploads for this program. For an aliased peer
+    // that is somebody else's symbol pair, and getting it from the description
+    // rather than from `asmName` is the whole point of the field: an emitted
+    // wrapper that named its own image would link a second copy of a body the
+    // shared image already carries, silently undoing the sharing with nothing
+    // to see in a diff of the microcode.
+    const std::string image = residentImage(d);
     std::string gifRegs;
     if (d.texture)
         gifRegs =
@@ -3100,16 +3281,26 @@ std::string emitEeSource(const Desc& d) {
     s += d.custom ? "#include \"" + d.fileStem + "_program.hpp\"\n\n"
                   : "#include \"renderer/3d/pipeline/static/core/programs/" +
                         d.dir + "/" + d.fileStem + "_program.hpp\"\n\n";
-    s += "extern u32 " + d.asmName + "_CodeStart __attribute__((section(\".vudata\")));\n";
-    s += "extern u32 " + d.asmName + "_CodeEnd __attribute__((section(\".vudata\")));\n\n";
+    if (!ownsResidentImage(d)) {
+        s += "// " + d.title + " has no image of its own: " + image + " carries\n";
+        s += "// this program's path too - same input streams, same scratch\n";
+        s += "// stride, same GIF register list - and VU1_OPTIONS_ADDR.y picks\n";
+        s += "// between them per mesh (StaPipQBufferRenderer::sendObjectData).\n";
+        s += "// Linking " + d.asmName + " here instead would put a second copy\n";
+        s += "// of that body in micro memory; " + d.fileStem + ".vclpp exists\n";
+        s += "// only as the reference --vu-check compares the shared image's\n";
+        s += "// peer path against, and nothing points at its symbols.\n";
+    }
+    s += "extern u32 " + image + "_CodeStart __attribute__((section(\".vudata\")));\n";
+    s += "extern u32 " + image + "_CodeEnd __attribute__((section(\".vudata\")));\n\n";
     s += "namespace Tyra {\n\n";
     s += d.className + "::" + d.className + "()\n";
-    s += "    : StaPipVU1Program(" + d.programEnum + ", &" + d.asmName +
+    s += "    : StaPipVU1Program(" + d.programEnum + ", &" + image +
          "_CodeStart,\n";
-    s += "                       &" + d.asmName + "_CodeEnd,\n";
+    s += "                       &" + image + "_CodeEnd,\n";
     s += "                       " + gifRegs + ",\n";
     s += "                       " + std::to_string(regs) + ", " +
-         std::to_string(regs) + ") {}\n\n";
+         std::to_string(elements) + ") {}\n\n";
     s += d.className + "::~" + d.className + "() {}\n\n";
     s += "std::string " + d.className + "::getStringName() const {\n";
     s += "  return std::string(\"" + d.title + "\");\n";
@@ -3670,6 +3861,7 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     auto puti = [&](int qw, int f, uint32_t v) { mem[(size_t)qw * 4 + f] = v; };
 
     puti(kOptionsAddr, 0, singleColor ? 1u : 0u);
+    puti(kOptionsAddr, 1, static_cast<uint32_t>(d.runtimeClipVariant));
     putf(kOptionsAddr, 2, -255.0f / 900.0f);
     putf(kOptionsAddr, 3, 255.0f * 1000.0f / 900.0f);
     for (int f = 0; f < 4; ++f)
@@ -3685,6 +3877,21 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     for (int f = 0; f < 3; ++f)
         putf(kLightsColorsAddr + 3, f, randomFloat(s, 0.0f, 60.0f));
 
+    // Env bags reuse the light-matrix addresses for a transposed, pre-scaled
+    // camera basis. Overwrite the random light data with a valid orthonormal
+    // basis so the TCE equivalence trials exercise the actual packet layout,
+    // including non-zero x/y/z contributions to both dot products.
+    if (d.env) {
+        static const float basis[3][4] = {
+            {0.4f, -0.09f, 0.0f, 0.0f},
+            {0.0f, -0.477f, 0.0f, 0.0f},
+            {-0.3f, -0.12f, 1.0f, 0.5f},
+        };
+        for (int i = 0; i < 3; ++i)
+            for (int f = 0; f < 4; ++f)
+                putf(kEnvBasisAddr + i, f, basis[i][f]);
+    }
+
     // The tag quadwords the program copies through verbatim.
     puti(kSetGifTagAddr, 0, 1u);
     puti(kSetGifTagAddr, 1, 1u << 28);
@@ -3695,7 +3902,19 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
     putf(top, 0, 2048.0f);
     putf(top, 1, 2048.0f);
     putf(top, 2, 8388607.5f);
-    puti(top, 3, (uint32_t)verts);
+    uint32_t packedCount = (uint32_t)verts;
+    if (d.clip) {
+        // Exercise both the one-plane hot case and the full conservative
+        // fallback. Bits 10..15 match the real qbuffer wire format.
+        const uint32_t planeMask = (s & 3u) == 0u
+                                       ? 0x3Fu
+                                       : 1u << (xorshift(s) % 6u);
+        uint32_t reversed = 0;
+        for (uint32_t i = 0; i < 6; ++i)
+            reversed |= ((planeMask >> i) & 1u) << (5u - i);
+        packedCount |= reversed << 10;
+    }
+    puti(top, 3, packedCount);
     puti(top + 1, 0, (uint32_t)verts | (1u << 15));
     puti(top + 1, 1, (1u << 14) | (0x13u << 15) |
                          ((uint32_t)regsPerVertex(d) << 28));
@@ -3720,18 +3939,19 @@ std::vector<uint32_t> stageInput(const Desc& d, int top, int verts, uint32_t& s,
         // planes below safe to apply at all.
         static const float kPlaneV[6][4] = {
             {0.0f, 0.0f, 1.0f, 0.0f},   // near
+            {0.0f, 0.0f, -1.0f, 0.0f},  // far
             {-1.0f, 0.0f, 0.0f, 1.0f},  // right:  w - x >= 0
             {1.0f, 0.0f, 0.0f, 1.0f},   // left:   w + x >= 0
-            {0.0f, -1.0f, 0.0f, 1.0f},  // top:    w - y >= 0
-            {0.0f, 1.0f, 0.0f, 1.0f},   // bottom: w + y >= 0
-            {0.0f, 0.0f, -1.0f, 0.0f},  // far
+            {0.0f, -1.0f, 0.0f, 1.0f},  // bottom after projection Y flip
+            {0.0f, 1.0f, 0.0f, 1.0f},   // top after projection Y flip
         };
         // The near plane sits where the staged geometry actually reaches:
         // this MVP puts clip z in about -7..3, so z >= -5 cuts roughly half
         // the vertices and the clipper has real work in most trials. Far is
         // parked out of reach - one plane doing nothing is worth keeping, it
         // proves the loop handles a pass that changes nothing.
-        static const float kPlaneE[6] = {5.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1000.0f};
+        static const float kPlaneE[6] = {5.0f, 1000.0f, 0.0f,
+                                         0.0f, 0.0f, 0.0f};
         for (int i = 0; i < 6; ++i) {
             for (int f = 0; f < 4; ++f)
                 putf(kClipPlanesAddr + i * 2, f, kPlaneV[i][f]);

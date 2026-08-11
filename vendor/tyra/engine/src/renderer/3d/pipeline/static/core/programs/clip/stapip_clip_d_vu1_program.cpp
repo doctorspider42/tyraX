@@ -12,14 +12,16 @@
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.hpp"
 
-extern u32 StaPipVU1Clip_D_CodeStart __attribute__((section(".vudata")));
-extern u32 StaPipVU1Clip_D_CodeEnd __attribute__((section(".vudata")));
+// C and D have the same two-stream input/scratch/output ABI. The shared C
+// image selects directional shading through VU1_OPTIONS_ADDR.y.
+extern u32 StaPipVU1Clip_C_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1Clip_C_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
 StaPipClipDVU1Program::StaPipClipDVU1Program()
-    : StaPipVU1Program(StaPipClipDirLights, &StaPipVU1Clip_D_CodeStart,
-                       &StaPipVU1Clip_D_CodeEnd,
+    : StaPipVU1Program(StaPipClipDirLights, &StaPipVU1Clip_C_CodeStart,
+                       &StaPipVU1Clip_C_CodeEnd,
                        ((u64)GIF_REG_RGBAQ) << 0 | ((u64)GIF_REG_XYZF2) << 4, 2,
                        3) {}
 

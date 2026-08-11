@@ -13,14 +13,16 @@
 #include "debug/debug.hpp"
 #include "renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.hpp"
 
-extern u32 StaPipVU1Clip_TCE_CodeStart __attribute__((section(".vudata")));
-extern u32 StaPipVU1Clip_TCE_CodeEnd __attribute__((section(".vudata")));
+// TC and TCE have the same three-stream input/scratch/output ABI. The shared
+// TC image selects matcap ST generation through VU1_OPTIONS_ADDR.y.
+extern u32 StaPipVU1Clip_TC_CodeStart __attribute__((section(".vudata")));
+extern u32 StaPipVU1Clip_TC_CodeEnd __attribute__((section(".vudata")));
 
 namespace Tyra {
 
 StaPipClipTCEVU1Program::StaPipClipTCEVU1Program()
-    : StaPipVU1Program(StaPipClipTextureEnv, &StaPipVU1Clip_TCE_CodeStart,
-                       &StaPipVU1Clip_TCE_CodeEnd,
+    : StaPipVU1Program(StaPipClipTextureEnv, &StaPipVU1Clip_TC_CodeStart,
+                       &StaPipVU1Clip_TC_CodeEnd,
                        ((u64)GIF_REG_ST) << 0 | ((u64)GIF_REG_RGBAQ) << 4 |
                            ((u64)GIF_REG_XYZF2) << 8,
                        3, 3) {}

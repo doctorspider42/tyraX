@@ -16,6 +16,7 @@
 #include "./bag/packaging/stapip_bag_package.hpp"
 #include "./bag/packaging/stapip_bag_packager.hpp"
 #include "./stapip_qbuffer_renderer.hpp"
+#include "./stapip_telemetry.hpp"
 #include "./stapip_bag_bboxes_cacher.hpp"
 #include "renderer/3d/pipeline/shared/pipeline_frustum_culling.hpp"
 
@@ -54,9 +55,7 @@ class StaPipCore {
    * program family) instead of the EE clipper. Call right after
    * setRenderer() or between frames.
    */
-  void setVU1Clipping(const bool& enabled) {
-    qbufferRenderer.setVU1Clipping(enabled);
-  }
+  void setVU1Clipping(const bool& enabled);
 
   /** TyraX addition: which material classes keep a resident VU1 program
    * (docs/vu-framework.md). Safe at run time: a level that stops needing, say,
@@ -95,6 +94,16 @@ class StaPipCore {
   }
   void setVuTime(const float& seconds) { qbufferRenderer.setVuTime(seconds); }
 
+  /**
+   * TyraX diagnostics: opt in to package routing, active-plane and VIF1/VU1
+   * wait counters. Disabled by default, so release games keep the original
+   * AABB early-out and perform no COP0 timing reads. `takeTelemetry` returns
+   * the accumulated interval and resets it.
+   */
+  void setTelemetryEnabled(const bool& enabled);
+  bool isTelemetryEnabled() const { return telemetryEnabled; }
+  StaPipTelemetry takeTelemetry();
+
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }
 
@@ -117,8 +126,15 @@ class StaPipCore {
   // computed once per render(), shared by the main-bbox check and every
   // package classification in the packager.
   Plane objectSpacePlanes[6];
+  Plane clipObjectSpacePlanes[6];
+  void computeClipObjectSpacePlanes(const M4x4& mvp);
   StaPipBagPackager packager;
   StaPipQBufferRenderer qbufferRenderer;
+  bool telemetryEnabled = false;
+  StaPipTelemetry telemetry;
+  void recordPackage(const StaPipBagPackage& package,
+                     const CoreBBoxFrustum& route);
+  void recordOutsideBag(const StaPipBag* bag);
   void renderPkgs(StaPipBagPackage* packages, const bool& doClip, u16 count);
   void renderSubpkgs(StaPipBagPackage* packages, u16 count);
 };
