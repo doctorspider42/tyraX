@@ -109,6 +109,19 @@ constexpr bool DEBUG_SHOW_COLLISION = false;
 // (nearest first). Both are frame-budget caps, not authoring limits: an edge is
 // 12 vertices, so the whole overlay costs at most COLLISION_BOX_LIMIT * 144.
 constexpr float COLLISION_BOX_RANGE = 60.0F;
+// Foot IK probe overlay (Preferences > Build > Show Foot IK probes,
+// docs/foot-ik.md). Every correction the solver makes comes from a raycast, and
+// a ray is the one thing the screen cannot show: "the foot hangs" and "the foot
+// is being lifted on purpose" look identical from outside, and so do "the ray
+// missed" and "the ray found the wrong surface". With this false the recording
+// and the overlay both fold away - the probe list is never touched and
+// renderFootIkProbes returns on its first line.
+constexpr bool DEBUG_SHOW_FOOTIK = false;
+// One frame's worth of probes, capped. A walking biped records ~30; the sweep
+// and the learned fan can push it past 60, and a crowd of solving characters
+// multiplies that - so this is a frame-budget cap, and the overlay says when it
+// truncated rather than silently drawing half the story.
+constexpr int FOOTIK_PROBE_LIMIT = 192;
 constexpr int COLLISION_BOX_LIMIT = 24;
 
 }  // namespace Foot_ik_stairs

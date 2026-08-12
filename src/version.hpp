@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 16
+#define TYRAX_VERSION_MINOR 17
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -96,6 +96,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // readObjectsArray rather than a migrations.cpp step: there is nothing for the
 // user to confirm and nothing that can be lost. Two objects that shared a model
 // but disagreed about its bones keep the first binding and say so on stderr.
-inline constexpr int kFormatVersion = 12;
+// v13 (Foot IK probe overlay, docs/foot-ik.md): ProjectSettings::showFootIkProbes
+// - the debug-profile preference that draws the solver's ground raycasts in the
+// running game, next to showCollision/showAreas. Purely additive and false when
+// absent, which is what every older project gets and what the game did before,
+// so no migration step.
+inline constexpr int kFormatVersion = 13;
 
 }  // namespace version

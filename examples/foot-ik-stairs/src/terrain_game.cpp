@@ -4361,6 +4361,9 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     const bool hit = footGroundAt(
         soleWorld.x, soleWorld.z, soleWorld.y + ikProbeUp,
         soleWorld.y - ikProbeDown, objectIndex, &ground, &groundNormal);
+    recordFootProbe(FootProbe::Sole, soleWorld.x, soleWorld.z,
+                    soleWorld.y + ikProbeUp, soleWorld.y - ikProbeDown, hit,
+                    ground);
     const float vy = foot.ready && g_frameDt > 0.0001F
                          ? (soleWorld.y - foot.previousWorld.y) / g_frameDt
                          : 0.0F;
@@ -4417,6 +4420,9 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
           soleWorld.x + dirX * 0.11F, soleWorld.z + dirZ * 0.11F,
           soleWorld.y + ikProbeUp,
           soleWorld.y - ikProbeDown, objectIndex, &nearGround);
+      recordFootProbe(FootProbe::Lip, soleWorld.x + dirX * 0.11F,
+                      soleWorld.z + dirZ * 0.11F, soleWorld.y + ikProbeUp,
+                      soleWorld.y - ikProbeDown, nearHit, nearGround);
       if (nearHit) nearExcess = nearGround - ground - groundSlope * 0.11F;
       farLead = 0.20F + travelSpeed * 0.025F;
       if (farLead > 0.30F) farLead = 0.30F;
@@ -4425,6 +4431,9 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
           soleWorld.x + dirX * farLead, soleWorld.z + dirZ * farLead,
           soleWorld.y + ikProbeUp,
           soleWorld.y - ikProbeDown, objectIndex, &farGround);
+      recordFootProbe(FootProbe::Lip, soleWorld.x + dirX * farLead,
+                      soleWorld.z + dirZ * farLead, soleWorld.y + ikProbeUp,
+                      soleWorld.y - ikProbeDown, farHit, farGround);
       if (farHit) farExcess = farGround - ground - groundSlope * farLead;
       if (nearHit && nearExcess > 0.025F) {
         obstacleHit = true;
@@ -4498,6 +4507,9 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
           const bool sweptHit = footGroundAt(
               probeX, probeZ, pathY + ikProbeUp,
               pathY - ikProbeDown, objectIndex, &sweptGround);
+          recordFootProbe(FootProbe::Sweep, probeX, probeZ,
+                          pathY + ikProbeUp, pathY - ikProbeDown, sweptHit,
+                          sweptGround);
           if (!sweptHit) continue;
           // The swept sole exists to catch a RAISED tread crossed between
           // frames. Applying its shoe margin to the same support plane turns
@@ -4540,6 +4552,10 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     const bool aheadHit = hit && footGroundAt(
         aheadX, aheadZ, soleWorld.y + ikProbeUp,
         soleWorld.y - ikProbeDown, objectIndex, &aheadGround);
+    if (hit)
+      recordFootProbe(FootProbe::Ahead, aheadX, aheadZ,
+                      soleWorld.y + ikProbeUp, soleWorld.y - ikProbeDown,
+                      aheadHit, aheadGround);
     const float aheadHeightDelta = aheadHit ? aheadGround - ground : 0.0F;
     auto unit = [](float value) {
       if (value < -1.0F) return -1.0F;
@@ -4595,10 +4611,12 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                            sideZ * sideOffset[option];
           float py = ground;
           Vec4 pn(0.0F, 1.0F, 0.0F, 0.0F);
-          if (!footGroundAt(px, pz, soleWorld.y + ikProbeUp,
-                            soleWorld.y - ikProbeDown, objectIndex,
-                            &py, &pn))
-            continue;
+          const bool fanHit =
+              footGroundAt(px, pz, soleWorld.y + ikProbeUp,
+                           soleWorld.y - ikProbeDown, objectIndex, &py, &pn);
+          recordFootProbe(FootProbe::Plan, px, pz, soleWorld.y + ikProbeUp,
+                          soleWorld.y - ikProbeDown, fanHit, py);
+          if (!fanHit) continue;
           float toeY = py, heelY = py;
           const bool toeHit = footGroundAt(
               px + dirX * 0.085F, pz + dirZ * 0.085F,
@@ -4938,6 +4956,12 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float guideWeight = foot.planWeight * 0.42F;
       if (guideWeight > legWeight) legWeight = guideWeight;
     }
+    // Not a ray: the target the leg was actually given, and whether this foot
+    // is taking weight. Drawn as the big cross - the rays above are why.
+    recordFootProbe(FootProbe::Target, targetWorld.x, targetWorld.z, 0.0F, 0.0F,
+                    true, targetWorld.y - sole);
+    if (!footIkProbes.empty())
+      footIkProbes.back().locked = legWeight > 0.05F;
     adjust.legs[side].hip = rt.hip[side];
     adjust.legs[side].knee = rt.knee[side];
     adjust.legs[side].ankle = rt.ankle[side];
@@ -5113,6 +5137,10 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
 
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
+  // The probe overlay records as the solver runs, so the list belongs to ONE
+  // frame and is emptied before the first object solves - not after drawing,
+  // which a split-screen second pass (that does not re-solve) would skip.
+  if (DEBUG_SHOW_FOOTIK && !splitSecondPass) footIkProbes.clear();
   bool any = false;
   for (int i = 0; i < (int)runtimeObjects.size() && !any; ++i)
     any = runtimeObjects[i].active && runtimeObjects[i].visible &&
@@ -9945,6 +9973,146 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
   return b;
 }
 
+// --- Foot IK probe overlay (DEBUG_SHOW_FOOTIK, docs/foot-ik.md) -----------
+//
+// Every correction Foot IK makes comes from a raycast, and a ray is exactly what
+// the screen cannot show. From outside, "the foot hangs in the air" looks the
+// same whether the ray missed, found a surface the gates then refused, or found
+// one the solver deliberately lifted the shoe OVER - three different bugs with
+// three different fixes, and picking between them used to mean reading a CSV.
+// This draws the rays where they were cast, marks where each one stopped, and
+// colours the leg's actual target by whether the foot took weight.
+//
+// The colours are the vocabulary:
+//   dim cyan segment   the search window a ray covered
+//   bright cyan mark   where it stopped (a real surface)
+//   red segment        the ray came back with nothing
+//   yellow mark        an ahead/lip probe's hit - what the swing reacts to
+//   magenta mark       a swept shoe-corner hit (the tunnelling guard)
+//   white mark         a candidate of the learned landing fan
+//   green cross        the leg's target, foot taking weight
+//   orange cross       the leg's target, foot NOT taking weight - the "why is
+//                      it in the air" case, and the mark sits where the solver
+//                      sent the ankle rather than where the ray hit
+void TerrainGame::recordFootProbe(FootProbe::Kind kind, float x, float z,
+                                  float top, float bottom, bool hit,
+                                  float hitY) {
+  if (!DEBUG_SHOW_FOOTIK) return;
+  if ((int)footIkProbes.size() >= FOOTIK_PROBE_LIMIT) {
+    footIkProbesTruncated = true;
+    return;
+  }
+  FootProbe pr;
+  pr.kind = kind;
+  pr.x = x;
+  pr.z = z;
+  pr.top = top;
+  pr.bottom = bottom;
+  pr.hit = hit;
+  pr.hitY = hitY;
+  footIkProbes.push_back(pr);
+}
+
+void TerrainGame::renderFootIkProbes() {
+  if (!DEBUG_SHOW_FOOTIK) return;
+  if (footIkProbes.empty()) return;
+  footProbeVerts.clear();
+  footProbeCols.clear();
+
+  // A camera-facing quad is not worth the trouble here: a thin CROSS of two
+  // axis-aligned quads reads as a line from any angle and nothing in this
+  // overlay backface-culls (the collision overlay makes the same trade).
+  auto quad = [&](const Vec4& p0, const Vec4& p1, const Vec4& p2,
+                  const Vec4& p3, const Color& c) {
+    footProbeVerts.push_back(p0), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p1), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p2), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p0), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p2), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p3), footProbeCols.push_back(c);
+  };
+  // A vertical segment at (x, z) from y0 to y1, as a cross of two thin quads.
+  auto segment = [&](float x, float z, float y0, float y1, float t,
+                     const Color& c) {
+    if (y1 < y0) { const float sw = y0; y0 = y1; y1 = sw; }
+    quad(Vec4(x - t, y0, z, 1.0F), Vec4(x + t, y0, z, 1.0F),
+         Vec4(x + t, y1, z, 1.0F), Vec4(x - t, y1, z, 1.0F), c);
+    quad(Vec4(x, y0, z - t, 1.0F), Vec4(x, y0, z + t, 1.0F),
+         Vec4(x, y1, z + t, 1.0F), Vec4(x, y1, z - t, 1.0F), c);
+  };
+  // A horizontal cross at a height - "it stopped HERE".
+  auto mark = [&](float x, float z, float y, float r, const Color& c) {
+    const float t = r * 0.18F;
+    quad(Vec4(x - r, y, z - t, 1.0F), Vec4(x + r, y, z - t, 1.0F),
+         Vec4(x + r, y, z + t, 1.0F), Vec4(x - r, y, z + t, 1.0F), c);
+    quad(Vec4(x - t, y, z - r, 1.0F), Vec4(x + t, y, z - r, 1.0F),
+         Vec4(x + t, y, z + r, 1.0F), Vec4(x - t, y, z + r, 1.0F), c);
+  };
+
+  const Color dimCyan(0.0F, 110.0F, 130.0F, 90.0F);
+  const Color brightCyan(60.0F, 230.0F, 255.0F, 128.0F);
+  const Color red(255.0F, 60.0F, 60.0F, 110.0F);
+  const Color yellow(255.0F, 210.0F, 40.0F, 128.0F);
+  const Color magenta(230.0F, 70.0F, 230.0F, 128.0F);
+  const Color white(240.0F, 240.0F, 240.0F, 120.0F);
+  const Color green(60.0F, 240.0F, 90.0F, 128.0F);
+  const Color orange(255.0F, 140.0F, 30.0F, 128.0F);
+
+  for (const FootProbe& pr : footIkProbes) {
+    if (pr.kind == FootProbe::Target) {
+      // Bigger, and drawn at the target height: this is the answer, the rays
+      // are the evidence.
+      mark(pr.x, pr.z, pr.hitY, 0.075F, pr.locked ? green : orange);
+      continue;
+    }
+    // The window the ray covered, and where it stopped. A miss draws the whole
+    // window red, which is what makes "there was nothing there" legible.
+    const float thin = pr.kind == FootProbe::Sole ? 0.006F : 0.004F;
+    if (!pr.hit) {
+      segment(pr.x, pr.z, pr.top, pr.bottom, thin, red);
+      continue;
+    }
+    segment(pr.x, pr.z, pr.top, pr.hitY, thin, dimCyan);
+    Color c = brightCyan;
+    float r = 0.030F;
+    if (pr.kind == FootProbe::Lip || pr.kind == FootProbe::Ahead)
+      c = yellow, r = 0.024F;
+    else if (pr.kind == FootProbe::Sweep)
+      c = magenta, r = 0.018F;
+    else if (pr.kind == FootProbe::Plan)
+      c = white, r = 0.020F;
+    else
+      r = 0.040F;
+    mark(pr.x, pr.z, pr.hitY, r, c);
+  }
+
+  if (footProbeVerts.empty()) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  if (!footProbeBag) {
+    footProbeColorBag = std::make_unique<StaPipColorBag>();
+    footProbeBag = std::make_unique<StaPipBag>();
+    footProbeBag->info = batchInfoBag.get();
+    footProbeBag->color = footProbeColorBag.get();
+    footProbeBag->lighting = nullptr;
+    footProbeBag->texture = nullptr;
+  }
+  footProbeColorBag->many = footProbeCols.data();
+  footProbeBag->vertices = footProbeVerts.data();
+  footProbeBag->count = static_cast<u32>(footProbeVerts.size());
+  footProbeBag->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(footProbeBag.get());
+  if (footIkProbesTruncated)
+    TYRA_WARN("Foot IK probe overlay truncated at ", FOOTIK_PROBE_LIMIT,
+              " probes - some rays this frame are not drawn");
+  footIkProbesTruncated = false;
+}
+
 // Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
 // reduces to, drawn where it actually is. The walker and the camera boom test
 // a volume nothing renders, so "why did I stop here", "why did the camera jump
@@ -13260,6 +13428,7 @@ void TerrainGame::renderScene() {
   renderProjShadows();
   // Blob shadows before the beams: dark quads on the terrain, z-tested
   // against the finished scene (objects standing on them still cover them).
+  renderFootIkProbes();
   updateAndRenderBlobShadows();
   // Visible light beams last: additive coronas/cones depth-test against the
   // finished scene (no z writes), so walls occlude them correctly.

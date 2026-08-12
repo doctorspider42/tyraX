@@ -234,6 +234,38 @@ Two supporting details, both of which were bugs first:
 Airborne motion follows physics directly and the filter resumes on contact, so a
 landing onto a raised surface cannot reintroduce the one-frame jump.
 
+## Seeing the raycasts
+
+Every correction the solver makes comes from a ray, and a ray is the one thing
+the screen cannot show. From outside, a foot left in the air looks identical
+whether the ray **missed**, found a surface the **gates then refused**, or found
+one the solver deliberately **lifted the shoe over** - three different bugs with
+three different fixes. *Preferences > Build > Show Foot IK probes* (debug profile)
+draws them, in the game, where they were cast:
+
+| What you see | What it is |
+|---|---|
+| dim cyan segment | the search window a ray covered, ending where it stopped |
+| whole window in **red** | the ray came back with nothing - there was no surface in range |
+| bright cyan mark | a sole probe's hit: the surface the foot is being placed on |
+| yellow mark | an ahead / lip probe's hit - what the swing reacts to |
+| magenta mark | a swept shoe-corner hit (the between-frames tunnelling guard) |
+| white mark | a candidate of the learned landing fan |
+| **green** cross | the leg's target, and this foot is taking weight |
+| **orange** cross | the leg's target, and this foot is NOT taking weight |
+
+The crosses are the answer and the rays are the evidence. An orange cross sitting
+on a surface a cyan mark already found means the geometry was there and a gate
+refused it; an orange cross ABOVE its own probe's hit means the shoe is being
+lifted on purpose (toe clearance); red means there was nothing to stand on.
+
+The overlay records as the solver runs and draws at the end of the frame, capped
+at 192 probes per frame - a walking biped records about thirty, so the cap is
+there for a crowd, and it warns in the game log rather than silently drawing half
+the story. With the preference off the recording and the overlay both fold away
+at compile time, exactly like the collision-box overlay next to it, and a release
+build carries neither.
+
 ## Switching it at runtime
 
 The authored per-object switch is the capability; the live gate is

@@ -56,6 +56,15 @@ route — the feet now follow the clip and ignore the stairs entirely.
 - **Terrain** is flat 100 × 100 — the flights are geometry standing on it, which
   is also the interesting case (the ground under a step is not the step).
 
+## Seeing the raycasts
+
+*Preferences > Build > Show Foot IK probes*, then rebuild. Every ground ray the
+solver casts is drawn where it was cast, with a mark where it stopped and the
+leg's target as a cross - green when that foot takes weight, orange when it does
+not. On this course that is the fastest way to tell a ray that missed from a
+surface a gate refused from a shoe the solver lifted on purpose. The colour
+vocabulary is in [docs/foot-ik.md](../../docs/foot-ik.md).
+
 ## Measuring it
 
 `TYRAX_FOOT_IK_TRACE=1` builds emit `PLAYERIK` / `FOOTIK` / `FOOTTRAIN` rows;

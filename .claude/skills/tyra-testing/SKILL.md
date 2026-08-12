@@ -587,6 +587,18 @@ Downstairs routes additionally report down-reach frames, the maximum reach
 weight/gap, and how many real contacts followed a reach within 12 frames. This
 distinguishes useful unlocked extension from a contact that merely happened
 after the player root had already dropped.
+**Seeing the raycasts instead of reading them.** *Preferences > Build > Show
+Foot IK probes* (debug profile) draws every ground ray the solver casts in the
+GAME - the search window as a segment, a mark where it stopped, the whole window
+red when it found nothing, and the leg's actual target as a cross that is GREEN
+when the foot takes weight and ORANGE when it does not. That last distinction is
+the one the CSV makes you work for: an orange cross on a surface a cyan mark
+already found means the geometry was there and a gate refused it, an orange cross
+ABOVE its own hit means the shoe is being lifted on purpose, and red means there
+was nothing there. Use it to decide WHICH question to ask before reaching for
+`training-frames.csv`, which answers it in numbers. Folds away entirely with the
+preference off (docs/foot-ik.md).
+
 `training-frames.csv` is the raw per-foot `FOOTTRAIN` sequence.
 `training-samples.csv` uses the exact 20 normalized runtime features - the last
 four are the locomotion grade (descend/ascend confidence, filtered drop ahead,

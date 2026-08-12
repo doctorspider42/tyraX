@@ -1054,6 +1054,14 @@ struct ProjectSettings {
     // blocks short of its surface, or a camera that pulls in early, cannot be
     // explained by what is on screen until the box is too.
     bool showCollision = false;
+    // Debug profile only: draw the Foot IK ground probes in the game
+    // (docs/foot-ik.md). Every correction the solver makes comes from a
+    // raycast, and a ray is the one thing the screen cannot show: "the foot
+    // hangs" and "the foot is being lifted on purpose" look identical, and so
+    // do "the ray missed" and "the ray found the wrong surface". This draws
+    // each probe as a segment, marks where it stopped, and colours the
+    // resulting target by whether the foot locked.
+    bool showFootIkProbes = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
@@ -1396,6 +1404,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
            a.showCollision == b.showCollision &&
+           a.showFootIkProbes == b.showFootIkProbes &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.remotePad == b.remotePad &&

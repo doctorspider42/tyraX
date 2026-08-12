@@ -13753,6 +13753,21 @@ void App::drawPreferencesModal() {
         "colliders within 60 units of the camera are drawn - it is a look, not\n"
         "a census. See docs/collision-boxes.md. Stripped from release builds.");
     ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show Foot IK probes", &prefSettings_.showFootIkProbes);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the ground RAYCASTS Foot IK casts (docs/foot-ik.md) in the\n"
+        "GAME: each ray as a segment where it was cast, a bright mark where it\n"
+        "stopped, and the whole window in red when it found nothing. The big\n"
+        "cross is where the leg was actually sent - GREEN when that foot is\n"
+        "taking weight, ORANGE when it is not, which is the 'why is the foot\n"
+        "in the air' case. Ahead/lip probes are yellow, swept shoe corners\n"
+        "magenta, learned landing candidates white.\n\n"
+        "From outside, a foot that hangs because the ray missed, because a\n"
+        "gate refused the surface, and because the solver lifted the shoe over\n"
+        "a step all look identical - this tells them apart. Stripped from\n"
+        "release builds.");
+    ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
     ImGui::EndDisabled();
     ImGui::BeginDisabled(profile == 0);

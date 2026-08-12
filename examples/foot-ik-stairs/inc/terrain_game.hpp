@@ -970,6 +970,36 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Color> collisionBoxCols;
   std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
   std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
+  // --- Foot IK probe overlay (DEBUG_SHOW_FOOTIK) --------------------------
+  // One ray the solver cast this frame, in world space, plus what came back.
+  // Recorded by applyFootIk as it goes and drawn by renderFootIkProbes at the
+  // end of the frame: the solver runs before the render, and a probe is worth
+  // seeing where it WAS, not where the object has since been moved to.
+  struct FootProbe {
+    enum Kind : unsigned char {
+      Sole,       // the vertical ray under the sole - the main one
+      Lip,        // the near/far ahead probes that look for a riser
+      Ahead,      // the motion-lead sample
+      Sweep,      // a swept shoe-corner sample
+      Plan,       // a candidate of the learned landing fan
+      Target,     // not a ray: where the leg was actually sent
+    };
+    float x = 0.0F, z = 0.0F;   // where the ray was cast
+    float top = 0.0F, bottom = 0.0F;  // its search window
+    float hitY = 0.0F;
+    Kind kind = Sole;
+    bool hit = false;
+    bool locked = false;  // Target only: did the foot take weight
+  };
+  std::vector<FootProbe> footIkProbes;
+  bool footIkProbesTruncated = false;
+  void recordFootProbe(FootProbe::Kind kind, float x, float z, float top,
+                       float bottom, bool hit, float hitY);
+  std::vector<Tyra::Vec4> footProbeVerts;
+  std::vector<Tyra::Color> footProbeCols;
+  std::unique_ptr<Tyra::StaPipBag> footProbeBag;
+  std::unique_ptr<Tyra::StaPipColorBag> footProbeColorBag;
+  void renderFootIkProbes();
   // Does this object take part in collision at all? Geometry-less markers and
   // "collision: none" objects do not.
   static bool objectCollides(const SceneObjectData& d);

@@ -1314,6 +1314,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.showAreas ? "true" : "false") << ",\n"
          << "    \"showCollision\": "
          << (p.settings.showCollision ? "true" : "false") << ",\n"
+         << "    \"showFootIkProbes\": "
+         << (p.settings.showFootIkProbes ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
@@ -4542,6 +4544,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showAreas")) st.showAreas = v->boolOr(false);
         if (const auto* v = s->find("showCollision"))
             st.showCollision = v->boolOr(false);
+        if (const auto* v = s->find("showFootIkProbes"))
+            st.showFootIkProbes = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
