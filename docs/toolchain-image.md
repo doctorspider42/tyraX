@@ -4370,6 +4370,116 @@ here and not fixed.
   same source. The mode is now exercised by three regression cases where it was
   exercised by none, which is a floor and not a sweep.
 
+### Round sixteen: a live miscompile on hardware, and the value oracles could not see it
+
+The scene `blocks-terrain` renders correctly on a real PS2 built with Sony's `vcl` and
+**corrupt** built with openvcl - triangles that occlude the screen, changing as the camera
+moves - same engine sources, same console, `TYRAX_IMAGE` the only difference. Confirmed by a
+human at the television. This is the defect, the mechanism and the fix.
+
+**Every value oracle passes the corpus that ships, and that is the first finding.** The
+25 programs a real engine build hands the assembler were pulled out and judged, both arms,
+against their own `.o.vcl` sources: `pb-dag` (path-sensitive values) **0 divergent over 277
+traces**, `pd-cond` (branch conditions) **0 divergent, 2631 conditions, 119 of 119 branch
+sites reached**, `pt-clipgap` clean with every CLIP reader at or above the hardware's 4-row
+floor, and a store-vs-`xgkick` order check clean on all 25. So the defect changes **when a
+value is readable, not what anything computes**, and no oracle in this file asks that
+question about integer registers.
+
+**The mechanism: a branch condition is a distance along a path, and openvcl measured a
+file.** The emitter's baseline is one bubble row in front of every conditional branch.
+`--branch-bubble-on-dependency` narrows that to branches whose condition is actually
+produced nearby, and asks with `scheduledSlotsFeedBranch()`, which looks at the one or two
+**schedule slots above the branch**. A branch in the middle of a block has no other
+predecessor and the answer is right. A branch that is the **first row of a labelled block**
+has another one: the **delay slot of every jump to that label** - and a delay slot is
+exactly where `--emit-delay-fillers` puts an integer op.
+
+main's #218 walks the frustum planes with a per-package object-space mask in an integer
+register, which is a shape no corpus here had before:
+
+```
+planeLoop:
+    ibltz   buffer, planeActive        <- first row of the block
+...
+planeAdvance:
+    ibne    planePtr, vertMask, planeLoop
+    iadd    buffer, buffer, buffer     <- delay slot: shifts the mask
+```
+
+The file shows the shift five rows above the label; the hardware executes it **one row
+before the branch**. So every iteration after the first tested the **previous** plane's bit,
+the clipper applied the wrong subset of the six planes, and geometry that should have been
+clipped reached the GS. Which planes are wrong depends on where the object sits in the
+frustum, which is why it moves with the camera. **PCSX2 cannot see it** - its VU has no such
+hazard, the branch reads the value written the row before - and `docs/vu1-clipping-plan.md`
+predicted that this class would be masked there. This is the first demonstration.
+
+**Sony is the control, and it settles the threshold without a new hardware ladder.** A new
+path-aware instrument (`<scratch>/qz-brgap.py`, and `test/regress/lib/pz-brgap.py` in the
+fork) rebuilds the CFG over emitted rows the way `insertOneCrossPathClipPad` does - a branch
+fans out from its delay slot, never from the branch row - and reports, per conditional
+branch, the fewest rows any path executes between a writer of its condition and the branch.
+Loads and CLIP/MAC/STATUS readers are exempt, because `--branch-interlock` is the deliberate
+decision to let the hardware wait for those and Sony emits that shape on purpose with
+`STALL_LATENCY ?3` beside it. On the 25 shipping programs:
+
+| | sites | minimum | at 0 |
+|---|---:|---:|---:|
+| Sony `vcl` | 122 | **1** | 0 |
+| openvcl, shipped | 83 | **0** | **5** |
+| openvcl, fixed | 83 | **1** | 0 |
+
+All five zeros are the same site in the five `stapip_clip_*` programs: `ibltz buffer` at the
+`planeLoop` head with `iadd buffer,buffer,buffer` in the back-edge delay slot. **Sony emits
+the identical delay-slot fill and then pads the loop head with two rows**, which is what
+makes this a bug rather than a disagreement about latency - and no constant had to be
+invented, because openvcl already believes one row is owed whenever it can see the
+dependency. The first version of that instrument reported **zero sites for the entire Sony
+arm**: it split rows on runs of whitespace, and `vcl` pads between a mnemonic and its
+operands. Fourth time in this effort that a search finding nothing was evidence about the
+search.
+
+**The fix** is `padBranchConditionAcrossPaths()`, a post-pass beside the CLIP one and on the
+same graph, extracted into a shared `buildEmittedRowGraph()` so there is one copy of the
+delay-slot fan-out rule. For a conditional branch that opens a labelled block, if any path
+predecessor writes one of its condition registers, one `nop`/`nop` goes in **below the
+label** - so the fall-through and every taken edge pass through it, which padding above the
+label cannot do. It runs after the clip pass: inserting rows can only lengthen a CLIP
+push-to-reader distance, never shorten one.
+
+**Cost, from `nm`, on the corpus that ships:** `stapip_clip_c` +2 and `stapip_clip_td` +2,
+everything else unmoved. Five rows are inserted and three of them are absorbed by the
+`.align 4` padding already before `_CodeEnd`. Resident 8 images **1652 to 1656** against
+Sony's 1678 and a ceiling of 2042; all 25 programs **4002 to 4006** against Sony's 4066.
+`pb-dag`, `pd-cond` and `pt-clipgap` are unchanged on the fixed output.
+
+**And it moves nothing else.** Over the 25, exactly **five programs move and each gains
+exactly one row** - the five `stapip_clip_*` - and the other twenty are byte-identical.
+openvcl's own twelve ps2gl fixtures are byte-identical too, in the default configuration
+(where the pass returns immediately, because `--branch-bubble-on-dependency` is off and the
+unconditional bubble is already in front of every branch) **and** under the full TyraX flag
+list: 0 of 12 moved in both.
+
+**The suite grows a kind, because it had to.** Four kinds compare what a program computes and
+all four pass the buggy build on this corpus, so a fifth question was needed rather than a
+fifth case: **BRGAP**, `pz-brgap.py`, derived from the ISA table's own operand patterns
+rather than a second list of opcodes. Two cases: `branch_backedge_cond` reduces the plane
+walk to nine instructions and **fails on `tyrax-ab:pw`, passes on the fix**; its control
+`branch_backedge_cond_ok` is the same loop with the head branch testing a register the loop
+never writes, asserted as `MAXCOUNT nop:25` - so an emitter that padded every loop head would
+pass the reproducer and fail the control. `docker/openvcl-regress.sh` reads **50 pass / 1
+fail / 4 xfail** on the shipped build, the single failure being the reproducer, and **51 / 0
+/ 4** on the fixed one.
+
+**Verified the way this file requires.** Rebuilding the *unmodified* fork through the same
+container path gives a binary byte-identical to the one `tyrax-ab:pw` carries, so the build
+path is not a variable. The regenerated `docker/openvcl-tyrax.patch` applied to a pristine
+checkout of the pinned `a5867c3` and rebuilt gives md5 `8a5b026beac2ad23516d92d6ed18dede` -
+the same binary every number above was measured with. And the microcode actually deployed to
+the console was read back out of the engine volume to confirm it carries the pad below
+`planeLoop:` before the run was believed.
+
 ## Still open
 
 - **The GHCR package is private** until the repo is, so nobody outside can pull
