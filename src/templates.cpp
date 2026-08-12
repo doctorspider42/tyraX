@@ -8060,10 +8060,29 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
         targetWorld.y = ground + sole;
       }
       const float d = (targetWorld.y - ankleWorld.y) * foot.weight;
-      // Pelvis compensation is a reach safeguard, not a second ground magnet.
-      // Only a planted foot that needs more downward reach may lower it.
+      // Pelvis compensation is a reach safeguard, not a second ground magnet:
+      // only a planted foot that needs more downward reach may lower it, and
+      // then only by what the LEG cannot absorb on its own.
+      //
+      // That second half is the whole difference between a character standing
+      // and a character sinking into the floor. A standing leg is not straight -
+      // it has slack - so pulling an ankle down by a few centimetres costs the
+      // leg nothing and the hips nothing. Handing the pelvis the FULL correction
+      // instead made it an echo of the animation: every centimetre the clip
+      // lifts a foot became a centimetre of hip drop, measured at -0.169 on FLAT
+      // ground with both feet already sitting exactly on their targets - a
+      // 17 cm crouch that bought nothing and read as the avatar being buried to
+      // the shins. The correction the LEG cannot make is a different quantity,
+      // and it is the one the safeguard was written for.
+      //
+      // The leg's allowance is a fraction of the author's Max pelvis correction,
+      // so a rig that genuinely needs more hip travel says so with the knob it
+      // already has.
       if (foot.locked && d < 0.0F) {
-        if (!havePelvis || d < pelvisWorld) pelvisWorld = d;
+        const float legSlack = ikPelvis * 0.6F;
+        const float excess = d + legSlack;  // d is negative
+        const float share = excess < 0.0F ? excess : 0.0F;
+        if (!havePelvis || share < pelvisWorld) pelvisWorld = share;
         havePelvis = true;
       }
     }

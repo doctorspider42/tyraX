@@ -115,7 +115,17 @@ toe-off or pulls far enough away, and keeps its old target while its weight
 smoothsteps to zero over 0.08 s — target height and influence therefore cannot
 jump on the same frame when a probe crosses a stair edge.
 
-The lowest requested foot correction also lowers the common pelvis, then an
+The lowest requested foot correction may also lower the common pelvis - but only
+by the part of it the LEG cannot absorb. That distinction is the difference
+between a character standing and a character sinking into the floor: a standing
+leg is not straight, so pulling an ankle down a few centimetres costs the leg
+nothing, and handing the pelvis the full correction instead makes the hips an echo
+of the animation. Measured on flat ground with both feet already exactly on their
+targets, the old rule dropped the hips 17 cm - a crouch that bought nothing, read
+as the avatar being buried to the shins, and actively pulled planted feet off
+their contacts (29 such frames in one route, none after). The leg's allowance is
+60% of *Max pelvis correction*, so a rig that genuinely needs more hip travel
+says so with the knob it already has. Then an
 analytic two-bone solve rotates the hip and knee. A filtered authored knee pole
 guides that solve and takes over near the straight-leg singularity where a raw
 cross product can flip sides. The authored ankle yaw is preserved while an
