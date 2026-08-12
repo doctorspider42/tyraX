@@ -2319,3 +2319,30 @@ use them.
   only the 32-bit, both-targets-reserved case - a 16-bit project has nearly
   twice that and the editor will still warn as if it did not. The number wants
   to come from the project's settings the way the engine's does.
+
+- **Report ps2sdk's `GS_SET_DIMX` bitmask upstream.** Deliberately deferred, so
+  everything needed to do it later is here rather than re-derived. Each DIMX
+  entry is a **3-bit signed** value (-4..+3); ps2sdk masks every one of the
+  sixteen with `0x00000003`, i.e. two bits, so the negative half of any dither
+  matrix collapses onto 0..3, the offsets stop averaging to zero and the dither
+  biases the image upward instead of cancelling. The macro is usable only for
+  an all-non-negative matrix, which the standard PS2 one is not:
+  `(-4,+2,-3,+3 / 0,-2,+1,-1 / -3,+3,-4,+2 / +1,-1,0,-2)`.
+
+  The whole patch is one character in sixteen places, `0x00000003` ->
+  `0x00000007`, in `common/include/gs_gp.h`. **Regression risk is nil**: a
+  caller passing 0..3 gets bit-identical output, and the only behaviour that
+  changes belongs to callers passing 4..7, which today silently get something
+  other than what they asked for.
+
+  Checked when this was written (2026-08-12): still present on ps2sdk master,
+  no issue or PR open for `DIMX` - and the same class of fix has landed in that
+  exact file before ("Fix MIPTBP addresses bitmask"), so it is likely to be
+  taken. Evidence for the 3-bit width, in case a reviewer asks: PCSX2's own
+  register definition is `s32 DM00 : 3` plus a 1-bit pad (`GS/GSRegs.h`).
+
+  Our side needs nothing - `tyraxDitherMatrix()` in `renderer_core_gs.cpp`
+  packs the register by hand and says why. When upstream lands the fix and the
+  pinned `h4570/tyra` image picks it up, that helper can be deleted in favour
+  of `GS_SET_DIMX`; until then its comment tells the next person not to
+  "simplify" it back.
