@@ -36,6 +36,40 @@ extern "C" s32 tyraxVblankHandler(s32 cause) {
   return 0;
 }
 
+// Modified by TyraX: the GS's standard 4x4 ordered-dither matrix, packed for
+// the DIMX register BY HAND because ps2sdk's GS_SET_DIMX cannot express it.
+//
+// DIMX holds sixteen entries at bits 0, 4, 8 ... 60, and each is a 3-BIT
+// SIGNED value - range -4..+3, confirmed against PCSX2's own register
+// definition (`s32 DM00 : 3` plus a 1-bit pad, GS/GSRegs.h). ps2sdk masks
+// every entry with 0x03:
+//
+//   #define GS_SET_DIMX(D00, ...) (u64)((D00)&0x00000003) << 0 | ...
+//
+// Two bits. So the negative half of the matrix - which is encoded 4..7 in
+// 3-bit two's complement - silently collapses onto 0..3, the offsets stop
+// averaging to zero, and the dither biases the whole image upward instead of
+// cancelling. The macro is only usable for a matrix that happens to be
+// entirely non-negative, which the standard one is not:
+//
+//     -4  +2  -3  +3        4 2 5 3
+//      0  -2  +1  -1   =>   0 6 1 7   (as 3-bit two's complement)
+//     -3  +3  -4  +2        5 3 4 2
+//     +1  -1   0  -2        1 7 0 6
+//
+// Reported upstream; drop this and call GS_SET_DIMX once ps2sdk masks with
+// 0x07 (`git log common/include/gs_gp.h` shows the same class of fix landing
+// before - "Fix MIPTBP addresses bitmask"). Until then, do NOT "simplify"
+// this back to the macro.
+static u64 tyraxDitherMatrix() {
+  static const int kDimx[16] = {4, 2, 5, 3, 0, 6, 1, 7,
+                                5, 3, 4, 2, 1, 7, 0, 6};
+  u64 reg = 0;
+  for (int i = 0; i < 16; i++)
+    reg |= static_cast<u64>(kDimx[i] & 0x07) << (i * 4);
+  return reg;
+}
+
 RendererCoreGS::RendererCoreGS() {
   context = 0;
   currentField = 0;
@@ -595,21 +629,11 @@ void RendererCoreGS::initDrawingEnvironment() {
   // makes PSMCT16 usable: 5 bits per channel band visibly in skies, fog and
   // the post-fx blur, and the 4x4 offset matrix trades that banding for
   // noise the TV's own filtering then blurs away.
-  //
-  // Written by hand rather than through ps2sdk's GS_SET_DIMX: each DIMX
-  // entry is a 3-BIT signed value (-4..3) and that macro masks the entries
-  // with 0x03, so the negative half of the standard matrix (encoded 4..7)
-  // silently collapses to 0..3 and the dither comes out one-sided.
   {
-    static const int dimx[16] = {4, 2, 5, 3, 0, 6, 1, 7,
-                                 5, 3, 4, 2, 1, 7, 0, 6};
-    u64 dimxReg = 0;
-    for (int i = 0; i < 16; i++)
-      dimxReg |= static_cast<u64>(dimx[i] & 0x07) << (i * 4);
     qword_t* q = packet2->next;
     PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
     q++;
-    PACK_GIFTAG(q, dimxReg, GS_REG_DIMX);
+    PACK_GIFTAG(q, tyraxDitherMatrix(), GS_REG_DIMX);
     q++;
     PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
     q++;
