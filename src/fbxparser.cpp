@@ -496,7 +496,8 @@ void matrixTo16(const ufbx_matrix& m, float out[16]) {
 
 // --- bake (morph frames, editor preview) ---------------------------------
 
-bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
+bool bake(const std::string& path, float fps, Baked& out, std::string& error,
+          const std::vector<std::string>* onlyClips) {
     out = Baked{};
     ufbx_scene* scene = loadScene(path, error);
     if (!scene) return false;
@@ -538,13 +539,24 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     std::vector<StackFrames> stacks;
     std::vector<std::string> takenNames;
     int total = 0;
+    // A clip nobody asked to see gets ONE frame instead of its full sampling.
+    // It still occupies a Clip entry with a valid firstFrame, so any consumer
+    // can address it - it simply holds its first pose until someone re-bakes
+    // asking for it (see the onlyClips comment in glbparser.hpp).
+    auto clipWanted = [&](const std::string& name) {
+        if (!onlyClips) return true;
+        for (const std::string& w : *onlyClips)
+            if (w == name) return true;
+        return false;
+    };
     for (size_t i = 0; i < scene->anim_stacks.count; ++i) {
         const ufbx_anim_stack* st = scene->anim_stacks.data[i];
         const double dur = st->time_end - st->time_begin;
-        const int frames =
-            dur > 0.0 ? (int)llround(dur * (double)fps) + 1 : 1;
         Clip clip;
         clip.name = clipName(st, takenNames);
+        const int frames = !clipWanted(clip.name) ? 1
+                           : dur > 0.0 ? (int)llround(dur * (double)fps) + 1
+                                       : 1;
         takenNames.push_back(clip.name);
         clip.firstFrame = total;
         clip.frameCount = frames;
@@ -638,7 +650,8 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
 
 // --- parseSkel (skeletal runtime) ----------------------------------------
 
-bool parseSkel(const std::string& path, Skel& out, std::string& error) {
+bool parseSkel(const std::string& path, Skel& out, std::string& error,
+               bool metadataOnly) {
     out = Skel{};
     ufbx_scene* scene = loadScene(path, error);
     if (!scene) return false;
@@ -783,9 +796,10 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
         takenNames.push_back(clip.name);
         const double dur = st->time_end - st->time_begin;
         clip.duration = (float)(dur > 0.0 ? dur : 0.0);
-        for (size_t ni = 0; ni < scene->nodes.count; ++ni)
-            sampleNodeChannels(st->anim, scene->nodes.data[ni],
-                               st->time_begin, dur, clip);
+        if (!metadataOnly)
+            for (size_t ni = 0; ni < scene->nodes.count; ++ni)
+                sampleNodeChannels(st->anim, scene->nodes.data[ni],
+                                   st->time_begin, dur, clip);
         out.clips.push_back(std::move(clip));
     }
     if (out.clips.empty()) {
@@ -815,7 +829,10 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
             }
         }
     };
-    if (scene->anim_stacks.count == 0) {
+    if (metadataOnly || scene->anim_stacks.count == 0) {
+        // Bind pose only. Unioning every clip means evaluating the WHOLE scene
+        // at 6 Hz per clip, which is the single most expensive thing in this
+        // function on a model that carries an animation library.
         unionPose(scene);
     } else {
         for (size_t i = 0; i < scene->anim_stacks.count; ++i) {
@@ -935,17 +952,19 @@ void applyUvSidecar(const std::string& modelPath, std::vector<PartT>& parts) {
 }  // namespace
 
 bool bake(const std::string& path, float fps, glbparser::Baked& out,
-          std::string& error) {
-    const bool ok = isFbx(path) ? fbxparser::bake(path, fps, out, error)
-                                : glbparser::bake(path, fps, out, error);
+          std::string& error, const std::vector<std::string>* onlyClips) {
+    const bool ok =
+        isFbx(path) ? fbxparser::bake(path, fps, out, error, onlyClips)
+                    : glbparser::bake(path, fps, out, error, onlyClips);
     if (ok) applyUvSidecar(path, out.parts);
     return ok;
 }
 
 bool parseSkel(const std::string& path, glbparser::Skel& out,
-               std::string& error) {
-    const bool ok = isFbx(path) ? fbxparser::parseSkel(path, out, error)
-                                : glbparser::parseSkel(path, out, error);
+               std::string& error, bool metadataOnly) {
+    const bool ok =
+        isFbx(path) ? fbxparser::parseSkel(path, out, error, metadataOnly)
+                    : glbparser::parseSkel(path, out, error, metadataOnly);
     // LODs are generated AFTER this call (generateSkelLods rides the UVs
     // along the collapse), so they inherit the replacement automatically.
     if (ok) applyUvSidecar(path, out.parts);

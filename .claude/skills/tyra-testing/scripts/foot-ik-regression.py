@@ -73,6 +73,11 @@ FOOT_HEADER = [
     "body_roll",
     "left_down_reach_weight",
     "right_down_reach_weight",
+    "descend",
+    "ascend",
+    "drop_ahead",
+    "reach_budget",
+    "root_ground_drop",
 ]
 TRAIN_HEADER = [
     "frame",
@@ -111,10 +116,15 @@ TRAIN_HEADER = [
     "sweep_rise",
     "down_reach_weight",
     "down_reach_gap",
+    "descend",
+    "ascend",
+    "drop_ahead",
+    "reach_budget",
+    "neural_reach_intent",
 ]
 SAMPLE_HEADER = [
-    *[f"f{i}" for i in range(16)],
-    *[f"t{i}" for i in range(5)],
+    *[f"f{i}" for i in range(20)],
+    *[f"t{i}" for i in range(6)],
     "weight",
     "frame",
     "object",
@@ -295,6 +305,10 @@ def training_samples(rows: list[list[float]]) -> list[list[float]]:
                 clamp(row[27] / 3.0, -1.0, 1.0),
                 clamp(row[28] / 0.35, 0.0, 1.0),
                 clamp(row[29] / 0.25 - 1.0, -1.0, 1.0),
+                clamp(row[36] * 2.0 - 1.0, -1.0, 1.0),
+                clamp(row[37] * 2.0 - 1.0, -1.0, 1.0),
+                clamp(row[38] / 0.55, -1.0, 1.0),
+                clamp(row[39] / 0.55, -1.0, 1.0),
             ]
             contact = 0.0
             lock_x, lock_z = row[17], row[18]
@@ -312,6 +326,7 @@ def training_samples(rows: list[list[float]]) -> list[list[float]]:
                         break
             clearance = clamp(row[22] / 0.20, 0.0, 1.0)
             release = 1.0 if row[23] > 0.5 else 0.0
+            reach = clamp(row[34], 0.0, 1.0)
             targets = [
                 clamp((lock_x - row[15]) / 0.16, -1.0, 1.0)
                 if contact > 0.0
@@ -322,8 +337,10 @@ def training_samples(rows: list[list[float]]) -> list[list[float]]:
                 contact,
                 clearance,
                 release,
+                reach,
             ]
-            weight = 0.35 + contact * 1.65 + clearance * 3.0 + release * 3.0
+            weight = (0.35 + contact * 1.65 + clearance * 3.0 +
+                      release * 3.0 + reach * 3.0)
             output.append(
                 [*features, *targets, weight, row[0], row[1], row[2]]
             )

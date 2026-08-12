@@ -79,10 +79,20 @@ struct Baked {
     }
 };
 
-// Parses a .glb and bakes every animation clip into morph frames at `fps`
+// Parses a .glb and bakes its animation clips into morph frames at `fps`
 // samples per second. Returns false (with `error` set) only when the file
 // is unreadable/malformed or contains no triangles.
-bool bake(const std::string& path, float fps, Baked& out, std::string& error);
+//
+// `onlyClips` limits the SAMPLING: nullptr bakes every clip (the .tanm/import
+// path), otherwise a clip not named there gets exactly ONE frame. Every clip
+// still appears in `Baked::clips` with valid firstFrame/frameCount, so a
+// consumer can address any of them - an unsampled one simply holds its first
+// pose. That matters because the editor preview poses ONE clip at a time while
+// an animation-library character can carry forty: baking all of them cost
+// ~12 s and hundreds of MB per model on the measured 39-clip rig, for frames
+// nothing was ever going to draw.
+bool bake(const std::string& path, float fps, Baked& out, std::string& error,
+          const std::vector<std::string>* onlyClips = nullptr);
 
 // Serializes a bake into the .tanm binary consumed by the PS2 engine's
 // TanmLoader (vendor/tyra .../loaders/3d/tanm_loader). `textureNames` maps
@@ -180,7 +190,17 @@ struct Skel {
 
 // Parses a .glb into the skeletal representation above. Same support matrix
 // and failure conditions as bake().
-bool parseSkel(const std::string& path, Skel& out, std::string& error);
+//
+// `metadataOnly` answers "what is in this file" instead of "give me the runtime
+// data": the hierarchy, the clip names and durations, the bind-pose parts and
+// the materials, WITHOUT resampling any animation channel and without the
+// all-clips pose AABB (`min`/`max` then hold the bind-pose box). Those two are
+// most of the work on an animation-library character - a 39-clip rig spends its
+// time evaluating the whole scene at 6 Hz per clip to union the box - and every
+// panel that only wants to LIST clips or bones was paying for them. The .tskl
+// bake must never use it: the runtime culls with that box.
+bool parseSkel(const std::string& path, Skel& out, std::string& error,
+               bool metadataOnly = false);
 
 // Generates the distance LODs (SkelPart::lods) by quadric-error half-edge
 // collapse on the bind-pose mesh: ~50% and ~25% of the base vertex count.

@@ -262,40 +262,6 @@ struct ScrollSegment {
     std::vector<ScrollMember> objects;
 };
 
-// Per-object terrain-aware post-animation leg placement. Bone names are kept
-// instead of node indices so re-exporting a model may reorder its hierarchy
-// without silently retargeting the solver to unrelated joints. The .tskl bake
-// carries node names and the generated game resolves these once when the
-// skeletal instance is created.
-struct FootIkConfig {
-    bool enabled = false;
-    bool neuralAssist = false;       // learned VU0 landing-point residual
-    float neuralStrength = 0.65f;    // 0 = observe only, 1 = full safe residual
-    std::string leftHip, leftKnee, leftAnkle;
-    std::string rightHip, rightKnee, rightAnkle;
-    float soleOffset = 0.08f;    // model-local ankle -> sole distance
-    float probeUp = 0.35f;       // world units above the previous sole
-    float probeDown = 0.75f;     // world units below the previous sole
-    float plantDistance = 0.12f; // distance at which a descending foot locks
-    float releaseDistance = 0.22f;
-    float maxPelvis = 0.35f;     // maximum world-space pelvis correction
-    float maxFootAngle = 35.0f;  // maximum sole-to-surface tilt, degrees
-    float toeClearance = 0.10f;  // swing lift above an upcoming obstacle
-};
-
-inline bool operator==(const FootIkConfig& a, const FootIkConfig& b) {
-    return a.enabled == b.enabled && a.neuralAssist == b.neuralAssist &&
-           a.neuralStrength == b.neuralStrength && a.leftHip == b.leftHip &&
-           a.leftKnee == b.leftKnee && a.leftAnkle == b.leftAnkle &&
-           a.rightHip == b.rightHip && a.rightKnee == b.rightKnee &&
-           a.rightAnkle == b.rightAnkle && a.soleOffset == b.soleOffset &&
-           a.probeUp == b.probeUp && a.probeDown == b.probeDown &&
-           a.plantDistance == b.plantDistance &&
-           a.releaseDistance == b.releaseDistance &&
-           a.maxPelvis == b.maxPelvis &&
-           a.maxFootAngle == b.maxFootAngle &&
-           a.toeClearance == b.toeClearance;
-}
 
 inline bool operator==(const ScrollSegment& a, const ScrollSegment& b) {
     return a.name == b.name && a.length == b.length && a.objects == b.objects;
@@ -706,7 +672,15 @@ struct SceneObject {
     // +-90 and the runtime facing (walker faceYaw, NPC turn-to-face) stays
     // pure logic while the mesh renders turned. Applies to animated models.
     float modelYawOffset = 0.0f;
-    FootIkConfig footIk;
+    // Foot IK on THIS instance (docs/foot-ik.md). Two switches, and the split
+    // is the point: the rig - which bones are legs, and how far a shoe may
+    // reach - belongs to the MODEL ASSET (Project::footIkRigs, Tools > Foot
+    // IK), while this bool says whether this particular character runs the
+    // solver. A crowd can therefore share one binding and pay for it only
+    // where it shows: an instance running the solver needs its own corrected
+    // pose and cannot share a skinned mesh with lockstep instances, so a
+    // distant extra - or an NPC nobody is looking at - is cheaper without it.
+    bool footIk = false;
 
     // Per-object logic. Object-referencing nodes default to this object
     // ("self"), so a copied object brings a working copy of its behavior.
@@ -2385,6 +2359,105 @@ inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
            a.loop == b.loop;
 }
 
+// What Foot IK does while ONE clip of a rig plays (docs/foot-ik.md). A rig is
+// a property of the skeleton, but whether a shoe should stop at the floor is a
+// property of the MOTION: a walk wants the solver, a jump, a sit, a ladder
+// climb or a death animation wants the authored pose left alone, and a run
+// wants the same solver with a longer stride's tolerances. The clip is named
+// with its SOURCE name, like AnimClipEdit::clip, so a rename in the Animation
+// Editor cannot orphan a rule.
+struct FootIkClipRule {
+    std::string clip;   // source clip name, as authored in the file
+    bool solve = true;  // false = this clip plays exactly as authored
+    // Multipliers on the rig's own tolerances, so a rule states a DIFFERENCE
+    // from the model's binding instead of a second copy of every number.
+    float plantScale = 1.0f;      // plant + release + reach distances
+    float clearanceScale = 1.0f;  // swing toe clearance
+
+    bool isDefault() const {
+        return solve && plantScale == 1.0f && clearanceScale == 1.0f;
+    }
+};
+
+inline bool operator==(const FootIkClipRule& a, const FootIkClipRule& b) {
+    return a.clip == b.clip && a.solve == b.solve &&
+           a.plantScale == b.plantScale &&
+           a.clearanceScale == b.clearanceScale;
+}
+
+// The Foot IK binding of one animated model asset (Tools > Foot IK,
+// docs/foot-ik.md).
+//
+// Per ASSET, not per object, because a rig IS the skeleton: every instance of
+// a character has the same legs, and duplicating the binding onto each object
+// only bought a way for two copies of one character to disagree about which
+// bone is a knee. A scene object carries the on/off switch alone
+// (SceneObject::footIk), which is what lets a future NPC opt in without
+// re-authoring anything.
+//
+// Bone names are kept instead of node indices: re-exporting a model with one
+// extra bone shifts every index, and a rig that silently retargets to the
+// wrong leg is far worse than one that reports a bone it can no longer find.
+// The .tskl bake carries node names and the generated game resolves them once
+// when the skeletal instance is created.
+//
+// Distances are project world units, except soleOffset which is in the model's
+// own units (it follows the object's scale, so it means the same thing however
+// the instance is scaled).
+struct FootIkRig {
+    std::string model;  // project-relative asset, e.g. "res/models/hero.glb"
+    bool enabled = false;
+    std::string leftHip, leftKnee, leftAnkle;
+    std::string rightHip, rightKnee, rightAnkle;
+    float soleOffset = 0.08f;     // model-local ankle -> sole distance
+    float probeUp = 0.35f;        // world units above the previous sole
+    float probeDown = 0.75f;      // world units below the previous sole
+    float plantDistance = 0.12f;  // distance at which a descending foot locks
+    float releaseDistance = 0.22f;
+    float maxPelvis = 0.35f;      // maximum world-space pelvis correction
+    float maxFootAngle = 35.0f;   // maximum sole-to-surface tilt, degrees
+    float toeClearance = 0.10f;   // swing lift above an upcoming obstacle
+    // Downhill / stair descent (docs/foot-ik.md "Going down"). The reach a
+    // descending character is allowed to add on top of the level-ground bands,
+    // and it is spent only where a raycast already proved support that far
+    // down - a step the walker has physically dropped onto is exactly the case
+    // the level-ground numbers cannot express.
+    float descendReach = 0.45f;   // extra downward reach while descending
+    bool neuralAssist = false;    // learned VU0 landing-point residual
+    float neuralStrength = 0.65f; // 0 = observe only, 1 = full safe residual
+    std::vector<FootIkClipRule> clips;
+
+    // True when this entry would change nothing on the console - the tool
+    // drops such rows on save so an untouched project keeps an empty list.
+    bool isDefault() const {
+        return !enabled && leftHip.empty() && leftKnee.empty() &&
+               leftAnkle.empty() && rightHip.empty() && rightKnee.empty() &&
+               rightAnkle.empty() && clips.empty();
+    }
+    // The rule for one source clip, or nullptr when the clip has none.
+    const FootIkClipRule* findClip(const std::string& sourceClip) const {
+        for (const FootIkClipRule& r : clips)
+            if (r.clip == sourceClip) return &r;
+        return nullptr;
+    }
+};
+
+inline bool operator==(const FootIkRig& a, const FootIkRig& b) {
+    return a.model == b.model && a.enabled == b.enabled &&
+           a.leftHip == b.leftHip && a.leftKnee == b.leftKnee &&
+           a.leftAnkle == b.leftAnkle && a.rightHip == b.rightHip &&
+           a.rightKnee == b.rightKnee && a.rightAnkle == b.rightAnkle &&
+           a.soleOffset == b.soleOffset && a.probeUp == b.probeUp &&
+           a.probeDown == b.probeDown &&
+           a.plantDistance == b.plantDistance &&
+           a.releaseDistance == b.releaseDistance &&
+           a.maxPelvis == b.maxPelvis && a.maxFootAngle == b.maxFootAngle &&
+           a.toeClearance == b.toeClearance &&
+           a.descendReach == b.descendReach &&
+           a.neuralAssist == b.neuralAssist &&
+           a.neuralStrength == b.neuralStrength && a.clips == b.clips;
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -2683,6 +2756,19 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Foot IK rigs (Tools > Foot IK, docs/foot-ik.md). One entry per animated
+    // model asset that has been bound; a model with no entry animates exactly
+    // as before. Project-wide and persisted like the collections above, not
+    // part of undo/redo.
+    std::vector<FootIkRig> footIkRigs;
+
+    // The rig of one model asset, or nullptr when it has never been bound.
+    const FootIkRig* findFootIkRig(const std::string& modelRel) const {
+        for (const FootIkRig& r : footIkRigs)
+            if (r.model == modelRel) return &r;
+        return nullptr;
+    }
+
     // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
     // objects - their flow graphs included - stamped into the world by hand,
     // by a procedural graph, or by the Spawn Prefab node while the game runs.
@@ -2877,6 +2963,12 @@ void renameFactRefs(Project& p, const std::string& from, const std::string& to);
 void renameFactQueryRefs(Project& p, const std::string& from,
                          const std::string& to);
 
+// The one place a Foot IK rig's numbers are made sane (docs/foot-ik.md).
+// Called by the section reader, by the pre-v12 per-object shim in load() and
+// by the Foot IK tool, so a hand-edited .tyra and the widgets cannot disagree
+// about the limits.
+void clampFootIkRig(FootIkRig& r);
+
 // Fills in the built-in input actions and the "Default" preset (Tools > Input
 // Map) with the bindings that were hardcoded before the Input Map existed, so
 // a project from an older TyraX plays identically. Only ADDS what is missing:
@@ -2940,6 +3032,7 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    FootIkRigs,      // "footIkRigs" (Tools > Foot IK bone bindings + tuning)
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
@@ -2956,7 +3049,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 19,
+static_assert(kSectionCount == 20,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

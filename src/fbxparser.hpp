@@ -32,11 +32,13 @@ namespace fbxparser {
 // Morph-frame bake at `fps` samples per second - the editor-side preview /
 // validation path, mirroring glbparser::bake.
 bool bake(const std::string& path, float fps, glbparser::Baked& out,
-          std::string& error);
+          std::string& error,
+          const std::vector<std::string>* onlyClips = nullptr);
 
-// Skeletal representation for the PS2 runtime - mirrors glbparser::parseSkel.
+// Skeletal representation for the PS2 runtime - mirrors glbparser::parseSkel,
+// `metadataOnly` included (see its comment there).
 bool parseSkel(const std::string& path, glbparser::Skel& out,
-               std::string& error);
+               std::string& error, bool metadataOnly = false);
 
 // FBX files, unlike .glb, often reference textures as separate files. Import
 // copies the referenced files next to the copied .fbx so a project stays
@@ -64,9 +66,10 @@ namespace animimport {
 //   per part: char material[32] (NUL-padded), u32 vertexCount,
 //             vertexCount * 2 f32 (u, v per flat corner)
 bool bake(const std::string& path, float fps, glbparser::Baked& out,
-          std::string& error);
+          std::string& error,
+          const std::vector<std::string>* onlyClips = nullptr);
 bool parseSkel(const std::string& path, glbparser::Skel& out,
-               std::string& error);
+               std::string& error, bool metadataOnly = false);
 
 // Writes the sidecar next to the model (partUvs parallel to baked.parts,
 // each vertexCount * 2 floats; an empty inner vector skips that part).

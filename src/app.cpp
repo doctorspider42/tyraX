@@ -893,6 +893,7 @@ void App::drawUI() {
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
+    drawFootIkWindow();
     drawDebuggerWindow();
     drawRemotePadWindow();
     drawSessionWindow();
@@ -1555,6 +1556,13 @@ void App::drawMenuBar() {
             if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
             if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
             if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
+            if (ImGui::MenuItem("Foot IK...")) showFootIk_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bind an animated model's leg bones and tune the ground\n"
+                    "solver, so walk clips follow stairs, curbs and slopes.\n"
+                    "The rig belongs to the model; each character decides\n"
+                    "whether to run it.");
             if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
             if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
@@ -4260,6 +4268,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "credits") return &showCreditsEditor_;
     if (key == "disc") return &showDiscLayout_;
     if (key == "anim") return &showAnimEditor_;
+    if (key == "footik") return &showFootIk_;
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
@@ -4294,7 +4303,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat"};
+    "credits",  "vu",       "chat",     "footik"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -7094,20 +7103,41 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     auto it = glbInfoCache_.find(relPath);
     if (it != glbInfoCache_.end()) return it->second;
 
+    // Built from the SKELETAL parse alone (the .tskl path), never from
+    // animimport::bake. Both read the same file, but bake() samples every clip
+    // into CPU vertex FRAMES at 12 fps - which this function then throws away,
+    // because all it wants is names, counts, materials and the bone hierarchy.
+    // On an animation-library character that difference is the whole cost of
+    // selecting the object: 39 clips of a ~5000-vertex rig measured 23.5 s
+    // through bake() and 2.4 s through parseSkel(), in a RELEASE build (a Dev
+    // build made it minutes). This is a hot path in a way that is easy to miss
+    // - the Properties panel calls it to fill the clip pickers the moment an
+    // animated Model or Player is selected, and the Asset Browser calls it per
+    // inspected asset - so keep it metadata-only. Anything that needs posed
+    // vertices wants the viewport's own cache instead.
     GlbInfo info;
-    glbparser::Baked baked;
+    glbparser::Skel skel;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
+    if (animimport::parseSkel(full.string(), skel, info.error,
+                              /*metadataOnly=*/true)) {
         info.ok = true;
-        for (const auto& c : baked.clips) info.clips.push_back(c.name);
-        info.vertexCount = baked.totalVertexCount();
-        info.frameCount = baked.frameCount;
+        for (const auto& c : skel.clips) info.clips.push_back(c.name);
+        info.vertexCount = skel.totalVertexCount();
+        // The preview's frame total, computed from the durations instead of by
+        // sampling them - the same arithmetic bake() would have done, so the
+        // panels' "N frames" cost figure keeps meaning what it meant.
+        info.frameCount = 0;
+        for (const glbparser::SkelClip& c : skel.clips)
+            info.frameCount += (int)(c.duration * 12.0f + 0.5f) + 1;
+        // Pose AABB over all clips (what the .tskl carries), where bake gave
+        // the frame-0 box. A jump therefore counts toward the reported size,
+        // which is the honest answer to "how much room does this model need".
         for (int c = 0; c < 3; ++c) {
-            info.min[c] = baked.min[c];
-            info.max[c] = baked.max[c];
+            info.min[c] = skel.min[c];
+            info.max[c] = skel.max[c];
         }
-        info.warnings = baked.warnings;
-        for (const glbparser::Part& p : baked.parts) {
+        info.warnings = skel.warnings;
+        for (const glbparser::SkelPart& p : skel.parts) {
             GlbInfo::Material mat;
             mat.name = p.material.empty() ? "material" : p.material;
             mat.color[0] = p.baseColor[0];
@@ -7116,18 +7146,11 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
             mat.textured = p.image >= 0;
             info.materials.push_back(std::move(mat));
         }
-        // The lightweight preview bake has no hierarchy names. Parse the
-        // skeletal representation once as well so Foot IK can map authored
-        // bones by stable name instead of fragile node indices.
-        glbparser::Skel skel;
-        std::string skelError;
-        if (animimport::parseSkel(full.string(), skel, skelError)) {
-            info.bones.reserve(skel.nodes.size());
-            info.boneParents.reserve(skel.nodes.size());
-            for (const glbparser::SkelNode& n : skel.nodes) {
-                info.bones.push_back(n.name);
-                info.boneParents.push_back(n.parent);
-            }
+        info.bones.reserve(skel.nodes.size());
+        info.boneParents.reserve(skel.nodes.size());
+        for (const glbparser::SkelNode& n : skel.nodes) {
+            info.bones.push_back(n.name);
+            info.boneParents.push_back(n.parent);
         }
     }
     return glbInfoCache_.emplace(relPath, std::move(info)).first->second;

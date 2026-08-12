@@ -121,181 +121,50 @@ what ships.
 | **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
 | **Collision** | Box from the model's all-clips pose AABB, or none - turned by the model yaw offset like the mesh is ([collision-boxes.md](collision-boxes.md)). Per-triangle mesh collision is a static-model (.obj) feature. |
 | **Model faces / Yaw correction** | Tell the editor which way the imported mesh points in its own file: **+Z** is already correct, **-Z** fixes a backwards model with an explicit 180° turn, and **±X** fixes a sideways model with a 90° turn. The correction rotates only the mesh around its own Y (viewport preview matches); authored object rotation, avatar turn-to-face and AI facing stay convention-pure. The angle below the preset remains available for unusual files. |
-| **Foot IK** | Optional game-side ground placement for a two-legged rig. Maps hip/knee/ankle bones, sweeps a four-corner sole footprint, plants slow feet, shifts/leans the pelvis over support, stabilizes knee bend, aligns shoes to normals and clears stair edges during swing. |
-| **Neural landing prediction (VU0)** | Experimental learned residual on top of Foot IK. A 16-16-5 network reads current motion plus causal filtered gap/velocity, lip memory and swing phase; it advises a raycast-ranked foothold fan and bounded clearance/early release. Collision and procedural IK remain authoritative. |
+| **Foot IK** | Whether THIS instance runs the ground solver, so a walk clip follows stairs, curbs and slopes. Which bones are legs and how far a shoe may reach belong to the model asset and are authored once in *Tools > Foot IK* - see [foot-ik.md](foot-ik.md). |
 
 ### Foot IK: feet that stop at the floor
 
-Turn on **Foot IK** for an animated Model or a third-person Player when a walk
-clip has to follow stairs, curbs or uneven ground. **Auto-detect bones** handles
-common Blender, Mixamo and humanoid names; otherwise select the left and right
-hip, knee and ankle explicitly. Each leg must be a real descendant chain in
-the imported hierarchy. The editor marks an invalid mapping before build and
-the game leaves the original animation untouched if a mapping still cannot be
-resolved.
+A walk clip is authored on a flat plane, so played on a staircase it puts one
+shoe inside a step and the other in the air. **Foot IK** post-processes the
+sampled pose in the generated game - probing the real terrain and collision
+geometry, planting the feet that are standing on something, solving each leg
+analytically, and giving a descending character the extra downward reach a step
+down needs.
 
-The solver runs after normal clip evaluation and before VU0 skinning. It uses
-the previous **unadjusted clip** ankle positions for stable vertical probes, supports
-terrain, mesh-collision models and collision-box tops, and ignores the object
-being solved. A sole must stay inside the contact band at stance-like horizontal
-speed for a short confirmation window before it may plant; a fast descending
-swing is never turned into a contact merely because it passed within probe
-range. A plant releases as soon as the authored foot begins a measured toe-off
-or pulls far enough away, then the ground correction fades quickly so the rising
-foot belongs to the animation instead of being dragged through a release-height
-band. Reading the unadjusted pose is
-essential: feeding the already locked result back into the contact detector
-would make the foot report that it never moved and stretch the leg behind the
- walking character. The lowest requested foot correction
- also lowers the common pelvis, then an analytic two-bone solve rotates the hip
- and knee. A filtered authored knee pole guides the solve, and approaches full
- authority near straight-leg singularities where a raw cross product can flip
- sides. The authored ankle yaw is preserved while an optional pitch/roll
- tilt follows the supporting surface normal. This is deterministic
-procedural IK — there is no model inference or runtime allocation in the loop.
+It is authored in **Tools > Foot IK**: the rig (which bones are legs, the
+tolerances, the per-clip rules) belongs to the **model asset**, while each scene
+object carries only the switch that says whether it solves - so a crowd shares
+one binding and pays for it only where it shows. The full guide, including the
+optional VU0 neural assist and how to retrain it, is
+**[foot-ik.md](foot-ik.md)**; the example project is
+[`examples/foot-ik-stairs`](../examples/foot-ik-stairs/README.md).
 
-While walking, a foot that is measurably descending **and horizontally slowing
-into stance** gets an additional capture range of *Plant distance + 55% of Max
-pelvis drop*. This is intended for
-split-level motion, such as walking with one foot on a curb and the other on the
-road. The extra range is unavailable to a level or rising swing foot, which
-keeps the broader snap from stealing the airborne half of the gait. A new
-contact fades in with a 0.14-second smoothstep envelope instead of applying a
-large correction on its first frame, reducing the visible touchdown kick. A
-released contact keeps its old target while its weight smoothsteps to zero over
-0.08 seconds; target height and influence therefore cannot jump on the same
-frame when a probe crosses a stair edge.
+### A model with many clips: what the editor pays for it
 
-Descending stairs also use a short **down-reach** phase before contact. When a
-sole ray proves that a tread is both reachable and lower than the opposite
-planted foot, and the authored foot is moving down, the solver gradually
-extends only the ankle's vertical target toward that tread. It does not lock
-the foot or alter its horizontal path, so a fast swing can finish the step
-without hovering while flat-ground toe-off remains free.
-The ordinary speed and confirmation gates still decide when the real plant may
-begin. This geometry-backed phase works with neural prediction disabled; the
-network may improve the upcoming XZ candidate but never invents support.
+An animation library is a legitimate way to author a character - one .fbx with
+forty clips - and it changes what the editor is doing behind the scenes. Two
+things used to make such a model slow to work with, and both are fixed by asking
+for less rather than by caching more:
 
-During the unlocked swing, two short probes look ahead in the character's
-travel direction (or the ankle direction for an in-place animation). The
-current support normal predicts the continuous uphill rise; only an abrupt
-excess above that plane counts as a lip. When either probe finds one, the
-solver releases a stale lower-step contact and adds
-a filtered vertical clearance to carry the shoe over the riser before normal
-contact logic may plant it. This is separate from landing prediction and works
-with the neural option disabled.
+- **Listing a model never bakes it.** The clip pickers, the Asset Browser
+  inspector, the Animation Editor and Tools > Foot IK only want names, counts,
+  materials and bones. That metadata now comes from one skeletal parse with the
+  animation channels and the all-clips pose box skipped; it used to come from a
+  full morph-frame bake of every clip. Measured on a 39-clip, ~5000-vertex rig
+  in a release build: selecting the character in Properties went from **23.5 s
+  to 5.8 s**.
+- **The viewport samples one clip at a time.** The preview poses a single clip,
+  so the first bake of a model samples none of them (every clip still holds its
+  first frame) and a clip is sampled the moment something asks to pose it. A
+  model whose forty clips are never all shown at once no longer pays for forty.
 
-The same swing also sweeps four approximate shoe corners at two points between
-the previous and current sole poses. This closes the gap where a fast toe can
-cross a thin stair riser between vertical raycasts. It is deliberately a small
-raycast footprint rather than a general convex-physics sweep: every lift still
-comes from scene collision, it allocates nothing, and it is cheap enough for
-the PS2. A footprint sample contributes clearance only when it finds support
-more than 2.5 cm above the current support plane; equal-height flat ground must
-never manufacture toe clearance or prevent the next plant.
-
-When neural prediction is enabled, its residual seeds a five-point landing
-fan. Each candidate is raycast and scored for center, toe and heel support;
-the selected point may be on another tread, unlike the old same-height-only
-residual. The target is cached and filtered, guides the airborne ankle by at
-most 16 cm, and still needs the normal descending/contact gates before it can
-lock. A missing surface simply removes the candidate.
-
-Planted-foot weights also define a tiny support polygon. The runtime shifts the
-pelvis by at most 4.5 cm toward its weighted center, leans the pelvis subtree
-gently toward the average support normal, and supplies each active leg with a
-low-weight pole hint from the authored knee. The engine applies those body
-changes first and re-solves both analytic legs afterwards, so balance motion
-does not drag locked shoes away from their contacts.
-
-Third-person stair climbing separates the player's collision height from its
-presentation height. Collision still moves onto a walkable step immediately,
-but the avatar root and camera follow through an 8/s low-pass filter while the
-feet solve against the real surfaces. This removes the one-frame whole-body
-hop without weakening collision or delaying the player capsule. Airborne
-motion follows the physical height directly; the filter resumes on contact so
-a landing onto a raised surface cannot reintroduce the same one-frame jump.
-
-Standing at an edge uses a separate **rest contact**. After the whole object has
-been stationary for 0.1 seconds, an ankle that is itself nearly still may reach
-down through the normal plant band by up to *Plant distance + Max pelvis drop*.
-That lets one leg remain on a step while the other finds the lower floor instead
-of hovering at the height of the supported foot. Rest contact releases as soon
-as the object moves, so it cannot turn a walking swing into a ground magnet. The
-common pelvis correction is low-pass filtered independently of the leg weights;
-when a probe sits on an edge and alternates between two surface heights, the
-feet react without making the whole body chatter by the same amount.
-
-Probe, plant, release and pelvis fields are in project world units. The sole
-offset is in the model's own units and follows the object's scale:
-
-- **Sole offset** is the ankle-to-floor gap. Raise it if shoes sink; lower it if
-  they hover.
-- **Probe up/down** is the vertical search range around the animated sole.
-- **Plant distance** is how close the animated sole must be to ground before it
-  may lock.
-- **Release distance** is how far the animation may pull from a planted foot
-  before it unlocks.
-- **Max pelvis drop** caps how far the body may crouch to reach the lower foot.
-- **Max foot tilt** caps the pitch/roll added to a planted ankle. `0°` keeps the
-  authored ankle orientation; the default `35°` follows ordinary slopes while
-  refusing extreme triangle normals.
-- **Toe clearance** is the extra world-space gap requested above a higher
-  surface detected ahead of an airborne shoe. `0` disables swing clearance.
-
-Foot IK is deliberately opt-in. Disabled objects keep pose sharing and the old
-animation cost. Enabled objects need their own corrected pose and therefore do
-not share a skinned mesh with lockstep instances. Ground placement currently
-runs in the generated game; the editor viewport continues to show the authored
-clip so the raw animation remains easy to inspect.
-
-The authored checkbox is the master capability, but it can be switched while
-the game is running. **Set Foot IK** in the flow graph exposes `enable`,
-`disable` and `toggle` exec inputs for any named animated object (or the graph's
-owner when its Object field is empty). Scripts can write the same
-`RuntimeObject::footIkEnabled` flag. Disabling immediately restores the raw
-animation pose and clears planted targets, filters and landing history; a later
-enable therefore starts from the current pose and terrain instead of snapping
-back to a contact remembered on an old stair. Enabling an object whose authored
-Foot IK checkbox is off does nothing.
-
-#### Experimental neural landing prediction
-
-**Neural landing prediction (VU0)** is an optional learned layer inside Foot
-IK, not a replacement for the stair solver. Its deterministic 16-input,
-16-hidden-ReLU, 5-output network consumes the object's planar velocity, current
-and previous ankle velocity, sole-to-ground gap, a ground sample 80 ms ahead,
-the support normal, two slope-removed ahead-probe residuals, a filtered gap and
-vertical velocity, decaying lip memory and swing phase. It predicts a small
-horizontal landing residual, contact confidence, extra stair-clearance intent
-and early-release intent.
-
-The committed weights are trained by `tools/train-foot-neural.py` (seed 2002)
-from domain-randomized synthetic slopes/lips plus the labelled PCSX2 trajectories
-in `tools/data/foot-neural-real.csv`. A trace run records both feet frame by
-frame; the regression runner looks up the next verified plant within an
-18-frame causal window for the landing label and copies the procedural solver's
-raycast-proven clearance/release decisions. Already planted frames are omitted
-unless they contain an emergency stair release, preventing long static contacts
-from drowning the short useful events. The whole training path is deterministic
-and dependency-free, and runtime needs neither a model file nor an allocator.
-
-The multiply-accumulate work uses VU0 **macro mode**. It occupies no VU0 micro
-memory, so it can coexist with project VU0 kernels and the experimental
-raytraced mirror. The setting's **Neural influence** scales the result from 0
-to 1; 0 still evaluates the model for telemetry but applies no residual.
-
-The network never creates contact or an obstacle. Its residual centers a small
-fan whose candidates, toe and heel are raycast against real collision. The best
-supported cached point may guide the swing by at most 16 cm and may lock only
-through the ordinary descending/contact gates. Step heights, pelvis correction,
-reach limits and the analytic leg solve stay fully procedural. The stair heads
-are gated separately: ordinary probes or the swept footprint must
-first prove an abrupt lip; learned clearance may then add at most 35% of the
-authored **Toe clearance**, and learned release may only loosen a nearly rising
-foot which is still stuck to the lower tread. This deliberately prevents a
-confident but wrong inference from planting a foot in empty space, lifting it on
-a smooth hill or reintroducing a vertical touchdown kick.
+What is left is the file parse itself, and it is worth knowing that a 24 MB .fbx
+costs a couple of seconds each time the editor has to read it. **A `-Dev` build
+of the editor multiplies all of this by roughly 75** - the importer is exactly
+the kind of tight float loop `-O1` gives up on - so a model that takes seconds
+in a release build takes minutes there. If the editor feels unusable around an
+animated model, check which build you are running before anything else.
 
 ### Material override (.mtl)
 

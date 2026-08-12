@@ -8,6 +8,10 @@ guides. What is queued is in [Backlog](backlog.md).
 - [Animated models (.glb)](animated-models.md) - authoring animations in
   Blender, importing them, clip playback, flow-graph nodes and the script
   API, PS2 memory budget, troubleshooting.
+- [Foot IK](foot-ik.md) - feet that stop at the floor: binding a model's leg
+  bones once and switching the solver on per character, the tolerances and
+  per-clip rules, how walking DOWN stairs is its own mechanism, and the
+  optional VU0 neural assist plus how to retrain it.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) - why
   the game reads a binary model instead of your `.obj`, what that means for
   your files and the disc, distance mesh LOD for static geometry, and

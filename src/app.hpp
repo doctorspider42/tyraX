@@ -395,7 +395,10 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
-    bool drawFootIk(SceneObject& o);
+    // The Properties panel's Foot IK row: the instance switch plus a link
+    // into Tools > Foot IK, where the model's rig actually lives
+    // (docs/foot-ik.md). Returns true when a value changed.
+    bool drawFootIkRow(SceneObject& o);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -
@@ -840,6 +843,19 @@ private:
     // returns true when the selection changed (persist editor.ini then).
     Viewport::PreviewLight previewLight(const std::string& sel) const;
     bool previewLightCombo(const char* label, std::string& sel);
+    // Tools > Foot IK (docs/foot-ik.md, footik_ui.cpp): binds a model's leg
+    // bones, tunes the ground solver, carries the per-clip rules and lists
+    // which scene objects run it.
+    void drawFootIkWindow();
+    // The rig of one model asset, creating it on first touch (seeded from
+    // the project's world scale).
+    FootIkRig& footIkRigFor(const std::string& model);
+    // Drops rigs and per-clip rules that no longer change anything, so an
+    // undone edit leaves no trace in the .tyra. Called on every commit.
+    void pruneFootIkRigs();
+    // True when this model has a rig AND it is switched on - what the
+    // Properties row and the model picker report.
+    bool footIkRigBound(const std::string& model) const;
     // The edit row for (model, source clip), creating it on first touch.
     AnimClipEdit& animEditFor(const std::string& model, const std::string& clip);
     // Drops entries that no longer change anything (isDefault) so an undone
@@ -1674,6 +1690,12 @@ private:
     // other project-wide editors), and the panel owns its own playhead so
     // the preview keeps running while a field is being dragged.
     bool showAnimEditor_ = false;
+    // Tools > Foot IK. footIkDetected_ is how many of the six slots the
+    // last auto-detect filled (-1 = it has not been run this session), so
+    // the button can say what it did instead of silently doing nothing.
+    bool showFootIk_ = false;
+    std::string footIkModel_;  // project-relative .glb/.fbx being bound
+    int footIkDetected_ = -1;
     std::string animEdModel_;   // project-relative .glb/.fbx being edited
     std::string animEdClip_;    // SOURCE clip name ("" = none selected)
     float animEdTime_ = 0.0f;   // playhead, seconds into the TRIMMED clip

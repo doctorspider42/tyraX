@@ -1,12 +1,34 @@
 #!/usr/bin/env python3
 """Train the deterministic Foot IK landing/stair predictor used by codegen.
 
-The model is deliberately tiny (16 -> 16 ReLU -> 5) and dependency-free.  It
+The model is deliberately tiny (20 -> 16 ReLU -> 6) and dependency-free.  It
 mixes domain-randomized synthetic motion with labelled PCSX2 trajectories from
 ``tools/data/foot-neural-real.csv``.  Collision queries remain authoritative at
-runtime: learned outputs may refine a verified XZ landing point and add a
-bounded amount of clearance above a raycast-proven stair lip, but can never
-invent a supporting surface.
+runtime: learned outputs may refine a verified XZ landing point, add a bounded
+amount of clearance above a raycast-proven stair lip, and firm up a down-reach
+envelope the procedural solver already opened - but can never invent a
+supporting surface.
+
+Feature order, normalization and output order are EXACT twins of the runtime in
+``templates.cpp`` (``applyFootIk``'s ``input[]``) and of the regression runner's
+labels.  A divisor changed on one side alone silently feeds the network a
+different world than it was trained on, so change all three together.
+
+f0..f3   object vx/vz over 4, ankle vx/vz over 6
+f4..f7   sole-to-ground gap over 0.55, ankle vy and previous vy over 3,
+         ground delta 80 ms ahead over 0.55
+f8..f11  near/far slope-removed lip residuals over 0.35, support normal x/z
+f12..f15 filtered gap over 0.55, filtered vy over 3, lip memory over 0.35,
+         swing phase (0..0.5 s mapped to -1..1)
+f16..f19 THE LOCOMOTION GRADE: descend and ascend confidences (0..1 mapped to
+         -1..1), the filtered ground drop under the path ahead over 0.55, and
+         the descent reach budget the solver has earned over 0.55
+
+t0..t1   landing residual x/z over 0.16
+t2       contact confidence
+t3       stair-clearance intent
+t4       early-release intent
+t5       descent-reach intent (how much of the proven budget to spend)
 """
 
 from __future__ import annotations
@@ -18,10 +40,12 @@ import random
 from pathlib import Path
 
 
-INPUTS = 16
+INPUTS = 20
 HIDDEN = 16
-OUTPUTS = 5
-TARGET_WEIGHTS = [1.0, 1.0, 0.8, 1.35, 1.35]
+OUTPUTS = 6
+# The clearance/release/reach heads are the rare, useful events; the landing
+# residual is present on every sample and would otherwise dominate the loss.
+TARGET_WEIGHTS = [1.0, 1.0, 0.8, 1.35, 1.35, 1.35]
 
 
 def clamp(value: float, lo: float, hi: float) -> float:
@@ -40,7 +64,11 @@ def synthetic_sample(
     object_vz = rng.uniform(-4.0, 4.0)
     foot_vx = object_vx + rng.uniform(-3.0, 3.0)
     foot_vz = object_vz + rng.uniform(-3.0, 3.0)
-    gap = rng.uniform(-0.15, 0.75)
+    # The gap range reaches a whole staircase step below the sole now: that is
+    # the case the level-ground bands cannot express and the reach head exists
+    # for. Sampling it only to 0.75 taught the old net that a 0.5 gap was the
+    # edge of the world.
+    gap = rng.uniform(-0.15, 1.05)
     vertical_v = rng.uniform(-3.0, 3.0)
     previous_v = clamp(vertical_v + rng.uniform(-1.2, 1.2), -3.0, 3.0)
 
@@ -97,7 +125,7 @@ def synthetic_sample(
     # includes both freshly detected and fading obstacles, so a single noisy
     # ray cannot dominate the prediction and a real stair lip survives long
     # enough to guide the rest of the swing.
-    filtered_gap = clamp(gap + rng.uniform(-0.08, 0.08), -0.55, 0.55)
+    filtered_gap = clamp(gap + rng.uniform(-0.08, 0.08), -0.55, 1.05)
     filtered_v = clamp(0.62 * vertical_v + 0.38 * previous_v, -3.0, 3.0)
     lip = max(0.0, near_excess, far_excess)
     lip_memory = max(lip, rng.uniform(0.0, 1.0) * lip +
@@ -110,6 +138,45 @@ def synthetic_sample(
         phase * 2.0 - 1.0,
     ])
 
+    # --- the locomotion grade ------------------------------------------------
+    # Synthesized the way the runtime derives it: a slope from the root's own
+    # vertical speed against its horizontal travel, a probed drop under the path
+    # ahead, and the reach that combination has earned. A third of the samples
+    # are explicit descents (a staircase is the case that matters), a sixth are
+    # climbs, and the rest are level - including level ground that happens to
+    # carry a noisy velocity, which is what stops the net from reading every
+    # jitter as a step down.
+    roll = rng.random()
+    root_vy = 0.0
+    drop_ahead = 0.0
+    if roll < 0.34:  # descending
+        step = rng.uniform(0.06, 0.55)
+        drop_ahead = step if rng.random() < 0.85 else 0.0
+        root_vy = -rng.uniform(0.1, 1.6)
+    elif roll < 0.50:  # ascending
+        root_vy = rng.uniform(0.1, 1.6)
+        drop_ahead = 0.0
+    else:  # level, sometimes noisy
+        root_vy = rng.uniform(-0.12, 0.12)
+        drop_ahead = rng.uniform(0.0, 0.02) if rng.random() < 0.2 else 0.0
+    horizontal = max(travel_speed, 0.20)
+    grade = root_vy / horizontal if travel_speed > 0.08 else 0.0
+    descend = max(smoothstep(-0.06, -0.32, grade),
+                  smoothstep(0.02, 0.14, drop_ahead))
+    ascend = smoothstep(0.06, 0.32, grade)
+    if ascend > descend:
+        descend *= 1.0 - ascend
+    else:
+        ascend *= 1.0 - descend
+    reach_cap = rng.uniform(0.25, 0.6)
+    reach_budget = min(drop_ahead * descend, reach_cap)
+    features.extend([
+        clamp(descend * 2.0 - 1.0, -1.0, 1.0),
+        clamp(ascend * 2.0 - 1.0, -1.0, 1.0),
+        clamp(drop_ahead / 0.55, -1.0, 1.0),
+        clamp(reach_budget / 0.55, -1.0, 1.0),
+    ])
+
     lead_seconds = 0.055
     landing_x = (0.65 * object_vx + 0.35 * foot_vx) * lead_seconds
     landing_z = (0.65 * object_vz + 0.35 * foot_vz) * lead_seconds
@@ -120,29 +187,49 @@ def synthetic_sample(
     contact = near_contact * (0.18 + 0.82 * descending)
     if vertical_v > 0.35:
         contact *= clamp(1.0 - (vertical_v - 0.35) / 0.8, 0.0, 1.0)
+    # A descending BODY is as good a reason to expect contact as a descending
+    # ankle: in a flat walk clip played by a falling root the shoe drops toward
+    # the tread while the ankle rises in model space.
+    contact = max(contact, near_contact * 0.85 * descend)
+    contact = clamp(contact, 0.0, 1.0)
 
     obstacle = smoothstep(0.018, 0.16, lip)
     rising = smoothstep(-0.20, 0.70, vertical_v)
     clearance_intent = obstacle * (0.35 + 0.65 * rising)
     release_intent = obstacle * smoothstep(-0.08, 0.42, vertical_v)
+    # Spend the reach when there is a budget, the body is going down, and the
+    # foot is far enough above the surface for the level-ground bands to have
+    # missed it. A tiny gap needs no envelope - the ordinary plant handles it -
+    # and a budget of zero means no raycast proved anything to reach for.
+    reach_intent = (smoothstep(0.01, 0.10, reach_budget) * descend *
+                    smoothstep(0.04, 0.22, gap))
+    reach_intent *= 1.0 - smoothstep(0.10, 0.55, max(0.0, root_vy))
     targets = [
         clamp(landing_x / 0.16, -1.0, 1.0),
         clamp(landing_z / 0.16, -1.0, 1.0),
         contact,
         clearance_intent,
         release_intent,
+        clamp(reach_intent, 0.0, 1.0),
     ]
-    weight = 1.0 + 1.5 * max(clearance_intent, release_intent)
+    weight = 1.0 + 1.5 * max(clearance_intent, release_intent, reach_intent)
     return features, targets, weight
 
 
 def load_real(path: Path) -> list[tuple[list[float], list[float], float]]:
+    """Labelled PCSX2 rows.
+
+    Missing columns default to 0, which is what makes a recording made before a
+    feature or a head existed still usable: the grade lanes read as level ground
+    and the reach target as "no envelope wanted", both of which are true of the
+    routes those rows were walked on.
+    """
     rows: list[tuple[list[float], list[float], float]] = []
     with path.open(newline="", encoding="utf-8") as handle:
         for row in csv.DictReader(handle):
-            features = [float(row.get(f"f{i}", "0")) for i in range(INPUTS)]
-            targets = [float(row[f"t{i}"]) for i in range(OUTPUTS)]
-            weight = float(row.get("weight", "1"))
+            features = [float(row.get(f"f{i}", "0") or 0) for i in range(INPUTS)]
+            targets = [float(row.get(f"t{i}", "0") or 0) for i in range(OUTPUTS)]
+            weight = float(row.get("weight", "1") or 1)
             rows.append((features, targets, weight))
     return rows
 

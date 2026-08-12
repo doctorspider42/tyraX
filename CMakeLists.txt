@@ -183,6 +183,8 @@ add_executable(tyrax-editor
     src/facts_ui.cpp
     src/flowgraph_ui.cpp
     src/flownode.cpp
+    src/footik.cpp
+    src/footik_ui.cpp
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp

@@ -849,7 +849,8 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
 
 }  // namespace
 
-bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
+bool bake(const std::string& path, float fps, Baked& out, std::string& error,
+          const std::vector<std::string>* onlyClips) {
     out = Baked();
     out.fps = fps > 1.0f ? fps : 1.0f;
 
@@ -977,6 +978,16 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
         }
     };
 
+    // A clip nobody asked to see gets ONE frame instead of its full sampling.
+    // It still occupies a Clip entry with a valid firstFrame, so any consumer
+    // can address it - it simply holds its first pose until someone re-bakes
+    // asking for it (see the onlyClips comment in glbparser.hpp).
+    auto clipWanted = [&](const std::string& name) {
+        if (!onlyClips) return true;
+        for (const std::string& w : *onlyClips)
+            if (w == name) return true;
+        return false;
+    };
     int framesBaked = 0;
     if (clipSrcs.empty()) {
         computeGlobals(pose, P.order, P.parent, globals);
@@ -993,6 +1004,7 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                     ? 1
                     : (int)std::lround(duration * out.fps) + 1;
             if (duration > 0.0f && samples < 2) samples = 2;
+            if (!clipWanted(clip.name)) samples = 1;
             if (samples > 1024) {
                 out.warnings.push_back("clip \"" + clip.name +
                                        "\" truncated to 1024 baked frames");
@@ -1125,7 +1137,8 @@ size_t Skel::ps2Bytes() const {
     return bytes;
 }
 
-bool parseSkel(const std::string& path, Skel& out, std::string& error) {
+bool parseSkel(const std::string& path, Skel& out, std::string& error,
+               bool metadataOnly) {
     out = Skel();
     ParsedGlb P;
     if (!parseGlb(path, P, out.images, out.warnings, error)) return false;
@@ -1288,7 +1301,8 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
                 break;
             }
         clip.duration = src.end > src.start ? src.end - src.start : 0.0f;
-        for (const Channel& ch : src.channels) {
+        for (const Channel& ch : metadataOnly ? std::vector<Channel>{}
+                                             : src.channels) {
             const int comps = ch.path == 1 ? 4 : 3;
             const size_t keyStride =
                 ch.interpolation == 2 ? (size_t)comps * 3 : (size_t)comps;
@@ -1399,7 +1413,9 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
                 }
             }
         };
-        if (P.clips.empty()) {
+        if (metadataOnly || P.clips.empty()) {
+            // Bind pose only - unioning every clip is the expensive half of
+            // this function on a model that carries an animation library.
             foldPoseAabb(nullptr, 0.0f);
         } else {
             const int samples = 8;

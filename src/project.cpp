@@ -819,30 +819,8 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"meshLod\": " + fmtFloat(o.meshLodOverride);
     if (o.modelYawOffset != 0.0f)
         json += ", \"modelYaw\": " + fmtFloat(o.modelYawOffset);
-    const FootIkConfig& ik = o.footIk;
-    if (ik.enabled || !ik.leftHip.empty() || !ik.leftKnee.empty() ||
-        !ik.leftAnkle.empty() || !ik.rightHip.empty() ||
-        !ik.rightKnee.empty() || !ik.rightAnkle.empty()) {
-        json += ", \"footIk\": { \"enabled\": " +
-                std::string(ik.enabled ? "true" : "false") +
-                ", \"neural\": " +
-                std::string(ik.neuralAssist ? "true" : "false") +
-                ", \"neuralStrength\": " + fmtFloat(ik.neuralStrength) +
-                ", \"leftHip\": \"" + jsonEscape(ik.leftHip) +
-                "\", \"leftKnee\": \"" + jsonEscape(ik.leftKnee) +
-                "\", \"leftAnkle\": \"" + jsonEscape(ik.leftAnkle) +
-                "\", \"rightHip\": \"" + jsonEscape(ik.rightHip) +
-                "\", \"rightKnee\": \"" + jsonEscape(ik.rightKnee) +
-                "\", \"rightAnkle\": \"" + jsonEscape(ik.rightAnkle) +
-                "\", \"sole\": " + fmtFloat(ik.soleOffset) +
-                ", \"probeUp\": " + fmtFloat(ik.probeUp) +
-                ", \"probeDown\": " + fmtFloat(ik.probeDown) +
-                ", \"plant\": " + fmtFloat(ik.plantDistance) +
-                ", \"release\": " + fmtFloat(ik.releaseDistance) +
-                ", \"pelvis\": " + fmtFloat(ik.maxPelvis) +
-                ", \"maxFootAngle\": " + fmtFloat(ik.maxFootAngle) +
-                ", \"toeClearance\": " + fmtFloat(ik.toeClearance) + " }";
-    }
+    // The instance switch only (the rig lives in Project::footIkRigs).
+    if (o.footIk) json += ", \"footIk\": true";
     if (!o.scripts.empty()) {
         json += ", \"scripts\": [";
         for (size_t i = 0; i < o.scripts.size(); ++i)
@@ -2169,7 +2147,12 @@ static void readInputSection(const json::Value& root, Project& out) {
         out.input.activePreset = 0;
 }
 
-static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& out);
+// `legacyRigs` collects the per-object Foot IK bindings of a pre-v12 file so
+// project::load can lift them into Project::footIkRigs (see the shim at the
+// end of load). nullptr = the caller does not care, which is every path that
+// is not a load from disk.
+static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& out,
+                             std::vector<FootIkRig>* legacyRigs = nullptr);
 
 // Prefabs (Tools > Prefabs, docs/prefabs.md). Members are ordinary scene
 // objects written with the SAME objectJson the scenes use - a prefab is a piece
@@ -2236,6 +2219,54 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
         if (e.trimEnd != 0.0f) json << ", \"trimEnd\": " << fmtFloat(e.trimEnd);
         if (e.inPlace) json << ", \"inPlace\": true";
         if (!e.loop) json << ", \"loop\": false";
+        json << " }";
+    }
+    json << "\n  ]";
+}
+
+// Foot IK rigs (Tools > Foot IK, docs/foot-ik.md). One row per bound animated
+// model asset; a project that never opened the tool emits nothing.
+static void writeFootIkRigsSection(std::ostream& json, const Project& p) {
+    if (p.footIkRigs.empty()) return;
+    json << "\"footIkRigs\": [";
+    for (size_t i = 0; i < p.footIkRigs.size(); ++i) {
+        const FootIkRig& r = p.footIkRigs[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"model\": \""
+             << jsonEscape(r.model) << "\"";
+        if (r.enabled) json << ", \"enabled\": true";
+        json << ", \"leftHip\": \"" << jsonEscape(r.leftHip)
+             << "\", \"leftKnee\": \"" << jsonEscape(r.leftKnee)
+             << "\", \"leftAnkle\": \"" << jsonEscape(r.leftAnkle)
+             << "\", \"rightHip\": \"" << jsonEscape(r.rightHip)
+             << "\", \"rightKnee\": \"" << jsonEscape(r.rightKnee)
+             << "\", \"rightAnkle\": \"" << jsonEscape(r.rightAnkle) << "\"";
+        json << ", \"sole\": " << fmtFloat(r.soleOffset)
+             << ", \"probeUp\": " << fmtFloat(r.probeUp)
+             << ", \"probeDown\": " << fmtFloat(r.probeDown)
+             << ", \"plant\": " << fmtFloat(r.plantDistance)
+             << ", \"release\": " << fmtFloat(r.releaseDistance)
+             << ", \"pelvis\": " << fmtFloat(r.maxPelvis)
+             << ", \"maxFootAngle\": " << fmtFloat(r.maxFootAngle)
+             << ", \"toeClearance\": " << fmtFloat(r.toeClearance)
+             << ", \"descendReach\": " << fmtFloat(r.descendReach);
+        if (r.neuralAssist) json << ", \"neural\": true";
+        json << ", \"neuralStrength\": " << fmtFloat(r.neuralStrength);
+        if (!r.clips.empty()) {
+            json << ", \"clips\": [";
+            for (size_t c = 0; c < r.clips.size(); ++c) {
+                const FootIkClipRule& cr = r.clips[c];
+                json << (c ? ", " : "") << "{ \"clip\": \""
+                     << jsonEscape(cr.clip) << "\"";
+                if (!cr.solve) json << ", \"solve\": false";
+                if (cr.plantScale != 1.0f)
+                    json << ", \"plantScale\": " << fmtFloat(cr.plantScale);
+                if (cr.clearanceScale != 1.0f)
+                    json << ", \"clearanceScale\": "
+                         << fmtFloat(cr.clearanceScale);
+                json << " }";
+            }
+            json << "]";
+        }
         json << " }";
     }
     json << "\n  ]";
@@ -2656,6 +2687,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::FootIkRigs: writeFootIkRigsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
@@ -2682,6 +2714,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::FootIkRigs: return "footIkRigs";
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
@@ -3984,7 +4017,8 @@ static void readVec3(const json::Value* v, float* out) {
     for (int i = 0; i < 3; ++i) out[i] = (float)v->arr[i].numberOr(out[i]);
 }
 
-static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& out) {
+static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& out,
+                             std::vector<FootIkRig>* legacyRigs) {
     if (arr.type != json::Value::Type::Array) return;
     for (const auto& jo : arr.arr) {
         if (jo.type != json::Value::Type::Object) continue;
@@ -4339,52 +4373,57 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.modelYawOffset = (float)v->numberOr(0.0);
         }
         if (const auto* ik = jo.find("footIk")) {
-            if (const auto* v = ik->find("enabled"))
-                o.footIk.enabled = v->boolOr(false);
-            if (const auto* v = ik->find("neural"))
-                o.footIk.neuralAssist = v->boolOr(false);
-            if (const auto* v = ik->find("neuralStrength"))
-                o.footIk.neuralStrength = (float)v->numberOr(0.65);
-            if (const auto* v = ik->find("leftHip"))
-                o.footIk.leftHip = v->stringOr("");
-            if (const auto* v = ik->find("leftKnee"))
-                o.footIk.leftKnee = v->stringOr("");
-            if (const auto* v = ik->find("leftAnkle"))
-                o.footIk.leftAnkle = v->stringOr("");
-            if (const auto* v = ik->find("rightHip"))
-                o.footIk.rightHip = v->stringOr("");
-            if (const auto* v = ik->find("rightKnee"))
-                o.footIk.rightKnee = v->stringOr("");
-            if (const auto* v = ik->find("rightAnkle"))
-                o.footIk.rightAnkle = v->stringOr("");
-            if (const auto* v = ik->find("sole"))
-                o.footIk.soleOffset = (float)v->numberOr(0.08);
-            if (const auto* v = ik->find("probeUp"))
-                o.footIk.probeUp = (float)v->numberOr(0.35);
-            if (const auto* v = ik->find("probeDown"))
-                o.footIk.probeDown = (float)v->numberOr(0.75);
-            if (const auto* v = ik->find("plant"))
-                o.footIk.plantDistance = (float)v->numberOr(0.12);
-            if (const auto* v = ik->find("release"))
-                o.footIk.releaseDistance = (float)v->numberOr(0.22);
-            if (const auto* v = ik->find("pelvis"))
-                o.footIk.maxPelvis = (float)v->numberOr(0.35);
-            if (const auto* v = ik->find("maxFootAngle"))
-                o.footIk.maxFootAngle = (float)v->numberOr(35.0);
-            if (const auto* v = ik->find("toeClearance"))
-                o.footIk.toeClearance = (float)v->numberOr(0.10);
-            if (o.footIk.soleOffset < 0.0f) o.footIk.soleOffset = 0.0f;
-            if (o.footIk.probeUp < 0.01f) o.footIk.probeUp = 0.01f;
-            if (o.footIk.probeDown < 0.01f) o.footIk.probeDown = 0.01f;
-            if (o.footIk.plantDistance < 0.0f) o.footIk.plantDistance = 0.0f;
-            if (o.footIk.releaseDistance < o.footIk.plantDistance)
-                o.footIk.releaseDistance = o.footIk.plantDistance;
-            if (o.footIk.maxPelvis < 0.0f) o.footIk.maxPelvis = 0.0f;
-            if (o.footIk.maxFootAngle < 0.0f) o.footIk.maxFootAngle = 0.0f;
-            if (o.footIk.maxFootAngle > 80.0f) o.footIk.maxFootAngle = 80.0f;
-            if (o.footIk.toeClearance < 0.0f) o.footIk.toeClearance = 0.0f;
-            if (o.footIk.neuralStrength < 0.0f) o.footIk.neuralStrength = 0.0f;
-            if (o.footIk.neuralStrength > 1.0f) o.footIk.neuralStrength = 1.0f;
+            // v12+ stores the instance switch alone. A pre-v12 file stored the
+            // WHOLE binding here, per object; lift it into a rig for this
+            // object's model (docs/foot-ik.md, docs/format-versioning.md). A
+            // load-time shim rather than a migrations.cpp step because the
+            // change is a pure widening: no field means anything different, so
+            // there is nothing for the user to confirm.
+            if (ik->type == json::Value::Type::Object) {
+                if (const auto* v = ik->find("enabled"))
+                    o.footIk = v->boolOr(false);
+                if (legacyRigs && !o.modelPath.empty()) {
+                    FootIkRig r;
+                    r.model = o.modelPath;
+                    r.enabled = true;  // it was bound, so the rig exists
+                    if (const auto* v = ik->find("neural"))
+                        r.neuralAssist = v->boolOr(false);
+                    if (const auto* v = ik->find("neuralStrength"))
+                        r.neuralStrength = (float)v->numberOr(0.65);
+                    if (const auto* v = ik->find("leftHip"))
+                        r.leftHip = v->stringOr("");
+                    if (const auto* v = ik->find("leftKnee"))
+                        r.leftKnee = v->stringOr("");
+                    if (const auto* v = ik->find("leftAnkle"))
+                        r.leftAnkle = v->stringOr("");
+                    if (const auto* v = ik->find("rightHip"))
+                        r.rightHip = v->stringOr("");
+                    if (const auto* v = ik->find("rightKnee"))
+                        r.rightKnee = v->stringOr("");
+                    if (const auto* v = ik->find("rightAnkle"))
+                        r.rightAnkle = v->stringOr("");
+                    if (const auto* v = ik->find("sole"))
+                        r.soleOffset = (float)v->numberOr(0.08);
+                    if (const auto* v = ik->find("probeUp"))
+                        r.probeUp = (float)v->numberOr(0.35);
+                    if (const auto* v = ik->find("probeDown"))
+                        r.probeDown = (float)v->numberOr(0.75);
+                    if (const auto* v = ik->find("plant"))
+                        r.plantDistance = (float)v->numberOr(0.12);
+                    if (const auto* v = ik->find("release"))
+                        r.releaseDistance = (float)v->numberOr(0.22);
+                    if (const auto* v = ik->find("pelvis"))
+                        r.maxPelvis = (float)v->numberOr(0.35);
+                    if (const auto* v = ik->find("maxFootAngle"))
+                        r.maxFootAngle = (float)v->numberOr(35.0);
+                    if (const auto* v = ik->find("toeClearance"))
+                        r.toeClearance = (float)v->numberOr(0.10);
+                    clampFootIkRig(r);
+                    legacyRigs->push_back(std::move(r));
+                }
+            } else {
+                o.footIk = ik->boolOr(false);
+            }
         }
         if (const auto* sc = jo.find("scripts");
             sc && sc->type == json::Value::Type::Array) {
@@ -4426,11 +4465,12 @@ bool parseObject(const std::string& body, SceneObject& out) {
 // type; an empty array is either. A referenced object file that is missing or
 // malformed is skipped (the object is dropped) rather than aborting the load.
 static void readSceneObjects(const Project& p, const json::Value& objs,
-                             std::vector<SceneObject>& out) {
+                             std::vector<SceneObject>& out,
+                             std::vector<FootIkRig>* legacyRigs) {
     if (objs.type != json::Value::Type::Array) return;
     const bool split = !objs.arr.empty() && objs.arr[0].type == json::Value::Type::String;
     if (!split) {  // legacy: bodies inline in the manifest
-        readObjectsArray(objs, out);
+        readObjectsArray(objs, out, legacyRigs);
         return;
     }
     for (const auto& jid : objs.arr) {
@@ -4447,7 +4487,7 @@ static void readSceneObjects(const Project& p, const json::Value& objs,
         json::Value arr;
         arr.type = json::Value::Type::Array;
         arr.arr.push_back(std::move(ov));
-        readObjectsArray(arr, out);
+        readObjectsArray(arr, out, legacyRigs);
     }
 }
 
@@ -5727,6 +5767,90 @@ static void readAnimEditsSection(const json::Value& root, Project& out) {
     }
 }
 
+// The one place a rig's numbers are made sane. Called by the section reader,
+// by the legacy per-object shim and by the Foot IK tool, so a hand-edited
+// .tyra, a migrated project and the widgets cannot disagree about the limits.
+void clampFootIkRig(FootIkRig& r) {
+    if (r.soleOffset < 0.0f) r.soleOffset = 0.0f;
+    if (r.probeUp < 0.01f) r.probeUp = 0.01f;
+    if (r.probeDown < 0.01f) r.probeDown = 0.01f;
+    if (r.plantDistance < 0.0f) r.plantDistance = 0.0f;
+    if (r.releaseDistance < r.plantDistance)
+        r.releaseDistance = r.plantDistance;
+    if (r.maxPelvis < 0.0f) r.maxPelvis = 0.0f;
+    if (r.maxFootAngle < 0.0f) r.maxFootAngle = 0.0f;
+    if (r.maxFootAngle > 80.0f) r.maxFootAngle = 80.0f;
+    if (r.toeClearance < 0.0f) r.toeClearance = 0.0f;
+    if (r.descendReach < 0.0f) r.descendReach = 0.0f;
+    if (r.descendReach > 3.0f) r.descendReach = 3.0f;
+    if (r.neuralStrength < 0.0f) r.neuralStrength = 0.0f;
+    if (r.neuralStrength > 1.0f) r.neuralStrength = 1.0f;
+    for (FootIkClipRule& c : r.clips) {
+        if (c.plantScale < 0.1f) c.plantScale = 0.1f;
+        if (c.plantScale > 4.0f) c.plantScale = 4.0f;
+        if (c.clearanceScale < 0.0f) c.clearanceScale = 0.0f;
+        if (c.clearanceScale > 4.0f) c.clearanceScale = 4.0f;
+    }
+}
+
+static void readFootIkRigsSection(const json::Value& root, Project& out) {
+    out.footIkRigs.clear();
+    const auto* arr = root.find("footIkRigs");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const auto& jr : arr->arr) {
+        FootIkRig r;
+        if (const auto* v = jr.find("model")) r.model = v->stringOr("");
+        if (const auto* v = jr.find("enabled")) r.enabled = v->boolOr(false);
+        if (const auto* v = jr.find("leftHip")) r.leftHip = v->stringOr("");
+        if (const auto* v = jr.find("leftKnee")) r.leftKnee = v->stringOr("");
+        if (const auto* v = jr.find("leftAnkle")) r.leftAnkle = v->stringOr("");
+        if (const auto* v = jr.find("rightHip")) r.rightHip = v->stringOr("");
+        if (const auto* v = jr.find("rightKnee")) r.rightKnee = v->stringOr("");
+        if (const auto* v = jr.find("rightAnkle"))
+            r.rightAnkle = v->stringOr("");
+        if (const auto* v = jr.find("sole"))
+            r.soleOffset = (float)v->numberOr(0.08);
+        if (const auto* v = jr.find("probeUp"))
+            r.probeUp = (float)v->numberOr(0.35);
+        if (const auto* v = jr.find("probeDown"))
+            r.probeDown = (float)v->numberOr(0.75);
+        if (const auto* v = jr.find("plant"))
+            r.plantDistance = (float)v->numberOr(0.12);
+        if (const auto* v = jr.find("release"))
+            r.releaseDistance = (float)v->numberOr(0.22);
+        if (const auto* v = jr.find("pelvis"))
+            r.maxPelvis = (float)v->numberOr(0.35);
+        if (const auto* v = jr.find("maxFootAngle"))
+            r.maxFootAngle = (float)v->numberOr(35.0);
+        if (const auto* v = jr.find("toeClearance"))
+            r.toeClearance = (float)v->numberOr(0.10);
+        if (const auto* v = jr.find("descendReach"))
+            r.descendReach = (float)v->numberOr(0.45);
+        if (const auto* v = jr.find("neural")) r.neuralAssist = v->boolOr(false);
+        if (const auto* v = jr.find("neuralStrength"))
+            r.neuralStrength = (float)v->numberOr(0.65);
+        if (const auto* cl = jr.find("clips");
+            cl && cl->type == json::Value::Type::Array) {
+            for (const auto& jc : cl->arr) {
+                FootIkClipRule c;
+                if (const auto* v = jc.find("clip")) c.clip = v->stringOr("");
+                if (const auto* v = jc.find("solve")) c.solve = v->boolOr(true);
+                if (const auto* v = jc.find("plantScale"))
+                    c.plantScale = (float)v->numberOr(1.0);
+                if (const auto* v = jc.find("clearanceScale"))
+                    c.clearanceScale = (float)v->numberOr(1.0);
+                // A rule naming no clip addresses nothing.
+                if (c.clip.empty()) continue;
+                r.clips.push_back(std::move(c));
+            }
+        }
+        clampFootIkRig(r);
+        // A rig with no model names no skeleton; the tool could never show it.
+        if (r.model.empty()) continue;
+        out.footIkRigs.push_back(std::move(r));
+    }
+}
+
 static void readModelUnitsSection(const json::Value& root, Project& out) {
     out.modelUnitMeters.clear();
     const auto* obj = root.find("modelUnits");
@@ -5758,6 +5882,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::FootIkRigs: readFootIkRigsSection(root, p); break;
         case Section::ModelUnits: readModelUnitsSection(root, p); break;
         // A section blob is total, so a peer that never had the Input Map
         // would wipe it - re-seed the built-ins after applying (idempotent).
@@ -5848,6 +5973,10 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readSettingsSection(root, out);
 
+    // Pre-v12 per-object Foot IK bindings, collected while the objects are read
+    // and folded into Project::footIkRigs at the end of the load.
+    std::vector<FootIkRig> legacyFootIkRigs;
+
     // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
     // name strings plus a project-level "objects" array (single scene).
     if (const auto* v = root.find("startScene")) out.startScene = (int)v->numberOr(0.0);
@@ -5870,7 +5999,7 @@ std::string load(Project& out, const std::string& projectDir) {
                     if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
                 }
                 if (const auto* objs = js.find("objects"))
-                    readSceneObjects(out, *objs, sc.objects);
+                    readSceneObjects(out, *objs, sc.objects, &legacyFootIkRigs);
                 if (const auto* t = js.find("terrain")) {
                     if (const auto* v = t->find("width"))
                         sc.terrain.width = (int)v->numberOr(64);
@@ -5903,7 +6032,8 @@ std::string load(Project& out, const std::string& projectDir) {
 
     if (const auto* objects = root.find("objects");
         objects && objects->type == json::Value::Type::Array) {
-        readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
+        readObjectsArray(*objects, out.scenes[0].objects,
+                         &legacyFootIkRigs);  // legacy single scene
     }
 
     // Every scene object must carry a stable id before the caller snapshots the
@@ -5935,6 +6065,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readSequencesSection(root, out);
 
     readAnimEditsSection(root, out);
+    readFootIkRigsSection(root, out);
 
     readPrefabsSection(root, out);
     readVuSection(root, out);
@@ -6005,6 +6136,24 @@ std::string load(Project& out, const std::string& projectDir) {
     // Same backfill for the save menu: a project from before it was editable
     // has no saveMenu entry and would otherwise bake no save panel at all.
     ensureSaveMenu(out);
+
+    // Fold the pre-v12 per-object Foot IK bindings into per-model rigs
+    // (docs/foot-ik.md). One rig per model asset, first binding wins: two
+    // objects sharing a model could disagree about which bone is a knee, and
+    // the skeleton cannot be both - so say so instead of picking silently.
+    // Anything the "footIkRigs" section already carried stays untouched, which
+    // makes a re-save idempotent.
+    for (FootIkRig& r : legacyFootIkRigs) {
+        if (const FootIkRig* existing = out.findFootIkRig(r.model)) {
+            if (!(*existing == r))
+                std::fprintf(stderr,
+                             "[editor] %s: two objects carried different Foot IK "
+                             "bindings for %s; kept the first (Tools > Foot IK).\n",
+                             out.name.c_str(), r.model.c_str());
+            continue;
+        }
+        out.footIkRigs.push_back(std::move(r));
+    }
 
     loadHeights(out);
     ensureHeightmap(out);
@@ -6349,16 +6498,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     fnvMixF(h, o.modelYawOffset);
-    fnvMix(h, o.footIk.enabled ? 1 : 0);
-    fnvMix(h, o.footIk.neuralAssist ? 1 : 0);
-    fnvMixF(h, o.footIk.neuralStrength);
-    fnvMixS(h, o.footIk.leftHip), fnvMixS(h, o.footIk.leftKnee);
-    fnvMixS(h, o.footIk.leftAnkle), fnvMixS(h, o.footIk.rightHip);
-    fnvMixS(h, o.footIk.rightKnee), fnvMixS(h, o.footIk.rightAnkle);
-    fnvMixF(h, o.footIk.soleOffset), fnvMixF(h, o.footIk.probeUp);
-    fnvMixF(h, o.footIk.probeDown), fnvMixF(h, o.footIk.plantDistance);
-    fnvMixF(h, o.footIk.releaseDistance), fnvMixF(h, o.footIk.maxPelvis);
-    fnvMixF(h, o.footIk.maxFootAngle), fnvMixF(h, o.footIk.toeClearance);
+    fnvMix(h, o.footIk ? 1 : 0);
     // Mirror parameters live in a baked side table (MIRRORS/MIRROR_TARGETS).
     for (const auto& n : o.mirrorObjects) fnvMixS(h, n);
     fnvMix(h, (o.mirrorReflectPlayer ? 1 : 0) | (o.mirrorRaytraced ? 2 : 0));
@@ -6488,6 +6628,27 @@ uint64_t liveLinkContextHash(const Project& p) {
         fnvMixS(h, e.model), fnvMixS(h, e.clip), fnvMixS(h, e.rename);
         fnvMixF(h, e.timeScale), fnvMixF(h, e.trimStart), fnvMixF(h, e.trimEnd);
         fnvMix(h, e.inPlace ? 1u : 0u);
+    }
+    // Foot IK rigs are baked into the scene tables (FOOT_IK_RIGS), so retuning
+    // one - or rebinding a bone - cannot reach a running game either. The
+    // per-object switch CAN (it is a record field and a flow node writes it at
+    // runtime), which is why only the rig side lives here.
+    for (const FootIkRig& r : p.footIkRigs) {
+        fnvMixS(h, r.model);
+        fnvMix(h, r.enabled ? 1u : 0u);
+        fnvMixS(h, r.leftHip), fnvMixS(h, r.leftKnee), fnvMixS(h, r.leftAnkle);
+        fnvMixS(h, r.rightHip), fnvMixS(h, r.rightKnee);
+        fnvMixS(h, r.rightAnkle);
+        fnvMixF(h, r.soleOffset), fnvMixF(h, r.probeUp);
+        fnvMixF(h, r.probeDown), fnvMixF(h, r.plantDistance);
+        fnvMixF(h, r.releaseDistance), fnvMixF(h, r.maxPelvis);
+        fnvMixF(h, r.maxFootAngle), fnvMixF(h, r.toeClearance);
+        fnvMixF(h, r.descendReach);
+        fnvMix(h, r.neuralAssist ? 1u : 0u), fnvMixF(h, r.neuralStrength);
+        for (const FootIkClipRule& c : r.clips) {
+            fnvMixS(h, c.clip), fnvMix(h, c.solve ? 1u : 0u);
+            fnvMixF(h, c.plantScale), fnvMixF(h, c.clearanceScale);
+        }
     }
     return h;
 }

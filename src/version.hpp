@@ -17,7 +17,7 @@
 //   open silently. See docs/format-versioning.md.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 15
+#define TYRAX_VERSION_MINOR 16
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -86,6 +86,16 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v11 (surface-aligned feet, docs/animated-models.md): maximum planted-foot
 // tilt and swing toe-clearance. Purely additive with conservative defaults;
 // no migration step.
-inline constexpr int kFormatVersion = 11;
+// v12 (Foot IK becomes its own tool, docs/foot-ik.md): the whole binding MOVES
+// off the scene object into the "footIkRigs" section - one rig per animated
+// model asset, with per-clip rules and the new descent reach - and a scene
+// object keeps the instance switch alone ("footIk": true). Data moved, so this
+// is the one Foot IK bump that is not purely additive - but the lift is
+// unambiguous (a v9..v11 object carried both halves in one place, and the model
+// path says which rig it becomes), so it is a LOAD-TIME shim in
+// readObjectsArray rather than a migrations.cpp step: there is nothing for the
+// user to confirm and nothing that can be lost. Two objects that shared a model
+// but disagreed about its bones keep the first binding and say so on stderr.
+inline constexpr int kFormatVersion = 12;
 
 }  // namespace version

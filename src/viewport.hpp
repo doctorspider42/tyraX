@@ -893,12 +893,23 @@ private:
             uint32_t tex = 0;
         };
         std::vector<Part> parts;  // parallel to baked.parts
+        // Which clips of `baked` actually carry sampled frames. The first bake
+        // samples NONE of them - a preview poses one clip at a time, and an
+        // animation-library character can carry forty - so each is sampled the
+        // first time something asks to pose it (ensureAnimClip).
+        std::string relPath, materialRel;
+        std::vector<std::string> sampled;
     };
     // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
     // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
     AnimModelDraw* animModelDraw(const std::string& relPath,
                                  const std::string& materialRel);
+    // Makes sure `sourceClip` carries real frames, re-baking the entry with it
+    // added when it does not. Cheap and idempotent once a clip is in; call it
+    // before resolving frame indices, because an unsampled clip resolves to a
+    // single frozen frame and would silently preview as a static pose.
+    void ensureAnimClip(AnimModelDraw& draw, const std::string& sourceClip);
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     // Uploads one explicit pose: `frame` is a fractional index into the whole

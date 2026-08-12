@@ -524,6 +524,10 @@ const std::vector<ObjectProp>& objectProps() {
          "bakes into full-height diagonal stripes"},
         {"drawDistance", "number", "not drawn past this distance; 0 = unlimited"},
         {"castShadow", "bool", "darkens nearby surfaces (baked contact shadow)"},
+        {"footIk", "bool", "animated models: run the ground solver on this "
+                             "character so its feet stop at the floor. Needs the "
+                             "MODEL to have a Foot IK rig - that lives in the "
+                             "footIkRigs section, not on the object"},
         {"bakedLighting", "bool", "may take a per-texel lightmap (off = relights "
                                   "as it moves, from the probe grid)"},
         {"reflected", "bool", "appears in reflective materials (costs a render)"},

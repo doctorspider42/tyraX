@@ -360,7 +360,7 @@ routinely *mixed* — most files under one license, a long tail under another.
 The policy for adding assets is in the "Dependency policy" section of
 [`README.md`](README.md); the short version is that an asset pack has to be
 verified file-by-file, not project-by-project, before anything from it is
-committed here. TyraX ships exactly one such file:
+committed here. TyraX ships two such files:
 
 ### NASA lunar colour map — public domain
 
@@ -379,3 +379,18 @@ The editor projects this map into the moon disc of a day/night cycle
 embedded in the editor binary and is **never copied into a generated game** —
 only the small baked disc ships, so a game built with TyraX carries a derived
 image, not this file.
+
+### Quaternius "Universal Animation Library" character - CC0
+
+`examples/foot-ik-stairs/res/models/UAL1_Standard.fbx` is the `UAL1_Standard`
+rigged humanoid from Quaternius's **Universal Animation Library [Standard]**,
+released under **CC0 1.0 Universal** (public domain dedication,
+<https://creativecommons.org/publicdomain/zero/1.0/>) - see the pack's own
+`License.txt`. Models by @Quaternius (<https://quaternius.com>); CC0 asks for
+nothing, and the credit here is courtesy.
+
+It is the avatar of the [Foot IK](docs/foot-ik.md) example, which needs a real
+humanoid rig with named leg bones to be worth anything: the whole feature is
+about which bone is a knee. Unlike the moon map above this file DOES ship into
+the generated game - the build bakes it into a `.tskl` the PS2 loads - which CC0
+permits without condition. A game you build from that example may ship it too.

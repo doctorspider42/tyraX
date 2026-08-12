@@ -588,13 +588,24 @@ weight/gap, and how many real contacts followed a reach within 12 frames. This
 distinguishes useful unlocked extension from a contact that merely happened
 after the player root had already dropped.
 `training-frames.csv` is the raw per-foot `FOOTTRAIN` sequence.
-`training-samples.csv` uses the exact 16 normalized runtime features and labels
-each unlocked frame from the next verified contact (at most 18 frames ahead),
-plus the procedural clearance/release decision. Planted frames are excluded
-unless they contain an emergency stair release. Combine several directions and
-surface types into `tools/data/foot-neural-real.csv`, then run
-`python tools/train-foot-neural.py`; its fixed seed makes committed weights
-reproducible.
+`training-samples.csv` uses the exact 20 normalized runtime features - the last
+four are the locomotion grade (descend/ascend confidence, filtered drop ahead,
+earned descent reach) - and labels each unlocked frame from the next verified
+contact (at most 18 frames ahead), plus the procedural clearance, release and
+down-reach decisions. Planted frames are excluded unless they contain an
+emergency stair release. **Runtime normalization, these labels and the trainer's
+feature order are exact twins**: a divisor changed on one side alone silently
+feeds the network a different world than it was trained on, so change all three
+together. An older CSV still trains - missing columns read as 0, which for the
+grade lanes means level ground and is true of the routes those rows were walked
+on. Combine several directions and surface types into
+`tools/data/foot-neural-real.csv`, then run `python tools/train-foot-neural.py`;
+its fixed seed makes committed weights reproducible (20 -> 16 ReLU -> 6).
+
+The fixture is `examples/foot-ik-stairs` - a curb, a 22 cm five-step flight and
+an 11 cm ten-step flight. Walk it in BOTH directions: going up is a swing
+clearance problem, going down is the reach problem, and only the descent can
+show a foot finishing its stride in mid-air.
 For the standard four-direction torture course and one merged training file,
 run `foot-ik-gauntlet.py` with the same project/editor arguments. It boots clean
 forward/lateral/diagonal/reverse runs and aggregates sweep clearance, planner

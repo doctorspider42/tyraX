@@ -3367,9 +3367,15 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
     if (it != animModelCache_.end()) return &it->second;
 
     AnimModelDraw draw;
+    draw.relPath = relPath;
+    draw.materialRel = materialRel;
     std::string error;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (animimport::bake(full, 12.0f, draw.baked, error)) {
+    // No clip is sampled yet (see AnimModelDraw::sampled): this pass exists to
+    // build the meshes and decode the textures, and every clip gets its first
+    // frame. ensureAnimClip adds the frames of whatever is actually posed.
+    const std::vector<std::string> noClips;
+    if (animimport::bake(full, 12.0f, draw.baked, error, &noClips)) {
         draw.ok = true;
         if (!materialRel.empty())
             objparser::applyMaterialOverride(
@@ -3410,9 +3416,43 @@ const AnimClipEdit* Viewport::animEditFor(const std::string& modelRel,
     return nullptr;
 }
 
+void Viewport::ensureAnimClip(AnimModelDraw& draw,
+                             const std::string& sourceClip) {
+    if (!draw.ok || sourceClip.empty()) return;
+    for (const std::string& s : draw.sampled)
+        if (s == sourceClip) return;
+    // Only re-bake for a clip the file actually has, or a stale reference would
+    // re-parse the model on every frame that tried to pose it.
+    bool known = false;
+    for (const glbparser::Clip& c : draw.baked.clips)
+        known |= (c.name == sourceClip);
+    if (!known) return;
+
+    std::vector<std::string> want = draw.sampled;
+    want.push_back(sourceClip);
+    glbparser::Baked fresh;
+    std::string error;
+    const std::string full =
+        (std::filesystem::path(projectDir_) / draw.relPath).string();
+    if (!animimport::bake(full, 12.0f, fresh, error, &want)) return;
+    if (!draw.materialRel.empty())
+        objparser::applyMaterialOverride(
+            fresh,
+            (std::filesystem::path(projectDir_) / draw.materialRel).string());
+    // Only the CPU frame arrays change - same file, same parts, same vertex
+    // counts - so the GL meshes and decoded textures built by animModelDraw
+    // stay valid and the next uploadAnimPose refills them. Bail out rather
+    // than swap in a mismatched bake if that ever stops being true.
+    if (fresh.parts.size() != draw.baked.parts.size()) return;
+    for (size_t i = 0; i < fresh.parts.size(); ++i)
+        if (fresh.parts[i].vertexCount != draw.baked.parts[i].vertexCount)
+            return;
+    draw.baked = std::move(fresh);
+    draw.sampled = std::move(want);
+}
+
 void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
-    const glbparser::Baked& b = draw.baked;
-    if (b.clips.empty()) return;
+    if (draw.baked.clips.empty()) return;
     // SceneObject::animClip holds the EFFECTIVE (post-rename) name - the one
     // the game resolves against - so map it back to the source clip the
     // preview bake is keyed by before looking it up.
@@ -3422,6 +3462,8 @@ void Viewport::updateAnimPose(AnimModelDraw& draw, const SceneObject& o) {
             want = e.clip;
             break;
         }
+    ensureAnimClip(draw, want.empty() ? draw.baked.clips.front().name : want);
+    const glbparser::Baked& b = draw.baked;
     const glbparser::Clip* clip = &b.clips.front();
     if (!want.empty())
         for (const glbparser::Clip& c : b.clips)
@@ -5555,6 +5597,9 @@ uint32_t Viewport::renderAnimPreview(int width, int height,
     ensurePreviewBackdrop();
 
     AnimModelDraw* ad = animModelDraw(d.modelRel, d.materialRel);
+    if (ad && ad->ok && !ad->baked.clips.empty())
+        ensureAnimClip(*ad, d.clip.empty() ? ad->baked.clips.front().name
+                                           : d.clip);
     const glbparser::Baked* b = (ad && ad->ok) ? &ad->baked : nullptr;
 
     // Resolve the clip and its trim window, then pose. Same frame math as the

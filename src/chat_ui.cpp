@@ -510,6 +510,7 @@ bool App::applyChatObjectProp(SceneData& sc, SceneObject& o,
         return true;
     }
     if (key == "castShadow") { o.castShadow = boolean(o.castShadow); return true; }
+    if (key == "footIk") { o.footIk = boolean(o.footIk); return true; }
     if (key == "bakedLighting") {
         o.bakedLighting = boolean(o.bakedLighting);
         return true;

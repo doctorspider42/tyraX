@@ -152,6 +152,22 @@ static std::vector<std::pair<std::string, std::string>> collectAnimModelKeys(
     return keys;
 }
 
+// The Foot IK rig an object would solve with, or nullptr (docs/foot-ik.md).
+// One place answers "can this instance solve": the rig has to exist, be
+// switched on, and name all six leg bones. Codegen asks it for the scene-table
+// switch AND for the FOOT_IK_RIGS row, so an emitted 1 always has a rig behind
+// it. Whether the NAMES still resolve in the skeleton is the console's
+// question - it binds by name and only it has the .tskl.
+static const FootIkRig* footIkRigOf(const Project& p, const SceneObject& o) {
+    if (o.modelPath.empty()) return nullptr;
+    const FootIkRig* r = p.findFootIkRig(o.modelPath);
+    if (!r || !r->enabled) return nullptr;
+    if (r->leftHip.empty() || r->leftKnee.empty() || r->leftAnkle.empty() ||
+        r->rightHip.empty() || r->rightKnee.empty() || r->rightAnkle.empty())
+        return nullptr;
+    return r;
+}
+
 static int animModelIndexOf(const Project& p, const SceneObject& o) {
     if (!hasAnimBody(o)) return -1;
     const auto keys = collectAnimModelKeys(p);
@@ -859,6 +875,23 @@ class TerrainGame : public Tyra::Game {
       bool resolved = false;
       bool valid = false;
       bool objectReady = false;
+      // Cached per-clip rule (FOOT_IK_CLIP_RULES). Resolved by NAME, but only
+      // when the playing clip index changes - a string compare per frame per
+      // instance would be paid forever for an answer that almost never moves.
+      int ruleClip = -1;
+      bool ruleSolve = true;
+      float rulePlant = 1.0F;
+      float ruleClearance = 1.0F;
+      // Locomotion grade: is this character walking on the level, up, or down?
+      // Filtered, and soft rather than a three-way enum, because every gate it
+      // widens would otherwise pop on the frame the classification flipped.
+      float previousY = 0.0F;
+      bool gradeReady = false;
+      float rootVy = 0.0F;      // filtered vertical speed of the visual root
+      float dropAhead = 0.0F;   // filtered ground drop under the path ahead
+      float descend = 0.0F;     // 0..1
+      float ascend = 0.0F;      // 0..1
+      float reachBudget = 0.0F; // filtered extra downward reach, world units
       int pelvis = -1;
       int hip[2] = {-1, -1};
       int knee[2] = {-1, -1};
@@ -2152,6 +2185,23 @@ class TerrainGame : public Tyra::Game {
       bool resolved = false;
       bool valid = false;
       bool objectReady = false;
+      // Cached per-clip rule (FOOT_IK_CLIP_RULES). Resolved by NAME, but only
+      // when the playing clip index changes - a string compare per frame per
+      // instance would be paid forever for an answer that almost never moves.
+      int ruleClip = -1;
+      bool ruleSolve = true;
+      float rulePlant = 1.0F;
+      float ruleClearance = 1.0F;
+      // Locomotion grade: is this character walking on the level, up, or down?
+      // Filtered, and soft rather than a three-way enum, because every gate it
+      // widens would otherwise pop on the frame the classification flipped.
+      float previousY = 0.0F;
+      bool gradeReady = false;
+      float rootVy = 0.0F;      // filtered vertical speed of the visual root
+      float dropAhead = 0.0F;   // filtered ground drop under the path ahead
+      float descend = 0.0F;     // 0..1
+      float ascend = 0.0F;      // 0..1
+      float reachBudget = 0.0F; // filtered extra downward reach, world units
       int pelvis = -1;
       int hip[2] = {-1, -1};
       int knee[2] = {-1, -1};
@@ -6985,77 +7035,64 @@ bool TerrainGame::footGroundAt(float x, float z, float top, float bottom,
   return found;
 }
 
-// Tiny learned landing/stair controller: 16 inputs -> 16 ReLU -> 5 outputs.
-// tools/train-foot-neural.py reproduces these bootstrap weights; trace builds
-// also emit real PCSX2 trajectories which the same trainer can mix in.  The
-// extra geometry inputs are two stair-lip residuals (after removing the slope
-// predicted by the support normal).  Learned stair outputs may only add a
-// bounded clearance or release a foot after those raycasts prove a real lip.
+// Tiny learned landing/stair controller: 20 inputs -> 16 ReLU -> 6 outputs
+// (docs/foot-ik.md). tools/train-foot-neural.py reproduces these weights from
+// domain-randomized synthetic geometry plus the labelled PCSX2 trajectories in
+// tools/data/foot-neural-real.csv; earlier architectures live in git history
+// rather than as dead tables here.
+//
+// The geometry inputs are two stair-lip residuals (after removing the slope the
+// support normal predicts) and, since v4, the LOCOMOTION GRADE - is this
+// character walking on the level, up, or down, and how much downward reach has
+// a raycast already earned. That is what lets the heads specialize on a descent
+// instead of inferring one from a filtered velocity.
+//
+// Every learned output is advice on an envelope the procedural solver already
+// opened: clearance and release need raycasts to have proven a real lip first,
+// the reach head can only firm up a down-reach phase whose target came from a
+// ray, and the landing residual only re-centres a fan whose candidates are all
+// raycast-verified. Nothing here can invent a supporting surface.
+//
 // Dense products use VU0 macro mode and consume no micro-memory.
-static const float FOOT_NEURAL_W1[12][12] = {
-  {-0.976524373F, -1.06745576F, 1.10435971F, 1.21180006F, -0.860359026F, 0.228129601F, 0.271024313F, -0.442966524F, -0.249905198F, -0.996500128F, 0.508255637F, 0.114341108F},
-  {1.23683117F, -1.24491459F, 0.340258643F, -0.372071552F, 0.020760371F, -0.0847893803F, 0.0598060831F, -0.148724248F, 0.0770886867F, 0.392565447F, -0.247677361F, 0.105513604F},
-  {-0.211645942F, -0.0230562459F, 0.244537365F, -0.0995637499F, -0.156597893F, -1.12144769F, -0.195253718F, 0.143271706F, 0.131570329F, -0.392060428F, 0.0681149622F, -0.0888505856F},
-  {0.95967616F, 0.997684838F, 0.495771029F, 0.484839691F, 0.314219374F, 0.158763336F, 0.057162024F, -0.261437217F, 0.0768062534F, 0.307591034F, -0.150195278F, -0.0819124435F},
-  {-1.45208043F, 1.45968616F, -0.00669436968F, 0.115756661F, 0.534906507F, -0.178334924F, 0.0954831914F, -0.488832584F, 0.00959752976F, 0.193777391F, 0.372865448F, -0.0413112297F},
-  {0.0758787275F, 0.0384896684F, 0.00470720996F, -0.0580618567F, -0.149635376F, 3.02614454F, -0.109542669F, 0.431384815F, -0.091145962F, -1.26567244F, 0.0318113892F, -0.094987218F},
-  {0.318911883F, -0.422791533F, -0.212432705F, 0.358920358F, 1.29612336F, -0.250591251F, -0.55368126F, -0.8556365F, 0.276785288F, -0.984783939F, -0.132160536F, 0.0482285179F},
-  {-1.17182271F, -1.13448079F, -0.328132458F, -0.522130222F, 0.0875301322F, -0.344562097F, 0.14919526F, -0.434256698F, 0.0864800656F, 0.284113181F, 0.263979332F, 0.104052698F},
-  {0.0136417523F, -0.0560161608F, 0.00992696266F, 0.0834245333F, 0.00639647626F, 0.249391984F, -0.00822342041F, -0.105062611F, -0.142586624F, -1.76826442F, 0.0449816389F, -0.0177771719F},
-  {0.673125373F, -0.601032702F, -0.96598663F, 0.886196878F, -1.1001589F, 0.495901885F, 0.40851338F, 0.368548567F, 0.771229108F, -2.6773334F, -0.340951603F, -0.116165307F},
-  {0.11860494F, 0.0289651608F, -0.0448480483F, -0.0489118732F, -0.118850373F, 2.92260909F, -0.114331498F, 0.392061769F, -0.0652756528F, 0.298595016F, 0.0296748489F, -0.134093726F},
-  {-0.981400551F, 1.03152016F, 1.01028872F, -1.08870906F, 0.20556842F, -0.700516385F, 0.162228309F, -0.365478037F, -0.10887349F, -0.187262295F, 0.568347489F, -0.04170507F},
+constexpr int FOOT_NEURAL_IN = 20;
+constexpr int FOOT_NEURAL_IN_LANES = FOOT_NEURAL_IN / 4;  // Vec4s per sample
+constexpr int FOOT_NEURAL_HIDDEN = 16;
+constexpr int FOOT_NEURAL_OUT = 6;
+// seed 2002 synthetic 4500 real 867 repeat 3 epochs 70
+static const float FOOT_NEURAL_W1[16][20] = {
+  {0.4202601F, 0.317875287F, -0.852917057F, -0.61017066F, -2.25943643F, 1.70387291F, 0.548411627F, -1.07875203F, -2.13566729F, -7.11538136F, -0.182925543F, -0.735723216F, -0.495813574F, -2.18994297F, -0.00553316751F, -1.99720562F, 1.68576658F, 1.12842607F, -8.65775089F, -8.56302437F},
+  {-0.00822200408F, 0.0135488146F, 0.118575948F, -0.145406217F, -1.73304687F, -2.64953417F, -1.40965195F, 0.49673553F, -0.04942943F, 0.0469579341F, 0.0313131398F, -0.0156425912F, 0.827990354F, 3.01029759F, 0.244199911F, 0.0035350729F, 0.0143030513F, -0.0911800249F, -0.0670539116F, 0.612943803F},
+  {-0.0818243125F, 0.0458734919F, 0.139014981F, 0.0674147514F, -0.692180976F, 1.59438683F, -0.804328522F, 0.224601905F, -0.399324366F, -3.77015287F, 0.0120633118F, 0.223205522F, 0.789400721F, 1.47158932F, -0.7007745F, -0.0765851653F, -0.492777168F, -0.215287958F, 0.317692059F, 0.902062287F},
+  {-0.594937865F, -0.185325525F, 0.0276906364F, 0.0158200081F, -2.31097834F, -0.644831921F, 0.276011864F, -2.75560466F, -3.73899227F, 1.12306139F, -0.161646304F, -0.570183814F, -0.374063802F, -0.469835202F, 0.222878987F, 0.179379912F, -0.415542568F, 2.07134047F, -0.88509554F, -0.274287892F},
+  {-0.108159664F, 0.0450347612F, 0.134198025F, -0.0799006857F, -0.480219461F, 0.479117132F, 0.0652430867F, 0.426515394F, 0.143545712F, 0.689653263F, -0.00845864389F, 0.0794374652F, -0.16751332F, -0.104278243F, -0.179740575F, 0.0041094767F, 1.34953809F, -0.275925197F, -0.0593999096F, 0.762721665F},
+  {-0.0718474228F, -0.720978703F, 0.13040543F, -0.633905855F, -0.405226397F, 0.271654654F, 0.243774994F, -0.127884516F, 0.100996326F, 0.253669945F, 0.0271388892F, 0.00435297551F, 0.633286058F, -0.648231937F, 0.129854094F, 0.0163461693F, -0.184619709F, -0.0812863237F, 0.0490555366F, 0.2485221F},
+  {-0.0494225162F, -0.0193711776F, 0.0578849222F, 0.126966509F, -0.775840059F, 2.42978321F, -0.400338145F, 0.212894962F, -0.018947091F, 1.22664639F, 0.0839333358F, 0.212903146F, 0.812226371F, 0.354832258F, -0.668554545F, -0.140974273F, -0.466287977F, -0.175446755F, 0.106025837F, 0.672649668F},
+  {-0.0776527377F, 0.76116496F, 0.0842582808F, 0.42433581F, -0.345496451F, 1.06739606F, 0.675365028F, -0.027560983F, 0.0897859976F, 0.305629421F, 0.0197685212F, -0.0351504372F, 0.458168112F, -1.86383789F, 0.0768123951F, -0.0427447561F, -0.162002885F, -0.0616205588F, 0.024051013F, 0.299005789F},
+  {0.0357245736F, -2.12323834F, -0.718369675F, 0.19439155F, -1.02595373F, 0.760270845F, 0.953042195F, -3.82688226F, -2.45356794F, 1.4799927F, 0.774646375F, 0.859871042F, -0.27057593F, -1.53208859F, -0.429745523F, 1.16457815F, 2.94309663F, 2.30155503F, -10.1851633F, -10.834621F},
+  {-1.50637846F, 0.0265612626F, -0.733078765F, -0.0346102855F, 1.05731233F, 1.52153807F, 0.918852001F, 0.335448323F, -0.199219927F, -0.0482424496F, -0.159186244F, 0.0368322207F, -1.05824609F, -2.41748187F, -0.449477414F, 0.0580424258F, 0.0565103755F, 0.0424110028F, 0.0230846536F, 0.101059895F},
+  {-0.528990362F, 0.0594597875F, -0.0881264367F, -0.211553263F, -2.6044199F, -0.903845646F, 0.170153418F, -3.05227189F, -3.43824084F, 1.14821783F, -0.150765888F, -0.611949248F, -0.349921288F, 0.014154603F, 0.373020096F, 0.201562466F, 1.60908857F, 2.17010889F, -5.3049481F, -5.48213624F},
+  {1.05984112F, 0.0909906962F, 0.755710468F, -0.049676663F, 0.039200444F, 0.6982792F, 0.416772281F, -0.0584960022F, -0.0266970272F, -0.0355539859F, 0.00516763493F, -0.0070336016F, 0.0234462848F, -1.17253623F, 0.125836537F, -0.00644978026F, -0.0894523853F, -0.0349550324F, -0.0222254023F, 0.0106723976F},
+  {-0.0785067875F, 0.866886998F, -0.567928759F, -0.674208197F, -0.491671358F, 1.01075729F, 1.21723705F, -3.10332941F, -6.22992467F, 1.8311768F, -0.16660069F, 0.182702179F, -1.32582586F, -2.22686949F, -0.355968542F, 1.16106492F, 2.6616468F, 1.82808343F, -9.92294842F, -9.49531487F},
+  {0.0146404379F, 0.0722945853F, -0.0230340685F, -0.0652472498F, -2.86627781F, -0.024598265F, -0.0109356233F, 0.0487474816F, 0.0500934844F, 0.0716267892F, 0.0564557172F, 0.0995468288F, -0.0402839723F, 0.0525564643F, -0.131692651F, -0.0335241752F, 1.68971867F, 0.166961504F, -0.0357642571F, 0.69808973F},
+  {-0.371424149F, -0.638426029F, 0.134861333F, -2.4086788F, 0.55538244F, -4.90671846F, -0.483939648F, -0.740388568F, 9.1592214F, -9.85057619F, -0.654446028F, -0.00628444377F, -0.971504773F, 5.7478715F, -18.428535F, 0.479284849F, 1.53385339F, 1.22100804F, -2.68085126F, -2.7671647F},
+  {0.0144252542F, 0.0468982184F, -0.0384995877F, -0.0528600512F, 0.666262517F, -0.0763660701F, 0.0422894624F, -0.132165609F, -0.0137611205F, -0.187658875F, 0.0174675644F, 0.0178565996F, -0.21557283F, -0.0814769492F, -0.029246959F, -0.0164068313F, 1.22221888F, -0.299044324F, 0.0964372563F, 0.682521122F},
 };
-static const float FOOT_NEURAL_B1[12] = {
-  0.330317826F, -0.388904254F, 0.461943941F, -0.327982646F,
-  -0.474780179F, -0.082362481F, -0.188471548F, -0.362184763F,
-  0.525236422F, 0.204387275F, -0.0362281926F, 0.302933576F,
+static const float FOOT_NEURAL_B1[16] = {-1.07889185F, 0.134565201F, 0.0714966431F, -1.42847404F, -0.958403936F, 0.556099526F, 0.192503564F, 0.503783033F, -0.633550724F, -0.181586758F, 0.611083854F, 0.379588372F, -0.203105116F, -0.483430814F, -2.04969511F, -0.527259976F};
+static const float FOOT_NEURAL_W2[6][16] = {
+  {-0.0377602543F, 0.0232153689F, 0.00726315673F, -0.252849033F, 0.0296752191F, -0.0458441041F, -0.00208742419F, -0.0565664067F, 0.161122001F, -0.446257144F, 0.298533177F, 0.724657748F, -0.365314948F, 0.00691113467F, 0.175198664F, 0.0630121624F},
+  {-0.155332365F, -0.058992271F, 0.0151166396F, 0.121072576F, -0.0128701222F, -0.616768152F, 0.0002285505F, 0.544510345F, -1.12160762F, -0.0248198861F, -0.121856978F, 0.0191538523F, 0.714748958F, -0.00479339651F, 2.71699229F, -0.0172601033F},
+  {-0.0564652853F, 0.615664876F, -0.0583721914F, 0.964798297F, 0.319569404F, -0.434973004F, -0.0691813635F, -0.438935276F, 0.117853001F, -0.00253043559F, -0.895642004F, -0.0116008846F, 0.411778174F, -0.0514574869F, 0.397686571F, -0.24193411F},
+  {0.0223983162F, 0.0070302729F, -0.381794945F, -0.465913717F, 0.170456337F, 0.108190134F, 0.332570013F, 0.134522665F, 0.00819540976F, -0.0192167766F, 0.464069232F, -0.00920591062F, -0.086405118F, -0.0626412781F, 0.0270735267F, -0.0506760341F},
+  {0.934502276F, -0.0181742348F, -0.406598094F, -0.0402932693F, 0.0774993888F, -0.0124593596F, 0.372435964F, -0.00639580724F, -0.0184464345F, 0.00810649682F, 0.0193288613F, 0.0116256707F, -0.040965239F, -0.0407464076F, 0.0516251356F, -0.00256827258F},
+  {0.00350243922F, 0.00568614156F, 0.0132732324F, -0.0276223185F, 0.15517018F, -0.00858407471F, -0.00507515943F, -0.00087273501F, -0.006723613F, 0.0059900171F, 0.0168057654F, 0.0115660738F, -0.00706501747F, -0.521573445F, 0.0123587162F, 0.486354683F},
 };
-static const float FOOT_NEURAL_W2[5][12] = {
-  {0.318820335F, 0.522166245F, -0.0184466752F, 0.544180562F, -0.539415614F, 0.0420012132F, 0.0369395273F, -0.483280861F, 0.058105649F, -0.278025255F, -0.0287518531F, 0.293589632F},
-  {0.270359072F, -0.497752048F, 0.176079483F, 0.501772751F, 0.489551785F, -0.0860243288F, -0.0627451807F, -0.499460238F, -0.0798828905F, 0.174569231F, -0.0140358485F, -0.272079294F},
-  {-0.114754548F, -0.119888291F, 0.713173363F, -0.102479685F, -0.139458173F, 0.000738905084F, -0.593822498F, -0.158959702F, 0.469566803F, -0.27727343F, -0.134698986F, -0.282837366F},
-  {0.0369320328F, 0.00856246022F, -0.0939056541F, 0.0140382995F, 0.00589768045F, -0.441188481F, -0.0161826913F, 0.000309882925F, -0.710750861F, -0.00682061989F, 0.510399126F, -0.0124831572F},
-  {0.0376579316F, -0.0137165427F, -0.0695446887F, 0.0130924653F, -0.00887524286F, -0.725170787F, -0.00341421856F, 0.0149155047F, -0.300357152F, -0.0376127784F, 0.793649719F, 0.00386435364F},
-};
-static const float FOOT_NEURAL_B2[5] = {
-  -0.188641722F, 0.0481514951F, 0.553322651F,
-  0.389970122F, 0.151190095F,
-};
-
-// v3 adds causal filtered gap/vertical velocity, lip memory and swing phase.
-// The v2 constants above stay in generated source for reproducible project
-// upgrades; inference below exclusively consumes this trained v3 set.
-static const float FOOT_NEURAL_V3_W1[16][16] = {
-  {0.926220789F, 0.129270024F, 0.699034063F, 0.0417397979F, -0.193047185F, 1.36347543F, 0.744365569F, -0.0630148755F, 0.0332483976F, -0.259456714F, 0.00884546557F, -0.0026567093F, 0.196670058F, -2.00470279F, 0.317849873F, -0.0945836793F},
-  {-0.00292087468F, 0.0230610058F, -0.152094322F, 0.0418315467F, 2.79672904F, -0.0316480243F, -0.0666837463F, -0.489331581F, -0.0684935472F, -2.10539449F, 0.121579286F, -0.0332780098F, -1.32511661F, -0.532993334F, -0.0485250666F, -0.0393460068F},
-  {-1.44253818F, -0.11881145F, -0.198934703F, -0.0278622713F, -1.19708172F, -0.24519686F, -0.154219237F, 0.551446553F, -0.317913084F, -0.347953308F, -0.158359224F, 0.017767807F, 0.821337785F, 0.131857284F, -0.180557434F, -0.0623973613F},
-  {-0.0580256782F, -0.649528537F, 0.0754560718F, -0.493944673F, -0.308243661F, 1.95742007F, 1.1974817F, 0.00161293458F, 0.0914281472F, -0.119325782F, -0.0209725828F, 0.0163838925F, 0.354509925F, -3.18247812F, 0.204318893F, -0.157929595F},
-  {-0.058229098F, 0.648625759F, 0.0126288618F, 0.450535936F, 0.0340635571F, 1.82066169F, 1.12517761F, 0.0268348597F, 0.03689111F, -0.0309176396F, 0.00967998924F, 0.0183685668F, 0.0176425188F, -2.98857466F, 0.102266196F, -0.117376066F},
-  {1.2604014F, -1.20979065F, -1.70088571F, -0.676994879F, -0.672342475F, 2.29704156F, 0.992779406F, -0.432030487F, 1.09961303F, 0.00321641394F, 0.598742124F, -0.137493395F, -1.93347605F, -2.61381958F, -19.1768887F, 0.508483366F},
-  {-0.0397586111F, 0.0649414375F, -0.141108297F, -0.0121404053F, 2.79643255F, 1.16964748F, 0.734271354F, -0.639384706F, -0.109420927F, -1.28315286F, 0.160066584F, -0.0242753198F, -0.749722128F, -2.5990697F, -0.0729554356F, 0.000365942474F},
-  {-0.0811317935F, 0.0196537473F, 0.00395929174F, -0.00810419107F, -0.72687753F, -2.83520163F, -1.3975495F, 0.546663843F, -0.0707607222F, 0.42864573F, -0.00188985445F, 0.0100545383F, 0.319206909F, 3.27949241F, -0.303504131F, 0.000460199985F},
-  {0.103060029F, 0.0778092752F, -0.276825729F, -0.184021319F, -0.371101039F, 0.445678674F, 0.247640844F, -0.462798774F, 2.55731609F, 3.34192356F, 0.178466457F, -0.0970392384F, -0.471378511F, -0.61040147F, -13.5279509F, -2.9910627F},
-  {0.193490077F, -0.135580454F, -0.0805024722F, 0.161636659F, -1.1983469F, 2.08139455F, -0.61698258F, 0.47433687F, -0.112381665F, 0.603616742F, -0.0503967109F, 0.0408840581F, 1.12952093F, 0.880187038F, -0.196429973F, -0.139921768F},
-  {0.0770522447F, -0.0591970356F, 0.0988985221F, 0.133438739F, -1.67926507F, 1.82628915F, -0.700266488F, 0.466271385F, -0.169450738F, -3.81089102F, -0.0736246322F, 0.0403695895F, 1.48688183F, 1.07965168F, -0.353865212F, -0.146326482F},
-  {1.39410734F, -1.28430093F, -1.7807017F, -0.793098641F, -2.41203424F, 1.33584024F, 0.200818163F, -0.59536654F, -0.0554749147F, -2.62952745F, 0.689797902F, -0.3080732F, -0.979255087F, -0.803105276F, -15.5969457F, 0.032661889F},
-  {-1.18303347F, -0.210635832F, -0.749977987F, -0.0476115103F, 1.0658347F, 2.49448975F, 1.78286166F, 0.0993050538F, -0.170270086F, 0.194183327F, -0.0259026431F, -0.00618841624F, -0.966804381F, -4.43541729F, -0.432913787F, 0.249002436F},
-  {0.295586669F, 0.157519429F, -0.429169384F, -0.319898438F, -0.824333016F, 0.938568058F, 0.432277992F, -0.712836348F, 9.71318029F, 8.23822681F, 0.305216253F, -0.320669932F, -0.604433279F, -1.04963575F, -36.2252707F, -2.64986394F},
-  {-0.606761107F, 0.61016024F, 0.868533067F, -2.03358094F, 1.07903854F, -1.12375799F, -0.0670259181F, -0.250188836F, 17.2409661F, 13.7300221F, 0.21192903F, 0.0723307521F, -1.18790221F, 1.15217567F, -51.5247003F, 1.40086264F},
-  {-0.101416583F, 0.599031371F, -0.0188295822F, -0.229701758F, -0.432343316F, 1.20896325F, 0.931859381F, 0.0922253189F, 12.6404794F, 17.0096964F, -0.039648728F, 0.0327346335F, -0.175640236F, -2.10090834F, -47.1440715F, 0.421145692F},
-};
-static const float FOOT_NEURAL_V3_B1[16] = {0.423400479F, -0.00826804301F, 0.249019066F, 0.439384406F, 0.496710297F, -0.046720318F, -0.688940775F, 0.0686116704F, -2.51483465F, 0.376257284F, 0.51580643F, -0.135395158F, -0.0593819694F, -1.82705401F, -2.07943747F, -0.120483464F};
-static const float FOOT_NEURAL_V3_W2[5][16] = {
-  {0.809690715F, -0.083811142F, -0.0213566583F, -0.0190194803F, -0.176006362F, 0.273331828F, 0.128621279F, 0.178958864F, -0.386861064F, -0.0263235367F, -0.0217778538F, -0.187466411F, -0.486922557F, 0.00961032139F, 0.37918693F, -0.466833145F},
-  {-0.0106504745F, 0.0616711913F, -0.0406216217F, -0.72589571F, 0.75467015F, -1.0046279F, -0.0656036566F, -0.0528286549F, 0.104373474F, -0.0105286889F, 0.0268236862F, 0.89089518F, -0.00784630006F, -0.30198435F, 2.54099134F, 1.75323308F},
-  {-0.0402118977F, 0.73516985F, -0.430575429F, -0.0275245141F, 0.00113707014F, 0.187219648F, -1.00562816F, 0.803645412F, 0.331233022F, -0.0953774844F, 0.0238463868F, -0.155761347F, 0.361851867F, 0.0784285206F, 0.639850014F, 0.538455283F},
-  {-0.010353046F, -0.477150958F, 0.0778387773F, 0.078551256F, 0.0854057236F, -0.00616190382F, 0.32376672F, -0.0926646285F, -0.634889664F, 0.297319292F, -0.396227436F, -0.0459217297F, -0.0922099766F, 0.167195725F, 0.0257827365F, -0.0318008285F},
-  {0.032595359F, -0.0179642529F, 0.167436888F, -0.0205126127F, -0.0179310736F, 0.0319924541F, -0.014008219F, -0.0649832849F, -4.20045267F, 0.418561869F, -0.437117852F, -0.0685987073F, -0.149859998F, 2.38903848F, 0.0230357925F, 0.0796373206F},
-};
-static const float FOOT_NEURAL_V3_B2[5] = {-0.233279649F, -0.0183421615F, 0.313565869F, 0.247512231F, 0.0622077607F};
+static const float FOOT_NEURAL_B2[6] = {-0.315769608F, 0.160677891F, 1.06921181F, -0.12353829F, 0.000992406107F, -0.00918596992F};
 
 struct FootNeuralPrediction {
   float dx, dz, confidence, clearance, release;
+  // How much of the geometry-proven descent reach this frame wants to spend.
+  // Advice on an envelope, never on whether support exists (docs/foot-ik.md).
+  float reach;
 };
 
 static float footNeuralDot4(const Vec4& a, const Vec4& b, bool forceEe) {
@@ -7067,71 +7104,66 @@ static float footNeuralDot4(const Vec4& a, const Vec4& b, bool forceEe) {
   return a.innerProduct(b) + a.w * b.w;
 }
 
-static float footNeuralDot16(const Vec4& a0, const Vec4& a1, const Vec4& a2,
-                             const Vec4& a3, const float* weights,
-                             bool forceEe) {
-  const Vec4 w0(weights[0], weights[1], weights[2], weights[3]);
-  const Vec4 w1(weights[4], weights[5], weights[6], weights[7]);
-  const Vec4 w2(weights[8], weights[9], weights[10], weights[11]);
-  const Vec4 w3(weights[12], weights[13], weights[14], weights[15]);
-  return footNeuralDot4(a0, w0, forceEe) +
-         footNeuralDot4(a1, w1, forceEe) +
-         footNeuralDot4(a2, w2, forceEe) +
-         footNeuralDot4(a3, w3, forceEe);
+// One dense row over a feature vector held as `lanes` Vec4s. The width is a
+// parameter rather than a hardcoded 16 because the input layer (20) and the
+// hidden layer (16) are different sizes - v3 got that for free while both were
+// 16, and a second copy of this loop is exactly the drift the VU framework's
+// single-Desc rule exists to avoid.
+static float footNeuralDot(const Vec4* activations, int lanes,
+                           const float* weights, bool forceEe) {
+  float sum = 0.0F;
+  for (int l = 0; l < lanes; ++l) {
+    const float* w = weights + l * 4;
+    sum += footNeuralDot4(activations[l], Vec4(w[0], w[1], w[2], w[3]), forceEe);
+  }
+  return sum;
 }
 
-static FootNeuralPrediction footNeuralRunMode(const Vec4& input0,
-                                              const Vec4& input1,
-                                              const Vec4& input2,
-                                              const Vec4& input3,
-                                              bool forceEe) {
-  float hidden[16];
-  for (int h = 0; h < 16; ++h) {
-    hidden[h] = FOOT_NEURAL_V3_B1[h] +
-                footNeuralDot16(input0, input1, input2, input3,
-                                FOOT_NEURAL_V3_W1[h], forceEe);
+static FootNeuralPrediction footNeuralRunMode(const Vec4* input, bool forceEe) {
+  float hidden[FOOT_NEURAL_HIDDEN];
+  for (int h = 0; h < FOOT_NEURAL_HIDDEN; ++h) {
+    hidden[h] = FOOT_NEURAL_B1[h] +
+                footNeuralDot(input, FOOT_NEURAL_IN_LANES,
+                              FOOT_NEURAL_W1[h], forceEe);
     if (hidden[h] < 0.0F) hidden[h] = 0.0F;
   }
-  const Vec4 h0(hidden[0], hidden[1], hidden[2], hidden[3]);
-  const Vec4 h1(hidden[4], hidden[5], hidden[6], hidden[7]);
-  const Vec4 h2(hidden[8], hidden[9], hidden[10], hidden[11]);
-  const Vec4 h3(hidden[12], hidden[13], hidden[14], hidden[15]);
-  float output[5];
-  for (int o = 0; o < 5; ++o)
-    output[o] = FOOT_NEURAL_V3_B2[o] +
-                footNeuralDot16(h0, h1, h2, h3,
-                                FOOT_NEURAL_V3_W2[o], forceEe);
+  Vec4 hid[FOOT_NEURAL_HIDDEN / 4];
+  for (int l = 0; l < FOOT_NEURAL_HIDDEN / 4; ++l)
+    hid[l] = Vec4(hidden[l * 4], hidden[l * 4 + 1], hidden[l * 4 + 2],
+                  hidden[l * 4 + 3]);
+  float output[FOOT_NEURAL_OUT];
+  for (int o = 0; o < FOOT_NEURAL_OUT; ++o)
+    output[o] = FOOT_NEURAL_B2[o] +
+                footNeuralDot(hid, FOOT_NEURAL_HIDDEN / 4, FOOT_NEURAL_W2[o],
+                              forceEe);
+  // The two landing residuals are signed; every other head is an intent in
+  // 0..1 and is clamped there before anything scales it.
   for (int i = 0; i < 2; ++i) {
     if (output[i] < -1.0F) output[i] = -1.0F;
     if (output[i] > 1.0F) output[i] = 1.0F;
   }
-  for (int i = 2; i < 5; ++i) {
+  for (int i = 2; i < FOOT_NEURAL_OUT; ++i) {
     if (output[i] < 0.0F) output[i] = 0.0F;
     if (output[i] > 1.0F) output[i] = 1.0F;
   }
-  return {output[0] * 0.16F, output[1] * 0.16F,
-          output[2], output[3], output[4]};
+  return {output[0] * 0.16F, output[1] * 0.16F, output[2],
+          output[3],         output[4],         output[5]};
 }
 
 static float g_footNeuralParityMax = 0.0F;
 
-static FootNeuralPrediction footNeuralRun(const Vec4& input0,
-                                          const Vec4& input1,
-                                          const Vec4& input2,
-                                          const Vec4& input3) {
+static FootNeuralPrediction footNeuralRun(const Vec4* input) {
   const FootNeuralPrediction result =
-      footNeuralRunMode(input0, input1, input2, input3, FOOT_NEURAL_FORCE_EE);
+      footNeuralRunMode(input, FOOT_NEURAL_FORCE_EE);
   // Trace builds evaluate the scalar twin on the IDENTICAL feature vector.
   // Normal builds constant-fold this whole branch away.
   if (FOOT_IK_TRACE && !FOOT_NEURAL_FORCE_EE) {
-    const FootNeuralPrediction ee =
-        footNeuralRunMode(input0, input1, input2, input3, true);
-    const float delta[5] = {fabsf(result.dx - ee.dx),
-                            fabsf(result.dz - ee.dz),
-                            fabsf(result.confidence - ee.confidence),
-                            fabsf(result.clearance - ee.clearance),
-                            fabsf(result.release - ee.release)};
-    for (int i = 0; i < 5; ++i)
+    const FootNeuralPrediction ee = footNeuralRunMode(input, true);
+    const float delta[FOOT_NEURAL_OUT] = {
+        fabsf(result.dx - ee.dx),                  fabsf(result.dz - ee.dz),
+        fabsf(result.confidence - ee.confidence),  fabsf(result.clearance - ee.clearance),
+        fabsf(result.release - ee.release),        fabsf(result.reach - ee.reach)};
+    for (int i = 0; i < FOOT_NEURAL_OUT; ++i)
       if (delta[i] > g_footNeuralParityMax) g_footNeuralParityMax = delta[i];
   }
   return result;
@@ -7147,16 +7179,82 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     if (!o.footIkEnabled) g.footIk = ObjectGeometry::FootIkRuntime();
     return;
   }
+  // The rig is per model asset (docs/foot-ik.md): every instance of this
+  // character shares the binding, and the scene object above carried only the
+  // switch. An unbound slot cannot solve - the scene table already emits
+  // footIk = 0 for those, so this is the belt to that braces.
+  if (o.data.animModel < 0 || o.data.animModel >= ANIM_MODEL_COUNT ||
+      !FOOT_IK_RIGS[o.data.animModel].solve) {
+    inst.clearPoseAdjust();
+    return;
+  }
+  const FootIkRigData& rig = FOOT_IK_RIGS[o.data.animModel];
   ObjectGeometry::FootIkRuntime& rt = g.footIk;
+
+  // Which clip is playing decides WHETHER to solve and how wide the bands are
+  // (a jump wants the authored pose; a run wants a walk's tolerances widened).
+  // Resolved by name, but only when the clip index moves - the answer almost
+  // never changes and a per-frame string compare per instance would be paid
+  // forever for it.
+  if (rt.ruleClip != o.animClip) {
+    rt.ruleClip = o.animClip;
+    rt.ruleSolve = true;
+    rt.rulePlant = 1.0F;
+    rt.ruleClearance = 1.0F;
+    const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+    if (gam.src && o.animClip >= 0 && o.animClip < (int)gam.src->clips.size()) {
+      const std::string& playing = gam.src->clips[o.animClip].name;
+      for (int r = 0; r < rig.ruleCount; ++r) {
+        const FootIkClipRuleData& rule = FOOT_IK_CLIP_RULES[rig.firstRule + r];
+        if (playing != rule.clip) continue;
+        rt.ruleSolve = rule.solve != 0;
+        rt.rulePlant = rule.plantScale;
+        rt.ruleClearance = rule.clearanceScale;
+        break;
+      }
+    }
+  }
+  if (!rt.ruleSolve) {
+    // This clip plays as authored. Drop the contacts - a jump that kept a
+    // planted target would land the solver back on the stair it left - but keep
+    // the locomotion filters, which are about the OBJECT and not the pose.
+    inst.clearPoseAdjust();
+    rt.foot[0] = ObjectGeometry::FootState();
+    rt.foot[1] = ObjectGeometry::FootState();
+    rt.reachBudget = 0.0F;
+    // The velocity histories are re-seeded on the next solving frame rather
+    // than carried: a jump can move the object a long way while nothing here
+    // ran, and a stale previous position would read as one enormous frame of
+    // vertical speed exactly when the feet start looking for the ground again.
+    rt.gradeReady = false;
+    rt.objectReady = false;
+    rt.descend = rt.ascend = 0.0F;
+    rt.dropAhead = 0.0F;
+    return;
+  }
+
+  // The rig's numbers, with this clip's scales folded in once. Everything below
+  // reads these locals, so a per-clip rule cannot be honoured in one gate and
+  // forgotten in the next.
+  const float ikSole = rig.sole;
+  const float ikProbeUp = rig.probeUp;
+  const float ikPlant = rig.plant * rt.rulePlant;
+  const float ikRelease = rig.release * rt.rulePlant;
+  const float ikPelvis = rig.pelvis;
+  const float ikMaxFootAngle = rig.maxFootAngle;
+  const float ikToeClearance = rig.toeClearance * rt.ruleClearance;
+  const bool ikNeural = rig.neural != 0;
+  const float ikNeuralStrength = rig.neuralStrength;
+
   if (!rt.resolved) {
     rt.resolved = true;
     const SkelModel* model = inst.model;
-    rt.hip[0] = model->findNode(o.data.ikLeftHip);
-    rt.knee[0] = model->findNode(o.data.ikLeftKnee);
-    rt.ankle[0] = model->findNode(o.data.ikLeftAnkle);
-    rt.hip[1] = model->findNode(o.data.ikRightHip);
-    rt.knee[1] = model->findNode(o.data.ikRightKnee);
-    rt.ankle[1] = model->findNode(o.data.ikRightAnkle);
+    rt.hip[0] = model->findNode(rig.leftHip);
+    rt.knee[0] = model->findNode(rig.leftKnee);
+    rt.ankle[0] = model->findNode(rig.leftAnkle);
+    rt.hip[1] = model->findNode(rig.rightHip);
+    rt.knee[1] = model->findNode(rig.rightKnee);
+    rt.ankle[1] = model->findNode(rig.rightAnkle);
     rt.pelvis = model->commonAncestor(rt.hip[0], rt.hip[1]);
     auto below = [&](int child, int parent) {
       for (int n = child; n >= 0 && n < (int)model->nodes.size();
@@ -7226,7 +7324,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     return Vec4(q.x / sx, q.y / sy, q.z / sz, 0.0F);
   };
   const float scaleY = fabsf(o.data.scale[1]);
-  const float sole = o.data.ikSole * scaleY;
+  const float sole = ikSole * scaleY;
   SkelPoseAdjust adjust;
   adjust.pelvis = rt.pelvis;
   adjust.legCount = 2;
@@ -7272,6 +7370,112 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
   else
     rt.objectStillTime = 0.0F;
 
+  // --- Locomotion grade: level, up, or down -------------------------------
+  //
+  // This is the answer to "why does a foot finish its stride in the air going
+  // down stairs". The contact bands below are tuned for level ground and are
+  // deliberately narrow - a wide band turns every airborne swing into a ground
+  // magnet. On a descent the swing foot has to cover the whole step height PLUS
+  // whatever the visual root still owes the collision height, which on a 22 cm
+  // stair is already twice the plant distance. No level-ground number can be
+  // stretched to cover that without ruining flat ground, so the reach becomes
+  // conditional on the character actually going DOWN.
+  //
+  // Three independent signals, because each one alone is wrong somewhere:
+  //  - the root's own vertical speed (says nothing while the visualY filter is
+  //    still catching up, and says "down" during a jump's descent),
+  //  - the ground drop the walker published (exact, but only a walker has it),
+  //  - a probe under the path ahead (works for any object, including an NPC or
+  //    a scripted mover, and sees the step before it is stepped on).
+  // They are combined and low-pass filtered, and the classification is SOFT:
+  // every gate scales with it, so nothing pops on the frame it flips.
+  {
+    float rawVy = 0.0F;
+    if (rt.gradeReady && g_frameDt > 0.0001F)
+      rawVy = (o.data.position[1] - rt.previousY) / g_frameDt;
+    else
+      rt.gradeReady = true;
+    rt.previousY = o.data.position[1];
+    float blend = g_frameDt * 9.0F;
+    if (blend > 1.0F) blend = 1.0F;
+    rt.rootVy += (rawVy - rt.rootVy) * blend;
+
+    // Ground under a point ahead of the root, compared with the ground under
+    // it. A lead proportional to speed asks "what am I about to stand on"
+    // rather than "what is a fixed distance away".
+    float rawDrop = 0.0F;
+    if (objectSpeed > 0.12F) {
+      const float lead = 0.30F + objectSpeed * 0.14F;
+      const float inv = 1.0F / objectSpeed;
+      const float dirX = objectVx * inv, dirZ = objectVz * inv;
+      const float top = o.data.position[1] + ikProbeUp + 0.5F;
+      const float bottom =
+          o.data.position[1] - rig.probeDown - rig.descendReach - 0.5F;
+      float here = 0.0F, there = 0.0F;
+      const bool hereHit = footGroundAt(o.data.position[0], o.data.position[2],
+                                        top, bottom, objectIndex, &here);
+      const bool thereHit =
+          footGroundAt(o.data.position[0] + dirX * lead,
+                       o.data.position[2] + dirZ * lead, top, bottom,
+                       objectIndex, &there);
+      if (hereHit && thereHit && there < here) rawDrop = here - there;
+    }
+    float dropBlend = g_frameDt * (rawDrop > rt.dropAhead ? 14.0F : 6.0F);
+    if (dropBlend > 1.0F) dropBlend = 1.0F;
+    rt.dropAhead += (rawDrop - rt.dropAhead) * dropBlend;
+
+    // Grade as a dimensionless slope, so a slow careful descent and a brisk one
+    // classify the same. Below the speed floor there is no direction of travel
+    // to speak of and the character is standing (rest contact owns that case).
+    const float horizontal = objectSpeed > 0.20F ? objectSpeed : 0.20F;
+    const float grade = objectSpeed > 0.08F ? rt.rootVy / horizontal : 0.0F;
+    auto smooth = [](float edge0, float edge1, float v) {
+      float t = (v - edge0) / (edge1 - edge0);
+      if (t < 0.0F) t = 0.0F;
+      if (t > 1.0F) t = 1.0F;
+      return t * t * (3.0F - 2.0F * t);
+    };
+    // Either the root is measurably falling relative to its travel, or the
+    // ground ahead is a step down. Geometry wins: a probe that already found a
+    // lower surface is worth more than a filtered velocity.
+    const float fromMotion = smooth(-0.06F, -0.32F, grade);
+    const float fromGeometry = smooth(0.02F, 0.14F, rt.dropAhead);
+    const float fromResidual = smooth(0.01F, 0.10F, o.ikGroundDrop);
+    float wantDescend = fromMotion;
+    if (fromGeometry > wantDescend) wantDescend = fromGeometry;
+    if (fromResidual > wantDescend) wantDescend = fromResidual;
+    const float wantAscend = smooth(0.06F, 0.32F, grade);
+    float classBlend = g_frameDt * 10.0F;
+    if (classBlend > 1.0F) classBlend = 1.0F;
+    rt.descend += (wantDescend - rt.descend) * classBlend;
+    rt.ascend += (wantAscend - rt.ascend) * classBlend;
+    // Ascending and descending are mutually exclusive; a signal that says both
+    // is noise, and letting descent win there is what makes a foot chase the
+    // ground on a staircase whose treads are shorter than the probe lead.
+    if (rt.ascend > rt.descend)
+      rt.descend *= 1.0F - rt.ascend;
+    else
+      rt.ascend *= 1.0F - rt.descend;
+
+    // How much extra downward reach the descent has EARNED. The step ahead and
+    // the root's own debt are additive - on a staircase both are present at
+    // once - and the rig caps the total, so "Descent reach" reads as "the
+    // tallest step this character walks down".
+    float wanted = (rt.dropAhead + o.ikGroundDrop) * rt.descend;
+    if (wanted > rig.descendReach) wanted = rig.descendReach;
+    wanted *= rt.rulePlant;  // a run's wider tolerances scale this too
+    float reachBlend = g_frameDt * (wanted > rt.reachBudget ? 12.0F : 7.0F);
+    if (reachBlend > 1.0F) reachBlend = 1.0F;
+    rt.reachBudget += (wanted - rt.reachBudget) * reachBlend;
+    if (rt.reachBudget < 0.0005F) rt.reachBudget = 0.0F;
+  }
+  // Probing has to SEE the tread before any gate can accept it, so the search
+  // window grows with the budget. Everything below stays raycast-gated: a
+  // budget only widens where the foot may look, never what it may believe.
+  const float ikProbeDown = rig.probeDown + rt.reachBudget;
+  // The reach a descending foot may add to the level-ground contact bands.
+  const float descentReach = rt.reachBudget;
+
   for (int side = 0; side < 2; ++side) {
     ObjectGeometry::FootState& foot = rt.foot[side];
     const Vec4 local(ankleM[side]->data[12], ankleM[side]->data[13],
@@ -7281,8 +7485,8 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     float ground = 0.0F;
     Vec4 groundNormal(0.0F, 1.0F, 0.0F, 0.0F);
     const bool hit = footGroundAt(
-        soleWorld.x, soleWorld.z, soleWorld.y + o.data.ikProbeUp,
-        soleWorld.y - o.data.ikProbeDown, objectIndex, &ground, &groundNormal);
+        soleWorld.x, soleWorld.z, soleWorld.y + ikProbeUp,
+        soleWorld.y - ikProbeDown, objectIndex, &ground, &groundNormal);
     const float vy = foot.ready && g_frameDt > 0.0001F
                          ? (soleWorld.y - foot.previousWorld.y) / g_frameDt
                          : 0.0F;
@@ -7319,16 +7523,16 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       float nearGround = ground;
       const bool nearHit = footGroundAt(
           soleWorld.x + dirX * 0.11F, soleWorld.z + dirZ * 0.11F,
-          soleWorld.y + o.data.ikProbeUp,
-          soleWorld.y - o.data.ikProbeDown, objectIndex, &nearGround);
+          soleWorld.y + ikProbeUp,
+          soleWorld.y - ikProbeDown, objectIndex, &nearGround);
       if (nearHit) nearExcess = nearGround - ground - groundSlope * 0.11F;
       farLead = 0.20F + travelSpeed * 0.025F;
       if (farLead > 0.30F) farLead = 0.30F;
       float farGround = ground;
       const bool farHit = footGroundAt(
           soleWorld.x + dirX * farLead, soleWorld.z + dirZ * farLead,
-          soleWorld.y + o.data.ikProbeUp,
-          soleWorld.y - o.data.ikProbeDown, objectIndex, &farGround);
+          soleWorld.y + ikProbeUp,
+          soleWorld.y - ikProbeDown, objectIndex, &farGround);
       if (farHit) farExcess = farGround - ground - groundSlope * farLead;
       if (nearHit && nearExcess > 0.025F) {
         obstacleHit = true;
@@ -7375,7 +7579,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     float sweepClearance = 0.0F;
     float sweepRise = 0.0F;
     if (!foot.locked && hit && travelSpeed > 0.12F &&
-        o.data.ikToeClearance > 0.0F) {
+        ikToeClearance > 0.0F) {
       float footprintScale =
           0.5F * (fabsf(o.data.scale[0]) + fabsf(o.data.scale[2]));
       if (footprintScale < 0.55F) footprintScale = 0.55F;
@@ -7400,8 +7604,8 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                                sideZ * across[corner];
           float sweptGround = ground;
           const bool sweptHit = footGroundAt(
-              probeX, probeZ, pathY + o.data.ikProbeUp,
-              pathY - o.data.ikProbeDown, objectIndex, &sweptGround);
+              probeX, probeZ, pathY + ikProbeUp,
+              pathY - ikProbeDown, objectIndex, &sweptGround);
           if (!sweptHit) continue;
           // The swept sole exists to catch a RAISED tread crossed between
           // frames. Applying its shoe margin to the same support plane turns
@@ -7412,7 +7616,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
           const float supportRise = sweptGround - ground;
           if (supportRise > sweepRise) sweepRise = supportRise;
           const float needed =
-              sweptGround + o.data.ikToeClearance * 0.72F - pathY;
+              sweptGround + ikToeClearance * 0.72F - pathY;
           if (needed > sweepClearance) sweepClearance = needed;
           if (raisedSupport &&
               (!obstacleHit || sweptGround > obstacleGround)) {
@@ -7422,7 +7626,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
         }
       }
       if (sweepClearance < 0.0F) sweepClearance = 0.0F;
-      const float sweepCap = o.data.ikProbeUp + o.data.ikToeClearance;
+      const float sweepCap = ikProbeUp + ikToeClearance;
       if (sweepClearance > sweepCap) sweepClearance = sweepCap;
     }
 
@@ -7436,37 +7640,46 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     float neuralConfidence = 0.0F;
     float neuralClearance = 0.0F;
     float neuralRelease = 0.0F;
+    float neuralReach = 0.0F;
     bool neuralApplied = false;
     float aheadGround = ground;
     const float aheadX = soleWorld.x + objectVx * 0.08F;
     const float aheadZ = soleWorld.z + objectVz * 0.08F;
     const bool aheadHit = hit && footGroundAt(
-        aheadX, aheadZ, soleWorld.y + o.data.ikProbeUp,
-        soleWorld.y - o.data.ikProbeDown, objectIndex, &aheadGround);
+        aheadX, aheadZ, soleWorld.y + ikProbeUp,
+        soleWorld.y - ikProbeDown, objectIndex, &aheadGround);
     const float aheadHeightDelta = aheadHit ? aheadGround - ground : 0.0F;
     auto unit = [](float value) {
       if (value < -1.0F) return -1.0F;
       if (value > 1.0F) return 1.0F;
       return value;
     };
-    const Vec4 input0(unit(objectVx / 4.0F), unit(objectVz / 4.0F),
-                      unit(vx / 6.0F), unit(vz / 6.0F));
-    const Vec4 input1(unit((soleWorld.y - ground) / 0.55F), unit(vy / 3.0F),
-                      unit(foot.previousVy / 3.0F),
-                      unit(aheadHeightDelta / 0.55F));
-    const Vec4 input2(unit(nearExcess / 0.35F), unit(farExcess / 0.35F),
-                      unit(groundNormal.x), unit(groundNormal.z));
-    const Vec4 input3(unit(foot.filteredGap / 0.55F),
-                      unit(foot.filteredVy / 3.0F),
-                      unit(foot.lipMemory / 0.35F),
-                      unit(foot.swingTime / 0.25F - 1.0F));
-    FootNeuralPrediction prediction = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-    if (o.data.ikNeural && hit && foot.ready) {
-      prediction = footNeuralRun(input0, input1, input2, input3);
-      const float strength = o.data.ikNeuralStrength;
+    // The feature vector, in the order tools/train-foot-neural.py builds it.
+    // Runtime normalization, the regression runner's labels and the trainer's
+    // feature order are EXACT twins - a divisor changed on one side alone
+    // silently feeds the network a different world than it was trained on.
+    // Lanes 4 (f16..f19) are the locomotion grade: the whole descent story is
+    // in there, which is what lets the learned heads specialize on going down
+    // instead of inferring it from a filtered velocity.
+    const Vec4 input[FOOT_NEURAL_IN_LANES] = {
+        Vec4(unit(objectVx / 4.0F), unit(objectVz / 4.0F), unit(vx / 6.0F),
+             unit(vz / 6.0F)),
+        Vec4(unit((soleWorld.y - ground) / 0.55F), unit(vy / 3.0F),
+             unit(foot.previousVy / 3.0F), unit(aheadHeightDelta / 0.55F)),
+        Vec4(unit(nearExcess / 0.35F), unit(farExcess / 0.35F),
+             unit(groundNormal.x), unit(groundNormal.z)),
+        Vec4(unit(foot.filteredGap / 0.55F), unit(foot.filteredVy / 3.0F),
+             unit(foot.lipMemory / 0.35F), unit(foot.swingTime / 0.25F - 1.0F)),
+        Vec4(unit(rt.descend * 2.0F - 1.0F), unit(rt.ascend * 2.0F - 1.0F),
+             unit(rt.dropAhead / 0.55F), unit(rt.reachBudget / 0.55F))};
+    FootNeuralPrediction prediction = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    if (ikNeural && hit && foot.ready) {
+      prediction = footNeuralRun(input);
+      const float strength = ikNeuralStrength;
       neuralConfidence = prediction.confidence * strength;
       neuralClearance = prediction.clearance * strength;
       neuralRelease = prediction.release * strength;
+      neuralReach = prediction.reach * strength;
       const float preferredX = soleWorld.x + objectVx * 0.055F +
                                prediction.dx * strength;
       const float preferredZ = soleWorld.z + objectVz * 0.055F +
@@ -7490,19 +7703,19 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                            sideZ * sideOffset[option];
           float py = ground;
           Vec4 pn(0.0F, 1.0F, 0.0F, 0.0F);
-          if (!footGroundAt(px, pz, soleWorld.y + o.data.ikProbeUp,
-                            soleWorld.y - o.data.ikProbeDown, objectIndex,
+          if (!footGroundAt(px, pz, soleWorld.y + ikProbeUp,
+                            soleWorld.y - ikProbeDown, objectIndex,
                             &py, &pn))
             continue;
           float toeY = py, heelY = py;
           const bool toeHit = footGroundAt(
               px + dirX * 0.085F, pz + dirZ * 0.085F,
-              soleWorld.y + o.data.ikProbeUp,
-              soleWorld.y - o.data.ikProbeDown, objectIndex, &toeY);
+              soleWorld.y + ikProbeUp,
+              soleWorld.y - ikProbeDown, objectIndex, &toeY);
           const bool heelHit = footGroundAt(
               px - dirX * 0.085F, pz - dirZ * 0.085F,
-              soleWorld.y + o.data.ikProbeUp,
-              soleWorld.y - o.data.ikProbeDown, objectIndex, &heelY);
+              soleWorld.y + ikProbeUp,
+              soleWorld.y - ikProbeDown, objectIndex, &heelY);
           float support = 1.0F;
           if (toeHit && fabsf(toeY - py) <= 0.075F) support += 0.65F;
           if (heelHit && fabsf(heelY - py) <= 0.075F) support += 0.65F;
@@ -7559,14 +7772,14 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // the authored toe margin, and only after the probes above prove a lip.
     float wantedClearance = 0.0F;
     if ((!foot.locked || vy > 0.04F) && hit && travelSpeed > 0.12F &&
-        o.data.ikToeClearance > 0.0F && obstacleHit) {
+        ikToeClearance > 0.0F && obstacleHit) {
       const float rise = obstacleGround - ground;
       if (rise > 0.025F) {
-        wantedClearance = obstacleGround + o.data.ikToeClearance - soleWorld.y;
+        wantedClearance = obstacleGround + ikToeClearance - soleWorld.y;
         if (wantedClearance < 0.0F) wantedClearance = 0.0F;
         wantedClearance +=
-            o.data.ikToeClearance * 0.35F * neuralClearance;
-        const float maxClearance = o.data.ikProbeUp + o.data.ikToeClearance;
+            ikToeClearance * 0.35F * neuralClearance;
+        const float maxClearance = ikProbeUp + ikToeClearance;
         if (wantedClearance > maxClearance) wantedClearance = maxClearance;
       }
     }
@@ -7615,31 +7828,51 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // above a lower tread. Once the sole ray proves reachable support below a
     // descending foot, guide only Y toward it; XZ stays authored and the foot
     // remains unlocked, so this cannot recreate flat-ground glue.
+    // The descent budget widens it: a 22 cm stair puts the tread further below
+    // the authored sole than any level-ground band reaches, and the whole point
+    // of the grade above is that this widening exists only while going down.
     const float downReachLimit =
-        o.data.ikPlant + o.data.ikPelvis * 0.65F;
+        ikPlant + ikPelvis * 0.65F + descentReach;
     const float downGap = hit ? soleWorld.y - ground : 0.0F;
     const ObjectGeometry::FootState& supportFoot = rt.foot[1 - side];
-    const bool lowerTread = supportFoot.locked && supportFoot.weight > 0.15F &&
-        ground < supportFoot.lockedWorld.y - 0.025F;
+    // "There is a lower tread under this foot" used to require the OTHER foot
+    // to be planted above it. On a staircase that is a deadlock: with both feet
+    // hovering, neither can be the support that lets the other reach - which is
+    // exactly the reported failure. A confident descent is the second way to
+    // answer it, and it is still geometry-gated (`hit` proved the surface, and
+    // the grade itself came from probes and the walker's own drop).
+    const bool lowerTread =
+        (supportFoot.locked && supportFoot.weight > 0.15F &&
+         ground < supportFoot.lockedWorld.y - 0.025F) ||
+        (rt.descend > 0.35F && descentReach > 0.005F);
     const bool descendingForReach =
-        vy <= -0.04F || (foot.downReach > 0.001F && foot.filteredVy <= 0.04F);
+        vy <= -0.04F || (foot.downReach > 0.001F && foot.filteredVy <= 0.04F) ||
+        // A walk cycle's swing foot is briefly level in its own frame while the
+        // whole body descends; the body's grade is the honest signal there.
+        (rt.descend > 0.5F && foot.filteredVy <= 0.06F);
     float wantedDownReach = 0.0F;
     if (!foot.locked && !foot.releasing && hit &&
         wantedClearance <= 0.0F && objectSpeed > 0.08F &&
-        lowerTread && descendingForReach && downGap > o.data.ikPlant &&
+        lowerTread && descendingForReach && downGap > ikPlant &&
         downGap <= downReachLimit) {
       float reachT = 1.0F -
-          (downGap - o.data.ikPlant) /
-              fmaxf(0.001F, downReachLimit - o.data.ikPlant);
+          (downGap - ikPlant) /
+              fmaxf(0.001F, downReachLimit - ikPlant);
       if (reachT < 0.0F) reachT = 0.0F;
       if (reachT > 1.0F) reachT = 1.0F;
       reachT = reachT * reachT * (3.0F - 2.0F * reachT);
       wantedDownReach = 0.22F + reachT * 0.56F;
+      // The learned head may firm up an envelope the raycast above already
+      // proved, by at most a quarter. It cannot create the phase (this whole
+      // branch is behind `hit` and the descent gates) and it cannot move the
+      // target, which stays the surface the ray found.
+      wantedDownReach *= 1.0F + 0.25F * neuralReach;
+      if (wantedDownReach > 1.0F) wantedDownReach = 1.0F;
     }
     if (wantedDownReach == 0.0F &&
         (!hit || wantedClearance > 0.0F || foot.filteredVy > 0.04F ||
          !lowerTread || objectSpeed <= 0.08F ||
-         downGap <= o.data.ikPlant ||
+         downGap <= ikPlant ||
          downGap > downReachLimit)) {
       foot.downReach = 0.0F;
     } else {
@@ -7656,14 +7889,14 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float dx = soleWorld.x - foot.lockedWorld.x;
       const float dz = soleWorld.z - foot.lockedWorld.z;
       const float verticalRelease = foot.restLocked
-                                        ? o.data.ikPlant + o.data.ikPelvis
-                                        : o.data.ikRelease;
+                                        ? ikPlant + ikPelvis
+                                        : ikRelease;
       const float contactSpeedLimit =
           fmaxf(0.55F, objectSpeed * 0.70F);
       const bool toeOff = !foot.restLocked && objectSpeed > 0.08F &&
           foot.filteredVy > 0.04F && footSpeed > contactSpeedLimit;
       if (!hit || soleWorld.y - ground > verticalRelease || toeOff ||
-          dx * dx + dz * dz > o.data.ikRelease * o.data.ikRelease ||
+          dx * dx + dz * dz > ikRelease * ikRelease ||
           (foot.restLocked && rt.objectStillTime < 0.04F)) {
         foot.locked = false;
         foot.restLocked = false;
@@ -7676,21 +7909,28 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float gap = soleWorld.y - candidateGround;
       const float contactSpeedLimit =
           fmaxf(0.55F, objectSpeed * 0.70F);
-      const bool normalPlant = gap <= o.data.ikPlant && vy <= 0.25F &&
+      const bool normalPlant = gap <= ikPlant && vy <= 0.25F &&
           footSpeed <= contactSpeedLimit;
       // A descending foot may acquire a lower neighbouring surface before it
       // enters the narrow ordinary plant band.  Using vertical direction as
       // the extra gate gives split-level walking useful reach without turning
-      // the rising swing into a ground magnet.
-      const float descendingReach =
-          o.data.ikPlant + o.data.ikPelvis * 0.55F;
+      // the rising swing into a ground magnet.  The descent budget adds to it,
+      // which is what finally lets the plant itself - not just the down-reach
+      // guidance - happen a whole step below the authored sole.
+      const float descendingPlantReach =
+          ikPlant + ikPelvis * 0.55F + descentReach;
+      // While the body is genuinely descending, the swing foot's own vy is not
+      // required to be negative: in a flat walk clip played by a falling root
+      // the ankle can be rising in model space while the shoe is dropping
+      // toward the next tread.
       const bool descendingPlant =
-          gap > o.data.ikPlant && gap <= descendingReach && vy <= -0.04F &&
+          gap > ikPlant && gap <= descendingPlantReach &&
+          (vy <= -0.04F || rt.descend > 0.45F) &&
           footSpeed <= contactSpeedLimit * 0.85F;
       const bool restPlant =
           rt.objectStillTime >= 0.10F && footSpeed <= 0.18F &&
-          fabsf(vy) <= 0.18F && gap >= -o.data.ikPlant &&
-          gap <= o.data.ikPlant + o.data.ikPelvis;
+          fabsf(vy) <= 0.18F && gap >= -ikPlant &&
+          gap <= ikPlant + ikPelvis;
       const bool plantCandidate = normalPlant || descendingPlant || restPlant;
       if (plantCandidate)
         foot.plantCandidateTime += g_frameDt;
@@ -7798,7 +8038,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     adjust.legs[side].surfaceNormal = worldDirToModel(supportNormal);
     adjust.legs[side].alignWeight =
         (foot.locked || foot.releasing) ? foot.weight : 0.0F;
-    adjust.legs[side].maxAlignRadians = o.data.ikMaxFootAngle * PI / 180.0F;
+    adjust.legs[side].maxAlignRadians = ikMaxFootAngle * PI / 180.0F;
     if (kneeM[side]) {
       const Vec4 authoredKnee(kneeM[side]->data[12], kneeM[side]->data[13],
                               kneeM[side]->data[14], 1.0F);
@@ -7855,14 +8095,22 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                ",", foot.filteredVy, ",", foot.lipMemory, ",",
                foot.swingTime, ",", sweepClearance, ",", foot.planScore,
                ",", neuralApplied ? 1 : 0, ",", sweepRise, ",",
-               foot.downReach, ",", downGap);
+               foot.downReach, ",", downGap, ",", rt.descend, ",",
+               rt.ascend, ",", rt.dropAhead, ",", rt.reachBudget, ",",
+               neuralReach);
     foot.previousWorld = soleWorld;
     foot.previousVy = vy;
   }
 
   float wantedPelvis = havePelvis ? pelvisWorld : 0.0F;
-  if (wantedPelvis > o.data.ikPelvis) wantedPelvis = o.data.ikPelvis;
-  if (wantedPelvis < -o.data.ikPelvis) wantedPelvis = -o.data.ikPelvis;
+  // Reaching a step below needs hip travel as well as leg extension, so the
+  // descent budget raises the DOWNWARD cap only (a fraction of it: the leg does
+  // most of the work, and a pelvis allowed to sink the whole step height reads
+  // as a crouch). Upward correction keeps the authored limit - nothing about
+  // going downstairs justifies pushing the body up.
+  const float pelvisDownLimit = ikPelvis + descentReach * 0.6F;
+  if (wantedPelvis > ikPelvis) wantedPelvis = ikPelvis;
+  if (wantedPelvis < -pelvisDownLimit) wantedPelvis = -pelvisDownLimit;
   // Contact weights smooth the legs, but an unsmoothed lowest-foot choice can
   // still make the whole body chatter when probes trade surfaces at an edge.
   // Give the common pelvis its own critically simple low-pass state.
@@ -7946,7 +8194,9 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
              tracePlan[0], ",", tracePlanApplied[0], ",", tracePlan[1],
              ",", tracePlanApplied[1], ",", rt.pelvisOffsetWorld.x, ",",
              rt.pelvisOffsetWorld.z, ",", rt.bodyPitch, ",", rt.bodyRoll,
-             ",", traceDownReach[0], ",", traceDownReach[1]);
+             ",", traceDownReach[0], ",", traceDownReach[1], ",",
+             rt.descend, ",", rt.ascend, ",", rt.dropAhead, ",",
+             rt.reachBudget, ",", o.ikGroundDrop);
   inst.setPoseAdjust(adjust);
 }
 
@@ -13213,11 +13463,20 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // root so a 22 cm stair is crossed over several frames instead of one.
     // Airborne motion follows physics exactly; the filter resumes on contact,
     // including a landing onto a raised surface after a short gap.
+    // Going DOWN eases faster than going up, and that asymmetry is not
+    // cosmetic: while the root lags above the real floor the swing foot has to
+    // reach the whole residual PLUS the step, which is how a walk down stairs
+    // ended up finishing its stride in the air. A rising step wants the slow
+    // filter (the alternative is the whole camera hopping); a falling one is
+    // gravity and reads fine quickly. Foot IK is told the residual either way -
+    // see ikGroundDrop below - so the two mechanisms cannot disagree about how
+    // far down the ground is.
     if (!P.visualYReady) {
       P.visualY = P.y;
       P.visualYReady = true;
     } else if (grounded) {
-      float rootBlend = g_frameDt * 8.0F;
+      const bool falling = P.y < P.visualY;
+      float rootBlend = g_frameDt * (falling ? 16.0F : 8.0F);
       if (rootBlend > 1.0F) rootBlend = 1.0F;
       P.visualY += (P.y - P.visualY) * rootBlend;
       if (fabsf(P.y - P.visualY) < 0.0005F) P.visualY = P.y;
@@ -13334,6 +13593,10 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[1] = P.visualY;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
+      // What the visual root still owes the collision height. Positive while
+      // stepping DOWN, which is exactly when a foot needs extra reach; Foot IK
+      // spends it only where a raycast proves support that far below.
+      body.ikGroundDrop = P.visualY > P.y ? P.visualY - P.y : 0.0F;
       const float step = PP_WALK_SPEED(pi) * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
                       moveLocal);
@@ -20577,6 +20840,14 @@ struct RuntimeObject {
   // Turning it back on starts from a fresh contact history because the game
   // clears the solver cache while this is false.
   bool footIkEnabled = true;
+  // How far the ground under this object sits BELOW the position it is being
+  // rendered at, world units, >= 0. A walker's collision height steps onto a
+  // stair immediately while its visual root eases across (see the visualY
+  // filter), so during a descent the whole avatar is legitimately in the air
+  // and its swing foot cannot reach the tread with level-ground tolerances.
+  // The walker publishes that residual here and Foot IK adds it to the reach it
+  // is allowed to spend; anything else leaves it 0 and behaves as before.
+  float ikGroundDrop = 0.0F;
   // Object physics state (data.physics). Velocities are per-frame
   // displacements (like the player's), spin is degrees/frame. After writing
   // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is
@@ -21615,23 +21886,13 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         // for a static model would turn its collision box away from its mesh,
         // because the box honors modelYaw and the static render does not.
         << floatLit(animModelIndexOf(p, o) >= 0 ? o.modelYawOffset : 0.0f)
-        << ", " << (o.footIk.enabled ? 1 : 0) << ", "
-        << (o.footIk.neuralAssist ? 1 : 0) << ", "
-        << floatLit(o.footIk.neuralStrength) << ", \""
-        << escapeCString(o.footIk.leftHip) << "\", \""
-        << escapeCString(o.footIk.leftKnee) << "\", \""
-        << escapeCString(o.footIk.leftAnkle) << "\", \""
-        << escapeCString(o.footIk.rightHip) << "\", \""
-        << escapeCString(o.footIk.rightKnee) << "\", \""
-        << escapeCString(o.footIk.rightAnkle) << "\", "
-        << floatLit(o.footIk.soleOffset) << ", "
-        << floatLit(o.footIk.probeUp) << ", "
-        << floatLit(o.footIk.probeDown) << ", "
-        << floatLit(o.footIk.plantDistance) << ", "
-        << floatLit(o.footIk.releaseDistance) << ", "
-        << floatLit(o.footIk.maxPelvis) << ", "
-        << floatLit(o.footIk.maxFootAngle) << ", "
-        << floatLit(o.footIk.toeClearance) << ", "
+        // The instance switch only: the rig (bones + tolerances) is per model
+        // asset and rides FOOT_IK_RIGS, indexed by animModel above. An object
+        // whose model carries no usable rig emits 0 rather than the authored
+        // bool - a switch that cannot resolve a skeleton is not a capability,
+        // and the runtime would otherwise spend a frame per instance finding
+        // that out and warning about it.
+        << ", " << ((o.footIk && footIkRigOf(p, o) != nullptr) ? 1 : 0) << ", "
         << clampPrimDetail(o.type, o.primDetail) << ", "
         << (o.primRings ? 1 : 0) << ", " << layerIdx
         << ", " << batchStatic << ", {" << floatLit(o.vuParams[0]) << ", "
@@ -22615,13 +22876,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float modelYaw; // content-forward correction (deg around model Y),\n"
            "                  // between scale and rotation - X-forward-authored models\n"
            "                  // set +-90; runtime facing (faceYaw/AI) stays pure\n"
-           "  int footIk;     // terrain-aware post-animation two-leg solver\n"
-           "  int ikNeural;   // learned VU0 landing predictor (raycast-gated)\n"
-           "  float ikNeuralStrength; // 0..1 residual influence\n"
-           "  const char *ikLeftHip, *ikLeftKnee, *ikLeftAnkle;\n"
-           "  const char *ikRightHip, *ikRightKnee, *ikRightAnkle;\n"
-           "  float ikSole, ikProbeUp, ikProbeDown, ikPlant, ikRelease, ikPelvis;\n"
-           "  float ikMaxFootAngle, ikToeClearance;\n"
+           "  int footIk;     // 1 = run the terrain-aware leg solver on this\n"
+           "                  // instance. The RIG it solves with (which bones\n"
+           "                  // are legs, and how far a shoe may reach) is per\n"
+           "                  // MODEL ASSET: FOOT_IK_RIGS below, indexed by\n"
+           "                  // animModel (docs/foot-ik.md).\n"
            "  int primDetail;        // segments (curved) or box subdivisions/edge\n"
            "  int primRings;  // cylinders: 1 = also subdivide the side along\n"
            "                  // the axis (one ring per four segments), which is\n"
@@ -34023,8 +34282,126 @@ static std::string modelDataHeader(const Project& p) {
             out << "    \"" << binPathOf(animBakedTsklRel(key.first, key.second))
                 << "\",\n";
     }
-    out << "};\n\n"
-        << "// .mtl libraries assigned to primitives (first material = surface)\n"
+    out << "};\n\n";
+
+    // Foot IK rigs (docs/foot-ik.md), one row per ANIM_MODEL_PATHS slot - the
+    // binding is a property of the skeleton, so the model index is its key and
+    // a crowd sharing a character shares one row. `solve = 0` is a slot whose
+    // model was never bound (or whose rig is incomplete): applyFootIk then
+    // leaves the animation alone, which is also what an object emitted with
+    // footIk = 0 gets. A {model, .mtl override} pair bakes its own .tskl and so
+    // takes its own slot, but both slots resolve to the same rig - the override
+    // changes materials, never bones.
+    {
+        // Which rig each anim-model slot uses, and the per-clip rules flattened
+        // into one table sliced per rig (the CATCH_CANDIDATES arrangement): a
+        // fixed-size 2D array would be one clip count wide for the whole
+        // project, which is exactly the kind of table that gets over-sized.
+        std::vector<const FootIkRig*> rigOfSlot(animKeys.size(), nullptr);
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects) {
+                const int slot = animModelIndexOf(p, o);
+                if (slot < 0 || slot >= (int)rigOfSlot.size()) continue;
+                if (rigOfSlot[(size_t)slot]) continue;
+                // The rig is looked up WITHOUT the object's own switch: the row
+                // has to be there for an instance a flow node enables later.
+                if (const FootIkRig* r = p.findFootIkRig(o.modelPath)) {
+                    if (!r->enabled) continue;
+                    rigOfSlot[(size_t)slot] = footIkRigOf(p, o);
+                }
+            }
+        struct EmittedRule { std::string clip; const FootIkClipRule* rule; };
+        std::vector<EmittedRule> rules;
+        std::vector<std::pair<int, int>> ruleSlice(animKeys.size(), {0, 0});
+        for (size_t i = 0; i < rigOfSlot.size(); ++i) {
+            const FootIkRig* r = rigOfSlot[i];
+            if (!r) continue;
+            const int first = (int)rules.size();
+            for (const FootIkClipRule& c : r->clips) {
+                if (c.isDefault()) continue;
+                // Rules are stored under the SOURCE clip name, but the runtime
+                // only ever sees the EFFECTIVE (post-rename) names the .tskl
+                // was baked with - translate here, once.
+                rules.push_back(
+                    {animedit::effectiveName(p, r->model, c.clip), &c});
+            }
+            ruleSlice[i] = {first, (int)rules.size() - first};
+        }
+        out << "// Per-clip Foot IK rules, sliced per rig by firstRule/ruleCount.\n"
+               "// The clip is the EFFECTIVE (post-rename) name, which is what\n"
+               "// the .tskl carries and what SkelInstance reports.\n"
+               "struct FootIkClipRuleData {\n"
+               "  const char* clip;\n"
+               "  int solve;             // 0 = this clip plays as authored\n"
+               "  float plantScale;      // x plant / release / descent reach\n"
+               "  float clearanceScale;  // x toe clearance\n"
+               "};\n"
+            << "constexpr int FOOT_IK_CLIP_RULE_COUNT = " << rules.size()
+            << ";\n"
+            << "inline const FootIkClipRuleData FOOT_IK_CLIP_RULES"
+               "[FOOT_IK_CLIP_RULE_COUNT > 0 ? FOOT_IK_CLIP_RULE_COUNT : 1] = {\n";
+        if (rules.empty()) {
+            out << "    {\"\", 1, 1.0F, 1.0F},\n";
+        } else {
+            for (const EmittedRule& e : rules)
+                out << "    {\"" << escapeCString(e.clip) << "\", "
+                    << (e.rule->solve ? 1 : 0) << ", "
+                    << floatLit(e.rule->plantScale) << ", "
+                    << floatLit(e.rule->clearanceScale) << "},\n";
+        }
+        out << "};\n\n"
+               "// The leg binding and tolerances of one animated model asset.\n"
+               "// Bones are bound by NAME so a re-export may reorder the\n"
+               "// hierarchy; the game resolves them once per instance.\n"
+               "struct FootIkRigData {\n"
+               "  int solve;  // 0 = this model is not bound; ignore the rest\n"
+               "  const char *leftHip, *leftKnee, *leftAnkle;\n"
+               "  const char *rightHip, *rightKnee, *rightAnkle;\n"
+               "  float sole, probeUp, probeDown, plant, release, pelvis;\n"
+               "  float maxFootAngle, toeClearance, descendReach;\n"
+               "  int neural;            // learned VU0 assist (raycast-gated)\n"
+               "  float neuralStrength;  // 0..1 influence\n"
+               "  int firstRule, ruleCount;  // slice of FOOT_IK_CLIP_RULES\n"
+               "};\n"
+            << "inline const FootIkRigData FOOT_IK_RIGS"
+               "[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {\n";
+        if (animKeys.empty()) {
+            out << "    {0, \"\", \"\", \"\", \"\", \"\", \"\", 0.0F, 0.0F, 0.0F,"
+                   " 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0, 0.0F, 0, 0},\n";
+        } else {
+            for (size_t i = 0; i < animKeys.size(); ++i) {
+                const FootIkRig* r = rigOfSlot[i];
+                if (!r) {
+                    out << "    {0, \"\", \"\", \"\", \"\", \"\", \"\", 0.0F, "
+                           "0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0, "
+                           "0.0F, 0, 0},  // "
+                        << animKeys[i].first << " (not bound)\n";
+                    continue;
+                }
+                out << "    {1, \"" << escapeCString(r->leftHip) << "\", \""
+                    << escapeCString(r->leftKnee) << "\", \""
+                    << escapeCString(r->leftAnkle) << "\", \""
+                    << escapeCString(r->rightHip) << "\", \""
+                    << escapeCString(r->rightKnee) << "\", \""
+                    << escapeCString(r->rightAnkle) << "\", "
+                    << floatLit(r->soleOffset) << ", " << floatLit(r->probeUp)
+                    << ", " << floatLit(r->probeDown) << ", "
+                    << floatLit(r->plantDistance) << ", "
+                    << floatLit(r->releaseDistance) << ", "
+                    << floatLit(r->maxPelvis) << ", "
+                    << floatLit(r->maxFootAngle) << ", "
+                    << floatLit(r->toeClearance) << ", "
+                    << floatLit(r->descendReach) << ", "
+                    << (r->neuralAssist ? 1 : 0) << ", "
+                    << floatLit(r->neuralStrength) << ", "
+                    << ruleSlice[i].first << ", " << ruleSlice[i].second
+                    << "},  // " << animKeys[i].first << "\n";
+            }
+        }
+        out << "};\n\n";
+    }
+
+    out << "// .mtl libraries assigned to primitives (first material = surface)\n"
         << "constexpr int MATERIAL_COUNT = " << materials.size() << ";\n"
         << "inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {\n";
     if (materials.empty()) {
