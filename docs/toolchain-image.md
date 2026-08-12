@@ -3037,6 +3037,39 @@ Verified: the 70 microprograms of the *old* corpus compile byte-identically befo
 (md5 `e78d466912af036dfea8d0a9f3b8385c`) - the right check here, since the question is whether the
 compiler changed, not whether the engine did - and the suite is 47 pass / 0 fail / 4 xfail.
 
+### The guard's twin is dead weight, and the argument is structural
+
+The last named lead: `extendMultiQStageRange` carries **a second copy of the over-counted guard**
+that cost `extendLoopDirectiveRange` a loop-carried range. Same shape - it counts every float
+alias *overlapping* the loop against the allocatable pool, and extends only the Q-stage aliases,
+so the body's temporaries can push the count over and skip an extension they were never part of.
+Two rounds had named it and left it, for want of a reproducer.
+
+A reproducer was built: a `--LoopCS` loop with two `div`/`mulq` stages, a carried float read at
+the top and written at the bottom, twelve short-lived float temporaries, and the float pool
+narrowed to eight with `.init_vf vf01-vf08` so the count actually goes over. Plus its control -
+the same loop with two temporaries, where it does not. The guard only ever fires with
+`--loop-liveness-always` **off**, so both are judged in that configuration.
+
+**The guard fires, the output changes, and the output is still correct.** 32 rows against 30 with
+the flag on for the pressure case, byte-identical for the control - and the path-sensitive value
+oracle reports **0 divergent over 6 traces** on both arms. A row count is not a verdict; the
+oracle is, and it says nothing was lost.
+
+The reason is not luck. `extendLoopDirectiveLiveRanges` runs **the line before**
+`extendMultiQStageLiveRanges`, and round §16's fix left it extending every *read-first* alias
+**unconditionally**. Read-first is exactly the property that makes a name live across the back
+edge. So by the time the multi-Q guard bails, every alias whose lost range could be dangerous has
+already been extended; what the multi-Q pass adds on top is coverage for Q-stage aliases that are
+written before they are read - temporaries, whose own ranges already cover them, which is the
+argument the sibling's own comment makes. **The guard cannot lose a range that matters.** It is
+dead weight, not a defect.
+
+Both shapes are in the suite as `qstage_bail` / `qstage_bail_ok`, judged with the flag removed via
+the `no:--loop-liveness-always` form - 49 pass / 0 fail / 4 xfail. They assert an invariant rather
+than a fix, which is the one legitimate reason for a case that passes on every build: if the
+sibling's unconditional extension is ever narrowed again, this pair is what notices.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
