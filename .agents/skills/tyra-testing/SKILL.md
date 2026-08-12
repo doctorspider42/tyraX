@@ -290,6 +290,20 @@ replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
 generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
 
+**Rebuild before believing a `--vu-check` failure, and never attribute one by
+swapping the engine alone.** Both sides of every comparison must come from ONE
+commit: the generated side is compiled into the binary, the handwritten side is
+read off disk. So `git archive <rev> vendor/tyra/engine` + `--vu-check <thatDir>`
+- the attribution trick that works for engine-only symptoms - swaps exactly one
+half here and MANUFACTURES failures against a stale exe (measured: 7 DIFFERENT
+programs plus the matcap identity-at-zero, all of which pass when each half runs
+against its own peer). The check now says so itself - `note: FOREIGN engine` /
+`note: ... is NEWER than this executable`, and a paragraph under FAIL - but the
+habit to keep is the 2x2: old and new binary against old and new engine. Both
+diagonals passing means skew, not a bug. `D:\tyra-editor` is usually parked on
+another branch with a days-old `build/`, so check `git log -1` and the exe's
+mtime before trusting a run from there.
+
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
   docker-compose.yml) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity in walk mode and `thirdperson` the same entity in

@@ -1598,6 +1598,61 @@ static std::string vuEngineDir(const char* override) {
     return "vendor/tyra/engine";
 }
 
+// Whether the two halves --vu-check compares come from the same tree.
+//
+// Every comparison it makes has a GENERATED side, built from the descriptions
+// compiled into THIS BINARY, and a HANDWRITTEN side read off disk as .vclpp -
+// including the identity-at-zero half, which measures a generated stage against
+// the engine's own cull programs. So the two are only comparable when they come
+// from one commit, and a mismatch across a version boundary says nothing about
+// the generator.
+//
+// That is not a hypothetical. Pointing this at another commit's engine (the
+// `git archive <rev> vendor/tyra/engine` attribution trick) swaps exactly ONE of
+// the two halves, so against a stale binary it MANUFACTURES the failures it is
+// being used to attribute - seven DIFFERENT programs plus the matcap class's
+// identity-at-zero, all of which pass when each half is run against its own
+// peer. Naming the skew is what keeps a failure here readable as a failure.
+struct VuProvenance {
+    bool foreignEngine = false;  // not the engine next to this executable
+    std::string ownEngine;       // ...which would have been this one
+    bool staleBinary = false;    // a framework source is newer than the exe
+    std::string staleSource;     // ...this one
+};
+
+static VuProvenance vuProvenance(const std::string& engine) {
+    namespace fs = std::filesystem;
+    VuProvenance pv;
+    std::error_code ec;
+
+    const fs::path own = fs::weakly_canonical(fs::path(vuEngineDir(nullptr)), ec);
+    const fs::path used = fs::weakly_canonical(fs::path(engine), ec);
+    if (fs::exists(own / "Makefile", ec) && used != own) {
+        pv.foreignEngine = true;
+        pv.ownEngine = own.string();
+    }
+
+    // The descriptors are compiled INTO this binary, so a framework source
+    // newer than the executable means the run is not testing the tree.
+    const std::string exe = platform::exePath();
+    if (exe.empty()) return pv;
+    const auto exeTime = fs::last_write_time(fs::path(exe), ec);
+    if (ec) return pv;
+    const fs::path src = fs::path(exe).parent_path() / ".." / "src";
+    for (const char* name : {"vugen.cpp", "vugen.hpp", "vusim.cpp", "vuir.cpp",
+                             "vuasm.cpp", "main.cpp"}) {
+        std::error_code fec;
+        const fs::path f = src / name;
+        const auto t = fs::last_write_time(f, fec);
+        if (!fec && t > exeTime) {
+            pv.staleBinary = true;
+            pv.staleSource = fs::weakly_canonical(f, fec).string();
+            break;
+        }
+    }
+    return pv;
+}
+
 // The stage-library half of --vu-check.
 //
 // Two claims, and each stage has to satisfy BOTH or it is not shippable.
@@ -2343,7 +2398,15 @@ static bool wrapperAbi(const std::string& text, int& reglist, int& elements) {
 static int vuCheckFromCli(int argc, char** argv) {
     namespace fs = std::filesystem;
     const std::string engine = vuEngineDir(argc > 2 ? argv[2] : nullptr);
-    std::printf("engine: %s\n\n", engine.c_str());
+    std::printf("engine: %s\n", engine.c_str());
+    const VuProvenance prov = vuProvenance(engine);
+    if (prov.foreignEngine)
+        std::printf("note: FOREIGN engine - this build's own is %s\n",
+                    prov.ownEngine.c_str());
+    if (prov.staleBinary)
+        std::printf("note: %s is NEWER than this executable - rebuild first\n",
+                    prov.staleSource.c_str());
+    std::printf("\n");
 
     std::error_code ec;
     if (!fs::exists(fs::path(engine) / "src", ec)) {
@@ -2708,6 +2771,25 @@ static int vuCheckFromCli(int argc, char** argv) {
                              "handwritten twin bit for bit, and every wrapper "
                              "links the image it should"
                            : "FAIL");
+    // A failure across a version boundary is not a generator bug, and saying so
+    // here is the difference between "the framework is broken" and "rebuild".
+    if (!ok && (prov.foreignEngine || prov.staleBinary)) {
+        std::printf(
+            "\n"
+            "note: the two halves compared above may not be from one commit.\n"
+            "      The generated half comes from the descriptions compiled into\n"
+            "      THIS binary, the handwritten half from the .vclpp on disk.\n");
+        if (prov.foreignEngine)
+            std::printf("      - the engine is not this build's own (%s)\n",
+                        prov.ownEngine.c_str());
+        if (prov.staleBinary)
+            std::printf("      - %s is newer than this executable\n",
+                        prov.staleSource.c_str());
+        std::printf(
+            "      Rebuild, then re-run with no engine argument. If that passes\n"
+            "      while this fails, the two are out of step and neither side is\n"
+            "      wrong (docs/vu-framework.md, \"One commit, both halves\").\n");
+    }
     return ok ? 0 : 1;
 }
 
