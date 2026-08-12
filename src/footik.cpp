@@ -1,6 +1,7 @@
 #include "footik.hpp"
 
 #include <cctype>
+#include <cfloat>
 
 namespace footik {
 
@@ -175,6 +176,89 @@ int autoDetect(const Skeleton& skel, FootIkRig& out) {
         if (!found.empty()) ++filled;
     }
     return filled;
+}
+
+namespace {
+
+// column-major 4x4, the convention glbparser::SkelNode::matrix already uses
+void trsMatrix(const glbparser::SkelNode& n, float* m) {
+    if (n.hasMatrix) {
+        for (int i = 0; i < 16; ++i) m[i] = n.matrix[i];
+        return;
+    }
+    const float x = n.r[0], y = n.r[1], z = n.r[2], w = n.r[3];
+    const float xx = x * x, yy = y * y, zz = z * z;
+    const float xy = x * y, xz = x * z, yz = y * z;
+    const float wx = w * x, wy = w * y, wz = w * z;
+    const float r[9] = {1.0f - 2.0f * (yy + zz), 2.0f * (xy + wz),
+                        2.0f * (xz - wy),        2.0f * (xy - wz),
+                        1.0f - 2.0f * (xx + zz), 2.0f * (yz + wx),
+                        2.0f * (xz + wy),        2.0f * (yz - wx),
+                        1.0f - 2.0f * (xx + yy)};
+    for (int c = 0; c < 3; ++c)
+        for (int r2 = 0; r2 < 3; ++r2) m[c * 4 + r2] = r[c * 3 + r2] * n.s[c];
+    m[3] = m[7] = m[11] = 0.0f;
+    m[12] = n.t[0];
+    m[13] = n.t[1];
+    m[14] = n.t[2];
+    m[15] = 1.0f;
+}
+
+void mulMatrix(float* out, const float* a, const float* b) {
+    for (int c = 0; c < 4; ++c)
+        for (int r = 0; r < 4; ++r) {
+            float v = 0.0f;
+            for (int k = 0; k < 4; ++k) v += a[k * 4 + r] * b[c * 4 + k];
+            out[c * 4 + r] = v;
+        }
+}
+
+}  // namespace
+
+void bindHeights(const glbparser::Skel& skel, std::vector<float>& bindY) {
+    const size_t n = skel.nodes.size();
+    bindY.assign(n, 0.0f);
+    std::vector<float> global(n * 16, 0.0f);
+    std::vector<char> done(n, 0);
+    // Parents normally precede children, but a file that breaks that must not
+    // read a parent that has not been composed yet.
+    for (size_t pass = 0; pass < n; ++pass) {
+        bool moved = false;
+        for (size_t i = 0; i < n; ++i) {
+            if (done[i]) continue;
+            const int par = skel.nodes[i].parent;
+            if (par >= 0 && !done[(size_t)par]) continue;
+            float local[16];
+            trsMatrix(skel.nodes[i], local);
+            if (par >= 0)
+                mulMatrix(&global[i * 16], &global[(size_t)par * 16], local);
+            else
+                for (int k = 0; k < 16; ++k) global[i * 16 + k] = local[k];
+            bindY[i] = global[i * 16 + 13];
+            done[i] = 1;
+            moved = true;
+        }
+        if (!moved) break;
+    }
+}
+
+float measuredSoleOffset(const Report& report, const std::vector<float>& bindY,
+                         float floorY) {
+    if (!report.complete) return 0.0f;
+    float best = 0.0f;
+    bool found = false;
+    const Slot ankles[2] = {Slot::LeftAnkle, Slot::RightAnkle};
+    for (Slot s : ankles) {
+        const int node = report.node[(int)s];
+        if (node < 0 || node >= (int)bindY.size()) continue;
+        const float drop = bindY[(size_t)node] - floorY;
+        // A non-positive or absurd height means the bind pose is not what this
+        // measurement assumes (a rig lying down, a floor above the feet): say
+        // nothing rather than hand back a number that would sink the character.
+        if (drop <= 1e-4f) continue;
+        if (!found || drop < best) best = drop, found = true;
+    }
+    return found ? best : 0.0f;
 }
 
 }  // namespace footik

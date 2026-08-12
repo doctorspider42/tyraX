@@ -23,6 +23,7 @@
 #include "editorcfg.hpp"
 #include "gl_loader.h"
 #include "fbxparser.hpp"
+#include "footik.hpp"
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
@@ -7152,6 +7153,11 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
             info.bones.push_back(n.name);
             info.boneParents.push_back(n.parent);
         }
+        // Bind-pose heights, so Foot IK can MEASURE its sole offset instead of
+        // being handed a guess. The math lives in footik.cpp (full 4x4
+        // composition - the shortcut of summing local translations is wrong by
+        // most of a leg on any rig whose bind pose has rotated bones).
+        footik::bindHeights(skel, info.boneBindY);
     }
     return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
 }

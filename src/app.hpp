@@ -632,6 +632,12 @@ private:
         std::vector<std::string> clips;
         std::vector<std::string> bones;
         std::vector<int> boneParents;
+        // Per bone, in BIND pose and model units: how high the bone stands.
+        // Against the model's own floor (min[1]) that measures the Foot IK sole
+        // offset, which is otherwise a guess and therefore a constant error
+        // under every planted foot on every surface. Filled by the same parse
+        // that fills the rest, so asking for it costs nothing.
+        std::vector<float> boneBindY;
         int vertexCount = 0, frameCount = 0;
         // Frame-zero baked bounds, retained for the Asset Browser's Size
         // dialog so clicking it never triggers a second animation bake.

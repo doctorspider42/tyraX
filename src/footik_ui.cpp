@@ -168,6 +168,13 @@ void App::drawFootIkWindow() {
             if (ImGui::Button("Auto-detect leg bones")) {
                 const int filled = footik::autoDetect(skel, rig);
                 footIkDetected_ = filled;
+                // Now that the ankles are known, MEASURE the sole offset from
+                // the model rather than leaving the struct's guess in place: it
+                // is a constant offset under every planted foot, so a wrong one
+                // is a shoe sunk or floating on flat ground, everywhere.
+                const float measured = footik::measuredSoleOffset(
+                    footik::validate(rig, skel), info.boneBindY, info.min[1]);
+                if (measured > 0.0f) rig.soleOffset = measured;
                 changed = true;
             }
             if (ImGui::IsItemHovered())
@@ -243,7 +250,59 @@ void App::drawFootIkWindow() {
                  "%.3f model units",
                  "Ankle-to-floor gap, in the MODEL's own units, so it follows "
                  "each instance's scale. Raise it if shoes sink into the "
-                 "ground, lower it if they hover above it.");
+                 "ground, lower it if they hover above it. Measure it from the "
+                 "model rather than guessing - the button does exactly that.");
+            const float measured =
+                footik::measuredSoleOffset(report, info.boneBindY, info.min[1]);
+            ImGui::BeginDisabled(measured <= 0.0f);
+            if (ImGui::Button("Measure from model")) {
+                rig.soleOffset = measured;
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (measured > 0.0f) {
+                // Say the number even when it agrees, so "is my sole offset
+                // right" is answerable by looking instead of by experimenting
+                // on a console.
+                const float delta = rig.soleOffset - measured;
+                if (fabsf(delta) > 0.004f)
+                    ImGui::TextColored(
+                        ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                        "model says %.3f - every planted foot sits %.3f %s",
+                        measured, fabsf(delta),
+                        delta > 0.0f ? "too high" : "too low");
+                else
+                    ImGui::TextDisabled("model says %.3f - matches", measured);
+            } else {
+                ImGui::TextDisabled(
+                    "needs a complete rig to measure");
+            }
+            // The model's own height, because it is what decides whether the
+            // rest of these numbers fit at all: every default below is authored
+            // for a ~1.8-unit human, so a character twice that tall has a plant
+            // band, a probe window and a pelvis allowance half of what it needs
+            // - and the symptom is feet that stop reaching the ground exactly
+            // when a step gets interesting, which reads as a solver bug.
+            {
+                const float h = info.max[1] - info.min[1];
+                if (h > 0.001f) {
+                    const float s = h / 1.8f;
+                    if (s > 1.25f || s < 0.8f)
+                        ImGui::TextColored(
+                            ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                            "This model is %.2f units tall - %.2fx a 1.8-unit "
+                            "human. The distances below are authored for 1.8, "
+                            "so scale them by about that much (or scale the "
+                            "object down instead).",
+                            h, s);
+                    else
+                        ImGui::TextDisabled(
+                            "Model height %.2f units (%.2fx a 1.8-unit human) - "
+                            "the defaults below fit.",
+                            h, s);
+                }
+            }
             ImGui::SeparatorText("Probes");
             drag("Probe above", &rig.probeUp, 0.01f, 0.01f, 5.0f, "%.2f",
                  "How far above the animated sole the ground search starts.");

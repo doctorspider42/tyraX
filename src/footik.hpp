@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "glbparser.hpp"
 #include "project.hpp"
 
 // Foot IK authoring, host side (docs/foot-ik.md).
@@ -83,5 +84,38 @@ Report validate(const FootIkRig& r, const Skeleton& skel);
 // how a character ends up with a broken knee in a build. Returns how many slots
 // it managed to fill.
 int autoDetect(const Skeleton& skel, FootIkRig& out);
+
+// The rig's sole offset, MEASURED from the model instead of guessed: how high
+// the ankle stands in the model's own BIND pose, above the model's own floor.
+// `bindY` is per bone (the .glb/.fbx info cache fills it during its ordinary
+// parse) and `floorY` is the bottom of the model's bind bounds.
+//
+// Why the ankle's height and not "the lowest vertex of the foot", which is the
+// obvious formulation and the one this function had first: a part's stored
+// vertex positions are NOT necessarily in the same space as the composed node
+// hierarchy - on the FBX path they are pre-skin control points, and the skin
+// matrix is what places them. Comparing the two answered 0.227 on a rig whose
+// ankle really stands at 0.104, i.e. it would have written a number that sinks
+// every foot by 12 cm. The ankle's own height needs no mesh at all and is right
+// for any model whose bind pose stands on the floor, which is every character
+// rig in practice.
+//
+// Why it matters: this number is a CONSTANT offset under every planted foot, so
+// a wrong one is not a stairs bug or a slope bug - it is a shoe sunk (or
+// floating) by that much on flat ground, everywhere. The SMALLER of the two
+// ankles wins, so an asymmetric bind pose cannot lift the character.
+//
+// Returns 0 when it cannot be measured (no complete rig); the caller keeps
+// whatever it had.
+float measuredSoleOffset(const Report& report, const std::vector<float>& bindY,
+                         float floorY);
+
+// Fills the per-bone bind-pose heights measuredSoleOffset consumes.
+//
+// The composition is full 4x4 - translation, rotation and scale, parent then
+// child - and that is not a detail: a bind pose with rotated bones is the normal
+// case (every Unreal-style rig has them), and summing local translations instead
+// answered 1.031 where the ankle really stands at 0.104.
+void bindHeights(const glbparser::Skel& skel, std::vector<float>& bindY);
 
 }  // namespace footik

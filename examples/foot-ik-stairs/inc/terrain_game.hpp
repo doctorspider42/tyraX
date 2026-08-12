@@ -924,6 +924,15 @@ class TerrainGame : public Tyra::Game {
                    ObjectGeometry& geometry, Tyra::SkelInstance& instance);
   bool footGroundAt(float x, float z, float top, float bottom, int skipIndex,
                     float* y, Tyra::Vec4* normal = nullptr) const;
+  // The surface a spawn marker is standing ON: the highest solid thing at or
+  // below its authored height - a stair, a platform, the terrain - which is
+  // what the editor's placement snap already showed the author when they put
+  // it there. `found` reports whether anything was under it at all (a
+  // terrain-less scene with nothing below keeps the authored height, and the
+  // walker starts airborne). Skips `skipIndex` so an avatar's own collider
+  // cannot catch the ray.
+  float spawnSurfaceY(float x, float z, float authoredY, int skipIndex,
+                      bool* found = nullptr) const;
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a

@@ -63,7 +63,7 @@ model's own units and therefore follows each instance's scale.
 
 | Field | Meaning |
 |---|---|
-| **Sole below ankle** | Ankle-to-floor gap. Raise it if shoes sink, lower it if they hover. |
+| **Sole below ankle** | Ankle-to-floor gap. **Measure from model** reads it out of the file - how high the ankle stands in the bind pose above the model's own floor - and the line beside it says whether the current value agrees, so "is my sole offset right" is answerable by looking instead of by experimenting on a console. It is a CONSTANT offset under every planted foot, so a wrong one is a shoe sunk or floating everywhere, on flat ground as much as on stairs. |
 | **Probe above / below** | Vertical search range around the animated sole. A descent adds its own reach on top (below), so these only have to cover level ground and slopes. |
 | **Plant distance** | How close the animated sole must come to the ground before the foot may lock to it. |
 | **Release distance** | How far the animation may pull away from a planted foot before it unlocks. |
@@ -71,6 +71,13 @@ model's own units and therefore follows each instance's scale.
 | **Max foot tilt** | Caps the pitch/roll a planted ankle takes from the surface normal. `0°` keeps the authored orientation; `35°` follows ordinary slopes while refusing extreme triangle normals. |
 | **Toe clearance** | Extra gap requested above a higher surface detected ahead of an airborne shoe. `0` disables swing clearance. |
 | **Descent reach** | Extra downward reach a descending character may add to the contact bands — see below. `0` restores the level-ground behaviour exactly. |
+
+The tab also reports the **model's own height**, because that is what decides
+whether the rest of the numbers fit at all: every default is authored for a
+~1.8-unit human, so a character twice that tall has a plant band, a probe window
+and a pelvis allowance half of what it needs - and the symptom is feet that stop
+reaching the ground exactly when a step gets interesting, which reads as a solver
+bug rather than as a scale one.
 
 ## Per-clip rules
 
