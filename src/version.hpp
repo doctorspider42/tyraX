@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.24.4 (--vu-check says when its two halves are not from one commit): every
+// comparison it makes diffs a program GENERATED from the descriptions compiled
+// into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
+// comparable at one revision - and the documented attribution trick of pointing
+// it at another commit's engine swaps exactly ONE of them. Against a stale exe
+// that MANUFACTURES failures rather than attributing them: measured, a pre-#218
+// editor on post-#218 engine sources reports 7 DIFFERENT programs plus the
+// matcap identity-at-zero, every one of which passes when each half runs against
+// its own peer. It now prints `note: FOREIGN engine` when the engine is not the
+// one beside the executable, `note: ... is NEWER than this executable` when a
+// framework source outran the build, and a paragraph under FAIL naming the skew.
+// PATCH: no capability appears, a failure becomes readable.
+//
 // 1.24.3 (the shipped default net is refitted, and CI stops asserting a
 // property of one machine): the net embedded in the editor was fitted before
 // examples/upscaler-lab was rebuilt on CC0 assets - and upscaler-lab is one of
@@ -723,7 +736,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
