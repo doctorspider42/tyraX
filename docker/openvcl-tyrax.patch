@@ -5240,7 +5240,7 @@ index 2c14ff6..de7def2 100644
  	std::map<std::string, int> m_registerReadyCycle;
  	std::map<std::string, std::string> m_registerProducerMnemonic;
 diff --git a/src/VuSchedulerAnalysis.cpp b/src/VuSchedulerAnalysis.cpp
-index 3260370..7b9360f 100644
+index 3260370..af7193d 100644
 --- a/src/VuSchedulerAnalysis.cpp
 +++ b/src/VuSchedulerAnalysis.cpp
 @@ -28,6 +28,13 @@ const unsigned int VuKernelRefitNode::NO_INDEX;
@@ -5995,7 +5995,7 @@ index 3260370..7b9360f 100644
  	}
  
  	VuFlagLiveness analyzeFlagLiveness( const std::list<Token>& tokens )
-@@ -875,10 +1389,196 @@ namespace
+@@ -875,10 +1389,204 @@ namespace
  				liveness.lastMacReader = static_cast<int>( index );
  			if( tokenReadsClip( *i ) )
  				liveness.lastClipReader = static_cast<int>( index );
@@ -6066,6 +6066,14 @@ index 3260370..7b9360f 100644
 +		VuReadySegmentStrategy noLongLatency;
 +		noLongLatency.longLatencyProducerBonus = 0;
 +		strategies.push_back( noLongLatency );
++
++		// The other direction was swept too, and is NOT here: the bonus at 1500, alone
++		// and with priorityWeight 30, never wins. Both were added to this list, built,
++		// and measured - the 70 real microprograms came out BYTE-IDENTICAL
++		// (e78d466912af036dfea8d0a9f3b8385c) and the five programs where openvcl still
++		// pays a `waitq` did not move a word. A best-of option that never wins is pure
++		// compile time, so they were removed and the result recorded here instead. What
++		// remains of that gap is a latency question, not a scheduling one.
 +
 +		// Spend the row's free slot on the LEAST valuable legal partner and leave the
 +		// valuable one to be a primary. Worth three words on stapip_cull_tce and one
@@ -6192,7 +6200,7 @@ index 3260370..7b9360f 100644
  	void appendReadyScheduledSegmentSlots( const std::vector<const Token*>& segment,
  	                                       std::vector<VuScheduledIssueSlot>& slots,
  	                                       unsigned int ignoredImplicitWawResources,
-@@ -886,12 +1586,64 @@ namespace
+@@ -886,12 +1594,64 @@ namespace
  	                                       unsigned int blockStartCycle,
  	                                       unsigned int& currentCycle )
  	{
@@ -6258,7 +6266,7 @@ index 3260370..7b9360f 100644
  		slots.insert( slots.end(), segmentSlots.begin(), segmentSlots.end() );
  	}
  
-@@ -904,6 +1656,7 @@ namespace
+@@ -904,6 +1664,7 @@ namespace
  		std::vector<VuScheduledIssueSlot> slots;
  		std::vector<const Token*> segment;
  		unsigned int segmentMask = VU_RESOURCE_NONE;
@@ -6266,7 +6274,7 @@ index 3260370..7b9360f 100644
  		bool haveSegment = false;
  		unsigned int currentCycle = blockStartCycle;
  
-@@ -913,45 +1666,34 @@ namespace
+@@ -913,45 +1674,34 @@ namespace
  			const Token& token = *block.tokens[offset];
  			if( isVuReadyScheduleCandidate( token ) )
  			{
@@ -6336,7 +6344,7 @@ index 3260370..7b9360f 100644
  			appendReadyScheduledSegmentSlots( segment,
  			                                 slots,
  			                                 segmentMask,
-@@ -964,7 +1706,7 @@ namespace
+@@ -964,7 +1714,7 @@ namespace
  			if( !slots.empty() )
  			{
  				const unsigned int pairedCycle = blockStartCycle + slots.back().issueCycle;
@@ -6345,7 +6353,7 @@ index 3260370..7b9360f 100644
  					pairedWithPreviousSlot =
  						tryPairTailWithPreviousSlot( slots,
  						                             token,
-@@ -993,6 +1735,11 @@ namespace
+@@ -993,6 +1743,11 @@ namespace
  			}
  		}
  
@@ -6357,7 +6365,7 @@ index 3260370..7b9360f 100644
  		appendReadyScheduledSegmentSlots( segment,
  		                                 slots,
  		                                 segmentMask,
-@@ -5682,6 +6429,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
+@@ -5682,6 +6437,7 @@ VuScheduledIssueSlot::VuScheduledIssueSlot()
  	ignoredImplicitWawResources = VU_RESOURCE_NONE;
  	issueCycle = 0;
  	cycleCount = 1;
@@ -6365,7 +6373,7 @@ index 3260370..7b9360f 100644
  }
  
  VuScheduledBasicBlock::VuScheduledBasicBlock()
-@@ -5875,7 +6623,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5875,7 +6631,13 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  		{
  			const VuTokenResourceAccess& a = accesses[before];
  			const VuTokenResourceAccess& b = accesses[after];
@@ -6380,7 +6388,7 @@ index 3260370..7b9360f 100644
  			const unsigned int pairwiseImplicitResources = ~preciseImplicitResources;
  
  			if( intersects( a.registerWrites, b.registerReads ) )
-@@ -5913,6 +6667,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
+@@ -5913,6 +6675,10 @@ std::vector<VuDependencyEdge> buildVuDependencyGraph( const VuBasicBlock& block,
  	                                    accesses,
  	                                    VU_RESOURCE_CLIP,
  	                                    ignoredImplicitWawResources );
@@ -6391,7 +6399,7 @@ index 3260370..7b9360f 100644
  
  	return edges;
  }
-@@ -6003,6 +6761,111 @@ std::vector<VuScheduledIssueSlot> scheduleVuBasicBlockReadyIssueSlots( const VuB
+@@ -6003,6 +6769,111 @@ std::vector<VuScheduledIssueSlot> scheduleVuBasicBlockReadyIssueSlots( const VuB
  
  namespace
  {
@@ -6503,7 +6511,7 @@ index 3260370..7b9360f 100644
  	VuScheduledProgram scheduleVuProgramReadyIssueSlotsInternal( const std::list<Token>& tokens,
  	                                                             unsigned int ignoredImplicitWawResources,
  	                                                             bool carryLatencyAcrossBlocks )
-@@ -6010,14 +6873,17 @@ namespace
+@@ -6010,14 +6881,17 @@ namespace
  		VuScheduledProgram program;
  		const std::vector<VuBasicBlock> blocks = buildVuBasicBlocks( tokens );
  		VuLatencyTracker programLatencyTracker;
@@ -6521,7 +6529,7 @@ index 3260370..7b9360f 100644
  				scheduledBlock.issueSlots =
  					scheduleVuBasicBlockReadyIssueSlotsWithLatency( *block,
  					                                                ignoredImplicitWawResources,
-@@ -6033,6 +6899,7 @@ namespace
+@@ -6033,6 +6907,7 @@ namespace
  					                                                blockLatencyTracker,
  					                                                program.cycleCount );
  			}
@@ -6529,7 +6537,7 @@ index 3260370..7b9360f 100644
  			for( std::vector<VuScheduledIssueSlot>::const_iterator slot = scheduledBlock.issueSlots.begin();
  			     slot != scheduledBlock.issueSlots.end(); ++slot )
  				scheduledBlock.cycleCount += slot->cycleCount;
-@@ -6075,14 +6942,17 @@ namespace
+@@ -6075,14 +6950,17 @@ namespace
  		const std::vector<VuBasicBlock> blocks = buildVuBasicBlocks( tokens );
  		const VuFlagLiveness liveness = analyzeFlagLiveness( tokens );
  		VuLatencyTracker programLatencyTracker;
@@ -6547,7 +6555,7 @@ index 3260370..7b9360f 100644
  				scheduledBlock.issueSlots =
  					scheduleVuBasicBlockReadyIssueSlotsWithFlagLiveness( *block,
  					                                                     liveness,
-@@ -6098,6 +6968,7 @@ namespace
+@@ -6098,6 +6976,7 @@ namespace
  					                                                     blockLatencyTracker,
  					                                                     program.cycleCount );
  			}
@@ -6555,7 +6563,7 @@ index 3260370..7b9360f 100644
  			for( std::vector<VuScheduledIssueSlot>::const_iterator slot = scheduledBlock.issueSlots.begin();
  			     slot != scheduledBlock.issueSlots.end(); ++slot )
  				scheduledBlock.cycleCount += slot->cycleCount;
-@@ -6114,6 +6985,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
+@@ -6114,6 +6993,15 @@ VuScheduledProgram scheduleVuProgramReadyIssueSlotsWithFlagLiveness( const std::
  	return scheduleVuProgramReadyIssueSlotsWithFlagLivenessInternal( tokens, true );
  }
  
@@ -6571,7 +6579,7 @@ index 3260370..7b9360f 100644
  std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& program )
  {
  	std::list<Token> scheduled;
-@@ -6127,13 +7007,53 @@ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& prog
+@@ -6127,13 +7015,53 @@ std::list<Token> flattenVuScheduledProgramTokens( const VuScheduledProgram& prog
  
  unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iterator begin,
                                                      std::list<Token>::const_iterator end )
@@ -6625,7 +6633,7 @@ index 3260370..7b9360f 100644
  	}
  
  	unsigned int mask = VU_RESOURCE_NONE;
-@@ -6141,7 +7061,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
+@@ -6141,7 +7069,13 @@ unsigned int vuIgnoredFlagWawResourcesForRemaining( std::list<Token>::const_iter
  		mask |= VU_RESOURCE_MAC;
  	if( !readsClip )
  		mask |= VU_RESOURCE_CLIP;

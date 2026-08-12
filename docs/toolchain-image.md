@@ -3267,6 +3267,52 @@ every reader in the corpus, because the alternation `([0-9]+|0x…)` matched the
 `0x3FFFF` - a bug that would have made the table say the exact opposite of the truth, caught by
 looking at the emitted text before believing the output.
 
+### Better than Sony everywhere except two one-cycle questions, and both need hardware
+
+"Smaller in total" was already true - resident **1652 against 1678**, all 25 programs **4002
+against 4066**, and 20 of the 25 at or below Sony individually. This is about the five that are
+not, and it ends with the gap fully attributed and the scheduling side of it exhausted.
+
+**`mcpip_as_is_vu1` is the clean signal: +2 words, and no `fcand` anywhere in it, so no CLIP
+padding is involved.** Pairing is not the cause either - both assemblers emit exactly **15 paired
+rows, 5 upper-only and 3 empty**. openvcl emits **two more lower-pipe instructions**, and they are
+two `waitq` that Sony does not need. Sony spreads its three divisions so that every consumer has
+work between it and its producer:
+
+| | division at | consumer at | gap | `waitq` |
+|---|---:|---:|---:|---|
+| openvcl | 28 | 36 | 8 | no |
+| openvcl | 37 | 42 | 5 | **yes** |
+| openvcl | 43 | 45 | 2 | **yes** |
+| Sony | 30 | 35 | 5 | no |
+| Sony | 36 | 39 | 3 | no |
+| Sony | 36 | 42 | 6 | no |
+
+**Sony reads `Q` five and three rows after its `div`, with one annotated stall in between - six
+cycles - where the model here requires seven and pays a word for the difference.** That is the same
+one-notch conservatism the CLIP census found: a window of 4 rows against the reference's modal 3.
+Two latencies, one cycle each, and this compiler is the careful side of both.
+
+**The scheduling explanation was tested and refuted.** `readHazardDelay` already includes the Q gap
+and `readyCandidateScore` weights it at a thousand per cycle, so a Q consumer is deferred while
+anything else is ready - those two `waitq` are emitted because nothing else *was* ready. The
+remaining idea was to issue the division earlier so the work after it covers the latency, and
+`longLatencyProducerBonus` is exactly that knob. It existed at 500 and 0 only - "hoist divides ahead
+of everything" and "do not". A bonus of **1500, alone and with `priorityWeight` 30, was added to the
+best-of list, built and measured**: the 70 came out **byte-identical** and none of the five moved a
+word. Adding options to a best-of search is monotone, so nothing was risked - and an option that
+never wins is pure compile time, so both were removed and the negative result was written into the
+comment beside the strategies that do win.
+
+**Where that leaves it.** The five programs are larger for two reasons and no others: a CLIP window
+of 4 rows where the reference's floor is 3, and an FDIV requirement of 7 words where the reference
+reads at 6 cycles. Both were introduced by fixes (§9 and §14) that the oracle demanded and that no
+screen ever contradicted - and §9's was explicitly recorded as inferred from a detector rather than
+observed. Neither can be relaxed by better scheduling, and neither can be settled by the reference,
+which is internally inconsistent on both. What settles them is a console: **97 words** on the CLIP
+side and a handful on the FDIV side are waiting behind `docs/ps2link-setup.md`, which is built and
+has not run.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
