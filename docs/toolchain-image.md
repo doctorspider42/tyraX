@@ -3215,6 +3215,58 @@ model**, and it is the argument for keeping the "read one" rule that produced bu
 the ps2gl corpus has cost four hypotheses and yielded no compiler defect, while every round that
 read a program found one.
 
+### The CLIP-generation idea cannot pay, and the census is what settles it
+
+Section 4 has carried a proposal for many rounds, quoted as the honest way to recover the padding
+words: *model which generation each mask bit selects, instead of padding against the nearest push.*
+SCE demonstrably pairs a reader with a `clip` several rows back, and openvcl does not. It sounded
+like money on the table. **It is not, and one census shows why.**
+
+Every `fcand`/`fcor`/`fceq` in the emitted 70, bucketed by mask and by distance in rows to the
+nearest preceding push, both assemblers:
+
+| mask | generations | openvcl | Sony |
+|---|---|---|---|
+| `0x2` | 0 | min 4, all 21 at 4 | **min 4, all 21 at 4** |
+| `0x8` | 0 | min 6, all 21 at 6 | **min 6, all 21 at 6** |
+| `0xF` | 0 | min 4, all 48 at 4 | min 1; **37 of 48 at 3** |
+| `0xA` | 0 | min 4, all 48 at 4 | **min 0**, spread 0-21 |
+| `0x3F` | 0 | min 4, all 8 at 4 | min 1, spread 1-4 |
+| `0x3CA` | 0,1 | min 4 | min 17, spread 17-43 |
+| `0x3FFFF` | 0,1,2 | min 4 | **min 0**, spread 0-63 |
+| `0x3CA3CA` | 0,1,2,3 | min 4 | **min 0** |
+
+**Every mask class in the corpus touches generation 0** - the newest judgement. A reader whose mask
+includes generation 0 depends on the push immediately before it, so the full window distance is
+required and there is nothing for a generation-aware model to relax. The proposal only pays for a
+mask that *skips* the newest generation, and the corpus contains none: not in the engine's 70, not
+in the two synthetic corpora, not in ps2gl. **That item can come off the list.**
+
+Two more things fall out of the same table, both worth keeping:
+
+* **openvcl is never closer than Sony in any class, and identical in two.** On `0x2` and `0x8` the
+  two agree site for site, all 21 each. Everywhere else openvcl is further away. Whatever the right
+  latency is, this compiler is not the one taking the risk.
+* **Sony places readers at gap 0 - in the same row as the push - for `0xA`, `0x3FFFF` and
+  `0x3CA3CA`.** A reader in the pushing row cannot see the pushed judgement, so those sites
+  deliberately read the window as it was *before*. That is the strongest evidence yet for what
+  section 4 observed, and it also means the reference cannot arbitrate a latency: its own spread
+  for one mask runs from 0 to 63 rows.
+
+**The one remaining lever is the window number itself, and it is bounded.** openvcl pads to 4 rows
+(upstream's `CLIP_LATENCY`); Sony's modal floor for a positional mask is 3. Of openvcl's **201**
+readers sitting at exactly gap 4 across the 70, **97** have `nop`/`nop` inside that gap - so
+dropping the window from 4 to 3 would recover **at most 97 words**, which on a 1652-word resident
+set is not small. It is also not takeable: nothing here can distinguish a hardware requirement of 4
+from one of 3, the reference is internally inconsistent about it, and §9's fix - the reason the
+padding exists - was **inferred from a detector rather than observed on screen**. Settling it needs
+hardware, which is what `docs/ps2link-setup.md` is for and what has not run yet.
+
+The census lives on as `test/regress/lib/clipgap-census.py`. Its own first run reported mask `0` for
+every reader in the corpus, because the alternation `([0-9]+|0x…)` matched the leading `0` of
+`0x3FFFF` - a bug that would have made the table say the exact opposite of the truth, caught by
+looking at the emitted text before believing the output.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
