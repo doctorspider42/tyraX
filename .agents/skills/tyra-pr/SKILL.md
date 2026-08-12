@@ -60,9 +60,20 @@ Report the mergeable state to the user as part of "PR is up".
   thing that sees it (`invalid conversion from 'const char*' to 'int'`). It does
   not take a merge to cause one either - two edits anchored on the same struct
   line put a `const char*` between two ints while the emitter kept the old
-  order. Cheapest check, no Docker: read the struct and one emitted row out of
-  the generated header and compare them field by field (~15 lines of Python),
-  then let one `--build` confirm.
+  order. Cheapest check, no Docker - `.agents/skills/tyra-testing/scripts/check-object-rows.py`
+  reads the struct and EVERY emitted row out of the generated headers and
+  compares them column by column:
+
+  ```
+  python .agents/skills/tyra-testing/scripts/check-object-rows.py <projectDir>
+  ```
+
+  Exit 0 = they agree; exit 1 names the field. Run it after `--refresh-gen`
+  (it reads generated files, so a stale header proves nothing), then let one
+  `--build` confirm. It refuses to guess: a struct line it cannot parse is a
+  hard error rather than a skipped field, because an under-count reports false
+  mismatches AND hides real ones - which is exactly what its first version did,
+  dropping the four multi-declarator lines the pre-v18 Foot IK block used.
 - **`src/app.cpp`** - UI moves around (Properties window, panels); prefer
   re-applying your widget in main's new location over keeping the old block.
 - **`examples/script-demo/`** - generated files conflict textually but are

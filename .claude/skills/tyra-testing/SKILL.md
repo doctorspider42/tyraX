@@ -420,6 +420,36 @@ without building:
   baseline, but only as fresh as its last regeneration. If codegen changed
   since, regenerate the sample first (its files drift silently); don't treat a
   stale copy as ground truth.
+- **`scripts/check-object-rows.py` checks the one thing no compiler here
+  does.** The generated `SceneObjectData` rows are value lists, and nothing on
+  the host compiles them — a struct field and its column falling out of step
+  survives every editor build, every harness and `--refresh-gen`, and first
+  appears as `invalid conversion from 'const char*' to 'int'` inside Docker,
+  far from the edit that caused it. It does not take a merge: two edits
+  anchored on the same struct line are enough.
+
+  ```
+  python .claude/skills/tyra-testing/scripts/check-object-rows.py <projectDir>
+  ```
+
+  Reads the struct and EVERY row out of `inc/scene_data.hpp` +
+  `inc/prefab_data.gen.hpp` (or the headers you name) and compares them column
+  by column. Exit 0 = they agree, exit 1 names the field and the value it found.
+  It reads GENERATED files, so refresh or build first — on a stale header it
+  compares old against old and "proves" nothing. Across the 35 example
+  projects it passes on ~2 300 rows, so a failure is a signal and not noise.
+
+  Two properties worth keeping if you ever edit it. It **refuses to guess**: a
+  struct line it cannot parse is a hard error, not a skipped field, because an
+  under-count reports false mismatches AND hides real ones — its first version
+  silently dropped the four multi-declarator lines the pre-v18 Foot IK block
+  used (`const char *ikLeftHip, *ikLeftKnee, *ikLeftAnkle;`) and called a
+  perfectly consistent `examples/cube` fourteen mismatches. And it is
+  **negative-controlled**: inserting a `const char*` among the ints, deleting a
+  field, and adding an unparsable line each make it exit 1 — a checker nobody
+  has watched fail is a checker that passes everything. Note it cannot see a
+  reorder of two same-typed fields; only `--build` catches that, and only
+  sometimes.
 
 Past features were verified with throwaway "codegen harnesses" — a scratch
 `main()` that builds a `Project` in code, calls `templates::generate()` and
@@ -661,7 +691,7 @@ drives a deterministic Remote Pad script, captures a dense contact sheet, and
 writes the physical/visual player root plus both feet to CSV:
 
 ```powershell
-python .agents/skills/tyra-testing/scripts/foot-ik-regression.py `
+python .claude/skills/tyra-testing/scripts/foot-ik-regression.py `
     C:\Temp\foot-ik-fixture `
     --editor build\tyrax-editor.exe `
     --output C:\Temp\foot-ik-results `
