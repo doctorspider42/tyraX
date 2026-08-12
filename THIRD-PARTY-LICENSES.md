@@ -386,10 +386,10 @@ not the same: a permissive code license on a project says nothing about the
 license on the models, textures or sounds it ships, and asset collections are
 routinely *mixed* — most files under one license, a long tail under another.
 
-The policy for adding assets is in the "Dependency policy" section of
-[`README.md`](README.md); the short version is that an asset pack has to be
-verified file-by-file, not project-by-project, before anything from it is
-committed here. TyraX ships exactly one such file:
+The policy: an asset pack is verified file-by-file, not project-by-project,
+before anything from it is committed here, and anything that cannot be
+redistributed must be an optional download whose absence disables one feature.
+TyraX ships exactly one such file:
 
 ### NASA lunar colour map — public domain
 

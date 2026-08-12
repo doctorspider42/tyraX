@@ -1736,7 +1736,9 @@ freezes silently at whatever HEAD that machine happened to fetch, and two
 checkouts drift apart with nothing to say so. To bump: new SHA in both lists
 (`gh repo sync` the mirror first so the SHA exists there too), delete the vendor
 directory, re-run setup, build. A new dependency also needs its license notice
-in `THIRD-PARTY-LICENSES.md` — see the Dependency policy in the README.
+in `THIRD-PARTY-LICENSES.md`; if the license permits redistribution and the
+thing is small, prefer vendoring it in-tree over a setup-time fetch — fetching
+buys nothing legally, so it is purely an engineering trade.
 Toolchain: Windows
 `scoop install mingw cmake ninja` (build.ps1 finds scoop's mingw even
 off-PATH); Linux `./setup.sh --deps`, which reads the per-family package lists
