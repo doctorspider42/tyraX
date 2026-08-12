@@ -20,6 +20,46 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
+## OPEN: what produces the duplicate SIF RPC completion
+
+The EE crash in ps2sdk's `_request_end` (`BadAddr 0x00000010`, EPC in
+`rpc_packet_free`) is diagnosed and **guarded** — the engine now drops an
+anomalous completion instead of dereferencing NULL, and counts it. The full
+mechanism is in
+[ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
+Three things are still owed, in order of value:
+
+1. **A soak run.** Not done. The console was confirmed live and confirmed
+   running r6, but a run long enough to argue the race is gone is *hours*: the
+   same ELF managed 122 640 frames clean once and died at ~1 800 the next time,
+   so anything shorter is inside the noise. Run `examples/cube` (or anything
+   with streamed music — the song streamer thread is half the mechanism) in the
+   debug profile and watch `SifRpcGuard::rejected()`.
+2. **The producer.** The guard proves *a* duplicate arrives; it does not say
+   who sent it. The ranked candidates, none yet discriminated: ps2link's own
+   documented `pkoSendSifCmd()` buffer reuse (below in this file); the IOP-side
+   reply-packet ring `_rpc_get_fpacket()`, a 32-slot round robin with **no
+   in-use tracking and no interrupt protection**; and `_SifCmdIntHandler()`,
+   which re-enables interrupts before it has copied the packet out of the
+   shared buffer and cleared `psize`. Which of the three counters fires
+   (`rejectedNoPacket` vs `rejectedStaleId`) already narrows it.
+3. **Is the tcp/18193 wedge the same fault?** After some runs ps2link stops
+   listening — ping answers, the port does not, and only the physical Reset
+   revives it. It is plausibly this bug seen from the IOP side (a completion
+   lost rather than duplicated leaves a thread waiting forever while holding
+   the `host:` semaphore, which is the exact shape of the r2
+   `pko_recv_bytes()` bug). Treat them together. Not reproduced this session:
+   the port was listening throughout.
+
+**Worth doing regardless of the above**: the seven devkit channel polls are
+phase-locked onto one frame in 25 (every cooldown is initialised to 1 and
+re-arms to the same number, so they never drift apart — only livetex is
+deliberately offset, at `templates.cpp`'s `int cooldown_ = 3`). Staggering the
+initial values would spread seven blocking `host:` round trips across the cycle
+instead of bursting them back to back, which both shrinks the window this race
+lives in and flattens a once-per-25-frames frame-time spike. That is a
+mitigation, not a fix, and it should not be mistaken for one.
+
 ## FIXED: a deploy killed every other PS2 session on the machine
 
 **Reported and fixed 2026-08-11, in 1.22.0.** Kept here because the *shape* is a

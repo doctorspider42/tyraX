@@ -508,6 +508,8 @@ whose driver has not finished its handshake.
 | The game boots to a frozen Tyra logo, last log line `Curent pad(0,0) status: DISCONNECT` | The pad had not settled yet and the engine waited for it forever. Fixed in the engine (`vendor/tyra`, `Pad::waitPadReady` is bounded now), so rebuild the game. A deploy also waits ~10 s after the reset for exactly this reason. |
 | Stop works once and the next one wedges | Partly r4 — the `.bss` half of it — and the rest is the double IOP reboot r6 removed. Seen on r4 and r5; if you still see it on r6, that is a new bug, so say so. |
 | Console wedges after the editor is closed, or after a `ps2client` dies | Fixed in r2 (`pko_recv_bytes()` spun forever on a closed peer while holding the `host:` lock). If it still happens on r2, that is a new bug — say so, it is not the old one. |
+| A debug build dies after a random number of frames, `BadAddr 0x00000010`, EPC in `rpc_packet_free`/`_request_end` | A duplicate SIF RPC completion — see [the SIF RPC completion crash](#the-sif-rpc-completion-crash-and-the-guard-against-it). The engine guard stops the crash; check `SifRpcGuard::rejected()` and report the count. **Not** a VU, assembler or clipper fault, and **not** a stale ps2link. |
+| `dumpmem` writes a zero-byte file | Its offset and size are **decimal**, not hex. |
 | `host:` reads start returning wrong/garbage data | Fixed in r2 (an unexpected reply used to desync the byte stream permanently). |
 | A game crash shows nothing at all on screen | Fixed in r2 (the IOP exception handler faulted on `strlen(NULL)` before it could report). |
 | Sound keeps droning / goes haywire after a reset or redeploy | Fixed in r3. Check the boot log for `SPU2 silenced`; if it is absent you are on a pre-r3 build. As a stopgap on an old build, `ps2client -h <ip> execee host:silencer.elf` from `tools/silencer/`. |
@@ -660,6 +662,103 @@ faults, `crash.txt` or the EE crash handler stays a hardware test, as does
 timing, and so does the real `host:` file server while `HostFs` is on. What the
 rig is good for is everything above that line: sequencing, restarts, IOP
 reboots, the network protocol, and "did the restarted image reach `main()`".
+
+## The SIF RPC completion crash, and the guard against it
+
+**Symptom.** A debug-profile game dies on hardware after an arbitrary number of
+frames — 1 800 in one run, 122 640 clean in another with the *same* ELF — with
+
+```
+Cause 0x70008408   -> ExcCode 2 (TLBL, fault on a LOAD)
+BadAddr 0x00000010
+EPC 0x00271C78     -> rpc_packet_free / _request_end   (ps2sdk sifrpc.c)
+```
+
+**It is not the VU pipeline and it is not your game.** `sifrpc.c` is reachable
+from no VU program; it is ps2sdk's EE-side SIF RPC client, and every `host:`
+file operation is an RPC through it. Nor is it a stale ps2link: the fault was
+diagnosed on a console confirmed to be running **r6**, read out of its own RAM
+(see "Identifying a flashed card over the network" below).
+
+**What it is, to the byte.** `rec_id` sits at offset `0x10` of
+`SifRpcRendPkt_t`, and `rpc_packet_free()` read-modify-writes it. So `BadAddr
+0x10` on a *load* pins the fault on exactly one expression:
+
+```c
+rpc_packet_free(cd->hdr.pkt_addr);   /* with cd->hdr.pkt_addr == NULL */
+```
+
+`cd` itself was valid — the handler had already read `end_function` and
+`sema_id` out of it. And the **only** code that ever stores NULL there is
+`_request_end`'s own last line. So the EE was handed a **second completion for
+a call it had already completed**, and ps2sdk's handler validates nothing —
+not the client, not the packet, not the `rpc_id`, even though its own
+`sceSifCheckStatRpc()` shows the intended check.
+
+**Why here and not in an ordinary PS2 game.** Each ps2sdk RPC client is
+serialised internally (fileio by `_fio_io_sema`, audsrv by its own
+`completion_sema`), but a TyraX game runs **four** SIF RPC participants at once:
+
+| participant | priority | traffic |
+|---|---|---|
+| game loop | `0x40` | the devkit channels, streamed assets, save files |
+| audio thread | `0x5` | `audsrv_play_audio` continuously — **preempts the loop** |
+| song streamer | `0x6` | its own `fread` every ~2 ms — **preempts the loop** |
+| audsrv EE RPC *server* | `0x60` | incoming fillbuf callbacks |
+
+and over ps2link a `host:` round trip is *milliseconds of network* instead of
+microseconds of emulator, which widens every window in that machinery by about
+a thousandfold. That is why the fault is hardware-only and why it is a race
+rather than a reproducible step. The devkit path concentrates it further: seven
+channel files are polled on **one frame in 25**, back to back, because every
+cooldown starts at 1 and re-arms to the same number, so they stay in lockstep
+forever.
+
+**The guard.** The engine installs its own validating `SIF_CMD_RPC_END`
+handler at init —
+[`vendor/tyra/engine/src/debug/sifrpc_guard.cpp`](../vendor/tyra/engine/src/debug/sifrpc_guard.cpp).
+It is ps2sdk's `_request_end` with three early-outs and nothing else changed:
+reject a completion naming no usable client, one whose client has no
+outstanding packet (**the crash**), and one whose packet slot has already been
+recycled by a later call. It rejects only what is *provably* dead, because a
+false rejection is worse than the crash — the caller would wait forever on a
+semaphore nothing will signal, and the game would hang with no diagnostic at
+all.
+
+It also **counts** every rejection, and that is the point: a rejection is not
+normal. `SifRpcGuard::rejected()` is 0 in a healthy session, so a non-zero
+count means the fault reproduced *without* taking the console down, and the
+count is the instrument for finding whatever produces the duplicate. **A zero
+count is not proof the race is gone** — only proof it did not fire.
+
+> **The guard stops the crash; it does not remove the cause.** A dropped
+> completion still means the thread waiting on that call is never signalled.
+> The producer of the duplicate is not yet identified, and no soak long enough
+> to argue the race is gone has been run — see the entry in
+> [backlog.md](backlog.md).
+
+### Identifying a flashed card over the network
+
+The boot banner goes to the TV via `scr_printf`, not over udptty, so it does
+not appear in the `[ps2]` log — and `ps2client listen` returns nothing on some
+setups. You can read it out of the console's own RAM instead, which needs no
+inbound firewall rule (the reply rides the TCP socket the PC opened):
+
+```powershell
+tools/ps2client/bin/ps2client.exe -h <ip> -t 20 dumpmem 606208 393216 low.bin
+```
+
+Then `strings low.bin | grep -i "TyraX ps2link"`. **`dumpmem` takes DECIMAL
+offset and size, not hex** — a hex argument yields a zero-byte file with no
+error. `606208` is `0x00094000` (the low build); use `32407552` (`0x01ee8000`)
+for the high build. The region that is *not* in use reads back as all zeros,
+so this also tells you which of the two link addresses is flashed. A card
+running the recommended build answers:
+
+```
+Welcome to TyraX ps2link r6 (no USB)
+SPU2 silenced
+```
 
 ### Known remaining rough edges
 

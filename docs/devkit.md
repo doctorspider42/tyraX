@@ -150,6 +150,21 @@ very different visibility:
 | a real EE exception (bad pointer, address error, reserved instruction) | **nothing** - the game just stops | crash report + symbolized backtrace, and the crash says so on screen (below) |
 | a hang | **nothing** | the editor notices the heartbeat stopped and shows the post-mortem |
 
+### One crash class the devkit path causes itself
+
+Polling seven `host:` channel files per cycle turns every devkit session into
+heavy SIF RPC traffic, and ps2sdk's RPC completion handler crashes the EE on a
+duplicate completion instead of ignoring it — `BadAddr 0x00000010`, EPC in
+`rpc_packet_free`. The engine now installs a validating handler that drops such
+completions and counts them (`SifRpcGuard::rejected()`, 0 in a healthy
+session). The mechanism, why it is hardware-only, and what is still open are in
+[ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
+
+Unlike everything else on this page the guard is **not** gated on the debug
+profile: a duplicate completion would crash a release game too, and the guard
+is a few instructions on the RPC completion path with no static tables and no
+marker, so `--audit-release` is unaffected by it.
+
 ### The heartbeat, and the post-mortem
 
 The devkit already knows whether the game is alive: it flushes a snapshot every
