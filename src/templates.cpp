@@ -7507,7 +7507,25 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // Sample the terrain envelope once.  The near/far residuals subtract the
     // rise predicted by the current support plane: a continuous hillside is
     // therefore close to zero while a vertical stair lip stays positive.
-    const float travelSpeed = objectSpeed > 0.08F ? objectSpeed : footSpeed;
+    //
+    // The fallback to the ANKLE's speed is for an in-place animation - a model
+    // that walks without its object moving - but a STANDING character must not
+    // get it. Standing still, an idle's shuffle (or the turn the avatar makes
+    // when the stick is released) moves the sole past 0.12 while "ahead" means
+    // nothing, so the lip probes fire in whatever direction that shuffle
+    // happened to point; next to a step they then find a 22 cm riser and lift
+    // the free foot over a lip the character is not approaching. Because
+    // nothing resolves while standing, that lift is PERMANENT: measured on a
+    // stopped avatar beside a step, both feet over ground at 0.880 and the free
+    // one held at 0.919 with a clearance target above its own sole, weight
+    // zero, forever. That is the foot hanging in the air in the report, and it
+    // has nothing to do with reach - the solver was lifting it on purpose.
+    //
+    // objectStillTime is the same signal rest contact already uses to mean
+    // "this character is standing", so the two halves of the policy agree.
+    const bool standing = rt.objectStillTime >= 0.10F;
+    const float travelSpeed =
+        objectSpeed > 0.08F ? objectSpeed : (standing ? 0.0F : footSpeed);
     float dirX = 0.0F, dirZ = 0.0F;
     float nearExcess = 0.0F, farExcess = 0.0F;
     float obstacleGround = ground;

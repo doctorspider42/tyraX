@@ -140,6 +140,22 @@ instant the object moves, so it cannot turn a walking swing into a ground magnet
 Deterministic procedural IK throughout: no model inference and no allocation in
 the loop.
 
+**A standing character gets no swing clearance.** The clearance probes need a
+direction of travel, and when the object is not moving they used to fall back to
+the ANKLE's own speed - which an idle shuffle, or the turn the avatar makes when
+the stick is released, pushes past the threshold. "Ahead" then means whatever
+that shuffle happened to point at, so standing beside a step the probes find its
+riser, decide it is a lip and lift the free foot over it. Nothing resolves it
+while the character stands, so the lift is permanent: a foot held a few
+centimetres above ground it is standing on, indefinitely - which reads as the
+solver failing to plant when in fact it was lifting the foot on purpose. The
+ankle-speed fallback is still there for an in-place animation (a model that walks
+without its object moving), but it is switched off once `objectStillTime` says
+the character is standing - the same signal rest contact uses, so the two halves
+of the policy cannot disagree. Measured beside a 22 cm step, one binary, one
+line: the lift went from 6 consecutive frames (target raised 8 cm above the
+foot's own sole) to none.
+
 ## Going down
 
 Walking **down** is the hard direction, and it needs its own mechanism. The
