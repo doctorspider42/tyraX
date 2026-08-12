@@ -7399,6 +7399,8 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                            inst.nodeGlobal(rt.ankle[1])};
   const M4x4* kneeM[2] = {inst.nodeGlobal(rt.knee[0]),
                           inst.nodeGlobal(rt.knee[1])};
+  const M4x4* hipM[2] = {inst.nodeGlobal(rt.hip[0]),
+                         inst.nodeGlobal(rt.hip[1])};
   if (!ankleM[0] || !ankleM[1]) {
     // First visible frame establishes the sampled pose. The next frame can
     // probe it without paying for a second skin of the same mesh.
@@ -8150,31 +8152,60 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       } else {
         targetWorld.y = ground + sole;
       }
-      const float d = (targetWorld.y - ankleWorld.y) * foot.weight;
-      // Pelvis compensation is a reach safeguard, not a second ground magnet:
-      // only a planted foot that needs more downward reach may lower it, and
-      // then only by what the LEG cannot absorb on its own.
+      // Pelvis compensation is a reach safeguard, not a second ground magnet,
+      // and the quantity it owes is the reach THE LEG CANNOT MAKE - measured,
+      // not guessed.
       //
-      // That second half is the whole difference between a character standing
-      // and a character sinking into the floor. A standing leg is not straight -
-      // it has slack - so pulling an ankle down by a few centimetres costs the
-      // leg nothing and the hips nothing. Handing the pelvis the FULL correction
-      // instead made it an echo of the animation: every centimetre the clip
-      // lifts a foot became a centimetre of hip drop, measured at -0.169 on FLAT
-      // ground with both feet already sitting exactly on their targets - a
-      // 17 cm crouch that bought nothing and read as the avatar being buried to
-      // the shins. The correction the LEG cannot make is a different quantity,
-      // and it is the one the safeguard was written for.
+      // Both failure modes seen while this was being written are the two ways of
+      // getting that quantity wrong. Handing the pelvis the FULL correction made
+      // the hips an echo of the animation: every centimetre the clip lifts a
+      // foot became a centimetre of hip drop, -0.169 on FLAT ground with both
+      // feet already exactly on their targets, which read as the avatar being
+      // buried to the shins (and it pulled planted feet off their contacts).
+      // Giving the pelvis only what exceeded a FRACTION OF Max pelvis
+      // correction fixed that and broke the other end: a foot whose target is
+      // farther than the leg can span just never arrives, and the overlay shows
+      // it exactly - the ray finds the ground, the target cross sits on it in
+      // green, and the shoe hangs half a metre above, because the analytic
+      // two-bone solve has nothing left to give.
       //
-      // The leg's allowance is a fraction of the author's Max pelvis correction,
-      // so a rig that genuinely needs more hip travel says so with the knob it
-      // already has.
-      if (foot.locked && d < 0.0F) {
-        const float legSlack = ikPelvis * 0.6F;
-        const float excess = d + legSlack;  // d is negative
-        const float share = excess < 0.0F ? excess : 0.0F;
-        if (!havePelvis || share < pelvisWorld) pelvisWorld = share;
-        havePelvis = true;
+      // The honest number is geometric. A leg spans |hip-knee| + |knee-ankle|,
+      // which are rigid bone lengths and therefore readable from any pose; if
+      // the target sits farther from the hip than that (less a small margin, so
+      // the knee is not asked to lock straight), the difference is exactly what
+      // the hips must come down by. Below that, the leg does the work and the
+      // pelvis stays where the animation put it.
+      if (foot.locked && hipM[side]) {
+        const Vec4 hipWorld = modelToWorld(Vec4(
+            hipM[side]->data[12], hipM[side]->data[13], hipM[side]->data[14],
+            1.0F));
+        const Vec4 kneeWorld =
+            kneeM[side] ? modelToWorld(Vec4(kneeM[side]->data[12],
+                                            kneeM[side]->data[13],
+                                            kneeM[side]->data[14], 1.0F))
+                        : hipWorld;
+        auto dist = [](const Vec4& a, const Vec4& b) {
+          const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+          return sqrtf(dx * dx + dy * dy + dz * dz);
+        };
+        // The FULL span, not a fraction of it. A standing human's hip sits
+        // almost exactly one leg-length above the floor, so any margin here is
+        // smaller than the knee bend an ordinary pose carries - a 2% one made
+        // the rule fire on 391 of 678 frames with up to 7.8 cm of hip drop on
+        // FLAT ground, which is the sinking again in miniature. At 1.0 the
+        // deficit is zero unless the target is genuinely out of the leg's
+        // range, which is the only case the hips are meant to answer. The price
+        // is a knee that straightens fully at the extreme; that is the correct
+        // trade against a body that sinks or a foot that never arrives.
+        const float reach =
+            dist(hipWorld, kneeWorld) + dist(kneeWorld, ankleWorld);
+        const float needed = dist(hipWorld, targetWorld);
+        const float deficit = (needed - reach) * foot.weight;
+        if (deficit > 0.0F) {
+          const float share = -deficit;
+          if (!havePelvis || share < pelvisWorld) pelvisWorld = share;
+          havePelvis = true;
+        }
       }
     }
     if (!foot.locked && !foot.releasing && foot.clearance > 0.0F) {

@@ -115,17 +115,25 @@ toe-off or pulls far enough away, and keeps its old target while its weight
 smoothsteps to zero over 0.08 s — target height and influence therefore cannot
 jump on the same frame when a probe crosses a stair edge.
 
-The lowest requested foot correction may also lower the common pelvis - but only
-by the part of it the LEG cannot absorb. That distinction is the difference
-between a character standing and a character sinking into the floor: a standing
-leg is not straight, so pulling an ankle down a few centimetres costs the leg
-nothing, and handing the pelvis the full correction instead makes the hips an echo
-of the animation. Measured on flat ground with both feet already exactly on their
-targets, the old rule dropped the hips 17 cm - a crouch that bought nothing, read
-as the avatar being buried to the shins, and actively pulled planted feet off
-their contacts (29 such frames in one route, none after). The leg's allowance is
-60% of *Max pelvis correction*, so a rig that genuinely needs more hip travel
-says so with the knob it already has. Then an
+The pelvis may also come down - but only by the reach the **leg cannot make**, and
+that quantity is measured rather than guessed: a leg spans `|hip-knee| +
+|knee-ankle|` (rigid bone lengths, so readable from any pose), and if the target
+sits farther from the hip than that, the difference is exactly what the hips owe.
+Below it the leg does the work and the pelvis stays where the animation put it.
+
+Getting that quantity wrong fails in **both** directions, and both were seen while
+this was written. Handing the pelvis the FULL correction makes the hips an echo of
+the animation: 17 cm of hip drop measured on flat ground with both feet already
+exactly on their targets - a crouch that bought nothing, read as the avatar buried
+to the shins, and pulled planted feet off their contacts (29 such frames in one
+route). Allowing the leg a flat *fraction* of Max pelvis correction instead fixes
+that and breaks the other end: a target beyond the leg is then never reached - the
+ray finds the ground, the target cross sits on it, and the shoe hangs half a metre
+above, because the analytic solve has nothing left to give. The geometric answer
+avoids both, at 4.7 cm of hip drop at most on the measured route and only on the
+17% of frames where the leg really is at full extension. The price is a knee that
+straightens fully at the extreme, which is the right trade against a body that
+sinks or a foot that never arrives. Then an
 analytic two-bone solve rotates the hip and knee. A filtered authored knee pole
 guides that solve and takes over near the straight-leg singularity where a raw
 cross product can flip sides. The authored ankle yaw is preserved while an
