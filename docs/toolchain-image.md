@@ -3070,6 +3070,56 @@ the `no:--loop-liveness-always` form - 49 pass / 0 fail / 4 xfail. They assert a
 than a fix, which is the one legitimate reason for a case that passes on every build: if the
 sibling's unconditional extension is ever narrowed again, this pair is what notices.
 
+### The ps2gl fixtures are still unjudged, and now there is a reason instead of an omission
+
+Twelve of openvcl's own `test/fixtures` plus three `examples/` are real third-party VU code -
+ps2gl's transform and lighting kernels, 7173 lines - and they use exactly the constructs every bug
+in this effort lived in: `--LoopCS` on four loops, three to six `div`, one to four `clipw`,
+`fcand`. Until now the only thing ever asked of them was whether they *allocate*. They were put
+through the oracles.
+
+**Sony's output cannot serve as the reference here.** Of the 14 that compile, the path-sensitive
+oracle skips **12** on `vcl`'s output, all for the same reason: it renames and inverts the loop
+branches (`ibne xform_loop_lid` in the source becomes
+`ibeq EXPL__p_src_general_vcl_xform_loop_lid__EPI1`), and the trace enumerator cannot follow that.
+Only the two trivial examples are in scope, and both are clean. So for the twelve interesting
+programs **there is no cross-assembler control at all** - which is worth knowing before anyone
+quotes a number from this corpus.
+
+**On openvcl's output, 5 of the 12 are judged and all 5 report divergent - and the same 5 report
+divergent with no flags at all.** That is the check that decides who is wrong. With the density
+flags off openvcl does close to nothing, so a divergence there is far more likely to be the
+instrument than the compiler.
+
+Reading one confirms it. For `indexed` the oracle reports 66 differing observables, and the
+difference in the first is the **address**:
+
+```
+source-only    sq(addr(iadd(in((BASE)), xtop(0)), 0), xyz, [...])
+emitted-only   sq(addr(xtop(0), 172),                xyz, [...])
+```
+
+The compiler resolved that base register to a constant and folded it into the offset - which the
+oracle does itself, through `split_off`, whenever it can see the assignment. Here it cannot: the
+`iaddiu … , vi00, (…)` that defines it sits in a block the trace never enters, so the register
+reads as a **live-in** (`in((BASE))`) and stays symbolic. One unmatched address means no store
+pairs with its counterpart, and every observable in the program reports as source-only or
+emitted-only at once. The value trees underneath are the same shape.
+
+**Which direction the error goes matters, and it goes the safe way.** An unmatched store is
+*reported*, never silently accepted, so this gap can only produce false positives. It cannot have
+hidden anything in the clean results this file already records.
+
+**Positive control, same instrument, same day:** the engine's own 70 microprograms -
+**70 in scope, 1019 traces, 0 divergent, 0 skipped.** The oracle is healthy; the gap belongs to
+this corpus and to the way these programs build their addresses.
+
+So the fixtures stay unjudged, and what would change that is now specific rather than vague: seed
+the model with the constants assigned in blocks the trace does not enter, so a register that is a
+program constant stops reading as an input. Also worth recording for whoever does it: those 14
+fixtures take **over ten minutes** to compile under the twenty-one flags, which is how the
+`--loop-liveness-always` non-termination was found in the first place.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
