@@ -3173,6 +3173,48 @@ So the twelve ps2gl programs remain unread, and what it takes is now a two-part 
 unknowns left in it: make `*`, `/` and a standalone sign into tokens, and turn `imm_at` /
 `address` from summing tokens into evaluating an expression with truncating division.
 
+### The immediates are read now, and where the oracle still complains the compiler is right
+
+The two-part change the section above described as having "no unknowns left" was made: `*`, `/` and
+a standalone sign became tokens, and `imm_at` / `address` stopped summing tokens and started
+evaluating an expression with **truncating** division - the semantics measured off both assemblers
+(`7/2` = 3, `-7/2` = -3, `(1024-1075)*3/17` = -9). Thirteen unit cases cover it, including the two
+that matter for compatibility: `956+0` arrives as `956` then `+0` because the signed-number
+alternative wins when there is no space, and `956 + 0` arrives as three tokens; both must mean 956,
+and the summing code this replaces was built for the first form only.
+
+**It works, and the controls say it is safe.** The engine's 70 microprograms stay
+**70 in scope, 1019 traces, 0 divergent, 0 skipped** - before and after a change to the tokenizer
+every other part of the instrument depends on - and the suite stays **49 pass / 0 fail / 4 xfail**.
+On `indexed` the differing observables fall **66 → 54** and, the point of the exercise, the
+addresses now agree: `addr(xtop(0),172)` on both sides where the source model used to carry an
+unresolved base.
+
+**The residual difference was then read by hand, and it exonerates the compiler.** The oracle's
+first complaint is a product: the source model multiplies by the quadword at 60 and the emitted
+model by the one at 59. In the source those are three consecutive loads -
+
+```
+lq.xyz material_amb,  (…59…)(vi00)
+lq.xyz material_diff, (…60…)(vi00)
+lq.xyz material_spec, (…61…)(vi00)
+```
+
+and in the emitted program they are `lq.xyz VF05, 59(VI00)`, `VF06, 60`, `VF07, 61`, in that order.
+The accumulation is then `mula.xyz ACC, VF16, VF06` and `madd.xyz VF12, VF10, VF05` - **VF06 is
+`material_diff` and VF05 is `material_amb`, exactly as the source pairs them** in
+`mula.xyz acc, local_diff18, material_diff` / `madd.xyz vert_color, light_amb, material_amb`.
+No swap, no reassociation. What differs is the shape of the nested `MUL` in the model, not the
+program.
+
+So the score is: one real gap in the instrument found and closed, the compiler hand-verified
+correct at the first point the instrument disputes, and the twelve ps2gl programs still not
+mechanically judged - now for a third reason rather than the first two, both of which turned out to
+be wrong. **That is three diagnoses in a row corrected by looking at the data instead of the
+model**, and it is the argument for keeping the "read one" rule that produced bugs 10 through 14:
+the ps2gl corpus has cost four hypotheses and yielded no compiler defect, while every round that
+read a program found one.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
