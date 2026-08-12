@@ -1765,7 +1765,7 @@ index a9a3c8e..7458bcf 100644
  
  }
 diff --git a/src/Parser.cpp b/src/Parser.cpp
-index b8b1946..463202c 100644
+index b8b1946..5399699 100644
 --- a/src/Parser.cpp
 +++ b/src/Parser.cpp
 @@ -14,6 +14,7 @@
@@ -1825,7 +1825,7 @@ index b8b1946..463202c 100644
  	for( std::list<Line>::const_iterator i = m_lines.begin(); i != m_lines.end(); i++ )
  	{
  		if( !m_tokenizer.parse( *i ) )
-@@ -2063,34 +2099,324 @@ bool Parser::tokenize()
+@@ -2063,34 +2099,335 @@ bool Parser::tokenize()
  
  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
  
@@ -2031,7 +2031,8 @@ index b8b1946..463202c 100644
 +
 +	return generator.beginProcess( tokens );
 +}
-+
+ 
+-	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
 +///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 +
 +// --sink-loads-best-of.  Compile the program a second time with all four
@@ -2091,6 +2092,17 @@ index b8b1946..463202c 100644
 +	// decision rather than a diagnosis - the same bargain the --sink-loads-past-branches
 +	// retry above makes.  Anything wrong with the INPUT was already reported by the
 +	// first arm, which ran unsuppressed and succeeded.
++	//
++	// SAVED AND RESTORED, not switched off at the end.  The two ladders in
++	// allocateRegisters()/allocateRegistersAttempt() already do it that way, and
++	// this one did not: it drove suppression to false unconditionally.  That is
++	// harmless only because generateCode() is a different parser state from
++	// allocateRegisters(), so this arm cannot run inside theirs today - exactly
++	// the "latent, not reachable" shape as the unbounded alias walk in
++	// RegisterAllocator.  A future caller that runs a speculative arm around
++	// code generation would have its suppression silently dropped here, and the
++	// errors it is entitled to swallow would fail the build instead.
++	const bool suppressedOnEntry = Error::Suppressed();
 +	Error::SetSuppressed( true );
 +
 +	bool built = true;
@@ -2101,8 +2113,7 @@ index b8b1946..463202c 100644
 +	}
 +
 +	CodeGenerator generator;
- 
--	if( !m_codeGenerator.beginProcess( m_tokenizer.tokens() ) )
++
 +	if( built )
 +	{
 +		RegisterAllocator allocator;
@@ -2117,7 +2128,7 @@ index b8b1946..463202c 100644
 +			built = generateCodeInto( generator, allocator.name(), tokenizer.tokens() );
 +	}
 +
-+	Error::SetSuppressed( false );
++	Error::SetSuppressed( suppressedOnEntry );
 +
 +	setVuSinkLoadsEnabled( sink );
 +	setVuSinkLoadsAcrossStoresEnabled( sinkAcrossStores );
@@ -2161,7 +2172,7 @@ index b8b1946..463202c 100644
  	setState( WRITE_OUTPUT );
  
  	return true;
-@@ -2126,7 +2452,10 @@ bool Parser::writeOutput()
+@@ -2126,7 +2463,10 @@ bool Parser::writeOutput()
  
  bool Parser::writeOutputStream( std::ostream& stream )
  {

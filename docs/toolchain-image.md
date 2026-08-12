@@ -3000,6 +3000,43 @@ directive being refused. **Both times the control case failed alongside the subj
 the only reason the instrument was blamed instead of the compiler, and is the whole argument for
 never running a probe without one.
 
+### The error paths, which had never been swept, and the first bug's class is empty
+
+Defect §1 was not "a rejected operand". It was **a rejected operand, a printed diagnostic, and
+the program emitted anyway** - without the `clipw`, keeping the `fcand` that reads its flags. That
+is a class, and only the one incident had ever been looked at. It has now been swept two ways.
+
+**Structurally: all 71 diagnostic sites in the compiler proper hand failure off with a hard
+`return false` / `return` / `exit`.** Not one reports and carries on, and not one relies on a weak
+hand-off - a flag assignment or a `break` that a caller might ignore. The classifier separates
+strong hand-offs from weak ones precisely because a `something = false;` after a diagnostic *looks*
+like failure and need not be, and it found zero of those.
+
+**And the classifier was controlled before its output was believed**, on a file containing a
+stopping site, a plainly continuing one, and the case that matters most - a site that reports, sets
+`m_warned = true` and continues. It labels all three correctly. Without that control this is just a
+grep, and a grep finding nothing has already been evidence about the grep twice in this file.
+
+**Empirically:** malformed sources - a reserved pipeline register used as a user name, an invalid
+CLIP operand - exit non-zero with the diagnostic visible and **zero rows of output**, under no
+flags, under the single flag that arms the retry ladder, and under all twenty-one. `main()`'s
+`Error::HasErrors()` backstop is the last line of that defence, and `ResetErrorCount()` - the one
+thing that could quietly discard the evidence - is defined and **never called**.
+
+**One latent hazard was found and hardened.** Errors are *deliberately* suppressed inside the
+speculative retry arms, because running out of registers there is a decision rather than a
+diagnosis. Two of the three arms save the previous state and restore it; the third,
+`tryUnsunkArm`, drove suppression to `false` unconditionally. It is harmless today for a reason
+worth naming: `generateCode()` is a different parser state from `allocateRegisters()`, so this arm
+cannot run inside theirs - **the same "latent, not reachable" shape as the unbounded alias walk
+that hung the compiler in §13, which was upstream's code that upstream could not reach.** That
+one became live the moment a fork built a ring to walk. This is now save-and-restore, with the
+reasoning in the comment rather than in a commit message.
+
+Verified: the 70 microprograms of the *old* corpus compile byte-identically before and after
+(md5 `e78d466912af036dfea8d0a9f3b8385c`) - the right check here, since the question is whether the
+compiler changed, not whether the engine did - and the suite is 47 pass / 0 fail / 4 xfail.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
