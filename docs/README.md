@@ -1,7 +1,8 @@
 # TyraX documentation
 
-User-facing guides for editor features. Written for people building games
-with the editor; internals live in code comments, the git log (commit messages
+User-facing guides for what TyraX — the engine and its editor — can do. Written
+for people building games with it; internals live in code comments, the git log
+(commit messages
 carry what changed and how it was verified) and the `.claude/skills/` developer
 guides. What is queued is in [Backlog](backlog.md).
 
@@ -89,6 +90,55 @@ guides. What is queued is in [Backlog](backlog.md).
   and cross-validating turned "statistically a draw" into a real +0.42 dB on the
   bestiary), and why shrinking the z buffer to the reduced raster makes it leave
   MORE texture VRAM than not using it at all.
+- [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) - the
+  PS2-era fake for car paint and chrome: a sphere map sampled per vertex from the
+  camera-space normal and drawn as a second additive pass, static or re-rendered
+  from the live sky every frame.
+- [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) - a
+  Mirror whose reflection is actually ray-traced, per pixel, on a VU0
+  microprogram: what the rays hit (triangle meshes, skinned proxies, slabs,
+  spheres), the per-mirror resolution knob, and what it costs.
+- [Live texture feeds (CCTV + mirror streams)](texture-feeds.md) - any surface
+  showing a live feed: a Camera entity rendering into a VRAM target every frame,
+  or a raytraced mirror's image streamed onto another object.
+- [Portals](portals.md) - the linkable surface that shows a live view through to
+  its target and teleports whatever walks into it, with position, view angle and
+  velocity carried through; the per-frame view budget and what is visible through.
+- [Collision boxes](collision-boxes.md) - what actually stops the player and the
+  third-person camera boom: which box each object collides as, why it is nowhere
+  near the object's centre, and how to draw it in the editor and in the game.
+- [Two-player games](multiplayer.md) - local co-op on one console: shared screen
+  or split screen, pad-2 hot-join, and what the second player costs.
+- [Baked ambient occlusion (contact shadows)](ambient-occlusion.md) - soft
+  shadows where geometry meets, baked into per-pixel AO textures and drawn as
+  extra blended passes: the scene-wide and per-object knobs.
+- [Baked global illumination + light probes](global-illumination.md) - a
+  multi-bounce lightmap for static geometry and a probe grid for everything that
+  moves, both traced on your desktop so the console pays nothing.
+- [Day / night cycle](day-night-cycle.md) - the time-of-day slider the whole
+  bake follows (shading, AO, GI, shadows, flare) plus the sun and moon arcs, and
+  the runtime clock.
+- [Texture atlasing](texture-atlasing.md) - packing small material textures into
+  shared 256x256 pages: what it reclaims in GS VRAM, what makes a texture
+  eligible, and what the boot log prints.
+- [Material map baking (matbake)](material-baking.md) - the Material Editor's
+  UV-space raytraced baker (AO, bent normals, thickness, curvature, position,
+  object-space normals) and the high-poly cage projection.
+- [Menu stylesheets](menu-styles.md) - a menu's look as a CSS-shaped
+  `.menustyle` file: the box model, per-state row styling, scrolling lists and
+  transitions, all baked to sprites on the host.
+- [Sound: voices, priority and who gets cut off](sound.md) - the SPU2's fixed
+  voice budget, who spends it, and what happens when a game asks for one more
+  sound than the chip has left.
+- [Reverb (rooms for the sound effects)](reverb.md) - the console's hardware
+  reverb unit wired to an Area: presets, strength, transitions between rooms and
+  dry pockets.
+- [World Facts](world-facts.md) - named, typed, documented game state declared
+  once in a catalog instead of scattered variables: fact types, the four
+  persistence tiers, queries, rules and the live watch.
+- [Tree Generator](tree-generator.md) - procedural low-poly trees baked into the
+  project as ordinary `.obj` + `.mtl` + textures, so nothing about the PS2 side
+  changes.
 - [Emissive materials (glow)](emissive-materials.md) - making a material light
   itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
   floor baked into the vertex colors (free at runtime), the white-hot core (why
@@ -304,6 +354,9 @@ Developer design docs (internals, not user guides):
   when a frame overruns its field by a hair, the triple-buffered present that
   removes it (a vblank interrupt latches `DISPFB`), what the third display
   buffer costs in GS VRAM and why the engine refuses it in most display modes.
+- [A binary format for static models (.tmdl) + static mesh LODs](static-model-format-plan.md) -
+  the design and plan behind the format; the user-facing guide is
+  [model-pipeline.md](model-pipeline.md).
 - [BLSS reconstruction math](blss-reconstruction.md) - the twin contract
   between the neural upscaler's host trainer and its PS2 runtime: the exact
   sampling, blend equations, 8-bit truncation and grid vertex order both sides

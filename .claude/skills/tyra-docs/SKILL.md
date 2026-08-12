@@ -43,8 +43,18 @@ whatever the change affected.
   that is still a living file.
 
 - **`README.md`** — when the change adds/removes a user-visible feature, a new
-  panel or menu, a new example project, or changes the repo structure. Keep the
-  feature list, the "Example projects" section and the "Structure" list current.
+  example project, or changes the repo structure. **The README is a map, not a
+  manual**: a feature is **one line** in the grouped "What it does" overview,
+  linking to its `docs/` page, which is where the actual explanation goes. An
+  example is one row in the "Example projects" table. Resist writing a paragraph
+  here — the README was once ~35 000 words of feature prose, and shrinking it to
+  a map is what made it readable. If a feature has no `docs/` page to link to and
+  needs more than a line, that is a sign the page is missing, not that the README
+  should grow.
+
+- **`docs/README.md`** — the index every other doc reference goes through, and
+  what the README defers to. A new page under `docs/` is **not done until it is
+  listed there** with its one-paragraph summary.
 
 - **`.claude/skills/*/SKILL.md`** — when the change alters something a skill
   describes:
