@@ -11,6 +11,7 @@
 #include "aigen.hpp"
 #include "livedbg.hpp"
 #include "platform.hpp"
+#include "procgen.hpp"
 #include "project.hpp"
 
 #include "docs_gen.hpp"  // kEmbeddedDocs (built from docs/*.md)
@@ -340,6 +341,23 @@ const std::vector<Tool>& tools() {
          {{"category", "string", false,
            "one add-menu category (see FLOW GRAPHS); omitted = all ~190 types, "
            "which is long - prefer a category"}}},
+        {"get_proc_graph", ToolKind::Read,
+         "The scatter graph of one Procedural volume (a \"scatter\" object) in "
+         "the schema set_proc_graph takes, with the volume's own transform - "
+         "which IS the region the graph fills - plus whatever is wrong with the "
+         "graph and whether its bake is up to date. Read this before changing a "
+         "volume; a new one starts with a working starter graph, so there is "
+         "almost always something there.",
+         {{"object", "string", true, "the Procedural volume's object name"},
+          {"scene", "string", false, "scene name; omitted = the active scene"}}},
+        {"list_proc_nodes", ToolKind::Read,
+         "The procedural-node catalog: every scatter-graph node with its pins "
+         "(in the order links address them), its parameters and what it does. "
+         "Required reading before writing a scatter graph - these are a "
+         "completely different set of nodes from the flow-graph ones.",
+         {{"category", "string", false,
+           "one category (Sources, Masks, Filters, Repeat, Attributes, "
+           "Output); omitted = all of them, which is still short"}}},
         {"get_section", ToolKind::Read,
          "One section of the project-wide model as the JSON the .tyra stores - "
          "menus, sequences, credits, loading screens, save values, the HUD, "
@@ -399,6 +417,41 @@ const std::vector<Tool>& tools() {
           {"graph", "object", true, "{ \"nodes\": [...], \"links\": [...] }"},
           {"append", "bool", false, "true = add to the existing graph"},
           {"scene", "string", false, "scene name; omitted = the active scene"}}},
+        {"set_proc_graph", ToolKind::Edit,
+         "Write a Procedural volume's scatter graph. TOTAL, like set_graph: "
+         "what you send replaces the whole graph, so get_proc_graph first and "
+         "send back the complete thing. Unknown node types and links to them are "
+         "dropped, and the result is validated - the reply names every problem "
+         "left. Writing a graph does NOT create geometry: it makes the bake "
+         "stale, and bake_volume (or the next build) turns it into meshes.",
+         {{"object", "string", true, "the Procedural volume's object name"},
+          {"graph", "object", true,
+           "{ \"seed\": 1, \"nodes\": [...], \"links\": [...] } - see "
+           "PROCEDURAL VOLUMES"},
+          {"scene", "string", false, "scene name; omitted = the active scene"}}},
+        {"create_prefab", ToolKind::Edit,
+         "Capture scene objects into a reusable prefab - the Prefabs window's "
+         "\"Create from selection\", which is otherwise the one step you would "
+         "have to hand back to the user in the middle of your own work (a Pick "
+         "Prefab pool can only name a prefab that already exists). Members keep "
+         "their materials, physics, scripts and flow graphs; the origin is the "
+         "group's footprint centre at its lowest point, so placing a copy on "
+         "the ground behaves. Nothing stays linked: editing the prefab later "
+         "does not change copies already placed.",
+         {{"name", "string", false,
+           "prefab name; omitted = the first object's name. A name already "
+           "taken gets a numeric suffix, and the reply says what it became"},
+          {"objects", "object", false,
+           "[\"a\", \"b\"] - the objects to capture; omitted = whatever is "
+           "selected in the editor"},
+          {"scene", "string", false, "scene name; omitted = the active scene"}}},
+        {"insert_prefab", ToolKind::Edit,
+         "Stamp one copy of a prefab into the active scene. The copies get "
+         "fresh identities and names, and rest on the surface under them.",
+         {{"name", "string", true, "prefab name"},
+          {"position", "object", false, "[x, y, z]; omitted = the origin"},
+          {"yaw", "number", false, "rotation about Y in degrees"},
+          {"scale", "number", false, "uniform scale (default 1)"}}},
         {"set_section", ToolKind::Edit,
          "Write one section of the project-wide model. A section blob is TOTAL, "
          "not a patch: what you send REPLACES it, and anything you leave out is "
@@ -449,6 +502,28 @@ const std::vector<Tool>& tools() {
          "here as an \"unknown\" comment in the generated code rather than as an "
          "error anywhere else. Run it after writing graphs.",
          {}},
+        {"bake_volume", ToolKind::Command,
+         "Evaluate a Procedural volume's graph and bake it down to the merged "
+         "chunk meshes the game actually loads - which is also what makes the "
+         "result appear in the editor viewport as ordinary objects. Seconds, no "
+         "Docker. Reports the instance, triangle and memory cost, so it is how "
+         "you find out whether what you wrote fits on the console. Omit "
+         "\"object\" to bake every volume whose graph has changed.",
+         {{"object", "string", false,
+           "one Procedural volume's name; omitted = every stale volume in the "
+           "project"}}},
+        {"bake_prefab_model", ToolKind::Command,
+         "Flatten a prefab's mergeable members into one res/models/<name>.obj "
+         "(plus a .mtl carrying their colours) - the Prefabs window's \"Bake to "
+         "model\". This is the way PAST the prefab instance cap: a Pick Prefab "
+         "pool draws on 48 runtime records for the whole game, while a model "
+         "takes none and merges straight into the chunk meshes, so scattering "
+         "hundreds means baking the prefab and putting the .obj in a Pick Asset "
+         "pool instead. The result is dumb geometry - no scripts, lights, "
+         "physics or per-member identity - and the prefab stays as the source. "
+         "Members that cannot merge are reported rather than dropped in "
+         "silence.",
+         {{"name", "string", true, "prefab name"}}},
         {"build_game", ToolKind::Command,
          "Build the game in Docker, optionally launching it in PCSX2 afterwards. "
          "Minutes, and it needs the user to have allowed it. The chat WAITS for "
@@ -534,6 +609,137 @@ const std::vector<ObjectProp>& objectProps() {
         {"projShadow", "bool", "real-shape moving shadow projected on the ground"},
     };
     return table;
+}
+
+// ---------------------------------------------------------------------------
+// The procedural node catalog
+// ---------------------------------------------------------------------------
+
+std::vector<std::string> procNodeCategories() {
+    std::vector<std::string> cats;
+    for (const ProcNodeType& t : procNodeTypes()) {
+        const std::string c = t.category ? t.category : "";
+        if (c.empty()) continue;
+        if (std::find(cats.begin(), cats.end(), c) == cats.end()) cats.push_back(c);
+    }
+    return cats;
+}
+
+static const char* procKindName(ProcType t) {
+    switch (t) {
+        case ProcType::Mask: return "mask";
+        case ProcType::Curve: return "curve";
+        default: return "points";
+    }
+}
+
+static const char* procParamKindName(ProcParamKind k) {
+    switch (k) {
+        case ProcParamKind::Int: return "int";
+        case ProcParamKind::Bool: return "bool (0/1)";
+        case ProcParamKind::Enum: return "enum index";
+        case ProcParamKind::ObjectName: return "object name";
+        case ProcParamKind::Attr: return "attribute name";
+        case ProcParamKind::Text: return "text";
+        case ProcParamKind::TerrainLayer: return "terrain layer index";
+        default: return "float";
+    }
+}
+
+static const char* procRowKindName(ProcRowKind k) {
+    switch (k) {
+        case ProcRowKind::Assets:
+            return "asset pool - rows: s = res/models/... path, v[0] = weight, "
+                   "v[1]/v[2] = min/max scale";
+        case ProcRowKind::Prefabs:
+            return "prefab pool - rows: s = prefab name, v[0] = weight, "
+                   "v[1]/v[2] = min/max scale";
+        case ProcRowKind::Points:
+            return "control points - rows: v[0..2] = world XYZ";
+        case ProcRowKind::Settings:
+            return "object settings - rows: s = property key, v[0] = value";
+        default: return "";
+    }
+}
+
+// A registry tip as a parenthesised gloss: prose ending in a full stop reads as
+// ".)." inside one, so the terminal stop goes here rather than every registry
+// entry being punctuated for this one consumer (the aigen::nodeCatalog rule).
+static std::string procGloss(const char* tip) {
+    std::string s = tip ? tip : "";
+    while (!s.empty() && (s.back() == '.' || s.back() == ' ')) s.pop_back();
+    return s;
+}
+
+static std::string procNumText(float v) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%g", v);
+    return buf;
+}
+
+static std::string procCatalogLine(const ProcNodeType& t) {
+    std::ostringstream o;
+    o << "- " << t.key << " (\"" << t.title << "\", " << t.category << "). ";
+    auto pins = [&o](const char* what, const std::vector<ProcPinDef>& v) {
+        o << what << ": ";
+        if (v.empty()) {
+            o << "none. ";
+            return;
+        }
+        // BY INDEX, because that is how a link addresses one: "fromPin" and
+        // "toPin" are positions in these lists, not labels.
+        for (size_t i = 0; i < v.size(); ++i)
+            o << (i ? ", " : "") << i << "=" << v[i].label << " ("
+              << procKindName(v[i].type) << (v[i].optional ? ", optional" : "")
+              << ")";
+        o << ". ";
+    };
+    pins("Inputs", t.ins);
+    pins("Outputs", t.outs);
+    if (!t.params.empty()) {
+        o << "Params: ";
+        for (size_t i = 0; i < t.params.size(); ++i) {
+            const ProcParamDef& p = t.params[i];
+            o << (i ? "; " : "") << p.key << " \"" << p.label << "\" "
+              << procParamKindName(p.kind);
+            const bool numeric = p.kind == ProcParamKind::Float ||
+                                 p.kind == ProcParamKind::Int;
+            if (numeric)
+                o << " default " << procNumText(p.def) << ", range "
+                  << procNumText(p.lo) << ".." << procNumText(p.hi);
+            else if (p.kind == ProcParamKind::Bool)
+                o << " default " << (p.def != 0.0f ? "1" : "0");
+            if (p.kind == ProcParamKind::Enum && p.choices && *p.choices)
+                o << " choices " << p.choices;
+            if (p.kind == ProcParamKind::ObjectName && p.emptyLabel &&
+                *p.emptyLabel)
+                o << ", empty = " << p.emptyLabel;
+            if (const std::string g = procGloss(p.tip); !g.empty())
+                o << " (" << g << ")";
+        }
+        o << ". ";
+    }
+    if (const char* r = procRowKindName(t.rows); *r) o << "Rows: " << r << ". ";
+    // Which map a parameter lands in is not guessable from its kind alone, and
+    // it is the single most likely thing to get wrong when writing a node.
+    o << t.desc << "\n";
+    return o.str();
+}
+
+std::string procNodeCatalog(const std::string& category) {
+    std::ostringstream o;
+    bool any = false;
+    for (const ProcNodeType& t : procNodeTypes()) {
+        if (!category.empty() && category != (t.category ? t.category : ""))
+            continue;
+        o << procCatalogLine(t);
+        any = true;
+    }
+    if (!any) return "";
+    o << "\nParameters go in \"nums\" when their kind is float/int/bool/enum/"
+         "terrain layer index, and in \"strs\" when it is an object name, an "
+         "attribute name or text. A parameter left out reads as its default.\n";
+    return o.str();
 }
 
 // ---------------------------------------------------------------------------
@@ -726,6 +932,22 @@ std::string noSuchObject(const SceneData& sc, const std::string& name) {
     return s;
 }
 
+std::string notAVolume(const SceneData& sc, int index) {
+    const SceneObject& o = sc.objects[index];
+    std::string s = "\"" + o.name + "\" is a " + primitiveTypeName(o.type) +
+                    ", not a Procedural volume. ";
+    std::string names;
+    for (const SceneObject& e : sc.objects)
+        if (e.type == PrimitiveType::Scatter)
+            names += std::string(names.empty() ? "" : ", ") + "\"" + e.name + "\"";
+    if (names.empty())
+        return s + "Scene \"" + sc.name +
+               "\" has no Procedural volumes at all - add_object with type "
+               "\"scatter\" makes one (it comes with a working starter graph).";
+    return s + "The Procedural volumes in scene \"" + sc.name + "\" are: " +
+           names + ".";
+}
+
 std::string noSuchScene(const Project& p, const std::string& name) {
     std::string s = "No scene named \"" + name + "\". Scenes: ";
     for (size_t i = 0; i < p.scenes.size(); ++i)
@@ -887,6 +1109,9 @@ std::string systemPrompt(const Context& ctx) {
          "- \"say\" is plain prose for a human: no JSON, no node ids, no tool "
          "names unless naming one helps. Short - a sentence or three. Line breaks "
          "are fine; markdown is not rendered.\n"
+         "- It is a JSON STRING, so every \" inside it must be written \\\" and "
+         "every backslash \\\\. Quoting a name is what breaks this most often - "
+         "the safe habit is to name things without quotation marks at all.\n"
          "- \"calls\" is optional. When you send calls they run immediately and "
          "you are asked again with their results, so you can look something up, "
          "act on it, then report what you did. Omit \"calls\" (or send an empty "
@@ -972,7 +1197,47 @@ std::string systemPrompt(const Context& ctx) {
         o << ".\n";
     }
 
-    o << "\nSECTIONS (get_section / set_section)\n"
+    o << "\nPROCEDURAL VOLUMES (get_proc_graph / set_proc_graph / bake_volume)\n"
+         "An object of type \"scatter\" - the UI calls it a Procedural volume - "
+         "is a REGION, and the scatter graph it owns is what fills that region "
+         "with copies of assets or prefabs. Its transform IS the region, so "
+         "moving or scaling the object with set_object moves what it generates. "
+         "It is a completely different node system from a flow graph: no "
+         "execution, only DATA flowing along links (points, masks, curves), "
+         "pulled from an Output node. Schema:\n"
+         "{ \"seed\": 1,\n"
+         "  \"nodes\": [ { \"id\": 1, \"type\": \"ScatterSurface\", \"pos\": "
+         "[x, y], \"nums\": { \"density\": 6 }, \"strs\": { \"target\": \"\" }, "
+         "\"rows\": [ { \"s\": \"res/models/tree.obj\", \"v\": [1, 0.8, 1.2, 0] "
+         "} ] } ],\n"
+         "  \"links\": [ { \"id\": 1, \"from\": 1, \"fromPin\": 0, \"to\": 2, "
+         "\"toPin\": 0 } ] }\n"
+         "- Node ids and link ids are unique positive integers, and \"fromPin\" "
+         "/ \"toPin\" are INDICES into the source's output list and the "
+         "target's input list (list_proc_nodes prints both, numbered).\n"
+         "- One link per input pin. A graph must be acyclic, must have exactly "
+         "one Output node, and every non-optional input must be connected - "
+         "get_proc_graph reports each of those as a problem.\n"
+         "- \"pos\" is the canvas position; lay a graph out left to right, "
+         "about 260 px between columns.\n"
+         "- Nothing about a scatter graph reaches the PlayStation 2: writing "
+         "one only marks the volume's bake stale, and bake_volume merges the "
+         "instances into the static chunk meshes the game loads. So a graph is "
+         "not finished until it has been baked and the cost it reports is one "
+         "the console can afford.\n"
+         "- The exception is a volume with \"runtime\": true, which is compiled "
+         "into the game and evaluated on the console instead (a different, much "
+         "smaller node vocabulary) - read the procedural-runtime doc before "
+         "touching one.\n"
+         "- Scattering something BUILT rather than modelled goes through a "
+         "prefab: create_prefab captures scene objects into one, and a Pick "
+         "Prefab row names it. That pool is 48 runtime records for the whole "
+         "game, so it is a few dozen instances at most - for hundreds, "
+         "bake_prefab_model flattens the prefab into a res/models/*.obj and a "
+         "Pick Asset row scatters that with no record at all (dumb geometry: no "
+         "scripts, lights, physics or identity). Choose between them by the "
+         "COUNT the user asked for, and say which one you took and why.\n"
+         "\nSECTIONS (get_section / set_section)\n"
          "Everything in the project that is not a scene object lives in one of "
          "these, and each is read and written as the JSON the project file "
          "stores. They are TOTAL, not patches: get_section, change what you mean "
@@ -1053,6 +1318,43 @@ static std::string renderMessage(const Message& m) {
     return o.str();
 }
 
+// ---------------------------------------------------------------------------
+// Plain text for the clipboard
+// ---------------------------------------------------------------------------
+//
+// Deliberately NOT renderMessage: that one is addressed to the model ("[you]",
+// budget trimming, the wording that makes a summary read as a recap), and a
+// person copying an explanation out of the window wants the explanation.
+
+std::string messageText(const Message& m) {
+    std::ostringstream o;
+    o << m.text;
+    for (const ToolCall& c : m.calls) {
+        if (o.tellp() > 0) o << "\n";
+        if (m.role == Message::Role::Tool)
+            o << c.name << " " << argsText(c) << (c.failed ? " [failed]" : "")
+              << "\n"
+              << c.result;
+        else
+            o << "-> " << c.name << " " << argsText(c);
+    }
+    return o.str();
+}
+
+std::string conversationText(const Conversation& c) {
+    std::ostringstream o;
+    for (const Message& m : c.messages) {
+        switch (m.role) {
+            case Message::Role::User: o << "You:\n"; break;
+            case Message::Role::Assistant: o << "Assistant:\n"; break;
+            case Message::Role::Summary: o << "Earlier conversation, summarised:\n"; break;
+            case Message::Role::Tool: o << "Tool results:\n"; break;
+        }
+        o << messageText(m) << "\n\n";
+    }
+    return o.str();
+}
+
 std::string transcript(const Conversation& c, size_t budget, size_t* trimmed) {
     std::vector<std::string> blocks;
     blocks.reserve(c.messages.size());
@@ -1094,19 +1396,95 @@ static std::string trimmed(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
+// The "say" value pulled out of a document that would not parse even after
+// repair. Deliberately crude: it walks to the last quote the value could
+// plausibly end at and decodes the escapes it does carry. The bar it has to
+// clear is not "correct JSON handling" but "better than showing a human the raw
+// envelope", which is what this whole path exists to stop - a reply that leaks
+// `{ "say": "...\n\n..." }` into the window reads as a broken editor.
+static bool salvageSay(const std::string& doc, std::string& out) {
+    size_t k = doc.find("\"say\"");
+    if (k == std::string::npos) return false;
+    k = doc.find(':', k + 5);
+    if (k == std::string::npos) return false;
+    ++k;
+    while (k < doc.size() && std::isspace((unsigned char)doc[k])) ++k;
+    if (k >= doc.size() || doc[k] != '"') return false;
+    const size_t begin = k + 1;
+    // Never run past the calls array: a quote inside a tool argument is a much
+    // more convincing terminator candidate than the one we are looking for.
+    size_t limit = doc.find("\"calls\"", begin);
+    if (limit == std::string::npos) limit = doc.size();
+    size_t end = std::string::npos;
+    for (size_t i = begin; i < limit; ++i) {
+        if (doc[i] == '\\') {
+            ++i;
+            continue;
+        }
+        if (doc[i] != '"') continue;
+        size_t j = i + 1;
+        while (j < limit && std::isspace((unsigned char)doc[j])) ++j;
+        const char n = j < limit ? doc[j] : '\0';
+        if (n == ',' || n == '}' || n == '\0') end = i;
+    }
+    if (end == std::string::npos) end = limit;
+    out.clear();
+    for (size_t i = begin; i < end; ++i) {
+        if (doc[i] != '\\' || i + 1 >= end) {
+            out += doc[i];
+            continue;
+        }
+        switch (doc[++i]) {
+            case 'n': out += '\n'; break;
+            case 't': out += '\t'; break;
+            case 'r': break;
+            case '"': out += '"'; break;
+            case '\\': out += '\\'; break;
+            case '/': out += '/'; break;
+            default: out += '\\'; out += doc[i]; break;
+        }
+    }
+    out = trimmed(out);
+    return !out.empty();
+}
+
 void parseReply(const std::string& reply, std::string& say,
                 std::vector<ToolCall>& calls) {
     say.clear();
     calls.clear();
-    const std::string doc = aigen::extractJsonObject(reply);
+    std::string doc = aigen::extractJsonObject(reply);
     json::Value root;
-    // No JSON, unparseable JSON, or JSON that is not our envelope: the reply is
-    // prose. A chat assistant answering in plain English is being useful, and
-    // rejecting that would make the window unusable with an otherwise fine
-    // backend - the envelope only has to be honoured when it wants to ACT.
-    const bool envelope = !doc.empty() && json::parse(doc, root) &&
-                          (root.find("say") || root.find("calls"));
+    bool parsed = !doc.empty() && json::parse(doc, root);
+    // Second try on a REPAIRED reply. A model writing prose in "say" leaves
+    // quotes in it (a title, a name it is quoting back), and one such quote
+    // makes the strict parse fail - which used to hand the whole raw envelope
+    // to the user as if it were the answer. The repair runs on the whole reply
+    // rather than on `doc`, because the same stray quote unbalances
+    // extractJsonObject's own string tracking.
+    if (!parsed)
+        if (const std::string fixed = aigen::repairJson(reply); fixed != reply)
+            if (const std::string doc2 = aigen::extractJsonObject(fixed);
+                !doc2.empty() && json::parse(doc2, root)) {
+                doc = doc2;
+                parsed = true;
+            }
+    // Still not JSON, or JSON that is not our envelope: the reply is prose. A
+    // chat assistant answering in plain English is being useful, and rejecting
+    // that would make the window unusable with an otherwise fine backend - the
+    // envelope only has to be honoured when it wants to ACT.
+    const bool envelope = parsed && (root.find("say") || root.find("calls"));
     if (!envelope) {
+        // Last resort before giving up: it LOOKS like an envelope, so read the
+        // prose out of it by hand rather than showing the JSON. The tool calls
+        // are lost, which ends the turn - an honest outcome the user can see
+        // and answer, unlike a wall of braces. An unbalanced document leaves
+        // `doc` empty, so a reply that is one object from '{' to '}' is taken
+        // whole here.
+        if (doc.empty()) {
+            const std::string whole = trimmed(reply);
+            if (whole.size() > 1 && whole.front() == '{') doc = whole;
+        }
+        if (!doc.empty() && salvageSay(doc, say)) return;
         say = trimmed(reply);
         return;
     }
@@ -1689,6 +2067,53 @@ std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
         if (fg.empty())
             return "\"" + sc.objects[oi].name + "\" has no flow graph yet.";
         return aigen::graphJson(fg);
+    }
+    if (c.name == "get_proc_graph") {
+        const std::string name = argStr(c, "object");
+        const int oi = findObject(sc, name);
+        if (oi < 0) return fail(noSuchObject(sc, name));
+        const SceneObject& o = sc.objects[oi];
+        if (o.type != PrimitiveType::Scatter) return fail(notAVolume(sc, oi));
+        std::ostringstream out;
+        out << "{ \"scene\": \"" << json::escape(sc.name) << "\", \"volume\": \""
+            << json::escape(o.name) << "\", \"position\": [" << o.position[0]
+            << ", " << o.position[1] << ", " << o.position[2] << "], \"scale\": ["
+            << o.scale[0] << ", " << o.scale[1] << ", " << o.scale[2]
+            << "], \"rotation\": [" << o.rotation[0] << ", " << o.rotation[1]
+            << ", " << o.rotation[2] << "], \"graph\": "
+            << project::procGraphJson(o.procGraph);
+        // What is WRONG with it, from the editor's own validator - the problem
+        // list the Procedural window shows. A model handed a graph with no
+        // Output would otherwise have no way to know why nothing appears.
+        const std::vector<procgraph::ProcIssue> issues = procgraph::validate(o.procGraph);
+        out << ", \"problems\": [";
+        for (size_t i = 0; i < issues.size(); ++i) {
+            out << (i ? ", " : "") << "\"";
+            if (issues[i].nodeId) out << "node " << issues[i].nodeId << ": ";
+            out << json::escape(issues[i].text) << "\"";
+        }
+        out << "]";
+        if (o.procGraph.empty())
+            out << ", \"note\": \"This volume has no graph at all - it is an "
+                   "empty region and generates nothing.\"";
+        else if (procgen::bakeHash(p, sc, o) != o.procGraph.bakedHash)
+            out << ", \"bakeStale\": true, \"note\": \"The graph has changed "
+                   "since it was last baked, so the chunk meshes in the scene "
+                   "are out of date - bake_volume brings them up to date.\"";
+        return out.str() + " }";
+    }
+    if (c.name == "list_proc_nodes") {
+        const std::string cat = argStr(c, "category");
+        const std::string catalog = procNodeCatalog(cat);
+        if (catalog.empty()) {
+            std::string s = "No procedural node category named \"" + cat +
+                            "\". Categories: ";
+            const std::vector<std::string> cats = procNodeCategories();
+            for (size_t i = 0; i < cats.size(); ++i)
+                s += std::string(i ? ", " : "") + cats[i];
+            return fail(s);
+        }
+        return catalog;
     }
     if (c.name == "list_node_types") {
         const std::string cat = argStr(c, "category");

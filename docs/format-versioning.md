@@ -79,11 +79,37 @@ than a resave would drop whatever it skipped.
    change, moved or restructured data. Purely additive fields with safe
    defaults need no step (the tolerant reader handles them) and old projects
    keep opening silently.
+   **A step can only transform data the file HAS.** The tempting case is a
+   bump that fixes a *dropped* field — v11 is the worked example: `save()`
+   never wrote a fog emitter's `opacity`, so authored values were destroyed at
+   save time and the file holds nothing to migrate. The reader's default (0.6)
+   is not a guess at the author's intent, it is precisely what that file has
+   always meant to codegen and to the viewport, so a step could only invent a
+   number and would make every affected project *change* on open. Additive,
+   no step. What the bump buys is the other half: an older editor now refuses
+   the file instead of dropping the new key on its own next save.
 4. Keep the loader tolerant: `project::load` keeps reading legacy keys
    forever (see the `"stickDeadzone"` → per-stick example). A migration step
    transforms the **loaded model** where the old data's *meaning* changed;
    a step that needs data the reader no longer parses can re-read files
    itself via `Project::dir`.
+5. **A branch renumbers its bump on the way in — it never argues for the
+   number it authored.** Two features may not share a format number: the
+   number is the whole basis on which an older editor refuses a file, so if
+   `6` means "collision-box overlay" to main and "the upscaler's shot plan"
+   to a branch, an editor that knows only the first will happily open the
+   second and drop the fields it cannot see on its next save. Whoever merges
+   moves their entries to the top of the list, keeping one number per landing
+   (a branch that bumped three times keeps three), and says in the comment
+   what the old numbers were — the version-history comment in
+   `src/version.hpp` is the record, and the reverb, sound-priority, World
+   Facts and BLSS entries all carry that note. **Grep the docs for the old
+   numbers in the same commit**: the meaning is quoted in prose
+   (`docs/neural-upscaler.md`, `docs/blss-reconstruction.md`,
+   `docs/backlog.md`, the skills) as often as it is in the header, and a
+   renumber that stops at `version.hpp` leaves every one of them lying.
+   No migration step is needed for a renumber itself when both sides were
+   additive: nothing on disk changes shape, only the label the file claims.
 
 ### Adding a migration step
 
@@ -138,13 +164,13 @@ path that needs no GUI dialog.
 
 ## Format history
 
+**The per-version record is the comment block above `kFormatVersion` in
+`src/version.hpp`** — one entry per landing, saying what the version added and
+why it did or did not need a step. Read it there; rule 5 above is why it is the
+record, and a second copy here would be the thing that goes stale. The table
+below is only the two versions that predate those entries.
+
 | Version | Editor | Change |
 |---|---|---|
 | 0 | pre-1.0.0 | everything before versioning existed (legacy shapes are lifted by the tolerant reader: inline objects, single `"layout"` dump, project-level terrain, ...) |
 | 1 | 1.0.0 | the `formatVersion` / `editorVersion` stamp itself (no migration step — nothing to transform) |
-| 8 | 1.13.0 | Animation Editor `inPlace` clip setting (purely additive, false when absent; no migration step) |
-| 9 | 1.15.0 | optional per-animated-object Foot IK bone mapping and solver tuning (purely additive; no migration step) |
-| 10 | 1.15.0 | optional neural VU0 Foot IK assist flag and influence (purely additive, disabled by default; no migration step) |
-| 11 | 1.15.0 | optional Foot IK maximum planted-foot tilt and swing toe-clearance fields (purely additive; no migration step) |
-| 12 | 1.16.0 | Foot IK becomes its own tool ([foot-ik.md](foot-ik.md)): the whole binding MOVES off the scene object into the `footIkRigs` section — one rig per animated model asset, plus per-clip rules and a descent reach — and an object keeps the instance switch alone (`"footIk": true`). **Data moved**, so this is the one Foot IK bump that is not purely additive; the lift is nonetheless a LOAD-TIME shim in `readObjectsArray` rather than a migration step, because it is unambiguous (a v9..v11 object carried both halves in one place, and its model path says which rig it becomes) and therefore has nothing for anyone to confirm. Two objects that shared a model but disagreed about its bones keep the first binding and say so on stderr. |
-| 13 | 1.17.0 | Foot IK probe overlay ([foot-ik.md](foot-ik.md)): the debug-profile preference that draws the solver’s ground raycasts in the running game. Purely additive, false when absent; no migration step. |

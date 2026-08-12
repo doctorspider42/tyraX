@@ -1,7 +1,7 @@
 {
   "name": "foot-ik-stairs",
-  "formatVersion": 13,
-  "editorVersion": "1.17.0",
+  "formatVersion": 19,
+  "editorVersion": "1.25.0",
   "template": "thirdperson",
   "projectId": "bbb45a6db338c7fa",
   "settings": {
@@ -88,6 +88,13 @@
     "flare": 0,
     "godRays": 0,
     "blobShadows": false,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,

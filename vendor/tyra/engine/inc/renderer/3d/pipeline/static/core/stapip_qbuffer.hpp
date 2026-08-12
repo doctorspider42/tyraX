@@ -67,6 +67,8 @@ class StaPipQBuffer {
   Vec4* colors;
   Vec4* normals;
   u32 size;
+  /** Conservative OR of the source packages' exact VU clip-plane masks. */
+  u8 clipPlaneMask;
 
   void print() const;
   void print(const char* name) const;

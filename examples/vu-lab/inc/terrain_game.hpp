@@ -665,6 +665,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being

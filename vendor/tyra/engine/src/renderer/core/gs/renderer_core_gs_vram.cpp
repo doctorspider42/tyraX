@@ -289,8 +289,52 @@ int RendererCoreGSVRam::getSize(int width, const int& height, const int& psm,
   }
 
   if (alignment == GS_VRAM_TEXTURE_ALIGNMENT) {
-    // TODO: Without this hack, textures are overlapping ourselves
+    // Upstream's fixed pad, kept: it is what every allocation on this engine has
+    // been sized with, and shrinking allocations is not this function's job.
+    // What it is NOT is a bound - see the page footprint below, which is.
     size += 1024 * 2;
+  }
+
+  // Modified by TyraX: NEVER LESS THAN THE PAGE FOOTPRINT THE GS ACTUALLY
+  // SPANS. The size above counts a texture's PIXELS; the GS stores it in whole
+  // 8 KB pages, one row of pages at a time, so a texture that does not fill its
+  // last page row still OWNS those pages - and the next allocation must start
+  // beyond them. For a wide, short texture the two answers differ by a factor:
+  //
+  //   the debug HUD font, 512x16 PSMCT32 - pixels 8192 words (+2048 pad),
+  //   footprint ceil(512/64) x ceil(16/32) = 8 x 1 pages = 16384 words.
+  //
+  // So the next texture was placed 10240 words in - page 5 of the font's own 8 -
+  // and overwrote pages 5..7 of it, which is every glyph from x=320 rightwards.
+  // Reported as "opening the menu makes letters disappear": the HUD read V AM
+  // because R lives at x=480, and R was the only glyph past x=320 on screen (T,
+  // at 496, was equally gone and simply not being drawn). The menu's own font
+  // atlas is the allocation that lands on it, which is why a menu opening is
+  // what triggers it, and why it survived every scene that never opens one.
+  //
+  // upstream's "TODO: Without this hack, textures are overlapping ourselves"
+  // sat on the pad above. The pad is not the fix: it is 2048 words, and it
+  // covers this for width <= 128 and nothing wider.
+  //
+  // A page is 8 KB = 2048 words whatever the format; only its texel geometry
+  // changes. PSM_8H/4HL/4HH are the high bits of a 32-bit buffer and keep
+  // 64x32. Palettes (width <= 16, the branch above leaves their width alone)
+  // are stored by their own rules and are not page-mapped like this.
+  if (width > 16) {
+    int pageW = 64, pageH = 32;  // PSMCT32/24, PSMZ32/24, and the H formats
+    switch (psm) {
+      case GS_PSM_8: pageW = 128; pageH = 64; break;
+      case GS_PSM_4: pageW = 128; pageH = 128; break;
+      case GS_PSM_16:
+      case GS_PSM_16S:
+      case GS_PSMZ_16:
+      case GS_PSMZ_16S: pageW = 64; pageH = 64; break;
+      default: break;
+    }
+    const int pagesWide = (width + pageW - 1) / pageW;
+    const int pagesHigh = (height + pageH - 1) / pageH;
+    const int footprint = pagesWide * pagesHigh * 2048;
+    if (size < footprint) size = footprint;
   }
 
   // The buffer size is dependent on alignment

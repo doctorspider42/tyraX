@@ -33,9 +33,9 @@
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
     iaddiu     adcMask, vi00, 16384  ; MakeTyraAdcMask: 0x8000 in two 15-bit adds
     iadd       adcMask, adcMask, adcMask
-    lq         envRight, 4(vi00)  ; LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights matrix area; env bags carry no lighting)
-    lq         envUp, 5(vi00)
-    lq         envConsts, 6(vi00)
+    lq         envBasisX, 4(vi00)  ; LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights matrix area; env bags carry no lighting)
+    lq         envBasisY, 5(vi00)
+    lq         envBasisZ, 6(vi00)
     lq         vuParams, 15(vi00)  ; VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the lights-colour area; a bag carrying these has no lighting)
     lq         vuTime, 16(vi00)  ; VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)
     add.xyz    vuOne, vf00, vf00[w]  ; 1.0 in every field
@@ -112,17 +112,11 @@ processing:
     add.x      tyraEnvLen, tyraEnvLen, tyraEnvLen[z]
     rsqrt      q, vf00[w], tyraEnvLen[x]
     mul.xyz    tyraEnvNrm, stq1, q
-    mul.xyz    tyraEnvDotR, tyraEnvNrm, envRight
-    add.x      tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[y]
-    add.x      tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[z]
-    mul.xyz    tyraEnvDotU, tyraEnvNrm, envUp
-    add.x      tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[y]
-    add.x      tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[z]
-    add.xy     acc, vf00, envConsts[w]
-    add.z      acc, vf00, envConsts[z]
-    madd.x     stq1, envConsts, tyraEnvDotR[x]
-    madd.y     stq1, envConsts, tyraEnvDotU[x]
-    madd.z     stq1, vf00, vf00[x]
+    mula.xy    acc, envBasisX, tyraEnvNrm[x]
+    madda.xy   acc, envBasisY, tyraEnvNrm[y]
+    madd.xy    stq1, envBasisZ, tyraEnvNrm[z]
+    add.xy     stq1, stq1, envBasisZ[w]
+    add.z      stq1, vf00, envBasisZ[z]
     mul.x      vuS0, vertex1, k2[x]
     mul.z      vuS1, vertex1, k2[x]
     add.x      vuS0, vuS0, vuS1[z]
@@ -180,17 +174,11 @@ processing:
     add.x      tyraEnvLen, tyraEnvLen, tyraEnvLen[z]
     rsqrt      q, vf00[w], tyraEnvLen[x]
     mul.xyz    tyraEnvNrm, stq2, q
-    mul.xyz    tyraEnvDotR, tyraEnvNrm, envRight
-    add.x      tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[y]
-    add.x      tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[z]
-    mul.xyz    tyraEnvDotU, tyraEnvNrm, envUp
-    add.x      tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[y]
-    add.x      tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[z]
-    add.xy     acc, vf00, envConsts[w]
-    add.z      acc, vf00, envConsts[z]
-    madd.x     stq2, envConsts, tyraEnvDotR[x]
-    madd.y     stq2, envConsts, tyraEnvDotU[x]
-    madd.z     stq2, vf00, vf00[x]
+    mula.xy    acc, envBasisX, tyraEnvNrm[x]
+    madda.xy   acc, envBasisY, tyraEnvNrm[y]
+    madd.xy    stq2, envBasisZ, tyraEnvNrm[z]
+    add.xy     stq2, stq2, envBasisZ[w]
+    add.z      stq2, vf00, envBasisZ[z]
     mul.x      vuS0, vertex2, k2[x]
     mul.z      vuS1, vertex2, k2[x]
     add.x      vuS0, vuS0, vuS1[z]
@@ -248,17 +236,11 @@ processing:
     add.x      tyraEnvLen, tyraEnvLen, tyraEnvLen[z]
     rsqrt      q, vf00[w], tyraEnvLen[x]
     mul.xyz    tyraEnvNrm, stq3, q
-    mul.xyz    tyraEnvDotR, tyraEnvNrm, envRight
-    add.x      tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[y]
-    add.x      tyraEnvDotR, tyraEnvDotR, tyraEnvDotR[z]
-    mul.xyz    tyraEnvDotU, tyraEnvNrm, envUp
-    add.x      tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[y]
-    add.x      tyraEnvDotU, tyraEnvDotU, tyraEnvDotU[z]
-    add.xy     acc, vf00, envConsts[w]
-    add.z      acc, vf00, envConsts[z]
-    madd.x     stq3, envConsts, tyraEnvDotR[x]
-    madd.y     stq3, envConsts, tyraEnvDotU[x]
-    madd.z     stq3, vf00, vf00[x]
+    mula.xy    acc, envBasisX, tyraEnvNrm[x]
+    madda.xy   acc, envBasisY, tyraEnvNrm[y]
+    madd.xy    stq3, envBasisZ, tyraEnvNrm[z]
+    add.xy     stq3, stq3, envBasisZ[w]
+    add.z      stq3, vf00, envBasisZ[z]
     mul.x      vuS0, vertex3, k2[x]
     mul.z      vuS1, vertex3, k2[x]
     add.x      vuS0, vuS0, vuS1[z]

@@ -44,6 +44,8 @@ begin:
     lq         primTag, 1(buffer)
     iaddiu     vertexData, buffer, 2  ; VU1_STAPIP_VERT_DATA_ADDR
     ilw.w      vertexCount, 0(buffer)
+    iaddiu     countMask, vi00, 1023
+    iand       vertexCount, vertexCount, countMask  ; strip the packed six-plane mask
     iadd       colorData, vertexData, vertexCount
     ilw.x      sceFlag, 8(vi00)  ; VU1_OPTIONS_ADDR.x = single colour flag
     iblez      sceFlag, setDestAddrMultiColor
@@ -167,31 +169,20 @@ processing:
     madda      acc, mvp[2], vertex3[z]
     madd       vertex3, mvp[3], vertex3[w]
     clipw.xyz  vertex1, vertex1
-    fcand      VI01, 0xF
-    iadd       triOr, VI01, vi00
     sub.x      sjudge, cvec, vertex1[z]
     add.y      sjudge, cvec, vertex1[z]
-    mul.w      sjudge, vf00, cvec[w]
     clipw.xyz  sjudge, sjudge
-    fcand      VI01, 0xA
-    ior        triOr, triOr, VI01
     clipw.xyz  vertex2, vertex2
-    fcand      VI01, 0xF
-    ior        triOr, triOr, VI01
     sub.x      sjudge, cvec, vertex2[z]
     add.y      sjudge, cvec, vertex2[z]
-    mul.w      sjudge, vf00, cvec[w]
     clipw.xyz  sjudge, sjudge
-    fcand      VI01, 0xA
-    ior        triOr, triOr, VI01
+    fcand      VI01, 0x3CA3CA
+    iadd       triOr, VI01, vi00
     clipw.xyz  vertex3, vertex3
-    fcand      VI01, 0xF
-    ior        triOr, triOr, VI01
     sub.x      sjudge, cvec, vertex3[z]
     add.y      sjudge, cvec, vertex3[z]
-    mul.w      sjudge, vf00, cvec[w]
     clipw.xyz  sjudge, sjudge
-    fcand      VI01, 0xA
+    fcand      VI01, 0x3CA
     ior        triOr, triOr, VI01
     sq         vertex1, 956(vi00)  ; VU1_CLIP_POLY_A_ADDR
     sq         color1, 957(vi00)
@@ -202,9 +193,14 @@ processing:
     iaddiu     srcBase, vi00, 956
     iaddiu     srcEnd, srcBase, 6
     ibeq       triOr, vi00, fanStart
+    xtop       buffer
+    ilw.w      buffer, 0(buffer)  ; next active-plane bit is the VI sign bit
     iaddiu     planePtr, vi00, 944  ; VU1_CLIP_PLANES_ADDR - near plane first
     iaddiu     dstBase, vi00, 986
 planeLoop:
+    ibltz      buffer, planeActive
+    b          planeAdvance
+planeActive:
     lq         planeV, 0(planePtr)  ; inside = dot4(v, ABCD) + E >= 0
     lq         planeE, 1(planePtr)
     iaddi      prevPtr, srcEnd, -2
@@ -228,7 +224,6 @@ edgeLoop:
     add.x      sjudge, vf00, pd[x]
     add.y      sjudge, vf00, cd[x]
     sub.xy     sjudge, sjudge, cvec[w]
-    mul.w      sjudge, vf00, cvec[w]
     clipw.xyz  sjudge, sjudge
     fcand      VI01, 0x2  ; prev outside?
     iadd       vertMask, VI01, vi00
@@ -264,7 +259,9 @@ edgeAdvance:
     iadd       vertMask, srcBase, vi00
     iadd       srcBase, dstBase, vi00
     iadd       dstBase, vertMask, vi00
+planeAdvance:
     iaddiu     planePtr, planePtr, 2
+    iadd       buffer, buffer, buffer
     iaddiu     vertMask, vi00, 956
     ibne       planePtr, vertMask, planeLoop
 fanStart:
@@ -318,15 +315,11 @@ triNext:
     iaddiu     colorData, colorData, 3
     iaddi      vertexCounter, vertexCounter, -3  ; decrement the loop counter
     ibgtz      vertexCounter, triLoop
-    xtop       buffer
-    iaddiu     vertexData, buffer, 2
-    ilw.w      vertexCount, 0(buffer)
-    iadd       vertexData, vertexData, vertexCount
     ilw.x      sceFlag, 8(vi00)
     iblez      sceFlag, kickMulti
     b          kickPatch
 kickMulti:
-    iadd       vertexData, vertexData, vertexCount
+    iadd       vertexData, colorData, vi00
 kickPatch:
     iaddiu     vertMask, outCount, 16384
     iaddiu     vertMask, vertMask, 16384

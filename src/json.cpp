@@ -16,6 +16,45 @@ const Value* Value::find(const std::string& key) const {
 
 namespace {
 
+// One \uXXXX escape's code unit, or -1 when the four hex digits are not there.
+// `p` points at the 'u'.
+int hex4(const char* p, const char* end) {
+    if (end - p < 5) return -1;
+    int v = 0;
+    for (int i = 1; i <= 4; ++i) {
+        const char c = p[i];
+        int d;
+        if (c >= '0' && c <= '9') d = c - '0';
+        else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+        else return -1;
+        v = v * 16 + d;
+    }
+    return v;
+}
+
+// A code point appended as UTF-8 - what the rest of the editor speaks. This
+// used to write a literal '?' for every \u escape, which was harmless while the
+// only JSON here was our own (we never emit them) and silently mangled every
+// accented letter the moment a chat backend answered with escaped text.
+void appendUtf8(std::string& out, unsigned cp) {
+    if (cp < 0x80) {
+        out += (char)cp;
+    } else if (cp < 0x800) {
+        out += (char)(0xC0 | (cp >> 6));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        out += (char)(0xE0 | (cp >> 12));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    } else {
+        out += (char)(0xF0 | (cp >> 18));
+        out += (char)(0x80 | ((cp >> 12) & 0x3F));
+        out += (char)(0x80 | ((cp >> 6) & 0x3F));
+        out += (char)(0x80 | (cp & 0x3F));
+    }
+}
+
 struct Parser {
     const char* p;
     const char* end;
@@ -51,11 +90,31 @@ struct Parser {
                     case 'r': out += '\r'; break;
                     case 'b': out += '\b'; break;
                     case 'f': out += '\f'; break;
-                    case 'u':
-                        if (end - p < 5) return false;
-                        p += 4;  // non-ASCII escapes not needed for our files
-                        out += '?';
+                    case 'u': {
+                        const int hi = hex4(p, end);
+                        if (hi < 0) return false;
+                        p += 4;
+                        unsigned cp = (unsigned)hi;
+                        // A surrogate PAIR is one code point in two escapes;
+                        // a lone surrogate is not encodable, so it becomes the
+                        // replacement character rather than invalid UTF-8.
+                        if (cp >= 0xD800 && cp <= 0xDBFF) {
+                            const int lo = (end - p >= 7 && p[1] == '\\' && p[2] == 'u')
+                                               ? hex4(p + 2, end)
+                                               : -1;
+                            if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                                cp = 0x10000 + ((cp - 0xD800) << 10) +
+                                     ((unsigned)lo - 0xDC00);
+                                p += 6;
+                            } else {
+                                cp = 0xFFFD;
+                            }
+                        } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+                            cp = 0xFFFD;
+                        }
+                        appendUtf8(out, cp);
                         break;
+                    }
                     default: return false;
                 }
                 ++p;
@@ -144,6 +203,13 @@ struct Parser {
 }  // namespace
 
 bool parse(const std::string& src, Value& out) {
+    // A FAILED parse used to leave whatever it had already read in `out`, and
+    // the members of a second parse into the same value were APPENDED to them -
+    // so find() answered with the abandoned first attempt's copy of a key. That
+    // only became visible once something retried (the AI reply repair, which
+    // parses, fails, fixes the text and parses again), and it looked exactly
+    // like the repair not working.
+    out = Value{};
     const char* begin = src.data();
     const char* end = src.data() + src.size();
     // Tolerate a UTF-8 BOM (common when files are edited on Windows)

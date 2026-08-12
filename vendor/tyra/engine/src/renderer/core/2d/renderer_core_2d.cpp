@@ -38,6 +38,12 @@ RendererCore2D::~RendererCore2D() {
 
 const float RendererCore2D::GS_DRAW_AREA = 4096.0F;
 const float RendererCore2D::SCREEN_CENTER = 4096.0F / 2.0F;
+// Modified by TyraX: the height of the logical space 2D sprites are authored
+// in - the stock 512x448 picture. The generated menu renderer scales its
+// layout by height/448 and the InterlacedField squeeze below halves against
+// the same space; render() uses it to keep the sprite origin on the top of
+// the raster whatever height the display mode gives the framebuffer.
+const float RendererCore2D::SPRITE_SPACE_HEIGHT = 448.0F;
 
 void RendererCore2D::setPrim() {
   prim.type = PRIM_TRIANGLE;
@@ -127,8 +133,39 @@ void RendererCore2D::render(const Sprite& sprite,
   auto* packet = packets[context];
 
   packet2_reset(packet, false);
+  // Modified by TyraX: the 2D origin has to follow the RASTER, and the raster
+  // is not always 448 rows tall.
+  //
+  // Sprite coordinates are framebuffer pixels with the origin at the top-left
+  // of the picture - that is what every 2D consumer assumes (drawHudText puts
+  // the debug HUD at 16,16; the generated menu renderer scales its authored
+  // 512x448 layout by width/512, height/448; Renderer2D::note2dRect hands
+  // these straight to the frame warp as image coordinates). Upstream pinned
+  // the vertical origin to the bare SCREEN_CENTER, which is only the top of
+  // the picture while the buffer is the stock 448 rows; every other mode this
+  // fork added moves it. Measured in PCSX2 on HiDef1080i (448x540): the whole
+  // HUD sat (540 - 448) / 2 = 46 rows too high, so the FPS line was entirely
+  // above the visible picture and the MEM line below it was cut in half -
+  // reported as "the fps counter in HD is drawn above the screen".
+  //
+  // So the term is the difference between the raster and the 448-row space
+  // the sprites are authored in, and it is exactly ZERO in the stock modes:
+  // a 512x448 project renders byte for byte what it did before. The X axis
+  // deliberately keeps the bare constant - it was measured correct at both
+  // 512 and 448 wide, sprites are NOT horizontally re-centred, and moving it
+  // would push the HUD off the left edge of a 448-wide raster.
+  // InterlacedField is the one mode that must NOT be re-centred: its sprites
+  // are already SQUEEZED into the half-height buffer by the v0.y/v1.y halving
+  // below, so the space they occupy is 224 rows and the buffer is 224 rows -
+  // the term has to come out zero there, and it only does if the space is
+  // halved with it. Getting this wrong pushes every sprite 112 rows up.
+  const float spaceH = settings->isFieldRendering()
+                           ? SPRITE_SPACE_HEIGHT / 2.0F
+                           : SPRITE_SPACE_HEIGHT;
+  const float originY =
+      SCREEN_CENTER - (settings->getRenderHeightF() - spaceH) / 2.0F;
   packet2_update(packet, draw_primitive_xyoffset(packet->base, 0, SCREEN_CENTER,
-                                                 SCREEN_CENTER));
+                                                 originY));
 
   packet2_utils_gif_add_set(packet, 1);
   packet2_utils_gs_add_lod(packet, &lod);

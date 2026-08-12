@@ -15,11 +15,26 @@
 #include <gs_gp.h>
 #include <gs_privileged.h>
 #include <gs_psm.h>
+#include <kernel.h>  // Modified by TyraX: INTC vblank handler (frame pacing)
 #include <packet2_utils.h>
 #include "debug/debug.hpp"
+#include "info/info.hpp"  // Modified by TyraX: the presented-frame counter
 #include "renderer/core/gs/renderer_core_gs.hpp"
 
 namespace Tyra {
+
+// Modified by TyraX (docs/frame-pacing.md): the vblank interrupt trampoline.
+//
+// One renderer exists per game, so a file-scope owner is enough and keeps the
+// handler free of any lookup. It is set while the handler is installed and
+// cleared before it is removed, so the ISR can never reach a dead object.
+static RendererCoreGS* vblankOwner = nullptr;
+
+extern "C" s32 tyraxVblankHandler(s32 cause) {
+  (void)cause;
+  if (vblankOwner != nullptr) vblankOwner->onVblank();
+  return 0;
+}
 
 RendererCoreGS::RendererCoreGS() {
   context = 0;
@@ -29,6 +44,7 @@ RendererCoreGS::RendererCoreGS() {
 }
 
 RendererCoreGS::~RendererCoreGS() {
+  removeVblankHandler();  // Modified by TyraX: before the object dies
   if (flipPacket) {
     packet2_free(flipPacket);
   }
@@ -64,6 +80,24 @@ void RendererCoreGS::initChannels() {
 }
 
 void RendererCoreGS::allocateBuffers() {
+  allocateVramBuffers();
+
+  // Resolve Auto to the console's actual region so games can read the real
+  // refresh rate back from RendererSettings (TyraX fork).
+  if (settings->getVideoMode() == VideoMode::Auto) {
+    settings->setVideoMode(graph_get_region() == GRAPH_MODE_PAL
+                               ? VideoMode::PAL
+                               : VideoMode::NTSC);
+  }
+
+  programDisplay();
+
+  TYRA_LOG("Framebuffers, zBuffer set and allocated!");
+}
+
+// Modified by TyraX: split out of allocateBuffers so the permanent region can
+// be laid out again WITHOUT re-programming the display (reallocateBuffers).
+void RendererCoreGS::allocateVramBuffers() {
   // Modified by TyraX: physical buffer height - half the logical height in
   // the InterlacedField mode (true field rendering).
   frameBuffers[0].width = static_cast<unsigned int>(settings->getWidth());
@@ -84,20 +118,213 @@ void RendererCoreGS::allocateBuffers() {
   zBuffer.mask = 0;
   zBuffer.method = ZTEST_METHOD_GREATER_EQUAL;
   zBuffer.zsm = GS_ZBUF_32;
-  zBuffer.address = vram.allocateBuffer(frameBuffers[0].width,
-                                        frameBuffers[0].height, zBuffer.zsm);
+  // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
+  // RASTER, not the display buffer. With the raster scale on, nothing ever
+  // renders 3D at display resolution - the whole scene is bracketed into the
+  // low-res target and the composite that blows it back up masks z writes - so
+  // a 512x448 z reserves 172 032 words nobody addresses. At 2x2 that is
+  // 57 344 words instead of 229 376: 672 KB back, three times what the low-res
+  // colour target costs, which is what makes the feature VRAM-positive.
+  //
+  // The invariant it rides on (and that RendererCoreBlss::beginScene/endScene
+  // maintain): zBuffer.mask is 0 only INSIDE the low-res bracket. Every
+  // draw_enable_tests / draw_setup_environment in the engine reads that field,
+  // so the 2D/HUD/post-fx half of the frame - which draws full-screen sprites
+  // at z = 0xFFFFFFFF and would otherwise stamp 448 rows at a 512 stride -
+  // cannot reach past the smaller allocation.
+  // Modified by TyraX (BLSS per scene): the scale the z buffer is sized for is
+  // normally the settings' active one, but a game whose scenes differ pins it
+  // (setZRasterScale) so the layout is decided once and no scene change can
+  // ask for a different one.
+  zRasterScaleX = zPinScaleX > 0 ? zPinScaleX : settings->getRasterScaleX();
+  zRasterScaleY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
+  const int zWidth = static_cast<int>(settings->getWidth() /
+                                      static_cast<float>(zRasterScaleX));
+  const int zHeight = static_cast<int>(settings->getRenderHeightF() /
+                                       static_cast<float>(zRasterScaleY));
+  zBuffer.address = vram.allocateBuffer(zWidth, zHeight, zBuffer.zsm);
 
-  // Resolve Auto to the console's actual region so games can read the real
-  // refresh rate back from RendererSettings (TyraX fork).
-  if (settings->getVideoMode() == VideoMode::Auto) {
-    settings->setVideoMode(graph_get_region() == GRAPH_MODE_PAL
-                               ? VideoMode::PAL
-                               : VideoMode::NTSC);
+  // Modified by TyraX (BLSS): the mask is DERIVED from the allocation here,
+  // never assigned by a caller. A z buffer smaller than the display raster is
+  // only safe while every pass that draws at DISPLAY resolution has its z
+  // writes masked, because the GS addresses z at FRAME.FBW stride - a
+  // 512-wide pass reaches 512*448 words past ZBP whatever this allocation
+  // says, i.e. straight through the texture heap that starts just above it.
+  // RendererCoreBlss::configure() used to set the flag itself, one line
+  // BEFORE the rebuild it triggers - and the rebuild lands here, where the
+  // flag was unconditionally cleared again. The result was z enabled at
+  // display resolution over a 256x224 allocation: every frame stamped depth
+  // across 458 752..688 128 words, and the first textures allocated (669 696
+  // and, fatally, the 8x2 CLUT at 679 936) were inside it. Zeroing a CLUT
+  // zeroes its alpha too, so ATEST NOTEQUAL/AREF 0 discarded every fragment
+  // and 4-bit palettised geometry vanished completely while 24-bit textures -
+  // no CLUT, alpha from TEXA - merely lost texels nobody looked at.
+  zBuffer.mask =
+      (zWidth < static_cast<int>(settings->getWidth()) ||
+       zHeight < static_cast<int>(settings->getRenderHeightF()))
+          ? 1
+          : 0;
+  // Modified by TyraX (BLSS per scene): remember what the derived answer WAS,
+  // so the one place that has to put it back after a low-res bracket
+  // (RendererCoreBlss::endScene) can ask for it instead of writing a literal.
+  zMaskDefault = zBuffer.mask;
+
+  // Modified by TyraX (docs/frame-pacing.md): the third display buffer, and
+  // it is allocated LAST on purpose - it is the one allocation here that may
+  // be refused, and everything the renderer cannot do without is placed by
+  // then, so the fallback costs nothing.
+  //
+  // "Does it fit" is NOT the question, and asking it that way is a boot
+  // crash: at 512x512x32 (Pal576i) three buffers plus z are 1 048 576 words,
+  // i.e. EXACTLY the whole 4 MB, so the allocation succeeds and the post-fx
+  // buffers right after it get -1 - measured, as `Out of VRAM for post fx
+  // buffers` before the first frame. What has to survive is everything the
+  // renderer still allocates AFTER this function (post fx ~12 288 words, the
+  // env-map target + its z 32 768, the camera feed + its z 32 768, and the
+  // projected-shadow slots a game may claim later, ~20 480) plus a texture
+  // heap worth having.
+  bufferCount = 2;
+  if (settings->getFrameBufferCount() >= 3) {
+    const int bufferWords = static_cast<int>(
+        vram.getSizeInMB(static_cast<int>(frameBuffers[0].width),
+                         static_cast<int>(frameBuffers[0].height),
+                         frameBuffers[0].psm, GRAPH_ALIGN_PAGE) *
+            kWordsPerMB +
+        0.5F);
+    // Modified by TyraX: the neural upscaler's low-res colour target is NOT in
+    // getHeapWords() yet and is not in the reserve either. It is allocated
+    // after this function (blss.configure -> this rebuild -> blss.allocate),
+    // and the reserve names post fx, the env map, the camera feed and the
+    // shadow slots and nothing else - so a BLSS project was being offered the
+    // third buffer against space its own render target was about to take.
+    // At 512x448 with the 1x2 raster that is 114 688 words, which is the
+    // difference between a 576 KB texture heap and a 128 KB one.
+    int blssWords = 0;
+    if (settings->getRasterScaleX() != 1 || settings->getRasterScaleY() != 1) {
+      const int lowW = static_cast<int>(settings->getWidth()) /
+                       settings->getRasterScaleX();
+      const int lowH = static_cast<int>(settings->getRenderHeightF()) /
+                       settings->getRasterScaleY();
+      const int lowBufW = -64 & (lowW + 63);  // as RendererCoreBlss sizes it
+      blssWords = static_cast<int>(
+          vram.getSizeInMB(lowBufW, lowH, GS_PSM_32, GRAPH_ALIGN_PAGE) *
+              kWordsPerMB +
+          0.5F);
+    }
+    const int left = vram.getHeapWords() - bufferWords - blssWords;
+    if (left < kThirdBufferReserveWords + kThirdBufferMinTextureWords) {
+      // Not a warning: a third buffer here boots into an assert or a scene
+      // with no textures, so the honest answer is to not take it.
+      // One complete sentence per argument: the log writes each on its own
+      // line, so an interpolated number splits a phrase in half.
+      TYRA_SOFT_ERROR(
+          "Triple buffering: not enough GS VRAM at this display mode - "
+          "staying double buffered.",
+          "Words a third display buffer costs:", bufferWords,
+          "Words it would leave:", left,
+          "Words the rest of the renderer and the texture heap need:",
+          kThirdBufferReserveWords + kThirdBufferMinTextureWords,
+          "The interlaced-field display mode halves every buffer and has "
+          "room. The buffer count is also in the GS buffers line above.");
+    } else {
+      frameBuffers[2] = frameBuffers[0];
+      frameBuffers[2].address = vram.allocateBuffer(
+          frameBuffers[2].width, frameBuffers[2].height, frameBuffers[2].psm);
+      if (frameBuffers[2].address >= 0) bufferCount = 3;
+    }
   }
 
-  programDisplay();
+  // The queue always starts with the frame being drawn into `context` and a
+  // DIFFERENT buffer on screen - programDisplay() presents exactly that one,
+  // and the first flip derives the free slot from the pair (3 - shown -
+  // finished).
+  //
+  // Modified by TyraX: `context ^ 1` used to stand for "the other buffer", and
+  // it only means that when there are TWO. This function runs a second time in
+  // any game that re-lays the permanent region after boot - which today is
+  // every neural-upscaler game, because configure() sizes the z buffer from the
+  // raster and asks RendererCore::rebuildPermanentBuffers() for the layout - and
+  // by then the ~2 s boot banner has flipped ~120 times, so `context` is
+  // wherever the 3-buffer rotation left it. Land on 2 and `context ^ 1` is 3:
+  // an index one past frameBuffers[]. flipBuffers() then computes
+  // 3 - 3 - 2 = -1 and wraps it into a u8, so the rotation runs on 254/3 and
+  // both draws and PRESENTS through garbage framebuffer_t's read past the
+  // array. Symptom: one of the three presented frames is a display buffer
+  // nothing ever drew - a fully black frame with no HUD either, at a third of
+  // the field rate, i.e. violent flicker (docs/frame-pacing.md).
+  //
+  // The clamp above it is the same hole from the other side: a rebuild may come
+  // back with FEWER buffers than the one before it (setDisplayOutput to a mode
+  // with no room), which leaves `context` naming a buffer that no longer exists.
+  if (context >= bufferCount) context = 0;
+  displayedBuffer = (context + 1) % bufferCount;
+  lastRealBuffer = displayedBuffer;
+  pendingBuffer = -1;
 
-  TYRA_LOG("Framebuffers, zBuffer set and allocated!");
+  // The handler IS the third buffer's present path, so the two are decided
+  // together and on every layout rebuild - a realloc that loses the buffer
+  // must also lose the interrupt. Installing is idempotent.
+  if (bufferCount >= 3) {
+    installVblankHandler();
+    if (vblankHandlerId < 0) bufferCount = 2;
+  } else {
+    removeVblankHandler();
+  }
+
+  // Modified by TyraX: the queue's arming is ON this line, and it is not
+  // decoration. This function runs again whenever the permanent region is
+  // re-laid, and what `context` happens to be when it does is what decided
+  // whether a triple-buffered upscaler game presented black frames for a year.
+  // Reading it back is the difference between "the rotation is fine" as an
+  // argument and as a measurement.
+  TYRA_LOG("GS buffers: frame ", static_cast<int>(frameBuffers[0].width), "x",
+           static_cast<int>(frameBuffers[0].height), " x",
+           static_cast<int>(bufferCount), ", z ", zWidth, "x", zHeight, " at ",
+           static_cast<int>(zBuffer.address), ", drawing into ",
+           static_cast<int>(context), ", showing ",
+           static_cast<int>(displayedBuffer));
+}
+
+// Modified by TyraX (BLSS per scene) - see the header.
+void RendererCoreGS::setZRasterScale(const int& sx, const int& sy) {
+  zPinScaleX = sx < 0 ? 0 : sx;
+  zPinScaleY = sy < 0 ? 0 : sy;
+}
+
+bool RendererCoreGS::needsBufferRealloc() const {
+  // Against the PINNED scale when there is one: that is the whole point of
+  // pinning, and comparing the active scale here would report a rebuild on
+  // every scene that switches the upscaler on or off.
+  const int wantX = zPinScaleX > 0 ? zPinScaleX : settings->getRasterScaleX();
+  const int wantY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
+  return zRasterScaleX != wantX || zRasterScaleY != wantY;
+}
+
+// Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video
+// mode. See the header for why programDisplay() is deliberately not called.
+void RendererCoreGS::reallocateBuffers() {
+  resetDisplayQueue();  // Modified by TyraX: every address below moves
+  vram.reset();
+  allocateVramBuffers();
+  // Modified by TyraX: and DISPFB has to move with them. Skipping
+  // programDisplay() skips the only thing that ever wrote that register, so the
+  // GS went on scanning the address the last flip latched - which for the THIRD
+  // buffer is a different address after this call (the z buffer shrank, so
+  // everything above it slid down: 602112 -> 458752 on a 448x448 progressive
+  // raster at 2x2). That left the television scanning the texture heap until
+  // the next flip, and it left `displayedBuffer` describing something that was
+  // not on screen. This is register stores only - none of graph_set_mode's GS
+  // reset, which is why programDisplay() is still not called here.
+  presentFrameBuffer(static_cast<u8>(displayedBuffer));
+  initDrawingEnvironment();
+}
+
+// Modified by TyraX (docs/frame-pacing.md): drop a queued frame before the
+// buffer addresses it names stop being valid. allocateVramBuffers() re-arms
+// the queue right after; this only has to make sure no vblank in between
+// latches a DISPFB from the layout that is being torn down.
+void RendererCoreGS::resetDisplayQueue() {
+  pendingBuffer = -1;
 }
 
 // Modified by TyraX: video mode + display window + scan-out, split
@@ -172,7 +399,12 @@ void RendererCoreGS::programDisplay() {
     }
   }
   graph_set_bgcolor(0, 0, 0);
-  presentFrameBuffer(context ^ 1);
+  // Modified by TyraX: the buffer the queue considers on screen - whichever
+  // index allocateVramBuffers() just armed it with, never a literal. Making
+  // this and the arming agree is half the fix for the black-frame defect; the
+  // other half is that reallocateBuffers(), which does NOT come through here,
+  // has to present too.
+  presentFrameBuffer(static_cast<u8>(displayedBuffer));
   graph_enable_output();
 }
 
@@ -182,6 +414,7 @@ void RendererCoreGS::programDisplay() {
 // over - the caller (RendererCore::setDisplayOutput) evicts all textures
 // first and re-inits post fx right after.
 void RendererCoreGS::reinit() {
+  resetDisplayQueue();  // Modified by TyraX: every address below moves
   vram.reset();
   allocateBuffers();
   initDrawingEnvironment();
@@ -360,6 +593,92 @@ void RendererCoreGS::initDrawingEnvironment() {
   TYRA_LOG("Drawing environment initialized!");
 }
 
+// Modified by TyraX: the same per-field bias setXYOffset applies, exposed so
+// the raster brackets that write XYOFFSET raw (BLSS's low-res redirect and its
+// composite passes need exact 1/16 units for the sub-pixel jitter) do not
+// silently drop it.
+int RendererCoreGS::getFieldYOffset16() const {
+  if (!settings->isFieldRendering()) return 0;
+  return currentField == GRAPH_FIELD_ODD ? 8 : 0;
+}
+
+// Modified by TyraX: the nesting raster target - see the header for why this
+// exists at all.
+RendererCoreGS::RasterTarget RendererCoreGS::getRasterTarget() const {
+  if (rasterRedirected) return redirect;
+
+  RasterTarget t;
+  const int w = static_cast<int>(settings->getWidth());
+  // The PHYSICAL buffer height (half the logical one in InterlacedField).
+  const int h = static_cast<int>(settings->getRenderHeightF());
+  t.frameAddress = static_cast<int>(frameBuffers[context].address);
+  t.frameWidth = static_cast<int>(frameBuffers[context].width);
+  t.scissorX0 = 0;
+  t.scissorX1 = w - 1;
+  t.scissorY0 = 0;
+  t.scissorY1 = h - 1;
+  t.offsetX16 = static_cast<int>((screenCenter - w / 2.0F) * 16.0F);
+  t.offsetY16 =
+      static_cast<int>((screenCenter - h / 2.0F) * 16.0F) + getFieldYOffset16();
+  return t;
+}
+
+void RendererCoreGS::redirectRasterTo(const RasterTarget& target) {
+  redirect = target;
+  rasterRedirected = true;
+}
+
+void RendererCoreGS::endRasterRedirect() { rasterRedirected = false; }
+
+qword_t* RendererCoreGS::emitRasterRestore(qword_t* q, bool texFlush) {
+  const RasterTarget t = getRasterTarget();
+
+  // NLOOP counts every register row below - an undercount stalls the GIF
+  // forever (the stray qword parses as a new giftag with a garbage NLOOP).
+  const int nloop = texFlush ? 4 : 3;
+  PACK_GIFTAG(q, GIF_SET_TAG(nloop, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  if (texFlush) {
+    // The bracket just rendered into VRAM the scene is about to sample as a
+    // texture - drop any stale texels of it from the GS texture cache.
+    PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
+    q++;
+  }
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6, GS_PSM_32,
+                           0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_SCISSOR(t.scissorX0, t.scissorX1, t.scissorY0,
+                             t.scissorY1),
+              GS_REG_SCISSOR_1);
+  q++;
+  // Raw, not draw_primitive_xyoffset: the offset carries BLSS' sub-pixel
+  // jitter and the per-field bias in exact 1/16 units.
+  PACK_GIFTAG(q, GS_SET_XYOFFSET(t.offsetX16, t.offsetY16), GS_REG_XYOFFSET_1);
+  q++;
+  // The drawing environment's alpha/depth test.
+  q = draw_enable_tests(q, 0, &zBuffer);
+  // ZBUF written EXPLICITLY and LAST, not left to draw_enable_tests. Every
+  // bracket that gets here pointed ZBUF at its OWN depth buffer (the env map's
+  // 128x128, the shadow map's 64x64), so "restore" has to include putting the
+  // scene z back - and this must not depend on what a ps2sdk helper happens to
+  // pack. It cost a debugging session: the shadow-map bracket came back with
+  // ZBUF still on the 64x64 silhouette buffer, so every projected-shadow
+  // receiver patch failed GEQUAL against the caster's own light-space depth
+  // and no shadow was drawn at all. The mask is bracket-scoped (0 only inside
+  // the BLSS low-res bracket - see allocateVramBuffers).
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_ZBUF(static_cast<int>(zBuffer.address) >> 11,
+                          static_cast<int>(zBuffer.zsm), zBuffer.mask),
+              GS_REG_ZBUF_1);
+  q++;
+  return q;
+}
+
 qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
                                      const float& x, const float& y) {
   PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
@@ -376,13 +695,10 @@ qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
   return q;
 }
 
-void RendererCoreGS::flipBuffers() {
-  presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
-
-  context ^= 1;
-
+// Modified by TyraX: the FRAME switch, shared by both flip paths.
+void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
   packet2_update(flipPacket,
-                 draw_framebuffer(flipPacket->base, 0, &frameBuffers[context]));
+                 draw_framebuffer(flipPacket->base, 0, &frameBuffers[target]));
   // Modified by TyraX: true field rendering (InterlacedField). The frame we
   // start rendering now is presented at the next vsync, i.e. scanned during
   // the OPPOSITE field of the one running right now (CSR.FIELD, which shows
@@ -406,6 +722,118 @@ void RendererCoreGS::flipBuffers() {
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(flipPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
+}
+
+void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
+  // Modified by TyraX: every flip is a frame the player is shown, whether a
+  // game loop rendered it or the frame warp synthesised it - which is what
+  // makes Info::getPresentedFps() a different number from Info::getFps() on
+  // an extrapolating game (docs/profiling.md, "The three frame rate
+  // counters"). Counted here rather than in RendererCore so both the real and
+  // the synthetic present are covered by one line.
+  Info::countPresentedFrame();
+
+  // --- Two buffers: the stock path, unchanged. RendererCore::endFrame has
+  // already waited for vsync, so presenting here lands in the vertical blank
+  // and the EE owns the other buffer the moment this returns.
+  if (bufferCount < 3) {
+    presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
+    if (!synthetic) lastRealBuffer = context;  // Modified by TyraX
+    context ^= 1;
+    displayedBuffer = context ^ 1;
+    emitDrawTargetSwitch(context);
+    return;
+  }
+
+  // --- Three buffers (TyraX, docs/frame-pacing.md).
+  //
+  // Nothing here waits for a vsync in order to PRESENT - the interrupt
+  // handler does that. What it waits for is a free buffer, i.e. for the
+  // previously queued frame to have been latched, which is the pacing: at
+  // most one frame in flight ahead of the display. When the frame limiter is
+  // off the wait is skipped and a not-yet-shown frame is simply replaced, so
+  // "unlimited" still means "render as fast as the EE can" for benchmarking.
+  if (throttle) {
+    while (pendingBuffer >= 0) graph_wait_vsync();
+  }
+
+  // With the queue drained, the handler is inert and displayedBuffer is
+  // stable (see the header). The free slot is the third index: 0+1+2 = 3.
+  const s32 shown = displayedBuffer;
+  const u8 finished = context;
+  const s32 free3 = 3 - shown - static_cast<s32>(finished);
+
+  // Modified by TyraX: this arithmetic is only "the third one" while the two
+  // inputs are distinct indices of the three, and when that stopped being true
+  // it failed SILENTLY and spectacularly - 3 - 3 - 2 = -1 wrapped in the u8
+  // cast, so the rotation ran on indices 254 and 3 and both drew and PRESENTED
+  // through framebuffer_t's read past the end of the array. One of the three
+  // presented frames was then VRAM nothing had ever drawn: a black frame with
+  // no HUD either, a third of the time, i.e. violent flicker. The arming in
+  // allocateVramBuffers() is what broke the invariant and is what is fixed;
+  // this says so out loud instead of computing a garbage index, because a
+  // display-buffer rotation that has come apart cannot be diagnosed from the
+  // picture (docs/frame-pacing.md, "The black-frame defect").
+  if (free3 < 0 || free3 >= static_cast<s32>(bufferCount) || shown == finished) {
+    static bool rotationWarned = false;
+    if (!rotationWarned) {
+      rotationWarned = true;
+      TYRA_SOFT_ERROR(
+          "Triple buffering: the display rotation lost its third index and the "
+          "frame would have been presented from outside the buffer array.",
+          "Buffer on screen:", static_cast<int>(shown),
+          "Buffer just finished:", static_cast<int>(finished),
+          "Buffers allocated:", static_cast<int>(bufferCount));
+    }
+    displayedBuffer = (finished + 1) % bufferCount;
+  }
+  const u8 next = static_cast<u8>(
+      (3 - displayedBuffer - static_cast<s32>(finished)) % bufferCount);
+
+  // Point FRAME at the free buffer BEFORE queueing the finished one. The
+  // draw_finish handshake inside is what makes the queue safe: the GIF is
+  // in-order, so when FINISH comes back every triangle of the finished frame
+  // has been rasterised and the buffer is genuinely complete. Queueing first
+  // would let the handler put a half-drawn frame on screen.
+  emitDrawTargetSwitch(next);
+
+  if (!synthetic) lastRealBuffer = finished;  // Modified by TyraX
+  context = next;
+  pendingBuffer = finished;  // hands ownership to the interrupt handler
+}
+
+// Modified by TyraX (docs/frame-pacing.md): INTERRUPT CONTEXT.
+void RendererCoreGS::onVblank() {
+  const s32 queued = pendingBuffer;
+  if (queued < 0) return;
+  presentFrameBuffer(static_cast<u8>(queued));
+  displayedBuffer = queued;
+  pendingBuffer = -1;  // releases the buffer that just left the screen
+}
+
+void RendererCoreGS::installVblankHandler() {
+  if (vblankHandlerId >= 0) return;
+  vblankOwner = this;
+  DIntr();
+  vblankHandlerId = AddIntcHandler(INTC_VBLANK_S, tyraxVblankHandler, 0);
+  if (vblankHandlerId >= 0) EnableIntc(INTC_VBLANK_S);
+  EIntr();
+  if (vblankHandlerId < 0) {
+    vblankOwner = nullptr;
+    TYRA_SOFT_ERROR(
+        "Triple buffering: could not install the vblank handler - staying "
+        "double buffered.");
+  }
+}
+
+void RendererCoreGS::removeVblankHandler() {
+  if (vblankHandlerId < 0) return;
+  DIntr();
+  DisableIntc(INTC_VBLANK_S);
+  RemoveIntcHandler(INTC_VBLANK_S, vblankHandlerId);
+  EIntr();
+  vblankHandlerId = -1;
+  vblankOwner = nullptr;
 }
 
 void RendererCoreGS::updateCurrentField() {

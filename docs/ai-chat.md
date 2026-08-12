@@ -56,6 +56,8 @@ over.
 | `describe_object` | one object's complete stored state |
 | `get_graph` | one object's flow graph |
 | `list_node_types` | the flow-node catalog, whole or by category |
+| `get_proc_graph` | a [Procedural volume](procedural-generation.md)'s scatter graph, with its region transform, its problems and whether its bake is stale |
+| `list_proc_nodes` | the procedural-node catalog, whole or by category |
 | `get_section` | one section of the project-wide model as JSON — menus, sequences, credits, loading screens, save values, HUD, fonts, input map, gradings, ambience, prefabs, settings… |
 | `add_object` | add an object (it rests on the surface under it, like a manual insert) |
 | `set_object` | change properties of one object **or of several at once**: transform, colour, model, material, layer, usable, physics, collision, LOD distance, shadow and lighting flags |
@@ -63,8 +65,13 @@ over.
 | `duplicate_object` | copy an object, flow graph and all |
 | `delete_object` | delete an object |
 | `set_graph` | write or extend an object's flow graph |
+| `set_proc_graph` | write a Procedural volume's scatter graph |
+| `create_prefab` | capture scene objects into a [prefab](prefabs.md) — the Prefabs window's *Create from selection* |
+| `insert_prefab` | stamp a copy of a prefab into the scene |
 | `set_section` | write one section of the project-wide model |
 | `add_scene` / `delete_scene` | add a scene and switch to it / delete one and everything in it |
+| `bake_volume` | bake one Procedural volume (or every stale one) into the meshes the game loads, and report the cost |
+| `bake_prefab_model` | flatten a prefab into one `res/models/*.obj` — the way past the 48-instance prefab cap |
 | `refresh_generated` | regenerate the game's C++ and report what came out |
 | `build_game` | build in Docker (and optionally run), **waiting** for the result |
 | `game_state` | is a game running, on what frame and scene, with which devkit layers |
@@ -100,6 +107,43 @@ whole thing back — and a write that would *shrink* any list in it is refused w
 the numbers ("menus 3 → 1") unless it passes `confirm_replace`. That guard is
 pure JSON: it knows nothing about what any section contains, so a section added
 to the editor tomorrow is covered by it today.
+
+### Procedural volumes
+
+A [Procedural volume](procedural-generation.md) is the one object whose contents
+are a whole second node system, and the assistant treats it as one: `add_object`
+with type `scatter` goes through the editor's own verb, so it comes out sized
+over the terrain with the starter graph in it rather than as an empty 1×1×1 box
+(which generates nothing and looks exactly like a broken feature). From there
+`list_proc_nodes` is the catalog — every node with its pins **numbered**, because
+a link addresses a pin by index — `get_proc_graph` shows what a volume holds
+today, and `set_proc_graph` replaces it.
+
+Two things it is told and will tell you:
+
+- **A scatter graph is total, like a section.** What it sends replaces the whole
+  graph. Manual per-instance edits are dropped by such a write, because they are
+  bound to points the old graph made.
+- **Writing a graph creates no geometry.** It marks the bake stale; `bake_volume`
+  is what evaluates it, merges the instances into chunk meshes and puts them in
+  the scene — and reports the instance, triangle and RAM cost, which is the only
+  way either of you finds out whether it fits on the console. `get_proc_graph`
+  says when a bake is out of date, and every problem the editor's own validator
+  finds (no Output, a required input unconnected, an unknown node type).
+
+**Scattering something you built rather than modelled** goes through a
+[prefab](prefabs.md), and the assistant owns that whole route now — it was the
+one place it had to stop mid-job and hand you a button. `create_prefab` captures
+objects (named, or whatever you have selected) into one, a `Pick Prefab` row
+names it, and if you asked for *hundreds* rather than dozens it will instead
+`bake_prefab_model` and put the resulting `.obj` in a `Pick Asset` row: a prefab
+instance costs one of 48 runtime records for the whole game, a model costs none.
+It is told to pick between those two by the count you asked for and to say which
+it took.
+
+The one thing it cannot do here is fill an asset pool with files that are not
+imported yet: the model paths in a `PickAsset` row have to exist under `res/`,
+and importing is still yours (the Asset Browser).
 
 ### Watching a running game
 
@@ -158,6 +202,22 @@ a build is neither.
   against the project, so a wrong name comes back with the names that do exist
   and the assistant usually fixes itself on the next round.
 
+## Copying things out
+
+**Click a message to copy it.** Hovering one lifts it slightly and gives you the
+hand cursor; clicking puts it on the clipboard and says *Copied to the
+clipboard*. There is no Copy button — one on every message turned the transcript
+into a column of chrome, which is the opposite of what a conversation should look
+like. A tool row copies its **result**, since clicking the row itself unfolds it;
+so does the summarised-earlier-conversation block.
+
+**Copy chat** in the header takes the whole thing as plain text: what was asked,
+what was answered, and what every tool returned.
+
+(You cannot select text out of an ImGui label, which is why any of this exists —
+without it an explanation worth putting in a commit message or an issue has to be
+retyped.)
+
 ## What a turn costs, and what happens when it grows
 
 None of the backends keeps state between calls, so **every** request carries the
@@ -210,10 +270,11 @@ Two things follow from this, and they are the honest limits:
 
 Conversations are kept. A chat is written to disk **after every reply** — no Save
 button, because the chat worth having tomorrow is the one nobody thought to save
-— and **History** lists what this project has, newest first, with each chat's
-first message as its title, its age and how many messages it holds. Click one to
-go back to it (and to carry on: a reopened chat is a live chat, with its tool
-results intact); the `x` deletes one. **New chat** files the current one away
+— and **History** lists what this project has, newest first, in three aligned
+columns: each chat's first message as its title, its age, and how many messages
+it holds. Click a row to go back to it (and to carry on: a reopened chat is a
+live chat, with its tool results intact); the `x` at the end of the row deletes
+it, and the list stays open so you can clear out several. **New chat** files the current one away
 rather than dropping it.
 
 Where and what:
@@ -260,6 +321,13 @@ Where and what:
   comment in the generated code at build time, not as an error here.
 - Anything a tool returns is treated as **data**, never as instructions: text in
   your project cannot tell the assistant what to do.
+- **A malformed reply is repaired rather than shown to you.** The assistant
+  answers in one JSON envelope, and a model writing prose leaves quotes in it
+  (`the "main" scene`) — one of those makes the whole thing unparseable. The
+  editor re-escapes the quotes a string terminator would never be followed by and
+  parses again, keeping the tool calls; failing that it reads the prose out by
+  hand and ends the turn. You should never see a reply that begins with `{ "say":`
+  — if you do, that is a bug worth reporting with the text.
 - The whole conversation is re-sent on every step, because none of the three
   backends keeps state between calls — see *What a turn costs* above for what
   that comes to and how compaction bounds it. **New chat** is still cheaper than
@@ -304,3 +372,13 @@ row in `aichat::tools()` plus a branch in the matching executor; a new
 `set_object` property is one row in `aichat::objectProps()` plus a branch in
 `App::applyChatObjectProp`. Both tables are what the prompt is built from, so
 documenting a tool for the model and implementing it are the same edit.
+
+The reply repair is `aigen::repairJson`, next to `extractJsonObject` because it
+is part of the same job — getting JSON out of text a model wrote — and
+deliberately nowhere near the project reader, where an unparseable byte is a real
+problem to report rather than a mistake to guess at. `aichat::parseReply` runs
+it, then `salvageSay` as a last resort, so the prose reaches the window whatever
+happens. (It also found the bug that made the first version look broken:
+`json::parse` did not reset its output value, so a second parse into the same
+`json::Value` appended its members to the abandoned first attempt's and `find()`
+answered with the stale copy.)

@@ -47,7 +47,7 @@ struct SceneObjectData {
   float emitWeight;  // custom: air drag ~ 1/weight
   float emitLife;    // custom: particle lifetime, seconds
   float emitGrow;    // custom: size multiplier at end of life
-  float emitOpacity; // custom: base alpha 0..1
+  float emitOpacity; // fog/custom: base alpha 0..1
   int emitDieGround; // custom: 1 = particle dies on the terrain
   int snd;        // sound emitters: index into SND_PATHS, -1 = none
   int sndAuto;    // sound emitters: 1 = plays while in range

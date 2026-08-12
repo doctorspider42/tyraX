@@ -12,6 +12,9 @@
 #include "info/version.hpp"
 #include <iostream>
 #include <cstring>
+// Modified by TyraX: for RendererCore2D::SPRITE_SPACE_HEIGHT - the logo is
+// centred in the sprite space, not in the framebuffer (see show()).
+#include "renderer/core/2d/renderer_core_2d.hpp"
 #include "./banner_data.cpp"
 
 namespace Tyra {
@@ -41,8 +44,27 @@ void Banner::show(Renderer* renderer) {
   sprite.size.y = 192;
   sprite.position.x =
       (renderer->core.getSettings().getWidth() / 2) - (sprite.size.x / 2);
-  sprite.position.y =
-      (renderer->core.getSettings().getHeight() / 2) - (sprite.size.y / 2);
+  // Modified by TyraX: the VERTICAL centre is (renderHeight + 448) / 4, which
+  // is neither half of getHeight() nor half of the sprite space. Reported as
+  // "the TYRAX logo is not in the middle of the screen in HD (a bit low)".
+  //
+  // RendererCore2D::render() shifts the 448-row authored space up by
+  // (renderHeight - 448) / 2, so in a taller mode the sprite space does not
+  // end where the framebuffer does: the picture a sprite can occupy runs from
+  // sprite row 0 down to (renderHeight + 448) / 2, and its centre is half of
+  // that. Both other candidates are measurably wrong in 1080i (448x540):
+  // getHeight() / 2 puts the logo 23 rows LOW (the original, what was
+  // reported), the sprite space's own 224 puts it 25 rows HIGH (the first
+  // attempt at this fix). Measured in PCSX2 by using the debug HUD's known
+  // 20-row line pitch as a ruler: 480p wants 224 and 1080i wants 247, and
+  // (renderHeight + 448) / 4 is the one expression that gives both.
+  //
+  // X is unaffected - sprites keep the raw framebuffer width, so getWidth()
+  // is the right divisor there.
+  sprite.position.y = ((renderer->core.getSettings().getRenderHeightF() +
+                        RendererCore2D::SPRITE_SPACE_HEIGHT) /
+                       4.0F) -
+                      (sprite.size.y / 2.0F);
 
   auto texture = Texture(&tbd);
   texture.addLink(sprite.id);

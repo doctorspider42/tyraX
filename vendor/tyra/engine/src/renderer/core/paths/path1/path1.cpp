@@ -120,6 +120,15 @@ packet2_t* Path1::createProgramsCache(VU1Program** programs, const u32& count,
                                       const u32& address) {
   u32 packetSize = 1;  // + end tag
   for (u32 i = 0; i < count; i++) {
+    bool sharedImage = false;
+    for (u32 j = 0; j < i; j++) {
+      if (programs[i]->getStart() == programs[j]->getStart() &&
+          programs[i]->getEnd() == programs[j]->getEnd()) {
+        sharedImage = true;
+        break;
+      }
+    }
+    if (sharedImage) continue;
     packetSize += programs[i]->getPacketSize();
   }
 
@@ -128,6 +137,17 @@ packet2_t* Path1::createProgramsCache(VU1Program** programs, const u32& count,
 
   u32 currentAddr = address;
   for (u32 i = 0; i < count; i++) {
+    bool sharedImage = false;
+    for (u32 j = 0; j < i; j++) {
+      if (programs[i]->getStart() == programs[j]->getStart() &&
+          programs[i]->getEnd() == programs[j]->getEnd()) {
+        programs[i]->setDestinationAddress(
+            programs[j]->getDestinationAddress());
+        sharedImage = true;
+        break;
+      }
+    }
+    if (sharedImage) continue;
     programs[i]->setDestinationAddress(currentAddr);
     packet2_vif_add_micro_program(packet2, currentAddr, programs[i]->getStart(),
                                   programs[i]->getEnd());

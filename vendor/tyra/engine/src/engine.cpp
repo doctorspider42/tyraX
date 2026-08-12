@@ -70,7 +70,8 @@ void Engine::initAll(const EngineOptions& options) {
       (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
   const bool loadOwnHid = withKbdMouse && !underPs2Link;
   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
-  renderer.init(options.videoMode, options.displayMode, options.widescreen);
+  renderer.init(options.videoMode, options.displayMode, options.widescreen,
+                options.tripleBuffering);
   banner.show(&renderer);
   audio.init();
   pad.init();

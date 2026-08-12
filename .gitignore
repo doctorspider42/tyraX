@@ -1,5 +1,11 @@
 build/
-build-dev/
+# Every other build tree too: build.ps1 -Dev writes build-dev/, and a session
+# that compares two configurations invents its own (build-demo/, build-rig/...).
+# None of them are ever tracked, and an unignored one is ~1300 artifacts that a
+# `git add -A` will happily stage. Checked against `git ls-files | grep build`:
+# no tracked path starts with "build-", and build.ps1/build.sh/build.cmd are
+# files, which this pattern (directories only) cannot match.
+build-*/
 .vs/
 *.user
 imgui.ini

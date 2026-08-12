@@ -476,7 +476,13 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "prefab or a model, never both; whichever of these nodes runs "
                  "last wins. Costs one draw call per instance plus one spawn "
                  "slot per member that keeps an identity - Tools > Prefabs "
-                 "shows that split for each prefab."},
+                 "shows that split for each prefab. That pool is 48 records "
+                 "TOTAL, so a few dozen instances is the ceiling here however "
+                 "cheap each one is: to scatter hundreds, use Tools > Prefabs > "
+                 "Bake to model and feed the resulting .obj to Pick Asset "
+                 "instead - a model takes no record and merges straight into "
+                 "the chunk meshes, at the price of being dumb geometry (no "
+                 "scripts, lights, physics or per-member identity)."},
 
         {.key = "Vary",
          .title = "Vary Transform",

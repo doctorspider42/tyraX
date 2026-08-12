@@ -27,7 +27,7 @@ re-authoring anything.
 Both have to be on. An instance switched on whose model was never bound animates
 exactly as authored, and the Properties row says so rather than looking broken.
 
-> Projects saved before v12 stored the whole binding on each object. They are
+> Projects saved before v18 stored the whole binding on each object. They are
 > lifted into per-model rigs on load, automatically and once — see
 > [format-versioning.md](format-versioning.md).
 
