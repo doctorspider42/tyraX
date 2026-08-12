@@ -1525,6 +1525,15 @@ class TerrainGame : public Tyra::Game {
                    ObjectGeometry& geometry, Tyra::SkelInstance& instance);
   bool footGroundAt(float x, float z, float top, float bottom, int skipIndex,
                     float* y, Tyra::Vec4* normal = nullptr) const;
+  // The surface a spawn marker is standing ON: the highest solid thing at or
+  // below its authored height - a stair, a platform, the terrain - which is
+  // what the editor's placement snap already showed the author when they put
+  // it there. `found` reports whether anything was under it at all (a
+  // terrain-less scene with nothing below keeps the authored height, and the
+  // walker starts airborne). Skips `skipIndex` so an avatar's own collider
+  // cannot catch the ray.
+  float spawnSurfaceY(float x, float z, float authoredY, int skipIndex,
+                      bool* found = nullptr) const;
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -2835,6 +2844,15 @@ class TerrainGame : public Tyra::Game {
                    ObjectGeometry& geometry, Tyra::SkelInstance& instance);
   bool footGroundAt(float x, float z, float top, float bottom, int skipIndex,
                     float* y, Tyra::Vec4* normal = nullptr) const;
+  // The surface a spawn marker is standing ON: the highest solid thing at or
+  // below its authored height - a stair, a platform, the terrain - which is
+  // what the editor's placement snap already showed the author when they put
+  // it there. `found` reports whether anything was under it at all (a
+  // terrain-less scene with nothing below keeps the authored height, and the
+  // walker starts airborne). Skips `skipIndex` so an avatar's own collider
+  // cannot catch the ray.
+  float spawnSurfaceY(float x, float z, float authoredY, int skipIndex,
+                      bool* found = nullptr) const;
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -6940,6 +6958,36 @@ void TerrainGame::fillDynLitColors(int i) {
   }
 }
 
+// Where a spawn marker's feet belong. Authoring a start point ON something -
+// a stair, a platform, a rooftop - is the obvious thing to do in the viewport
+// (the placement snap even rests the marker on it), and the runtime used to
+// answer with the TERRAIN under it regardless, dropping the player through the
+// geometry they were standing on. So the question is asked of the world instead
+// of the heightfield: the highest support at or below the authored height.
+//
+// The window starts a little ABOVE the marker so one resting exactly on a step
+// still finds it, and ends below the terrain so a marker left floating resolves
+// to the ground under it exactly as before. That is what keeps this from moving
+// anything an existing project authored: a marker at (or near) ground level
+// finds the terrain and nothing changes.
+float TerrainGame::spawnSurfaceY(float x, float z, float authoredY,
+                                 int skipIndex, bool* found) const {
+  const float top = authoredY + 0.25F;
+  const float bottom =
+      TERRAIN_ENABLED ? terrainHeightAt(x, z) - 0.5F : authoredY - 500.0F;
+  float y = 0.0F;
+  if (bottom < top && footGroundAt(x, z, top, bottom, skipIndex, &y)) {
+    if (found) *found = true;
+    return y;
+  }
+  if (TERRAIN_ENABLED) {
+    if (found) *found = true;
+    return terrainHeightAt(x, z);
+  }
+  if (found) *found = false;
+  return authoredY;
+}
+
 bool TerrainGame::footGroundAt(float x, float z, float top, float bottom,
                                int skipIndex, float* y, Vec4* normal) const {
   bool found = false;
@@ -9227,12 +9275,14 @@ void TerrainGame::loadScene(int sceneIndex) {
     // (docs/terrain.md), in which case the authored height is the only sensible
     // start: the void answer would drop the player a million units below the
     // world before the first frame's collision could catch them.
-    P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
+    bool onSurface = false;
+    P.y = PP_MODE(pi) == 1
               ? SCENE_OBJECTS[P.objIndex].position[1]
-              : terrainHeightAt(P.x, P.z);
+              : spawnSurfaceY(P.x, P.z, SCENE_OBJECTS[P.objIndex].position[1],
+                              P.objIndex, &onSurface);
     P.visualY = P.y;
     P.visualYReady = true;
-    P.grounded = PP_MODE(pi) != 1 && TERRAIN_ENABLED;
+    P.grounded = PP_MODE(pi) != 1 && onSurface;
     P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
     P.velY = 0.0F;
     P.pitch = 0.0F;
@@ -19408,9 +19458,11 @@ void TerrainGame::init() {
       break;
     }
   }
-  // Feet on the ground - or at the spawn point's own height in a scene with no
-  // terrain, where there is no ground to stand on (docs/terrain.md).
-  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+  // Feet on whatever the spawn point is standing on (spawnSurfaceY). This one
+  // runs BEFORE buildScene, so there are no runtime objects to probe yet and it
+  // resolves to the terrain; the boot re-places the player at the start scene's
+  // own spawn below, where the geometry does exist.
+  playerY = spawnSurfaceY(playerX, playerZ, spawnY, -1);
 
   updatePlayer();
   buildScene();
@@ -19669,8 +19721,10 @@ void TerrainGame::loop() {
         break;
       }
     }
-    // The spawn point's own height in a scene with no terrain - see initScene.
-    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+    // Feet on whatever the spawn point is standing on - a stair or a platform,
+    // not the terrain beneath it (spawnSurfaceY). Runs after the scene load, so
+    // the geometry is there to probe.
+    playerY = spawnSurfaceY(playerX, playerZ, spawnY, -1);
     playerVelY = 0.0F;
   }
 

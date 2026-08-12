@@ -1841,6 +1841,26 @@ void App::drawPropertiesWindow() {
                         ImGui::TextDisabled(
                             "<none> = the walk clip covers that direction.");
                     }
+                    // Real-shape projected shadow under the avatar. The
+                    // runtime always knew how to cast one for a Player (the
+                    // caster pass takes the skinned bags and lifts the
+                    // bounding sphere for feet-anchored casters, PLAYER_INDEX
+                    // included) - it was only unreachable, because the switch
+                    // is drawn in the solid-object block above and a Player is
+                    // not a solid primitive. Same field, same cost, so the
+                    // tooltip is the short version of the one up there.
+                    if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                        committed = true;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "Real silhouette shadow under the avatar: the body\n"
+                            "renders a second time each frame (64x64, from the\n"
+                            "sun or the strongest light) and its shape is\n"
+                            "projected onto whatever it is standing on. Follows\n"
+                            "the animation, so the legs move in the shadow.\n"
+                            "Costs one extra small render; game-only, no editor\n"
+                            "preview. The blob shadows (Preferences) are the\n"
+                            "cheap alternative.");
                     // Each Player object carries its own LOD overrides - in a
                     // two-player scene that gives P1 and P2 independent
                     // avatar LOD settings.

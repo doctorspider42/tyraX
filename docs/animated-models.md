@@ -121,6 +121,7 @@ what ships.
 | **Material** | Optional `.mtl` **override** on top of the built-in materials — see below. `(model's own)` = the materials baked into the file. |
 | **Collision** | Box from the model's all-clips pose AABB, or none - turned by the model yaw offset like the mesh is ([collision-boxes.md](collision-boxes.md)). Per-triangle mesh collision is a static-model (.obj) feature. |
 | **Model faces / Yaw correction** | Tell the editor which way the imported mesh points in its own file: **+Z** is already correct, **-Z** fixes a backwards model with an explicit 180° turn, and **±X** fixes a sideways model with a 90° turn. The correction rotates only the mesh around its own Y (viewport preview matches); authored object rotation, avatar turn-to-face and AI facing stay convention-pure. The angle below the preset remains available for unusual files. |
+| **Projected shadow (live)** | Real silhouette shadow under this model, cast from the sun or the strongest light and projected onto what it stands on; follows the animation. Available on a **Player** avatar as well as a Model. One extra small render per caster, 4 casters at a time - see the projected-shadow bullet in the [README](../README.md). |
 | **Foot IK** | Whether THIS instance runs the ground solver, so a walk clip follows stairs, curbs and slopes. Which bones are legs and how far a shoe may reach belong to the model asset and are authored once in *Tools > Foot IK* - see [foot-ik.md](foot-ik.md). |
 
 ### Foot IK: feet that stop at the floor
