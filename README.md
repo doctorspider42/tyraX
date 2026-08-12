@@ -395,6 +395,7 @@ This project stands on the shoulders of the PS2 homebrew community:
   [miniaudio](https://github.com/mackron/miniaudio).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
 - **Wellinator** — the 3D cat model starring in the example projects.
+- **[Tyra Discord](https://discord.gg/PpTAkQh6u)** - all the amazing people
 
 Every notice, full license text and exact redistribution term — plus the
 file-by-file policy for third-party assets — is in
