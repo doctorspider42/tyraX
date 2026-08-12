@@ -3120,6 +3120,59 @@ program constant stops reading as an input. Also worth recording for whoever doe
 fixtures take **over ten minutes** to compile under the twenty-one flags, which is how the
 `--loop-liveness-always` non-termination was found in the first place.
 
+### What actually blinds the oracle on ps2gl: it throws the operators away
+
+The section above named a cause and it was **wrong**. It said the base register reads as a live-in
+because the `iaddiu` defining it sits in a block the trace never enters. Two things killed that:
+
+* **The pinning instrument refutes it.** `pg-feasible.py` re-runs every path policy with each
+  impossible edge pinned to the outcome the source's own constant folding demands. All five
+  programs **diverge on a feasible path** - `fall`, `take` and a random policy alike. Nothing is
+  being blamed on a path that cannot run.
+* **The oracle already canonicalises commutativity**, so the second suspect - `ADD(ADD(a,b),c)`
+  against `ADD(c,ADD(a,b))` - was never a candidate either. `ADD`, `MUL`, `MAX`, `MINI` and
+  `iadd` are all ordered canonically; `SUB` deliberately is not.
+
+The real cause is one line at the top of the instrument. `TOKEN` does not match `*`, `/`, or a
+standalone `-`, so those characters **never become tokens**, and `imm_at` simply **sums the
+numbers that are left**. That is exactly right for what the engine's own sources write -
+`iaddiu staticStqData, vi00, 4 + 36`, where dropping the `+` and adding 4 and 36 is the answer -
+and it cannot read what ps2gl's C macros generate:
+
+```
+iaddiu next_color_acc, buffer_top, (((0 + 1) + 4) + ((1024 - (0 + (...))) * 3 / 17))
+```
+
+Sum the surviving numbers there and you get a value with no relation to the one the assembler
+computed. Every address built on that register is then wrong in the source model while the emitted
+program carries the folded literal, no store pairs with its counterpart, and all 66 observables of
+`indexed` report as unmatched at once. Which is also why the five diverge **with no flags at all** -
+the give-away that this is the instrument and not the compiler.
+
+**Two real defects in the instrument were found on the way and are fixed:**
+
+* The `(`-group scan stopped at the **first** `)`, so it could not find the end of a nested group
+  and mis-parsed the remainder of the line. It is balanced now.
+* A parenthesis was **always** read as a memory base, and the base's name was the first token
+  inside it - so `((0) + 1)` produced a base register literally named `0`. Only
+  identifier-shaped tokens can name a register now.
+
+**And the arithmetic semantics for whoever finishes this are measured, not assumed.** A four-line
+program through both assemblers: `7 / 2` = 3, `-7 / 2` = **-3**, `(1024 - 1075) * 3 / 17` = **-9**,
+`5 * 3` = 15, identical in `vcl` and `openvcl`. That is C truncation toward zero, not floor
+division - Python's `//` would answer -4 and -10. An evaluator was written and then **deleted**
+rather than left in place: with the operators dropped before it, it could never receive an
+expression, and a half-wired evaluator in a load-bearing instrument is worse than a documented
+limit. The limit is now a comment at the site.
+
+**Controls, both green after the changes:** the engine's 70 microprograms stay
+**70 in scope, 1019 traces, 0 divergent, 0 skipped**, and the regression suite stays
+**49 pass / 0 fail / 4 xfail**.
+
+So the twelve ps2gl programs remain unread, and what it takes is now a two-part change with no
+unknowns left in it: make `*`, `/` and a standalone sign into tokens, and turn `imm_at` /
+`address` from summing tokens into evaluating an expression with truncating division.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
