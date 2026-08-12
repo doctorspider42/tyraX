@@ -106,6 +106,45 @@ a simulated run and a captured run produce the same `std::vector<uint32_t>`
 memory image and are decoded by the same code, so they are directly comparable.
 Do not reimplement GIF decoding on the simulator side.
 
+## One commit, both halves
+
+Every comparison `--vu-check` makes has a **generated** side, built from the
+descriptions compiled into the running binary, and a **handwritten** side read
+off disk as `.vclpp`. The stage library's identity-at-zero half is the same
+shape — a generated stage measured against the engine's own `stapip_cull_*`
+programs. So the two sides are only comparable when they come from **one
+commit**, and a mismatch across a version boundary says nothing about the
+generator.
+
+This matters because the obvious way to attribute a failure makes it worse.
+Extracting another revision's engine and pointing the checker at it —
+
+```bash
+git archive origin/main vendor/tyra/engine | tar -x -C /tmp/x
+```
+
+— swaps exactly **one** of the two halves. Against a stale binary that does not
+attribute anything; it *manufactures* failures. Measured, running a pre-#218
+editor against post-#218 engine sources: seven programs report DIFFERENT
+(`AsIsTCE`, `CullTCE` and all five `Clip`) plus the Reflective class's
+identity-at-zero, which is exactly the set of `.vclpp` files that commit
+touched — and every one of them passes when each half is run against its own
+peer. The matcap failure comes along because that class's reference program is
+`stapip_cull_tce_vu1.vclpp`.
+
+`--vu-check` names both conditions rather than leaving the reader to work it
+out. An engine directory that is not the one beside the executable prints
+`note: FOREIGN engine`, a framework source newer than the executable prints
+`note: ... is NEWER than this executable`, and on FAIL either one appends a
+paragraph saying the two halves may not be from one commit. The resolution is
+always the same: rebuild, re-run with **no** engine argument, and if that
+passes while the cross-version run fails, the two are out of step and neither
+side is wrong.
+
+The general form, when a failure needs attributing, is the 2×2 — old and new
+binary against old and new engine. Both diagonals passing and both
+off-diagonals failing is skew, not a bug.
+
 ## What the simulator models — and what it does not
 
 Models: masked destination fields, the accumulator, Q and I, the clip-flag shift
