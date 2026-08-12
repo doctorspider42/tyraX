@@ -3313,6 +3313,78 @@ which is internally inconsistent on both. What settles them is a console: **97 w
 side and a handful on the FDIV side are waiting behind `docs/ps2link-setup.md`, which is built and
 has not run.
 
+### The console answered both latency questions, and one of them says we were right
+
+Every round before this one ended the same way: two one-cycle disagreements with Sony, neither
+decidable without hardware. A PS2 became available at `192.168.100.150`, and both are now measured
+rather than argued. The instrument is a standalone PS2 ELF driving six hand-written VU1
+microprograms (`<scratch>/hwlat/`), the raw output is `<scratch>/hwrun/hwlat-out.txt`, and it printed
+**LADDER COMPLETE** with controls passing on all six.
+
+**The CLIP flag becomes visible at exactly 4 rows. openvcl's constant is the hardware figure, and
+the 97 words do not exist.** The ladder is `fcset 0` → `clipw A` → 6 `nop` → `clipw B` → N `nop` →
+reader → store, for N = −1…7, in three arms:
+
+| arm | reader | N ≤ 3 | N ≥ 4 |
+|---|---|---|---|
+| A inside, B outside | `fcand VI01,0x3F` | 0 | 1 |
+| A outside, B inside | `fcand VI01,0x3F` | **1** | **0** |
+| A inside, B outside | raw `fcget VI01` | 0x00000000 | 0x00000001 |
+
+The two polarities give **opposite** values at every rung and both flip at N = 4, so a stuck-at
+answer cannot pass; N = −1 - the reader one row *above* the push - reads the previous judgement in
+all three arms. **At gap 3 the hardware returns the previous generation.** A 3-row window would not
+be a risk, it would be a miscompile - which retires the last "inferred, not observed" caveat on §9's
+fix: that padding is correctness, not caution.
+
+Sony's modal floor of 3 is **not** refuted by this. A stalling row buys cycles that a row count
+cannot see, and SCE annotates its stalls. What is settled is openvcl's side: it pads with
+`nop`/`nop`, and for nop padding 4 is the floor.
+
+**Q and P are readable at exactly the ISA table's `latency` field - openvcl asks one row too many.**
+
+| producer | consumer | hardware minimum | table `latency` | openvcl demands |
+|---|---|---:|---:|---:|
+| `div` | `mulq` | **7** | 7 | 8 |
+| `rsqrt` | `mulq` | **13** | 13 | 14 |
+| `esum` | `mfp` | **12** | 12 | 13 |
+
+Three independent numbers, each equal to the table's own field, each with the value-swapped control
+flipping at the same rung. The `div` arms are the clearest: one goes `3e800000 → 3f000000` at N = 7
+and the other `3f000000 → 3e800000` at N = 7.
+
+**And correcting it is not worth taking.** The change was made and measured, not assumed: words on
+the 70 go **1996 / 3910 / 9242 → 1998 / 3918 / 9240**, i.e. **+6 net worse**, with the suite at
+49 / 0 / 4 on both - so the relaxation is *correct* and unprofitable. The reason is exact: the
+`waitq` count over the 70 is **69 before and 69 after**, and only **1 of those 69** sits at distance
+exactly 7, the only distance a one-row relaxation could free. Everything that moves is the scheduler
+re-ordering because a Q gap is weighted at a thousand per cycle - the same shape as the
+`longLatencyProducerBonus` negative result above. The patch is kept at
+`<scratch>/px-qlatency-measured-but-not-taken.patch` rather than applied.
+
+**So the five programs stay larger than Sony's, and the reason has changed character.** On the CLIP
+side openvcl is not being cautious, it is being *right*: the hardware needs the fourth row. On the Q
+side it is one row conservative and buying that row back costs six words elsewhere. Neither is a
+defect, and neither is a scheduling failure.
+
+**Two corrections that came out of the same work.** `<scratch>/pb70src` is **stale**: it holds
+`stapip_cull_tce_vu1` at 164 words where a real build gives 154, because PR #218 packed the matcap
+basis after that snapshot was taken. It remains valid as a *stability* anchor - identical inputs
+must give md5 `e78d466912af036dfea8d0a9f3b8385c`, re-verified here - but absolute sizes have to come
+from a real engine build (`pj-words.sh`), which is where the post-merge 1652 / 4002 figures come
+from. And the first attempt at rebuilding the compiler was a glibc build on a musl image, the libc
+trap `Dockerfile.fromsource` warns about; the harness reported `assembled=0 failed=70` rather than a
+pass, and the control that caught it was rebuilding the *unmodified* fork and getting a
+byte-identical binary to the shipped one.
+
+**What the console did not get to do.** `blocks-terrain` and `showcase` were built with openvcl and
+both render correctly at 50 FPS with zero asserts - the block pipeline's geometry, culling and
+per-face shading coherent across a 13-frame sheet - but **in PCSX2, not on hardware**. After the
+ladder finished, `ps2client reset` stopped reviving ps2link: ping answers, tcp/18193 does not listen,
+twice with the same signature. Per `docs/ps2link-setup.md` that class is marked fixed in r2/r6, so
+either the flashed card predates r6 or this is new; the banner could not be captured to tell. **It
+needs the console's physical Reset button**, and the scene runs on hardware are owed after that.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
