@@ -1,5 +1,7 @@
 # The TyraX VS Code extension
 
+![Syntax highlighting for a custom flow node](img/vscode-extension.png)
+
 Generated projects carry a bit of C++ that lives in plain text files:
 [custom flow-graph nodes](custom-flow-nodes.md) (`.flownode`) and
 [custom screen effects](custom-screen-effects.md) (`.screenfx`). Both are a

@@ -5,8 +5,10 @@ images and page breaks that scroll up over music, with a skip button and
 somewhere to go when it is over. Rolls are project-wide data (like Ambience
 presets or Loading Screens), authored in **Tools > Credits Editor**.
 
+![The Credits Editor with blocks, visual settings, playback controls and the baked-page preview.](img/credits-editor.png)
+
 A roll **owns the screen and the pad** while it plays. Gameplay, scripts and
-flow graphs are frozen, nothing is rendered behind it, and when it ends — or the
+flow graphs are frozen, nothing renders behind it, and when it ends — or the
 player skips it — it runs its own **finish action**: resume the game, switch
 scene, open a menu, fire a flow event, or hold the last frame forever.
 
@@ -14,10 +16,10 @@ scene, open a menu, fire a flow event, or hold the last frame forever.
 
 Three ways, all interchangeable:
 
-- a **menu row** — *Menu Editor*, a row with the action **Play credits** and the
-  roll as its target. The menu closes first, so a title screen's `CREDITS` row
-  hands over a clean screen (and typically has the roll open that title screen
-  again when it finishes).
+- a **menu row** — *Menu Editor*, a row with the action **Play credits** and
+  the roll as its target. The menu closes first, so a title screen's `CREDITS`
+  row hands over a clean screen (and typically has the roll reopen that title
+  screen when it finishes).
 - the **Play Credits** flow node (param = the roll's name).
 - **Stop Credits** ends one early from a graph — exactly as a player's skip
   does, finish action included.
@@ -27,9 +29,9 @@ its bool output is "credits are rolling right now".
 
 ## Anatomy of a roll
 
-A roll is a vertical **flow of blocks**. Everything is laid out on the host and
-baked to pixels at build time (the PS2 engine has no font), so anything the
-editor can draw, the console can show.
+A roll is a vertical **flow of blocks**, laid out on the host and baked to
+pixels at build time (the PS2 engine has no font) — anything the editor can
+draw, the console can show.
 
 | Block | What it is |
 |---|---|
@@ -40,10 +42,10 @@ editor can draw, the console can show.
 | **Gap** | vertical space |
 | **Page break** | jumps to the next page: a screenful of nothing when scrolling, a new **card** in card mode |
 
-Per block you can override the size, typeface and color; leaving those at their
-defaults (size 0, no font, no own color) inherits the roll's, so restyling a
-whole roll is one edit at the top. Text carries [inline icons](text-icons.md) —
-`{{cross}}` draws the button glyph.
+Per block you can override the size, typeface and color; the defaults (size 0,
+no font, no own color) inherit the roll's, so restyling a whole roll is one
+edit at the top. Text carries [inline icons](text-icons.md) — `{{cross}}` draws
+the button glyph.
 
 Roll-wide settings: background color, an optional **still backdrop** image
 (which does not scroll), the default typeface, heading/body sizes and colors, a
@@ -51,11 +53,11 @@ drop shadow, page width, side margin, column gap and line spacing.
 
 ### Motion
 
-- **Scroll up** — the strip walks up the screen at *Speed* px/s. This is the
-  normal credits roll.
-- **Cards** — the roll is split at every page break and each card is shown for
-  *Card time* seconds, cross-fading. For title cards, dedications, a "six months
-  later".
+- **Scroll up** — the strip walks up the screen at *Speed* px/s. The normal
+  credits roll.
+- **Cards** — the roll splits at every page break and each card shows for
+  *Card time* seconds, cross-fading. For title cards, dedications, a "six
+  months later".
 
 Plus a *start delay*, an *end hold* after the last block leaves, and fade
 in/out (a fade is one quad of the background color over the whole frame — the
@@ -71,11 +73,11 @@ it at the end — which is what you want for a roll that hands over to a menu.
 
 *Player can skip* accepts the **menu confirm** action and Start by default, or
 one named [input action](input-bindings.md) if you pick it. *Ignore for* is a
-short deadline before a skip counts, so a button held from the moment before the
-roll started does not skip it instantly. The **hint** (`PRESS {{cross}} TO
-SKIP`) is a baked text sprite placed anywhere on screen; being baked, its glyph
-is the binding at BUILD time — for one that follows an in-game rebind, use a
-*Display Text* node instead.
+short deadline before a skip counts, so a button held from before the roll
+started does not skip it instantly. The **hint** (`PRESS {{cross}} TO SKIP`) is
+a baked text sprite placed anywhere on screen; being baked, its glyph is the
+binding at BUILD time — for one that follows an in-game rebind, use a *Display
+Text* node instead.
 
 A skip runs the finish action, never just a stop: a player who skips lands
 exactly where a player who watched lands.
@@ -102,8 +104,8 @@ Programming: Grace Hopper
 ```
 
 - `# TEXT` (or `## TEXT`) — a Heading
-- `Role: Name` — a Role/name row (the colon must be followed by a space, and the
-  role side has to be short — a URL or a timestamp stays a plain line)
+- `Role: Name` — a Role/name row (the colon must be followed by a space, and
+  the role side has to be short — a URL or a timestamp stays a plain line)
 - `> `, `< `, `| ` — a Line, centered / left / right
 - `[image <path> [scale]]` — an Image block, scale 0..1 of the page width
 - `---` (or `***`) — a Page break
@@ -118,15 +120,15 @@ re-import.
 
 ## How it reaches the game
 
-The roll is baked into a vertical **strip of page textures**
+The roll bakes into a vertical **strip of page textures**
 (`res/credits/pages/<roll>-<k>.png`, 256 px tall, 256 or 512 wide) that the
 runtime scrolls past the screen; the tables land in `inc/credits_data.gen.hpp`
 and the player in `src/gen/credits.gen.cpp`. That folder belongs to the build:
-every roll's pages are rewritten there on each build and anything no roll claims
-is swept out, so **images an Image block points at live one level up**, in
-`res/credits/` (which is also where the editor imports them), where the build
-never touches them. Only the pages overlapping the screen are
-submitted, so a roll of any length costs **two sprites a frame**.
+every roll's pages are rewritten on each build and anything no roll claims is
+swept out, so **images an Image block points at live one level up**, in
+`res/credits/` (also where the editor imports them), where the build never
+touches them. Only the pages overlapping the screen are submitted, so a roll of
+any length costs **two sprites a frame**.
 
 Pages instead of one sprite per line is a VRAM decision, and it is the one
 constraint worth knowing about:
@@ -139,8 +141,8 @@ constraint worth knowing about:
 > past the cap (anything beyond it is not baked and never shows). A longer roll
 > wants a slower speed, 256 px pages, card mode, or a second roll.
 
-The **page depth** (*4-bit / 8-bit / full color*) is the roll's own, like a font
-atlas carries its own: with no backdrop the pages are baked as opaque plates of
+The **page depth** (*4-bit / 8-bit / full color*) is the roll's own, like a
+font atlas carries its own: with no backdrop the pages bake as opaque plates of
 the background color, so 16 colors comfortably hold the text's antialiasing.
 Give the roll a backdrop and the pages have to stay transparent for it to show
 through, which usually wants 8-bit — and costs twice the VRAM per page.
@@ -151,19 +153,19 @@ scrolls in the editor is what scrolls in the game.
 
 ## The window
 
-Settings on top, the preview below, and a **splitter between them** — drag it to
-trade one for the other (writing a roll wants the block list tall; judging its
-timing wants the preview big). The split is remembered per machine, not per
+Settings on top, the preview below, and a **splitter between them** — drag it
+to trade one for the other (writing a roll wants the block list tall; judging
+its timing wants the preview big). The split is remembered per machine, not per
 project, like the Material Editor's.
 
 Beside the preview is the **Jump to** list: every block with the moment it is
-centred on screen, so clicking `1:04  Music: Wendy Carlos` scrubs straight to the
-frame that answers "does that row look right". It selects the block too, and
-anything past the page budget is listed in amber (it is not baked and never
+centred on screen, so clicking `1:04  Music: Wendy Carlos` scrubs straight to
+the frame that answers "does that row look right". It selects the block too,
+and anything past the page budget is listed in amber (it is not baked and never
 shows).
 
 Rolls are project-wide data, so an edit here is **not** part of undo/redo — but
-it is still an ordinary unsaved edit: the toolbar save icon lights, closing the
-project asks, and the bytes reach disk on Ctrl+S like everything else. (Until
-TyraX 1.0.1 this panel wrote the whole project on every widget instead, which
-left the icon dark and made a roll edit invisible to a live session.)
+it is an ordinary unsaved edit: the toolbar save icon lights, closing the
+project asks, and the bytes reach disk on Ctrl+S. (Until TyraX 1.0.1 this panel
+wrote the whole project on every widget instead, which left the icon dark and
+made a roll edit invisible to a live session.)

@@ -1,5 +1,7 @@
 # Frame extrapolation
 
+![Frame delivery settings](img/project-preferences-display.png)
+
 Frame extrapolation synthesises an extra presented frame between two rendered
 ones by re-drawing the last finished frame under a newer camera, so a game can
 render its world at half the field rate and still hand the television a fresh
@@ -400,7 +402,7 @@ about, because it is the only one that is setting against **setting** rather tha
 setting against scene content. Only the *tick* is ever blocked, so a project that
 already has both (a hand-edited `.tyra`, an older editor, a *Set Frame
 Extrapolation* node) can always turn one off. See
-[The two settings exclude each other](neural-upscaler.md#the-two-settings-exclude-each-other).
+[The two settings exclude each other](neural-upscaler.md#incompatible-features).
 
 Underneath it the build still refuses (`blssClashes()`, `src/templates.cpp` — the
 fifth condition, beside depth of field, portals and split view, and per scene
@@ -408,7 +410,7 @@ like the rest), because a `.tyra` can be hand-edited, an older editor never knew
 about the pair, and a flow node can turn extrapolation on at runtime. The refusal
 is one short `#error` in `src/gen/blss_interlock.gen.cpp` — a TU of its own, so
 it is printed once instead of once per includer of `scene_data.hpp`; the
-reasoning is [here](neural-upscaler.md#the-refusal-is-one-short-line-in-a-file-of-its-own). This paragraph used to say the opposite: that the combination "is correct
+reasoning is [here](neural-upscaler.md#incompatible-features). This paragraph used to say the opposite: that the combination "is correct
 with three buffers and degrades in a named, logged way with two", so no `#error`
 was warranted. **That was wrong, and a user found it by walking around.**
 

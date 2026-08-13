@@ -1,12 +1,14 @@
 # Texture atlasing
 
-*Project > Preferences > Rendering > Texture atlasing* (default off). At build,
-small material textures are packed into shared **256×256 pages**: the GS
-keeps **one VRAM allocation (+~8 KB allocation overhead) per page** instead
-of one per texture, and draw batches switch textures less. On a scene
-decorated with many small props this reclaims real VRAM — every resident
-texture costs its pixels *plus* the fixed allocation overhead, and PS2-era
-prop textures are typically 32–128 px.
+![Texture atlasing in Rendering preferences](img/project-preferences-rendering.png)
+
+Texture atlasing packs small material textures into shared **256×256 pages**
+at build time — *Project > Preferences > Rendering > Texture atlasing*
+(default off). The GS then keeps **one VRAM allocation (+~8 KB allocation
+overhead) per page** instead of one per texture, and draw batches switch
+textures less. On a scene decorated with many small props this reclaims real
+VRAM — every resident texture costs its pixels *plus* the fixed allocation
+overhead, and PS2-era prop textures are typically 32–128 px.
 
 The boot log prints what was packed:
 `Texture atlas: N textures in M page(s)`.

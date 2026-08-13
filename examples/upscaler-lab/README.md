@@ -6,6 +6,8 @@ Every other example in this repo is built to look right. This one is built to be
 EE work and until now it had never been pointed at content where that trade can
 pay.
 
+![The BLSS window on upscaler-lab, with its speed, quality and corpus checks.](../../docs/img/neural-upscaler.png)
+
 The arithmetic it exists to test, **as measured on hardware rather than as
 derived from the GS data sheet**: one full-screen 512x448 alpha-blended textured
 pass costs **0.587 ms** on a real PS2 (the sheet's 8 pixels/clock at 147.456 MHz
@@ -174,7 +176,7 @@ in [Measured](#measured) — PCSX2 mis-prices GS fill by a large factor
   for nothing (this one with *Temporal* switched off is the constructed case)
   the two builds are byte-identical: 0 differing pixels of 811 426, nine
   cross-pairings, camera pinned and every emitter hidden. See
-  [Plain mode](../../docs/neural-upscaler.md#plain-mode--the-reduced-raster-without-the-network).
+  [Plain mode](../../docs/neural-upscaler.md#should-you-use-it).
 - Re-run the training and watch the ceiling move:
   `tyrax-editor --blss-eval <this folder>` prints the oracle row before any net
   exists.

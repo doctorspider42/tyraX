@@ -3,8 +3,8 @@
 An endless track that **never repeats** — and a roadside that was **generated
 procedurally, once, then tiled forever**. Two [Scroller](../../docs/endless-scroller.md)
 belts stream a deck and its scenery past a first-person camera; what changes
-from one chunk to the next is not authored anywhere, it is drawn from the
-belt's own per-cell variation.
+from chunk to chunk is not authored anywhere, it is drawn from the belt's own
+per-cell variation.
 
 Open `endless-runner.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor --build <this folder> --run`.
@@ -20,11 +20,10 @@ show up on roughly half the chunks and gates on roughly two thirds. Nothing is
 scripted — each chunk resolves its own look from a hash the moment it recycles
 to the front.
 
-The belt also **accelerates**: it starts at 12 units/s and ramps to 30 over the
-first 80 seconds. Press **Cross** to freeze both belts where they are and
-**Circle** to set them going again — a stopped belt costs nothing per frame,
-which is a good way to see how much of a runner's frame time is the world
-moving.
+The belt also **accelerates**: 12 units/s ramping to 30 over the first 80
+seconds. Press **Cross** to freeze both belts where they are and **Circle** to
+set them going again — a stopped belt costs nothing per frame, which is a good
+way to see how much of a runner's frame time is the world moving.
 
 ## How it's wired
 
@@ -38,23 +37,23 @@ moving.
   The two moving obstacles also carry a small **Yaw jitter** and **Side
   jitter**, so even a repeated obstacle is never in quite the same pose.
 - **scenery-belt** is a second, independent belt with a longer period (16 units
-  against the deck's 12), so the roadside and the deck drift out of phase with
-  each other instead of marching in lockstep. Its members are the **baked chunk
-  meshes of two Procedural volumes** — `rocks-left` and `rocks-right` scatter
-  rocks and pines over a 20 x 16 strip of ground each, and the bake merges 18
-  instances into 4 chunk meshes of 508 triangles total. Those meshes are
-  ordinary `Model` objects, so the belt tiles them like any other member; each
-  gets a **Side jitter** and a **Scale jitter** so consecutive copies of the
-  same strip do not read as copies.
+  against the deck's 12), so the roadside and the deck drift out of phase
+  instead of marching in lockstep. Its members are the **baked chunk meshes of
+  two Procedural volumes** — `rocks-left` and `rocks-right` scatter rocks and
+  pines over a 20 x 16 strip of ground each, and the bake merges 18 instances
+  into 4 chunk meshes of 508 triangles total. Those meshes are ordinary `Model`
+  objects, so the belt tiles them like any other member; each gets a **Side
+  jitter** and a **Scale jitter** so consecutive copies of the same strip do
+  not read as copies.
 - **director** is an `empty` carrying the flow graph: `Scene Time` through
   `Remap Range` (0..80 s onto -12..-30) feeds **Set Scroller Speed** on both
   belts, pushed once a second by `Every N Seconds`; `On Button` Cross/Circle
   drive **Stop Scroller** / **Start Scroller**.
 - The terrain is **160 x 160** on purpose: a belt populates 70 units ahead, so
-  a world any smaller lets the roadside tile straight off the edge and hang in
-  the sky. The fog ends at 74 — inside the belt window and well inside the
-  terrain edge — so props fade up out of the haze instead of popping in, and
-  the edge of the world is never visible.
+  a smaller world lets the roadside tile straight off the edge and hang in the
+  sky. The fog ends at 74 — inside the belt window and well inside the terrain
+  edge — so props fade up out of the haze instead of popping in, and the edge
+  of the world is never visible.
 - The whole thing holds **50 FPS** (full PAL) with 116 clone objects in flight.
   That is the per-object matrix path doing the work: a belt clone moves every
   single frame, so it is baked once in local space and moved by refreshing its

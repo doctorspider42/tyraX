@@ -1,22 +1,26 @@
 # PS2 output in the viewport
 
+![Editor viewport mode](img/ps2-viewport-editor.png)
+
+![The same scene in PS2 GS mode](img/ps2-viewport-gs.png)
+
 Two ways of looking at the same scene:
 
-- **Editor** (default) — the viewport's own image. Full monitor resolution, and
-  as wide as you docked the panel.
+- **Editor** (default) — the viewport's own image. Full monitor resolution,
+  and as wide as you docked the panel.
 - **PS2 output (GS)** — what the console draws. The scene is rasterized at the
-  **GS framebuffer size** of the project's display mode and then shown the way a
+  **GS framebuffer size** of the project's display mode and shown the way a
   television shows it: fitted into a 4:3 or 16:9 picture, point sampled, with
   everything outside that picture black.
 
-Switch in the **gear in the viewport's bottom-left corner** or *View > Viewport
-output*. Machine-global (`editor.ini`, key `viewportPs2`) like the safe areas —
-a way of looking, not project data, so it never dirties the `.tyra` and never
-travels to a collaboration peer.
+Switch in the **gear in the viewport's bottom-left corner** or *View >
+Viewport output*. Machine-global (`editor.ini`, key `viewportPs2`) like the
+safe areas — a way of looking, not project data, so it never dirties the
+`.tyra` and never travels to a collaboration peer.
 
 ## Why
 
-The editor's viewport is a lie in three specific ways, and each one costs real
+The editor's viewport is a lie in three specific ways, and each costs real
 time later:
 
 1. **Resolution.** A 1600×900 panel has about six times the pixels of a PS2
@@ -29,8 +33,8 @@ time later:
 3. **Pixel shape.** GS pixels are not square (below).
 
 Everything that costs the console nothing to be honest about is on: the
-resolution really is 512×448, the raster really is that coarse, and the picture
-really is that shape.
+resolution really is 512×448, the raster really is that coarse, and the
+picture really is that shape.
 
 ## What changes when it is on
 
@@ -44,10 +48,10 @@ really is that shape.
 
 The editor's own decoration (grid, selection outlines, markers, the light
 gizmos) is rasterized with the scene, so it goes chunky too. The transform
-gizmo, the axis gizmo, the measuring tape and the safe-area guides are drawn by
-the UI *over* the image and stay sharp — and they stay correctly placed:
-picking, both raycasts and the gizmo all travel through the same letterbox the
-picture does.
+gizmo, the axis gizmo, the measuring tape and the safe-area guides are drawn
+by the UI *over* the image and stay sharp — and correctly placed: picking,
+both raycasts and the gizmo all travel through the same letterbox the picture
+does.
 
 ### The GS geometry per display mode
 
@@ -63,48 +67,50 @@ The host twin of Tyra's `RendererSettings::updateGeometry` (see
 | `pal576` | 512×512 | the full-height PAL frame |
 
 *Widescreen* widens the projection and the picture; it does not change the
-framebuffer. That is anamorphic output, so 2D has no projection to widen and is
-stretched by the TV instead — game menus cancel that stretch themselves (see
-[menu-styles.md](menu-styles.md) "Widescreen"), the HUD does not.
+framebuffer. That is anamorphic output, so 2D has no projection to widen and
+is stretched by the TV instead — game menus cancel that stretch themselves
+(see [menu-styles.md](menu-styles.md) "Widescreen"), the HUD does not.
 
 **2D is authored against 448 lines whatever the framebuffer is.** Sprite
 coordinates are framebuffer pixels with the origin at the top-left of the
-picture, and the engine's 2D pass keeps that origin on the top of the raster by
-centring the logical 448-row space in whatever height the mode allocates
-(`RendererCore2D::SPRITE_SPACE_HEIGHT`). It has to: the offset used to be a bare
-constant that was only the top of the picture at 448 rows, so in `1080i` — the
-one mode taller than 448 — every sprite was drawn (540 − 448) / 2 = **46 rows
-too high** and the debug HUD's first line fell off the top of the screen
-entirely. The term is exactly zero in the 448-row modes, so nothing that
-already worked moved. A future mode with a different framebuffer height gets
-the same treatment for free; one with a different *width* would not, and the
-horizontal origin is deliberately still the raw constant (measured correct at
-both 512 and 448 wide — 2D is not re-centred horizontally).
+picture, and the engine's 2D pass keeps that origin on the top of the raster
+by centring the logical 448-row space in whatever height the mode allocates
+(`RendererCore2D::SPRITE_SPACE_HEIGHT`). It has to: the offset used to be a
+bare constant that was only right at 448 rows, so in `1080i` — the one mode
+taller than 448 — every sprite was drawn (540 − 448) / 2 = **46 rows too
+high** and the debug HUD's first line fell off the top of the screen. The
+term is exactly zero in the 448-row modes, so nothing that already worked
+moved. A future mode with a different framebuffer height gets the same
+treatment for free; one with a different *width* would not — the horizontal
+origin is deliberately still the raw constant (measured correct at both 512
+and 448 wide; 2D is not re-centred horizontally).
 
 **One thing the editor cannot know**: with `videoSystem: auto`, whether
 *PAL picture* (`palFullHeight`) promotes `interlaced` to the 512-line frame
 depends on the region of the console that boots the disc. The viewport shows
-the **PAL** picture there — `palFullHeight` is only meaningful on a PAL console,
-so a project that turns it on (new ones do) is a project authored for PAL, and
-the taller frame is the one whose extra 64 lines need composing for. The shorter
-NTSC picture inside it is what the safe-area overlay's *NTSC picture inside PAL*
-guide draws, and that guide enables in exactly this configuration. Only an
-explicit `ntsc` video system says the disc will never meet a PAL console.
+the **PAL** picture there — `palFullHeight` is only meaningful on a PAL
+console, so a project that turns it on (new ones do) is authored for PAL, and
+the taller frame is the one whose extra 64 lines need composing for. The
+shorter NTSC picture inside it is what the safe-area overlay's *NTSC picture
+inside PAL* guide draws, and that guide enables in exactly this
+configuration. Only an explicit `ntsc` video system says the disc will never
+meet a PAL console.
 
 ## GS pixels are not square, and they are not square by 16.7%
 
 Tyra builds its projection with `aspectRatio = 512/448 = 1.143` for a 4:3
 display window (`renderer_settings.hpp` keeps the stock value as its 4:3
-baseline and scales it with the shape of the mode's window). The television then
-shows those 512×448 pixels as a 4:3 picture — 1.333 wide.
-
-So the console's picture is **horizontally stretched by 1.333 / 1.143 = 1.167**.
-A sphere is a circle in the GS framebuffer and an ellipse on the TV. Measured on
-a centred sphere: 0.99 wide/high in the editor mode, **1.18 in PS2 output**.
+baseline and scales it with the shape of the mode's window). The television
+then shows those 512×448 pixels as a 4:3 picture — 1.333 wide. So the
+console's picture is **horizontally stretched by 1.333 / 1.143 = 1.167**: a
+sphere is a circle in the GS framebuffer and an ellipse on the TV. Measured
+on a centred sphere: 0.99 wide/high in the editor mode, **1.18 in PS2
+output**.
 
 This is the engine's own convention, not something the viewport introduces —
-until now the editor simply did not show it. Author against it: circular things
-authored to look circular in the editor will read slightly wide on the console.
+until now the editor simply did not show it. Author against it: circular
+things authored to look circular in the editor will read slightly wide on the
+console.
 
 ## What it does not simulate
 
@@ -116,21 +122,21 @@ would trade one lie for another:
 - **Texture palettization.** *Preferences > Texture quantization* palettizes
   textures at build (4-bit by default), and the viewport still samples the
   full-colour source. The Material Editor's **PS2 CLUT** display mode answers
-  that question per material today; bringing it to the whole scene is a separate
-  job.
+  that question per material today; bringing it to the whole scene is a
+  separate job.
 - **Interlace flicker.** The flicker *filter* (the vertical blend the console
-  applies) is reproduced. The temporal flicker between fields is not: the editor
-  does not run at the console's field rate, so a simulated strobe would be a
-  different artifact wearing the same name. Field rendering's real cost — half
-  the vertical resolution — is shown, and that is the part you author against.
+  applies) is reproduced. The temporal flicker between fields is not: the
+  editor does not run at the console's field rate, so a simulated strobe
+  would be a different artifact wearing the same name. Field rendering's real
+  cost — half the vertical resolution — is shown, and that is the part you
+  author against.
 - **Texture filtering** needs no simulation: the engine draws bilinear with
-  mipmapping off (`max_level = 0`), which is what the viewport already did. The
-  distance shimmer that produces appears on its own once the scene is rasterized
-  at 512×448.
+  mipmapping off (`max_level = 0`), which is what the viewport already did.
+  The distance shimmer that produces appears on its own at 512×448.
 
 ## Notes
 
-- The [phone-camera](phone-camera.md) viewfinder streams the presented image, so
-  the phone sees the console's picture too, bars and all.
-- Nothing about this reaches code generation. It is a viewing mode; the game is
-  identical either way.
+- The [phone-camera](phone-camera.md) viewfinder streams the presented image,
+  so the phone sees the console's picture too, bars and all.
+- Nothing about this reaches code generation. It is a viewing mode; the game
+  is identical either way.

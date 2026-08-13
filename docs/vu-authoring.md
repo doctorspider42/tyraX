@@ -1,5 +1,7 @@
 # Authoring VU programs
 
+![VU program classes, scripts and micro-memory budget](img/vu-programs.png)
+
 Two ways to put your own code on the VU, and they are not alternatives so much
 as different distances from the metal:
 

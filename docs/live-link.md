@@ -1,32 +1,34 @@
 # Live Link — edit the running game
 
-Live Link mirrors scene edits into the **running** game without a rebuild:
-drag an object with the gizmo, spin it, scale it, recolor it — even **add or
-delete objects** — and watch the scene change on the PS2 (or in PCSX2) as you
-work. In 2002 this kind of live tuning loop was devkit-studio magic; here it
-rides entirely on infrastructure the project already has.
+![Live Link and the other devkit channels](img/project-preferences-build.png)
+
+Live Link mirrors scene edits into the **running** game without a rebuild: drag
+an object with the gizmo, spin it, scale it, recolor it — even **add or delete
+objects** — and watch the scene change on the PS2 (or in PCSX2) as you work. In
+2002 this kind of live tuning loop was devkit-studio magic; here it rides
+entirely on infrastructure the project already has.
 
 ## Using it
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
-   Build > Build profile*). Release builds carry no Live Link code at all.
-   **New projects already start there** — debug profile, Live Link on — because
-   that is the profile you author in; switch to release for the disc, which
-   strips both the poller and the overlays. Projects created before that
-   default keep whatever they saved.
+   Build > Build profile*) — release builds carry no Live Link code at all.
+   **New projects already start there** (debug profile, Live Link on): that
+   is the profile you author in, and release — which strips both the poller
+   and the overlays — is for the disc. Projects created before that default
+   keep whatever they saved.
 2. Build & run as usual — **F5** (PCSX2) or **F6** (real PS2 over ps2link).
 3. Edit the scene: move / rotate / scale / recolor objects, duplicate them,
-   delete them. The changes appear in the running game within a fraction of a
+   delete them. Changes appear in the running game within a fraction of a
    second; a gizmo drag streams continuously.
 
 The **LIVE chip** in the toolbar (after the run buttons) shows the session
-state — and clicking it toggles Live Link on/off:
+state, and clicking it toggles Live Link on/off:
 
 - **● LIVE** (green) — edits are streaming into the game.
 - **● LIVE (rebuild)** (amber) — the scene changed in a way the session can't
-  absorb (see below); streaming is paused so nothing is ever mis-patched.
-  Build & Run again and it resumes automatically — an Undo back to the built
-  structure also resumes it without any rebuild.
+  absorb (see below), so streaming pauses rather than mis-patch anything.
+  Build & Run resumes it; so does an Undo back to the built structure, no
+  rebuild needed.
 - **● LIVE (build)** (dim) — Live Link is on but the last build has no poller
   yet; Build & Run once.
 - **● LIVE off** (gray) — disabled for this project.
@@ -64,8 +66,8 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   bounciness / friction / tumble material) / collision, layer membership,
   emitter / sound / player / animation parameters…
 - adding an object with **no matching template** in the built scene (nothing
-  of the same recipe existed at build time), or an object that can't be
-  faithfully spawned at runtime: **point lights** (baked into vertex colors),
+  of the same recipe existed at build time), or one that can't be faithfully
+  spawned at runtime: **point lights** (baked into vertex colors),
   **projecting decals** (baked host projection), **mirrors** (baked reflection
   table), **portals** (baked PORTALS link table), or objects carrying a
   **flow graph / attached scripts** (compiled per authored object);
@@ -78,10 +80,10 @@ session — they simply don't show up in the game until the next build.
 
 ## How it works
 
-There is no socket and no extra protocol stack — the transport is the **host
-filesystem the game already loads its assets from**: PCSX2's *Host Filesystem*
-on the emulator, the ps2link/ps2client file server on a real console. One
-mechanism, both targets.
+No socket, no extra protocol stack — the transport is the **host filesystem
+the game already loads its assets from**: PCSX2's *Host Filesystem* on the
+emulator, the ps2link/ps2client file server on a real console. One mechanism,
+both targets.
 
 - The editor (`App::liveLinkTick`, ~10 Hz) snapshots the active scene as one
   64-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
@@ -139,14 +141,14 @@ start (the fresh build re-bakes everything).
 
 ## Limits & notes
 
-- The snapshot targets the editor's **active scene**; if the game is in a
-  different scene it ignores it (switch scenes in the editor to tune there).
+- The snapshot targets the editor's **active scene**; a game in a different
+  scene ignores it (switch scenes in the editor to tune there).
 - A live-added object has no compiled flow graph / scripts / save-state until
   the next build (spawning refuses such objects — amber chip — so this can't
   surprise you silently).
 - Deleting live hides the object; its collision stays until a rebuild
   (exactly the *Hide Object* approximation).
-- An object that physics is actively moving will be snapped back once per
-  edit — the same behavior a *Set Position* flow node has.
+- An object that physics is actively moving is snapped back once per edit —
+  the same behavior a *Set Position* flow node has.
 - On a real PS2 the poll cadence is ~0.5 s to keep the ps2link file server
   happy; PCSX2 polls ~10x per second.

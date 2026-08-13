@@ -1,9 +1,12 @@
 # lighting — the whole lighting batch in one dusk plaza
 
-First-person scene presenting every effect from the lighting batch at once:
+First-person scene showing every effect from the lighting batch at once:
 dynamic point lights with flicker and visible beams, the camera flashlight,
 sun lens flare + god rays, blob shadows, and per-object **projected
 silhouette shadows** — all against a warm low sun so the shadows stretch.
+
+Run it like every example: open `lighting.tyra` in TyraX and press **F5**
+(or `tyrax-editor.exe --build examples/lighting --run`).
 
 ## The tour (spawn faces the plaza)
 
@@ -27,7 +30,7 @@ silhouette shadows** — all against a warm low sun so the shadows stretch.
 ## What to look at
 
 - **Flicker vs baked**: the torch pools breathe; the blue lamp's pool never
-  moves (it is baked into vertex colors — free, but frozen).
+  moves (baked into vertex colors — free, but frozen).
 - **The crystal's pulse** is authored entirely in its flow graph — open the
   crystal's *Flow Graph* tab in the editor to see the 4-node loop.
 - **Projected vs blob**: the monolith's shadow is its actual rotated
@@ -38,12 +41,9 @@ silhouette shadows** — all against a warm low sun so the shadows stretch.
 
 ## How it's authored
 
-Everything is plain editor authoring, no scripts: per-light *Dynamic (live)*
-/ *Flicker* / *Beam* in Properties, *Cast shadow (projected)* on the three
-hero objects, blob shadows in *Project > Preferences > Shadows*, flare and
-god rays in *Tools > UI Editor* (per-scene overridable in *Scene > Post
-effects*), the flashlight on the Player object. The crystal's pulse is the
-only logic, and it is a flow graph.
-
-Run it like every example: open `lighting.tyra` in TyraX and press **F5**
-(or `tyrax-editor.exe --build examples/lighting --run`).
+Plain editor authoring, no scripts: per-light *Dynamic (live)* / *Flicker* /
+*Beam* in Properties, *Cast shadow (projected)* on the three hero objects,
+blob shadows in *Project > Preferences > Shadows*, flare and god rays in
+*Tools > UI Editor* (per-scene overridable in *Scene > Post effects*), the
+flashlight on the Player object. The crystal's pulse is the only logic, and
+it is a flow graph.

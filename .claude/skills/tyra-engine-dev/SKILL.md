@@ -509,7 +509,7 @@ Eight things here that were paid for, and that any edit must keep:
   never reached the line. **Grep `GS_SET_ZBUF` before adding a full-screen
   pass**, and never write the mask from one. The full account with before/after
   numbers is in `docs/neural-upscaler.md` §5 ("That invariant has been broken
-  TWICE") and `docs/backlog.md`.
+  TWICE").
   The diagnostic worth stealing: the same broken arms were **also missing the
   crosshair sprite**, including an arm whose terrain was untextured — a second,
   unrelated-looking thing going missing at the same time is what said "this is
@@ -804,9 +804,9 @@ Eight things here that were paid for, and that any edit must keep:
   default (FIXED 2026-08-09 - a single project positional defaults the path to
   `<projectDir>/blss.net` on the read side as well as the write; the BLSS
   window never saw it because it runs with cwd = the project AND passes `-o`);
-  and the corpus
-  RENDERER draws no emitters, so a PSNR number for a billboard-heavy scene
-  describes a frame the game never displays (both in docs/backlog.md).
+  and the corpus RENDERER draws no emitters, so a PSNR number for a
+  billboard-heavy scene describes a frame the game never displays. The missing
+  renderer is tracked in `docs/backlog.md`.
 - **The bob is the JITTER, and the per-field bias is NOT part of it.** The
   +-1/4-pixel per-frame raster jitter in `beginScene` is the confirmed cause: a
   person watched three builds of `examples/upscaler-lab` differing in nothing
@@ -1656,9 +1656,8 @@ on the same scene now that classification is cheap. When touching
 classification, mind the AABB invariant: every CoreBBox the packager sees is
 axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
 matrix-transform constructor breaks that, and it must never feed the AABB
-test. Known next target (from `docs/backlog.md`): retire the EE clipper —
-flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
-on a real-PS2 pass).
+test. VU1 clipping is now the default; the EE clipper remains available as the
+legacy compatibility mode. See docs/vu1-clipping-plan.md.
 - **`Info::getFps()` is NOT a clock you may add a constant to, and it was one
   for years.** It divided a hardcoded `15625.0` into a single frame's delta of
   **EE Timer 3**, which the kernel clocks from **H-BLNK** - i.e. it counts
