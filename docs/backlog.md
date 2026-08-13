@@ -68,7 +68,47 @@ picture under REPEAT while bounding coordinates by chunk size.
 
 ## Medium
 
-### FIRST: the guard may not be on the dispatch path at all under ps2link
+### SETTLED: the guard works in PCSX2 and is INERT under ps2link
+
+Same ELF, two targets, one counter (`SifRpcGuard::seen()` + a one-time log line):
+
+| target | completions the guard handled |
+|---|---|
+| PCSX2 | **429** in ~25 s (`SIF RPC guard: live, 429 completion(s) handled`) |
+| ps2link, 3 sessions, ~20 000 `[ps2]` lines total | **0** - the line never appeared |
+
+So the guard is functional and does not run where the crash happened. **Every
+zero it reported on hardware means "never asked", not "nothing wrong".** Checked
+against the obvious mistakes first: the string is in the deployed ELF, other
+engine `TYRA_LOG` lines arrive in the same captures, `engine.o` references both
+`install()` and `report()`, the generated game goes through `Engine::run` ->
+`realLoop` -> `report()`, `install()` position (first vs last in `initAll`) makes
+no difference, and `eeCrashHandler` on vs off makes no difference either - that
+correlation is dead.
+
+**Two earlier conclusions on this branch are withdrawn because of it.** If the
+guard does not run under ps2link then v1 and v2 are functionally identical there,
+so the guard cannot have caused the v1 hangs: the 2-of-4 against 0-of-6 table is
+back to being noise, and "v1 was harmful" is not supported. (v2's shape is still
+the better design on its own merits - completing the client is correct whether or
+not anything is guarded.) And the single `g_noPacket = 1` read cannot have come
+from a handler that does not run, so treat it as an artefact.
+
+**The sharp open question, and it is a good one.** The original crash reported
+`EPC 0x00271C78`. A game loads at `0x00100000` and the low ps2link sits at
+`0x00094000`, so that EPC is in the **game's** image - the game's own
+`_request_end` was executing when it faulted. So the game's handler *can* be on
+the dispatch path under ps2link; it simply was not in any session measured here.
+Until somebody works out what differs, a game-side guard cannot be trusted on
+hardware, and the defence may belong in `tools/ps2link/tyrax.patch` instead -
+i.e. in ps2link's own ps2sdk, where the other instance lives.
+
+Next probe, cheap: register the guard for `SIF_CMD_RPC_BIND` as well and log that
+separately. A bind happens at `fioInit()` before any game traffic, so it says
+whether the game's dispatcher was ever consulted at all or stopped being
+consulted at some point.
+
+### Finish verifying the SIF RPC completion guard
 
 **Measured, and it can invalidate every other number this feature has produced.**
 The guard now counts *every* completion it is handed (`SifRpcGuard::seen()`) and
