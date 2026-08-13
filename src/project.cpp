@@ -744,8 +744,18 @@ std::string objectJson(const SceneObject& o) {
         const char* modeName = o.playerMode == 1   ? "noclip"
                                : o.playerMode == 2 ? "thirdperson"
                                                    : "walk";
+        // The two extra speed tiers are written only when SET (0 = inherit),
+        // so a project that never touched them resaves byte for byte.
+        const std::string speedTiers =
+            (o.playerRunSpeed > 0.0f
+                 ? ", \"runSpeed\": " + fmtFloat(o.playerRunSpeed)
+                 : std::string()) +
+            (o.playerSprintSpeed > 0.0f
+                 ? ", \"sprintSpeed\": " + fmtFloat(o.playerSprintSpeed)
+                 : std::string());
         json += ", \"player\": { \"mode\": \"" + std::string(modeName) +
                 "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
+                speedTiers +
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
@@ -1272,6 +1282,33 @@ void sortDayKeys(DayCycle& c) {
                      [](const DayKey& a, const DayKey& b) { return a.hour < b.hour; });
 }
 
+// --- Player speed tiers (docs/player-speeds.md) ----------------------------
+// The whole "0 = inherit" chain lives here and nowhere else: the Properties
+// readout, codegen's PLAYER_RUN_SPEEDS / PLAYER_SPRINT_SPEEDS tables and the
+// fallback walker's terrain_config constants all resolve through these four,
+// so the number the panel prints is by construction the number that ships.
+float playerRunSpeed(const SceneObject& o) {
+    return o.playerRunSpeed > 0.0f ? o.playerRunSpeed : o.playerWalkSpeed;
+}
+
+float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st) {
+    if (o.playerSprintSpeed > 0.0f) return o.playerSprintSpeed;
+    // The multiplier applies to the RUN speed, which IS the walk speed unless
+    // one was set - so a project that never set a run speed sprints at exactly
+    // the walk x multiplier its old build did.
+    const float mult = st.sprintMultiplier > 1.0f ? st.sprintMultiplier : 1.0f;
+    return playerRunSpeed(o) * mult;
+}
+
+float settingsRunSpeed(const ProjectSettings& st) {
+    return st.runSpeed > 0.0f ? st.runSpeed : st.walkSpeed;
+}
+
+float settingsSprintSpeed(const ProjectSettings& st) {
+    const float mult = st.sprintMultiplier > 1.0f ? st.sprintMultiplier : 1.0f;
+    return settingsRunSpeed(st) * mult;
+}
+
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     ProjectSettings r = p.settings;
     const ProjectSettings& o = s.settings;
@@ -1543,6 +1580,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"zenithSize\": " << fmtFloat(p.settings.zenithSize) << ",\n"
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
+         // Written only when set (0 = the walk speed is the top speed), so a
+         // project that never used the ramp resaves unchanged.
+         << (p.settings.runSpeed > 0.0f
+                 ? "    \"runSpeed\": " + fmtFloat(p.settings.runSpeed) + ",\n"
+                 : std::string())
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
          << "    \"sprintMultiplier\": " << fmtFloat(p.settings.sprintMultiplier)
          << ",\n"
@@ -4507,6 +4549,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
             if (const auto* v = pl->find("walkSpeed"))
                 o.playerWalkSpeed = (float)v->numberOr(0.1);
+            // Absent = 0 = inherit, which is what a project written before
+            // these existed means and what it must keep meaning.
+            if (const auto* v = pl->find("runSpeed"))
+                o.playerRunSpeed = (float)v->numberOr(0.0);
+            if (const auto* v = pl->find("sprintSpeed"))
+                o.playerSprintSpeed = (float)v->numberOr(0.0);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
             if (const auto* v = pl->find("eyeHeight"))
@@ -4964,6 +5012,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
+        if (const auto* v = s->find("runSpeed")) st.runSpeed = (float)v->numberOr(0.0);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
         // Sprint: projects that predate it read 1.8 like a fresh one (the
         // sprint action ensureInputActions seeds is what actually enables it).
@@ -6720,6 +6769,9 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     // Player entity tunables (markers in the world, but baked per scene).
     fnvMix(h, (uint64_t)o.playerMode);
     fnvMixF(h, o.playerWalkSpeed), fnvMixF(h, o.playerLookSpeed);
+    // Baked into the PLAYER_*_SPEEDS tables, so editing one needs a rebuild -
+    // the recipe hash is what flips the LIVE chip to amber and says so.
+    fnvMixF(h, o.playerRunSpeed), fnvMixF(h, o.playerSprintSpeed);
     fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);

@@ -14382,6 +14382,19 @@ void App::drawPreferencesWindow() {
                          0.05f, 0.2f, 50.0f, "%.2f");
         walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
                       prefSettings_.unitsPerMeter);
+        // The same walk -> run stick ramp a Player object has
+        // (docs/player-speeds.md), for the fallback walker a scene with no
+        // Player object gets. Sprint stays the multiplier below, because
+        // there is no object here to state an absolute speed on.
+        speedTierDrag("Run speed", prefSettings_.runSpeed,
+                      project::settingsRunSpeed(prefSettings_),
+                      prefSettings_.unitsPerMeter, "same as walk", nullptr);
+        prefHelp(
+            "Speed at FULL stick; the deflection ramps Walk -> Run, so easing\n"
+            "the stick walks. Left unset the walk speed is the only speed,\n"
+            "which is how this walker always behaved.\n\n"
+            "This is the project-wide fallback: a scene with a Player object\n"
+            "takes all three tiers from that object instead.");
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
         ImGui::SeparatorText("Camera");

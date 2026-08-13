@@ -262,7 +262,7 @@ in *Properties*:
 | **Model faces** | Imported avatar facing the wrong way? Pick the axis it currently faces. **-Z (backwards)** applies the common 180° correction without rotating the Player object, so runtime locomotion can still own its facing. |
 | **Run clip** | Optional (`<none>` = walk covers all speeds). |
 | **Jump clip** | Optional (`<none>` = holds walk/idle while airborne). |
-| **Run at** | Planar-speed fraction (of full walk speed) where the run clip takes over. |
+| **Run at** | Planar-speed fraction (of the full-stick **run** speed — see [player-speeds.md](player-speeds.md)) where the run clip takes over. Sprinting is always above it. |
 | **Face camera (strafe)** | The avatar keeps facing the camera instead of turning into the movement direction — sideways/backward movement then plays the directional clips below. |
 | **Back / Strafe left / Strafe right clip** | Optional directional locomotion (`<none>` = the walk clip covers that direction). Only shown — and only active — with *Face camera* on. |
 | **Style** | The camera rig: **Orbit (behind)** = free look (right stick orbits), **Top-down** / **Isometric** / **Fixed angle** = the camera is pinned to a set angle for camera-locked games. Top-down and Isometric are presets of Fixed angle — picking them seeds the angles below, which stay editable. |

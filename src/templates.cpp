@@ -498,6 +498,11 @@ constexpr float TERRAIN_VIEW_DISTANCE = {{TERRAIN_VIEW_DISTANCE}};
 
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
+// The full-stick tier and the sprint tier, already resolved (0 = inherit is
+// applied by the editor, docs/player-speeds.md): with no run speed set these
+// are WALK_SPEED and WALK_SPEED x the sprint multiplier.
+constexpr float RUN_SPEED = {{RUN_SPEED}};
+constexpr float SPRINT_SPEED = {{SPRINT_SPEED}};
 constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -12453,17 +12458,29 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  // Sprint (Tools > Input Map "sprint" action + Preferences > Input > Sprint
-  // speed): scales the walk speed while the action is held. SPRINT_MULT 1 or
-  // an unbound/absent sprint action = no sprinting, no cost. The avatar's
-  // locomotion clip is chosen from speedFrac against the UNSPRINTED speed
-  // further down, so sprinting is what pushes it over the run threshold.
+  // The three speed tiers (docs/player-speeds.md). The stick's DEFLECTION
+  // ramps the speed from walk to run, so easing the stick walks and pushing it
+  // all the way runs; a digital source (d-pad, keyboard) always reads full
+  // deflection and therefore always runs. Holding the "sprint" action pins the
+  // top speed FLAT instead of ramping - a deliberate go-fast modifier.
+  //
+  // Both tiers are RESOLVED at build time (project::playerRunSpeed /
+  // playerSprintSpeed), so a project that set neither has RUN == WALK - the
+  // ramp is then a no-op - and SPRINT == walk x SPRINT_MULT, which is the
+  // expression this used to compute here. That is what makes an existing
+  // project move exactly as it did.
+  //
+  // forward/strafe are each -1..1 and already carry the stick's magnitude into
+  // the position delta below, so the ramp must scale the SPEED only; the clamp
+  // matters because a d-pad diagonal reads sqrt(2).
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
+  const bool sprinting =
+      IA_ROLE_SPRINT >= 0 && inputPressed(pad, IA_ROLE_SPRINT);
   const float moveSpeed =
-      PP_WALK_SPEED(pi) *
-      ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-        inputPressed(pad, IA_ROLE_SPRINT))
-           ? SPRINT_MULT
-           : 1.0F);
+      sprinting ? PP_SPRINT_SPEED(pi)
+                : PP_WALK_SPEED(pi) +
+                      (PP_RUN_SPEED(pi) - PP_WALK_SPEED(pi)) * stickMag;
 
   if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -12636,7 +12653,12 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[1] = P.y;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
-      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      // Locomotion clips are measured against the RUN speed - the top of the
+      // stick ramp - so PP_RUN_THRESHOLD keeps meaning "fraction of full-stick
+      // speed" whether or not a run speed was set (with none, RUN == WALK and
+      // this is the expression it always was). Sprinting exceeds the run
+      // speed, so it still pushes the fraction past the threshold.
+      const float step = PP_RUN_SPEED(pi) * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
                       moveLocal);
     }
@@ -19210,12 +19232,17 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
-  // Sprint: same rule as the Player-entity walker (Tools > Input Map).
+  // Speed tiers: the same rule as the Player-entity walker - the stick's
+  // deflection ramps WALK -> RUN, and holding sprint pins the top flat
+  // (docs/player-speeds.md). RUN_SPEED and SPRINT_SPEED are resolved at build
+  // time, so with no run speed set RUN_SPEED == WALK_SPEED (a flat ramp) and
+  // SPRINT_SPEED == WALK_SPEED x SPRINT_MULT, which is what this computed.
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
   const float moveSpeed =
-      WALK_SPEED * ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-                     inputPressed(engine->pad, IA_ROLE_SPRINT))
-                        ? SPRINT_MULT
-                        : 1.0F);
+      (IA_ROLE_SPRINT >= 0 && inputPressed(engine->pad, IA_ROLE_SPRINT))
+          ? SPRINT_SPEED
+          : WALK_SPEED + (RUN_SPEED - WALK_SPEED) * stickMag;
   float nextX = playerX + (fx * forward - fz * strafe) * moveSpeed * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * moveSpeed * g_frameScale;
 
@@ -23361,6 +23388,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         // The fallbacks fill scenes that have no Player object at all; keep
         // them on the SceneObject defaults (walk = 0.1 units per 1/50 s).
         playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.1f);
+        // The two tiers above the walk, RESOLVED here (docs/player-speeds.md):
+        // the "0 = inherit" chain is project::playerRunSpeed /
+        // playerSprintSpeed, the same functions the Properties panel prints, so
+        // the runtime needs no fallback branch and cannot disagree with the
+        // editor. A project that set neither bakes run = walk (a flat ramp) and
+        // sprint = walk x sprintMultiplier, i.e. exactly the constants the
+        // walkers used to compute inline.
+        playerFloat("RUN_SPEEDS",
+                    [](const SceneObject& o) { return project::playerRunSpeed(o); },
+                    0.1f);
+        playerFloat("SPRINT_SPEEDS",
+                    [&](const SceneObject& o) {
+                        return project::playerSprintSpeed(o, p.settings);
+                    },
+                    0.1f * (p.settings.sprintMultiplier > 1.0f
+                                ? p.settings.sprintMultiplier
+                                : 1.0f));
         playerFloat("LOOK_SPEEDS", [](const SceneObject& o) { return o.playerLookSpeed; }, 1.0f);
         playerFloat("EYE_HEIGHTS", [](const SceneObject& o) { return o.playerEyeHeight; }, 1.8f);
         playerFloat("JUMP_SPEEDS", [](const SceneObject& o) { return o.playerJumpSpeed; }, 4.5f);
@@ -24076,6 +24120,8 @@ inline int everyFrames(float seconds) {
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_RUN_SPEED PLAYER_RUN_SPEEDS[g_activeScene]
+#define PLAYER_SPRINT_SPEED PLAYER_SPRINT_SPEEDS[g_activeScene]
 #define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
@@ -24100,6 +24146,8 @@ inline int everyFrames(float seconds) {
 #define PP_INDEX(pi) PP_TBL(pi, INDEXES)
 #define PP_MODE(pi) PP_TBL(pi, MODES)
 #define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_RUN_SPEED(pi) PP_TBL(pi, RUN_SPEEDS)
+#define PP_SPRINT_SPEED(pi) PP_TBL(pi, SPRINT_SPEEDS)
 #define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
 #define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
 #define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
@@ -25052,6 +25100,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
+    s = replaceAll(s, "{{RUN_SPEED}}", floatLit(project::settingsRunSpeed(st)));
+    s = replaceAll(s, "{{SPRINT_SPEED}}",
+                   floatLit(project::settingsSprintSpeed(st)));
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
     s = replaceAll(s, "{{DEADZONE_L}}", floatLit(st.stickDeadzoneL));
     s = replaceAll(s, "{{DEADZONE_R}}", floatLit(st.stickDeadzoneR));

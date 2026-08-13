@@ -735,8 +735,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_MINOR 25
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -917,6 +917,19 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // unchanged, and no migration step is needed for the renumber either - a file
 // claiming 8 now means "the neural upscaler", which an animation-only project
 // simply does not use.)
-inline constexpr int kFormatVersion = 17;
+// v18 (Player speed tiers, docs/player-speeds.md): SceneObject::playerRunSpeed
+// and playerSprintSpeed, plus ProjectSettings::runSpeed for the fallback
+// walker. All three are additive AND are written only when non-zero, so a
+// project that never opens the new fields resaves byte for byte - checked, not
+// assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere.
+//
+// No migration step, and the reason is the "0 = inherit" default rather than
+// mere additivity: 0 resolves to the numbers the walkers used to compute
+// inline (run = walk, sprint = walk x sprintMultiplier), so an old project is
+// not merely readable, it MOVES identically. Verified on the generated side -
+// examples/script-demo regenerated RUN_SPEED == WALK_SPEED == 0.4 and
+// SPRINT_SPEED == 0.72 == 0.4 x 1.8.
+inline constexpr int kFormatVersion = 18;
 
 }  // namespace version

@@ -123,15 +123,19 @@ built-ins ship that way.
 
 ## Sprint
 
+Holding the sprint action pins the player at their **sprint speed**. Where that
+speed comes from is covered in full by [player-speeds.md](player-speeds.md); the
+short version is that a Player object can state it outright (*Properties >
+Sprint speed*), and if it does not, it falls back to
 `ProjectSettings::sprintMultiplier` (*Input Map*, or *Preferences > Input >
-Sprint speed*) scales walk speed while the sprint action is held; **1.00× turns
-sprinting off** without unbinding the button. It applies to all three walker
-modes (walk / third person / noclip fly) and to both players.
+Sprint speed*) applied to the run speed. **1.00× and no explicit sprint speed
+turns sprinting off** without unbinding the button. It applies to all three
+walker modes (walk / third person / noclip fly) and to both players.
 
-The third-person avatar's locomotion clip is still chosen from its speed as a
-fraction of the **unsprinted** walk speed, so sprinting is exactly what pushes
-it over the run threshold (*Player > Run threshold*) — the run clip and its
-faster playback come for free.
+The third-person avatar's locomotion clip is chosen from its speed as a fraction
+of the **run** speed — the top of the stick ramp — so sprinting is above that
+fraction by construction and pushes it over the run threshold (*Player > Run
+at*); the run clip and its faster playback come for free.
 
 ## Flow graph
 

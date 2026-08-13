@@ -664,6 +664,25 @@ agent state, movement and A* already exist. Anything that changes what blocks
 walkability must update `navmesh::bake` (host) — there is no game-side twin,
 the game only reads the baked bitmap.)
 
+**Player movement speeds** (docs/player-speeds.md) are three tiers, not one, and
+the shape is worth copying for any "0 = inherit" field. `SceneObject::playerWalkSpeed`
+is the base; `playerRunSpeed` and `playerSprintSpeed` default to **0 meaning inherit**,
+and the whole fallback chain lives in exactly two functions - `project::playerRunSpeed`
+and `project::playerSprintSpeed` (plus `settingsRunSpeed`/`settingsSprintSpeed` for the
+Player-less fallback walker). Codegen bakes the RESOLVED numbers into
+`PLAYER_RUN_SPEEDS[]` / `PLAYER_SPRINT_SPEEDS[]` and the Properties panel prints them
+through the same two functions, so the runtime needs no fallback branch and the panel
+cannot promise a speed the console does not run. Three consequences: the tiers are
+written to the `.tyra` **only when non-zero**, so an untouched project resaves byte for
+byte; 0 resolves to run = walk and sprint = walk x `sprintMultiplier`, which is exactly
+what the walkers used to compute inline, so an old project MOVES identically rather than
+merely loading; and the stick's deflection ramps walk -> run
+(`WALK + (RUN - WALK) * stickMag`) while sprint pins the top FLAT - ramping sprint too
+would have changed partial-stick behaviour for every existing project. Both walkers
+(`updatePlayerWalker` and the FPP tail's) carry the expression, and `drivePlayerAnim`
+normalises `speedFrac` by the RUN speed so "Run at" keeps meaning "fraction of
+full-stick speed".
+
 **Player / two-player work** (docs/multiplayer.md): the generated game's
 walker state is a per-player `PlayerCtl` struct (`players[2]` in the game hpp
 templates) and the walker is `updatePlayerWalker(PlayerCtl&, pi, Tyra::Pad&)`

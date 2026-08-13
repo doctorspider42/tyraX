@@ -275,6 +275,10 @@ guides. What is queued is in [Backlog](backlog.md).
   in-game *Rebind key* menu row (capture mode, overrides persisted in save
   values), the configurable sprint, and the On Action / On Key / Set Input
   Preset flow nodes. Pairs with [keyboard & mouse](keyboard-mouse.md).
+- [Player speeds: walk, run and sprint](player-speeds.md) - the three movement
+  tiers of a Player object, how the stick's deflection ramps walk into run and
+  the sprint button pins the top flat, what an unset tier inherits, and why the
+  avatar's run clip is measured against the run speed.
 - [Text icons (button glyphs in text)](text-icons.md) - `{{cross}}` /
   `{{action:jump}}` placeholders that draw a pad-button glyph inside any text:
   the seeded DualShock set the editor draws itself, overriding one with your own

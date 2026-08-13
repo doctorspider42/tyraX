@@ -160,7 +160,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.
-- **Player and physics** — FPP / third-person / noclip player entities, rigid
+- **Player and physics** — FPP / third-person / noclip player entities with
+  [walk, run and sprint speeds](docs/player-speeds.md), rigid
   bodies, [collision boxes](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
 - **World state** — [areas](docs/areas.md),

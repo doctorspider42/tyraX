@@ -400,6 +400,25 @@ struct SceneObject {
     // shows and edits this in units per SECOND; only the file and the game
     // see the step form.
     float playerWalkSpeed = 0.1f;
+    // The two speed tiers above the walk (docs/player-speeds.md), in the same
+    // per-1/50 s step unit. Both are 0 by default, which means "inherit", and
+    // that is what keeps every project written before they existed moving
+    // EXACTLY as it did: run resolves to the walk speed (so the ramp below is
+    // flat) and sprint to walk x ProjectSettings::sprintMultiplier, which is
+    // the constant the walkers used to apply on their own.
+    //
+    // How the three are selected at runtime, all in updatePlayerWalker:
+    //   - the left stick's deflection ramps the speed WALK -> RUN, so a gentle
+    //     stick walks and a full stick runs. A digital source (d-pad, keyboard)
+    //     always reads full deflection and therefore always runs.
+    //   - holding the "sprint" input action pins the speed at SPRINT instead,
+    //     flat, ignoring the ramp - a deliberate "go fast" modifier rather than
+    //     a third analog tier.
+    // The avatar's locomotion clip is chosen from the fraction of the RUN
+    // speed, so playerRunThreshold keeps meaning "fraction of full-stick
+    // speed" whether or not a run speed was set.
+    float playerRunSpeed = 0.0f;    // 0 = same as walk (no ramp)
+    float playerSprintSpeed = 0.0f; // 0 = run x settings.sprintMultiplier
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
@@ -889,6 +908,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
+           a.playerRunSpeed == b.playerRunSpeed &&
+           a.playerSprintSpeed == b.playerSprintSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
@@ -1265,11 +1286,18 @@ struct ProjectSettings {
     // it is why projects tended to get built several times larger than metric
     // (docs/world-scale.md). Existing projects keep whatever they saved.
     float walkSpeed = 0.1f;
+    // The full-stick tier for the same fallback walker, mirroring
+    // SceneObject::playerRunSpeed: 0 = no ramp, the walk speed IS the top
+    // speed (what every project did before this existed).
+    float runSpeed = 0.0f;
     float lookSpeed = 1.0f;  // multiplier
 
     // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
-    // walkers multiply their walk speed by this. 1.0 = sprinting does nothing
-    // (the switch that turns the feature off without unbinding the button).
+    // walkers multiply their RUN speed by this (the run speed is the walk speed
+    // unless one was set, so this keeps meaning exactly what it always did).
+    // 1.0 = sprinting does nothing - the switch that turns the feature off
+    // without unbinding the button. A Player object can override the result
+    // outright with SceneObject::playerSprintSpeed.
     float sprintMultiplier = 1.8f;  // 1..4
 
     // Analog sticks: offsets below this fraction of full deflection read as
@@ -1535,7 +1563,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
-           a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.walkSpeed == b.walkSpeed && a.runSpeed == b.runSpeed &&
+           a.lookSpeed == b.lookSpeed &&
            a.sprintMultiplier == b.sprintMultiplier &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
@@ -3332,6 +3361,22 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
 // runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// The Player speed tiers with the "0 = inherit" rule already applied, in the
+// stored per-1/50 s step unit (docs/player-speeds.md). ONE answer to "how fast
+// does this player actually move", read by codegen's PLAYER_*_SPEEDS tables AND
+// by the Properties readout - a second copy of the fallback chain is exactly how
+// a panel comes to promise a number the console does not run.
+//
+// Sprint falls back to run x sprintMultiplier rather than to walk x, which is
+// the same number whenever no run speed was set and is what makes an existing
+// project's sprint byte-identical.
+float playerRunSpeed(const SceneObject& o);
+float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st);
+// The same pair for the fallback walker of a scene with no Player object,
+// which is driven by ProjectSettings instead (Preferences > Player).
+float settingsRunSpeed(const ProjectSettings& st);
+float settingsSprintSpeed(const ProjectSettings& st);
 
 // What the neural upscaler resolves to across the WHOLE project (docs/
 // neural-upscaler.md, "Per scene"). One answer, read by codegen, by the build
