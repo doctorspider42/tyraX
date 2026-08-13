@@ -52,6 +52,17 @@ std::vector<File> bakeStaticModels(const Project& p,
 std::vector<File> bakeAnimAssets(const Project& p,
                                  std::vector<std::string>* warnings = nullptr);
 
+// Texture hot reload (docs/live-link.md): the bin/-relative paths the GAME
+// knows a res/-relative texture as when an ANIMATED model carries it.
+// bakeAnimAssets extracts every texture an override .mtl names into a RENAMED
+// copy next to the model's .tskl ("models/<stem>_<basename>.png"), and that
+// baked path - not the texture's own location - is what the .tskl stores and
+// the game loads. So a repaint has to be announced under it, and under one
+// per model when several animated models share the texture. Empty for the
+// ordinary case (nothing animated uses the file: it ships where it lives).
+std::vector<std::string> animTextureAliases(const Project& p,
+                                            const std::string& texResRel);
+
 // Built-in assets for the "FPP showcase" template.
 const char* houseObjText();
 const unsigned char* crosshairPng(size_t& size);
