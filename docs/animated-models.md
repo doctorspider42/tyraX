@@ -143,6 +143,7 @@ Sources are never modified and the output is deterministic.
 | Clip switch pops | Add a 0.2–0.4 s crossfade |
 | Walk moves the object away | Enable **In place** on that clip |
 | Palette-slot error | Simplify the rig below 256 bones/nodes |
+| First assignment pauses | The preview bake is cached and should be brief. Several seconds usually means an FBX needs ufbx's slower posing path because it uses parent-scale inheritance or dual-quaternion skinning |
 
 Animated models receive the scene's directional and ambient light. Point-light
 bakes and the usable-object highlight rim currently apply only to static meshes.

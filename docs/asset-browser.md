@@ -23,7 +23,12 @@ no separate asset database: files added outside TyraX appear automatically.
 
 Model imports copy their textures and materials, validate the geometry and ask
 for its real-world size. Large `.obj`, `.glb` and `.fbx` files import in the
-background, so the editor stays usable.
+background; a spinner and staged progress bar cover copying, parsing, validation
+and the animated-memory estimate.
+
+When the import finishes, its dependency group moves into the current model
+folder and the size dialog opens. The dialog reuses the bounds already calculated
+by the importer or inspector, so it does not parse and bake the model again.
 
 ## References
 
