@@ -50,8 +50,8 @@ file operation someone else could have done in the file manager.
 ## Importing large models
 
 Model import runs on a worker thread after the native file picker closes. The
-modal stays responsive and shows both a spinner and a staged progress bar while
-the editor copies the model and its dependencies, parses and validates the
+editor keeps redrawing and the modal shows both a spinner and a staged progress
+bar while the editor copies the model and its dependencies, parses and validates the
 geometry or animation, and estimates animated-runtime memory. File copying has
 byte-level progress; parser and animation-bake stages hold at their real stage
 boundary because those libraries do not expose finer progress callbacks, while
