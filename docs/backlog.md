@@ -284,6 +284,28 @@ packet out and cleared `psize`. Which counter fires — `rejectedNoPacket` vs
 instance live in the same address space as the game, and the guard is installed
 only into the game's.
 
+### Confirm the r7 wedge fix on hardware
+
+`pkoReset()` touched the screen (`init_scr()`) BEFORE quiescing the DMAC/GIF the
+dead game left mid-chain, and `init_scr()` draws through exactly those blocks.
+Blocking there blocks ps2link's EE command thread - the one thread that executes
+every command - so the console ignores `reset` and `execee` for good while its
+IOP-side file server keeps listening. r7 reorders it: hardware, then vectors,
+then screen. Written up in
+[ps2link-setup.md](ps2link-setup.md); **not confirmed on hardware**, and it
+cannot be until a card is flashed with r7 and the wedge fails to recur.
+
+**A caution about the evidence for that wedge.** Of the four apparent wedges
+observed while chasing it, **two were provably my own tooling** - a cycle script
+pointed at the wrong project directory, and a missing `bin/ps2link.run` marker
+(without it the game sets `writeLogsToFile` and opens `log.txt` over `host:` for
+every log line, one round trip each, so the boot crawls and looks exactly like a
+hang). Both presented identically to a wedged console: `DEPLOY FAILED`, a static
+picture, no response. So the "five rapid reset+teardown cycles reproduce it"
+recipe recorded earlier is **not trustworthy** - the real rate is unknown and
+lower. Verify a deploy is fresh from the capture (a boot line, or a low first
+`VRAMSTAT f=`) before recording anything about console state.
+
 ### Recover the console from the refuses-every-deploy wedge
 
 Repeatable now: five rapid reset + teardown cycles get there, and so does a
