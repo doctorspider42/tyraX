@@ -129,12 +129,14 @@ whole pipeline. Every saved paint stroke / applied bake layer:
 
 1. re-bakes the texture into `bin/<path>` in exactly the format the build
    shipped (the palette layout is read from the existing PNG's header, so
-   the swap is format-identical), written atomically;
+   the swap is format-identical), written atomically — **once per path the
+   texture ships under**, see below;
 2. bumps `bin/livetex.bin` — a tiny manifest of repainted textures with
    growing generations (`TXLT` magic, seq + footer echo like the scene
    snapshot; cumulative per session, so a game booted later catches up).
+   Every path one paint produced shares a **group** number.
 
-The generated poller (`src/scripts/live_tex.gen.cpp`, same debug + Live Link
+The generated poller (`src/gen/live_tex.gen.cpp`, same debug + Live Link
 gate) re-decodes the PNG and **re-uploads the pixels into the texture's
 existing GS VRAM allocation** (`RendererCoreTexture::updateTextureInfo` —
 same address, so the GS bump allocator is never disturbed; textures are
@@ -143,6 +145,26 @@ Every mesh sharing the texture updates at once. A repaint that changed the
 texture's dimensions or palette format is skipped with a soft error in the
 log — that needs a real build. The Runner deletes `livetex.bin` at build
 start (the fresh build re-bakes everything).
+
+**The path the game knows is not always where the texture lives.** An
+animated model bakes every texture its material override names into a
+*renamed* copy next to its `.tskl` — `res/materials/Body-tex.png` ships as
+`models/hero__ovr3a65_Body-tex.png`, and that renamed path is what the
+`.tskl` stores and the game loads. So the editor resolves the painted file
+through the bake's own naming (`templates::animTextureAliases`) and updates
+**and announces every one of those copies as well**, one per animated model
+carrying the texture. For a texture only animated models use, the texture's
+own location is not among them at all — which is exactly why a repaint used
+to do nothing there, with no diagnostic anywhere.
+
+**A reload that matches nothing says so.** The poller reports per *group*:
+one record matching no loaded texture is ordinary (the paint announces every
+path the texture may have shipped under, and the game loaded one of them),
+but when a whole group matches nothing it prints a soft error naming each
+path it tried. That is the case where the repaint genuinely did not happen —
+the model is not in the running scene, or it is new since the last build —
+and it used to be silent, i.e. indistinguishable from the feature not
+existing.
 
 ## Limits & notes
 

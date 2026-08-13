@@ -1231,6 +1231,22 @@ silently not show that edit while claiming LIVE. The snapshot seq is seeded
 from the clock at attach — a restarted editor must never reuse a seq the
 still-running game already applied.
 
+**Texture hot reload** (`App::liveTexNotify` in mateditor_ui.cpp, the poller
+in `liveTexScript`) rides the same gate and carries one rule of its own: **the
+game knows a texture by the path it was SHIPPED under, which is not always
+where the texture lives.** `bakeAnimAssets` renames every texture an animated
+model's override `.mtl` names into a copy next to the `.tskl`
+(`animBakedTextureRel` — `res/materials/x.png` ships as
+`models/hero__ovr3a65_x.png`), so an announcement under the texture's own path
+matches nothing at all and the repaint silently did nothing there.
+`templates::animTextureAliases` is the single reverse lookup — it derives the
+same names the bake does — and a paint updates AND announces every one of them
+as one GROUP. That grouping is what makes the failure reportable: one record
+matching no loaded texture is expected (the game loaded one of the group's
+other paths), a whole group matching none is the reload not happening, and the
+poller soft-errors naming each path it tried. Anything that changes where a
+texture is baked to changes `animBakedTextureRel`, and both callers follow.
+
 **Live Logic** (`App::liveLogicTick` each frame from `drawUI`; docs in
 `docs/live-logic.md`) - the third live channel, and the one that changes
 BEHAVIOR: debug profile + `ProjectSettings::liveLogic`. Codegen emits

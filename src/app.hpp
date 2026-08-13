@@ -2681,8 +2681,16 @@ private:
     // via bin/livetex.bin; the generated live_tex poller re-uploads the
     // pixels into the running game's existing GS VRAM allocation. Paint in
     // the editor, watch the texture change on the console.
-    std::map<std::string, uint32_t> liveTexGen_;  // game-relative -> generation
+    // One paint may have SEVERAL shipped paths (an animated model's .tskl
+    // renames its textures), so each record carries the paint it belongs to -
+    // the game reports a failed reload per group, not per path.
+    struct LiveTexRec {
+        uint32_t gen = 0;    // grows per repaint; the poller applies unseen
+        uint32_t group = 0;  // the paint that announced it
+    };
+    std::map<std::string, LiveTexRec> liveTexGen_;  // game-relative -> record
     uint32_t liveTexSeq_ = 0;
+    uint32_t liveTexGroup_ = 0;
     void liveTexNotify(const std::string& texResRel);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
