@@ -1,5 +1,7 @@
 # UI scripting — driving the editor without a human
 
+![A UI script can open and operate panels such as Remote Pad](img/remote-pad.png)
+
 ```
 tyrax-editor --ui-script [projectDir] "click Tools; click 'Remote Pad'; shot pad.png"
 tyrax-editor --ui-script [projectDir] --file check.ui

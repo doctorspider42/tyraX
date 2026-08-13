@@ -1,30 +1,43 @@
 # Orthographic and axis views
 
 The viewport camera is perspective by default — the free orbit camera that
-looks the way the game will. Some jobs are not "look at the scene", they are
-"line these up": laying a street of houses along one axis, matching the
-heights of two platforms, checking that a wall is actually flat. Perspective
-foreshortening makes those hard, so the viewport also renders with a
-**parallel (orthographic) projection**, optionally locked to a world axis.
+looks the way the game will. But some jobs aren't "look at the scene", they're
+"line these up": a street of houses along one axis, two platforms at the same
+height, a wall that must be flat. Perspective foreshortening makes those hard,
+so the viewport also renders with a **parallel (orthographic) projection**,
+optionally locked to a world axis.
 
 ## Switching
+
+The same scene makes the difference clearer than a definition:
+
+**Perspective —** good for judging the scene as a player will see it.
+
+![The showcase scene in perspective view.](img/view-perspective.png)
+
+**Top —** the same scene becomes a floor plan, so spacing is easy to compare.
+
+![The showcase scene snapped to Top view.](img/view-top.png)
+
+**Front —** the same scene becomes an elevation, so height is easy to compare.
+
+![The showcase scene snapped to Front view.](img/view-front.png)
 
 ### The axis gizmo
 
 The quickest way is the widget in the viewport's **top-right corner** — the
-three world axes, drawn as coloured balls that turn with the camera:
+three world axes as coloured balls that turn with the camera:
 
 - **X red, Y green, Z blue.** The positive end of each axis carries a stem and
-  its letter; the negative end is a hollow ball opposite it, labelled when you
-  hover it.
-- **Click a ball** and the camera snaps to the orthographic view from that end
-  of the axis: +Y is Top, −Y Bottom, +Z Front, −Z Back, +X Right, −X Left. The
-  ball of the view you are currently in wears a white ring.
+  its letter; the negative end is a hollow ball opposite, labelled on hover.
+- **Click a ball** to snap to the orthographic view from that end of the axis:
+  +Y is Top, −Y Bottom, +Z Front, −Z Back, +X Right, −X Left. The ball of the
+  current view wears a white ring.
 - **Click the hub** in the middle to switch perspective ⇄ parallel without
   changing where the camera looks.
 
 Clicking the widget never touches the selection. Turn it off in
-*View > Projection > Axis gizmo* if you want the corner back (it is a machine
+*View > Projection > Axis gizmo* if you want the corner back (a machine
 setting in `editor.ini`, like the navigation scheme).
 
 ### The other three ways
@@ -52,21 +65,20 @@ The number **row** keys stay on the transform tools (`1` move, `2` rotate,
   read equal anywhere on screen; distant geometry no longer shrinks.
 - **Top / Bottom / Front / Back / Right / Left** — parallel projection *and*
   the camera aimed straight down that world axis. Top is a floor plan
-  (+X right, +Z down the screen); Front, Back, Right and Left are elevations.
+  (+X right, +Z down the screen); the other four are elevations.
 
-Orbiting while in a locked axis view is not ignored: it drops the direction
-lock and returns to **the projection you came from**, continuing from exactly
-where the image was. An axis view is a glance, not a new home — if you were in
-Perspective when you clicked Top, the first drag gives you your perspective
-camera back; if you had deliberately switched to **Orthographic** (free) first,
-the drag returns you to that instead. Stepping straight from one axis view to
-another does not change what you will come back to, and neither does reopening
-the project in a saved axis view (which has no history, so it returns to
-perspective).
+Orbiting in a locked axis view drops the direction lock and returns to **the
+projection you came from**, continuing from exactly where the image was. An
+axis view is a glance, not a new home: from Perspective, the first drag gives
+your perspective camera back; if you'd deliberately switched to
+**Orthographic** (free) first, the drag returns you there. Stepping straight
+from one axis view to another doesn't change what you'll come back to, and
+neither does reopening the project in a saved axis view (which has no
+history, so it returns to perspective).
 
-Panning (middle-drag), the wheel zoom and WASD flying work in every
-mode — in a Top view "forward" walks up the image, since there is no view
-direction left to flatten onto the ground.
+Panning (middle-drag), the wheel zoom and WASD flying work in every mode — in
+a Top view "forward" walks up the image, since there's no view direction left
+to flatten onto the ground.
 
 Selection clicks, the terrain sculpt/paint brush, rubber-band selection, the
 transform gizmo and the paste placement all follow the projection, because
@@ -80,10 +92,9 @@ they build their ray from the same camera the image was drawn with.
 - The zoom (wheel) still moves the camera distance, and the ortho framing is
   derived from it, so switching between perspective and ortho keeps roughly
   the same amount of world on screen.
-- Looking **through a Camera entity** (the `View:` control next to `Proj:`, or
-  a Cutscene Director camera preview) always renders in perspective with that
-  camera's FOV — it is showing you the game's picture, and the game has no
-  ortho mode.
+- Looking **through a Camera entity** (the `View:` control next to `Proj:`,
+  or a Cutscene Director camera preview) always renders in perspective with
+  that camera's FOV — it's the game's picture, and the game has no ortho mode.
 - The choice is editor state, stored per project in `<name>.tyra`
-  (`"editor": { "viewProjection": ... }`) and restored when you reopen it. It
-  never reaches the generated game.
+  (`"editor": { "viewProjection": ... }`) and restored on reopen. It never
+  reaches the generated game.

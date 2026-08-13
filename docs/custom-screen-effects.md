@@ -1,5 +1,7 @@
 # Custom screen effects
 
+![Per-scene post-effect settings](img/project-preferences.png)
+
 The editor ships two built-in full-screen post effects — **bloom** and **film
 grain** (Tools ▸ UI Editor). When you want an effect the editor doesn't have,
 you can define your own — **per project, no editor rebuild** — as a `.screenfx`

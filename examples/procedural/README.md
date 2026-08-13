@@ -5,6 +5,8 @@ the [procedural generation](../../docs/procedural-generation.md) library — fro
 "scatter a forest with clearings" to "put this pillar twelve times around a
 circle, exactly".
 
+![The forest volume's graph and its baked preview in the editor.](../../docs/img/procedural-editor.png)
+
 Open `procedural.tyra` in the editor and Build & Run (`F5`), or build headless:
 `tyrax-editor.exe --build <this folder> --run`. The project opens on its
 **Procedural** window layout, so the graph editor is already there; the volume
@@ -34,14 +36,14 @@ calls is the number that matters on a PS2, not the instance count — see
 
 ## The map itself
 
-The terrain is shaped so that every terrain-reading node has something to read:
-a flat plaza inside a 20-unit radius, rolling ground around it, and a genuinely
-steep ridge along the north edge. That ridge is what the forest's slope filter
-cuts against — walk to it and watch the trees stop partway up.
+The terrain gives every terrain-reading node something to read: a flat plaza
+inside a 20-unit radius, rolling ground around it, and a genuinely steep ridge
+along the north edge. That ridge is what the forest's slope filter cuts
+against — walk to it and watch the trees stop partway up.
 
 The **plaza** is an ordinary Box object, and the forest's *Keep Away From*
-points at it **by name**: a procedural rule referencing hand-placed geometry, so
-moving the plaza in the editor moves the clearing with it.
+points at it **by name**: a procedural rule referencing hand-placed geometry,
+so moving the plaza in the editor moves the clearing with it.
 
 ## Node coverage
 
@@ -64,42 +66,44 @@ Every node in the library appears at least once:
 
 ## Things worth trying
 
-- **Reseed** (top of the window) and watch the forest, the orchard and the
-  crystals reshuffle while the colonnade, the cairn and the fence do not move a
-  millimetre — the repeat nodes are analytic, nothing about them is random.
-- Raise the forest's **Density** and note that existing trees stay where they
-  are: new ones appear *between* them. That is prefix stability, and it is why
-  the coarse preview while you drag never lies.
+- **Reseed** (top of the window): the forest, orchard and crystals reshuffle
+  while the colonnade, cairn and fence do not move a millimetre — the repeat
+  nodes are analytic, nothing about them is random.
+- Raise the forest's **Density**: existing trees stay put, new ones appear
+  *between* them. That is prefix stability, and it is why the coarse preview
+  while you drag never lies.
 - Right-click any node > **Preview** to see what that node alone produced
   (a mask drapes over the terrain, a curve draws as a line).
-- Turn on **Edit instances** and drag one tree somewhere else, or ctrl-click to
-  delete it. Then change the density again — your edit is still attached to
+- Turn on **Edit instances** and drag one tree somewhere else, or ctrl-click
+  to delete it. Change the density again — your edit is still attached to
   that instance, because overrides bind to a point's identity, not its index.
-- Open the **colonnade** and change *Count* from 12 to 9: an exact nonagon, one
-  edit. Then set *Sweep* to 180 for a half-circle spread evenly end to end.
-- Open the **cairn** and set *Step Y* to 0 and *Step X* to 3 — the stack becomes
-  a row. The fence shows the other mode: its Array steps in POINT space, so its
-  second row follows the curve instead of running off along world X.
+- Open the **colonnade** and change *Count* from 12 to 9: an exact nonagon,
+  one edit. Then set *Sweep* to 180 for a half-circle spread evenly end to
+  end.
+- Open the **cairn** and set *Step Y* to 0 and *Step X* to 3 — the stack
+  becomes a row. The fence shows the other mode: its Array steps in POINT
+  space, so its second row follows the curve instead of running off along
+  world X.
 
 ## Reading the budget
 
-The header line is the honest PS2 readout: instances, **chunks**, triangles and
-the estimated vertex bytes. Chunks are draw calls, and on real hardware each
-submit costs about a millisecond of fixed EE overhead regardless of size — so
-"how many chunks" is usually the number to tune, not "how many trees". The
-`Chunk size` on the Output node is that lever: bigger chunks mean fewer draws
-and coarser culling.
+The header line is the honest PS2 readout: instances, **chunks**, triangles
+and the estimated vertex bytes. Chunks are draw calls, and on real hardware
+each submit costs about a millisecond of fixed EE overhead regardless of size
+— so "how many chunks" is usually the number to tune, not "how many trees".
+The `Chunk size` on the Output node is that lever: bigger chunks mean fewer
+draws and coarser culling.
 
 Two details this map makes visible:
 
 - The chunk grid is **world-aligned**, so the colonnade (a ring centred on the
-  origin) lands in 4 chunks even though a 34-unit ring would fit in one. Volumes
-  that straddle 0 pay for it; it is the price of chunk positions being stable
-  when a volume moves.
+  origin) lands in 4 chunks even though a 34-unit ring would fit in one.
+  Volumes that straddle 0 pay for it; it is the price of chunk positions
+  staying stable when a volume moves.
 - The forest sets **Instance detail = Half**, which decimates each source mesh
   once before merging. Measured on this scene: 2 226 triangles as shipped
-  against 6 160 for the same 133 instances at full detail — and at the distance
-  a scattered tree is read from, nothing about it looks different.
+  against 6 160 for the same 133 instances at full detail — and at the
+  distance a scattered tree is read from, nothing about it looks different.
 
 Its **Object Settings** node then gives every generated chunk a *Mesh LOD
 distance* of 55 units, which is also what makes the build bake the decimated
@@ -107,14 +111,14 @@ tiers for those chunk meshes (the project-wide mesh LOD preference stays off).
 
 ## Measured
 
-PCSX2 (software renderer, PAL): **50 FPS**, i.e. the vsync cap, with EE at 44 %.
-Not measured on real hardware — the 17 draw calls would be the first thing to
-watch there.
+PCSX2 (software renderer, PAL): **50 FPS**, i.e. the vsync cap, with EE at
+44 %. Not measured on real hardware — the 17 draw calls would be the first
+thing to watch there.
 
 ## How it was built
 
 By hand, the way you would: add a Procedural volume, fill its Pick Asset pool,
 then build the chain outward. The five assets (`res/models/pine.obj`,
 `rock.obj`, `pillar.obj`, `post.obj`, `crystal.obj`, 8 to 72 triangles each,
-sharing one `props.mtl`) are deliberately tiny and untextured so the example is
-about the graphs and not about the art.
+sharing one `props.mtl`) are deliberately tiny and untextured so the example
+is about the graphs, not the art.

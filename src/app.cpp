@@ -6785,8 +6785,6 @@ void App::drawModelImportModal() {
     ImGui::TextDisabled("%s", modelImportName_.c_str());
     ImGui::Spacing();
     ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
-    ImGui::TextDisabled(
-        "The editor stays responsive while the importer works in the background.");
     ImGui::EndPopup();
 }
 

@@ -19,12 +19,12 @@ through the door into the corridor and keep going:
    the building behind you vanishes from memory.
 3. Walk back and the mirrored triggers swap them again. Endlessly.
 
-To watch it happening, enable **Show FPS** and **Show memory usage**
-(Project > Preferences > Build, debug profile): **MEM** drops every time
-a building unloads and climbs while one streams in, and **FPS** stays at
-full rate — loads are spread one asset per frame, so there is no hitch.
-(The overlay ships disabled here while a known engine regression makes it
-freeze the first frame — unrelated to layers.)
+To watch it, enable **Show FPS** and **Show memory usage** (Project >
+Preferences > Build, debug profile): **MEM** drops on every unload and climbs
+while a building streams in, and **FPS** stays at full rate — loads are
+spread one asset per frame, so there is no hitch. (The overlay ships disabled
+here while a known engine regression makes it freeze the first frame —
+unrelated to layers.)
 
 ## How it is wired
 
@@ -44,7 +44,7 @@ freeze the first frame — unrelated to layers.)
   Whichever direction you walk, you first pass a no-op (unloading the
   building that isn't loaded), then the load for the building ahead, and
   only close to the far door the unload for the one behind you. Requests
-  are idempotent, so no extra logic is needed for walking back and forth.
+  are idempotent, so walking back and forth needs no extra logic.
 
-Note the buildings reset when they stream back in — position, colors,
-visibility return to what was authored in the editor, like GTA3 interiors.
+Buildings reset when they stream back in — position, colors, visibility
+return to what was authored in the editor, like GTA3 interiors.

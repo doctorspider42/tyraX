@@ -1,10 +1,12 @@
 # World scale: units, meters, and imports that land at the right size
 
+![Units per meter in World preferences](img/project-preferences-world.png)
+
 The engine has no unit. A "unit" is whatever a project decides it is, and the
 generated game never learns otherwise — it just multiplies the numbers it is
 given.
 
-That is fine until something arrives **from reality**, because reality is
+That's fine until something arrives **from reality**, because reality is
 metric: a phone camera take records meters, and a model exported from
 Blender/Maya/Mixamo carries meters (or a unit the importer normalizes to
 meters). If the project was authored at, say, five units per meter, those
@@ -12,34 +14,36 @@ imports land five times too small, every time, and the fix is a scale factor
 guessed by hand at each import.
 
 **Units per meter** (*Project > Preferences > World*) is the one place that
-conversion is written down. It is authoring metadata only — host-side,
-never generated into the game, not part of undo — and it changes nothing on
-its own: it does not move, rescale or reinterpret anything already in a scene.
-It only tells the importers how big a meter is here.
+conversion is written down. It is authoring metadata only — host-side, never
+generated into the game, not part of undo — and it changes nothing on its
+own: it does not move, rescale or reinterpret anything already in a scene. It
+only tells the importers how big a meter is here.
 
 The default is **1.0** — one unit is one meter — which is what every project
-saved before this existed loads as, and what every importer assumed all along.
+saved before this existed loads as, and what every importer assumed all
+along.
 
 ## Choosing it when the project is created
 
-The *New Project* dialog asks for it up front (**World scale > Scale**: metric,
-10 cm, 1 cm, 10 m per unit, or Custom), and `--new` takes it as a trailing
-argument. Not because it cannot be changed later — it can, and the field above
-is where — but because changing it later deliberately rescales *nothing*. A
-world already built at the wrong scale stays that size; the setting only fixes
-what arrives *after*. So the honest moment to ask is before there is any
-content, which is also when the terrain-size field can restate itself in
-metres right under the number.
+The *New Project* dialog asks for it up front (**World scale > Scale**:
+metric, 10 cm, 1 cm, 10 m per unit, or Custom), and `--new` takes it as a
+trailing argument. Not because it can't be changed later — it can, and the
+field above is where — but because changing it later deliberately rescales
+*nothing*. A world already built at the wrong scale stays that size; the
+setting only fixes what arrives *after*. So the honest moment to ask is
+before there is any content, which is also when the terrain-size field can
+restate itself in metres right under the number.
 
 Whatever you pick, the **metric-by-definition defaults follow it**, because
 those numbers are metres and seconds by construction rather than by taste:
-eye height (1.8), walk speed (5 units/s), gravity (9.8), jump speed (4.5), and
-on the FPP preset's Player object the same three plus the third-person boom
-(6.0) and its height (1.6). Pick 10 units per metre and the preset player is
-18 units tall running 50 units/s — still 1.8 m at 5 m/s. Everything else is in
-units by nature (a texture's tiling, a nav cell, an AO radius) and is left
-alone. Only `project::create` does this: an existing project's numbers are
-never touched, for the same reason the setting itself rescales nothing.
+eye height (1.8), walk speed (5 units/s), gravity (9.8), jump speed (4.5),
+and on the FPP preset's Player object the same three plus the third-person
+boom (6.0) and its height (1.6). Pick 10 units per metre and the preset
+player is 18 units tall running 50 units/s — still 1.8 m at 5 m/s. Everything
+else is in units by nature (a texture's tiling, a nav cell, an AO radius) and
+is left alone. Only `project::create` does this: an existing project's
+numbers are never touched, for the same reason the setting itself rescales
+nothing.
 
 ## How big is that, actually?
 
@@ -56,11 +60,11 @@ Two readouts answer this, and both speak units *and* meters:
   in units and metres plus the per-axis split (`dx dy dz` — the numbers you
   actually type into a scale or position field). The end follows the cursor
   until the second click, so the readout updates live; a third click starts
-  over, **Esc** clears, the button or **7** leaves the tool. Both ends land on
-  the same surfaces a pasted object rests on (object boxes and the terrain
-  heightfield), so the tape measures the scene rather than an arbitrary plane.
-  While it is active it owns the clicks — no picking, no rubber-band select,
-  no gizmo.
+  over, **Esc** clears, the button or **7** leaves the tool. Both ends land
+  on the same surfaces a pasted object rests on (object boxes and the terrain
+  heightfield), so the tape measures the scene rather than an arbitrary
+  plane. While it is active it owns the clicks — no picking, no rubber-band
+  select, no gizmo.
 
 ## Which scale is my project actually at?
 
@@ -77,9 +81,9 @@ that usually settle it:
 
 ## Walk speed, and why worlds drift off metric
 
-That last reading is worth knowing about for its own sake, because the stock
-FPP numbers used to disagree with each other. `eyeHeight` (1.8), `gravity`
-(9.8) and `jumpSpeed` (4.5) are metric as written, but walk speed is stored as
+That last reading is worth knowing about, because the stock FPP numbers used
+to disagree with each other. `eyeHeight` (1.8), `gravity` (9.8) and
+`jumpSpeed` (4.5) are metric as written, but walk speed is stored as
 **movement per 1/50 s** — the generated game's step unit. The old default,
 0.4, is therefore **20 units/s**: 72 km/h for a 1.8-unit-tall person. Tune a
 world until walking *feels* right at that speed and you end up several times
@@ -89,14 +93,14 @@ common answer.
 Two changes:
 
 - **The default is now 0.1 = 5 units/s** — a brisk run in a metric project,
-  and in the same ballpark as most first-person games (4–6 m/s). It applies to
-  **new projects only**; anything already saved keeps the speed it was tuned
-  at, because the value is stored in the project file.
+  and in the same ballpark as most first-person games (4–6 m/s). New projects
+  only; anything already saved keeps the speed it was tuned at, because the
+  value is stored in the project file.
 - **The editor edits it in units per second**, with the metric equivalent
   beside the field, in both places it appears (*Preferences > FPP camera* and
-  a Player object's own **Walk speed**). The stored per-step form is an engine
-  detail and typing fractions of it was the actual complaint; the tooltip
-  still shows the stored number.
+  a Player object's own **Walk speed**). The stored per-step form is an
+  engine detail and typing fractions of it was the actual complaint; the
+  tooltip still shows the stored number.
 
 If an existing project feels like a stagecoach, this is the field to look at:
 set it to something like 5 units/s (or, at 5 units per metre, 25 units/s for
@@ -110,10 +114,10 @@ asks for it right after an import, and the **Size...** button in the
 [Asset Browser](asset-browser.md)'s inspector (select a model) changes it
 afterwards:
 
-- **Source units** — Meters / Centimeters / Inches / Custom. `.glb` and `.fbx`
-  always arrive in meters (the importers normalize them), so those only need
-  this when the source itself was modeled at the wrong size. An `.obj` carries
-  no unit at all, which is exactly why the dialog asks.
+- **Source units** — Meters / Centimeters / Inches / Custom. `.glb` and
+  `.fbx` always arrive in meters (the importers normalize them), so those
+  only need this when the source itself was modeled at the wrong size. An
+  `.obj` carries no unit at all, which is exactly why the dialog asks.
 - **Real height (m)** — the same number from the other end: type how tall the
   thing is in reality and the factor follows.
 - The dialog shows what that means here: the size in world units and the
@@ -126,15 +130,16 @@ scale = metersPerFileUnit * unitsPerMeter
 ```
 
 (`Project::modelInsertScale`). No entry = scale 1, so procedural assets
-authored in world units already — the Tree Generator's output — are untouched,
-and a project left at 1 unit per meter behaves exactly as it did before.
+authored in world units already — the Tree Generator's output — are
+untouched, and a project left at 1 unit per meter behaves exactly as it did
+before.
 
 Nothing rewrites the asset file: the size lives in the manifest, so it can be
 corrected later without re-importing, and re-exporting the model from the DCC
-does not undo it. Objects **already placed** keep the scale they were inserted
-with (resizing an asset must not move a scene under you); the dialog offers a
-one-shot "also rescale N object(s) already using this model" for when that is
-what you meant.
+does not undo it. Objects **already placed** keep the scale they were
+inserted with (resizing an asset must not move a scene under you); the dialog
+offers a one-shot "also rescale N object(s) already using this model" for
+when that is what you meant.
 
 ## Camera takes
 
@@ -144,11 +149,11 @@ decimation tolerance — a world-unit distance — scales with it. The modal
 prints the recorded path length both ways ("4.80 m walked → 24.0 units") and
 offers a **World scale** button to snap back if you tuned the field by hand.
 
-The **live phone camera** (docs/phone-camera.md) maps through the same struct,
-so it seeds the same way — the moment a phone connects, not on every recentre,
-because re-seeding later would overwrite a value you tuned while watching the
-shot. Its recording tolerance follows the factor too. The same **World scale**
-button sits next to the Phone Camera window's Scale field.
+The **live phone camera** (docs/phone-camera.md) maps through the same
+struct, so it seeds the same way — the moment a phone connects, not on every
+recentre, because re-seeding later would overwrite a value you tuned while
+watching the shot. Its recording tolerance follows the factor too. The same
+**World scale** button sits next to the Phone Camera window's Scale field.
 
 ## Adding something that reads the real world
 

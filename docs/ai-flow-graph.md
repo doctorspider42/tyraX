@@ -1,5 +1,7 @@
 # AI flow-graph generation
 
+![An AI-generated patrol and chase graph](img/nav-ai-flow.png)
+
 Describe the logic you want in plain language and the editor builds the flow
 graph — or, when the object already has one, **edits it**: the current graph
 goes into the prompt and the model decides from your request whether to

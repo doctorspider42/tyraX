@@ -1,12 +1,14 @@
 # Material map baking (matbake)
 
-`src/matbake.cpp/.hpp` is the Material Editor's UV-space raytraced baker:
-it turns a mesh (a preview primitive or one of the project's `.obj` models)
+![Material Editor](img/material-editor.png)
+
+`src/matbake.cpp/.hpp` is the Material Editor's UV-space raytraced baker: it
+turns a mesh (a preview primitive or one of the project's `.obj` models)
 into a set of texture-space maps - ambient occlusion, bent normals,
 thickness, curvature, position and object-space normals - in one pass.
-Host-only, no GL (the decalproj pattern); this is a different animal from
+Host-only, no GL (the decalproj pattern). Don't confuse it with
 `aobake.cpp`, which bakes *scene* occlusion (terrain grids + analytic
-occluder atlases). matbake bakes *one model's own* surface detail.
+occluder atlases); matbake bakes *one model's own* surface detail.
 
 ## Using it (Material Editor > Bake maps)
 
@@ -38,9 +40,9 @@ The property column of the Material Editor ends in a **Bake maps** block:
 ## Smart masks (procedural wear & dirt)
 
 With the paint tool open, **+ Mask** (next to the layer buttons) adds a
-**smart mask layer**: its pixels are a fill color drawn through a
-procedural mask driven by the baked map set. Select the layer and tune the
-generator that appears under the list:
+**smart mask layer**: a fill color drawn through a procedural mask driven by
+the baked map set. Select the layer and tune the generator that appears
+under the list:
 
 - **Sources**: *Edge wear* / *Cavity grime* (baked curvature), *Occlusion
   dirt* (1−AO), *Thin rims* (thickness), *Height (Y)* and *Facing up*

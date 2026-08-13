@@ -1,5 +1,7 @@
 # Tree Generator
 
+![Tree Generator preview and controls](img/tree-generator.png)
+
 *Tools > Tree Generator* authors low-poly trees procedurally and bakes them into
 the project as ordinary assets. Inspired by [EZ-Tree](https://github.com/dgreenheck/ez-tree)
 (MIT), reimplemented host-side in `src/treegen.cpp`.
