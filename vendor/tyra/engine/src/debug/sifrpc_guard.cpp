@@ -78,33 +78,30 @@ void requestEnd(void* packet, void* harg) {
   SifRpcRendPkt_t* request = static_cast<SifRpcRendPkt_t*>(packet);
   SifRpcClientData_t* cd = request->client;
 
-  // Only ever reject what is PROVABLY dead. A false rejection is worse than
-  // the crash: the caller waits on a semaphore nothing will ever signal, and
-  // the game hangs with no diagnostic at all. So no range heuristics here -
-  // null and misaligned only.
+  // A completion naming no usable client tells us nothing to complete, so it
+  // is the one case with nothing to do but count it.
   if (cd == nullptr || (reinterpret_cast<u32>(cd) & 3u) != 0u) {
     g_badClient = g_badClient + 1;
     return;
   }
 
-  // The crash. A completed call has already had its pkt_addr cleared.
   SifRpcPktHeader_t* pkt = static_cast<SifRpcPktHeader_t*>(cd->hdr.pkt_addr);
-  if (pkt == nullptr) {
-    g_noPacket = g_noPacket + 1;
-    return;
-  }
 
-  // A late completion whose packet slot has since been recycled by another
-  // call. rpc_packet_free() zeroes rpc_id and _rpc_get_packet() stamps a
-  // fresh one, so this cannot false-reject a live call: cd->hdr.rpc_id was
-  // copied out of this very packet when the call was made. It is the same
-  // check ps2sdk's own sceSifCheckStatRpc() uses.
-  if (static_cast<u32>(pkt->rpc_id) != cd->hdr.rpc_id) {
-    g_staleId = g_staleId + 1;
-    return;
-  }
-
-  // From here on: byte-for-byte what ps2sdk's _request_end does.
+  // ALWAYS COMPLETE THE CLIENT, even when the packet is unusable. This is the
+  // lesson of the first version, which returned early here and was measured to
+  // HANG the game on 2 of 4 teardowns while an unguarded build survived 6 of 6
+  // (docs/backlog.md). Two independent ways an early return hangs it:
+  //
+  //   - the thread inside sceSifCallRpc is parked in WaitSema(cd->hdr.sema_id)
+  //     and only this signal releases it;
+  //   - and skipping end_function hangs the NEXT call as well, one step later -
+  //     fioOpen/fioRead take _fio_completion_sema BEFORE the RPC and it is
+  //     _fio_intr, i.e. the end_function, that releases it.
+  //
+  // So a guard that merely refuses to crash is not enough: it has to hand the
+  // caller its completion. Running end_function twice on a genuine duplicate is
+  // benign (the fio handlers re-copy identical bytes and re-signal a semaphore
+  // whose max_count is 1).
   if (request->cid == SIF_CMD_RPC_CALL) {
     if (cd->end_function) cd->end_function(cd->end_param);
   } else if (request->cid == SIF_CMD_RPC_BIND) {
@@ -114,6 +111,23 @@ void requestEnd(void* packet, void* harg) {
   }
 
   if (cd->hdr.sema_id >= 0) iSignalSema(cd->hdr.sema_id);
+
+  // THE ONLY THING GUARDED IS THE FREE, because that is the only thing that
+  // dereferences the packet - `rec_id` sits at offset 0x10, which is the
+  // BadAddr the console reported.
+  if (pkt == nullptr) {
+    g_noPacket = g_noPacket + 1;
+    return;
+  }
+
+  // The rpc_id check that used to live here is GONE, deliberately. It claimed
+  // it "cannot false-reject a live call" on the grounds that cd->hdr.rpc_id
+  // only goes stale when the packet is recycled. That is false:
+  // _SifCmdIntHandler calls EI() at its top, so completions dispatch
+  // re-entrantly, and ps2sdk signals the semaphore BEFORE clearing pkt_addr -
+  // so a woken thread can start the next call on this same client inside that
+  // window, which makes a legitimate late completion indistinguishable from a
+  // recycled one. Never re-add a check whose safety argument rests on that.
 
   // rpc_packet_free(), inlined - it is static in ps2sdk. PACKET_F_ALLOC is
   // 0x01 and is private to sifrpc.c, hence the literal.

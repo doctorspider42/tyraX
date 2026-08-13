@@ -20,7 +20,7 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
-## OPEN: the guard hangs the waiter - do not merge PR #222 as written
+## FIXED (and the fix is the interesting part): the guard used to hang the waiter
 
 **Measured 2026-08-13 on hardware, and it points at our own change.** The
 trigger is not load at all: it is TEARDOWN - killing the `host:` file server
@@ -53,13 +53,31 @@ that window. A legitimate late completion then looks exactly like a recycled
 one, and dropping it leaves its waiter blocked for ever. ps2sdk crashes there;
 we hang there. **Neither is correct.**
 
-**The fix to try next** (untested): on every rejection still
-`iSignalSema(cd->hdr.sema_id)` and skip only the `rpc_packet_free` /
-`pkt_addr` write. The semaphore has `max_count = 1`, so an extra signal on an
-already-completed call is capped and harmless, and a stale (deleted) sema id is
-a no-op error return - while a waiter that would otherwise hang gets released.
-That should prevent the crash AND the hang. Re-run the table above to check it;
-3 cycles per arm is enough to see a 2-in-4 rate.
+**Fixed, and measured.** The guard now always completes the client -
+`end_function` then `iSignalSema` - and skips *only* the packet free, and the
+`rpc_id` check is deleted. Third arm, same fixture, same protocol:
+
+| build | teardowns | hangs |
+|---|---|---|
+| guard NOT installed | 6 | 0 |
+| guard v1 (early return) | 4 | **2** |
+| guard v2 (completes, guards only the free) | 3 | **0** |
+
+Plus the PCSX2 regression v2 was missing: boots in 9.2 s, frame 1560, zero
+warnings, `Audsrv loaded` + `Pad initialized` + `memory card ready`, i.e. the
+BIND and CALL branches exercised across three separate RPC clients.
+
+**Still owed on the guard: three more teardown cycles.** 3 clean against a
+2-in-4 rate is p ~= 0.125; six would put it near 0.016. The second round could
+not run - the console reached the refuses-every-deploy wedge again and needs the
+physical button. And the counters could not be read from the surviving cycle:
+the game's own retry storm kept the `host:` channel busy and `dumpmem` never got
+an answer, so **it is unknown whether the fault fired during those three cycles
+at all** - which is exactly why 3/3 is not called proof here.
+
+Note the `.bss` addresses move between builds. Re-derive them per ELF
+(`nm <name>.elf.sym | grep g_noPacket`); reading a previous build's address
+returns plausible garbage, which nearly produced a false conclusion here.
 
 **Two protocol facts for whoever re-runs it.** Five rapid reset+teardown cycles
 drive the console into "answers ping, `tcp/18193` listening, refuses every

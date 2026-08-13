@@ -714,16 +714,30 @@ channel files are polled on **one frame in 25**, back to back, because every
 cooldown starts at 1 and re-arms to the same number, so they stay in lockstep
 forever.
 
-**The guard.** The engine installs its own validating `SIF_CMD_RPC_END`
-handler at init —
+**The guard.** The engine installs its own `SIF_CMD_RPC_END` handler at init —
 [`vendor/tyra/engine/src/debug/sifrpc_guard.cpp`](../vendor/tyra/engine/src/debug/sifrpc_guard.cpp).
-It is ps2sdk's `_request_end` with three early-outs and nothing else changed:
-reject a completion naming no usable client, one whose client has no
-outstanding packet (**the crash**), and one whose packet slot has already been
-recycled by a later call. It rejects only what is *provably* dead, because a
-false rejection is worse than the crash — the caller would wait forever on a
-semaphore nothing will signal, and the game would hang with no diagnostic at
-all.
+It is ps2sdk's `_request_end` with **one** thing changed: the packet free is
+skipped when the packet pointer is null, and *everything else still runs*. The
+client is always completed — `end_function`, then `iSignalSema` — because
+skipping that is what hangs the game.
+
+That shape was arrived at the hard way, and the history is the useful part. The
+first version returned early on rejection, and under the teardown trigger below
+it **hung the game on 2 of 4 teardowns while an unguarded build survived 6 of
+6**. Two independent deadlocks, both from the early return: the thread inside
+`sceSifCallRpc` is parked in `WaitSema(cd->hdr.sema_id)` and only that signal
+releases it, and skipping `end_function` hangs the *next* call as well, because
+`fioOpen`/`fioRead` take `_fio_completion_sema` before the RPC and it is
+`_fio_intr` — the end function — that releases it.
+
+It also carried an `rpc_id` check justified by the claim that
+`cd->hdr.rpc_id` only goes stale when a packet is recycled. **That claim is
+false and the check is gone**: `_SifCmdIntHandler` calls `EI()` at its top so
+completions dispatch re-entrantly, and ps2sdk signals the semaphore *before*
+clearing `pkt_addr`, so a woken thread can start the next call on the same
+client inside that window — which makes a legitimate late completion
+indistinguishable from a recycled one. Do not re-add a check resting on that
+argument.
 
 It also **counts** every rejection, and that is the point: a rejection is not
 normal. `SifRpcGuard::rejected()` is 0 in a healthy session, so a non-zero
@@ -731,10 +745,14 @@ count means the fault reproduced *without* taking the console down, and the
 count is the instrument for finding whatever produces the duplicate. **A zero
 count is not proof the race is gone** — only proof it did not fire.
 
-> **The guard stops the crash; it does not remove the cause.** A dropped
-> completion still means the thread waiting on that call is never signalled.
-> The producer of the duplicate is not yet identified, and no soak long enough
-> to argue the race is gone has been run — see the entry in
+> **The guard has no demonstrated benefit yet, and that is stated on purpose.**
+> The fault it defends against has never been reproduced — not by two hours of
+> amplified RPC load, not by a live editing session, and not by the teardown
+> trigger, which an unguarded build survived 6 times out of 6. What is measured
+> is that it does no harm: it boots and runs in PCSX2 across three RPC clients,
+> and survives 3 of 3 teardowns on hardware. Three clean cycles against a
+> 2-in-4 hang rate is p ~= 0.125, i.e. suggestive rather than settled. The
+> producer of the anomalous completion is still unidentified; see
 > [backlog.md](backlog.md).
 
 ### Do not run a second `ps2client` against a console serving a game

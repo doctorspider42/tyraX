@@ -60,14 +60,17 @@ class SifRpcGuard {
   static unsigned int rejectedBadClient();
 
   /**
-   * Dropped because the client had no outstanding packet - the signature of
-   * the crash this class exists to stop (a second completion for one call).
+   * Completions whose client had no outstanding packet - the signature of the
+   * crash this class exists to stop. NOTE these are no longer "dropped": the
+   * client is still completed (end_function + semaphore), only the packet free
+   * is skipped, because skipping the completion is what hung the game.
    */
   static unsigned int rejectedNoPacket();
 
   /**
-   * Dropped because the client's packet had already been reused by a later
-   * call - a late completion arriving after its slot was recycled.
+   * Retained at 0. The rpc_id check this counted was removed after it was
+   * measured to hang the game (docs/backlog.md); the accessor stays so a
+   * caller reading all three keeps compiling.
    */
   static unsigned int rejectedStaleId();
 };
