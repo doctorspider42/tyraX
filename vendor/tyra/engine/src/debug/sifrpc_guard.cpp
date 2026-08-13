@@ -11,29 +11,6 @@
 #include <sifcmd.h>
 #include <sifrpc.h>
 
-// ps2sdk's sifcmd.c declares `_sif_cmd_data` with EXTERNAL linkage (nm shows a
-// capital B), so the dispatch table it points at can be read directly. That is
-// the only way to answer "is my handler the one registered right now" from
-// inside the game - dumpmem could not be made to answer reliably while the game
-// is polling. Layout mirrors `struct cmd_data` as sceSifInitCmd() fills it.
-extern "C" {
-struct TxSifCmdHandler {
-  void* handler;
-  void* harg;
-};
-struct TxSifCmdData {
-  void* pktbuf;
-  void* unused;
-  TxSifCmdHandler* sys_cmd_handlers;
-  u32 nr_sys_handlers;
-  void* usr_cmd_handlers;
-  u32 nr_usr_handlers;
-  void* sregs;
-  void* iopbuf;
-};
-extern TxSifCmdData _sif_cmd_data;
-}
-
 namespace Tyra {
 namespace {
 
@@ -57,7 +34,12 @@ bool g_installed = false;
 
 // Last total handed to report(), so a healthy frame costs one compare.
 unsigned int g_reported = 0;
-bool g_announced = false;
+// PERIODIC, not once: a one-shot announcement fires on the first frame and a
+// capture that starts late misses it entirely - which is exactly how a whole
+// afternoon of "the line never appeared" got mistaken for "the handler never
+// runs". Say it a few times, spaced out.
+unsigned int g_calls = 0;
+unsigned int g_announces = 0;
 
 /**
  * ps2sdk's _request_end (ee/kernel/src/sifrpc.c) plus the three checks it is
@@ -193,20 +175,17 @@ void SifRpcGuard::report() {
   // it - ps2link's _request_end takes `cd` from the packet payload and would
   // complete this game's client just as correctly. The count is the only
   // evidence, so it goes in the log where anybody can see it.
-  if (!g_announced) {
-    g_announced = true;
-    // Report the DISPATCH TABLE regardless of whether anything arrived: on
-    // ps2link the count stays at zero, and the question is whether that is
-    // because nothing was dispatched or because this handler is not the one
-    // registered. Print both so the log answers it either way.
-    const void* slot = nullptr;
-    const u32 id = SIF_CMD_RPC_END & 0x7FFFFFFFu;
-    if (_sif_cmd_data.sys_cmd_handlers && id < _sif_cmd_data.nr_sys_handlers)
-      slot = _sif_cmd_data.sys_cmd_handlers[id].handler;
-    TYRA_LOG("SIF RPC guard: seen ", g_seen, ", slot ", (u32)(unsigned long)slot,
-             ", mine ", (u32)(unsigned long)&requestEnd, ", pktbuf ",
-             (u32)(unsigned long)_sif_cmd_data.pktbuf, ", iopbuf ",
-             (u32)(unsigned long)_sif_cmd_data.iopbuf);
+  g_calls = g_calls + 1;
+  if (g_announces < 5 && (g_calls % 900u) == 1u) {
+    g_announces = g_announces + 1;
+    // Counters only. An earlier version also printed ps2sdk's dispatch-table
+    // slot by declaring a hand-mirrored copy of its private `struct cmd_data`.
+    // The layout was inferred from the ASSIGNMENT order in sceSifInitCmd()
+    // rather than the declaration - `iopbuf` is declared third and assigned
+    // last - so the read indexed the IOP receive-buffer address as if it were
+    // an EE array and faulted the game: TLB load, BadAddr 0x00019640, EPC in
+    // this function. Do not mirror another library's private struct here.
+    TYRA_LOG("SIF RPC guard: seen ", g_seen, ", guarded ", rejected());
   }
 
   // The healthy path is this compare and nothing else.

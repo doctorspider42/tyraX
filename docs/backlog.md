@@ -68,7 +68,39 @@ picture under REPEAT while bounding coordinates by chunk size.
 
 ## Medium
 
-### RETRACTED, then still open: whether the guard runs under ps2link
+### ANSWERED: the guard does run under ps2link, and guards nothing
+
+```
+SIF RPC guard: seen 306,   guarded 0
+SIF RPC guard: seen 14329, guarded 0     <- ~150 completions/second
+SIF RPC guard: seen 29483, guarded 0
+```
+
+Fresh boot verified by the protocol below (two boot lines in the capture, first
+`VRAMSTAT` at `f=120`). So the handler **is** on the dispatch path on hardware -
+~29 500 completions in ~200 s - and none of them needed guarding. Every earlier
+zero was therefore a real negative, not a handler that was never asked. It also
+works in PCSX2 (429 completions), so both targets are covered.
+
+Getting to that took three retracted conclusions, and the protocol that survives
+is the useful residue:
+
+- **A deploy is only fresh if the capture proves it.** Require a boot line
+  (`Clut set` / `Pad initialized`) or a low first `VRAMSTAT f=`. `bin/livedbg.bin`
+  appearing proves nothing: a game still running from an earlier deploy resumes
+  polling the instant a file server returns and writes exactly that file, so a
+  refused deploy is indistinguishable from a successful one. One capture read
+  `f=136800` - a 45-minute-old ELF being measured as if it were the new one.
+- **`--run-ps2` does not capture the boot output**; a manual `ps2client execee`
+  redirected by bash does. Any once-only log line will be missed by the former,
+  so make announcements periodic.
+- **Never mirror another library's private struct.** A diagnostic that printed
+  ps2sdk's dispatch slot inferred `struct cmd_data`'s layout from the
+  ASSIGNMENT order in `sceSifInitCmd()` instead of the declaration - `iopbuf` is
+  declared third and assigned last - so it indexed the IOP receive-buffer
+  address as an EE array and faulted the game: `TLB load, BadAddr 0x00019640,
+  EPC` inside `SifRpcGuard::report()`. That crash was mistaken for the bug being
+  reproduced. The read is gone; the counters stay.
 
 **The measurement below was invalid and the conclusion it produced is
 withdrawn.** Recorded in full because the flaw is the reusable part.
