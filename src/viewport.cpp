@@ -2998,6 +2998,23 @@ void Viewport::clearModelCache() {
     clearMatPrevModel();  // same disk-derived sources (obj + mtl)
 }
 
+void Viewport::invalidateAnimatedModels() {
+    for (auto& [path, draw] : animModelCache_)
+        for (auto& part : draw.parts) {
+            destroyMesh(part.mesh);
+            if (part.tex) glDeleteTextures(1, &part.tex);
+        }
+    animModelCache_.clear();
+    clearMatPrevModel();  // the Material Editor bakes the same source
+}
+
+const std::vector<animmerge::ImportSpec>& Viewport::animImportsFor(
+    const std::string& modelRel) const {
+    static const std::vector<animmerge::ImportSpec> kNone;
+    auto it = animImports_.find(modelRel);
+    return it == animImports_.end() ? kNone : it->second;
+}
+
 void Viewport::clearMatPrevModel() {
     for (MatPrevPart& part : matPrevModel_.parts) destroyMesh(part.mesh);
     matPrevModel_ = MatPrevModel{};
@@ -3018,9 +3035,9 @@ void Viewport::buildMatPrevAnimated(const std::string& modelRel,
                                     const std::string& mtlRel) {
     glbparser::Baked baked;
     std::string error;
-    if (!animimport::bake(
-            (std::filesystem::path(projectDir_) / modelRel).string(), 12.0f,
-            baked, error))
+    if (!animmerge::bakedWithImports(
+            (std::filesystem::path(projectDir_) / modelRel).string(),
+            animImportsFor(modelRel), 12.0f, baked, error))
         return;  // !ok - caller falls back to the sphere
 
     std::vector<objparser::MtlMaterial> lib;
@@ -3369,7 +3386,8 @@ Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
     AnimModelDraw draw;
     std::string error;
     const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (animimport::bake(full, 12.0f, draw.baked, error)) {
+    if (animmerge::bakedWithImports(full, animImportsFor(relPath), 12.0f,
+                                    draw.baked, error)) {
         draw.ok = true;
         if (!materialRel.empty())
             objparser::applyMaterialOverride(

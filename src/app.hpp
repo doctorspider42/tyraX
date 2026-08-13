@@ -1028,6 +1028,24 @@ private:
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
+    // The "Imported clips" block of that window (docs/animation-import.md):
+    // borrow clips from another model file. Returns true when it changed
+    // something, which the caller turns into a commit + a cache drop - an
+    // import alters what clips a model HAS, so every parse of it is stale.
+    bool drawAnimImportSection(const std::string& modelRel);
+    // Everything derived from a model's parse: the GlbInfo summary, the
+    // viewport's baked draw and the material preview. Called after an import
+    // change, since those caches all hold a clip list.
+    void invalidateAnimCaches();
+    // Staged donor pick for the import block; "" = nothing chosen yet.
+    std::string animImpSource_;
+    // "target|source" -> skeleton match, 0..1 (-1 = a file would not parse).
+    // Answering it means parsing TWO models, which a panel body must not do
+    // every frame - so it is computed once per pair and dropped by
+    // invalidateAnimCaches() along with every other parse-derived cache.
+    std::map<std::string, float> animMatchCache_;
+    float animSkeletonMatch(const std::string& modelRel,
+                            const std::string& sourceRel);
     // Preview lighting shared by the Material and Animation Editors.
     // `sel` is the stored selection (see matEdLight_): resolves it into the
     // override the viewport bakes with, and draws the combo that picks it

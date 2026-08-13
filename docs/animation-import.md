@@ -1,0 +1,122 @@
+# Importing animation from another file
+
+A character is rigged once, but its animation usually arrives separately — one
+`.fbx` per move from Mixamo, or a second export from an animator. *Tools >
+Animation Editor > **Imported clips*** borrows those clips onto a model that
+already lives in your project, so you do not have to merge the files in Blender
+and re-export the character every time a move is added.
+
+Nothing is rewritten. Neither the character nor the source file is modified; the
+project records *"take these clips out of that file"* and the merge happens when
+the model is parsed — for the editor's preview and again on the way into the
+`.tskl`. Exactly like the trims and renames beside it, the record stays legible
+and reversible, re-exporting either asset picks the change up, and the console
+pays nothing at runtime.
+
+## Using it
+
+1. **Get the clip file into the project.** *Import file…* copies a `.glb`/`.fbx`
+   into `res/models/` like any other asset, or pick one already there. A
+   clip-only download has no useful mesh, but it still has to be a project asset
+   — the build opens it.
+2. **Read the skeleton match.** The percentage is how many of the source's
+   animated bones have a bone of the same name on your model. Green (>85%) is
+   fine. A low number means the two rigs do not share bone names, and the clip
+   will play with the unmatched bones simply not moving.
+3. **Add all clips.** They appear in the clip list immediately and animate in the
+   preview.
+
+An imported clip is an **ordinary clip of that model** from then on. It can be
+renamed, trimmed, retimed and made in-place in the same panel, picked in any
+clip combo, mapped to Player locomotion, and fired by a *Play Animation* node —
+none of those know it came from somewhere else.
+
+> The `.tskl` clip-name field is 32 bytes, and exporter names are long
+> (`Armature|Armature|ArmatureAction`). If a prefix pushes a name past that,
+> give the clip a short **Name in game** in the panel below — the rename is
+> applied after the import, so it works on imported clips too.
+
+## What it does and does not do
+
+This is a **same-skeleton merge, not a full retargeter**. Bones are matched by
+name and their rotations copied as-is, so the two rigs must agree on their bind
+pose — two Mixamo rigs do, two exports of one character do, an arbitrary rig
+pair does not. What makes it safe in practice is not the rotation maths but the
+translation policy:
+
+| Translation | What keeps the source's positions |
+| --- | --- |
+| **Root bones only** *(default)* | Only the hips. Every other bone keeps **your model's** rest position — which is what its bone lengths *are*. |
+| **Only where animated** | Bones whose position actually moves. For stretchy or IK-baked rigs. |
+| **Copy everything** | All of it, proportions included. For two exports of one rig. |
+
+Bone lengths live in bone positions, so copying them all rebuilds the *source's*
+proportions on your character — a tall rig's clip visibly stretches a short one.
+Dropping a translation channel is not a loss: the pose falls back to the
+target's own rest transform, which is precisely "keep your own proportions".
+
+Two more switches, both on by default:
+
+- **Retarget root motion** scales the hip travel by the two rigs' hip heights and
+  re-anchors it on your model's rest hip, so a clip authored on a taller
+  character does not make yours skate.
+- **Ignore scale** drops the source's scale tracks — export noise in most rigs
+  and a rig-breaker in a few.
+
+Namespace prefixes (`mixamorig:`, `Armature|`) and letter case are ignored when
+matching names, and an exact match always wins over a normalised one.
+
+A clip whose tracks all fail to match is **not added**, and the build says so
+rather than shipping an empty clip. A name collision gains a `_1` suffix, so
+importing twice can never silently replace anything.
+
+## Where it happens
+
+Both formats work as either end — `.fbx` clips onto a `.glb` character is the
+common case and needs nothing special — because the merge operates on the
+**parsed skeleton** (`animmerge.cpp`), not on a format-specific scene.
+
+Two consumers apply it, and they must not disagree:
+
+- **the build** — `templates::bakeAnimAssets` merges before anything else
+  touches the skeleton, so the LOD pass, the clip edits and the `.tskl` writer
+  all treat an imported clip like a native one;
+- **the editor** — every preview goes through `animmerge::bakedWithImports`,
+  which for a model with no imports is the untouched parser bake it always was,
+  and for a model with imports poses the merged skeleton itself.
+
+That second path is why an imported clip is visible in the editor at all: the
+format parsers bake morph frames by posing their own source scene, which by
+definition knows nothing about clips merged in afterwards. Posing the merged
+skeleton instead makes the preview *more* faithful, not less — the skeleton is
+what ships. Measured against the parser's own bake on the same file, the two
+agree to 4×10⁻⁴ units; a self-merge (a model importing its own clips) is an
+exact identity.
+
+Importing also **recomputes the model's pose bounds**. Those bounds are what the
+console frustum-culls and box-collides with, and they were computed from the
+character's own clips — an imported jump or lunge that reaches further would
+otherwise be culled while still on screen.
+
+## Limits
+
+- Rotations are copied verbatim: **wildly different bind orientations still need
+  a real retargeter**. The match percentage cannot see this — it only counts
+  names — so check the preview.
+- Blend shapes / morph targets are not carried across (they are not supported by
+  the animated-model pipeline at all — see
+  [animated-models.md](animated-models.md)).
+- The source's mesh, materials and textures are ignored. Only clips are taken.
+- Each import row is one source file. Add a row per file; a folder of Mixamo
+  clips is a row each.
+
+## Where the data lives
+
+`Project::animImports` (manifest section `"animImports"`, format v19). A row
+names the target model, the source file, optionally which clips and a name
+prefix, plus the retarget flags — each written only when it differs from its
+default, so a project that never imported anything has no such key at all.
+
+Both paths are real asset references: the Asset Browser retargets them on a
+move or rename, and a clip-only source counts as *used* so it is not offered up
+for deletion.

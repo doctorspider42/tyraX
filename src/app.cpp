@@ -2508,6 +2508,21 @@ void App::drawViewportWindow() {
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
                                animedit::projectTimeScale(project_.settings));
+        // Clips borrowed from other model files, grouped per target model - the
+        // preview merges them exactly as bakeAnimAssets does, so an imported
+        // clip is visible in the editor and not only on the console. Built only
+        // when the project has any, and setAnimImports compares before it
+        // drops the bake cache, so this costs a project without imports one
+        // empty map per frame.
+        if (!project_.animImports.empty()) {
+            std::map<std::string, std::vector<animmerge::ImportSpec>> imports;
+            for (const AnimImport& a : project_.animImports)
+                if (!imports.count(a.model))
+                    imports[a.model] = animedit::importsFor(project_, a.model);
+            viewport_.setAnimImports(std::move(imports));
+        } else {
+            viewport_.setAnimImports({});
+        }
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
         const std::vector<SceneObject>& posedObjects = cutscenePosedObjects();
@@ -7188,7 +7203,13 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     GlbInfo info;
     glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
+    // Clips borrowed from other files count as this model's clips everywhere
+    // the editor asks "what can this model play" - the clip lists in the
+    // Animation Editor, every clip combo, the Player locomotion pickers. With
+    // no imports this is the plain parser bake it always was.
+    if (animmerge::bakedWithImports(full.string(),
+                                    animedit::importsFor(project_, relPath),
+                                    12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();

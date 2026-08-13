@@ -266,6 +266,29 @@ float projectTimeScale(const ProjectSettings& st) {
     return play / src;
 }
 
+std::vector<animmerge::ImportSpec> importsFor(const Project& p,
+                                              const std::string& modelRel) {
+    std::vector<animmerge::ImportSpec> out;
+    for (const AnimImport& a : p.animImports) {
+        if (a.model != modelRel || a.source.empty()) continue;
+        animmerge::ImportSpec spec;
+        spec.path = p.filePath(a.source);
+        spec.clips = a.clips;
+        spec.prefix = a.prefix;
+        spec.options.translation =
+            a.translation == 2   ? animmerge::TranslationMode::CopyAll
+            : a.translation == 1 ? animmerge::TranslationMode::AnimatedOnly
+                                 : animmerge::TranslationMode::RootBonesOnly;
+        spec.options.ignoreScale = a.ignoreScale;
+        spec.options.retargetRoot = a.retargetRoot;
+        spec.options.stripNamespace = a.stripNamespace;
+        spec.options.caseInsensitive = a.caseInsensitive;
+        spec.options.skeletonTracksOnly = a.skeletonTracksOnly;
+        out.push_back(std::move(spec));
+    }
+    return out;
+}
+
 const AnimClipEdit* findEdit(const Project& p, const std::string& modelRel,
                              const std::string& sourceClip) {
     for (const AnimClipEdit& e : p.animClipEdits)

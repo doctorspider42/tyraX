@@ -123,7 +123,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Models** — `.obj` compiled into a binary
   [`.tmdl` with distance LOD](docs/model-pipeline.md), and
   [`.glb`/`.fbx` animated models](docs/animated-models.md) with a non-destructive
-  clip editor.
+  clip editor that can also
+  [borrow clips from another rigged file](docs/animation-import.md) — drop a
+  Mixamo download onto a character you already have.
 - **[Asset Browser](docs/asset-browser.md)** — a real file manager over `res/`
   that knows who references every asset and moves files with their references.
 - **[Materials and texture painting](docs/material-painting.md)** — `.mtl`

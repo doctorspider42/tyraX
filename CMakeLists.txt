@@ -210,6 +210,7 @@ add_executable(tyrax-editor
     src/aisupport.cpp
     src/ambience.cpp
     src/animedit.cpp
+    src/animmerge.cpp
     src/aobake.cpp
     src/app.cpp
     src/audiopreview.cpp

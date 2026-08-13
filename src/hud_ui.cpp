@@ -2791,6 +2791,198 @@ bool App::previewLightCombo(const char* label, std::string& sel) {
     return changed;
 }
 
+float App::animSkeletonMatch(const std::string& modelRel,
+                             const std::string& sourceRel) {
+    const std::string key = modelRel + "|" + sourceRel;
+    if (auto it = animMatchCache_.find(key); it != animMatchCache_.end())
+        return it->second;
+    glbparser::Skel target, donor;
+    std::string err;
+    float match = -1.0f;
+    if (animimport::parseSkel(project_.filePath(modelRel), target, err) &&
+        animimport::parseSkel(project_.filePath(sourceRel), donor, err))
+        match = animmerge::compatibility(target, donor, animmerge::MergeOptions{});
+    animMatchCache_[key] = match;
+    return match;
+}
+
+void App::invalidateAnimCaches() {
+    // Every one of these holds a clip list derived from a parse of the model,
+    // and an import changes which clips exist - so they all go together. The
+    // model-info pair is always evicted as a unit (app.cpp precedent).
+    glbInfoCache_.clear();
+    modelInfoCache_.clear();
+    animMatchCache_.clear();
+    viewport_.invalidateAnimatedModels();
+}
+
+// Tools > Animation Editor > Imported clips (docs/animation-import.md).
+//
+// One row per donor file. The compatibility number is the thing to read before
+// anything else: it is the fraction of the donor's animated bones that have a
+// counterpart on this model, so a rig mismatch shows as a low percentage here
+// rather than as a character folded inside out in the preview.
+bool App::drawAnimImportSection(const std::string& modelRel) {
+    bool changed = false;
+    int rows = 0;
+    for (const AnimImport& a : project_.animImports)
+        if (a.model == modelRel) ++rows;
+
+    const std::string header =
+        rows ? "Imported clips (" + std::to_string(rows) + ")###animimp"
+             : std::string("Imported clips###animimp");
+    if (!ImGui::CollapsingHeader(header.c_str())) return false;
+
+    ImGui::TextDisabled(
+        "Borrow animation from another rigged file - a Mixamo download, or\n"
+        "another export of the same character. Bones are matched BY NAME and\n"
+        "rotations copied as-is, so the two rigs must share a bind pose.");
+
+    // --- the donor picker --------------------------------------------------
+    // Only models already in the project: the build has to be able to read the
+    // donor, so it must live under res/ like any other asset.
+    std::vector<std::string> candidates;
+    for (const std::string& m : listAnimatedModelFiles()) {
+        const std::string rel = "res/models/" + m;
+        if (rel != modelRel) candidates.push_back(rel);
+    }
+    ImGui::SetNextItemWidth(scaled(300));
+    const char* preview =
+        animImpSource_.empty() ? "Pick a file..." : animImpSource_.c_str();
+    if (ImGui::BeginCombo("Source file", preview)) {
+        for (const std::string& c : candidates)
+            if (ImGui::Selectable(c.c_str(), c == animImpSource_))
+                animImpSource_ = c;
+        if (candidates.empty())
+            ImGui::TextDisabled("No other animated model in this project.");
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Import file...")) {
+        // The donor has to become a project asset, so this is the ordinary
+        // model import - it copies the file (and an .fbx's external textures)
+        // into res/models/ and saves, exactly like Project > Assets does.
+        const size_t before = listAnimatedModelFiles().size();
+        importModelAsset();
+        const std::vector<std::string> after = listAnimatedModelFiles();
+        if (after.size() > before) {
+            // Newly imported files sort into the list; pick whichever name is
+            // not one this model already imports and is not the model itself.
+            for (const std::string& m : after) {
+                const std::string rel = "res/models/" + m;
+                if (rel == modelRel) continue;
+                bool known = false;
+                for (const std::string& c : candidates)
+                    if (c == rel) known = true;
+                if (!known) animImpSource_ = rel;
+            }
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Copy a .glb/.fbx into this project's res/models/ and select it\n"
+            "as the source. A clip-only download has no useful mesh, but it\n"
+            "still has to be a project asset for the build to read it.");
+
+    // Compatibility + the Add button, both needing the donor parsed.
+    if (!animImpSource_.empty()) {
+        const GlbInfo& src = glbInfo(animImpSource_);
+        if (!src.ok) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                               "Unusable source: %s", src.error.c_str());
+        } else {
+            const float match = animSkeletonMatch(modelRel, animImpSource_);
+            if (match >= 0.0f) {
+                const ImVec4 col = match > 0.85f ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                                   : match > 0.4f ? ImVec4(0.95f, 0.8f, 0.3f, 1.0f)
+                                                  : ImVec4(1.0f, 0.4f, 0.3f, 1.0f);
+                ImGui::TextColored(col, "Skeleton match: %.0f%%", match * 100.0f);
+                ImGui::SameLine();
+                ImGui::TextDisabled("(%d clip%s in the source)",
+                                    (int)src.clips.size(),
+                                    src.clips.size() == 1 ? "" : "s");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How many of the source's animated bones have a bone of\n"
+                        "the same name on this model. Below ~85%% the clip will\n"
+                        "play, but the unmatched bones simply will not move.\n"
+                        "Namespace prefixes (mixamorig:, Armature|) and letter\n"
+                        "case are ignored when matching.");
+            }
+            if (ImGui::Button("Add all clips")) {
+                AnimImport a;
+                a.model = modelRel;
+                a.source = animImpSource_;
+                project_.animImports.push_back(std::move(a));
+                animImpSource_.clear();
+                changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled(
+                "adds every clip of the file; remove single ones below");
+        }
+    }
+
+    // --- the rows ----------------------------------------------------------
+    if (rows) ImGui::Separator();
+    int removeAt = -1;
+    for (size_t i = 0; i < project_.animImports.size(); ++i) {
+        AnimImport& a = project_.animImports[i];
+        if (a.model != modelRel) continue;
+        ImGui::PushID((int)i);
+        ImGui::BulletText("%s", a.source.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) removeAt = (int)i;
+
+        ImGui::Indent();
+        char prefix[64];
+        snprintf(prefix, sizeof prefix, "%s", a.prefix.c_str());
+        ImGui::SetNextItemWidth(scaled(140));
+        if (ImGui::InputText("Name prefix", prefix, sizeof prefix)) {
+            a.prefix = prefix;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Prepended to every clip taken from this file. Useful when two\n"
+                "sources both call their clip 'mixamo.com' - without it the\n"
+                "second one lands as 'mixamo.com_1'.");
+
+        const char* modes[] = {"Root bones only", "Only where animated",
+                               "Copy everything"};
+        ImGui::SetNextItemWidth(scaled(180));
+        if (ImGui::Combo("Translation", &a.translation, modes, 3)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which bones keep the SOURCE's positions.\n\n"
+                "Bone lengths live in bone positions, so copying them all\n"
+                "rebuilds the source's proportions on this model - a tall rig's\n"
+                "clip stretches a short character. 'Root bones only' keeps just\n"
+                "the hip travel and leaves every other bone at this model's own\n"
+                "rest position, which is what you want almost always.");
+        if (ImGui::Checkbox("Retarget root motion", &a.retargetRoot))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Scale the hip travel by the two rigs' hip heights and re-anchor\n"
+                "it on this model's own rest hip, so a clip authored on a taller\n"
+                "character does not make this one skate.");
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Ignore scale", &a.ignoreScale)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Drop the source's scale tracks. They are export noise in most\n"
+                "rigs and a rig-breaker in a few.");
+        ImGui::Unindent();
+        ImGui::PopID();
+    }
+    if (removeAt >= 0) {
+        project_.animImports.erase(project_.animImports.begin() + removeAt);
+        changed = true;
+    }
+    return changed;
+}
+
 void App::drawAnimEditorWindow() {
     if (!showAnimEditor_ || !hasProject_) return;
 
@@ -2814,8 +3006,24 @@ void App::drawAnimEditorWindow() {
     // the save icon dark). Comparing the section's serialized form across the
     // whole body cannot be forgotten. Clip renames also retarget references in
     // the SCENES, which the undo snapshot covers on its own.
+    // Two sections are owned by this window now, so the guard covers both -
+    // concatenated, which is the documented answer for a panel that spans more
+    // than one (app.hpp rule 1).
     const std::string beforeSection =
-        project::sectionJson(project_, project::Section::AnimEdits);
+        project::sectionJson(project_, project::Section::AnimEdits) +
+        project::sectionJson(project_, project::Section::AnimImports);
+    // This window has early returns (an unusable model, a model with no clips
+    // of its own), and the import block above them can edit - so the commit
+    // has to be reachable from every exit, not only the bottom. The
+    // drawCreditsWindow / drawGradingWindow idiom.
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::AnimEdits) +
+                    project::sectionJson(project_,
+                                         project::Section::AnimImports) !=
+                beforeSection)
+            commitChange();
+    };
     // listAnimatedModelFiles returns names relative to res/models; every other
     // API here (glbInfo, the viewport cache, AnimClipEdit::model) speaks
     // project-relative paths, which is also what SceneObject::modelPath holds.
@@ -2826,6 +3034,7 @@ void App::drawAnimEditorWindow() {
         ImGui::TextDisabled(
             "No animated models in this project.\n\n"
             "Project > Assets > Import model... and pick a .glb or .fbx.");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -2861,15 +3070,28 @@ void App::drawAnimEditorWindow() {
             "Multiplies every clip of every model; the per-clip time\n"
             "scale below stacks on top of it.");
 
+    // Imported clips, BEFORE the parse below and before its early returns: an
+    // import changes what clips this model has, and a character with none of
+    // its own - a bare rigged T-pose plus a folder of downloaded moves - is
+    // precisely the case this feature exists for. Drawn first, so that model
+    // can still reach the picker instead of hitting "no animation clips".
+    if (drawAnimImportSection(animEdModel_)) {
+        invalidateAnimCaches();
+        changed = true;
+    }
+    ImGui::Separator();
+
     const GlbInfo& info = glbInfo(animEdModel_);
     if (!info.ok) {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable model: %s",
                            info.error.c_str());
+        commitIfEdited();
         ImGui::End();
         return;
     }
     if (info.clips.empty()) {
         ImGui::TextDisabled("This model has no animation clips.");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -3176,9 +3398,7 @@ void App::drawAnimEditorWindow() {
 
     ImGui::EndChild();  // ae_right
 
-    if (changed ||
-        project::sectionJson(project_, project::Section::AnimEdits) != beforeSection)
-        commitChange();
+    commitIfEdited();
     ImGui::End();
 }
 

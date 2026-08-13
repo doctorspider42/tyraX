@@ -2538,6 +2538,50 @@ inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
 }
 
 // ---------------------------------------------------------------------------
+// Animation imported from ANOTHER model file (docs/animation-import.md,
+// Tools > Animation Editor > Imported clips).
+//
+// One row = "take these clips out of `source` and put them on `model`". The
+// donor file is never merged into the target on disk and neither file is
+// rewritten: the merge happens on the parsed skeleton, at preview time and
+// again on the way into the .tskl, exactly like AnimClipEdit's trims and
+// renames. So the record of what was imported stays legible and reversible,
+// re-exporting either asset picks the change up, and the console pays nothing.
+//
+// The imported clips land in the model's clip list under their donor names
+// (plus `prefix`), which means every existing mechanism applies to them with
+// no further work - they can be renamed, trimmed, retimed and made in-place by
+// an AnimClipEdit, picked in any clip combo, and mapped to Player locomotion.
+struct AnimImport {
+    std::string model;   // target asset, e.g. "res/models/hero.glb"
+    std::string source;  // donor asset, e.g. "res/models/anim/run.fbx"
+    // Which of the donor's clips to take. EMPTY MEANS ALL, and that is the
+    // useful default: a Mixamo download is one clip per file.
+    std::vector<std::string> clips;
+    std::string prefix;  // prepended to each imported name; "" = keep them
+
+    // The retarget policy - animmerge::MergeOptions, stored as plain fields so
+    // the model does not depend on that header. The defaults are what makes a
+    // merge safe: root-only translation is what stops a donor's bone lengths
+    // from stretching the target.
+    int translation = 0;  // 0 root bones only, 1 animated only, 2 copy all
+    bool ignoreScale = true;
+    bool retargetRoot = true;
+    bool stripNamespace = true;
+    bool caseInsensitive = true;
+    bool skeletonTracksOnly = true;
+};
+
+inline bool operator==(const AnimImport& a, const AnimImport& b) {
+    return a.model == b.model && a.source == b.source && a.clips == b.clips &&
+           a.prefix == b.prefix && a.translation == b.translation &&
+           a.ignoreScale == b.ignoreScale && a.retargetRoot == b.retargetRoot &&
+           a.stripNamespace == b.stripNamespace &&
+           a.caseInsensitive == b.caseInsensitive &&
+           a.skeletonTracksOnly == b.skeletonTracksOnly;
+}
+
+// ---------------------------------------------------------------------------
 // WHAT THE NEURAL UPSCALER'S TRAINING CORPUS IS ALLOWED TO SEE
 // (Tools > Neural Upscaler (BLSS) > Training shots, docs/neural-upscaler.md).
 //
@@ -2925,6 +2969,12 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Clips borrowed from other model files (docs/animation-import.md). Folded
+    // into the parsed skeleton BEFORE animClipEdits, so an imported clip is
+    // trimmed, retimed and renamed by exactly the same machinery as a native
+    // one. Same lifetime rules as the list above: saved, outside undo.
+    std::vector<AnimImport> animImports;
+
     // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
     // objects - their flow graphs included - stamped into the world by hand,
     // by a procedural graph, or by the Spawn Prefab node while the game runs.
@@ -3286,6 +3336,7 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    AnimImports,     // "animImports" (clips borrowed from other model files)
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
@@ -3303,7 +3354,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 20,
+static_assert(kSectionCount == 21,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

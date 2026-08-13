@@ -8,6 +8,7 @@
 #include <utility>
 #include <vector>
 
+#include "animmerge.hpp"
 #include "aobake.hpp"
 #include "gibake.hpp"
 #include "glbparser.hpp"
@@ -430,6 +431,17 @@ public:
         animEdits_ = std::move(edits);
         animProjectScale_ = projectScale > 0.001f ? projectScale : 1.0f;
     }
+    // Clips borrowed from other model files (docs/animation-import.md), pushed
+    // in the same way and for the same reason: the merge has to happen on this
+    // side too, or an imported clip would exist on the console and nowhere the
+    // author can see it. Keyed by project-relative model path, and a model
+    // absent from the map takes the untouched parser path.
+    void setAnimImports(
+        std::map<std::string, std::vector<animmerge::ImportSpec>> imports) {
+        if (imports == animImports_) return;  // nothing changed, keep the cache
+        animImports_ = std::move(imports);
+        invalidateAnimatedModels();
+    }
 
     // Animation Editor live preview: one animated model on a checker floor,
     // posed at an explicit time so the panel owns play/pause/scrub. Times are
@@ -512,6 +524,10 @@ public:
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
+    // Drops every cached animated-model bake. An import change alters the CLIP
+    // LIST of a model, which is baked into the cache entry, so the cache has
+    // to go - unlike a clip edit, which is applied per pose on the way out.
+    void invalidateAnimatedModels();
 
     // Camera controls, driven by the UI layer. The camera orbits a movable
     // target point: pan slides it in the view plane (middle mouse drag),
@@ -914,6 +930,12 @@ private:
     float animProjectScale_ = 1.0f;  // project fps ratio (animedit.hpp)
     const AnimClipEdit* animEditFor(const std::string& modelRel,
                                     const std::string& sourceClip) const;
+    // Clips borrowed from other files, pushed in by the app alongside the
+    // edits above. Keyed by project-relative model path; a model with no entry
+    // returns an empty list and therefore takes the untouched parser bake.
+    std::map<std::string, std::vector<animmerge::ImportSpec>> animImports_;
+    const std::vector<animmerge::ImportSpec>& animImportsFor(
+        const std::string& modelRel) const;
 
     // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
     struct MaterialDraw {

@@ -735,7 +735,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 25
+#define TYRAX_VERSION_MINOR 26
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -930,6 +930,17 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // not merely readable, it MOVES identically. Verified on the generated side -
 // examples/script-demo regenerated RUN_SPEED == WALK_SPEED == 0.4 and
 // SPRINT_SPEED == 0.72 == 0.4 x 1.8.
-inline constexpr int kFormatVersion = 18;
+// v19 (animation import, docs/animation-import.md): Project::animImports and
+// its "animImports" manifest section - clips borrowed from another model file.
+// A whole new section rather than a field, so a project that has imported
+// nothing emits no key at all and resaves byte for byte; every retarget flag
+// inside a row is likewise written only when it differs from its default.
+//
+// No migration step: nothing existing is renamed, moved or reinterpreted, and
+// the feature is inert without a row. The one thing that DID change shape for
+// every model is host-side only - SkelNode::name, which writeTskl does not
+// serialize - so no .tskl version moved either and an unimported model bakes
+// the same bytes it did before.
+inline constexpr int kFormatVersion = 19;
 
 }  // namespace version

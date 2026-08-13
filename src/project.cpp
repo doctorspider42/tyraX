@@ -2458,6 +2458,69 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// Clips borrowed from other model files (docs/animation-import.md). Same
+// conditional shape as the section above: a project that never imported
+// anything emits nothing at all. Every retarget flag is written only when it
+// differs from its default, so a row created with the defaults - which is
+// almost every row - stays two keys long.
+static void writeAnimImportsSection(std::ostream& json, const Project& p) {
+    if (p.animImports.empty()) return;
+    json << "\"animImports\": [";
+    for (size_t i = 0; i < p.animImports.size(); ++i) {
+        const AnimImport& a = p.animImports[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"model\": \""
+             << jsonEscape(a.model) << "\", \"source\": \""
+             << jsonEscape(a.source) << "\"";
+        // Absent = every clip in the donor, which is what a one-clip Mixamo
+        // file wants and what the panel offers by default.
+        if (!a.clips.empty()) {
+            json << ", \"clips\": [";
+            for (size_t k = 0; k < a.clips.size(); ++k)
+                json << (k ? ", " : "") << "\"" << jsonEscape(a.clips[k]) << "\"";
+            json << "]";
+        }
+        if (!a.prefix.empty())
+            json << ", \"prefix\": \"" << jsonEscape(a.prefix) << "\"";
+        if (a.translation != 0) json << ", \"translation\": " << a.translation;
+        if (!a.ignoreScale) json << ", \"ignoreScale\": false";
+        if (!a.retargetRoot) json << ", \"retargetRoot\": false";
+        if (!a.stripNamespace) json << ", \"stripNamespace\": false";
+        if (!a.caseInsensitive) json << ", \"caseInsensitive\": false";
+        if (!a.skeletonTracksOnly) json << ", \"skeletonTracksOnly\": false";
+        json << " }";
+    }
+    json << "\n  ]";
+}
+
+static void readAnimImportsSection(const json::Value& root, Project& out) {
+    out.animImports.clear();
+    const auto* arr = root.find("animImports");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        AnimImport a;
+        if (const auto* v = e.find("model")) a.model = v->stringOr("");
+        if (const auto* v = e.find("source")) a.source = v->stringOr("");
+        // A row naming neither end can do nothing but produce a warning per
+        // build, so it is dropped on load like an unknown screen-effect key.
+        if (a.model.empty() || a.source.empty()) continue;
+        if (const auto* v = e.find("clips"); v && v->type == json::Value::Type::Array)
+            for (const json::Value& c : v->arr) a.clips.push_back(c.stringOr(""));
+        if (const auto* v = e.find("prefix")) a.prefix = v->stringOr("");
+        if (const auto* v = e.find("translation"))
+            a.translation = (int)v->numberOr(0);
+        if (a.translation < 0 || a.translation > 2) a.translation = 0;
+        if (const auto* v = e.find("ignoreScale")) a.ignoreScale = v->boolOr(true);
+        if (const auto* v = e.find("retargetRoot")) a.retargetRoot = v->boolOr(true);
+        if (const auto* v = e.find("stripNamespace"))
+            a.stripNamespace = v->boolOr(true);
+        if (const auto* v = e.find("caseInsensitive"))
+            a.caseInsensitive = v->boolOr(true);
+        if (const auto* v = e.find("skeletonTracksOnly"))
+            a.skeletonTracksOnly = v->boolOr(true);
+        out.animImports.push_back(std::move(a));
+    }
+}
+
 // The project's own VU programs (docs/vu-authoring.md). Conditional: a project
 // that never opened Tools > VU Programs emits nothing.
 static void writeVuStages(std::ostream& json, const std::vector<VuStage>& st) {
@@ -2981,6 +3044,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::AnimImports: writeAnimImportsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
@@ -3008,6 +3072,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::AnimImports: return "animImports";
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
@@ -6229,6 +6294,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::AnimImports: readAnimImportsSection(root, p); break;
         case Section::ModelUnits: readModelUnitsSection(root, p); break;
         // A section blob is total, so a peer that never had the Input Map
         // would wipe it - re-seed the built-ins after applying (idempotent).
@@ -6407,6 +6473,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readSequencesSection(root, out);
 
     readAnimEditsSection(root, out);
+    readAnimImportsSection(root, out);
 
     readPrefabsSection(root, out);
     readVuSection(root, out);

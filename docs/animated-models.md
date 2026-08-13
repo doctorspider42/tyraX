@@ -188,6 +188,15 @@ Because the edits are baked at build time, a running game cannot receive them
 over [Live Link](live-link.md) - the LIVE chip turns amber (rebuild) when you
 retime, trim or make a clip in-place.
 
+### Borrowing clips from another file
+
+The same window's **Imported clips** section takes clips out of a *different*
+rigged file and puts them on this model - a Mixamo download, or a second export
+from an animator - matching bones by name and keeping this model's own
+proportions. An imported clip then behaves as one of this model's clips
+everywhere, the fields above included. See
+[animation-import.md](animation-import.md).
+
 ### Preview lighting
 
 The preview shades the model with the **scene's** ambience, on purpose: what
@@ -246,6 +255,9 @@ knowing:
   transcoded; power-of-two still required, like every PS2 texture).
 - **Not supported** (imports with a warning, piece skipped): blend
   shapes/morph targets, procedural textures.
+- **A clip-only .fbx needs no mesh**: to put a downloaded move on a character
+  you already have, import the clip file and borrow from it - see
+  [animation-import.md](animation-import.md).
 
 ## Third-person player avatars
 

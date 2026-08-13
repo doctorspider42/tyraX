@@ -9,6 +9,11 @@ guides. What is queued is in [Backlog](backlog.md).
 - [Animated models (.glb)](animated-models.md) - authoring animations in
   Blender, importing them, clip playback, flow-graph nodes and the script
   API, PS2 memory budget, troubleshooting.
+- [Importing animation from another file](animation-import.md) - borrow clips
+  from a second rigged file (a Mixamo download, another export) onto a model
+  already in the project: name-based bone matching, the translation policy that
+  keeps your character's own proportions instead of the source's, root-motion
+  retargeting, and why an imported clip is an ordinary clip from then on.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) - why
   the game reads a binary model instead of your `.obj`, what that means for
   your files and the disc, distance mesh LOD for static geometry, and

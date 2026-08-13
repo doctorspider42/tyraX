@@ -38177,6 +38177,13 @@ std::vector<File> bakeAnimAssets(const Project& p,
             warn(relPath + ": " + error);
             continue;
         }
+        // Clips borrowed from other model files (docs/animation-import.md).
+        // FIRST, before anything else touches the skeleton: an imported clip
+        // has to be an ordinary clip of this model from here on, so that the
+        // LOD pass, the clip edits and the .tskl writer treat it exactly like
+        // a native one - and so a rename or trim can target it.
+        animmerge::applyImports(animedit::importsFor(p, relPath), skel,
+                                warnings);
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
         // Material override (docs/animated-models.md): resolve the assigned
         // .mtl into the part colors/textures now, so the .tskl (and every

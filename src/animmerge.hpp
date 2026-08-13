@@ -1,0 +1,162 @@
+#pragma once
+
+#include <string>
+#include <vector>
+
+#include "glbparser.hpp"
+
+// Importing animation from ANOTHER model file (docs/animation-import.md).
+//
+// The problem this solves: a character is rigged once, and its clips arrive
+// separately - a Mixamo download is one .fbx per move, each carrying a full
+// copy of the skeleton and no useful mesh. Without this, the only way to get
+// them onto the character is to merge the files in Blender and re-export.
+//
+// WHERE THE WORK HAPPENS, and why it is here rather than in fbxparser.cpp.
+// The merge operates on the PARSED skeleton (glbparser::Skel), not on a ufbx
+// scene, so it is format-agnostic by construction: .fbx clips onto a .glb
+// character - the common case, since Blender exports .glb and Mixamo hands out
+// .fbx - works with the same code as any other combination, and a second
+// format costs nothing here. Host-only, no GL, no ImGui, no project.hpp (the
+// treegen/aobake shape), so the whole retarget is exercisable from a small
+// harness.
+//
+// WHAT IT IS NOT. This is a same-skeleton merge, not a full retargeter. Bone
+// ROTATIONS are copied verbatim, so the two rigs must agree on their bind
+// orientation (two Mixamo rigs do; a Mixamo clip on an arbitrarily authored
+// skeleton does not). What makes it safe in practice is the translation
+// policy below, not any rotation maths - see `TranslationMode`.
+namespace animmerge {
+
+// How a donor's translation channels are treated. The default exists because
+// copying them all is what makes a merged clip stretch a character: bone
+// lengths live in the translation of each bone, so a donor's arm translation
+// applied to a target rebuilds the DONOR's proportions.
+enum class TranslationMode {
+    // Keep translation only on root bones (the hips) - everywhere else the
+    // target's own bind translation stands, which IS its bone lengths. The
+    // right answer for essentially every rig, and the default.
+    RootBonesOnly = 0,
+    // Keep translation only where it actually animates. For rigs that legally
+    // translate other bones (a stretchy or IK-baked rig).
+    AnimatedOnly = 1,
+    // Copy everything, proportions included. For two exports of one rig.
+    CopyAll = 2,
+};
+
+struct MergeOptions {
+    TranslationMode translation = TranslationMode::RootBonesOnly;
+    // Scale channels are noise in most exports and a rig-breaker in a few, so
+    // they are dropped by default.
+    bool ignoreScale = true;
+    // Re-express root-bone motion around the TARGET's rest hip, scaled by the
+    // two rigs' hip heights - so a clip authored on a tall rig does not make a
+    // short one skate. Off = the donor's raw root positions.
+    bool retargetRoot = true;
+    // Name matching. "mixamorig:Hips" / "Armature|Hips" -> "Hips", and case is
+    // ignored; an EXACT match is always tried first, so a rig that really does
+    // have both spellings resolves the literal one.
+    bool stripNamespace = true;
+    bool caseInsensitive = true;
+    // Drop tracks whose target node is not a skinning bone (mesh nodes,
+    // cameras, helpers). They cannot deform the character and a donor's mesh
+    // node moving the target's mesh node is rarely what anyone wants.
+    bool skeletonTracksOnly = true;
+};
+
+inline bool operator==(const MergeOptions& a, const MergeOptions& b) {
+    return a.translation == b.translation && a.ignoreScale == b.ignoreScale &&
+           a.retargetRoot == b.retargetRoot &&
+           a.stripNamespace == b.stripNamespace &&
+           a.caseInsensitive == b.caseInsensitive &&
+           a.skeletonTracksOnly == b.skeletonTracksOnly;
+}
+
+// One donor file and what to take from it.
+struct ImportSpec {
+    std::string path;                // absolute path to the donor .fbx/.glb
+    std::vector<std::string> clips;  // empty = every clip in the file
+    std::string prefix;              // prepended to each imported clip name
+    MergeOptions options;
+};
+
+// Equality is what lets a per-frame push into the viewport skip the expensive
+// re-bake when nothing about the imports changed.
+inline bool operator==(const ImportSpec& a, const ImportSpec& b) {
+    return a.path == b.path && a.clips == b.clips && a.prefix == b.prefix &&
+           a.options == b.options;
+}
+
+struct MergeReport {
+    int clipsAdded = 0;
+    int tracksMatched = 0;
+    int tracksDropped = 0;
+    int translationStripped = 0;
+    int scaleStripped = 0;
+    int rootTracksRetargeted = 0;
+    float rootMotionScale = 1.0f;
+    // Donor bones with no target counterpart, deduped and capped - the list a
+    // user needs to see when a merge comes out empty or partial.
+    std::vector<std::string> unmatched;
+    std::vector<std::string> addedClips;
+};
+inline constexpr int kMaxReportedUnmatched = 24;
+
+// Fraction of the donor's ANIMATED bones that resolve to a target bone: the
+// "will this work" number, shown before anything is imported. 1.0 means every
+// animated bone has a home; a rig mismatch shows up as a low fraction rather
+// than as a character folded inside out.
+float compatibility(const glbparser::Skel& target, const glbparser::Skel& donor,
+                    const MergeOptions& options);
+
+// Appends `donor`'s selected clips to `target`, rebound onto the target's own
+// nodes. A clip whose name is taken gains a "_1" suffix, so importing twice
+// cannot silently replace anything. Returns false only when nothing at all was
+// merged (with `error` set); a partially matched clip is a success with a
+// populated report.
+bool merge(glbparser::Skel& target, const glbparser::Skel& donor,
+           const ImportSpec& spec, MergeReport& report, std::string& error);
+
+// Recomputes Skel::min/max as the union over EVERY clip, sampled sparsely -
+// the same conservative box parseSkel builds from a file's own clips.
+//
+// This is not housekeeping: those bounds are what the console frustum-culls
+// and box-collides the model with, and they were computed from the target's
+// own clips alone. An imported clip that reaches further - a jump, a lunge, a
+// clip that travels - would otherwise be culled while still on screen.
+void refreshPoseBounds(glbparser::Skel& skel);
+
+// Loads each donor and merges it into `target`, in order, then refreshes the
+// pose bounds. Failures are reported into `warnings` and skipped rather than
+// failing the build - a missing donor file must not stop a game from being
+// built, and the warning names the file.
+void applyImports(const std::vector<ImportSpec>& imports,
+                  glbparser::Skel& target,
+                  std::vector<std::string>* warnings);
+
+// ---------------------------------------------------------------------------
+// The preview half.
+//
+// Everything that DRAWS an animated model in the editor consumes morph frames
+// (glbparser::Baked), which the format parsers produce by posing the source
+// scene - a path that by definition knows nothing about clips merged in
+// afterwards. So imported clips are baked from the merged SKELETON instead:
+// evaluate the channels, skin the bind-pose mesh, emit the same frames.
+//
+// That the Skel is also exactly what ships makes this preview MORE faithful
+// than the parser's own bake, not less - it is the .tskl being drawn.
+bool skelToBaked(const glbparser::Skel& skel, float fps, glbparser::Baked& out,
+                 std::string& error);
+
+// What every preview site calls: parse `modelPath`, fold in `imports`, and
+// return the morph-frame bake.
+//
+// With no imports this is a straight `animimport::bake` - the long-standing,
+// proven path, byte for byte - so a model nobody has imported into cannot be
+// affected by any of the above. Only a model that HAS imports goes through
+// parseSkel + merge + skelToBaked.
+bool bakedWithImports(const std::string& modelPath,
+                      const std::vector<ImportSpec>& imports, float fps,
+                      glbparser::Baked& out, std::string& error);
+
+}  // namespace animmerge
