@@ -735,7 +735,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 27
+#define TYRAX_VERSION_MINOR 28
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -948,6 +948,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // sprinting", which is what every project did. The same commit moves the
 // walkers onto PlayerCtl::speeds and streams speed edits over Live Link
 // record v3 - channel-internal, not project format.
-inline constexpr int kFormatVersion = 20;
+// v21 (bone mapping, docs/animation-import.md): AnimImport::boneMap - the
+// hand-made donor->target bone pairs from the Map bones editor, an array of
+// {s, t} objects written only when non-empty. Additive with a safe default
+// (empty = pure name matching, the previous behaviour), so no migration step.
+inline constexpr int kFormatVersion = 21;
 
 }  // namespace version

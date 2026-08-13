@@ -1,6 +1,7 @@
 #include "animmerge.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <map>
@@ -107,7 +108,8 @@ std::string normalize(std::string name, const MergeOptions& o) {
     return name;
 }
 
-// target-node lookup: exact name first, normalized second.
+// target-node lookup: the explicit boneMap first (a hand-made pair always
+// wins), then exact name, then normalized.
 class Resolver {
    public:
     Resolver(const Skel& target, const MergeOptions& o) : opts_(o) {
@@ -116,8 +118,16 @@ class Resolver {
             // First writer wins, so a collision resolves deterministically.
             norm_.emplace(normalize(target.nodes[i].name, o), (int)i);
         }
+        // The map stores TARGET NAMES (stable across both files' reparses);
+        // resolve them to indices once. A pair whose target name no longer
+        // exists is skipped - the donor bone then falls through to the name
+        // chain instead of silently landing on bone 0.
+        for (const auto& [from, to] : o.boneMap)
+            if (auto it = exact_.find(to); it != exact_.end())
+                mapped_.emplace(from, it->second);
     }
     int resolve(const std::string& name) const {
+        if (auto it = mapped_.find(name); it != mapped_.end()) return it->second;
         if (auto it = exact_.find(name); it != exact_.end()) return it->second;
         if (auto it = norm_.find(normalize(name, opts_)); it != norm_.end())
             return it->second;
@@ -126,6 +136,7 @@ class Resolver {
 
    private:
     MergeOptions opts_;
+    std::map<std::string, int> mapped_;
     std::map<std::string, int> exact_;
     std::map<std::string, int> norm_;
 };
@@ -278,6 +289,158 @@ void poseGlobals(const Skel& s, const SkelClip& clip, float t,
 }
 
 }  // namespace
+
+int resolveBoneName(const Skel& target, const std::string& donorName,
+                    const MergeOptions& options) {
+    return Resolver(target, options).resolve(donorName);
+}
+
+namespace {
+
+// Bone-name tokens for the fuzzy suggester: split on separators AND camelCase
+// boundaries, lowercase, collapse the side words - so "mixamorig:LeftUpLeg"
+// and "UpperLeg_L" both carry an "l" token and comparable stems.
+std::vector<std::string> boneTokens(const std::string& raw) {
+    // Namespace off first, same rule as normalize().
+    std::string name = raw;
+    if (const size_t pos = name.find_last_of(":|");
+        pos != std::string::npos && pos + 1 < name.size())
+        name = name.substr(pos + 1);
+    std::vector<std::string> tokens;
+    std::string cur;
+    auto flush = [&] {
+        if (cur.empty()) return;
+        if (cur == "left") cur = "l";
+        else if (cur == "right") cur = "r";
+        tokens.push_back(cur);
+        cur.clear();
+    };
+    for (size_t i = 0; i < name.size(); ++i) {
+        const char c = name[i];
+        if (!std::isalnum((unsigned char)c)) {
+            flush();
+            continue;
+        }
+        // camelCase boundary: an upper after a lower starts a new token.
+        if (std::isupper((unsigned char)c) && !cur.empty() &&
+            std::islower((unsigned char)cur.back()))
+            flush();
+        cur += (char)std::tolower((unsigned char)c);
+    }
+    flush();
+    return tokens;
+}
+
+// Longest common subsequence ratio of two short strings - the half of the
+// score that survives single-token names ("joint1" vs "rig_joint1a"), where
+// token overlap has nothing to count.
+float lcsRatio(const std::string& a, const std::string& b) {
+    if (a.empty() || b.empty()) return 0.0f;
+    std::vector<int> prev(b.size() + 1, 0), cur(b.size() + 1, 0);
+    for (size_t i = 1; i <= a.size(); ++i) {
+        for (size_t j = 1; j <= b.size(); ++j)
+            cur[j] = a[i - 1] == b[j - 1]
+                         ? prev[j - 1] + 1
+                         : (prev[j] > cur[j - 1] ? prev[j] : cur[j - 1]);
+        prev.swap(cur);
+    }
+    return 2.0f * (float)prev[b.size()] / (float)(a.size() + b.size());
+}
+
+// Token overlap (Dice) blended with the LCS of the joined names, under a hard
+// side guard: a bone carrying "l" may never suggest one carrying "r" - a
+// fuzzy score cannot be allowed to bend the wrong limb.
+float boneScore(const std::vector<std::string>& a,
+                const std::vector<std::string>& b) {
+    if (a.empty() || b.empty()) return 0.0f;
+    auto side = [](const std::vector<std::string>& t) {
+        for (const std::string& s : t)
+            if (s == "l" || s == "r") return s[0];
+        return '\0';
+    };
+    const char sa = side(a), sb = side(b);
+    if (sa != sb && sa && sb) return 0.0f;
+    std::vector<std::string> bs = b;
+    int hit = 0;
+    std::string ja, jb;
+    for (const std::string& t : a) ja += t;
+    for (const std::string& t : b) jb += t;
+    for (const std::string& t : a) {
+        auto it = std::find(bs.begin(), bs.end(), t);
+        if (it == bs.end()) continue;
+        bs.erase(it);
+        ++hit;
+    }
+    const float dice = 2.0f * (float)hit / (float)(a.size() + b.size());
+    const float lcs = lcsRatio(ja, jb);
+    return dice > lcs ? dice : lcs;
+}
+
+}  // namespace
+
+std::vector<BoneSuggestion> suggestBoneMap(const Skel& target,
+                                           const Skel& donor,
+                                           const MergeOptions& options) {
+    Resolver res(target, options);
+    std::vector<char> tIsBone, tIsRoot, dIsBone, dIsRoot;
+    boneSets(target, tIsBone, tIsRoot);
+    boneSets(donor, dIsBone, dIsRoot);
+
+    // Free target bones: not already the home of a name-resolved donor bone.
+    std::vector<char> taken(target.nodes.size(), 0);
+    std::vector<int> unmatched;
+    for (size_t i = 0; i < donor.nodes.size(); ++i) {
+        if (!dIsBone[i]) continue;
+        const int hit = res.resolve(donor.nodes[i].name);
+        if (hit >= 0)
+            taken[(size_t)hit] = 1;
+        else
+            unmatched.push_back((int)i);
+    }
+
+    // Score every (unmatched donor, free target-bone) pair, then assign
+    // greedily best-first so no target bone is suggested twice.
+    struct Cand {
+        int donor, target;
+        float score;
+    };
+    std::vector<Cand> cands;
+    for (int di : unmatched) {
+        const auto dt = boneTokens(donor.nodes[(size_t)di].name);
+        for (size_t ti = 0; ti < target.nodes.size(); ++ti) {
+            if (!tIsBone[ti] || taken[ti]) continue;
+            const float sc = boneScore(dt, boneTokens(target.nodes[ti].name));
+            if (sc >= 0.5f) cands.push_back({di, (int)ti, sc});
+        }
+    }
+    std::stable_sort(cands.begin(), cands.end(),
+                     [](const Cand& a, const Cand& b) { return a.score > b.score; });
+    std::vector<BoneSuggestion> out;
+    std::vector<char> donorDone(donor.nodes.size(), 0);
+    for (const Cand& c : cands) {
+        if (donorDone[(size_t)c.donor] || taken[(size_t)c.target]) continue;
+        donorDone[(size_t)c.donor] = 1;
+        taken[(size_t)c.target] = 1;
+        out.push_back({donor.nodes[(size_t)c.donor].name,
+                       target.nodes[(size_t)c.target].name, c.score});
+    }
+    return out;
+}
+
+void bindGlobals(const Skel& skel, std::vector<float>& xyz) {
+    // Bind pose = no channels: reuse the pose composer with an empty bucket
+    // list, so this cannot drift from how the merge itself poses nodes.
+    static const SkelClip kNone{};
+    std::vector<std::vector<const SkelChannel*>> byNode(skel.nodes.size());
+    std::vector<M4> globals;
+    poseGlobals(skel, kNone, 0.0f, byNode, globals);
+    xyz.resize(skel.nodes.size() * 3);
+    for (size_t i = 0; i < globals.size(); ++i) {
+        xyz[i * 3 + 0] = globals[i].m[12];
+        xyz[i * 3 + 1] = globals[i].m[13];
+        xyz[i * 3 + 2] = globals[i].m[14];
+    }
+}
 
 float compatibility(const Skel& target, const Skel& donor,
                     const MergeOptions& options) {
@@ -470,7 +633,7 @@ void refreshPoseBounds(Skel& skel) {
     }
 }
 
-void applyImports(const std::vector<ImportSpec>& imports, Skel& target,
+bool applyImports(const std::vector<ImportSpec>& imports, Skel& target,
                   std::vector<std::string>* warnings) {
     auto warn = [&](const std::string& m) {
         if (warnings) warnings->push_back(m);
@@ -495,9 +658,7 @@ void applyImports(const std::vector<ImportSpec>& imports, Skel& target,
                  " source bone(s) had no counterpart (first: " +
                  report.unmatched.front() + ")");
     }
-    // Only when something landed: an untouched skeleton keeps the bounds its
-    // own parse produced, byte for byte.
-    if (merged) refreshPoseBounds(target);
+    return merged;
 }
 
 bool skelToBaked(const Skel& skel, float fps, Baked& out, std::string& error) {
@@ -670,6 +831,11 @@ bool bakedWithImports(const std::string& modelPath,
 
     Skel skel;
     if (!animimport::parseSkel(modelPath, skel, error)) return false;
+    // No refreshPoseBounds here on purpose: those bounds exist for the
+    // console's culling and collision, and skelToBaked computes what the
+    // preview needs from the frames it is about to bake anyway. Skipping the
+    // extra full-skeleton skinning pass is most of what keeps opening a model
+    // with imports as cheap as opening one without.
     applyImports(imports, skel, &skel.warnings);
     return skelToBaked(skel, fps, out, error);
 }

@@ -1039,13 +1039,42 @@ private:
     void invalidateAnimCaches();
     // Staged donor pick for the import block; "" = nothing chosen yet.
     std::string animImpSource_;
-    // "target|source" -> skeleton match, 0..1 (-1 = a file would not parse).
-    // Answering it means parsing TWO models, which a panel body must not do
+    // Everything the import panel needs to know about a (target, source) pair.
+    // Answering it means parsing two models, which a panel body must not do
     // every frame - so it is computed once per pair and dropped by
-    // invalidateAnimCaches() along with every other parse-derived cache.
-    std::map<std::string, float> animMatchCache_;
-    float animSkeletonMatch(const std::string& modelRel,
-                            const std::string& sourceRel);
+    // invalidateAnimCaches() with every other parse-derived cache.
+    struct AnimImportProbe {
+        bool ok = false;
+        std::string error;
+        int clipCount = 0;
+        float match = 0.0f;   // 0..1, fraction of animated bones with a home
+        int bonesTotal = 0;   // donor skinning bones
+        int bonesMapped = 0;  // ...that resolve to a target bone
+    };
+    std::map<std::string, AnimImportProbe> animProbeCache_;
+    // `boneMap` participates in the cache key, so a row with hand-made pairs
+    // reads its own numbers and a mapping commit refreshes them.
+    const AnimImportProbe& animImportProbe(
+        const std::string& modelRel, const std::string& sourceRel,
+        const std::vector<std::pair<std::string, std::string>>& boneMap);
+
+    // --- the bone-mapping editor (Map bones... on an import row) -----------
+    // Staged entirely on the App: the two skeletons are parsed ONCE when the
+    // window opens and the pair list is a working copy, committed on Apply.
+    int animMapRow_ = -1;  // index into project_.animImports; -1 = closed
+    bool animMapParsed_ = false;
+    glbparser::Skel animMapTarget_, animMapDonor_;
+    std::vector<float> animMapTPos_, animMapDPos_;  // bind-pose globals
+    std::vector<std::pair<std::string, std::string>> animMapPairs_;  // staged
+    std::vector<animmerge::BoneSuggestion> animMapSugg_;
+    int animMapSelDonor_ = -1;  // selected donor node, -1 = none
+    void openAnimBoneMap(int importRow);
+    // Draws the window when open; returns true on an applied change.
+    bool drawAnimBoneMapWindow();
+    // Staged text of the row being typed into, so a Name prefix edit costs a
+    // re-merge once on commit instead of once per keystroke.
+    int animImpEditRow_ = -1;
+    char animImpPrefix_[64] = {};
     // Preview lighting shared by the Material and Animation Editors.
     // `sel` is the stored selection (see matEdLight_): resolves it into the
     // override the viewport bakes with, and draws the combo that picks it

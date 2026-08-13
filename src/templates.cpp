@@ -38239,8 +38239,12 @@ std::vector<File> bakeAnimAssets(const Project& p,
         // has to be an ordinary clip of this model from here on, so that the
         // LOD pass, the clip edits and the .tskl writer treat it exactly like
         // a native one - and so a rename or trim can target it.
-        animmerge::applyImports(animedit::importsFor(p, relPath), skel,
-                                warnings);
+        if (animmerge::applyImports(animedit::importsFor(p, relPath), skel,
+                                    warnings))
+            // Console-side only: these bounds are what the game frustum-culls
+            // and box-collides with, and an imported clip can reach outside
+            // the ones the model's own clips implied.
+            animmerge::refreshPoseBounds(skel);
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
         // Material override (docs/animated-models.md): resolve the assigned
         // .mtl into the part colors/textures now, so the .tskl (and every

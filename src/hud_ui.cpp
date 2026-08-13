@@ -35,6 +35,7 @@
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "theme.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -2792,19 +2793,47 @@ bool App::previewLightCombo(const char* label, std::string& sel) {
     return changed;
 }
 
-float App::animSkeletonMatch(const std::string& modelRel,
-                             const std::string& sourceRel) {
-    const std::string key = modelRel + "|" + sourceRel;
-    if (auto it = animMatchCache_.find(key); it != animMatchCache_.end())
+const App::AnimImportProbe& App::animImportProbe(
+    const std::string& modelRel, const std::string& sourceRel,
+    const std::vector<std::pair<std::string, std::string>>& boneMap) {
+    std::string key = modelRel + "|" + sourceRel;
+    for (const auto& [a, b] : boneMap) key += "|" + a + ">" + b;
+    if (auto it = animProbeCache_.find(key); it != animProbeCache_.end())
         return it->second;
+
+    // ONE pair of parseSkel calls answers everything the panel shows: whether
+    // the file is usable, how many clips it holds and how well the rigs match.
+    // It deliberately does NOT go through glbInfo, which bakes every clip of
+    // the file into morph frames - that is the single most expensive thing the
+    // editor can do to a model, and picking a file from a combo must not cost
+    // it just to print "3 clips".
+    AnimImportProbe probe;
     glbparser::Skel target, donor;
     std::string err;
-    float match = -1.0f;
-    if (animimport::parseSkel(project_.filePath(modelRel), target, err) &&
-        animimport::parseSkel(project_.filePath(sourceRel), donor, err))
-        match = animmerge::compatibility(target, donor, animmerge::MergeOptions{});
-    animMatchCache_[key] = match;
-    return match;
+    if (!animimport::parseSkel(project_.filePath(sourceRel), donor, err)) {
+        probe.error = err;
+    } else if (!animimport::parseSkel(project_.filePath(modelRel), target,
+                                      err)) {
+        probe.error = err;
+    } else {
+        probe.ok = true;
+        probe.clipCount = (int)donor.clips.size();
+        animmerge::MergeOptions opts;
+        opts.boneMap = boneMap;
+        probe.match = animmerge::compatibility(target, donor, opts);
+        // Bones with a home - the number the mapping editor moves.
+        std::set<int> boneNodes;
+        for (const glbparser::SkelJoint& j : donor.palette)
+            boneNodes.insert(j.node);
+        for (int n : boneNodes) {
+            if (n < 0 || n >= (int)donor.nodes.size()) continue;
+            ++probe.bonesTotal;
+            if (animmerge::resolveBoneName(target, donor.nodes[(size_t)n].name,
+                                           opts) >= 0)
+                ++probe.bonesMapped;
+        }
+    }
+    return animProbeCache_.emplace(key, std::move(probe)).first->second;
 }
 
 void App::invalidateAnimCaches() {
@@ -2813,7 +2842,7 @@ void App::invalidateAnimCaches() {
     // model-info pair is always evicted as a unit (app.cpp precedent).
     glbInfoCache_.clear();
     modelInfoCache_.clear();
-    animMatchCache_.clear();
+    animProbeCache_.clear();
     viewport_.invalidateAnimatedModels();
 }
 
@@ -2823,6 +2852,297 @@ void App::invalidateAnimCaches() {
 // anything else: it is the fraction of the donor's animated bones that have a
 // counterpart on this model, so a rig mismatch shows as a low percentage here
 // rather than as a character folded inside out in the preview.
+// --- the bone-mapping editor (docs/animation-import.md, "Mapping bones") ---
+//
+// Two skeletons drawn side by side from their bind poses, donor left, target
+// right. Click a red donor joint, then the target joint it should drive - the
+// pair lands in the import row's boneMap, which the merge consults before any
+// name matching. The fuzzy suggestions (animmerge::suggestBoneMap) are drawn
+// amber and applied only through the Accept button: a wrong guess bends the
+// wrong limb, so a person confirms them.
+
+void App::openAnimBoneMap(int importRow) {
+    if (importRow < 0 || importRow >= (int)project_.animImports.size()) return;
+    const AnimImport& a = project_.animImports[(size_t)importRow];
+    std::string err;
+    animMapParsed_ =
+        animimport::parseSkel(project_.filePath(a.model), animMapTarget_, err) &&
+        animimport::parseSkel(project_.filePath(a.source), animMapDonor_, err);
+    if (animMapParsed_) {
+        animmerge::bindGlobals(animMapTarget_, animMapTPos_);
+        animmerge::bindGlobals(animMapDonor_, animMapDPos_);
+    }
+    animMapPairs_ = a.boneMap;
+    animMapSelDonor_ = -1;
+    animMapRow_ = importRow;
+    ImGui::SetWindowFocus("Map bones");
+}
+
+bool App::drawAnimBoneMapWindow() {
+    if (animMapRow_ < 0 || !hasProject_) return false;
+    if (animMapRow_ >= (int)project_.animImports.size()) {
+        animMapRow_ = -1;
+        return false;
+    }
+    AnimImport& row = project_.animImports[(size_t)animMapRow_];
+
+    bool openFlag = true;
+    ImGui::SetNextWindowSize(ImVec2(scaled(760), scaled(560)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Map bones", &openFlag)) {
+        ImGui::End();
+        if (!openFlag) animMapRow_ = -1;
+        return false;
+    }
+    if (!animMapParsed_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                           "A file would not parse.");
+        ImGui::End();
+        if (!openFlag) animMapRow_ = -1;
+        return false;
+    }
+
+    const glbparser::Skel& tgt = animMapTarget_;
+    const glbparser::Skel& don = animMapDonor_;
+
+    // Per-frame state derived from the staged pairs. Cheap (name lookups over
+    // <100 bones), so recomputing beats caching + invalidation here.
+    animmerge::MergeOptions opts;
+    opts.boneMap = animMapPairs_;
+    // Which donor nodes are bones, and where each resolves.
+    std::set<int> donorBones, targetBones;
+    for (const glbparser::SkelJoint& j : don.palette) donorBones.insert(j.node);
+    for (const glbparser::SkelJoint& j : tgt.palette) targetBones.insert(j.node);
+    std::map<int, int> resolved;  // donor node -> target node (-1 = none)
+    std::map<int, bool> explicitPair;
+    int mapped = 0;
+    for (int n : donorBones) {
+        if (n < 0 || n >= (int)don.nodes.size()) continue;
+        const std::string& name = don.nodes[(size_t)n].name;
+        resolved[n] = animmerge::resolveBoneName(tgt, name, opts);
+        bool exp = false;
+        for (const auto& [from, to] : animMapPairs_)
+            if (from == name) exp = true;
+        explicitPair[n] = exp;
+        if (resolved[n] >= 0) ++mapped;
+    }
+    animMapSugg_ = animmerge::suggestBoneMap(tgt, don, opts);
+    std::map<int, int> suggested;  // donor node -> target node
+    for (const animmerge::BoneSuggestion& sg : animMapSugg_)
+        for (int n : donorBones)
+            if (don.nodes[(size_t)n].name == sg.donor)
+                for (size_t t = 0; t < tgt.nodes.size(); ++t)
+                    if (tgt.nodes[t].name == sg.target) suggested[n] = (int)t;
+
+    // --- header: the numbers and the verbs, one line ------------------------
+    ImGui::Text("%d/%d bones", mapped, (int)donorBones.size());
+    ImGui::SameLine();
+    if (!animMapSugg_.empty()) {
+        char lbl[48];
+        snprintf(lbl, sizeof lbl, "Accept %d suggestion%s",
+                 (int)animMapSugg_.size(),
+                 animMapSugg_.size() == 1 ? "" : "s");
+        if (ImGui::SmallButton(lbl))
+            for (const animmerge::BoneSuggestion& sg : animMapSugg_)
+                animMapPairs_.emplace_back(sg.donor, sg.target);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turn the amber guesses into real pairs.");
+        ImGui::SameLine();
+    }
+    if (!animMapPairs_.empty()) {
+        if (ImGui::SmallButton("Clear pairs")) animMapPairs_.clear();
+        ImGui::SameLine();
+    }
+    ImGui::TextDisabled("click a red joint, then its match on the right");
+
+    // --- the canvas ---------------------------------------------------------
+    const float footerH = ImGui::GetFrameHeightWithSpacing() + scaled(8);
+    ImGui::BeginChild("##bonecanvas", ImVec2(0, -footerH),
+                      ImGuiChildFlags_Borders);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 cMin = ImGui::GetCursorScreenPos();
+    const ImVec2 cSize = ImGui::GetContentRegionAvail();
+    // The child must claim its input region or clicks fall through to
+    // whatever is under the canvas.
+    ImGui::InvisibleButton("##bonehit", ImVec2(cSize.x > 1 ? cSize.x : 1,
+                                               cSize.y > 1 ? cSize.y : 1));
+    const bool canvasHover = ImGui::IsItemHovered();
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    // Fit each skeleton into its half: front view (x right, y up).
+    struct Fit {
+        float minX = 0, maxX = 0, minY = 0, maxY = 0;
+        ImVec2 org;  // screen-space origin
+        float scale = 1.0f;
+    };
+    auto fitOf = [&](const std::vector<float>& pos, const std::set<int>& bones,
+                     float x0, float x1) {
+        Fit f;
+        bool first = true;
+        for (int n : bones) {
+            if (n < 0 || (size_t)(n * 3 + 2) >= pos.size()) continue;
+            const float x = pos[(size_t)n * 3], y = pos[(size_t)n * 3 + 1];
+            if (first || x < f.minX) f.minX = x;
+            if (first || x > f.maxX) f.maxX = x;
+            if (first || y < f.minY) f.minY = y;
+            if (first || y > f.maxY) f.maxY = y;
+            first = false;
+        }
+        const float w = f.maxX - f.minX, h = f.maxY - f.minY;
+        const float availW = (x1 - x0) - scaled(40);
+        const float availH = cSize.y - scaled(56);
+        const float sx = w > 1e-6f ? availW / w : 1.0f;
+        const float sy = h > 1e-6f ? availH / h : 1.0f;
+        f.scale = sx < sy ? sx : sy;
+        // center the box in its half; y flipped (screen y grows down)
+        f.org.x = cMin.x + x0 + ((x1 - x0) - w * f.scale) * 0.5f -
+                  f.minX * f.scale;
+        f.org.y = cMin.y + scaled(36) + (availH - h * f.scale) * 0.5f +
+                  f.maxY * f.scale;
+        return f;
+    };
+    const float half = cSize.x * 0.5f;
+    const Fit dFit = fitOf(animMapDPos_, donorBones, scaled(8), half - scaled(8));
+    const Fit tFit = fitOf(animMapTPos_, targetBones, half + scaled(8),
+                           cSize.x - scaled(8));
+    auto place = [&](const Fit& f, const std::vector<float>& pos, int n) {
+        return ImVec2(f.org.x + pos[(size_t)n * 3] * f.scale,
+                      f.org.y - pos[(size_t)n * 3 + 1] * f.scale);
+    };
+
+    const theme::Semantics& sem = theme::semantics();
+    dl->AddText(ImVec2(cMin.x + scaled(8), cMin.y + scaled(8)),
+                ImGui::GetColorU32(sem.textDim), "source");
+    dl->AddText(ImVec2(cMin.x + half + scaled(8), cMin.y + scaled(8)),
+                ImGui::GetColorU32(sem.textDim), "this model");
+    dl->AddLine(ImVec2(cMin.x + half, cMin.y),
+                ImVec2(cMin.x + half, cMin.y + cSize.y),
+                ImGui::GetColorU32(sem.border));
+
+    // Bone lines: to the nearest BONE ancestor, so helper nodes between two
+    // bones do not break the figure apart.
+    auto boneParent = [](const glbparser::Skel& sk, const std::set<int>& bones,
+                         int n) {
+        int p = sk.nodes[(size_t)n].parent;
+        while (p >= 0 && p < (int)sk.nodes.size() && !bones.count(p))
+            p = sk.nodes[(size_t)p].parent == p ? -1 : sk.nodes[(size_t)p].parent;
+        return p >= 0 && p < (int)sk.nodes.size() ? p : -1;
+    };
+    for (int n : donorBones)
+        if (int p = boneParent(don, donorBones, n); p >= 0)
+            dl->AddLine(place(dFit, animMapDPos_, n), place(dFit, animMapDPos_, p),
+                        ImGui::GetColorU32(sem.border), 1.5f);
+    for (int n : targetBones)
+        if (int p = boneParent(tgt, targetBones, n); p >= 0)
+            dl->AddLine(place(tFit, animMapTPos_, n), place(tFit, animMapTPos_, p),
+                        ImGui::GetColorU32(sem.border), 1.5f);
+
+    // Selection line: the selected donor joint to its current home.
+    if (animMapSelDonor_ >= 0 && resolved.count(animMapSelDonor_) &&
+        resolved[animMapSelDonor_] >= 0)
+        dl->AddLine(place(dFit, animMapDPos_, animMapSelDonor_),
+                    place(tFit, animMapTPos_, resolved[animMapSelDonor_]),
+                    ImGui::GetColorU32(sem.accentMuted), 1.0f);
+
+    // Joints + hit test. Donor colors: green = matched by name, cyan ring =
+    // explicit pair, amber = suggested, red = unmatched.
+    const float R = scaled(4.0f);
+    int hoverDonor = -1, hoverTarget = -1;
+    float bestD = R * 2.5f;
+    for (int n : donorBones) {
+        const ImVec2 pt = place(dFit, animMapDPos_, n);
+        const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
+        if (canvasHover && d < bestD) bestD = d, hoverDonor = n;
+    }
+    if (hoverDonor < 0) {
+        bestD = R * 2.5f;
+        for (int n : targetBones) {
+            const ImVec2 pt = place(tFit, animMapTPos_, n);
+            const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
+            if (canvasHover && d < bestD) bestD = d, hoverTarget = n;
+        }
+    }
+    const ImU32 cGreen = IM_COL32(90, 210, 110, 255);
+    const ImU32 cAmber = IM_COL32(235, 190, 80, 255);
+    const ImU32 cRed = IM_COL32(240, 90, 70, 255);
+    for (int n : donorBones) {
+        const ImVec2 pt = place(dFit, animMapDPos_, n);
+        ImU32 col = cRed;
+        if (resolved[n] >= 0) col = cGreen;
+        else if (suggested.count(n)) col = cAmber;
+        dl->AddCircleFilled(pt, R, col);
+        if (explicitPair[n])
+            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.accent), 0, 2.0f);
+        if (n == animMapSelDonor_)
+            dl->AddCircle(pt, R + scaled(4), ImGui::GetColorU32(sem.text), 0, 2.0f);
+        if (n == hoverDonor)
+            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+    }
+    // Target joints: used ones dim green, free ones gray; amber when it is
+    // the suggestion for the selected donor joint.
+    std::set<int> usedTargets;
+    for (auto& [dn, tn] : resolved)
+        if (tn >= 0) usedTargets.insert(tn);
+    for (int n : targetBones) {
+        const ImVec2 pt = place(tFit, animMapTPos_, n);
+        ImU32 col = usedTargets.count(n) ? IM_COL32(80, 140, 90, 255)
+                                         : ImGui::GetColorU32(sem.textDim);
+        if (animMapSelDonor_ >= 0 && suggested.count(animMapSelDonor_) &&
+            suggested[animMapSelDonor_] == n)
+            col = cAmber;
+        dl->AddCircleFilled(pt, R, col);
+        if (n == hoverTarget)
+            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+    }
+
+    // Hover name + click actions.
+    if (hoverDonor >= 0) {
+        ImGui::SetTooltip("%s", don.nodes[(size_t)hoverDonor].name.c_str());
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            animMapSelDonor_ = hoverDonor;
+        // Right-click drops the hand-made pair for that joint.
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            const std::string& name = don.nodes[(size_t)hoverDonor].name;
+            for (size_t k = 0; k < animMapPairs_.size(); ++k)
+                if (animMapPairs_[k].first == name) {
+                    animMapPairs_.erase(animMapPairs_.begin() + (int)k);
+                    break;
+                }
+        }
+    } else if (hoverTarget >= 0) {
+        ImGui::SetTooltip("%s", tgt.nodes[(size_t)hoverTarget].name.c_str());
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            animMapSelDonor_ >= 0) {
+            const std::string& from = don.nodes[(size_t)animMapSelDonor_].name;
+            const std::string& to = tgt.nodes[(size_t)hoverTarget].name;
+            bool found = false;
+            for (auto& pr : animMapPairs_)
+                if (pr.first == from) pr.second = to, found = true;
+            if (!found) animMapPairs_.emplace_back(from, to);
+            animMapSelDonor_ = -1;
+        }
+    }
+    ImGui::EndChild();
+
+    // --- footer -------------------------------------------------------------
+    bool applied = false;
+    const bool dirty = animMapPairs_ != row.boneMap;
+    ImGui::BeginDisabled(!dirty);
+    if (ImGui::Button("Apply")) {
+        row.boneMap = animMapPairs_;
+        applied = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Close")) animMapRow_ = -1;
+    ImGui::SameLine();
+    ImGui::TextDisabled("right-click a joint removes its pair");
+
+    ImGui::End();
+    if (!openFlag) animMapRow_ = -1;
+    return applied;
+}
+
 bool App::drawAnimImportSection(const std::string& modelRel) {
     bool changed = false;
     int rows = 0;
@@ -2832,43 +3152,36 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
     const std::string header =
         rows ? "Imported clips (" + std::to_string(rows) + ")###animimp"
              : std::string("Imported clips###animimp");
-    if (!ImGui::CollapsingHeader(header.c_str())) return false;
+    // Interface text stays terse (the skill rule): facts in the panel, the
+    // explanation - short - in tooltips. The old version opened with a
+    // three-line paragraph nobody came here to read.
+    const bool open = ImGui::CollapsingHeader(header.c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Borrow clips from another rigged file.");
+    if (!open) return false;
 
-    ImGui::TextDisabled(
-        "Borrow animation from another rigged file - a Mixamo download, or\n"
-        "another export of the same character. Bones are matched BY NAME and\n"
-        "rotations copied as-is, so the two rigs must share a bind pose.");
-
-    // --- the donor picker --------------------------------------------------
-    // Only models already in the project: the build has to be able to read the
-    // donor, so it must live under res/ like any other asset.
     std::vector<std::string> candidates;
     for (const std::string& m : listAnimatedModelFiles()) {
         const std::string rel = "res/models/" + m;
         if (rel != modelRel) candidates.push_back(rel);
     }
-    ImGui::SetNextItemWidth(scaled(300));
+    ImGui::SetNextItemWidth(scaled(280));
     const char* preview =
         animImpSource_.empty() ? "Pick a file..." : animImpSource_.c_str();
-    if (ImGui::BeginCombo("Source file", preview)) {
+    if (ImGui::BeginCombo("##impsrc", preview)) {
         for (const std::string& c : candidates)
             if (ImGui::Selectable(c.c_str(), c == animImpSource_))
                 animImpSource_ = c;
         if (candidates.empty())
-            ImGui::TextDisabled("No other animated model in this project.");
+            ImGui::TextDisabled("No other animated model in the project.");
         ImGui::EndCombo();
     }
     ImGui::SameLine();
     if (ImGui::Button("Import file...")) {
-        // The donor has to become a project asset, so this is the ordinary
-        // model import - it copies the file (and an .fbx's external textures)
-        // into res/models/ and saves, exactly like Project > Assets does.
         const size_t before = listAnimatedModelFiles().size();
         importModelAsset();
         const std::vector<std::string> after = listAnimatedModelFiles();
         if (after.size() > before) {
-            // Newly imported files sort into the list; pick whichever name is
-            // not one this model already imports and is not the model itself.
             for (const std::string& m : after) {
                 const std::string rel = "res/models/" + m;
                 if (rel == modelRel) continue;
@@ -2880,105 +3193,119 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
         }
     }
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Copy a .glb/.fbx into this project's res/models/ and select it\n"
-            "as the source. A clip-only download has no useful mesh, but it\n"
-            "still has to be a project asset for the build to read it.");
+        ImGui::SetTooltip("Copy a .glb/.fbx into res/models/ and select it.");
 
-    // Compatibility + the Add button, both needing the donor parsed.
     if (!animImpSource_.empty()) {
-        const GlbInfo& src = glbInfo(animImpSource_);
-        if (!src.ok) {
-            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
-                               "Unusable source: %s", src.error.c_str());
+        const AnimImportProbe& probe =
+            animImportProbe(modelRel, animImpSource_, {});
+        if (!probe.ok) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable: %s",
+                               probe.error.c_str());
         } else {
-            const float match = animSkeletonMatch(modelRel, animImpSource_);
-            if (match >= 0.0f) {
-                const ImVec4 col = match > 0.85f ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
-                                   : match > 0.4f ? ImVec4(0.95f, 0.8f, 0.3f, 1.0f)
-                                                  : ImVec4(1.0f, 0.4f, 0.3f, 1.0f);
-                ImGui::TextColored(col, "Skeleton match: %.0f%%", match * 100.0f);
-                ImGui::SameLine();
-                ImGui::TextDisabled("(%d clip%s in the source)",
-                                    (int)src.clips.size(),
-                                    src.clips.size() == 1 ? "" : "s");
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip(
-                        "How many of the source's animated bones have a bone of\n"
-                        "the same name on this model. Below ~85%% the clip will\n"
-                        "play, but the unmatched bones simply will not move.\n"
-                        "Namespace prefixes (mixamorig:, Armature|) and letter\n"
-                        "case are ignored when matching.");
-            }
-            if (ImGui::Button("Add all clips")) {
+            ImGui::SameLine();
+            if (ImGui::Button("Add clips")) {
                 AnimImport a;
                 a.model = modelRel;
                 a.source = animImpSource_;
                 project_.animImports.push_back(std::move(a));
+                // A poor name match is exactly what the mapper is for - open
+                // it on the fresh row instead of leaving a red number.
+                if (probe.bonesMapped < probe.bonesTotal)
+                    openAnimBoneMap((int)project_.animImports.size() - 1);
                 animImpSource_.clear();
                 changed = true;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled(
-                "adds every clip of the file; remove single ones below");
+            const float match = probe.match;
+            const ImVec4 col = match > 0.85f ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                               : match > 0.4f ? ImVec4(0.95f, 0.8f, 0.3f, 1.0f)
+                                              : ImVec4(1.0f, 0.4f, 0.3f, 1.0f);
+            ImGui::TextColored(col, "%d/%d bones", probe.bonesMapped,
+                               probe.bonesTotal);
+            ImGui::SameLine();
+            ImGui::TextDisabled("- %d clip%s", probe.clipCount,
+                                probe.clipCount == 1 ? "" : "s");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bones matched by name. Fix the rest in Map bones.");
         }
     }
 
-    // --- the rows ----------------------------------------------------------
     if (rows) ImGui::Separator();
     int removeAt = -1;
     for (size_t i = 0; i < project_.animImports.size(); ++i) {
         AnimImport& a = project_.animImports[i];
         if (a.model != modelRel) continue;
         ImGui::PushID((int)i);
-        ImGui::BulletText("%s", a.source.c_str());
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(a.source.c_str());
+        ImGui::SameLine();
+        {
+            const AnimImportProbe& probe =
+                animImportProbe(a.model, a.source, a.boneMap);
+            if (probe.ok) {
+                const bool full = probe.bonesMapped == probe.bonesTotal;
+                ImGui::TextColored(full ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                                        : ImVec4(0.95f, 0.8f, 0.3f, 1.0f),
+                                   "%d/%d", probe.bonesMapped, probe.bonesTotal);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bones mapped.");
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "!");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", probe.error.c_str());
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Map bones...")) openAnimBoneMap((int)i);
         ImGui::SameLine();
         if (ImGui::SmallButton("Remove")) removeAt = (int)i;
 
         ImGui::Indent();
+        // Prefix is STAGED and committed when the edit ends - a committed
+        // change re-parses, re-merges and re-bakes the model, and doing that
+        // per keystroke stalled the editor once per character.
+        const bool editingThis = animImpEditRow_ == (int)i;
         char prefix[64];
-        snprintf(prefix, sizeof prefix, "%s", a.prefix.c_str());
-        ImGui::SetNextItemWidth(scaled(140));
-        if (ImGui::InputText("Name prefix", prefix, sizeof prefix)) {
-            a.prefix = prefix;
-            changed = true;
+        snprintf(prefix, sizeof prefix, "%s",
+                 editingThis ? animImpPrefix_ : a.prefix.c_str());
+        ImGui::SetNextItemWidth(scaled(110));
+        if (ImGui::InputText("Prefix", prefix, sizeof prefix)) {
+            animImpEditRow_ = (int)i;
+            snprintf(animImpPrefix_, sizeof animImpPrefix_, "%s", prefix);
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && animImpEditRow_ == (int)i) {
+            if (a.prefix != animImpPrefix_) {
+                a.prefix = animImpPrefix_;
+                changed = true;
+            }
+            animImpEditRow_ = -1;
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Prepended to every clip taken from this file. Useful when two\n"
-                "sources both call their clip 'mixamo.com' - without it the\n"
-                "second one lands as 'mixamo.com_1'.");
-
+            ImGui::SetTooltip("Prepended to the imported clip names.");
+        ImGui::SameLine();
         const char* modes[] = {"Root bones only", "Only where animated",
                                "Copy everything"};
-        ImGui::SetNextItemWidth(scaled(180));
+        ImGui::SetNextItemWidth(scaled(150));
         if (ImGui::Combo("Translation", &a.translation, modes, 3)) changed = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
-                "Which bones keep the SOURCE's positions.\n\n"
-                "Bone lengths live in bone positions, so copying them all\n"
-                "rebuilds the source's proportions on this model - a tall rig's\n"
-                "clip stretches a short character. 'Root bones only' keeps just\n"
-                "the hip travel and leaves every other bone at this model's own\n"
-                "rest position, which is what you want almost always.");
+                "Which bones keep the source's positions.\n"
+                "Root only = keep this model's own proportions (default).");
         if (ImGui::Checkbox("Retarget root motion", &a.retargetRoot))
             changed = true;
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Scale the hip travel by the two rigs' hip heights and re-anchor\n"
-                "it on this model's own rest hip, so a clip authored on a taller\n"
-                "character does not make this one skate.");
+            ImGui::SetTooltip("Scale hip travel to this rig's hip height.");
         ImGui::SameLine();
         if (ImGui::Checkbox("Ignore scale", &a.ignoreScale)) changed = true;
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Drop the source's scale tracks. They are export noise in most\n"
-                "rigs and a rig-breaker in a few.");
+            ImGui::SetTooltip("Drop the source's scale tracks (export noise).");
         ImGui::Unindent();
         ImGui::PopID();
     }
     if (removeAt >= 0) {
         project_.animImports.erase(project_.animImports.begin() + removeAt);
+        if (animMapRow_ == removeAt) animMapRow_ = -1;
         changed = true;
     }
     return changed;
@@ -3077,6 +3404,12 @@ void App::drawAnimEditorWindow() {
     // precisely the case this feature exists for. Drawn first, so that model
     // can still reach the picker instead of hitting "no animation clips".
     if (drawAnimImportSection(animEdModel_)) {
+        invalidateAnimCaches();
+        changed = true;
+    }
+    // The bone-mapping window is a satellite of this one and commits through
+    // the same section guard.
+    if (drawAnimBoneMapWindow()) {
         invalidateAnimCaches();
         changed = true;
     }

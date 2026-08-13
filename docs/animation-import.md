@@ -66,6 +66,22 @@ Two more switches, both on by default:
 Namespace prefixes (`mixamorig:`, `Armature|`) and letter case are ignored when
 matching names, and an exact match always wins over a normalised one.
 
+## Mapping bones by hand
+
+When the two rigs' names genuinely differ, **Map bones…** (on each import row;
+it also opens itself when *Add clips* lands a partial match) shows both
+skeletons drawn from their bind poses, side by side. Green joints matched by
+name; **amber** ones carry a fuzzy suggestion — names cut into tokens, side
+words collapsed (`LeftUpLeg` ≈ `UpperLeg_L`) — and **red** ones matched
+nothing. Click a red or amber joint, then the joint on the right it should
+drive; right-click removes a pair; *Accept suggestions* takes every amber guess
+at once. Suggestions are never applied on their own — a wrong guess bends the
+wrong limb, so a person confirms them.
+
+The accepted pairs are stored on the import row (`boneMap` in the `.tyra`) and
+consulted **before** any name matching, so a hand-made pair always wins. The
+merge itself never guesses.
+
 A clip whose tracks all fail to match is **not added**, and the build says so
 rather than shipping an empty clip. A name collision gains a `_1` suffix, so
 importing twice can never silently replace anything.

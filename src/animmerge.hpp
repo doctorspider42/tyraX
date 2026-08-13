@@ -45,6 +45,12 @@ enum class TranslationMode {
 };
 
 struct MergeOptions {
+    // Explicit donor-bone -> target-bone pairs, authored in the bone-mapping
+    // editor (docs/animation-import.md). Consulted BEFORE any name matching,
+    // so a hand-made pair always wins - it exists precisely for the bones the
+    // name rules get wrong. Donor bones absent from it fall through to the
+    // exact/normalized name resolution unchanged.
+    std::vector<std::pair<std::string, std::string>> boneMap;
     TranslationMode translation = TranslationMode::RootBonesOnly;
     // Scale channels are noise in most exports and a rig-breaker in a few, so
     // they are dropped by default.
@@ -65,7 +71,8 @@ struct MergeOptions {
 };
 
 inline bool operator==(const MergeOptions& a, const MergeOptions& b) {
-    return a.translation == b.translation && a.ignoreScale == b.ignoreScale &&
+    return a.boneMap == b.boneMap &&
+           a.translation == b.translation && a.ignoreScale == b.ignoreScale &&
            a.retargetRoot == b.retargetRoot &&
            a.stripNamespace == b.stripNamespace &&
            a.caseInsensitive == b.caseInsensitive &&
@@ -109,6 +116,39 @@ inline constexpr int kMaxReportedUnmatched = 24;
 float compatibility(const glbparser::Skel& target, const glbparser::Skel& donor,
                     const MergeOptions& options);
 
+// ---------------------------------------------------------------------------
+// The bone-mapping editor's backend (Tools > Animation Editor > Map bones).
+
+// The name a donor bone lands on, through the SAME chain the merge uses -
+// explicit boneMap first, then exact, then normalized names. -1 = unmatched.
+// The mapping editor colours its skeleton view with this, so what it shows
+// green is by construction what the merge will match.
+int resolveBoneName(const glbparser::Skel& target, const std::string& donorName,
+                    const MergeOptions& options);
+
+// A heuristic guess for each donor BONE the name chain leaves unmatched:
+// names are cut into tokens (camelCase, separators), side words collapse
+// (left -> l, right -> r), and candidates score by token overlap - so
+// "mixamorig:LeftUpLeg" finds "UpperLeg_L". Greedy one-to-one by score;
+// only pairs scoring >= 0.5 are returned, best first.
+//
+// Suggestions are NEVER applied by the merge itself - they are offered in the
+// mapping editor for a person to confirm, because a fuzzy guess that is wrong
+// bends the wrong limb, silently. What the merge consults is the explicit
+// boneMap the user accepted.
+struct BoneSuggestion {
+    std::string donor;
+    std::string target;
+    float score = 0.0f;  // 0..1
+};
+std::vector<BoneSuggestion> suggestBoneMap(const glbparser::Skel& target,
+                                           const glbparser::Skel& donor,
+                                           const MergeOptions& options);
+
+// Bind-pose global position of every node (3 floats each) - what the mapping
+// editor projects into its 2D skeleton view.
+void bindGlobals(const glbparser::Skel& skel, std::vector<float>& xyz);
+
 // Appends `donor`'s selected clips to `target`, rebound onto the target's own
 // nodes. A clip whose name is taken gains a "_1" suffix, so importing twice
 // cannot silently replace anything. Returns false only when nothing at all was
@@ -126,11 +166,15 @@ bool merge(glbparser::Skel& target, const glbparser::Skel& donor,
 // clip that travels - would otherwise be culled while still on screen.
 void refreshPoseBounds(glbparser::Skel& skel);
 
-// Loads each donor and merges it into `target`, in order, then refreshes the
-// pose bounds. Failures are reported into `warnings` and skipped rather than
-// failing the build - a missing donor file must not stop a game from being
-// built, and the warning names the file.
-void applyImports(const std::vector<ImportSpec>& imports,
+// Loads each donor and merges it into `target`, in order; returns true when
+// anything landed. Failures are reported into `warnings` and skipped rather
+// than failing the build - a missing donor file must not stop a game from
+// being built, and the warning names the file.
+//
+// It does NOT refresh the pose bounds: that is a second full skinning pass,
+// and only the .tskl bake needs it (the preview re-skins every frame anyway).
+// Call refreshPoseBounds yourself when the result is going to the console.
+bool applyImports(const std::vector<ImportSpec>& imports,
                   glbparser::Skel& target,
                   std::vector<std::string>* warnings);
 

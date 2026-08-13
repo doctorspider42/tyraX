@@ -2569,6 +2569,11 @@ struct AnimImport {
     std::vector<std::string> clips;
     std::string prefix;  // prepended to each imported name; "" = keep them
 
+    // Hand-made donor-bone -> target-bone pairs from the bone-mapping editor
+    // (Map bones... in the Animation Editor). Wins over name matching; empty
+    // for the common same-rig case.
+    std::vector<std::pair<std::string, std::string>> boneMap;
+
     // The retarget policy - animmerge::MergeOptions, stored as plain fields so
     // the model does not depend on that header. The defaults are what makes a
     // merge safe: root-only translation is what stops a donor's bone lengths
@@ -2583,6 +2588,7 @@ struct AnimImport {
 
 inline bool operator==(const AnimImport& a, const AnimImport& b) {
     return a.model == b.model && a.source == b.source && a.clips == b.clips &&
+           a.boneMap == b.boneMap &&
            a.prefix == b.prefix && a.translation == b.translation &&
            a.ignoreScale == b.ignoreScale && a.retargetRoot == b.retargetRoot &&
            a.stripNamespace == b.stripNamespace &&

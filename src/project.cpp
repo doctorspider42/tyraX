@@ -2487,6 +2487,14 @@ static void writeAnimImportsSection(std::ostream& json, const Project& p) {
         }
         if (!a.prefix.empty())
             json << ", \"prefix\": \"" << jsonEscape(a.prefix) << "\"";
+        if (!a.boneMap.empty()) {
+            json << ", \"boneMap\": [";
+            for (size_t k = 0; k < a.boneMap.size(); ++k)
+                json << (k ? ", " : "") << "{ \"s\": \""
+                     << jsonEscape(a.boneMap[k].first) << "\", \"t\": \""
+                     << jsonEscape(a.boneMap[k].second) << "\" }";
+            json << "]";
+        }
         if (a.translation != 0) json << ", \"translation\": " << a.translation;
         if (!a.ignoreScale) json << ", \"ignoreScale\": false";
         if (!a.retargetRoot) json << ", \"retargetRoot\": false";
@@ -2512,6 +2520,14 @@ static void readAnimImportsSection(const json::Value& root, Project& out) {
         if (const auto* v = e.find("clips"); v && v->type == json::Value::Type::Array)
             for (const json::Value& c : v->arr) a.clips.push_back(c.stringOr(""));
         if (const auto* v = e.find("prefix")) a.prefix = v->stringOr("");
+        if (const auto* v = e.find("boneMap");
+            v && v->type == json::Value::Type::Array)
+            for (const json::Value& m : v->arr) {
+                const auto* from = m.find("s");
+                const auto* to = m.find("t");
+                if (from && to)
+                    a.boneMap.emplace_back(from->stringOr(""), to->stringOr(""));
+            }
         if (const auto* v = e.find("translation"))
             a.translation = (int)v->numberOr(0);
         if (a.translation < 0 || a.translation > 2) a.translation = 0;
