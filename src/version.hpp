@@ -735,8 +735,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 29
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 30
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -952,6 +952,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // hand-made donor->target bone pairs from the Map bones editor, an array of
 // {s, t} objects written only when non-empty. Additive with a safe default
 // (empty = pure name matching, the previous behaviour), so no migration step.
-inline constexpr int kFormatVersion = 21;
+// v22 (the full retargeter, docs/animation-import.md): AnimImport::facing
+// (world yaw of the source, -1 = auto from the rigs' feet) and ::mirror
+// (left<->right flipped import). Written only when set and true respectively,
+// so untouched projects resave byte for byte; no migration step. The
+// retarget path itself is chosen automatically and stores nothing.
+inline constexpr int kFormatVersion = 22;
 
 }  // namespace version

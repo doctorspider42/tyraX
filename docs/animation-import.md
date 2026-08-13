@@ -36,13 +36,37 @@ none of those know it came from somewhere else.
 > give the clip a short **Name in game** in the panel below — the rename is
 > applied after the import, so it works on imported clips too.
 
-## What it does and does not do
+## How the retarget works
 
-This is a **same-skeleton merge, not a full retargeter**. Bones are matched by
-name and their rotations copied as-is, so the two rigs must agree on their bind
-pose — two Mixamo rigs do, two exports of one character do, an arbitrary rig
-pair does not. What makes it safe in practice is not the rotation maths but the
-translation policy:
+Two paths, picked automatically per import (the panel says which):
+
+- **copy** — the mapped bones' bind orientations agree (< ~3°): channels are
+  rebound verbatim, bit-exact. Two exports of one rig, a renamed rig.
+- **full retarget** — anything else. Clips are resampled: each mapped bone's
+  world-space delta from *its own* bind lands on the target's reference pose,
+  and the reference is the target's bind rotated into the donor's bind pose.
+  That one construction is what makes an A-pose clip *look* like the A-pose on
+  a T-pose character (instead of floating 45° high), cancels per-bone axis
+  conventions (Blender's Y-along-bone vs Max's X), survives different chain
+  counts, and converts units by construction (world space is model space).
+
+Extras that ride the full path:
+
+- **Facing** — the source rig's world yaw. *Auto* reads both rigs' facing from
+  their own feet (ankles → toes); the combo states it outright when a rig has
+  no readable feet.
+- **Mirror** — import the clips flipped left↔right (world deltas reflect, every
+  side bone drives its counterpart): `walk_right` out of `walk_left` for free.
+- **Twist bones** — an unmapped bone between two mapped ones takes half its
+  child's twist, exactly (the composed orientation is unchanged), so forearm
+  skin rolls gradually instead of snapping.
+
+What still is not here: **contact IK**. Different proportions can slide feet —
+planting is planned as its own feature. Until then the *Test pose* shows
+honestly what the bake will produce.
+
+The translation policy below applies to the copy path (the full path always
+keeps the target's bone translations and retargets the root alone):
 
 | Translation | What keeps the source's positions |
 | --- | --- |
@@ -154,9 +178,9 @@ otherwise be culled while still on screen.
 
 ## Limits
 
-- Rotations are copied verbatim: **wildly different bind orientations still need
-  a real retargeter**. The match percentage cannot see this — it only counts
-  names — so check the preview.
+- The full retarget handles differing bind poses, facings and units; what it
+  does NOT solve is **contact** — feet can slide between rigs of different
+  proportions until the planned IK pass lands. Check the *Test pose*.
 - Blend shapes / morph targets are not carried across (they are not supported by
   the animated-model pipeline at all — see
   [animated-models.md](animated-models.md)).

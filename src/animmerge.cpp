@@ -821,6 +821,708 @@ float compatibility(const Skel& target, const Skel& donor,
     return (float)matched / (float)animated.size();
 }
 
+// ===========================================================================
+// The full retargeter (docs/animation-import.md, "How the retarget works").
+// Everything below works in WORLD space, which is what buys the three
+// properties at once: per-bone axis conventions cancel (a world delta knows
+// nothing about which local axis runs along the bone), units cancel (world
+// space IS model space), and the A-pose/T-pose difference reduces to one
+// per-bone reference rotation computed from bind bone directions.
+
+namespace {
+
+void quatMulQ(const float a[4], const float b[4], float out[4]) {
+    const float x = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+    const float y = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+    const float z = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+    const float w = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+    out[0] = x, out[1] = y, out[2] = z, out[3] = w;
+}
+
+void quatNorm(float q[4]) {
+    const float len =
+        std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    if (len > 1e-12f)
+        for (int c = 0; c < 4; ++c) q[c] /= len;
+    else
+        q[0] = q[1] = q[2] = 0, q[3] = 1;
+}
+
+// Rotation quat of an affine M4, scale divided out column-wise.
+void quatFromM4(const M4& m, float q[4]) {
+    float c[3][3];
+    for (int col = 0; col < 3; ++col) {
+        const float len =
+            std::sqrt(m.m[col * 4] * m.m[col * 4] +
+                      m.m[col * 4 + 1] * m.m[col * 4 + 1] +
+                      m.m[col * 4 + 2] * m.m[col * 4 + 2]);
+        const float inv = len > 1e-12f ? 1.0f / len : 0.0f;
+        for (int row = 0; row < 3; ++row) c[col][row] = m.m[col * 4 + row] * inv;
+    }
+    const float tr = c[0][0] + c[1][1] + c[2][2];
+    if (tr > 0.0f) {
+        const float s = std::sqrt(tr + 1.0f) * 2.0f;
+        q[3] = 0.25f * s;
+        q[0] = (c[1][2] - c[2][1]) / s;
+        q[1] = (c[2][0] - c[0][2]) / s;
+        q[2] = (c[0][1] - c[1][0]) / s;
+    } else if (c[0][0] > c[1][1] && c[0][0] > c[2][2]) {
+        const float s = std::sqrt(1.0f + c[0][0] - c[1][1] - c[2][2]) * 2.0f;
+        q[3] = (c[1][2] - c[2][1]) / s;
+        q[0] = 0.25f * s;
+        q[1] = (c[1][0] + c[0][1]) / s;
+        q[2] = (c[2][0] + c[0][2]) / s;
+    } else if (c[1][1] > c[2][2]) {
+        const float s = std::sqrt(1.0f + c[1][1] - c[0][0] - c[2][2]) * 2.0f;
+        q[3] = (c[2][0] - c[0][2]) / s;
+        q[0] = (c[1][0] + c[0][1]) / s;
+        q[1] = 0.25f * s;
+        q[2] = (c[2][1] + c[1][2]) / s;
+    } else {
+        const float s = std::sqrt(1.0f + c[2][2] - c[0][0] - c[1][1]) * 2.0f;
+        q[3] = (c[0][1] - c[1][0]) / s;
+        q[0] = (c[2][0] + c[0][2]) / s;
+        q[1] = (c[2][1] + c[1][2]) / s;
+        q[2] = 0.25f * s;
+    }
+    quatNorm(q);
+}
+
+// Minimal-arc rotation taking unit vector a onto unit vector b.
+void quatArc(const float a[3], const float b[3], float q[4]) {
+    const float d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    if (d > 1.0f - 1e-6f) {
+        q[0] = q[1] = q[2] = 0, q[3] = 1;
+        return;
+    }
+    if (d < -1.0f + 1e-6f) {
+        // Opposite: pick any perpendicular axis.
+        float ax[3] = {1, 0, 0};
+        if (std::fabs(a[0]) > 0.9f) ax[0] = 0, ax[1] = 1;
+        float c[3] = {a[1] * ax[2] - a[2] * ax[1], a[2] * ax[0] - a[0] * ax[2],
+                      a[0] * ax[1] - a[1] * ax[0]};
+        const float len = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        for (int i = 0; i < 3; ++i) q[i] = c[i] / (len > 1e-9f ? len : 1.0f);
+        q[3] = 0;
+        return;
+    }
+    q[0] = a[1] * b[2] - a[2] * b[1];
+    q[1] = a[2] * b[0] - a[0] * b[2];
+    q[2] = a[0] * b[1] - a[1] * b[0];
+    q[3] = 1.0f + d;
+    quatNorm(q);
+}
+
+// The twist component of q about `axis` (swing-twist decomposition).
+void quatTwist(const float q[4], const float axis[3], float out[4]) {
+    const float d = q[0] * axis[0] + q[1] * axis[1] + q[2] * axis[2];
+    out[0] = axis[0] * d, out[1] = axis[1] * d, out[2] = axis[2] * d;
+    out[3] = q[3];
+    quatNorm(out);
+}
+
+void quatHalf(const float q[4], float out[4]) {  // sqrt: half the angle
+    out[0] = q[0], out[1] = q[1], out[2] = q[2], out[3] = q[3] + 1.0f;
+    quatNorm(out);
+}
+
+void quatConj(const float q[4], float out[4]) {
+    out[0] = -q[0], out[1] = -q[1], out[2] = -q[2], out[3] = q[3];
+}
+
+M4 m4FromQuat(const float q[4]) {
+    const float t[3] = {0, 0, 0}, sc[3] = {1, 1, 1};
+    return trs(t, q, sc);
+}
+
+// General affine inverse (the parent chain carries scale on scaled rigs).
+M4 invertAffine(const M4& m) {
+    const float a00 = m.m[0], a01 = m.m[4], a02 = m.m[8];
+    const float a10 = m.m[1], a11 = m.m[5], a12 = m.m[9];
+    const float a20 = m.m[2], a21 = m.m[6], a22 = m.m[10];
+    float det = a00 * (a11 * a22 - a12 * a21) - a01 * (a10 * a22 - a12 * a20) +
+                a02 * (a10 * a21 - a11 * a20);
+    if (std::fabs(det) < 1e-20f) det = det < 0 ? -1e-20f : 1e-20f;
+    const float d = 1.0f / det;
+    M4 r;
+    r.m[0] = (a11 * a22 - a12 * a21) * d;
+    r.m[4] = (a02 * a21 - a01 * a22) * d;
+    r.m[8] = (a01 * a12 - a02 * a11) * d;
+    r.m[1] = (a12 * a20 - a10 * a22) * d;
+    r.m[5] = (a00 * a22 - a02 * a20) * d;
+    r.m[9] = (a02 * a10 - a00 * a12) * d;
+    r.m[2] = (a10 * a21 - a11 * a20) * d;
+    r.m[6] = (a01 * a20 - a00 * a21) * d;
+    r.m[10] = (a00 * a11 - a01 * a10) * d;
+    r.m[3] = r.m[7] = r.m[11] = 0;
+    const float tx = m.m[12], ty = m.m[13], tz = m.m[14];
+    r.m[12] = -(r.m[0] * tx + r.m[4] * ty + r.m[8] * tz);
+    r.m[13] = -(r.m[1] * tx + r.m[5] * ty + r.m[9] * tz);
+    r.m[14] = -(r.m[2] * tx + r.m[6] * ty + r.m[10] * tz);
+    r.m[15] = 1;
+    return r;
+}
+
+M4 rotYM4(float rad) {
+    M4 r;
+    const float c = std::cos(rad), s = std::sin(rad);
+    r.m[0] = c, r.m[2] = -s, r.m[8] = s, r.m[10] = c;
+    return r;
+}
+
+// diag(-1,1,1) - the YZ mirror. M*G*M of a proper rotation is proper again.
+M4 mirrorM4() {
+    M4 r;
+    r.m[0] = -1;
+    return r;
+}
+
+// The horizontal direction a rig faces, read from its own feet: centroid of
+// the "toe" bones minus centroid of the "foot" bones (by canonical tokens).
+// False when the rig has no readable feet - the caller then assumes aligned.
+bool feetForward(const Skel& s, const std::vector<M4>& bind, float out[2]) {
+    std::vector<char> isBone, isRoot;
+    boneSets(s, isBone, isRoot);
+    float toe[3] = {0, 0, 0}, foot[3] = {0, 0, 0};
+    int nToe = 0, nFoot = 0;
+    for (size_t i = 0; i < s.nodes.size(); ++i) {
+        if (!isBone[i]) continue;
+        bool isToe = false, isFoot = false;
+        for (const std::string& t : boneTokens(s.nodes[i].name)) {
+            if (t == "toe") isToe = true;
+            if (t == "foot") isFoot = true;
+        }
+        if (isToe && !isFoot) {
+            for (int c = 0; c < 3; ++c) toe[c] += bind[i].m[12 + c];
+            ++nToe;
+        } else if (isFoot) {
+            for (int c = 0; c < 3; ++c) foot[c] += bind[i].m[12 + c];
+            ++nFoot;
+        }
+    }
+    if (!nToe || !nFoot) return false;
+    const float dx = toe[0] / nToe - foot[0] / nFoot;
+    const float dz = toe[2] / nToe - foot[2] / nFoot;
+    const float len = std::sqrt(dx * dx + dz * dz);
+    if (len < 1e-4f) return false;
+    out[0] = dx / len, out[1] = dz / len;
+    return true;
+}
+
+// Everything the per-sample work needs, computed once per import.
+struct RetargetCtx {
+    bool full = false;
+    bool mirror = false;
+    float gapDeg = 0, facingDeg = 0, heightRatio = 1;
+    M4 face;  // the world yaw (facing) applied to the donor
+    struct Pair {
+        int dNode = -1, tNode = -1;
+        float refQ[4] = {0, 0, 0, 1};  // target-bind -> donor-bind-pose arc
+        bool isRoot = false;
+    };
+    std::vector<Pair> pairs;
+    std::vector<int> tPairOf;  // target node -> pair index, -1
+    std::vector<M4> dBind, tBind;  // donor bind already mirrored + faced
+    std::vector<int> tTopo;        // target nodes, parents before children
+    // Unmapped target bones sitting between two mapped ones - they take half
+    // their child's twist, and the merge must EMIT channels for them (they
+    // are not pairs, which is exactly how the first version lost them).
+    struct Twist {
+        int u = -1, child = -1;
+        float axis[3] = {1, 0, 0};
+    };
+    std::vector<Twist> twist;
+};
+
+M4 donorXform(const RetargetCtx& ctx, const M4& g) {
+    if (!ctx.mirror) return mul(ctx.face, g);
+    const M4 mi = mirrorM4();
+    return mul(ctx.face, mul(mi, mul(g, mi)));
+}
+
+RetargetCtx buildRetargetCtx(const Skel& target, const Skel& donor,
+                             const MergeOptions& o) {
+    RetargetCtx ctx;
+    ctx.mirror = o.mirror;
+
+    // Bind globals. The donor's get the mirror folded in before anything
+    // reads directions off them.
+    {
+        static const SkelClip kNone{};
+        std::vector<std::vector<const SkelChannel*>> byNode;
+        std::vector<M4> g;
+        byNode.assign(donor.nodes.size(), {});
+        poseGlobals(donor, kNone, 0.0f, byNode, g);
+        ctx.dBind.resize(g.size());
+        const M4 mi = mirrorM4();
+        for (size_t i = 0; i < g.size(); ++i)
+            ctx.dBind[i] = ctx.mirror ? mul(mi, mul(g[i], mi)) : g[i];
+        byNode.assign(target.nodes.size(), {});
+        poseGlobals(target, kNone, 0.0f, byNode, ctx.tBind);
+    }
+
+    // Facing: told, or read from both rigs' feet.
+    float yaw = 0.0f;
+    if (o.facingOverride >= 0) {
+        yaw = (float)o.facingOverride * 3.14159265f / 180.0f;
+    } else {
+        float fd[2], ft[2];
+        if (feetForward(donor, ctx.dBind, fd) &&
+            feetForward(target, ctx.tBind, ft))
+            yaw = std::atan2(ft[1], ft[0]) - std::atan2(fd[1], fd[0]);
+    }
+    ctx.facingDeg = yaw * 180.0f / 3.14159265f;
+    // Wrap to (-180, 180] for reporting; the matrix does not care.
+    while (ctx.facingDeg > 180.0f) ctx.facingDeg -= 360.0f;
+    while (ctx.facingDeg <= -180.0f) ctx.facingDeg += 360.0f;
+    ctx.face = rotYM4(yaw);
+    for (M4& g : ctx.dBind) g = mul(ctx.face, g);
+
+    // The mapped pairs, mirror swapping each side bone onto its counterpart.
+    Resolver res(target, o);
+    std::vector<char> dIsBone, dIsRoot, tIsBone, tIsRoot;
+    boneSets(donor, dIsBone, dIsRoot);
+    boneSets(target, tIsBone, tIsRoot);
+    std::map<std::string, int> tByKey;
+    for (size_t i = 0; i < target.nodes.size(); ++i)
+        if (tIsBone[i]) tByKey.emplace(canonicalBoneKey(target.nodes[i].name), (int)i);
+    auto sideSwap = [&](int tn) {
+        std::string key = canonicalBoneKey(target.nodes[(size_t)tn].name);
+        bool swapped = false;
+        size_t pos = 0;
+        // token-wise: ".l." <-> ".r." plus the edges
+        auto flip = [&](const std::string& from, const std::string& to) {
+            std::string k2 = "." + key + ".";
+            const std::string f = "." + from + ".", t = "." + to + ".";
+            const size_t at = k2.find(f);
+            if (at == std::string::npos) return false;
+            k2 = k2.substr(0, at) + t + k2.substr(at + f.size());
+            key = k2.substr(1, k2.size() - 2);
+            return true;
+        };
+        swapped = flip("l", "r") || flip("r", "l");
+        (void)pos;
+        if (!swapped) return tn;  // a center bone mirrors onto itself
+        const auto it = tByKey.find(key);
+        return it != tByKey.end() ? it->second : tn;
+    };
+    ctx.tPairOf.assign(target.nodes.size(), -1);
+    for (size_t i = 0; i < donor.nodes.size(); ++i) {
+        if (!dIsBone[i]) continue;
+        int tn = res.resolve(donor.nodes[i].name);
+        if (tn < 0 || !tIsBone[(size_t)tn]) continue;
+        if (ctx.mirror) tn = sideSwap(tn);
+        if (ctx.tPairOf[(size_t)tn] >= 0) continue;  // one driver per bone
+        RetargetCtx::Pair pr;
+        pr.dNode = (int)i;
+        pr.tNode = tn;
+        pr.isRoot = dIsRoot[i] && tIsRoot[(size_t)tn];
+        ctx.tPairOf[(size_t)tn] = (int)ctx.pairs.size();
+        ctx.pairs.push_back(pr);
+    }
+
+    // Bind orientation gap - what picks the path. 2*acos|q1.q2| per pair.
+    for (const auto& pr : ctx.pairs) {
+        float qd[4], qt[4];
+        quatFromM4(ctx.dBind[(size_t)pr.dNode], qd);
+        quatFromM4(ctx.tBind[(size_t)pr.tNode], qt);
+        float d = std::fabs(qd[0] * qt[0] + qd[1] * qt[1] + qd[2] * qt[2] +
+                            qd[3] * qt[3]);
+        if (d > 1.0f) d = 1.0f;
+        const float ang = 2.0f * std::acos(d) * 180.0f / 3.14159265f;
+        ctx.gapDeg = std::max(ctx.gapDeg, ang);
+    }
+    ctx.full = ctx.mirror || std::fabs(ctx.facingDeg) > 1.0f || ctx.gapDeg > 3.0f;
+
+    // Per-pair reference rotation: the minimal arc taking the TARGET's bind
+    // bone direction onto the DONOR's - the "rotate the target's rest into
+    // the donor's rest pose" half of the formula. Bone direction = toward
+    // the centroid of the bone children; a leaf inherits its parent pair's.
+    auto boneDir = [&](const Skel& s, const std::vector<M4>& bind, int node,
+                       const std::vector<char>& isBone, float out[3]) {
+        float c[3] = {0, 0, 0};
+        int cnt = 0;
+        for (size_t i = 0; i < s.nodes.size(); ++i) {
+            if (!isBone[i]) continue;
+            // bone child = nearest bone ancestor is `node`
+            int p = s.nodes[i].parent;
+            while (p >= 0 && p < (int)s.nodes.size() && !isBone[(size_t)p])
+                p = s.nodes[(size_t)p].parent == p ? -1 : s.nodes[(size_t)p].parent;
+            if (p != node) continue;
+            for (int k = 0; k < 3; ++k)
+                c[k] += bind[i].m[12 + k] - bind[(size_t)node].m[12 + k];
+            ++cnt;
+        }
+        if (!cnt) return false;
+        const float len = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        if (len < 1e-5f) return false;
+        for (int k = 0; k < 3; ++k) out[k] = c[k] / len;
+        return true;
+    };
+    // parents first so a leaf can inherit
+    std::map<int, int> dPairOf;
+    for (size_t k = 0; k < ctx.pairs.size(); ++k)
+        dPairOf[ctx.pairs[k].dNode] = (int)k;
+    for (auto& pr : ctx.pairs) {
+        float dd[3], dt[3];
+        if (boneDir(donor, ctx.dBind, pr.dNode, dIsBone, dd) &&
+            boneDir(target, ctx.tBind, pr.tNode, tIsBone, dt)) {
+            quatArc(dt, dd, pr.refQ);
+        } else {
+            // leaf: inherit the nearest mapped donor ancestor's arc
+            int p = donor.nodes[(size_t)pr.dNode].parent;
+            while (p >= 0) {
+                const auto it = dPairOf.find(p);
+                if (it != dPairOf.end()) {
+                    std::memcpy(pr.refQ, ctx.pairs[(size_t)it->second].refQ,
+                                sizeof(pr.refQ));
+                    break;
+                }
+                p = donor.nodes[(size_t)p].parent == p
+                        ? -1
+                        : donor.nodes[(size_t)p].parent;
+            }
+        }
+    }
+
+    // Height ratio from the bone spans (world space, unit-free).
+    auto heightOf = [](const Skel& s, const std::vector<M4>& bind) {
+        std::vector<char> isBone, isRoot;
+        boneSets(s, isBone, isRoot);
+        float mn = 1e9f, mx = -1e9f;
+        for (size_t i = 0; i < s.nodes.size(); ++i)
+            if (isBone[i]) {
+                mn = std::min(mn, bind[i].m[13]);
+                mx = std::max(mx, bind[i].m[13]);
+            }
+        return mx > mn ? mx - mn : 1.0f;
+    };
+    const float hd = heightOf(donor, ctx.dBind);
+    ctx.heightRatio = std::clamp(heightOf(target, ctx.tBind) /
+                                     (hd > 1e-5f ? hd : 1.0f),
+                                 0.05f, 20.0f);
+
+    // Target topo order (parents first) - node parents, not bone parents.
+    {
+        ctx.tTopo.reserve(target.nodes.size());
+        std::vector<char> done(target.nodes.size(), 0);
+        std::vector<int> chain;
+        for (size_t i = 0; i < target.nodes.size(); ++i) {
+            if (done[i]) continue;
+            chain.clear();
+            int cur = (int)i;
+            while (cur >= 0 && cur < (int)target.nodes.size() &&
+                   !done[(size_t)cur]) {
+                chain.push_back(cur);
+                const int p = target.nodes[(size_t)cur].parent;
+                cur = p == cur ? -1 : p;
+            }
+            for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+                ctx.tTopo.push_back(*it);
+                done[(size_t)*it] = 1;
+            }
+        }
+    }
+    // Twist candidates: unmapped bone u, mapped parent bone, exactly one
+    // mapped bone child, non-degenerate child offset (the twist axis).
+    {
+        std::vector<char> tIsBone2, tIsRoot2;
+        boneSets(target, tIsBone2, tIsRoot2);
+        auto boneParentOf = [&](int node) {
+            int p = target.nodes[(size_t)node].parent;
+            while (p >= 0 && p < (int)target.nodes.size() && !tIsBone2[(size_t)p])
+                p = target.nodes[(size_t)p].parent == p
+                        ? -1
+                        : target.nodes[(size_t)p].parent;
+            return p;
+        };
+        for (size_t u = 0; u < target.nodes.size(); ++u) {
+            if (!tIsBone2[u] || ctx.tPairOf[u] >= 0) continue;
+            const int p = boneParentOf((int)u);
+            if (p < 0 || ctx.tPairOf[(size_t)p] < 0) continue;
+            int child = -1, childCount = 0;
+            for (size_t i = 0; i < target.nodes.size(); ++i)
+                if (tIsBone2[i] && boneParentOf((int)i) == (int)u) {
+                    child = (int)i;
+                    ++childCount;
+                }
+            if (childCount != 1 || ctx.tPairOf[(size_t)child] < 0) continue;
+            RetargetCtx::Twist tw;
+            tw.u = (int)u;
+            tw.child = child;
+            const SkelNode& cb = target.nodes[(size_t)child];
+            const float len = std::sqrt(cb.t[0] * cb.t[0] + cb.t[1] * cb.t[1] +
+                                        cb.t[2] * cb.t[2]);
+            if (len < 1e-5f) continue;
+            for (int c = 0; c < 3; ++c) tw.axis[c] = cb.t[c] / len;
+            ctx.twist.push_back(tw);
+        }
+    }
+    return ctx;
+}
+
+// One retargeted pose: donor globals at some time -> target LOCALS. The
+// heart of both the resampling merge and the test-pose preview - one
+// function, so what the canvas shows is what the bake writes.
+void retargetLocals(const RetargetCtx& ctx, const Skel& target,
+                    const Skel& donor, const std::vector<M4>& donorGlobals,
+                    bool retargetRoot, std::vector<M4>& locals) {
+    locals.resize(target.nodes.size());
+    for (size_t i = 0; i < target.nodes.size(); ++i)
+        locals[i] = localOf(target.nodes[i]);
+    std::vector<M4> G(target.nodes.size());
+    for (int node : ctx.tTopo) {
+        const int parent = target.nodes[(size_t)node].parent;
+        const M4 parentG = parent >= 0 && parent != node ? G[(size_t)parent] : M4{};
+        const int pi = ctx.tPairOf[(size_t)node];
+        if (pi >= 0) {
+            const RetargetCtx::Pair& pr = ctx.pairs[(size_t)pi];
+            const M4 gd = donorXform(ctx, donorGlobals[(size_t)pr.dNode]);
+            const M4 delta = mul(gd, invertAffine(ctx.dBind[(size_t)pr.dNode]));
+            const M4 desired =
+                mul(delta, mul(m4FromQuat(pr.refQ), ctx.tBind[(size_t)node]));
+            M4 L = mul(invertAffine(parentG), desired);
+            float q[4];
+            quatFromM4(L, q);
+            const SkelNode& b = target.nodes[(size_t)node];
+            if (pr.isRoot && retargetRoot) {
+                // Root position: world delta scaled by the height ratio,
+                // brought into the parent's frame. World space, so the
+                // centimeters-under-a-scaled-armature case needs nothing.
+                float wp[3];
+                for (int c = 0; c < 3; ++c)
+                    wp[c] = ctx.tBind[(size_t)node].m[12 + c] +
+                            (gd.m[12 + c] -
+                             ctx.dBind[(size_t)pr.dNode].m[12 + c]) *
+                                ctx.heightRatio;
+                const M4 ip = invertAffine(parentG);
+                float lt[3];
+                for (int r = 0; r < 3; ++r)
+                    lt[r] = ip.m[r] * wp[0] + ip.m[4 + r] * wp[1] +
+                            ip.m[8 + r] * wp[2] + ip.m[12 + r];
+                locals[(size_t)node] = trs(lt, q, b.s);
+            } else {
+                locals[(size_t)node] = trs(b.t, q, b.s);
+            }
+        }
+        G[(size_t)node] = parent >= 0 && parent != node
+                              ? mul(parentG, locals[(size_t)node])
+                              : locals[(size_t)node];
+    }
+
+    // Twist redistribution: an unmapped bone u sitting between two mapped
+    // ones hands half of its child's twist up the chain. Exact: L_u*H and
+    // H^-1*L_c compose to the original product, and H turns about the
+    // child's offset axis, so no joint moves - the skin just rolls
+    // gradually instead of snapping at one bone. Candidates live on the ctx
+    // so the merge can emit channels for them too.
+    for (const RetargetCtx::Twist& tw : ctx.twist) {
+        const SkelNode& cb = target.nodes[(size_t)tw.child];
+        float qBind[4] = {cb.r[0], cb.r[1], cb.r[2], cb.r[3]};
+        float qNow[4], qBindC[4], qDelta[4];
+        quatFromM4(locals[(size_t)tw.child], qNow);
+        quatConj(qBind, qBindC);
+        quatMulQ(qNow, qBindC, qDelta);
+        float t4[4], h[4], hc[4];
+        quatTwist(qDelta, tw.axis, t4);
+        quatHalf(t4, h);
+        quatConj(h, hc);
+        const SkelNode& ub = target.nodes[(size_t)tw.u];
+        float qu[4] = {ub.r[0], ub.r[1], ub.r[2], ub.r[3]};
+        float quNew[4], qcNew[4];
+        quatMulQ(qu, h, quNew);
+        quatMulQ(hc, qNow, qcNew);
+        locals[(size_t)tw.u] = trs(ub.t, quNew, ub.s);
+        locals[(size_t)tw.child] = trs(cb.t, qcNew, cb.s);
+    }
+}
+
+// RDP keep-mask, the fbxparser reduction re-stated for this TU.
+void rdpMask(const std::vector<float>& times, const std::vector<float>& vals,
+             int stride, int lo, int hi, float eps, std::vector<char>& keep) {
+    if (hi - lo < 2) return;
+    float worst = 0.0f;
+    int worstIdx = -1;
+    const float t0 = times[(size_t)lo], t1 = times[(size_t)hi];
+    for (int i = lo + 1; i < hi; ++i) {
+        const float f = (t1 - t0) > 1e-9f ? (times[(size_t)i] - t0) / (t1 - t0) : 0.0f;
+        for (int c = 0; c < stride; ++c) {
+            const float interp =
+                vals[(size_t)lo * stride + (size_t)c] +
+                (vals[(size_t)hi * stride + (size_t)c] -
+                 vals[(size_t)lo * stride + (size_t)c]) * f;
+            const float err =
+                std::fabs(vals[(size_t)i * stride + (size_t)c] - interp);
+            if (err > worst) worst = err, worstIdx = i;
+        }
+    }
+    if (worstIdx >= 0 && worst > eps) {
+        keep[(size_t)worstIdx] = 1;
+        rdpMask(times, vals, stride, lo, worstIdx, eps, keep);
+        rdpMask(times, vals, stride, worstIdx, hi, eps, keep);
+    }
+}
+
+constexpr float kRetargetFps = 24.0f;  // the FBX importer's own rate
+
+// The full-retarget merge: resample, retarget, reduce, emit.
+bool mergeRetargeted(Skel& target, const Skel& donor, const ImportSpec& spec,
+                     const RetargetCtx& ctx, MergeReport& report,
+                     std::string& error) {
+    if (ctx.pairs.empty()) {
+        error = "no bone of the source rig matched this model's skeleton";
+        return false;
+    }
+    // Unmatched (for the panel), same census the copy path reports.
+    {
+        Resolver res(target, spec.options);
+        std::vector<char> dIsBone, dIsRoot;
+        boneSets(donor, dIsBone, dIsRoot);
+        std::set<std::string> seen;
+        for (size_t i = 0; i < donor.nodes.size(); ++i)
+            if (dIsBone[i] && res.resolve(donor.nodes[i].name) < 0 &&
+                seen.insert(donor.nodes[i].name).second &&
+                (int)report.unmatched.size() < kMaxReportedUnmatched)
+                report.unmatched.push_back(donor.nodes[i].name);
+    }
+
+    int clipsConsidered = 0;
+    for (const SkelClip& src : donor.clips) {
+        if (!spec.clips.empty() &&
+            std::find(spec.clips.begin(), spec.clips.end(), src.name) ==
+                spec.clips.end())
+            continue;
+        ++clipsConsidered;
+
+        const int samples =
+            src.duration > 0.0f
+                ? (int)std::lround(src.duration * kRetargetFps) + 1
+                : 1;
+        std::vector<std::vector<const SkelChannel*>> byNode(donor.nodes.size());
+        for (const SkelChannel& ch : src.channels)
+            if (ch.node >= 0 && ch.node < (int)donor.nodes.size())
+                byNode[(size_t)ch.node].push_back(&ch);
+
+        // quat samples per pair (twist bones appended after) + root motion
+        std::vector<std::vector<float>> rot(ctx.pairs.size() +
+                                            ctx.twist.size());
+        std::vector<float> rootPos;
+        std::vector<float> times((size_t)samples);
+        std::vector<M4> dG, locals;
+        for (int f = 0; f < samples; ++f) {
+            const float t = samples > 1
+                                ? src.duration * (float)f / (float)(samples - 1)
+                                : 0.0f;
+            times[(size_t)f] = t;
+            poseGlobals(donor, src, t, byNode, dG);
+            retargetLocals(ctx, target, donor, dG, spec.options.retargetRoot,
+                           locals);
+            for (size_t k = 0; k < ctx.pairs.size(); ++k) {
+                float q[4];
+                quatFromM4(locals[(size_t)ctx.pairs[k].tNode], q);
+                // hemisphere continuity, the runtime lerps raw components
+                if (f > 0) {
+                    const float* prev = &rot[k][(size_t)(f - 1) * 4];
+                    if (q[0] * prev[0] + q[1] * prev[1] + q[2] * prev[2] +
+                            q[3] * prev[3] < 0.0f)
+                        for (int c = 0; c < 4; ++c) q[c] = -q[c];
+                }
+                rot[k].insert(rot[k].end(), q, q + 4);
+                if (ctx.pairs[k].isRoot) {
+                    const M4& L = locals[(size_t)ctx.pairs[k].tNode];
+                    rootPos.insert(rootPos.end(),
+                                   {L.m[12], L.m[13], L.m[14]});
+                }
+            }
+            for (size_t k = 0; k < ctx.twist.size(); ++k) {
+                const size_t slot = ctx.pairs.size() + k;
+                float q[4];
+                quatFromM4(locals[(size_t)ctx.twist[k].u], q);
+                if (f > 0) {
+                    const float* prev = &rot[slot][(size_t)(f - 1) * 4];
+                    if (q[0] * prev[0] + q[1] * prev[1] + q[2] * prev[2] +
+                            q[3] * prev[3] < 0.0f)
+                        for (int c = 0; c < 4; ++c) q[c] = -q[c];
+                }
+                rot[slot].insert(rot[slot].end(), q, q + 4);
+            }
+        }
+
+        SkelClip out;
+        out.duration = src.duration;
+        auto emit = [&](int node, int path, const std::vector<float>& vals,
+                        int stride, const float* bindRef, float eps) {
+            // constant-at-bind channels carry nothing
+            bool differs = false;
+            for (size_t i = 0; i < vals.size() && !differs; ++i)
+                differs =
+                    std::fabs(vals[i] - bindRef[i % (size_t)stride]) > eps;
+            if (!differs) return;
+            std::vector<char> keep((size_t)samples, 0);
+            keep.front() = keep.back() = 1;
+            rdpMask(times, vals, stride, 0, samples - 1, eps, keep);
+            SkelChannel ch;
+            ch.node = node;
+            ch.path = path;
+            for (int i = 0; i < samples; ++i) {
+                if (!keep[(size_t)i]) continue;
+                ch.times.push_back(times[(size_t)i]);
+                for (int c = 0; c < stride; ++c)
+                    ch.values.push_back(vals[(size_t)i * stride + (size_t)c]);
+            }
+            out.channels.push_back(std::move(ch));
+            ++report.tracksMatched;
+        };
+        size_t rootAt = 0;
+        for (size_t k = 0; k < ctx.pairs.size(); ++k) {
+            const SkelNode& b = target.nodes[(size_t)ctx.pairs[k].tNode];
+            // A quat may sit at -bind (double cover); compare via |dot|.
+            bool differs = false;
+            for (int f = 0; f < samples && !differs; ++f) {
+                const float* q = &rot[k][(size_t)f * 4];
+                const float d = std::fabs(q[0] * b.r[0] + q[1] * b.r[1] +
+                                          q[2] * b.r[2] + q[3] * b.r[3]);
+                differs = d < 1.0f - 1e-6f;
+            }
+            if (differs)
+                emit(ctx.pairs[k].tNode, 1, rot[k], 4, b.r, 1e-4f);
+            if (ctx.pairs[k].isRoot) rootAt = k;
+        }
+        for (size_t k = 0; k < ctx.twist.size(); ++k) {
+            const SkelNode& b = target.nodes[(size_t)ctx.twist[k].u];
+            emit(ctx.twist[k].u, 1, rot[ctx.pairs.size() + k], 4, b.r, 1e-4f);
+        }
+        if (!rootPos.empty() && spec.options.retargetRoot) {
+            const SkelNode& rb = target.nodes[(size_t)ctx.pairs[rootAt].tNode];
+            emit(ctx.pairs[rootAt].tNode, 0, rootPos, 3, rb.t, 1e-4f);
+        }
+        if (out.channels.empty()) continue;
+        out.name = uniqueClipName(target, spec.prefix + src.name);
+        report.addedClips.push_back(out.name);
+        target.clips.push_back(std::move(out));
+        ++report.clipsAdded;
+    }
+    if (report.clipsAdded == 0) {
+        error = clipsConsidered == 0
+                    ? "no matching clips in the source file"
+                    : "the retargeted clips came out empty";
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+RetargetInfo retargetInfo(const Skel& target, const Skel& donor,
+                          const MergeOptions& options) {
+    const RetargetCtx ctx = buildRetargetCtx(target, donor, options);
+    RetargetInfo info;
+    info.full = ctx.full;
+    info.bindGapDeg = ctx.gapDeg;
+    info.facingDeg = ctx.facingDeg;
+    return info;
+}
+
 bool merge(Skel& target, const Skel& donor, const ImportSpec& spec,
            MergeReport& report, std::string& error) {
     if (target.nodes.empty()) {
@@ -828,6 +1530,17 @@ bool merge(Skel& target, const Skel& donor, const ImportSpec& spec,
         return false;
     }
     const MergeOptions& o = spec.options;
+    // Which path? Identical binds copy channels verbatim (bit-exact - the
+    // property the harness pins); different binds, a facing turn or a mirror
+    // take the full retargeter.
+    {
+        const RetargetCtx ctx = buildRetargetCtx(target, donor, o);
+        report.fullRetarget = ctx.full;
+        report.bindGapDeg = ctx.gapDeg;
+        report.facingDeg = ctx.facingDeg;
+        if (ctx.full)
+            return mergeRetargeted(target, donor, spec, ctx, report, error);
+    }
     Resolver res(target, o);
     std::vector<char> isBone, isRootBone;
     boneSets(target, isBone, isRootBone);
@@ -1269,6 +1982,34 @@ void posedPreview(const Skel& target, const Skel& donor,
         donorXyz[i * 3 + 0] = dg[i].m[12];
         donorXyz[i * 3 + 1] = dg[i].m[13];
         donorXyz[i * 3 + 2] = dg[i].m[14];
+    }
+
+    // Same fork as the merge: differing binds pose through the full
+    // retargeter (ONE function with the bake, retargetLocals), identical
+    // ones through the borrowed-rotation fast path below.
+    {
+        const RetargetCtx ctx = buildRetargetCtx(target, donor, options);
+        if (ctx.full) {
+            std::vector<M4> locals, tg;
+            retargetLocals(ctx, target, donor, dg, options.retargetRoot,
+                           locals);
+            composeGlobals(target, locals, tg);
+            targetXyz.resize(target.nodes.size() * 3);
+            for (size_t i = 0; i < tg.size(); ++i) {
+                targetXyz[i * 3 + 0] = tg[i].m[12];
+                targetXyz[i * 3 + 1] = tg[i].m[13];
+                targetXyz[i * 3 + 2] = tg[i].m[14];
+            }
+            // The donor draws mirrored + faced too, so the two figures are
+            // comparable at a glance.
+            for (size_t i = 0; i < dg.size(); ++i) {
+                const M4 g = donorXform(ctx, dg[i]);
+                donorXyz[i * 3 + 0] = g.m[12];
+                donorXyz[i * 3 + 1] = g.m[13];
+                donorXyz[i * 3 + 2] = g.m[14];
+            }
+            return;
+        }
     }
 
     // Target: bind locals, with the mapped donor ROTATIONS borrowed in -

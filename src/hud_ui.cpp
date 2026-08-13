@@ -2821,6 +2821,7 @@ const App::AnimImportProbe& App::animImportProbe(
         animmerge::MergeOptions opts;
         opts.boneMap = boneMap;
         probe.match = animmerge::compatibility(*target, *donor, opts);
+        probe.retarget = animmerge::retargetInfo(*target, *donor, opts);
         // Bones with a home - the number the mapping editor moves.
         std::set<int> boneNodes;
         for (const glbparser::SkelJoint& j : donor->palette)
@@ -3025,6 +3026,18 @@ bool App::drawAnimBoneMapWindow() {
             ImGui::SetTooltip(
                 "One rename rule covers these bones - the two rigs are\n"
                 "identical modulo this prefix/suffix.");
+        ImGui::SameLine();
+    }
+    {
+        const animmerge::RetargetInfo ri =
+            animmerge::retargetInfo(tgt, don, opts);
+        ImGui::TextDisabled(ri.full ? "full retarget (%.0f deg)" : "copy",
+                            ri.bindGapDeg);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                ri.full ? "Bind poses differ - clips resample through the\n"
+                          "retargeter; the test pose shows exactly that."
+                        : "Identical binds - channels copy verbatim.");
         ImGui::SameLine();
     }
     // Legend - the canvas colors, named once, tersely.
@@ -3615,6 +3628,16 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
                                         : ImVec4(0.95f, 0.8f, 0.3f, 1.0f),
                                    "%d/%d", probe.bonesMapped, probe.bonesTotal);
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bones mapped.");
+                ImGui::SameLine();
+                ImGui::TextDisabled(probe.retarget.full ? "retarget" : "copy");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        probe.retarget.full
+                            ? "Bind poses differ %.0f deg (facing %.0f) - "
+                              "clips are resampled through the full "
+                              "retargeter."
+                            : "Identical binds - channels copy verbatim.",
+                        probe.retarget.bindGapDeg, probe.retarget.facingDeg);
             } else {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "!");
                 if (ImGui::IsItemHovered())
@@ -3652,7 +3675,17 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
         const char* modes[] = {"Root bones only", "Only where animated",
                                "Copy everything"};
         ImGui::SetNextItemWidth(scaled(150));
-        if (ImGui::Combo("Translation", &a.translation, modes, 3)) changed = true;
+        const int tSel =
+            a.translation >= 0 && a.translation < 3 ? a.translation : 0;
+        if (ImGui::BeginCombo("Translation", modes[tSel])) {
+            for (int m = 0; m < 3; ++m)
+                if (ImGui::Selectable(modes[m], m == a.translation) &&
+                    m != a.translation) {
+                    a.translation = m;
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Which bones keep the source's positions.\n"
@@ -3665,6 +3698,33 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
         if (ImGui::Checkbox("Ignore scale", &a.ignoreScale)) changed = true;
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Drop the source's scale tracks (export noise).");
+        ImGui::SameLine();
+        {
+            const char* faces[] = {"Auto", "0", "90", "180", "270"};
+            const int fi = a.facing < 0 ? 0
+                           : a.facing < 45 ? 1
+                           : a.facing < 135 ? 2
+                           : a.facing < 225 ? 3 : 4;
+            ImGui::SetNextItemWidth(scaled(70));
+            if (ImGui::BeginCombo("Facing", faces[fi])) {
+                for (int m = 0; m < 5; ++m)
+                    if (ImGui::Selectable(faces[m], m == fi) && m != fi) {
+                        a.facing = m == 0 ? -1 : (m - 1) * 90;
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "World yaw of the source rig, degrees. Auto reads both\n"
+                    "rigs' facing from their feet (ankles -> toes).");
+        }
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Mirror", &a.mirror)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Import the clips mirrored left<->right - walk_right out\n"
+                "of walk_left.");
         ImGui::Unindent();
         ImGui::PopID();
     }

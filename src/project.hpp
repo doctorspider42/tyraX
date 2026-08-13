@@ -2574,6 +2574,12 @@ struct AnimImport {
     // for the common same-rig case.
     std::vector<std::pair<std::string, std::string>> boneMap;
 
+    // World-yaw of the source rig, degrees; -1 = auto from both rigs' feet.
+    // And the mirrored import (walk_right out of walk_left) - see
+    // docs/animation-import.md.
+    int facing = -1;
+    bool mirror = false;
+
     // The retarget policy - animmerge::MergeOptions, stored as plain fields so
     // the model does not depend on that header. The defaults are what makes a
     // merge safe: root-only translation is what stops a donor's bone lengths
@@ -2589,6 +2595,7 @@ struct AnimImport {
 inline bool operator==(const AnimImport& a, const AnimImport& b) {
     return a.model == b.model && a.source == b.source && a.clips == b.clips &&
            a.boneMap == b.boneMap &&
+           a.facing == b.facing && a.mirror == b.mirror &&
            a.prefix == b.prefix && a.translation == b.translation &&
            a.ignoreScale == b.ignoreScale && a.retargetRoot == b.retargetRoot &&
            a.stripNamespace == b.stripNamespace &&

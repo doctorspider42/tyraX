@@ -69,6 +69,18 @@ struct MergeOptions {
     // cameras, helpers). They cannot deform the character and a donor's mesh
     // node moving the target's mesh node is rarely what anyone wants.
     bool skeletonTracksOnly = true;
+
+    // World-yaw of the source rig relative to the target, degrees. -1 = AUTO:
+    // each rig's facing is read from its own feet (ankles -> toes, horizontal)
+    // and the source is turned to match. 0/90/180/270 state it outright for
+    // the rig the heuristic cannot read (no feet, a quadruped seen sideways).
+    int facingOverride = -1;
+
+    // Retarget the clips MIRRORED left<->right: world deltas reflect across
+    // the YZ plane and every side bone drives its counterpart - walk_right
+    // out of walk_left for free. Forces the full-retarget path (a mirror
+    // cannot be expressed by copying channels).
+    bool mirror = false;
 };
 
 inline bool operator==(const MergeOptions& a, const MergeOptions& b) {
@@ -77,7 +89,8 @@ inline bool operator==(const MergeOptions& a, const MergeOptions& b) {
            a.retargetRoot == b.retargetRoot &&
            a.stripNamespace == b.stripNamespace &&
            a.caseInsensitive == b.caseInsensitive &&
-           a.skeletonTracksOnly == b.skeletonTracksOnly;
+           a.skeletonTracksOnly == b.skeletonTracksOnly &&
+           a.facingOverride == b.facingOverride && a.mirror == b.mirror;
 }
 
 // One donor file and what to take from it.
@@ -96,6 +109,12 @@ inline bool operator==(const ImportSpec& a, const ImportSpec& b) {
 }
 
 struct MergeReport {
+    // Which path the merge took (see retargetInfo below): false = channels
+    // copied verbatim (identical binds - the bit-exact path), true = the
+    // full global-delta retarget with resampled channels.
+    bool fullRetarget = false;
+    float bindGapDeg = 0.0f;
+    float facingDeg = 0.0f;
     int clipsAdded = 0;
     int tracksMatched = 0;
     int tracksDropped = 0;
@@ -179,12 +198,41 @@ std::vector<std::pair<std::string, std::string>> applyAffixRule(
     const glbparser::Skel& target, const glbparser::Skel& donor,
     const MergeOptions& options, const AffixRule& rule);
 
+// ---------------------------------------------------------------------------
+// The retargeter (docs/animation-import.md, "How the retarget works").
+//
+// Two paths, chosen automatically per import:
+//  - COPY: the mapped bones' bind orientations agree (< ~3 deg) - channels
+//    are rebound verbatim, bit-exact, the original path. Two exports of one
+//    rig, or the same rig renamed.
+//  - FULL: anything else. Every clip is RESAMPLED: the donor is posed, each
+//    mapped bone's world-space delta from ITS OWN bind is applied onto the
+//    target's reference pose, target locals are recomposed top-down and the
+//    result is keyframe-reduced. The target's REFERENCE is its bind rotated
+//    into the donor's bind pose (per-bone minimal arc onto the donor's bone
+//    directions) - which is what makes an A-pose clip LOOK like the A-pose
+//    on a T-pose character instead of floating 45 degrees high, and what
+//    cancels per-bone axis conventions (Blender Y-along vs Max X-along).
+//    Root motion travels in world space (units cancel by construction),
+//    scaled by the rigs' height ratio. Unmapped bones hold bind; an unmapped
+//    bone BETWEEN two mapped ones takes half its child's twist (exact
+//    redistribution - the composed orientation below is unchanged).
+// What this still is not: an IK solver. Proportion differences can slide
+// feet; contact planting is a planned separate feature.
+struct RetargetInfo {
+    bool full = false;      // which path an import of this pair takes
+    float bindGapDeg = 0;   // worst mapped-bone bind orientation difference
+    float facingDeg = 0;    // world yaw applied to the source (auto or told)
+};
+RetargetInfo retargetInfo(const glbparser::Skel& target,
+                          const glbparser::Skel& donor,
+                          const MergeOptions& options);
+
 // The mapper's "test pose": donor posed at `t` of its clip `donorClip`, and
-// the TARGET posed by borrowing the mapped donor rotations - exactly what the
-// merge would bake (default policy: rotations travel, the target keeps its
-// own translations, the root is retargeted by hip height). A wrong mapping
-// shows as a folded limb long before any percentage says so. Outputs are
-// global joint positions, 3 floats per node, ready for the canvas.
+// the TARGET posed through the same machinery the merge bakes with - the
+// full retargeter when the binds differ, the borrowed-rotation fast path
+// when they agree. A wrong mapping shows as a folded limb long before any
+// percentage says so. Outputs are global joint positions, 3 floats per node.
 void posedPreview(const glbparser::Skel& target, const glbparser::Skel& donor,
                   const MergeOptions& options, int donorClip, float t,
                   std::vector<float>& donorXyz, std::vector<float>& targetXyz);

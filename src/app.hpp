@@ -1052,6 +1052,7 @@ private:
         float match = 0.0f;   // 0..1, fraction of animated bones with a home
         int bonesTotal = 0;   // donor skinning bones
         int bonesMapped = 0;  // ...that resolve to a target bone
+        animmerge::RetargetInfo retarget;  // which path, gap, facing
     };
     std::map<std::string, AnimImportProbe> animProbeCache_;
     // Parsed skeletons, shared by the probe, the bone mapper and glbInfo -
