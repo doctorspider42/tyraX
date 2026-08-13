@@ -278,6 +278,7 @@ std::vector<animmerge::ImportSpec> importsFor(const Project& p,
         spec.options.boneMap = a.boneMap;
         spec.options.facingOverride = a.facing;
         spec.options.mirror = a.mirror;
+        spec.options.tuneLean = a.lean;
         spec.options.translation =
             a.translation == 2   ? animmerge::TranslationMode::CopyAll
             : a.translation == 1 ? animmerge::TranslationMode::AnimatedOnly

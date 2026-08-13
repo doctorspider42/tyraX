@@ -2579,6 +2579,9 @@ struct AnimImport {
     // docs/animation-import.md.
     int facing = -1;
     bool mirror = false;
+    // Posture fine-tune, degrees: + leans the torso forward, - back. The
+    // knob for a retarget that walks well but stands a few degrees off.
+    float lean = 0.0f;
 
     // The retarget policy - animmerge::MergeOptions, stored as plain fields so
     // the model does not depend on that header. The defaults are what makes a
@@ -2596,6 +2599,7 @@ inline bool operator==(const AnimImport& a, const AnimImport& b) {
     return a.model == b.model && a.source == b.source && a.clips == b.clips &&
            a.boneMap == b.boneMap &&
            a.facing == b.facing && a.mirror == b.mirror &&
+           a.lean == b.lean &&
            a.prefix == b.prefix && a.translation == b.translation &&
            a.ignoreScale == b.ignoreScale && a.retargetRoot == b.retargetRoot &&
            a.stripNamespace == b.stripNamespace &&

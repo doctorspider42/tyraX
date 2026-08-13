@@ -2984,9 +2984,21 @@ bool App::drawAnimBoneMapWindow() {
     const glbparser::Skel& don = animMapDonor_;
 
     // Per-frame state derived from the staged pairs. Cheap (name lookups over
-    // <100 bones), so recomputing beats caching + invalidation here.
+    // <100 bones), so recomputing beats caching + invalidation here. The
+    // row's own switches ride along, so the test pose shows what the BAKE
+    // will do with them (facing, mirror, lean - it used to ignore them).
     animmerge::MergeOptions opts;
     opts.boneMap = animMapPairs_;
+    opts.facingOverride = row.facing;
+    opts.mirror = row.mirror;
+    opts.tuneLean = row.lean;
+    opts.translation = row.translation == 2
+                           ? animmerge::TranslationMode::CopyAll
+                       : row.translation == 1
+                           ? animmerge::TranslationMode::AnimatedOnly
+                           : animmerge::TranslationMode::RootBonesOnly;
+    opts.ignoreScale = row.ignoreScale;
+    opts.retargetRoot = row.retargetRoot;
     // Which donor nodes are bones, and where each resolves.
     std::set<int> donorBones, targetBones;
     for (const glbparser::SkelJoint& j : don.palette) donorBones.insert(j.node);
@@ -3754,6 +3766,14 @@ bool App::drawAnimImportSection(const std::string& modelRel) {
             ImGui::SetTooltip(
                 "Import the clips mirrored left<->right - walk_right out\n"
                 "of walk_left.");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80));
+        ImGui::DragFloat("Lean", &a.lean, 0.2f, -30.0f, 30.0f, "%.1f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Posture fine-tune: + leans the torso forward, - back.\n"
+                "For a retarget that walks well but stands a bit off.");
         ImGui::Unindent();
         ImGui::PopID();
     }

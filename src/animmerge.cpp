@@ -1042,6 +1042,10 @@ struct RetargetCtx {
         float axis[3] = {1, 0, 0};
     };
     std::vector<Twist> twist;
+    // The Lean fine-tune: a world rotation applied to the torso pairs.
+    bool lean = false;
+    M4 leanM;
+    std::vector<char> pairTuned;  // parallel to pairs
 };
 
 M4 donorXform(const RetargetCtx& ctx, const M4& g) {
@@ -1142,7 +1146,8 @@ RetargetCtx buildRetargetCtx(const Skel& target, const Skel& donor,
         const float ang = 2.0f * std::acos(d) * 180.0f / 3.14159265f;
         ctx.gapDeg = std::max(ctx.gapDeg, ang);
     }
-    ctx.full = ctx.mirror || std::fabs(ctx.facingDeg) > 1.0f || ctx.gapDeg > 3.0f;
+    ctx.full = ctx.mirror || std::fabs(ctx.facingDeg) > 1.0f ||
+               ctx.gapDeg > 3.0f || std::fabs(o.tuneLean) > 0.05f;
 
     // Per-pair reference rotation: the minimal arc taking the TARGET's bind
     // bone direction onto the DONOR's - the "rotate the target's rest into
@@ -1306,6 +1311,64 @@ RetargetCtx buildRetargetCtx(const Skel& target, const Skel& donor,
             ctx.twist.push_back(tw);
         }
     }
+    // The Lean fine-tune: mark the torso pairs (the root pair's dominant
+    // child subtree - the spine chain by the same rule boneDir follows) and
+    // build the world rotation about the TARGET's lateral axis.
+    ctx.pairTuned.assign(ctx.pairs.size(), 0);
+    if (std::fabs(o.tuneLean) > 0.05f) {
+        int rootPair = -1;
+        for (size_t k = 0; k < ctx.pairs.size(); ++k)
+            if (ctx.pairs[k].isRoot) rootPair = (int)k;
+        if (rootPair >= 0) {
+            std::vector<char> tIsBone3, tIsRoot3;
+            boneSets(target, tIsBone3, tIsRoot3);
+            auto boneParentOf = [&](int i) {
+                int p = target.nodes[(size_t)i].parent;
+                while (p >= 0 && p < (int)target.nodes.size() &&
+                       !tIsBone3[(size_t)p])
+                    p = target.nodes[(size_t)p].parent == p
+                            ? -1
+                            : target.nodes[(size_t)p].parent;
+                return p;
+            };
+            const int rootNode = ctx.pairs[(size_t)rootPair].tNode;
+            // Dominant child of the root = the torso chain's first bone.
+            int torso = -1, torsoSub = -1;
+            for (size_t i = 0; i < target.nodes.size(); ++i) {
+                if (!tIsBone3[i] || boneParentOf((int)i) != rootNode) continue;
+                int sub = 0;
+                for (size_t j = 0; j < target.nodes.size(); ++j) {
+                    if (!tIsBone3[j]) continue;
+                    for (int a = (int)j; a >= 0; a = boneParentOf(a))
+                        if (a == (int)i) {
+                            ++sub;
+                            break;
+                        }
+                }
+                if (sub > torsoSub) torsoSub = sub, torso = (int)i;
+            }
+            if (torso >= 0) {
+                for (size_t k = 0; k < ctx.pairs.size(); ++k) {
+                    for (int a = ctx.pairs[k].tNode; a >= 0; a = boneParentOf(a))
+                        if (a == torso) {
+                            ctx.pairTuned[k] = 1;
+                            break;
+                        }
+                }
+                // Lateral axis = up x forward; forward from the target's own
+                // feet, +Z when unreadable. Positive lean = forward.
+                float fwd[2] = {0.0f, 1.0f};
+                feetForward(target, ctx.tBind, fwd);
+                const float lat[3] = {fwd[1], 0.0f, -fwd[0]};
+                const float h =
+                    o.tuneLean * 3.14159265f / 360.0f;  // half angle
+                float q[4] = {lat[0] * std::sin(h), lat[1] * std::sin(h),
+                              lat[2] * std::sin(h), std::cos(h)};
+                ctx.leanM = m4FromQuat(q);
+                ctx.lean = true;
+            }
+        }
+    }
     return ctx;
 }
 
@@ -1327,8 +1390,13 @@ void retargetLocals(const RetargetCtx& ctx, const Skel& target,
             const RetargetCtx::Pair& pr = ctx.pairs[(size_t)pi];
             const M4 gd = donorXform(ctx, donorGlobals[(size_t)pr.dNode]);
             const M4 delta = mul(gd, invertAffine(ctx.dBind[(size_t)pr.dNode]));
-            const M4 desired =
+            M4 desired =
                 mul(delta, mul(m4FromQuat(pr.refQ), ctx.tBind[(size_t)node]));
+            // Posture lean: rotate the torso pairs' ORIENTATION (positions
+            // recompose through the chain, so the body curves at the hips
+            // instead of shearing).
+            if (ctx.lean && ctx.pairTuned[(size_t)pi])
+                desired = mul(ctx.leanM, desired);
             M4 L = mul(invertAffine(parentG), desired);
             float q[4];
             quatFromM4(L, q);

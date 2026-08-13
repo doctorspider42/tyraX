@@ -81,6 +81,13 @@ struct MergeOptions {
     // out of walk_left for free. Forces the full-retarget path (a mirror
     // cannot be expressed by copying channels).
     bool mirror = false;
+
+    // Posture fine-tune, degrees: pitches the TORSO (the root pair's
+    // dominant-subtree chain - the spine and everything on it) about the
+    // character's lateral axis. Positive leans forward. The legs stay put,
+    // so it reads as a person straightening up, not a tilted statue. The
+    // per-rig posture bias a direction-only reference arc cannot see.
+    float tuneLean = 0.0f;
 };
 
 inline bool operator==(const MergeOptions& a, const MergeOptions& b) {
@@ -90,7 +97,8 @@ inline bool operator==(const MergeOptions& a, const MergeOptions& b) {
            a.stripNamespace == b.stripNamespace &&
            a.caseInsensitive == b.caseInsensitive &&
            a.skeletonTracksOnly == b.skeletonTracksOnly &&
-           a.facingOverride == b.facingOverride && a.mirror == b.mirror;
+           a.facingOverride == b.facingOverride && a.mirror == b.mirror &&
+           a.tuneLean == b.tuneLean;
 }
 
 // One donor file and what to take from it.

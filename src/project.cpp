@@ -2497,6 +2497,7 @@ static void writeAnimImportsSection(std::ostream& json, const Project& p) {
         }
         if (a.facing >= 0) json << ", \"facing\": " << a.facing;
         if (a.mirror) json << ", \"mirror\": true";
+        if (a.lean != 0.0f) json << ", \"lean\": " << fmtFloat(a.lean);
         if (a.translation != 0) json << ", \"translation\": " << a.translation;
         if (!a.ignoreScale) json << ", \"ignoreScale\": false";
         if (!a.retargetRoot) json << ", \"retargetRoot\": false";
@@ -2532,6 +2533,7 @@ static void readAnimImportsSection(const json::Value& root, Project& out) {
             }
         if (const auto* v = e.find("facing")) a.facing = (int)v->numberOr(-1);
         if (const auto* v = e.find("mirror")) a.mirror = v->boolOr(false);
+        if (const auto* v = e.find("lean")) a.lean = (float)v->numberOr(0.0);
         if (const auto* v = e.find("translation"))
             a.translation = (int)v->numberOr(0);
         if (a.translation < 0 || a.translation > 2) a.translation = 0;

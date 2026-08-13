@@ -735,8 +735,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 30
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 31
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -957,6 +957,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // (left<->right flipped import). Written only when set and true respectively,
 // so untouched projects resave byte for byte; no migration step. The
 // retarget path itself is chosen automatically and stores nothing.
-inline constexpr int kFormatVersion = 22;
+// v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
+// degrees of torso pitch applied by the retargeter. Written only when
+// non-zero; no migration step.
+inline constexpr int kFormatVersion = 23;
 
 }  // namespace version

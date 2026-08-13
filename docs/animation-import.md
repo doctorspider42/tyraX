@@ -60,6 +60,10 @@ Extras that ride the full path:
 - **Twist bones** — an unmapped bone between two mapped ones takes half its
   child's twist, exactly (the composed orientation is unchanged), so forearm
   skin rolls gradually instead of snapping.
+- **Lean** — posture fine-tune in degrees: `+` pitches the torso forward, `-`
+  back, about the character's lateral axis. The spine chain curves at the hips
+  and the legs stay put — the knob for a retarget that walks well but stands a
+  few degrees off.
 
 What still is not here: **contact IK**. Different proportions can slide feet —
 planting is planned as its own feature. Until then the *Test pose* shows
