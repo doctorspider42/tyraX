@@ -736,7 +736,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

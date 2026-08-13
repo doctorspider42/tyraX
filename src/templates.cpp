@@ -181,6 +181,19 @@ static std::string animBakedTsklRel(const std::string& modelPath,
     return base + suf + ".tskl";
 }
 
+// The res-relative path an extracted animated-model texture bakes to: the
+// image is RENAMED with the .tskl's stem so two models' equally-named images
+// cannot collide next to each other. The bake (bakeAnimAssets) and the
+// hot-reload alias lookup (animTextureAliases) must derive the same name.
+static std::string animBakedTextureRel(const std::string& modelPath,
+                                       const std::string& materialPath,
+                                       const std::string& imageName) {
+    std::string tskl = animBakedTsklRel(modelPath, materialPath);
+    if (const size_t dot = tskl.rfind('.'); dot != std::string::npos)
+        tskl = tskl.substr(0, dot);
+    return tskl + "_" + imageName;
+}
+
 // The .tmdl a static-model identity bakes to (res-relative), mirroring
 // animBakedTsklRel: the material override is resolved into the file at bake
 // time, so a {model, override} pair maps to its own artifact. Both the emit
@@ -33945,8 +33958,17 @@ static std::string livePadSource(const Project& p) {
 // geometry difference needs a real build. Binary layout v1 (little-endian):
 //   u32 magic 'TXLT', u32 version=1, u32 seq, u32 count,
 //   count records of 104 bytes: char path[96] (game-relative, NUL-padded),
-//     u32 generation, u32 pad
+//     u32 generation, u32 group
 //   u32 footer = seq ^ 0x5A5A5A5A
+// The group is what one PAINT announced: the texture's own shipped path plus
+// the renamed copy every animated model carrying it ships (templates::
+// animTextureAliases), because the game only ever loaded one of them. So a
+// single record matching nothing is expected and a whole GROUP matching
+// nothing is the failure - reported per path, because a hot reload that
+// silently does nothing is indistinguishable from a feature that is not
+// there. It landed in the spare 4 bytes every record already carried (the
+// livedbg stats-block trick): a game built before it reads a zeroed field
+// and simply tallies every record as one group, which is what it did anyway.
 static std::string liveTexScript(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     std::ostringstream out;
@@ -34004,18 +34026,53 @@ static std::string liveTexScript(const Project& p) {
            "    memcpy(&foot, buf + 16 + count * LT_STRIDE, 4);\n"
            "    if (foot != (seq ^ 0x5A5A5A5AU)) return;\n"
            "\n"
+           "    // Per-group tally: one paint announces every path the\n"
+           "    // texture may have shipped under, so a record matching no\n"
+           "    // loaded texture is ordinary - a group matching none is the\n"
+           "    // reload silently not happening.\n"
+           "    static unsigned char fresh[LT_MAX];  // applied in this pass\n"
+           "    static u32 grpId[LT_MAX];\n"
+           "    static int grpHit[LT_MAX];\n"
+           "    int groups = 0;\n"
            "    for (u32 i = 0; i < count; ++i) {\n"
+           "      fresh[i] = 0;\n"
            "      const unsigned char* r = buf + 16 + i * LT_STRIDE;\n"
            "      char path[LT_PATH];\n"
            "      memcpy(path, r, LT_PATH);\n"
            "      path[LT_PATH - 1] = 0;\n"
-           "      u32 gen;\n"
+           "      u32 gen, group;\n"
            "      memcpy(&gen, r + LT_PATH, 4);\n"
+           "      memcpy(&group, r + LT_PATH + 4, 4);\n"
            "      const int slot = genSlot(path);\n"
            "      if (slot < 0 || applied_[slot] >= gen) continue;\n"
            "      applied_[slot] = gen;  // even on failure - a broken file\n"
            "                             // must not be retried every poll\n"
-           "      reload(ctx, path);\n"
+           "      fresh[i] = 1;\n"
+           "      int g = -1;\n"
+           "      for (int j = 0; j < groups; ++j)\n"
+           "        if (grpId[j] == group) g = j;\n"
+           "      if (g < 0) {\n"
+           "        g = groups++;\n"
+           "        grpId[g] = group;\n"
+           "        grpHit[g] = 0;\n"
+           "      }\n"
+           "      grpHit[g] += reload(ctx, path);\n"
+           "    }\n"
+           "    for (u32 i = 0; i < count; ++i) {\n"
+           "      if (!fresh[i]) continue;\n"
+           "      const unsigned char* r = buf + 16 + i * LT_STRIDE;\n"
+           "      char path[LT_PATH];\n"
+           "      memcpy(path, r, LT_PATH);\n"
+           "      path[LT_PATH - 1] = 0;\n"
+           "      u32 group;\n"
+           "      memcpy(&group, r + LT_PATH + 4, 4);\n"
+           "      for (int j = 0; j < groups; ++j)\n"
+           "        if (grpId[j] == group && grpHit[j] == 0)\n"
+           "          TYRA_SOFT_ERROR(\"Live texture reload: nothing loaded \"\n"
+           "                          \"from \", path,\n"
+           "                          \" - the repaint reached no texture in \"\n"
+           "                          \"this scene; rebuild if the model or \"\n"
+           "                          \"its material is new\");\n"
            "    }\n"
            "    lastSeq_ = seq;\n"
            "  }\n"
@@ -34025,12 +34082,17 @@ static std::string liveTexScript(const Project& p) {
            "  // repository texture loaded from that path, then re-send them\n"
            "  // to the already-allocated VRAM address. Never touches the\n"
            "  // allocation itself, so it is safe against the bump allocator.\n"
-           "  void reload(ScriptContext& ctx, const char* relPath) {\n"
+           "  // Returns how many loaded textures the path MATCHED - a\n"
+           "  // size/format mismatch counts (it reported itself already);\n"
+           "  // zero is the caller's business.\n"
+           "  int reload(ScriptContext& ctx, const char* relPath) {\n"
            "    auto& repo = ctx.engine->renderer.getTextureRepository();\n"
            "    auto& core = ctx.engine->renderer.core.texture;\n"
            "    const std::string full = Tyra::FileUtils::fromCwd(relPath);\n"
+           "    int matched = 0;\n"
            "    for (Tyra::Texture* t : *repo.getAll()) {\n"
            "      if (t->vramResident || t->sourcePath != full) continue;\n"
+           "      ++matched;\n"
            "      Tyra::PngLoader loader;\n"
            "      Tyra::TextureBuilderData* d = loader.load(full);\n"
            "      if (!d) continue;\n"
@@ -34068,6 +34130,7 @@ static std::string liveTexScript(const Project& p) {
            "      if (d->clut) delete[] d->clut;\n"
            "      delete d;\n"
            "    }\n"
+           "    return matched;\n"
            "  }\n"
            "\n"
            "  // per-path applied generation, keyed by an FNV-1a hash\n"
@@ -38116,9 +38179,6 @@ std::vector<File> bakeAnimAssets(const Project& p,
         }
         if (const size_t dot = stem.rfind('.'); dot != std::string::npos)
             stem = stem.substr(0, dot);
-        // the game's cwd-relative directory ("res/" is copied next to the ELF)
-        std::string binDir = dir;
-        if (binDir.rfind("res/", 0) == 0) binDir = binDir.substr(4);
 
         glbparser::Skel skel;
         std::string error;
@@ -38159,13 +38219,16 @@ std::vector<File> bakeAnimAssets(const Project& p,
 
         // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game
-        // loads them by these bin/-relative paths (stored in the .tskl).
+        // loads them by these bin/-relative paths (stored in the .tskl) - the
+        // reason a repaint cannot be announced under the texture's own path
+        // (animTextureAliases derives these same names).
         std::vector<std::string> textureNames;
         for (size_t i = 0; i < skel.images.size(); ++i) {
-            const std::string png = stem + "_" + skel.images[i].name;
-            textureNames.push_back(binDir + png);
+            const std::string png =
+                animBakedTextureRel(relPath, materialPath, skel.images[i].name);
+            textureNames.push_back(resToBin(png));
             files.push_back(
-                {replaceAll(dir, "/", "\\") + png,
+                {replaceAll(png, "/", "\\"),
                  std::string(
                      reinterpret_cast<const char*>(skel.images[i].png.data()),
                      skel.images[i].png.size())});
@@ -38174,6 +38237,55 @@ std::vector<File> bakeAnimAssets(const Project& p,
                          glbparser::writeTskl(skel, textureNames)});
     }
     return files;
+}
+
+std::vector<std::string> animTextureAliases(const Project& p,
+                                            const std::string& texResRel) {
+    std::vector<std::string> out;
+    if (texResRel.empty()) return out;
+    const std::string wantBase =
+        std::filesystem::path(texResRel).filename().string();
+    for (const auto& key : collectAnimModelKeys(p)) {
+        // Only an override's textures have a res/ file to repaint at all - an
+        // image embedded in the .glb/.fbx exists nowhere else, so the Material
+        // Editor can never be painting one.
+        if (key.second.empty()) continue;
+        std::vector<objparser::MtlMaterial> lib;
+        if (!objparser::loadMtl(p.filePath(key.second), lib)) continue;
+        // Does this override name the painted file - and is its basename
+        // unambiguous within the library? applyMaterialOverride resolves a
+        // same-basename clash with a counter prefix whose value depends on the
+        // MODEL's part order, which the .mtl alone cannot say; announcing a
+        // guess there would upload one texture's pixels over the other's.
+        bool refs = false;
+        int sameBase = 0;
+        std::vector<std::string> seen;
+        for (const objparser::MtlMaterial& m : lib) {
+            if (m.texture.empty()) continue;
+            const std::string rel = resolveTexRel(key.second, m.texture);
+            bool dup = false;
+            for (const std::string& s : seen) dup |= (s == rel);
+            if (dup) continue;
+            seen.push_back(rel);
+            if (std::filesystem::path(rel).filename().string() != wantBase)
+                continue;
+            ++sameBase;
+            refs |= (rel == texResRel);
+        }
+        if (!refs || sameBase != 1) continue;
+        const std::string baked =
+            animBakedTextureRel(key.first, key.second, wantBase);
+        // The bake only extracts an image some PART actually uses, so the
+        // shipped file is the proof this model carries the texture (a .mtl
+        // may define materials the model never references).
+        std::error_code ec;
+        if (!std::filesystem::exists(p.filePath(baked), ec)) continue;
+        const std::string gameRel = resToBin(baked);
+        bool have = false;
+        for (const std::string& e : out) have |= (e == gameRel);
+        if (!have) out.push_back(gameRel);
+    }
+    return out;
 }
 
 // src/gen/object_scripts.gen.cpp - the object-script runtime: attachment
