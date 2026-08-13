@@ -13,6 +13,8 @@ the model is parsed — for the editor's preview and again on the way into the
 and reversible, re-exporting either asset picks the change up, and the console
 pays nothing at runtime.
 
+![An import row on a real cross-rig pair: 49/51 bones matched, the retarget mode chip, and the imported clip already in the model's clip list.](img/animation-import.png)
+
 ## Using it
 
 1. **Get the clip file into the project.** *Import file…* copies a `.glb`/`.fbx`
@@ -98,6 +100,8 @@ matching names, and an exact match always wins over a normalised one.
 
 ## Mapping bones by hand
 
+![The bone mapper on a Mixamo source and a differently rigged target: both skeletons, the mode line, and the pair list.](img/bone-mapper.png)
+
 When the two rigs' names genuinely differ, **Map bones…** (on each import row;
 it also opens itself when *Add clips* lands a partial match) shows both
 skeletons drawn from their bind poses, side by side. Green joints matched by
@@ -116,6 +120,8 @@ pairs a rig whose names say nothing at all), and **your own history** (every
 pair you ever accepted lands in a machine-global alias book, so the next file
 from the same pack suggests itself). A left token or a clearly-left position
 still never pairs with a right one.
+
+![The test pose mid-walk: both rigs posed through the mapping - a wrong pair would show as a folded limb.](img/bone-mapper-pose.png)
 
 Two shortcuts sit above the fuzzy scores. When the rigs differ by one rename
 pattern, an **Apply rule** button appears — `strip 'rigX:'+'X' (34)` — one

@@ -4,6 +4,8 @@ A Player object has **three** movement speeds instead of one. They are edited in
 *Properties* on the Player object, in units per second, each with the metric
 equivalent beside it:
 
+![The three speed tiers on a Player object - an unset tier shows what it inherits and from where.](img/player-speeds.png)
+
 | Field | When it applies |
 | --- | --- |
 | **Walk speed** | A gentle stick — the bottom of the ramp. |
