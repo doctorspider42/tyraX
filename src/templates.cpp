@@ -1741,7 +1741,7 @@ class TerrainGame : public Tyra::Game {
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
-  void updateAndRenderHudTexts();
+  void updateAndRenderHudTexts(bool render);
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
@@ -1851,7 +1851,7 @@ class TerrainGame : public Tyra::Game {
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
-  void updateAndRenderDynTexts();
+  void updateAndRenderDynTexts(bool render);
   std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
   std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
@@ -3000,7 +3000,7 @@ class TerrainGame : public Tyra::Game {
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
-  void updateAndRenderHudTexts();
+  void updateAndRenderHudTexts(bool render);
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
@@ -3110,7 +3110,7 @@ class TerrainGame : public Tyra::Game {
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
-  void updateAndRenderDynTexts();
+  void updateAndRenderDynTexts(bool render);
   std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
   std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN
@@ -5832,6 +5832,7 @@ void TerrainGame::loop() {
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
     // pass applies at endFrame, over everything (menus included).
+    const bool showGameHud = scriptCtx.hudVisible && !sequences::hudDisabled();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
@@ -5839,12 +5840,12 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible)
+{{SCREEN_FX_IN_LOOP}}      if (showGameHud)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) {
+{{SCREEN_FX_TOP}}    if (showGameHud && useTargetIndex >= 0) {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
@@ -5864,8 +5865,8 @@ void TerrainGame::loop() {
                    (float)slots[s].size);
       }
     }
-    updateAndRenderHudTexts();
-    updateAndRenderDynTexts();
+    updateAndRenderHudTexts(showGameHud);
+    updateAndRenderDynTexts(showGameHud);
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -10513,7 +10514,7 @@ void TerrainGame::renderGameMenu() {
 
 // On-screen texts: apply the frame's Show/Hide Text requests, tick the
 // auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
-void TerrainGame::updateAndRenderHudTexts() {
+void TerrainGame::updateAndRenderHudTexts(bool render) {
   for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
     if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
       hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
@@ -10527,7 +10528,8 @@ void TerrainGame::updateAndRenderHudTexts() {
         hudTextTimer[i] = 0.0F;
       }
     }
-    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+    if (render && hudTextOn[i])
+      engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -12036,7 +12038,7 @@ void TerrainGame::updateAndRenderLightBeams() {
 // Runtime texts: same request/timer protocol as the baked ones, but the string
 // lives in dynTextBuf (refreshed every frame by the owning flow-graph script
 // while the slot is on) and is drawn glyph by glyph from the font's atlas.
-void TerrainGame::updateAndRenderDynTexts() {
+void TerrainGame::updateAndRenderDynTexts(bool render) {
   for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
     if (scriptCtx.dynTextRequest[i] >= 0) {
       dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
@@ -12050,7 +12052,7 @@ void TerrainGame::updateAndRenderDynTexts() {
         dynTextTimer[i] = 0.0F;
       }
     }
-    if (!dynTextOn[i]) continue;
+    if (!render || !dynTextOn[i]) continue;
     const DynTextData& d = DYN_TEXTS[i];
     const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
     if (!s[0]) continue;
@@ -19042,6 +19044,7 @@ void TerrainGame::loop() {
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
     // pass applies at endFrame, over everything (menus included).
+    const bool showGameHud = scriptCtx.hudVisible && !sequences::hudDisabled();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
@@ -19049,12 +19052,12 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-{{SCREEN_FX_IN_LOOP}}      if (scriptCtx.hudVisible)
+{{SCREEN_FX_IN_LOOP}}      if (showGameHud)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) {
+{{SCREEN_FX_TOP}}    if (showGameHud && useTargetIndex >= 0) {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
@@ -19074,8 +19077,8 @@ void TerrainGame::loop() {
                    (float)slots[s].size);
       }
     }
-    updateAndRenderHudTexts();
-    updateAndRenderDynTexts();
+    updateAndRenderHudTexts(showGameHud);
+    updateAndRenderDynTexts(showGameHud);
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -25397,6 +25400,9 @@ std::string sequencesHeader(const Project& p) {
            "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
            "// letterbox that a cutscene currently owns those.\n"
            "bool playing();\n"
+           "// True while the director owns the normal game HUD, including its\n"
+           "// deferred cleanup frame. Menus/debug overlays stay outside the gate.\n"
+           "bool hudDisabled();\n"
            "// Letterbox mask style for the Set Letterbox Bars flow node, used\n"
            "// by renderOverlay when NO sequence is active (0 none, 1 cinema\n"
            "// 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its\n"
@@ -25785,6 +25791,7 @@ std::string sequencesScript(const Project& p) {
            "                int camObj; };\n"
            "struct Seq { const char* name; float duration; int loop; int camEnabled;\n"
            "             int hidePlayer;  // hide the third-person avatar while playing\n"
+           "             int disableHud;  // suppress normal game HUD while playing\n"
            "             int bars; int skippable; float fadeIn; float fadeOut;\n"
            "             float barsSlideIn; float barsSlideOut;  // bars reveal, s\n"
            "             const Track* tracks; int trackCount;\n"
@@ -25879,10 +25886,10 @@ std::string sequencesScript(const Project& p) {
     for (size_t si = 0; si < p.sequences.size(); ++si) {
         const Sequence& s = p.sequences[si];
         const std::string sp = "kS" + std::to_string(si);
-        out << (si ? ", " : "") << "\n  {\"" << escapeCString(s.name) << "\", "
+        out << (si ? ",\n  {\"" : "\n  {\"") << escapeCString(s.name) << "\", "
             << floatLit(s.duration) << ", " << (s.loop ? 1 : 0) << ", "
             << (s.cameraEnabled ? 1 : 0) << ", " << (s.hidePlayer ? 1 : 0) << ", "
-            << s.bars << ", "
+            << (s.disableHud ? 1 : 0) << ", " << s.bars << ", "
             << (s.skippable ? 1 : 0) << ", " << floatLit(s.fadeIn) << ", "
             << floatLit(s.fadeOut) << ", " << floatLit(s.barsSlideIn) << ", "
             << floatLit(s.barsSlideOut) << ", " << sp << "Tracks, "
@@ -25890,7 +25897,7 @@ std::string sequencesScript(const Project& p) {
             << "}";
     }
     if (p.sequences.empty())
-        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
+        out << "{\"\", 0.0F, 0, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, "
                "nullptr, 0, nullptr, 0}";  // non-empty array
     out << "\n};\n"
         << "static const int kSeqCount = " << p.sequences.size() << ";\n\n";
@@ -25927,6 +25934,7 @@ class SequenceDirector : public Script {
   int active_ = -1;
   float time_ = 0.0F;
   bool cleanup_ = false;   // hand everything back on the next update
+  bool hudDisabled_ = false;
   float baseFov_ = -1.0F;  // projection FOV before the first override
 
   // Clamp + apply a shot FOV; the first application snapshots the FOV to
@@ -25948,6 +25956,7 @@ class SequenceDirector : public Script {
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
+    hudDisabled_ = false;
     if (baseFov_ >= 0.0F && ctx.engine) {
       ctx.engine->renderer.core.renderer3D.setFov(baseFov_);
       baseFov_ = -1.0F;
@@ -25960,12 +25969,17 @@ class SequenceDirector : public Script {
     if (idx < 0 || idx >= kSeqCount) return;
     active_ = idx;
     time_ = 0.0F;
+    cleanup_ = false;
+    // Set immediately: Play Sequence may run after this director's update, and
+    // the same frame's HUD must not flash before the first cutscene tick.
+    hudDisabled_ = kSeqs[idx].disableHud != 0;
   }
   void end() {
     if (active_ >= 0) cleanup_ = true;
     active_ = -1;
   }
   int activeIndex() const { return active_; }
+  bool hudDisabled() const { return hudDisabled_; }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -26182,6 +26196,7 @@ namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool hudDisabled() { return g_seqDirector.hudDisabled(); }
 
 // Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame

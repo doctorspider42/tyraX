@@ -1105,7 +1105,7 @@ class TerrainGame : public Tyra::Game {
 
   // On-screen texts (hud_data.gen.hpp): baked text sprites the Set Text
   // Visible flow node flips via ScriptContext; a positive timer auto-hides.
-  void updateAndRenderHudTexts();
+  void updateAndRenderHudTexts(bool render);
   std::vector<Tyra::Sprite> hudTextSprites;
   std::vector<signed char> hudTextReq;   // ScriptContext::textRequest
   std::vector<float> hudTextDur;         // ScriptContext::textDuration
@@ -1215,7 +1215,7 @@ class TerrainGame : public Tyra::Game {
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
-  void updateAndRenderDynTexts();
+  void updateAndRenderDynTexts(bool render);
   std::vector<signed char> dynTextReq;   // ScriptContext::dynTextRequest
   std::vector<float> dynTextDur;         // ScriptContext::dynTextDuration
   std::vector<char> dynTextBuf;          // DYN_TEXT_COUNT * DYN_TEXT_LEN

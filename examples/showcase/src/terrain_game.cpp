@@ -2749,6 +2749,7 @@ void TerrainGame::loop() {
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
     // pass applies at endFrame, over everything (menus included).
+    const bool showGameHud = scriptCtx.hudVisible && !sequences::hudDisabled();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
@@ -2756,12 +2757,12 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible)
+      if (showGameHud)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0) {
+    if (showGameHud && useTargetIndex >= 0) {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
@@ -2781,8 +2782,8 @@ void TerrainGame::loop() {
                    (float)slots[s].size);
       }
     }
-    updateAndRenderHudTexts();
-    updateAndRenderDynTexts();
+    updateAndRenderHudTexts(showGameHud);
+    updateAndRenderDynTexts(showGameHud);
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
@@ -7427,7 +7428,7 @@ void TerrainGame::renderGameMenu() {
 
 // On-screen texts: apply the frame's Show/Hide Text requests, tick the
 // auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
-void TerrainGame::updateAndRenderHudTexts() {
+void TerrainGame::updateAndRenderHudTexts(bool render) {
   for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
     if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
       hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
@@ -7441,7 +7442,8 @@ void TerrainGame::updateAndRenderHudTexts() {
         hudTextTimer[i] = 0.0F;
       }
     }
-    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+    if (render && hudTextOn[i])
+      engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -8950,7 +8952,7 @@ void TerrainGame::updateAndRenderLightBeams() {
 // Runtime texts: same request/timer protocol as the baked ones, but the string
 // lives in dynTextBuf (refreshed every frame by the owning flow-graph script
 // while the slot is on) and is drawn glyph by glyph from the font's atlas.
-void TerrainGame::updateAndRenderDynTexts() {
+void TerrainGame::updateAndRenderDynTexts(bool render) {
   for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
     if (scriptCtx.dynTextRequest[i] >= 0) {
       dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
@@ -8964,7 +8966,7 @@ void TerrainGame::updateAndRenderDynTexts() {
         dynTextTimer[i] = 0.0F;
       }
     }
-    if (!dynTextOn[i]) continue;
+    if (!render || !dynTextOn[i]) continue;
     const DynTextData& d = DYN_TEXTS[i];
     const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
     if (!s[0]) continue;

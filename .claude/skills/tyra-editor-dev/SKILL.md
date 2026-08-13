@@ -155,6 +155,15 @@ codegen changed since, they drift silently. Regenerate (load + save +
 `refreshGenerated`, or a `--build`) before trusting it as a reference for what
 `templates.cpp` emits today.
 
+Cutscene `Disable HUD` is a `SequenceDirector` render gate, not a write to
+`ScriptContext::hudVisible`: the flow graph's previous visibility state must
+survive playback. Gate ordinary HUD sprites, USE/pick prompts, baked HUD text
+and dynamic text in both game-loop templates; keep their request/timer updates
+running while hidden. Menus, debug overlays, cutscene bars/fades and screen
+effects remain outside the gate. Set the director flag in `begin()` so a
+sequence started after its update cannot flash one HUD frame, and keep it
+through deferred cleanup so the final cutscene frame stays clean.
+
 ## The rules that keep the system consistent
 
 ### 1. Editing model: mutate, then `commitChange()`

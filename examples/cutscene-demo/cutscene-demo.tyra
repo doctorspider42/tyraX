@@ -1,5 +1,7 @@
 {
   "name": "cutscene-demo",
+  "formatVersion": 24,
+  "editorVersion": "1.32.0",
   "template": "fpp",
   "projectId": "6c2bc443a9640288",
   "settings": {
@@ -127,7 +129,7 @@
   "defaultLoadingScreen": -1,
   "splashScreens": [],
   "sequences": [
-    { "name": "The Reveal", "duration": 14, "loop": false, "cameraEnabled": true, "hidePlayer": false, "bars": 1, "skippable": true, "fadeIn": 0.8, "fadeOut": 1, "barsSlideIn": 0.6, "barsSlideOut": 1, "tracks": [
+    { "name": "The Reveal", "duration": 14, "loop": false, "cameraEnabled": true, "hidePlayer": false, "disableHud": true, "bars": 1, "skippable": true, "fadeIn": 0.8, "fadeOut": 1, "barsSlideIn": 0.6, "barsSlideOut": 1, "tracks": [
       { "target": "hero", "animPos": true, "animRot": true, "animScale": false, "animColor": false, "animVis": false, "keys": [{ "t": 0, "pos": [-12, 1, 0], "rot": [0, 0, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }, { "t": 5, "pos": [0, 1, 0], "rot": [0, 360, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }, { "t": 9, "pos": [0, 1, 0], "rot": [0, 360, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }, { "t": 12.5, "pos": [0, 7, 0], "rot": [0, 720, 0], "scale": [2, 2, 2], "color": [0.9, 0.15, 0.1], "vis": true, "ease": 1 }] },
       { "target": "obelisk", "animPos": false, "animRot": false, "animScale": true, "animColor": true, "animVis": false, "keys": [{ "t": 5, "pos": [10, 3, -4], "rot": [0, 0, 0], "scale": [3, 6, 3], "color": [0.95, 0.8, 0.35], "vis": true, "ease": 1 }, { "t": 12.5, "pos": [10, 3, -4], "rot": [0, 0, 0], "scale": [3.8, 7.6, 3.8], "color": [1, 0.45, 0.1], "vis": true, "ease": 1 }] },
       { "target": "sparks", "animPos": false, "animRot": false, "animScale": false, "animColor": false, "animVis": true, "keys": [{ "t": 0, "pos": [10, 6.4, -4], "rot": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "vis": false, "ease": 2 }, { "t": 9.5, "pos": [10, 6.4, -4], "rot": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.4], "vis": true, "ease": 2 }] },

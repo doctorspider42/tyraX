@@ -2155,6 +2155,7 @@ static void writeSequencesSection(std::ostream& json, const Project& p) {
              << ", \"loop\": " << (s.loop ? "true" : "false")
              << ", \"cameraEnabled\": " << (s.cameraEnabled ? "true" : "false")
              << ", \"hidePlayer\": " << (s.hidePlayer ? "true" : "false")
+             << (s.disableHud ? ", \"disableHud\": true" : "")
              << ", \"bars\": " << s.bars
              << ", \"skippable\": " << (s.skippable ? "true" : "false")
              << ", \"fadeIn\": " << fmtFloat(s.fadeIn)
@@ -6056,6 +6057,7 @@ static void readSequencesSection(const json::Value& root, Project& out) {
             if (const auto* v = js.find("loop")) s.loop = v->boolOr(false);
             if (const auto* v = js.find("cameraEnabled")) s.cameraEnabled = v->boolOr(false);
             if (const auto* v = js.find("hidePlayer")) s.hidePlayer = v->boolOr(false);
+            if (const auto* v = js.find("disableHud")) s.disableHud = v->boolOr(false);
             if (const auto* v = js.find("bars")) s.bars = (int)v->numberOr(0.0);
             if (s.bars < 0 || s.bars >= kSeqBarsStyleCount) s.bars = kSeqBarsNone;
             if (const auto* v = js.find("skippable")) s.skippable = v->boolOr(false);

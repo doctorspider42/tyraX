@@ -5,7 +5,7 @@ the **Cutscene Director** (*Tools > Cutscene Director*): five camera entities,
 hard cuts *and* a smooth blend, a dolly and a crane (two cameras moving on
 their own tracks), per-shot FOV and handheld shake, object tracks animating
 position/rotation, scale/colour and visibility, Cinema 2.39:1 widescreen bars
-that slide in/out, and a fade-in/out — all running on the PS2.
+that slide in/out, a fade-in/out, and HUD suppression — all running on the PS2.
 
 ![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Cinema 2.39:1 bars, fades, skippable) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
 
@@ -53,7 +53,9 @@ The shot list (one sequence, "The Reveal"):
   `cam-hero → cam-crane` transition uses Smooth easing, so the camera flies
   between the two entities' poses.
 - **Sequence options** — *Widescreen bars: Cinema 2.39:1* (slide-in 0.6 s /
-  slide-out 1.0 s), *Skippable*, *Fade in 0.8 s*, *Fade out 1.0 s*, no loop.
+  slide-out 1.0 s), *Skippable*, *Disable HUD*, *Fade in 0.8 s*, *Fade out
+  1.0 s*, no loop. HUD images, prompts and text stay hidden during playback;
+  menus and debug overlays remain available.
 - **Trigger** — the pedestal's flow graph fires **Play Sequence** from both
   **On Start** and **On Used** (the pedestal is marked *Usable*).
 

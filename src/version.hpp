@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.32.0 (a cutscene can own the game HUD): the Cutscene Director gains a
+// per-sequence Disable HUD option. It suppresses HUD images, USE/pick prompts,
+// baked HUD text and dynamic flow-graph text for the whole cutscene, including
+// its first and cleanup frames, while menus, debug overlays, cutscene bars,
+// fades and post effects keep rendering. Text requests and auto-hide timers
+// still advance behind the render gate, so ending a cutscene restores current
+// state instead of replaying stale notifications. The director never mutates
+// ScriptContext::hudVisible; a flow graph's prior HUD state therefore survives
+// playback unchanged. Feature = MINOR. Persisted Sequence::disableHud = format
+// v24, written only when true and defaulting false, so the bump is additive and
+// needs no migration step.
+//
 // 1.24.4 (--vu-check says when its two halves are not from one commit): every
 // comparison it makes diffs a program GENERATED from the descriptions compiled
 // into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
@@ -735,8 +747,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 31
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 32
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -960,6 +972,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
 // degrees of torso pitch applied by the retargeter. Written only when
 // non-zero; no migration step.
-inline constexpr int kFormatVersion = 23;
+// v24 (per-cutscene HUD suppression): Sequence::disableHud. Written only when
+// true and defaulting false, so old projects preserve their rendering and no
+// migration step is needed.
+inline constexpr int kFormatVersion = 24;
 
 }  // namespace version

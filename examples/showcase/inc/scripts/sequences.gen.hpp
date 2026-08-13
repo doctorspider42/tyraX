@@ -17,6 +17,9 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);
 // flow trigger edge-detects, and what tells a flow-graph camera or
 // letterbox that a cutscene currently owns those.
 bool playing();
+// True while the director owns the normal game HUD, including its
+// deferred cleanup frame. Menus/debug overlays stay outside the gate.
+bool hudDisabled();
 // Letterbox mask style for the Set Letterbox Bars flow node, used
 // by renderOverlay when NO sequence is active (0 none, 1 cinema
 // 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its

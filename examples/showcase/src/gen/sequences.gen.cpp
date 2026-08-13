@@ -34,6 +34,7 @@ struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
              int hidePlayer;  // hide the third-person avatar while playing
+             int disableHud;  // suppress normal game HUD while playing
              int bars; int skippable; float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
              const Track* tracks; int trackCount;
@@ -57,11 +58,11 @@ static const Track kS4Tracks[] = {{2, 35, 1, 0, 0, 0, 0, kS4T0K, 2}};
 static const CamKey kS4Cam[] = {{0.0F, {-30.0F, 17.0F, 28.0F}, {0.0F, 3.0F, -5.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {3.0F, {8.0F, 5.0F, 22.0F}, {0.0F, 2.0F, -10.0F}, 74.0F, 0.0F, 0.0F, 1, -1, -1}, {6.0F, {-7.0F, 3.0F, -6.0F}, {0.0F, 6.0F, -15.0F}, 48.0F, 0.0F, 0.0F, 2, -1, -1}, {8.5F, {25.0F, 13.0F, -18.0F}, {0.0F, 5.0F, 0.0F}, 65.0F, 0.04F, 0.0F, 1, -1, -1}, {10.0F, {0.0F, 3.0F, 24.0F}, {0.0F, 2.0F, -4.0F}, 72.0F, 0.0F, 0.0F, 2, -1, -1}};
 
 static const Seq kSeqs[] = {
-  {"Dawn of Worlds", 8.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS0Tracks, 0, kS0Cam, 4},
-  {"Rift Ignition", 3.2F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS1Tracks, 1, kS1Cam, 3},
-  {"Portal Breach", 7.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS2Tracks, 0, kS2Cam, 4},
-  {"City Uplink", 3.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS3Tracks, 0, kS3Cam, 3},
-  {"Neon Overdrive", 10.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS4Tracks, 1, kS4Cam, 5}
+  {"Dawn of Worlds", 8.0F, 0, 1, 0, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS0Tracks, 0, kS0Cam, 4},
+  {"Rift Ignition", 3.2F, 0, 1, 0, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS1Tracks, 1, kS1Cam, 3},
+  {"Portal Breach", 7.0F, 0, 1, 0, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS2Tracks, 0, kS2Cam, 4},
+  {"City Uplink", 3.0F, 0, 1, 0, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS3Tracks, 0, kS3Cam, 3},
+  {"Neon Overdrive", 10.0F, 0, 1, 0, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS4Tracks, 1, kS4Cam, 5}
 };
 static const int kSeqCount = 5;
 
@@ -96,6 +97,7 @@ class SequenceDirector : public Script {
   int active_ = -1;
   float time_ = 0.0F;
   bool cleanup_ = false;   // hand everything back on the next update
+  bool hudDisabled_ = false;
   float baseFov_ = -1.0F;  // projection FOV before the first override
 
   // Clamp + apply a shot FOV; the first application snapshots the FOV to
@@ -117,6 +119,7 @@ class SequenceDirector : public Script {
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
+    hudDisabled_ = false;
     if (baseFov_ >= 0.0F && ctx.engine) {
       ctx.engine->renderer.core.renderer3D.setFov(baseFov_);
       baseFov_ = -1.0F;
@@ -129,12 +132,17 @@ class SequenceDirector : public Script {
     if (idx < 0 || idx >= kSeqCount) return;
     active_ = idx;
     time_ = 0.0F;
+    cleanup_ = false;
+    // Set immediately: Play Sequence may run after this director's update, and
+    // the same frame's HUD must not flash before the first cutscene tick.
+    hudDisabled_ = kSeqs[idx].disableHud != 0;
   }
   void end() {
     if (active_ >= 0) cleanup_ = true;
     active_ = -1;
   }
   int activeIndex() const { return active_; }
+  bool hudDisabled() const { return hudDisabled_; }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -351,6 +359,7 @@ namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool hudDisabled() { return g_seqDirector.hudDisabled(); }
 
 // Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame
