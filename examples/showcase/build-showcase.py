@@ -226,40 +226,34 @@ def village_objects():
         obj("v-layer-ridge", "ridge-stream-gate", "empty", (-17, 0, -8),
             graph=layer_gate("ridge", "market"), collision="none"),
     ]
-    # Six modular houses, all real CC0 geometry, split between streamed layers.
-    houses = [(-18, -8, 15, "ridge"), (18, 10, 215, "market")]
-    for i, (x, z, yaw, layer_name) in enumerate(houses):
-        base = f"house-{i+1}"
-        wall = "Wall_Plaster_Window_Wide_Round" if i % 2 == 0 else "Wall_UnevenBrick_Straight"
-        out += [
-            model(f"{base}-front", f"{base}-front", f"res/models/medieval/{wall}.obj",
-                  (x, 0.2, z), rot=(0, yaw, 0), scale=(2.2, 2.2, 2.2), layer=layer_name),
-            model(f"{base}-side", f"{base}-side", "res/models/medieval/Wall_Plaster_Straight.obj",
-                  (x + math.sin(math.radians(yaw)) * 4.1, 0.2,
-                   z + math.cos(math.radians(yaw)) * 4.1),
-                  rot=(0, yaw + 90, 0), scale=(2.2, 2.2, 2.2), layer=layer_name),
-            model(f"{base}-roof", f"{base}-roof", "res/models/medieval/Roof_RoundTiles_6x8.obj",
-                  (x, 6.35, z), rot=(0, yaw, 0), scale=(1.15, 1.15, 1.15), layer=layer_name),
-            light(f"{base}-lamp", f"{base}-lamp", (x, 2.4, z + 2),
-                  (1, 0.55, 0.2), 8, 0.8, layer=layer_name, flicker=0.25),
-        ]
-    # Cheap, batchable silhouettes fill the skyline while the textured hero
-    # houses stream one district at a time. The PS2 submits these as a handful
-    # of combined bags instead of a dozen model parts.
-    for i, (x, z, height, color) in enumerate([
-        (-14, 12, 3.2, (0.34, 0.22, 0.15)),
-        (14, -13, 4.0, (0.28, 0.2, 0.18)),
-        (-22, -18, 4.8, (0.3, 0.18, 0.14)),
-        (22, 5, 3.6, (0.25, 0.19, 0.2)),
-        (-8, -24, 4.4, (0.32, 0.2, 0.12)),
+    # Fertile Soil's CC0 kit is assembled into complete, single-draw models.
+    # The detailed hero buildings stream by district; the smaller cottages are
+    # real geometry too, replacing the old box-and-cone skyline placeholders.
+    out += [
+        model("v-ridge-tower", "ridge-watchtower",
+              "res/models/modular-village/village-watchtower.obj",
+              (-18, 0.15, -8), rot=(0, 15, 0), scale=(1.7, 1.7, 1.7),
+              layer="ridge"),
+        light("v-ridge-lamp", "ridge-watchtower-lamp", (-16.8, 3.0, -5.8),
+              (1, 0.55, 0.2), 8, 0.8, layer="ridge", flicker=0.25),
+        model("v-market-tavern", "market-tavern",
+              "res/models/modular-village/village-tavern.obj",
+              (18, 0.15, 10), rot=(0, 215, 0), scale=(1.55, 1.55, 1.55),
+              layer="market"),
+        light("v-market-lamp", "market-tavern-lamp", (16.5, 2.8, 11.7),
+              (1, 0.55, 0.2), 8, 0.8, layer="market", flicker=0.25),
+    ]
+    for i, (x, z, yaw, scale, layer_name) in enumerate([
+        (-14, 12, 32, 1.30, "market"),
+        (14, -13, 205, 1.42, "ridge"),
+        (-22, -18, 58, 1.24, "ridge"),
+        (22, 5, 242, 1.34, "market"),
+        (-8, -24, 355, 1.18, "ridge"),
     ]):
-        out += [
-            obj(f"v-silhouette-{i}-body", f"skyline-house-{i+1}", "box",
-                (x, height * 0.5, z), scale=(4.2, height, 4.2), color=color),
-            obj(f"v-silhouette-{i}-roof", f"skyline-roof-{i+1}", "cone",
-                (x, height + 1.1, z), scale=(3.4, 2.2, 3.4),
-                color=(0.24, 0.08, 0.055)),
-        ]
+        out.append(model(f"v-cottage-{i}", f"village-cottage-{i+1}",
+                         "res/models/modular-village/village-cottage.obj",
+                         (x, 0.12, z), rot=(0, yaw, 0),
+                         scale=(scale, scale, scale), layer=layer_name))
     out += [
         model("v-wagon", "market-wagon", "res/models/medieval/Prop_Wagon.obj",
               (8, 0.3, 3), rot=(0, 72, 0), scale=(1.4, 1.4, 1.4), layer="market"),
@@ -267,6 +261,9 @@ def village_objects():
               (5, 0.7, 0), scale=(1.5, 1.5, 1.5), layer="market"),
         model("v-crate-2", "market-crate-b", "res/models/medieval/Prop_Crate.obj",
               (6.4, 0.7, -0.4), rot=(0, 25, 0), scale=(1.3, 1.3, 1.3), layer="market"),
+        model("v-well", "market-well",
+              "res/models/modular-village/village-well.obj",
+              (-9, 0.2, 8), scale=(1.6, 1.6, 1.6), layer="market"),
         obj("v-fire-base", "festival-brazier", "cylinder", (-4, 0.5, 4),
             scale=(1.2, 0.7, 1.2), color=(0.18, 0.12, 0.08)),
         emitter("v-fire", "festival-fire", (-4, 1, 4), "fire",
@@ -279,14 +276,14 @@ def village_objects():
             scale=(2.2, 3.2, 1), color=(0.95, 0.45, 0.15), layer="ridge",
             extra={"portal": {"target": "village-portal-b", "showTerrain": False,
                                "teleportObjects": False, "viewAll": False,
-                               "objects": ["house-2-front", "house-2-roof",
+                               "objects": ["market-tavern", "village-cottage-1",
                                            "market-wagon", "festival-fire"]}}),
         obj("v-portal-b", "village-portal-b", "portal", (15, 4.5, 15),
             rot=(0, 180, 0), scale=(2.2, 3.2, 1), color=(0.2, 0.75, 1),
             layer="ridge",
             extra={"portal": {"target": "village-portal-a", "showTerrain": False,
                                "teleportObjects": False, "viewAll": False,
-                               "objects": ["house-2-front", "house-2-roof",
+                               "objects": ["market-tavern", "ridge-watchtower",
                                            "rift-gateway", "rift-sparks"]}}),
     ]
     return out

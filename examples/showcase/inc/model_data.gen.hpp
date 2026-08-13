@@ -6,12 +6,12 @@ namespace Showcase {
 constexpr int MODEL_COUNT = 20;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/medieval/DoorFrame_Round_WoodDark.tmdl",
-    "models/medieval/Wall_Plaster_Window_Wide_Round.tmdl",
-    "models/medieval/Wall_Plaster_Straight.tmdl",
-    "models/medieval/Roof_RoundTiles_6x8.tmdl",
-    "models/medieval/Wall_UnevenBrick_Straight.tmdl",
+    "models/modular-village/village-watchtower.tmdl",
+    "models/modular-village/village-tavern.tmdl",
+    "models/modular-village/village-cottage.tmdl",
     "models/medieval/Prop_Wagon.tmdl",
     "models/medieval/Prop_Crate.tmdl",
+    "models/modular-village/village-well.tmdl",
     "models/scifi/Prop_Locker.tmdl",
     "models/scifi/Prop_Crate_Large.tmdl",
     "models/scifi/Prop_SatelliteDish.tmdl",
@@ -56,12 +56,12 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/medieval/DoorFrame_Round_WoodDark.obj",
-    "res/models/medieval/Wall_Plaster_Window_Wide_Round.obj",
-    "res/models/medieval/Wall_Plaster_Straight.obj",
-    "res/models/medieval/Roof_RoundTiles_6x8.obj",
-    "res/models/medieval/Wall_UnevenBrick_Straight.obj",
+    "res/models/modular-village/village-watchtower.obj",
+    "res/models/modular-village/village-tavern.obj",
+    "res/models/modular-village/village-cottage.obj",
     "res/models/medieval/Prop_Wagon.obj",
     "res/models/medieval/Prop_Crate.obj",
+    "res/models/modular-village/village-well.obj",
     "res/models/scifi/Prop_Locker.obj",
     "res/models/scifi/Prop_Crate_Large.obj",
     "res/models/scifi/Prop_SatelliteDish.obj",

@@ -53,7 +53,7 @@ one test room.
 ## Rebuilding the authored project
 
 `build-showcase.py` is the deterministic high-level authoring source for the
-115 objects, three heightmaps, sequences and graphs. It makes large structural
+107 objects, three heightmaps, sequences and graphs. It makes large structural
 changes reviewable and prevents hand-edited JSON drift. After changing it, run:
 
 ```powershell
@@ -68,16 +68,21 @@ textures, `obj/`, `bin/` and history files are regenerated and ignored.
 
 ## Asset sources and PS2 budgets
 
-All third-party art is CC0. The village and laboratory use Quaternius' Medieval
-Village MegaKit and Sci-Fi Essentials Kit. The city combines Kenney's Retro
-Urban Kit with GGBotNet's PSX Style Cars. See `THIRD-PARTY-NOTICES.txt` for the
-source links and license notes.
+All third-party art is CC0. The village buildings are assembled from Keith at
+Fertile Soil Productions' Modular Village Pack; Quaternius' Medieval Village
+MegaKit supplies the gateway and market props, and the laboratory uses the
+Sci-Fi Essentials Kit. The city combines Kenney's Retro Urban Kit with
+GGBotNet's PSX Style Cars. See `THIRD-PARTY-NOTICES.txt` for source links and
+license notes.
 
 Source textures were downsampled to 128 or 256 pixels and material paths were
-made project-relative. Blender's collapse decimator reduced the five heaviest
-static meshes and all three skinned creatures while preserving their UVs,
-materials, armatures and animation actions. The final animated meshes are 634,
-746 and 719 triangles. Already-low-poly assets were left untouched. The
+made project-relative. The village kit uses its original flat-colour materials;
+its modules are assembled into complete cottage, tavern and watchtower meshes
+so each building remains a single model submission. Blender's collapse
+decimator reduced the five heaviest static meshes and all three skinned
+creatures while preserving their UVs, materials, armatures and animation
+actions. The final animated meshes are 634, 746 and 719 triangles.
+Already-low-poly assets were left untouched. The
 showcase keeps the PS2's memory and fill-rate limits visible instead of hiding
 them behind an emulator: layers stream by district or feature wing, far props
 are culled, skeletal updates have an LOD radius, particle pools are bounded,

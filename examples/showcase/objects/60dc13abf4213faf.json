@@ -1,1 +1,0 @@
-{"id":"60dc13abf4213faf","name":"house-2-lamp","type":"point-light","position":[18,2.4,12],"rotation":[0,0,0],"scale":[0.35,0.35,0.35],"color":[1,0.55,0.2],"physics":false,"layer":"market","light":{"brightness":0.8,"radius":8,"dynamic":true,"flicker":0.25,"beam":2}}

@@ -51,6 +51,8 @@ listed here as a courtesy:
 
 - Medieval Village MegaKit (Standard), Quaternius
   https://quaternius.com/packs/medievalvillagemegakit.html
+- Modular Village Pack, Keith at Fertile Soil Productions
+  https://fertile-soil-productions.itch.io/modular-village-pack
 - Sci-Fi Essentials Kit, Quaternius
   https://quaternius.com/packs/scifiessentialskit.html
 - Retro Urban Kit, Kenney
@@ -60,6 +62,7 @@ listed here as a courtesy:
 
 The source textures were downsampled for PS2 memory budgets, selected meshes
 were decimated in Blender, material texture paths were made project-relative,
-and only selected models from each pack are redistributed. The assets are
-dedicated to the public domain under Creative Commons CC0 1.0:
+and only selected models from each pack are redistributed. Fertile Soil's
+flat-colour modules were assembled into complete PS2-ready building meshes.
+The assets are dedicated to the public domain under Creative Commons CC0 1.0:
 https://creativecommons.org/publicdomain/zero/1.0/
