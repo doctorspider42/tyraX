@@ -1035,8 +1035,10 @@ private:
     bool drawAnimImportSection(const std::string& modelRel);
     // Everything derived from a model's parse: the GlbInfo summary, the
     // viewport's baked draw and the material preview. Called after an import
-    // change, since those caches all hold a clip list.
-    void invalidateAnimCaches();
+    // change, since those caches all hold a clip list. With `modelRel` given
+    // only THAT model's entries drop - an Apply on one character must not
+    // re-bake every animated model in the project.
+    void invalidateAnimCaches(const std::string& modelRel = std::string());
     // Staged donor pick for the import block; "" = nothing chosen yet.
     std::string animImpSource_;
     // Clip-list name filter (Animation Editor, left pane).

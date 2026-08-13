@@ -527,11 +527,12 @@ public:
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
-    // Re-bakes every cached animated model IN THE BACKGROUND: entries are
-    // marked stale and keep drawing their old bake until the fresh one lands.
-    // An import change alters the CLIP LIST of a model, which is baked into
-    // the cache entry - unlike a clip edit, which is applied per pose.
-    void invalidateAnimatedModels();
+    // Re-bakes cached animated models IN THE BACKGROUND: entries are marked
+    // stale and keep drawing their old bake until the fresh one lands. An
+    // import change alters the CLIP LIST of a model, which is baked into the
+    // cache entry - unlike a clip edit, which is applied per pose. `relPath`
+    // limits it to one model's entries ("" = all).
+    void invalidateAnimatedModels(const std::string& relPath = std::string());
 
     // Camera controls, driven by the UI layer. The camera orbits a movable
     // target point: pan slides it in the view plane (middle mouse drag),

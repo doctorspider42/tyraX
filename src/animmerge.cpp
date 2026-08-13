@@ -149,10 +149,20 @@ class Resolver {
         // The map stores TARGET NAMES (stable across both files' reparses);
         // resolve them to indices once. A pair whose target name no longer
         // exists is skipped - the donor bone then falls through to the name
-        // chain instead of silently landing on bone 0.
-        for (const auto& [from, to] : o.boneMap)
-            if (auto it = exact_.find(to); it != exact_.end())
-                mapped_.emplace(from, it->second);
+        // chain instead of silently landing on bone 0. LATER PAIRS WIN BOTH
+        // ENDS: the mapper enforces one driver per donor and per target going
+        // forward, but a .tyra written before that rule can still carry two
+        // donors claiming one target - and the loser's own bone then held its
+        // bind pose (the spine-under-the-pelvis report). Deduping here heals
+        // stale files without anyone reopening the mapper.
+        for (const auto& [from, to] : o.boneMap) {
+            const auto ti = exact_.find(to);
+            if (ti == exact_.end()) continue;
+            for (auto it = mapped_.begin(); it != mapped_.end();)
+                it = it->second == ti->second ? mapped_.erase(it)
+                                              : std::next(it);
+            mapped_[from] = ti->second;
+        }
     }
     int resolve(const std::string& name) const {
         if (auto it = mapped_.find(name); it != mapped_.end()) return it->second;

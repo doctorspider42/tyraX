@@ -3006,11 +3006,16 @@ void Viewport::clearModelCache() {
     clearMatPrevModel();  // same disk-derived sources (obj + mtl)
 }
 
-void Viewport::invalidateAnimatedModels() {
+void Viewport::invalidateAnimatedModels(const std::string& relPath) {
     // Stale, not destroyed: the old bake keeps drawing until the background
-    // rebake lands, so an import commit costs no stall and no blink.
-    for (auto& [key, draw] : animModelCache_) draw.stale = true;
-    for (auto& j : animBakeJobs_) j->restale = true;  // in-flight = old inputs
+    // rebake lands, so an import commit costs no stall and no blink. Keys are
+    // "model|material", so the per-model form is a prefix test.
+    const std::string prefix = relPath.empty() ? "" : relPath + "|";
+    for (auto& [key, draw] : animModelCache_)
+        if (prefix.empty() || key.rfind(prefix, 0) == 0) draw.stale = true;
+    for (auto& j : animBakeJobs_)
+        if (prefix.empty() || j->relPath == relPath)
+            j->restale = true;  // in-flight = old inputs
     clearMatPrevModel();  // the Material Editor bakes the same source
 }
 

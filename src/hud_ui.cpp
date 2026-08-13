@@ -2838,17 +2838,28 @@ const App::AnimImportProbe& App::animImportProbe(
     return animProbeCache_.emplace(key, std::move(probe)).first->second;
 }
 
-void App::invalidateAnimCaches() {
+void App::invalidateAnimCaches(const std::string& modelRel) {
     // Every one of these holds a clip list derived from a parse of the model,
     // and an import changes which clips exist - so they all go together. The
     // model-info pair is always evicted as a unit (app.cpp precedent).
     // NOT skelCache_: files did not change (size+mtime revalidation covers
     // the case where they did), and keeping it is what makes the re-derive
     // below a merge instead of a parse.
-    glbInfoCache_.clear();
-    modelInfoCache_.clear();
-    animProbeCache_.clear();
-    viewport_.invalidateAnimatedModels();
+    if (modelRel.empty()) {
+        glbInfoCache_.clear();
+        modelInfoCache_.clear();
+        animProbeCache_.clear();
+    } else {
+        // One model changed - dropping the whole zoo re-baked EVERY animated
+        // model on each mapper Apply (reported as "baking more than needed").
+        glbInfoCache_.erase(modelRel);
+        modelInfoCache_.erase(modelRel);
+        for (auto it = animProbeCache_.begin(); it != animProbeCache_.end();)
+            it = it->first.rfind(modelRel + "|", 0) == 0
+                     ? animProbeCache_.erase(it)
+                     : std::next(it);
+    }
+    viewport_.invalidateAnimatedModels(modelRel);
 }
 
 // Tools > Animation Editor > Imported clips (docs/animation-import.md).
@@ -2888,6 +2899,22 @@ void App::saveBoneAliases() {
     }
 }
 
+// One driver per donor AND per target bone: adding a pair evicts any
+// earlier pair claiming either end. Without this, pairs accepted across
+// sessions could both claim one target - the resolver gave it to the first,
+// the second died silently, and the bone the second SHOULD have freed held
+// its bind pose (reported as a spine segment diving under the pelvis).
+static void upsertPair(
+    std::vector<std::pair<std::string, std::string>>& pairs,
+    const std::string& from, const std::string& to) {
+    pairs.erase(std::remove_if(pairs.begin(), pairs.end(),
+                               [&](const auto& pr) {
+                                   return pr.first == from || pr.second == to;
+                               }),
+                pairs.end());
+    pairs.emplace_back(from, to);
+}
+
 void App::openAnimBoneMap(int importRow) {
     if (importRow < 0 || importRow >= (int)project_.animImports.size()) return;
     const AnimImport& a = project_.animImports[(size_t)importRow];
@@ -2919,7 +2946,11 @@ void App::openAnimBoneMap(int importRow) {
         animmerge::bindGlobals(animMapTarget_, animMapTPos_);
         animmerge::bindGlobals(animMapDonor_, animMapDPos_);
     }
-    animMapPairs_ = a.boneMap;
+    // Replay the stored pairs through the hygiene rule, so duplicates from
+    // sessions before it existed collapse to the LATEST intent.
+    animMapPairs_.clear();
+    for (const auto& [from, to] : a.boneMap)
+        upsertPair(animMapPairs_, from, to);
     animMapSelDonor_ = -1;
     animMapRow_ = importRow;
     ImGui::SetWindowFocus("Map bones");
@@ -3005,7 +3036,7 @@ bool App::drawAnimBoneMapWindow() {
                  animMapSugg_.size() == 1 ? "" : "s");
         if (ImGui::SmallButton(lbl))
             for (const animmerge::BoneSuggestion& sg : animMapSugg_)
-                animMapPairs_.emplace_back(sg.donor, sg.target);
+                upsertPair(animMapPairs_, sg.donor, sg.target);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Turn the amber guesses into real pairs.");
         ImGui::SameLine();
@@ -3021,7 +3052,7 @@ bool App::drawAnimBoneMapWindow() {
         if (ImGui::SmallButton(lbl))
             for (const auto& pr :
                  animmerge::applyAffixRule(tgt, don, opts, animMapAffix_))
-                animMapPairs_.push_back(pr);
+                upsertPair(animMapPairs_, pr.first, pr.second);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "One rename rule covers these bones - the two rigs are\n"
@@ -3382,10 +3413,7 @@ bool App::drawAnimBoneMapWindow() {
             animMapSelDonor_ >= 0) {
             const std::string& from = don.nodes[(size_t)animMapSelDonor_].name;
             const std::string& to = tgt.nodes[(size_t)hoverTarget].name;
-            bool found = false;
-            for (auto& pr : animMapPairs_)
-                if (pr.first == from) pr.second = to, found = true;
-            if (!found) animMapPairs_.emplace_back(from, to);
+            upsertPair(animMapPairs_, from, to);
             animMapSelDonor_ = -1;
         }
     }
@@ -3445,14 +3473,14 @@ bool App::drawAnimBoneMapWindow() {
                 ImGui::PopID();
             }
             if (accept >= 0)
-                animMapPairs_.emplace_back(animMapSugg_[(size_t)accept].donor,
-                                           animMapSugg_[(size_t)accept].target);
+                upsertPair(animMapPairs_, animMapSugg_[(size_t)accept].donor,
+                           animMapSugg_[(size_t)accept].target);
         }
         if (!animMapAiSugg_.empty()) {
             ImGui::SeparatorText("AI");
             if (ImGui::SmallButton("Accept all AI")) {
                 for (const auto& pr : animMapAiSugg_)
-                    animMapPairs_.push_back(pr);
+                    upsertPair(animMapPairs_, pr.first, pr.second);
                 animMapAiSugg_.clear();
             }
             int acceptAi = -1;
@@ -3471,7 +3499,8 @@ bool App::drawAnimBoneMapWindow() {
                 ImGui::PopID();
             }
             if (acceptAi >= 0) {
-                animMapPairs_.push_back(animMapAiSugg_[(size_t)acceptAi]);
+                upsertPair(animMapPairs_, animMapAiSugg_[(size_t)acceptAi].first,
+                           animMapAiSugg_[(size_t)acceptAi].second);
                 animMapAiSugg_.erase(animMapAiSugg_.begin() + acceptAi);
             }
         }
@@ -3838,13 +3867,14 @@ void App::drawAnimEditorWindow() {
     // precisely the case this feature exists for. Drawn first, so that model
     // can still reach the picker instead of hitting "no animation clips".
     if (drawAnimImportSection(animEdModel_)) {
-        invalidateAnimCaches();
+        invalidateAnimCaches(animEdModel_);
         changed = true;
     }
     // The bone-mapping window is a satellite of this one and commits through
-    // the same section guard.
+    // the same section guard. Its rows all belong to the current model, so
+    // the targeted invalidation is correct for it too.
     if (drawAnimBoneMapWindow()) {
-        invalidateAnimCaches();
+        invalidateAnimCaches(animEdModel_);
         changed = true;
     }
     ImGui::Separator();
