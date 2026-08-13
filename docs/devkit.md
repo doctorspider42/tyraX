@@ -24,6 +24,13 @@ Exit code 0 means no devkit marker, symbol, command file or buffer reached the
 ELF. Run the same command on a debug ELF when checking the auditor itself: it
 must fail and list what it found.
 
+**"Clean" means no devkit — not no logging.** A game build **never defines
+`NDEBUG`** (the release profile only drops `-g` and sets `KEEPSYM=0`), so every
+`TYRA_LOG` / `TYRA_WARN` in the engine ships: the calls run and the format
+strings sit in `.rodata`. Harmless on a retail console, which has nowhere to
+send the EE console, and not an audit failure since none of it is devkit code —
+but do not write "compiles out" about a `TYRA_*` macro without checking.
+
 ## Tools
 
 | Tool | What it does |
@@ -36,7 +43,16 @@ must fail and list what it found.
 | Debug window | Shows game logs, frame statistics, crashes and VU1 captures |
 
 Turn off channels you are not using when measuring performance. Debug file
-polling is real work and can distort small timings.
+polling is real work and can distort small timings. On real hardware it is not
+small: the same scene measured **30-40 fps with the devkit polling and 50 fps
+without it**, because a poll cycle is ~21 network round trips and one of them
+writes ~10 KB in 1446-byte chunks.
+
+The seven channels start on **different frames** — phases 5, 9, 13, 17 and 21,
+with the livedbg flush and Remote Pad deliberately left at 1 (liveness signal,
+and latency). They used to all start at 1 and re-arm to the same number, so
+they stayed locked to one frame in 25 for ever: that frame did seven blocking
+`host:` round trips and the other 24 did none. Same total work, spread out.
 
 ## Frame statistics
 
@@ -68,6 +84,21 @@ tyrax-editor --symbolize <projectDir> 0xADDRESS
 PCSX2 does not reproduce every EE exception, so a crash handler must ultimately
 be checked on real hardware. Assertions and soft errors are testable in the
 emulator.
+
+### The SIF RPC completion guard
+
+Heavy `host:` polling makes the devkit path an unusually busy SIF RPC client,
+and ps2sdk's completion handler dereferences a null packet instead of ignoring
+it — `BadAddr 0x00000010`, EPC in `rpc_packet_free`. The engine installs its own
+handler that skips only that free and **always completes the client**, counting
+what it skipped (`SifRpcGuard::rejected()`, 0 in a healthy session; a non-zero
+count logs `==WARN: SIF RPC: dropped …`).
+
+It is **not** gated on the debug profile, because a duplicate completion would
+kill a release game too, and `--audit-release` stays clean either way (verified
+in both directions). The mechanism, the measured teardown A/B, and the fact that
+the fault has **never been reproduced** are in
+[ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
 
 ## Inspecting VU1 input
 
