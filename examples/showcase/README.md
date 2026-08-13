@@ -79,9 +79,10 @@ Source textures were downsampled to 128 or 256 pixels and material paths were
 made project-relative. The village kit uses its original flat-colour materials;
 its modules are assembled into complete cottage, tavern and watchtower meshes
 so each building remains a single model submission. The wall-module pivot sits
-half a cell behind its rendered face; rotated end-wall rows therefore include
-the corner modules and an extra outward cell of offset, keeping the stone lower
-story closed instead of leaving detached foundation panels. Blender's collapse
+half a cell behind its rendered face. The stone rows compensate for that pivot
+and fit the `Stucco` footprint rather than the wider roof-eave bounds, keeping
+the lower story directly beneath the building instead of turning it into
+detached foundation panels or a perimeter wall. Blender's collapse
 decimator reduced the five heaviest static meshes and all three skinned
 creatures while preserving their UVs, materials, armatures and animation
 actions. The final animated meshes are 634, 746 and 719 triangles.
