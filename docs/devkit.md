@@ -189,7 +189,21 @@ session). The mechanism, why it is hardware-only, and what is still open are in
 Unlike everything else on this page the guard is **not** gated on the debug
 profile: a duplicate completion would crash a release game too, and the guard
 is a few instructions on the RPC completion path with no static tables and no
-marker, so `--audit-release` is unaffected by it.
+marker. `--audit-release` is unaffected — verified in **both** directions, which
+is the only way that check means anything: clean on a release build carrying the
+guard, and `FOUND DEVKIT CODE` naming six layers on a debug build.
+
+**And a release build is less empty than this page implies.** A game build
+**never defines `NDEBUG`** — the release profile only drops `-g` and sets
+`KEEPSYM=0`, and the one `-DNDEBUG` in the tree (`Makefile.base`) is in a target
+this pipeline does not invoke. So every `TYRA_LOG` / `TYRA_WARN` in the engine,
+including the guard's own report, ships in a release ELF: the calls are made and
+the format strings are in `.rodata`. It is harmless (a retail console has
+nowhere to send the EE console) and it is **not** a devkit-audit failure, since
+none of it is devkit code. But it does mean the comment in `templates.cpp` next
+to `writeLogsToFile` saying "No cost in a release (NDEBUG) build - the macros
+compile out" is wrong, and so is any other claim of that shape. Check before
+writing "compiles out" about a `TYRA_*` macro.
 
 ### The heartbeat, and the post-mortem
 

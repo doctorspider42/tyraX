@@ -42,9 +42,14 @@ class SifRpcGuard {
    * from Engine::realLoop; must NOT be called from the handler itself, which
    * runs in interrupt context where stdio is not usable.
    *
-   * Compiles to nothing in a release build (TYRA_WARN is a no-op under
-   * NDEBUG), which is deliberate: the guard still protects a release game, it
-   * just has no way to talk about it.
+   * NOTE, measured 2026-08-13 and not what an earlier version of this comment
+   * claimed: TYRA_WARN is a no-op only under NDEBUG, and **a game build never
+   * defines NDEBUG** — the release profile only drops `-g` and sets
+   * `KEEPSYM=0`. So this call and its format string DO ship in a release ELF,
+   * along with every other TYRA_LOG in the engine. It is harmless (a retail
+   * console has nowhere to send the EE console, and `--audit-release` stays
+   * clean because none of it is devkit code), but do not write "compiles out"
+   * about a TYRA_* macro in this codebase without checking first.
    */
   static void report();
 

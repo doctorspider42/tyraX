@@ -418,7 +418,10 @@ int main(int argc, char** argv) {
   // "log.txt" (next to the ELF) instead of the EE console, which does not
   // reach PCSX2's emulog. The TyraX Debug window tails that file. Must
   // be set before the Engine is constructed (its init logging is the first to
-  // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
+  // hit the file). NOTE: this used to claim "no cost in a release (NDEBUG)
+  // build - the macros compile out", and that is FALSE - a game build never
+  // defines NDEBUG (release only drops -g and KEEPSYM), so every TYRA_LOG
+  // ships. Measured 2026-08-13; see docs/devkit.md.
   // Under ps2link the EE console is BETTER than the file: ps2link forwards
   // printf over the network and the editor shows it live in the Output panel.
   Tyra::Info::writeLogsToFile = !ps2link;
