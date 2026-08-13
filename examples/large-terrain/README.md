@@ -24,18 +24,18 @@ visible (top-left). Walk with the left stick, look with the right.
   each looping its `Wiggle` clip. They exercise the animation LOD chain:
   **Animation LOD 30** (distant instances re-pose every 2nd/4th frame) and
   **Mesh LOD 22** (distant instances draw a decimated mesh). Walk into a
-  cluster to pile several full-rate skinned instances on screen at once and
-  watch the FPS/MEM overlay respond.
+  cluster to pile several full-rate skinned instances on screen and watch
+  the FPS/MEM overlay respond.
 
 ## Notes
 
-- The **MEM** readout barely moves as you roam: the terrain ring, the
-  props and the wobblers are all resident from the start (no per-object
-  streaming here), and the chunk ring recycles its buffers in place. It
-  drops/climbs only when a streaming **layer** loads or unloads — see the
-  [layer-streaming](../layer-streaming) example for that.
+- The **MEM** readout barely moves as you roam: terrain ring, props and
+  wobblers are all resident from the start (no per-object streaming here),
+  and the chunk ring recycles its buffers in place. It only drops/climbs
+  when a streaming **layer** loads or unloads — see
+  [layer-streaming](../layer-streaming) for that.
 - If the FPS/MEM overlay freezes the first frame on your PCSX2 build (a
   known emulator-only quirk), turn it off in Project > Preferences > Build;
   it renders fine on real hardware.
-- See [docs/animated-models.md](../../docs/animated-models.md) for how the
-  skeletal models and their LOD chain work.
+- [docs/animated-models.md](../../docs/animated-models.md) covers the
+  skeletal models and their LOD chain.

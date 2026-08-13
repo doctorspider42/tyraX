@@ -1,17 +1,17 @@
 # Keyboard & mouse controls
 
 Generated games can be played with a USB keyboard and mouse — in PCSX2 out of
-the box, and on a real PS2 with USB devices plugged into the front ports.
-The feature is a project preference: *Project > Preferences > Build >
-Keyboard & mouse controls* (stored as `"keyboardMouse"` in the `.tyra`).
+the box, and on a real PS2 with USB devices in the front ports. The feature is
+a project preference: *Project > Preferences > Build > Keyboard & mouse
+controls* (stored as `"keyboardMouse"` in the `.tyra`).
 
 **New projects start with it off.** A pad game gains nothing from loading three
 IRX drivers it never polls, and the console only speaks the USB HID *boot
-protocol* (see below), so this is a choice to make on purpose rather than a
-default to discover. Tick it for a keyboard/mouse game — nothing else changes,
-the pad keeps working either way. Projects created before that default keep
-whatever they saved, and projects older than the preference itself still load
-with it **on**, exactly as they did when the feature shipped for everyone.
+protocol* (see below), so this is a choice to make on purpose. Tick it for a
+keyboard/mouse game — nothing else changes, the pad keeps working either way.
+Projects created before that default keep whatever they saved, and projects
+older than the preference itself still load with it **on**, exactly as they did
+when the feature shipped for everyone.
 
 ## How it works
 
@@ -26,14 +26,15 @@ with it **on**, exactly as they did when the feature shipped for everyone.
 - **Virtual pad**: the generated game maps keys onto pad buttons through
   `Pad::injectVirtual` (a TyraX fork addition) — held keys OR into the pad's
   pressed set, click edges are derived engine-side, WASD deflects the left
-  stick fully (the analog deadzone / response curve applies to it like a real
+  stick fully (the analog deadzone / response curve applies like a real
   stick). Because everything downstream reads `engine->pad`, menus, the save
   menu, flow-graph *On Button* triggers, scripts and the walkers all react to
   the keyboard without knowing it exists — and a real DualShock keeps working
-  at the same time. `injectVirtual` takes an overlay **slot** (this path uses 0,
-  the [Remote Pad](remote-pad.md) uses 1) because click edges are derived from
-  the previous overlay: two sources sharing one history would each look like the
-  other had released everything, turning a held button into a click every frame.
+  at the same time. `injectVirtual` takes an overlay **slot** (this path uses
+  0, the [Remote Pad](remote-pad.md) uses 1) because click edges are derived
+  from the previous overlay: two sources sharing one history would each look
+  like the other had released everything, turning a held button into a click
+  every frame.
 - **Mouse look** bypasses the stick path: the FPP and Player-entity walkers
   add the per-frame deltas straight to yaw/pitch, so the same swipe turns the
   same angle at any frame rate (no `g_frameScale`, no deadzone eating slow
@@ -42,10 +43,10 @@ with it **on**, exactly as they did when the feature shipped for everyone.
 ## Default bindings
 
 The bindings are authored in **Tools > Input Map** and reach the game two ways:
-the generated `inc/input_map.gen.hpp`/`.cpp` tables (what the runtime reads, and
-what a player's in-game rebind changes) and the generated, still **user-ownable**
-`inc/controls.hpp` macros derived from the same default preset. Rebind buttons in
-the Input Map, not by hand — see
+the generated `inc/input_map.gen.hpp`/`.cpp` tables (what the runtime reads,
+and what a player's in-game rebind changes) and the generated, still
+**user-ownable** `inc/controls.hpp` macros derived from the same default
+preset. Rebind buttons in the Input Map, not by hand — see
 [docs/input-bindings.md](input-bindings.md). Keys are USB HID usage codes
 (usb.org HID Usage Tables).
 
@@ -67,26 +68,25 @@ so out of the box nothing changed:
 | Mouse motion | — | camera look (`MOUSE_SENSITIVITY`, radians per count = 0.003 × value) |
 | Left / right / middle button | — | `BTN_USE` / `BTN_JUMP` / Circle |
 
-Every one of these is one action's `key` slot in the Input Map's default preset,
-so they are all editable per project. They are **not** rebindable in-game: a
-menu *Rebind key* row covers the pad only, because this whole feature is still
-experimental (see the hardware status below) — keyboard/mouse rebinding is meant
-to get its own dedicated menu later. The fold itself lives in
-`src/gen/input_map.gen.cpp`
-(`inputApplyKeyboardMouse`) and walks the LIVE bindings, which is why a preset
-switch or a rebind moves the keys too;
+Every one is one action's `key` slot in the Input Map's default preset, so
+they are all editable per project. They are **not** rebindable in-game: a menu
+*Rebind key* row covers the pad only, because this whole feature is still
+experimental (see the hardware status below) — keyboard/mouse rebinding is
+meant to get its own dedicated menu later. The fold itself lives in
+`src/gen/input_map.gen.cpp` (`inputApplyKeyboardMouse`) and walks the LIVE
+bindings, which is why a preset switch or a rebind moves the keys too;
 `controls.hpp`'s `applyKeyboardMouseInput()` is now a one-line call into it.
 
 An older user-owned `controls.hpp` (without the keyboard section) keeps
-compiling against a regenerated game: every call site in `terrain_game.cpp`
-is guarded by the `TYRAX_KBD_MOUSE` define the new file introduces. Such a file
-also keeps its own hardcoded fold, so keyboard *rebinding* does nothing until you
-delete it and let the current version regenerate.
+compiling against a regenerated game: every call site in `terrain_game.cpp` is
+guarded by the `TYRAX_KBD_MOUSE` define the new file introduces. Such a file
+also keeps its own hardcoded fold, so keyboard *rebinding* does nothing until
+you delete it and let the current version regenerate.
 
 ## PCSX2
 
-The editor configures PCSX2 automatically before every launch (same policy
-as the forced `HostFs` setting): with the preference on, `PCSX2.ini` gets
+The editor configures PCSX2 automatically before every launch (same policy as
+the forced `HostFs` setting): with the preference on, `PCSX2.ini` gets
 
 ```ini
 [USB1]
@@ -112,8 +112,8 @@ enumerated the devices.
 On a real console the same build reads real USB HID devices — nothing to
 configure — when the game boots from a disc, USB or the memory card. The F6
 network deploy works too, but only because of *how* it boots: the console runs
-the **TyraX ps2link**, which carries the USB stack for the game to reuse (below,
-and [ps2link-setup.md](ps2link-setup.md)).
+the **TyraX ps2link**, which carries the USB stack for the game to reuse
+(below, and [ps2link-setup.md](ps2link-setup.md)).
 
 ### Why a game can't load the drivers itself over F6 / "Run on PS2"
 
@@ -123,14 +123,14 @@ ps2link serving the game. The engine then computes
 `withKbdMouse = loadUsbKbdMouse && (!keepIopResident || loadUsbKbdMouseUnderPs2Link)`:
 without the resident stack it loads nothing, `KbdMouse::init()` never runs and
 `applyKeyboardMouseInput` is a no-op. The pad loads separately, so a stock
-ps2link gives you **pad works, keyboard/mouse dead silent** — that is the guard
-doing its job, not a bug.
+ps2link gives you **pad works, keyboard/mouse dead silent** — the guard doing
+its job, not a bug.
 
 ### Keyboard & mouse over ps2link: the TyraX ps2link
 
 Reading logs is the hard part on hardware: a burned ISO has no `host:`
-filesystem, so there is no `bin/log.txt`. A ps2link deploy is the opposite —
-it forwards the EE console over the network (the editor's *Output* panel /
+filesystem, so there is no `bin/log.txt`. A ps2link deploy is the opposite — it
+forwards the EE console over the network (the editor's *Output* panel /
 `ps2client` show `TYRA_LOG` live) — and it is also where a game cannot bring up
 its own USB stack.
 

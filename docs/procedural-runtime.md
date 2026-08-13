@@ -1,6 +1,6 @@
 # Runtime procedural generation
 
-The other half of [procedural generation](procedural-generation.md). A
+The other half of [procedural generation](procedural-generation.md): a
 Procedural volume has a **mode**, at the top of the *Tools > Procedural* window:
 
 | Mode | Where the graph runs | What ships |
@@ -20,25 +20,24 @@ world generated at boot and re-generated on a button) and
 ## What you get, and what it costs
 
 **Get:** a world that is different every run, and a map that takes no disc
-space. Two dozen kilobytes of compiled generator instead of a megabyte of
+space — two dozen kilobytes of compiled generator instead of a megabyte of
 merged meshes.
 
 **Pay:**
 
-- **Load time.** Generation happens inside the scene load, and it is the one
-  part of a load that can take a visible amount of time. It reports into the
-  loading screen's progress bar (see below) rather than freezing on the last
-  drawn frame.
+- **Load time.** Generation happens inside the scene load and is the one part
+  that can take visible time. It reports into the loading screen's progress bar
+  (see below) rather than freezing on the last drawn frame.
 - **RAM.** The working buffer is real memory: about 80 bytes per point, held
-  for the whole generation. The *Output* node's **Runtime instance cap** is that
-  number — set it just above what the preview reports, not at the maximum.
+  for the whole generation. The *Output* node's **Runtime instance cap** is
+  that number — set it just above what the preview reports, not at the maximum.
 - **A much smaller vocabulary.** The console has a heightmap, a few models and
   32 MB. It does not have your `.obj` files, your splat map, or your scene
   graph.
 
-That last one is written down honestly rather than discovered: the window lists
-every node this graph cannot run, under the budget bar, the moment you switch
-to Runtime.
+That last one is written down rather than discovered: the moment you switch to
+Runtime, the window lists every node this graph cannot run, under the budget
+bar.
 
 ---
 
@@ -55,25 +54,25 @@ to Runtime.
 
 Not available: **Curve** and **Scatter along Curve**, **Keep Away From**
 (both need geometry the console does not carry), and **Terrain Mask > Terrain
-material** (the splat map is a build-time asset). *Scatter on Surface* with a named
-object is refused for the same reason — clear the field and it scatters over the
-terrain.
+material** (the splat map is a build-time asset). *Scatter on Surface* with a
+named object is refused for the same reason — clear the field and it scatters
+over the terrain.
 
 Two costs worth knowing before you reach for them: **Minimum Distance** is a
 greedy O(n²) sweep on the console (fine for hundreds of points, not for
-thousands), and a node feeding two consumers is **evaluated twice** — that is
-the correct dataflow meaning (each branch gets its own copy of the cloud) and it
-is why "one source, five filter branches, one merge" costs five passes over the
+thousands), and a node feeding two consumers is **evaluated twice** — the
+correct dataflow meaning (each branch gets its own copy of the cloud), and why
+"one source, five filter branches, one merge" costs five passes over the
 source.
 
 ---
 
 ## Determinism, and where the randomness comes from
 
-The compiled generator is a faithful twin of the editor's evaluator: the same
-hash, the same Halton sequence, the same per-point channels. Given the same
-seed, the preview in the viewport and the world on the console are the same
-world. That is what makes a runtime volume authorable at all.
+The compiled generator is a faithful twin of the editor's evaluator: same hash,
+same Halton sequence, same per-point channels. Given the same seed, the preview
+in the viewport and the world on the console are the same world — which is what
+makes a runtime volume authorable at all.
 
 **Seed** in the window is that seed, and the mode next to it decides what
 happens at runtime:
@@ -90,11 +89,11 @@ exactly that (TRIANGLE).
 ### The seed simulator
 
 Once a volume rolls its own seed, the number in the *Seed* box stops describing
-what a player will get, and the viewport is showing one draw out of many. The
+what a player will get — the viewport is showing one draw out of many. The
 **Seed simulator** (the collapsed section under the tool row, runtime volumes
-only) is the answer to that: press *Simulate* and the editor evaluates the graph
-on N seeds — the authored one first, then the sequence *Reseed* itself hands
-out — and tabulates what each world costs.
+only) answers that: press *Simulate* and the editor evaluates the graph on N
+seeds — the authored one first, then the sequence *Reseed* itself hands out —
+and tabulates what each world costs.
 
 | | |
 |---|---|
@@ -103,14 +102,14 @@ out — and tabulates what each world costs.
 | the summary | the instance and triangle SPREAD over the sweep, and how many seeds blow the Output node's triangle budget |
 
 That last line is the point of the feature. A runtime volume that fits the
-budget on the seed you happened to author with, and overruns it on one boot in
-eight, is a bug you would otherwise meet on the console. The simulated seed is a
-way of LOOKING at the graph, never an edit to it: it does not touch the `.tyra`,
-does not make a bake stale, and is dropped when you switch volumes.
+budget on the seed you authored with, and overruns it on one boot in eight, is
+a bug you would otherwise meet on the console. The simulated seed is a way of
+LOOKING at the graph, never an edit: it does not touch the `.tyra`, does not
+make a bake stale, and is dropped when you switch volumes.
 
-Cost is honest and stated in the tooltip — one trial is one full evaluation, so
-sixteen seeds is sixteen times the millisecond figure in the readout above. That
-is why it is a button and not a live number.
+One trial is one full evaluation, so sixteen seeds is sixteen times the
+millisecond figure in the readout above — the tooltip says so, and it is why
+this is a button and not a live number.
 
 ## Generate Volume
 
@@ -124,13 +123,13 @@ volume by name:
 
 The Seed also accepts a **wired number**, which is the difference between a
 random world and a *chosen* one: feed it a save value, a level counter or any
-Math chain and the same value always rebuilds the same world. That makes it the
-mechanism for "restore the map this save game had" as well as for "level 7
-always looks like level 7" — no geometry stored either way. (A wired number
-means Live Logic cannot hot-patch that graph; see [live-logic.md](live-logic.md).)
+Math chain and the same value always rebuilds the same world. That covers
+"restore the map this save game had" as well as "level 7 always looks like
+level 7" — no geometry stored either way. (A wired number means Live Logic
+cannot hot-patch that graph; see [live-logic.md](live-logic.md).)
 
-With *Generate at scene start* off, nothing appears until this node fires — which
-is how you stage a world in pieces, or build it only after a cutscene.
+With *Generate at scene start* off, nothing appears until this node fires —
+which is how you stage a world in pieces, or build it only after a cutscene.
 
 ---
 
@@ -143,15 +142,15 @@ editor). Past that the runtime logs `Spawn Prefab: instance pool full` and
 builds nothing more.
 
 This is the budget that bites first when you scatter prefabs rather than
-models, and it is nastier than the triangle one because of the order points come
-out in: *Scatter on Grid* runs its level loop outermost, so what survives is the
-bottom of every stack - a graph asking for eight levels renders as **one row**,
-which looks like a generation bug rather than a ceiling. The window warns as
-soon as the count crosses it.
+models, and it is nastier than the triangle one because of the order points
+come out in: *Scatter on Grid* runs its level loop outermost, so what survives
+is the bottom of every stack - a graph asking for eight levels renders as **one
+row**, which looks like a generation bug rather than a ceiling. The window
+warns as soon as the count crosses it.
 
-A **model** picked with *Pick Asset* costs no instance record at all - it merges
-straight into the chunk bags. If you are scattering hundreds of copies of one
-simple shape, that is the cheaper node.
+A **model** picked with *Pick Asset* costs no instance record at all - it
+merges straight into the chunk bags. For hundreds of copies of one simple
+shape, that is the cheaper node.
 
 ## How it draws
 
@@ -162,8 +161,8 @@ triangle budget on the *Output* node mean exactly what they mean for a bake.
 
 What generated geometry does NOT get, because it does not exist at build time:
 a lightmap region (it is lit from the light-probe grid instead), a place in the
-static-batch list, and an entry in the scene table. It is not a scene object and
-nothing can address it.
+static-batch list, and an entry in the scene table. It is not a scene object
+and nothing can address it.
 
 **Collision** comes from two sources. Merged members with collision enabled
 contribute conservative world AABBs the walker tests (see
@@ -180,7 +179,7 @@ emit.
 It fills the volume's footprint with columns of cubes from layered noise (or
 from a mask you feed it), then walks the field and emits **only blocks with an
 exposed face** — a solid volume's interior is invisible, and generating it just
-to filter it away later would cost thousands of points for nothing. Each emitted
+to filter it away would cost thousands of points for nothing. Each emitted
 block carries a **`faces`** attribute: a 6-bit mask of which of its faces a
 neighbour does not cover. The merge honours it by dropping any source triangle
 whose outward normal points at a covered face, so a flat plain costs one quad
@@ -211,11 +210,11 @@ terrain.
 ### The block field is the ground
 
 In a runtime volume the solid field is published as the world's collision: the
-walker gets its floor, its ceiling and its walls from a bitfield lookup (one
-32-bit word per column — which is why a block world is capped at **32 levels**
-and at 32 768 columns). **Exactly one block is climbable in a stride.** That is
-the rule every block game uses and the one that decides whether a landscape of
-cubes is walkable at all, so make the block **shorter than the player**: a
+walker gets its floor, ceiling and walls from a bitfield lookup (one 32-bit
+word per column — which is why a block world is capped at **32 levels** and at
+32 768 columns). **Exactly one block is climbable in a stride.** That is the
+rule every block game uses and the one that decides whether a landscape of
+cubes is walkable at all — so make the block **shorter than the player**: a
 1.5-unit cube under a 1.8-unit walker works, a 2-unit cube means every step up
 is a wall.
 

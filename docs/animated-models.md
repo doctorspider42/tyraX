@@ -2,28 +2,30 @@
 
 The editor plays skeletal animations authored in Blender (or any glTF
 exporter) on the PS2 - with a real skeletal runtime. **FBX files import
-too** - see [Importing FBX](#importing-fbx) below; everything in this
-document applies to them identically, because an imported .fbx is parsed
-into the exact same data the .glb path produces. At build time the
-model's node hierarchy, skin (inverse bind matrices, per-vertex joints and
-weights), bind-pose mesh and raw keyframe tracks are serialized to a compact
-`.tskl` file. The game evaluates the pose on the EE every frame (keyframe
-interpolation at authored fidelity, crossfade blending between clips), skins
-the vertices through the matrix palette on **VU0 in macro mode** (the
-era-correct split: animation on VU0, 3D on VU1, game code on EE) and renders
-the result through the engine's **static pipeline** alongside the rest of the
-scene (one vertex upload instead of DynPip's from/to double send, no VU1
-program swap mid-frame, and screen-edge triangles clipped by the same EE
-clipper as everything else). The whole animated pass is budgeted from real
-hardware measurements - a 1092-vertex instance costs ~0.9 ms pose+skin plus
-~1 ms submit on the EE, which PCSX2's fast EE completely hides: instances
-whose conservative all-clips AABB is outside the frustum skip pose
-evaluation, skinning and submission entirely (playback time still advances),
-and instances striking the identical pose - the same clip autoplaying in
-lockstep, the usual ambient-prop or enemy-pack setup - share one skinned
-mesh. Two optional distance LODs stack on top - see
-[Performance: draw distance and LOD](#performance-draw-distance-and-lod).
-You get smooth, named, scriptable, *blendable* clips at a fraction of
+too** - see [Importing FBX](#importing-fbx) below; everything here applies
+to them identically, because an imported .fbx is parsed into the exact same
+data the .glb path produces.
+
+At build time the model's node hierarchy, skin (inverse bind matrices,
+per-vertex joints and weights), bind-pose mesh and raw keyframe tracks are
+serialized to a compact `.tskl`. The game evaluates the pose on the EE every
+frame (keyframe interpolation at authored fidelity, crossfade blending
+between clips), skins the vertices through the matrix palette on **VU0 in
+macro mode** (the era-correct split: animation on VU0, 3D on VU1, game code
+on EE) and renders through the engine's **static pipeline** alongside the
+rest of the scene - one vertex upload instead of DynPip's from/to double
+send, no VU1 program swap mid-frame, screen-edge triangles clipped by the
+same EE clipper as everything else.
+
+The pass is budgeted from real hardware measurements - a 1092-vertex
+instance costs ~0.9 ms pose+skin plus ~1 ms submit on the EE (PCSX2's fast
+EE completely hides it). Instances whose conservative all-clips AABB is
+outside the frustum skip pose evaluation, skinning and submission entirely
+(playback time still advances); instances striking the identical pose - the
+same clip autoplaying in lockstep, the usual ambient-prop or enemy-pack
+setup - share one skinned mesh. Two optional distance LODs stack on top -
+see [Performance: draw distance and LOD](#performance-draw-distance-and-lod).
+The result: smooth, named, scriptable, *blendable* clips at a fraction of
 the memory the old baked-frame path needed.
 
 ```
@@ -93,11 +95,10 @@ Practical guidance:
    reports clips, vertex count, baked frames and any warnings.
 2. A **Model size** dialog asks how big the thing is in the real world. Both
    importers normalize to meters, so a Mixamo character arrives ~1.7 units
-   tall and the default answer is already right - unless the project works at
-   a different **world scale**, in which case this is what makes the character
-   match the world instead of standing knee-high in it. See
-   docs/world-scale.md; the **Size...** button in the Assets list changes it
-   later.
+   tall and the default answer is already right - unless the project works
+   at a different **world scale**, which is what makes the character match
+   the world instead of standing knee-high in it. See docs/world-scale.md;
+   the **Size...** button in the Assets list changes it later.
 3. The Assets list shows the model as `animated: N clip(s), M verts`;
    hover for the clip names and warnings.
 4. **Add object > Model >** *your file* `(animated)`, or pick the file in
@@ -125,9 +126,9 @@ what ships.
 ### Material override (.mtl)
 
 By default an animated model draws with the materials baked into the `.glb`/
-`.fbx` (base color + texture per part). Assigning a **Material** (`.mtl` asset)
-overrides them — exactly like a static `.obj` model, and it is an option
-*besides* the built-in materials, not a replacement of the workflow: leave it
+`.fbx` (base color + texture per part). Assigning a **Material** (`.mtl`
+asset) overrides them — exactly like a static `.obj` model, and it is an
+option *besides* the built-in materials, not a replacement: leave it
 `(model's own)` and nothing changes.
 
 The override resolves by **name**: each of the model's parts is matched against
@@ -139,13 +140,13 @@ override uses. So name your `.mtl` entries to match the model's part names
 
 Because an animated model has no sibling `.mtl` to assign, the **Material**
 picker has a **+ New material from this model...** entry: it extracts the
-model's built-in materials — part names, base colors, embedded textures — into
-a new `res/materials/<model>.mtl`, assigns it and opens the **Material Editor**
-previewed **on the model itself** (bind pose). That is the one-click way to
-start editing an animated model's look: its own materials become an editable
-override you recolor/repaint, and what the editor shows matches what the console
-bakes. (A part whose material is **unnamed** can't be name-matched — name it in
-the modelling tool first.)
+model's built-in materials — part names, base colors, embedded textures —
+into a new `res/materials/<model>.mtl`, assigns it and opens the **Material
+Editor** previewed **on the model itself** (bind pose). That is the
+one-click way to recolor/repaint an animated model: its own materials become
+an editable override, and what the editor shows matches what the console
+bakes. (A part whose material is **unnamed** can't be name-matched — name it
+in the modelling tool first.)
 
 The override is resolved into the `.tskl` **at build time** (the part colors and
 textures are baked in), so it costs the game nothing at runtime. Two objects
@@ -157,18 +158,17 @@ tints/textures as usual but does not add a reflection pass.
 ## Animation editor
 
 **Tools > Animation Editor** edits a model's clips **non-destructively**: the
-`.glb`/`.fbx` on disk is never rewritten. Your changes are stored in the
-project file and folded into the `.tskl` at build time, so the console
-receives clips that are already retimed, trimmed, made in-place and renamed and pays nothing
-for it at runtime. The panel previews the model playing the clip with your
-staged values, and the scene viewport applies exactly the same numbers to
-every placed object - what you scrub is what ships.
+`.glb`/`.fbx` on disk is never rewritten. Changes are stored in the project
+file and folded into the `.tskl` at build time, so the console receives clips
+already retimed, trimmed, made in-place and renamed, and pays nothing at
+runtime. The panel previews the model playing the clip with your staged
+values, and the scene viewport applies exactly the same numbers to every
+placed object - what you scrub is what ships.
 
-The preview camera is interactive: drag with the **right mouse button to
-rotate**, drag with the **middle mouse button to pan**, and use the wheel to
-zoom. **Reset view** restores the default framing. Camera navigation is editor
-view state only; it does not alter the model, clip, scene camera or project
-file.
+The preview camera is interactive: **right mouse button** drags rotate,
+**middle mouse button** drags pan, the wheel zooms, and **Reset view**
+restores the default framing. Camera navigation is editor view state only;
+it does not alter the model, clip, scene camera or project file.
 
 Pick a model at the top, a clip on the left, and edit:
 
@@ -364,16 +364,16 @@ center, the same units as object positions.
 **Per-object overrides:** any animated object (and any Player avatar) can
 override either preference in its Properties - **Override animation LOD** /
 **Override mesh LOD** next to the playback fields. A static model object
-carries the mesh-LOD row too (animation LOD means nothing to it). Unchecked (the default)
-the project preference applies; checked, the object uses its own distance,
-and dragging the value to `0` turns that LOD off for this object entirely
-(a hero character that must never decimate next to a crowd that always
-does). A mesh-LOD override > 0 also makes the build bake the decimated
-chains for that object's model even when the project preference is `off`.
-In a **two-player** scene the two Player objects each carry their own set,
-so the P1 and P2 avatars tune independently - e.g. keep both full-detail
-in split screen (each is small in the *other* player's half anyway), or
-decimate only the second player's avatar.
+carries the mesh-LOD row too (animation LOD means nothing to it). Unchecked
+(the default) the project preference applies; checked, the object uses its
+own distance, and dragging the value to `0` turns that LOD off for this
+object entirely (a hero character that must never decimate next to a crowd
+that always does). A mesh-LOD override > 0 also makes the build bake the
+decimated chains for that object's model even when the project preference is
+`off`. In a **two-player** scene the two Player objects each carry their own
+set, so the P1 and P2 avatars tune independently - e.g. keep both
+full-detail in split screen (each is small in the *other* player's half
+anyway), or decimate only the second player's avatar.
 
 Tuning guidance:
 

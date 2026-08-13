@@ -2,16 +2,15 @@
 
 The PlayStation 2 plays a fixed number of sounds at once. Not "a lot" — a
 number, and a small one. This page is what that number is, who spends it, and
-what happens when a game asks for one more sound than the chip has left.
-
-For the reverb those sounds are heard through, see [reverb.md](reverb.md).
+what happens when a game asks for one more sound than the chip has left. For
+the reverb those sounds are heard through, see [reverb.md](reverb.md).
 
 ## The budget
 
 The SPU2 has 48 ADPCM voices, 24 per core. A core is also a **reverb bus**
 (reverb.md), and a voice can only be heard through the reverb of its own core —
-so every sound a game starts goes on the bus the room the listener is standing
-in is using. That makes the number that matters **24, not 48**:
+so every sound a game starts goes on the bus of the room the listener is
+standing in. That makes the number that matters **24, not 48**:
 
 | channels | who owns them |
 |---|---|
@@ -22,14 +21,13 @@ The other core's 24 voices are not spare capacity — they are the *other* room,
 carrying whatever was still sounding when the player walked out of it.
 
 Sixteen and eight are generous for a PS2 game and stingy for a bad frame: a
-firefight in a room with a dozen ambiences will hit the wall. What follows is
-what happens when it does.
+firefight in a room with a dozen ambiences will hit the wall.
 
 ## Sound emitters: the eight loudest win
 
-Eight channels, and a scene may hold any number of emitters. Every frame the
-game works out how loud each audible emitter should be — it already does, for
-the volume — ranks them, and gives the eight channels to the winners:
+Eight channels, any number of emitters. Every frame the game works out how
+loud each audible emitter should be — it already does, for the volume — ranks
+them, and gives the eight channels to the winners:
 
 1. **higher priority wins**, then
 2. **louder wins**.
@@ -71,14 +69,14 @@ The *Channel* parameter is the choice between two behaviours:
   one; otherwise it cuts off the sound with the **lowest priority strictly
   below** the incoming one; otherwise the new sound is **dropped**.
 
-That last case is the feature working, not a failure — it is what a priority is
-for — so it is not reported as an error anywhere.
+That last case is the feature working, not a failure — it is what a priority
+is for — so it is not reported as an error anywhere.
 
 *Priority* is the node's fourth parameter, same convention as the emitter's: 0
 is ordinary, raise it for a gunshot or a line of dialogue, lower it for chatter
-you would rather lose. Sounds of **equal** priority never steal from each other,
-which is what keeps a bank of ordinary effects behaving exactly as it did before
-priorities existed.
+you would rather lose. Sounds of **equal** priority never steal from each
+other, which is what keeps a bank of ordinary effects behaving exactly as it
+did before priorities existed.
 
 Pinning writes the sound's priority onto that channel too, so an auto play
 cannot steal a voice out from under a pinned one.
@@ -94,8 +92,8 @@ your own game rather than assuming either answer.
 The ranking is plain arithmetic over the scene's emitters — no calls into the
 sound chip — and runs once per frame. The channel choice for a Play Sound costs
 **one extra IOP call per trigger**: the game asks the SPU2 which voices have
-finished (its `ENDX` register) rather than guessing. That is per *trigger*,
-never per frame; a play already costs two or three such calls.
+finished (its `ENDX` register) rather than guessing. Per *trigger*, never per
+frame; a play already costs two or three such calls.
 
 ### Emitters and streaming music no longer fight over audsrv
 
@@ -104,8 +102,8 @@ An emitter's *Interval* is how often it tries to start its sample again.
 retry is skipped while the voice is still busy, so the sample restarts on the
 first frame after it ends), and it is also one audsrv call per frame for as
 long as the emitter is audible. Playing music at the same time used to make
-those calls ruinously expensive, and the fix is worth knowing about because the
-symptom pointed nowhere near the cause.
+those calls ruinously expensive, and the fix is worth knowing about because
+the symptom pointed nowhere near the cause.
 
 audsrv has **one RPC server thread on the IOP and one completion semaphore on
 the EE**, so every call in the program is serialized — including the music
@@ -142,7 +140,7 @@ is meant to be heard, because an emitter outside it costs nothing at all.
 | Symptom | Cause |
 |---|---|
 | An emitter near the player is silent while distant ones play | It lost the ranking — check *Priority* on the ones that are playing. |
-| An emitter fires the instant you walk into range | That is the intended reset of its interval; shorten the interval if you want it sooner. |
+| An emitter fires the instant you walk into range | The intended reset of its interval; shorten the interval if you want it sooner. |
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |

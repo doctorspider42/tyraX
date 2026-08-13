@@ -3,20 +3,20 @@
 *Tools > World Facts* is where a game's state stops being scattered variables
 and becomes something you can read. A **fact** is a named, typed, documented
 piece of world state — `world.power.state`, `characters.marta.trust`,
-`player.hasBasementKey` — declared once in a catalog and then read and written
-by flow graphs, combined into reusable conditions, reacted to by rules, and
+`player.hasBasementKey` — declared once in a catalog, then read and written by
+flow graphs, combined into reusable conditions, reacted to by rules, and
 watched live while the game runs.
 
 It is the declared half of what the **Variables** flow nodes already do
 undeclared. Those keep working and are a separate namespace: a variable is a
 scratch value that exists by being typed somewhere, a fact is state somebody
-wrote down. Reach for a fact when the answer to "what does this number mean"
-matters to more than one graph.
+wrote down. Reach for a fact when "what does this number mean" matters to more
+than one graph.
 
 The whole thing resolves to array indices at build time. There is no
-string-keyed store on the console: a fact reference in a graph, a query leaf and
-a rule action all become a number in `factNum[]` or `factPos[]`, the same way
-object references and save values already do.
+string-keyed store on the console: a fact reference in a graph, a query leaf
+and a rule action all become a number in `factNum[]` or `factPos[]`, the same
+way object references and save values already do.
 
 ## The catalog
 
@@ -31,50 +31,47 @@ Every fact carries five things beyond its name.
 | **What it means** | Prose, shown wherever the fact is picked. Worth writing: a catalog is read far more often than it is edited. |
 
 Every **prose** field in this window — a fact's *What it means*, a query's, a
-rule's *What it does*, a scenario's *What it sets up* — is an auto-sizing box
-rather than a one-line field. It is one row high while the text is one row and
-grows as the text wraps, up to twelve rows, after which it scrolls. There is no
-length limit: the field writes into the string itself, so a paragraph pasted in
-or written by an example's build script survives being opened for editing (a
-fixed-size field would have truncated it silently, which is the worst way for a
-catalog to lose a sentence).
+rule's *What it does*, a scenario's *What it sets up* — is an auto-sizing box:
+one row while the text is one row, growing as it wraps up to twelve rows, then
+scrolling. There is no length limit — the field writes into the string itself,
+so a paragraph pasted in or written by an example's build script survives
+being opened for editing (a fixed-size field would have truncated it silently,
+the worst way for a catalog to lose a sentence).
 
 Names are hierarchical by convention, and the catalog list **nests on the
 dots**: `characters.marta.trust` sits under `characters` > `marta`. That is
-purely a view over the name — there is no folder field to keep in sync, a
-project that never uses dots simply sees one flat list, and renaming a fact
-moves it in the tree because the tree *is* the names.
+purely a view over the name — no folder field to keep in sync, a project that
+never uses dots sees one flat list, and renaming a fact moves it in the tree
+because the tree *is* the names.
 
 The Name field **completes against the catalog**, the way an IDE does. Type
-`world.` and a dropdown lists what already exists at that level —
-`world.generator.` `world.power.` `world.alarm.`, one step at a time rather
-than a wall of full names, with the part you have already typed dimmed so the
-eye lands on what is being added. **Up/Down** walk it, **Tab** or **Enter**
-takes the highlighted row and leaves the caret past it so you keep typing,
-**Escape** dismisses it until the next keystroke, and clicking a row works too.
-With nothing highlighted, Tab completes as far as the matches agree — the
-shell's rule, predictable rather than a guess.
+`world.` and a dropdown lists what exists at that level — `world.generator.`
+`world.power.` `world.alarm.`, one step at a time rather than a wall of full
+names, with the part you already typed dimmed. **Up/Down** walk it, **Tab** or
+**Enter** takes the highlighted row and leaves the caret past it so you keep
+typing, **Escape** dismisses it until the next keystroke, and clicking a row
+works too. With nothing highlighted, Tab completes as far as the matches agree
+— the shell's rule, predictable rather than a guess. It is the fastest way to
+keep a project's naming consistent, which is most of what makes a catalog
+readable a year later.
 
-It is the fastest way to keep a project's naming consistent, which is most of
-what makes a catalog readable a year later.
-
-**One-of-several** (an enum) is the type worth reaching for early. `power.state`
-with options *Broken / Powered / Overloaded* costs the console exactly what an
-int costs, and everywhere else — the catalog, a graph's *Fact Is* node, the
-blackboard, *Get Fact As Text* on screen — it reads as the name. Two bools that
-cannot both be true is the shape that wants this.
+**One-of-several** (an enum) is the type worth reaching for early.
+`power.state` with options *Broken / Powered / Overloaded* costs the console
+exactly what an int costs, and everywhere else — the catalog, a graph's *Fact
+Is* node, the blackboard, *Get Fact As Text* on screen — it reads as the name.
+Two bools that cannot both be true is the shape that wants this.
 
 ### Computed facts
 
-A fact can be **computed from a query** instead of stored. `marta.isAlly` is the
-worked example: it is not something the game remembers, it is something the game
-works out from her trust and whether she was rescued.
+A fact can be **computed from a query** instead of stored. `marta.isAlly` is
+the worked example: not something the game remembers, something it works out
+from her trust and whether she was rescued.
 
-A computed fact has no storage at all — it *is* the query, evaluated wherever it
-is read — so it costs nothing, and nothing can write to it. That second half is
-the point: an alliance should never be settable behind the back of the things
-that decide it. The editor will not offer one to a *Set Fact* node, and a rule
-that tries to write one is a build-blocking error.
+A computed fact has no storage at all — it *is* the query, evaluated wherever
+it is read — so it costs nothing, and nothing can write to it. That second
+half is the point: an alliance should never be settable behind the back of the
+things that decide it. The editor will not offer one to a *Set Fact* node, and
+a rule that tries to write one is a build-blocking error.
 
 ## Persistence
 
@@ -87,18 +84,19 @@ The tier is the whole persistence story in one field.
 | **Save game** | Written to the memory card slot | Real progress |
 | **Profile** | One file per card, outside the slots, shared by every save | Unlocks, a best time, "has seen the intro" |
 
-A **scene-scoped** fact is reset to its default on every scene load, so saving
+A **scene-scoped** fact resets to its default on every scene load, so saving
 one stores something already doomed — the editor says so rather than refusing.
 
 ### Saving
 
-Facts ride the ordinary checkpoint/save payload, with one difference from every
-other block in it: **the rows are keyed by the fact's own stable id, not by its
-position.** A fact's id is assigned once (`project::ensureFactIds`) and never
-reused, so renaming a fact, reordering the catalog or deleting one leaves an
-existing card readable — the rows that still match are restored and the rest are
-ignored. That is the migration story, and it is why a fact carries an id at all;
-the legacy save values are still positional and still carry the bug this avoids.
+Facts ride the ordinary checkpoint/save payload, with one difference from
+every other block in it: **the rows are keyed by the fact's own stable id, not
+by its position.** A fact's id is assigned once (`project::ensureFactIds`) and
+never reused, so renaming a fact, reordering the catalog or deleting one
+leaves an existing card readable — rows that still match are restored, the
+rest are ignored. That is the migration story, and it is why a fact carries an
+id at all; the legacy save values are still positional and still carry the bug
+this avoids.
 
 The **profile** is its own small file (`profile.sav` next to the ELF, or
 `profile.sav` in the game's card directory), written whenever a profile fact
@@ -131,22 +129,21 @@ The *Facts* node category:
 *On Fact Changed* carries **three exec outputs** rather than being three node
 types: **changed** fires on any move, **became true** on the `0 → non-zero`
 edge and **became false** on the way back. So *"when the generator is
-repaired"* is one node, with no *Fact Is True* and no *On Condition* beside it.
-
-It costs one float comparison plus two `if`s per frame per node — the same
+repaired"* is one node, with no *Fact Is True* and no *On Condition* beside
+it. It costs one float comparison plus two `if`s per frame per node — the same
 order as *On Condition*, which is to say nothing at all next to a draw submit.
 A **position** fact only has *changed*: three coordinates have no truth to
-cross, and the other two outputs are left unwired for one.
+cross, so the other two outputs are left unwired for one.
 
-Reach past it for a **Query wired into On Condition** the moment the answer
-needs more than a yes/no edge — a threshold, several facts at once — because
-then the condition is authored once in this window instead of being restated in
-every graph that happens to need it.
+The moment the answer needs more than a yes/no edge — a threshold, several
+facts at once — reach for a **Query wired into On Condition** instead: the
+condition is authored once in this window, not restated in every graph that
+needs it.
 
-A fact is **picked from the catalog**, never typed. That is the difference that
-buys the rest: the editor knows the fact's type, so *Set Fact*'s Value is a
-checkbox for a yes/no and a list of option names for a one-of-several, and a
-node naming a fact that was deleted says so instead of compiling to nothing.
+A fact is **picked from the catalog**, never typed. That difference buys the
+rest: the editor knows the fact's type, so *Set Fact*'s Value is a checkbox
+for a yes/no and a list of option names for a one-of-several, and a node
+naming a deleted fact says so instead of compiling to nothing.
 
 ## Queries: conditions with names
 
@@ -154,10 +151,10 @@ A **query** is a reusable named condition over facts — `CanEnterBasement`,
 `MartaWillTalk`. It is a tree of ALL / ANY / NONE groups over comparisons, and
 it may name other queries.
 
-The argument for them is not brevity, it is having one place to change. The same
-`CanEnterBasement` gates a door, a dialogue line, an NPC's behaviour and a flow
-graph; without it that condition is copied into four graphs and three of them go
-stale the first time the design moves.
+The argument for them is not brevity, it is having one place to change. The
+same `CanEnterBasement` gates a door, a dialogue line, an NPC's behaviour and
+a flow graph; without it that condition is copied into four graphs and three
+of them go stale the first time the design moves.
 
 An empty ALL is true and an empty ANY is false — the same arithmetic in the
 editor and on the console, so the preview cannot disagree with the game.
@@ -165,14 +162,14 @@ editor and on the console, so the preview cannot disagree with the game.
 **Why?** Under every query and rule is a live explanation: the condition tree
 with the value each leaf actually read, and the child that decided each group
 marked. It reads the running game when one is attached and the catalog's
-defaults otherwise, so it answers with the game off. That diagnostic is the
-reason a condition here is a tree rather than an expression string — the same
-structure compiles, evaluates in the editor, and explains itself.
+defaults otherwise, so it answers with the game off. That diagnostic is why a
+condition here is a tree rather than an expression string — the same structure
+compiles, evaluates in the editor, and explains itself.
 
 ## Rules: reacting to facts
 
-A **rule** is `when <condition> then <actions>`. Actions set, add to or toggle a
-fact, or send an event into a graph.
+A **rule** is `when <condition> then <actions>`. Actions set, add to or toggle
+a fact, or send an event into a graph.
 
 | Policy | Runs |
 | --- | --- |
@@ -183,68 +180,68 @@ fact, or send an event into a graph.
 Rules tick once per frame **before every graph**, so a fact a rule writes is
 already there by the time a graph looks. A rule may write a fact another rule
 watches, so the engine re-runs until nothing changes — bounded at 8 passes,
-because "until nothing changes" is otherwise a hang with no way to break in on a
-console.
+because "until nothing changes" is otherwise a hang with no way to break in on
+a console.
 
-Within one pass the rules run **in the order the list shows**, and that order is
-part of the design rather than an accident of authoring. A rule that settles a
-state should sit above one that reacts to that state: the example puts
-*PowerSettles* (which brings a tripped plant back) above *AlarmWhileOverloaded*
-(which re-asserts the alarm every frame the plant is tripped), so the frame the
-plant recovers, the alarm rule already sees the new state and does not raise it
-one more time. Reversed, the alarm would flicker on for a frame after every
-recovery. Drag a rule up or down when its answer depends on another's.
+Within one pass the rules run **in the order the list shows**, and that order
+is part of the design. A rule that settles a state sits above one that reacts
+to it: the example puts *PowerSettles* (which brings a tripped plant back)
+above *AlarmWhileOverloaded* (which re-asserts the alarm every frame the plant
+is tripped), so the frame the plant recovers, the alarm rule already sees the
+new state and does not raise it one more time. Reversed, the alarm would
+flicker on for a frame after every recovery. Drag a rule up or down when its
+answer depends on another's.
 
 The editor detects **reaction cycles** (rule A writes what rule B reads, and
 back) and reports the chain as a warning. It settles rather than hangs, but it
 is almost never what anybody meant.
 
-A rule is deliberately small: it reacts, it does not orchestrate. Anything with
-steps, timing or branching is a flow graph, and **Send Event** is the door into
-one.
+A rule is deliberately small: it reacts, it does not orchestrate. Anything
+with steps, timing or branching is a flow graph, and **Send Event** is the
+door into one.
 
 ## The World Blackboard
 
 The *Blackboard* tab is every fact in the running game, live: its value, its
-tier, and **who changed it last** — "Set Fact in Main / Door, 12 frames ago", or
-the name of the rule that did it. The game rings every fact write with the key
-of the node (or the rule) responsible, and the debugger's symbol file turns that
-number back into a place in the editor.
+tier, and **who changed it last** — "Set Fact in Main / Door, 12 frames ago",
+or the name of the rule that did it. The game rings every fact write with the
+key of the node (or rule) responsible, and the debugger's symbol file turns
+that number back into a place in the editor.
 
 It reads the running game through the **Live Debugger** channel
 ([live-debugger.md](live-debugger.md)), so it needs a debug build with that
-preference on. With nothing attached it shows the catalog's own defaults, which
-is still what a new game would start at.
+preference on. With nothing attached it shows the catalog's own defaults,
+which is still what a new game would start at.
 
 **Override** holds a fact at a value. It is re-asserted every frame until
-cleared, not applied once — a fact a rule rewrites continuously would otherwise
-flicker back before anyone could see it.
+cleared, not applied once — a fact a rule rewrites continuously would
+otherwise flicker back before anyone could see it.
 
 **Find Usages** is on every fact and every query: which flow graphs, queries,
-rules, computed facts and scenarios reference it. The answer to "what breaks if
-I change this", which for a catalog entry is the question that matters most.
+rules, computed facts and scenarios reference it. The answer to "what breaks
+if I change this", which for a catalog entry is the question that matters
+most.
 
 ## Scenarios
 
 A **scenario** is a saved set of fact values — *"generator repaired, Marta
 saved, player has no key"*. Applying one pushes it into the running game as
 blackboard overrides, so a situation twenty minutes deep can be looked at now.
-
 *Capture from the running game* is the fast way to make one: play into the
 situation once and press it.
 
 ## Validation
 
-The window always shows what it can know without running the game: duplicate or
-empty names, writes to computed facts, unknown references, enum defaults outside
-their option list, scene-scoped facts asking to be saved, query cycles and rule
-reaction cycles. Errors are worth fixing before a build; notes are worth reading
-once.
+The window always shows what it can know without running the game: duplicate
+or empty names, writes to computed facts, unknown references, enum defaults
+outside their option list, scene-scoped facts asking to be saved, query cycles
+and rule reaction cycles. Errors are worth fixing before a build; notes are
+worth reading once.
 
 A **query cycle** is an error rather than a warning because it would otherwise
-recurse forever in the generator; such a query compiles to a constant `false` so
-a broken catalog produces a build with a wrong answer instead of a compiler that
-never returns.
+recurse forever in the generator; such a query compiles to a constant `false`
+so a broken catalog produces a build with a wrong answer instead of a compiler
+that never returns.
 
 ## What this costs on the console
 
@@ -259,22 +256,24 @@ never returns.
 
 ## Limits worth knowing
 
-- **Live Logic cannot hot-patch a graph that uses facts.** The fact store lives
-  in the compiled game and the interpreter's IR has no way to reach it, so such
-  a graph is reported as needing a build ([live-logic.md](live-logic.md)).
-- **Rules write single numbers.** A position fact is written from a graph's *Set
-  Fact Position*, not from a rule.
-- **A rule's "once per run" does not survive a restart.** See the policy table.
+- **Live Logic cannot hot-patch a graph that uses facts.** The fact store
+  lives in the compiled game and the interpreter's IR has no way to reach it,
+  so such a graph is reported as needing a build
+  ([live-logic.md](live-logic.md)).
+- **Rules write single numbers.** A position fact is written from a graph's
+  *Set Fact Position*, not from a rule.
+- **A rule's "once per run" does not survive a restart.** See the policy
+  table.
 - **Node state dies with the scene, and so does object state; a fact does
-  not.** *Do Once*, *Near Object*'s edge latch, *On Condition*'s edge flag and
-  every other per-node flag reset on every scene load — and so do an object's
-  visibility, colour and position. Anything that must hold once per SAVE or
-  once per RUN belongs in a fact instead. That is the difference between a door
-  that announces itself the first time and one that announces itself on every
-  walk back up the stairs, and between a pickup that stays taken and one that
-  respawns and can be collected twice. It is also what the session tier is
-  *for*: "has this run already done it" survives a scene switch and forgets on
-  relaunch.
+  not.** *Do Once*, *Near Object*'s edge latch, *On Condition*'s edge flag
+  and every other per-node flag reset on every scene load — and so do an
+  object's visibility, colour and position. Anything that must hold once per
+  SAVE or once per RUN belongs in a fact. That is the difference between a
+  door that announces itself the first time and one that announces itself on
+  every walk back up the stairs, and between a pickup that stays taken and
+  one that respawns and can be collected twice. It is also what the session
+  tier is *for*: "has this run already done it" survives a scene switch and
+  forgets on relaunch.
 - Ceilings: 512 facts, 256 queries, 256 rules, 32 simultaneous overrides, 128
   changes in the history ring.
 
@@ -283,12 +282,12 @@ never returns.
 `examples/world-facts` is a **two-scene** level built entirely on this: three
 generator parts to collect, an NPC to rescue, a locked basement and a power
 state other things react to. Between them the pieces exercise every fact type,
-every persistence tier, both scopes, a computed fact, nested queries, all three
-rule policies, rule ordering, a rule that sends an event, all three *On Fact
-Changed* outputs, and a one-of-several fact printed by name.
+every persistence tier, both scopes, a computed fact, nested queries, all
+three rule policies, rule ordering, a rule that sends an event, all three *On
+Fact Changed* outputs, and a one-of-several fact printed by name.
 
 The second scene is there for the two things a single scene cannot show: a
-world-scoped fact coming through the door while a scene-scoped one resets, and a
-**save-lived** counter next to a **profile-lived** one, with a save point so the
-difference can be felt rather than read. `build-scene.py` authors the whole
-thing and is the readable form of the design.
+world-scoped fact coming through the door while a scene-scoped one resets, and
+a **save-lived** counter next to a **profile-lived** one, with a save point so
+the difference can be felt rather than read. `build-scene.py` authors the
+whole thing and is the readable form of the design.

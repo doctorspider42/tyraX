@@ -18,8 +18,7 @@ extra transport, no engine debug stub, no devkit hardware.
 ## The promise: release builds carry nothing
 
 The devkit exists only in **debug** builds, and "only" means *literally* — not
-"disabled at runtime", not "a few dead branches", not "some tables nobody
-reads":
+"disabled at runtime", not "a few dead branches":
 
 - each generated runtime (`live_link.gen.cpp`, `live_debug.gen.cpp`,
   `live_logic.gen.cpp`, `live_tex.gen.cpp`, `live_pad.gen.cpp`) becomes an
@@ -60,8 +59,8 @@ Measured on the same project, same assets, same code — only the profile change
 | debug (devkit on) | 1848 KiB | 205 KiB | **284 KiB** | 4 devkit findings |
 | release | 1830 KiB | 205 KiB | **139 KiB** | clean |
 
-So the devkit costs ~18 KiB of code and ~145 KiB of RAM **while you are working**,
-and exactly nothing in what you ship. The reader behind this
+So the devkit costs ~18 KiB of code and ~145 KiB of RAM while you work, and
+exactly nothing in what you ship. The reader behind this
 ([`src/elfsym.hpp`](../src/elfsym.hpp)) is a small ELF32 parser; it is also the
 foundation for reading named memory off a running game later.
 
@@ -69,11 +68,9 @@ foundation for reading named memory off a running game later.
 
 Each layer is its own project preference (*Project > Preferences > Build*, or the
 *Build* menu): **Live Link**, **Live Debugger**, **Live Logic**, **Time machine**,
-**Remote Pad**.
-Turning one off
-compiles it out of the debug build too — the same empty-TU path — which is the
-honest way to measure "what does my game do without the devkit" without
-switching profiles.
+**Remote Pad**. Turning one off compiles it out of the debug build too — the
+same empty-TU path — which is the honest way to measure "what does my game do
+without the devkit" without switching profiles.
 
 ## What the debugger gives you today
 
@@ -94,14 +91,13 @@ Beyond breakpoints and stepping (see [live-debugger.md](live-debugger.md)):
   the head marking where the object is right now. This is the "where is it
   actually, and what did it do a second ago" tool.
 
-
 ## The frame's vital signs
 
 *Debugger > Stats*, and the **flush map** in the VU tab. Nothing here is newly
 measured: the engine already counts frames and VRAM residency, the VU1 tap
-already sees every draw, the scene already knows its objects. They were simply
-invisible - counted on the console and never carried across. The snapshot (v4)
-now carries them.
+already sees every draw, the scene already knows its objects — they were just
+counted on the console and never carried across. The snapshot (v4) now carries
+them.
 
 - **Frame** - FPS, and what went to VU1: bag flushes, quadwords, vertices. Plus
   the **largest single position stream**, which is not a curiosity: the pipeline
@@ -110,14 +106,14 @@ now carries them.
   into.
 - **GS VRAM** - free MB with a bar, the largest free block, the low-water mark,
   resident textures and the peak, and the cumulative bind/hit/upload/eviction
-  counters. Evictions get a warning line, because they mean the working set does
-  not fit and textures are being re-sent every frame. This is the `VRAMSTAT`
-  line from the log, in a place you can watch.
+  counters. Evictions get a warning line: they mean the working set does not
+  fit and textures are being re-sent every frame. This is the `VRAMSTAT` line
+  from the log, in a place you can watch.
 - **EE memory** - free RAM, **on request only**. The engine measures it by
   allocating every free block until `malloc` fails and then freeing the chain
-  (`Info::getAvailableRAM`); that is honest but it is a heap storm, so it
-  happens when you press the button and never on a timer. The panel shows the
-  value and the frame it was taken on.
+  (`Info::getAvailableRAM`); honest, but a heap storm — so it happens when you
+  press the button and never on a timer. The panel shows the value and the
+  frame it was taken on.
 - **Scene** - objects, active, visible. The count includes the spawn pool's
   idle slots, which is why a small scene can report dozens.
 
@@ -126,8 +122,8 @@ now carries them.
 A frame sends one DMA chain per bag flush - dozens of them - and a capture holds
 exactly one. The map lists them all (index, vertices, quadwords, unpacks, the
 microprogram), fattest ones highlighted, and **clicking a row captures that
-draw**. That turns "which of these 37 draws is my model?" from a 37-step
-guessing game into reading a table.
+draw**. "Which of these 37 draws is my model?" becomes reading a table instead
+of a 37-step guessing game.
 
 The counts come from the tap walking each chain's tags - no vertex data is
 touched, just the tags and VIF codes. Positions are the UNPACK to VU1 address 2
@@ -170,14 +166,13 @@ With it on, a debug build installs the engine's handler
 built on ps2sdk's `libeedebug`: the handler copies the register frame, harvests
 plausible return addresses off the stack for a backtrace, then **redirects the
 frame's EPC at a trampoline and returns** - so the report is written from
-ordinary context, where stdio and the host: filesystem work again. Doing file
-I/O inside the exception context instead is the classic way to turn a crash into
-a hang.
+ordinary context, where stdio and the host: filesystem work again. File I/O
+inside the exception context is the classic way to turn a crash into a hang.
 
 The game then **takes the screen** (`init_scr`/`scr_printf`, the same kernel
 debug console the opt-in assert screen uses) and idles there. This is the one
-place where a quiet halt is wrong: an assertion is a message and can be left to
-the editor, but a CPU exception is unrecoverable, and a frozen last frame is
+place a quiet halt is wrong: an assertion is a message and can be left to the
+editor, but a CPU exception is unrecoverable, and a frozen last frame is
 indistinguishable from a hang - which is exactly how one of these once cost an
 evening of "why is my game stuck on the loading screen". A player can never see
 it: a release build generates the devkit TU as a stub, never calls `install()`,
@@ -204,7 +199,7 @@ so the handler installs **level 1 only**; nothing is lost, because level 2 is th
 NMI / cache-error vector while address error, bus error, reserved instruction,
 overflow and trap all arrive on level 1.
 
-Three facts about `libeedebug` are in no header, and are worth knowing before
+Three facts about `libeedebug` are in no header and worth knowing before
 touching this code (they came out of disassembling the archive):
 
 - `ee_dbg_install(1)` hooks causes **1..3** via `SetVTLBRefillHandler` and
@@ -273,13 +268,13 @@ static pipeline draws leaves the EE as one DMA chain built by
 
 A frame sends **one chain per bag flush**, always in the same order, so "the next
 packet" forever means the same picture forever. The capture therefore carries an
-index, and the button walks it: click, click, click and you step through the
-frame's draws (`flush 3 of 9` in the header). Tick **pin flush** to hold one
-index instead - that is the mode for watching a single draw change over time.
-The index is exact, not "the first one after arming": arming happens mid-frame,
-so the game waits for the real flush number, which costs at most a frame. If the
-index runs past what a frame sends (the count moves with streaming) it wraps to
-0, and the file always reports the index actually taken.
+index, and the button walks it: click, click, click through the frame's draws
+(`flush 3 of 9` in the header). Tick **pin flush** to hold one index instead -
+the mode for watching a single draw change over time. The index is exact, not
+"the first one after arming": arming happens mid-frame, so the game waits for
+the real flush number, which costs at most a frame. An index past what a frame
+sends (the count moves with streaming) wraps to 0, and the file always reports
+the index actually taken.
 
 The request rides in spare bits of `livedbg.cmd`'s flags word (bit 4 = "an index
 follows in bits 8-23"), so a game built before this simply keeps grabbing the
@@ -299,10 +294,10 @@ the program was already loaded by an earlier one.
 **Two captures of the same draw look identical, and that is not a bug** - the
 model-space geometry of a mesh does not depend on the camera. What moves is the
 frame number, the MVP, and the staged GS vertices. (It *was* a bug for a while
-on the editor side: the panel re-read `vucap.bin` only when its SIZE changed, and
-a second capture of the same draw is the same length down to the byte - so the
-panel showed the first capture forever while the game happily overwrote the file.
-It keys on the timestamp now, and says "waiting for the game..." until the answer
+on the editor side: the panel re-read `vucap.bin` only when its SIZE changed,
+and a re-capture of the same draw is the same length down to the byte - so the
+panel showed the first capture forever while the game overwrote the file. It
+keys on the timestamp now, and says "waiting for the game..." until the answer
 to your click actually lands.)
 
 A real capture from a terrain chunk reads:
@@ -322,8 +317,8 @@ meshes in this flush: 12
   ...
 ```
 
-Reading the chain is mostly reading its **repeat**: the same three-block pattern
-per mesh, ending in a program call. Three things are worth knowing.
+Reading the chain is mostly reading its **repeat** — the same three-block
+pattern per mesh, ending in a program call. Three things worth knowing:
 
 - **`ref` vs `cnt`** - `ref` is a single-quadword tag pointing at data elsewhere;
   `cnt` carries it inline. (See the bottom of this section - getting that wrong
@@ -352,10 +347,9 @@ stall happens for the one frame you asked about and never again. In it:
 - the vertex arrays as VU1 read them;
 - and the **GIF packets the program staged for XGKICK** - decoded to GS vertices:
   screen-space X/Y in 12.4 fixed point, 24-bit Z, RGBAQ, ST, with the primitive
-  and register list spelled out (`TRIANGLE +ABE, [RGBAQ, XYZF2], EOP`).
-
-That is the answer to "what did VU1 actually produce": the exact numbers the GS
-was about to rasterize, per vertex, before anything reached a pixel.
+  and register list spelled out (`TRIANGLE +ABE, [RGBAQ, XYZF2], EOP`). That is
+  "what did VU1 actually produce": the exact numbers the GS was about to
+  rasterize, per vertex, before anything reached a pixel.
 
 A real capture (terrain, PCSX2):
 
@@ -421,9 +415,9 @@ capture above X agreed to the LSB and Y did not, and the honest reading is "the
 pairing is unproven", not "VU1 has a Y bug" (those vertices happen to share
 almost the same X, so the agreement is weak evidence).
 
-Making it a verdict needs one more step, and it is a small one: capture the
-object-data chain (the MVP upload) together with the qbuffer chain, and capture a
-single-bag flush, so exactly one mesh is in play.
+Making it a verdict is one small step away: capture the object-data chain (the
+MVP upload) together with the qbuffer chain, on a single-bag flush, so exactly
+one mesh is in play.
 
 Headless: `tyrax-editor --dump-vucap <projectDir>` prints the whole decode -
 chain, memory, staged GIF packets, the findings, the reference and its caveat -
@@ -450,12 +444,12 @@ Candidates come from three places, best first:
    `%LOCALAPPDATA%\tyra-editor\sessions\` (`$XDG_STATE_HOME/tyra-editor/
    sessions/` elsewhere), carrying the project, the build profile, whether the
    game is live or halted and at which frame, and the transport (`pcsx2` or
-   `ps2link`). A file per pid is what makes several editors at once work, which
-   they do here: parallel worktrees, a second instance to join a collaboration
-   session. Liveness is the **heartbeat**, refreshed every few seconds, not a
-   pid probe - it means the same thing on every platform and does not lie after
-   pid reuse. A session that stopped beating is listed as `stale` rather than
-   dropped: a crashed editor's last known project is information.
+   `ps2link`). A file per pid is what lets several editors run at once
+   (parallel worktrees, a second instance joining a collaboration session).
+   Liveness is the **heartbeat**, refreshed every few seconds, not a pid probe -
+   it means the same thing on every platform and does not lie after pid reuse.
+   A session that stopped beating is listed as `stale` rather than dropped: a
+   crashed editor's last known project is information.
 2. **`editor.ini`'s recent-project list**, rewritten the moment a project is
    opened - so entry 0 is the last one opened.
 3. **A scan of the default projects folder**, which catches projects made by

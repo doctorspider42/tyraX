@@ -1,13 +1,12 @@
 # Areas (invisible volumes)
 
 An **Area** is a scene object with no geometry: an oriented box you place with
-the gizmo, drawn in the editor as a wireframe and completely absent from the
-game. Nothing collides with it, nothing renders it, it costs no triangles and
-no VRAM.
+the gizmo, wireframe in the editor, completely absent from the game — no
+collision, no triangles, no VRAM.
 
-Its job is to replace numbers you would otherwise type by hand. Several editor
-features ask "how far?" or "which objects?" and, before areas, answered that
-with a radius or a list you maintained one name at a time:
+Its job is to replace numbers you'd otherwise type by hand. Before areas,
+features answered "how far?" or "which objects?" with a radius or a hand-kept
+list of names:
 
 | Feature | Without an area | With an area |
 |---|---|---|
@@ -20,75 +19,68 @@ with a radius or a list you maintained one name at a time:
 
 Add one with **Add object > Gameplay > Area**. It starts as a room-sized green
 box on the ground; Position / Rotation / **Size** in the Properties panel are
-the volume, and the color tints its wireframe (nothing else — an area has no
-material, no physics, no collision, no draw distance).
+the volume, and the color tints its wireframe — nothing else (no material, no
+physics, no collision, no draw distance). The Properties panel also lists
+**what references it** and how many objects it currently catches, so resizing
+or deleting one is never a guess.
 
-The Properties panel of an area lists **what references it** and how many
-objects it currently catches, so resizing or deleting one is never a guess.
-
-**Selecting one in the viewport.** An area big enough to enclose a room has its
-front face closer to the camera than everything inside it, so it would swallow
-every click in that room — areas therefore rank *last* among the objects under
-the cursor, and the first click always gets the prop. Click the **same spot
-again** and the pick steps to the next candidate there; keep clicking and the
-area comes up (it is also always one click away in the Project panel).
+**Selecting one in the viewport.** A room-sized area's front face is closer to
+the camera than everything inside it, so it would swallow every click in that
+room. Areas therefore rank *last* under the cursor: the first click gets the
+prop, clicking the **same spot again** steps to the next candidate, and the
+area comes up eventually (it's also one click away in the Project panel).
 
 ## Point tests: what "inside" means
 
 An area's box is the unit cube under its transform: rotation order X, then Y,
 then Z, half extents = `Size / 2`. A point is inside when its offset from the
-area's center, projected onto each of the three rotated axes, stays within that
-axis' half extent.
+center, projected onto each rotated axis, stays within that axis' half extent.
 
-That test exists in exactly two places and they are checked against each other:
+That test exists in exactly two places, checked against each other:
 `project::areaContainsPoint` (the editor, `project.cpp`) and `pointInArea`
-(generated into `inc/scene_data.hpp`, so both the game's `terrain_game.cpp` and
-`src/gen/flow_graph.gen.cpp` call the same function). Both were compared over
-200k random oriented boxes — no disagreement.
+(generated into `inc/scene_data.hpp`, so the game's `terrain_game.cpp` and
+`src/gen/flow_graph.gen.cpp` call the same function). Compared over 200k
+random oriented boxes — no disagreement.
 
-The generated side splits the work in two so a caller testing many points
-against one area pays for the trig once: `areaBasis` builds the box's center,
-rotated axes and half extents (and short-circuits the six trig calls when the
-area is unrotated, which is the usual case), `areaDistSq` is the squared
-distance from a point to that box, and `pointInArea` is `areaDistSq(...) <= 0`.
+The generated side splits the work so a caller testing many points against one
+area pays for the trig once: `areaBasis` builds the box's center, rotated axes
+and half extents (skipping the six trig calls when the area is unrotated, the
+usual case), `areaDistSq` is the squared distance from a point to that box,
+and `pointInArea` is `areaDistSq(...) <= 0`.
 
 Areas are tested **live** at runtime: move an area with a flow node and its
-trigger volume / streaming zone moves with it. An area sitting on a streaming
-layer that is not resident is inactive, and then it catches nobody.
+trigger volume / streaming zone moves with it. An area on a non-resident
+streaming layer is inactive and catches nobody.
 
 ## Streaming-layer zones
 
 *Project panel > Layers*, tick **auto-stream**, then pick an area in the combo
-next to it. The layer loads while a player stands inside the box and unloads
-once both players leave it (plus a hysteresis band, same as the circle's). Pick
-`<none>` to go back to the center + radius circle.
+next to it. The layer loads the frame a player enters the box and unloads once
+both players leave — a little way *past* the boundary (a hysteresis band, or
+pacing on the edge would thrash the loader), but only `15% + 0.5 units per
+side` for an area, not the circle's flat 8 units: the circle's radius is a
+guess about where the room is; the box is a boundary you drew, so leaving it
+has to mean something. Pick `<none>` to go back to the center + radius circle.
 
 The difference that matters: **the box bounds Y**, so one floor of a building
-can stream on its own, while a circle always covers the whole column of space.
-The initial residency at scene load is decided the same way — from the spawn
-point — so `Start loaded` stays greyed out for auto-streamed layers.
-
-The layer loads the frame a player enters. It unloads a little way *past* the
-boundary — a hysteresis band, or pacing on the edge would thrash the loader —
-but only `15% + 0.5 units per side` for an area, not the flat 8 units the
-circle adds. The circle's radius is a guess about where the room is; the box is
-a boundary you drew, so leaving it has to mean something.
+can stream on its own, while a circle covers the whole column of space.
+Initial residency at scene load is decided the same way — from the spawn point
+— so `Start loaded` stays greyed out for auto-streamed layers.
 
 See [streaming layers](streaming-layers.md) for the rest of the mechanism.
 
 ## Catch areas (mirror / portal / camera feed)
 
 Mirrors, portals and feed cameras all carry an explicit list of objects they
-re-draw a second time. That list is deliberately explicit: on the PS2 the cost
-of a second submission is real, and a radius would let it grow silently. A
-**catch area** keeps that honesty while removing the bookkeeping — set
-*Catch area* in the Properties panel and everything the box holds joins the
-list.
+re-draw a second time — deliberately explicit, because on the PS2 a second
+submission costs real time and a radius would let it grow silently. A **catch
+area** keeps that honesty while removing the bookkeeping: set *Catch area* in
+the Properties panel and everything the box holds joins the list.
 
 - Resolved **at build time** (`project::areaCaughtObjects`), not per frame, so
-  the count the editor shows next to the picker is exactly what the game will
-  re-draw. Add or move a prop inside the area and rebuild to pick it up —
-  unless you tick *Update every frame* (below).
+  the count next to the picker is exactly what the game will re-draw. Add or
+  move a prop inside the area and rebuild to pick it up — unless you tick
+  *Update every frame* (below).
 - An object is caught when its bounding sphere (half its largest scale axis)
   touches the box, so a wide crate half inside still counts.
 - Only types the game draws as geometry are caught: box, sphere, cylinder,
@@ -97,32 +89,31 @@ list.
 - The explicit list still works alongside it and adds objects from outside the
   area; duplicates collapse.
 - Caught objects are excluded from static batching, exactly like listed ones —
-  a batched member has no bag of its own and would simply vanish from the
-  reflection.
+  a batched member has no bag of its own and would vanish from the reflection.
 
 The editor viewport previews mirror reflections through the same call, so what
 you see in the viewport is what the console re-draws.
 
 ### Update every frame (live catch areas)
 
-A build-time list cannot notice a crate rolling into the room, or the player
-walking in front of the glass. Tick **Update every frame** under the picker and
-the volume is re-tested every frame instead: an object joins the reflection /
+A build-time list can't notice a crate rolling into the room, or the player
+walking in front of the glass. Tick **Update every frame** under the picker
+and the volume is re-tested every frame: an object joins the reflection /
 through-view / feed the moment it crosses the boundary and drops out when it
 leaves.
 
 The interesting part is what it does *not* cost:
 
 - **Only movable objects are re-tested.** The candidate set is
-  `project::areaLiveCandidates`: physics bodies, pickables, usables, save-state
-  objects, layer members, anything with its own flow graph or script, and
-  anything a flow node / cutscene track / target list names. A static room full
-  of props contributes nothing to the per-frame work — whatever the box holds
-  that *cannot* move is still resolved at build and baked into the fixed list.
-  The Properties panel prints the split: `3 fixed + 1 of 6 movable inside now`.
-- **The per-frame test is a handful of dot products.** The area's rotated basis
-  is built once per pass (`areaBasis`), and an unrotated area skips the trig
-  entirely; each candidate is then three dots and a compare against its
+  `project::areaLiveCandidates`: physics bodies, pickables, usables,
+  save-state objects, layer members, anything with its own flow graph or
+  script, and anything a flow node / cutscene track / target list names.
+  Whatever the box holds that *cannot* move is still resolved at build and
+  baked into the fixed list, contributing nothing per frame. The Properties
+  panel prints the split: `3 fixed + 1 of 6 movable inside now`.
+- **The per-frame test is a handful of dot products.** The rotated basis is
+  built once per pass (`areaBasis`), an unrotated area skips the trig
+  entirely, and each candidate is three dots and a compare against its
   bounding sphere. The candidate list is baked into `CATCH_CANDIDATES`, sliced
   per owner, so nothing is searched at runtime.
 - **Static batching needs no special handling.** "Can move at runtime" is
@@ -132,11 +123,10 @@ The interesting part is what it does *not* cost:
   build-time table at all), so a spawned object flying through the volume
   reflects too.
 
-What it *does* cost is the second submission itself, and that number is now
-variable: every object inside is one more full re-draw of its geometry. Twelve
-crates rolling into a mirror's area is twelve extra submissions. Keep the
-volume tight around what the glass actually shows and watch the movable count
-in the panel.
+What it *does* cost is the second submission itself, now variable: every
+object inside is one more full re-draw of its geometry. Twelve crates rolling
+into a mirror's area is twelve extra submissions. Keep the volume tight around
+what the glass actually shows and watch the movable count in the panel.
 
 Details worth knowing:
 
@@ -144,49 +134,48 @@ Details worth knowing:
   live area it also has to be inside: the checkbox says the avatar *may*
   reflect, the volume says whether it does right now. An FPP player still has
   no body and reflects nothing.
-- **A moving area over an immovable prop does not catch it.** The prop is not a
-  candidate (it is in the fixed list, or in a static batch). Move the *objects*,
-  not the area, when you want things to pop in and out — or make the prop
-  movable in any of the ways above.
-- **Raytraced mirrors ignore the flag.** Their VU0 proxies are decimated meshes
-  baked per mirror at build; the traced set cannot change while the game runs.
-  A portal with *All objects in view* ignores it too — it already shows
-  everything.
+- **A moving area over an immovable prop does not catch it.** The prop is not
+  a candidate (it's in the fixed list, or in a static batch). Move the
+  *objects*, not the area, when you want things to pop in and out — or make
+  the prop movable in any of the ways above.
+- **Raytraced mirrors ignore the flag.** Their VU0 proxies are decimated
+  meshes baked per mirror at build; the traced set cannot change while the
+  game runs. A portal with *All objects in view* ignores it too — it already
+  shows everything.
 - **Portals: what a live area shows, it also lets through.** `portalCanCross`
   and `portalShowsObject` run the same test, so the owner's rule (a portal you
-  can see through is a portal you can walk through) still holds for objects the
+  can see through is a portal you can walk through) holds for objects the
   volume picked up this frame.
 
 ## The In Area trigger
 
 *Flow Graph > add node > Triggers > In Area*. Its **Area** param names the
-area; **Who** selects whose position is tested (0 = either player, 1 = player 1,
-2 = player 2).
+area; **Who** selects whose position is tested (0 = either player, 1 = player
+1, 2 = player 2).
 
 - The exec output fires on the **rising edge** — the frame someone enters. It
   does not re-fire while they stay inside.
-- Its **bool output** is the live "inside right now" condition. Wire it through
-  **NOT** into **On Condition** for an exit trigger, or into the logic gates for
-  "inside AND holding the key".
-- Its object output is the area itself (useful with Get Position).
+- The **bool output** is the live "inside right now" condition. Wire it
+  through **NOT** into **On Condition** for an exit trigger, or into the logic
+  gates for "inside AND holding the key".
+- The object output is the area itself (useful with Get Position).
 
 Compared with **Near Object** + Radius: the area is a real volume (height
-included) and it is shaped and placed visually instead of being a number that
-means nothing until you run the game.
+included), shaped and placed visually instead of being a number that means
+nothing until you run the game.
 
 ## Reverb zones
 
 Tick **This area is a room for the sound effects** in the Properties panel and
-the box becomes a room for the SPU2's hardware reverb: every sound effect played
-while the listener is inside it is heard through the chosen preset, at the
+the box becomes a room for the SPU2's hardware reverb: every sound effect
+played while the listener is inside is heard through the chosen preset, at the
 chosen strength. Full guide: [reverb](reverb.md).
 
-Two things that follow from the console having exactly ONE reverb unit, and that
-belong here because they are about how you place the boxes:
+Two placement rules follow from the console having exactly ONE reverb unit:
 
 - **Zones do not mix.** The highest **Priority** zone containing the listener
-  wins, so a dead closet inside a cathedral is "cathedral 0, closet 1" — and the
-  closet can be preset *Off*, which is what makes the effect stop at its door.
+  wins, so a dead closet inside a cathedral is "cathedral 0, closet 1" — and
+  the closet can be preset *Off*, which is what stops the effect at its door.
 - **Only the STRENGTH cross-fades.** Two zones sharing a preset blend smoothly
   as the player crosses between them; two zones with different presets cannot,
   so the game fades the reverb out, swaps the algorithm and fades back in
@@ -199,19 +188,18 @@ level that should be reverberant everywhere gets one big box.
 ## Seeing them in the game: "Show areas"
 
 An area is invisible on the console by design — which is exactly the problem
-the moment something does not behave: *why did that layer not unload, why is
-that crate not reflecting, is the volume even where I think it is?*
+the moment something misbehaves: *why did that layer not unload, why is that
+crate not reflecting, is the volume even where I think it is?*
 
 *Preferences > Build > **Show areas*** (debug build profile only, next to Show
 FPS / Show memory / Show frame profiler) draws every area in the game as a
-wireframe box, the same shape the editor viewport shows, tinted with the area's
-color. Twelve thin beams, built through the ordinary box primitive, so it
-costs one small object per area and nothing at all when the option is off —
-`DEBUG_SHOW_AREAS` is a `constexpr`, and with it false `rebuildObjectGeometry`
-emits no vertices for a type-17 object. Release builds never carry it.
-
-It is a wireframe rather than a translucent solid deliberately: a filled volume
-would hide the objects you opened it to look at.
+wireframe box, the same shape the editor shows, tinted with the area's color.
+Twelve thin beams through the ordinary box primitive: one small object per
+area, and nothing at all when off — `DEBUG_SHOW_AREAS` is a `constexpr`, and
+with it false `rebuildObjectGeometry` emits no vertices for a type-17 object.
+Release builds never carry it. It's a wireframe rather than a translucent
+solid deliberately: a filled volume would hide the objects you opened it to
+look at.
 
 ## What still uses a distance, on purpose
 
@@ -241,7 +229,7 @@ express them either.
   `TerrainGame::collectLiveCaught` walks that slice (and the spawn pool) into
   a reused `liveCaught` buffer once per owner per frame.
 - Live Link: an area's transform is part of its recipe hash, because catch
-  areas expand into baked tables at build. Moving an area during a live session
-  therefore flips the toolbar chip to **LIVE (rebuild)** instead of showing you
-  half the edit. (That holds for live catch areas too — the *candidate list* is
-  baked even though the test is not.)
+  areas expand into baked tables at build. Moving an area during a live
+  session flips the toolbar chip to **LIVE (rebuild)** instead of showing you
+  half the edit. (That holds for live catch areas too — the *candidate list*
+  is baked even though the test is not.)

@@ -6,18 +6,17 @@ for?" and it reads the page and tells you; ask "add a usable red lever at 4, 0,
 -6 that logs when the player uses it" and there is a lever in the scene with a
 flow graph on it.
 
-The window lives under *Tools*, which needs a project open — like every other
-tool window. (Close the project with the window open and it stays useful for
-documentation questions; every tool that would touch the project reports that
-there is none.)
+Like every tool window it needs a project open. Close the project with it open
+and it stays useful for documentation questions — every tool that would touch
+the project reports that there is none.
 
-It uses the same AI backend as [AI flow-graph generation](ai-flow-graph.md) — set
-it once in *Edit > Preferences > AI assistant* (Claude CLI, OpenAI Codex CLI,
-GitHub Copilot CLI, or the OpenAI API — the first three sign in with a
-subscription, the last wants an API key). No backend configured means no assistant: the window will
-report the backend's own error, verbatim — including the useful ones, like
-`Not logged in · Please run /login` or a Copilot policy your organisation has not
-enabled.
+It uses the same AI backend as [AI flow-graph generation](ai-flow-graph.md) —
+set it once in *Edit > Preferences > AI assistant* (Claude CLI, OpenAI Codex
+CLI, GitHub Copilot CLI, or the OpenAI API — the first three sign in with a
+subscription, the last wants an API key). No backend configured means no
+assistant: the window reports the backend's own error verbatim, including the
+useful ones, like `Not logged in · Please run /login` or a Copilot policy your
+organisation has not enabled.
 
 They differ in what they can tell the editor: the **Claude CLI** reports its own
 token counts and the cost of every request (the editor asks it for
@@ -29,14 +28,14 @@ switched off: the prompt the editor sends is the whole contract.
 
 ## What it knows
 
-Two things, and they are both live rather than remembered:
+Two things, both live rather than remembered:
 
 - **The editor's documentation.** Every page under `docs/` is baked into the
   executable. The assistant's prompt carries only the *index* — each page's name,
   title and first sentence — and it pulls a page in when it needs one, or
   **searches the full text** of all of them when the question does not match a
-  title. So its answers come from the same text you are reading now, and a doc
-  written today is in the assistant tomorrow with nothing to sync.
+  title. Its answers come from the same text you are reading now; a doc written
+  today is in the assistant tomorrow, nothing to sync.
 - **Your project.** The prompt carries the project summary (scenes, objects with
   their types and positions, layers, assets, menus, save values, presets,
   prefabs, fonts, input actions), which scene is active and **what you have

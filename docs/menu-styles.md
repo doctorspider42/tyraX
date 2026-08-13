@@ -6,9 +6,9 @@ Editor > Style*, baked into sprites at build. It replaces the four knobs menus
 used to have (one accent colour, two font sizes, a panel width) with a box
 model, per-state row styling, scrolling lists, descriptions and transitions.
 
-Everything here is **baked on the host**, so the PlayStation 2 pays for pixels
-and sprites, never for layout. The editor prints what each menu costs before
-you build it.
+Everything is **baked on the host**, so the PlayStation 2 pays for pixels and
+sprites, never for layout. The editor prints what each menu costs before you
+build it.
 
 - The file is the source of truth. The Style tab edits its rules; the
   *Stylesheet* tab is the same file as text, with parse errors listed by line;
@@ -25,16 +25,16 @@ you build it.
 
 ## Where you work
 
-Three surfaces, and they all draw the same bake:
+Three surfaces, all drawing the same bake:
 
 - **Tools > Menu Editor** - the menu's content, its *Style* tab, its
   *Stylesheet* tab, and a compact preview above them.
 - **Tools > Menu Preview** - the same preview in a window of its own, with a
   zoom, its own display mode and the cost readout under it. It follows the Menu
-  Editor's selection and carries a menu picker of its own, so it is useful with
-  the editor closed. The Menu Editor's own preview row has a **Big preview**
-  button that opens and focuses it, because the compact one is sized to leave
-  the tabs below it visible and a full-screen panel wants the room.
+  Editor's selection and carries a menu picker of its own, so it works with the
+  editor closed. The Menu Editor's preview row has a **Big preview** button
+  that opens and focuses it — the compact one is sized to leave the tabs below
+  it visible, and a full-screen panel wants the room.
 - **Layout > Menu Designer** - the desk: the Menu Editor filling the left (Font
   Manager one tab away, because a typeface is the other half of restyling), the
   preview column on the right, logs along the bottom.
@@ -108,16 +108,16 @@ menu#pause { panel { width: 256px; } }   /* this menu only */
 one. A state rule only ADDS to the normal one.
 
 Five sheets ship with the editor as starting points — **Classic**, **Neon**,
-**Blade**, **Parchment**, **Minimal**. Four of them carry motion, and each one
-argues for a different amount of it: Neon has the full set (slide, fade, a
-breathing highlight, a slow sheen), Blade is faster and harder with one quick
-edge of light and no pulse (its plate is already loud), Parchment is slow and
-soft, and Minimal allows itself a fade and a caret that drifts — because there
-the caret IS the selection. Classic has none, as it should. *Install a copy…* writes one into the
-project, where it is yours; *Delete sheet…* removes one the project owns (with a
-confirm that names the menus using it — they fall back to Classic). A built-in
-is not a file and cannot be deleted, which is what keeps a fresh copy always
-available.
+**Blade**, **Parchment**, **Minimal**. Four carry motion, and each argues for a
+different amount of it: Neon has the full set (slide, fade, a breathing
+highlight, a slow sheen), Blade is faster and harder with one quick edge of
+light and no pulse (its plate is already loud), Parchment is slow and soft, and
+Minimal allows itself a fade and a caret that drifts — because there the caret
+IS the selection. Classic has none, as it should. *Install a copy…* writes one
+into the project, where it is yours; *Delete sheet…* removes one the project
+owns (with a confirm that names the menus using it — they fall back to
+Classic). A built-in is not a file and cannot be deleted, which keeps a fresh
+copy always available.
 
 ### Properties
 
@@ -131,9 +131,9 @@ Rows and list: `translate-x` `icon-size` `marker` `marker-side` `selectable`
 Values: `display` (`text` | `bar`) `bar-size` `bar-fill` `bar-track`.
 Description: `height` `area` (`below` | `right`) `wrap`.
 
-Every one of them carries a tooltip in the Style tab, generated from the same
-table the parser reads (`menustyle::propSpecs`), so the editor and the parser
-cannot disagree about what exists.
+Every one carries a tooltip in the Style tab, generated from the same table the
+parser reads (`menustyle::propSpecs`), so the editor and the parser cannot
+disagree about what exists.
 
 ## Rows
 
@@ -190,15 +190,15 @@ lingering over a loading scene is worse than no transition.
 
 The sheen is a soft band drawn additively and **cropped to the panel** as it
 enters and leaves (a 2D sprite is clipped by nothing, so without the crop the
-sweep is visible beside the menu before it arrives - which is exactly how it was
-first reported). Its texture is procedural and shared by every menu that asks
-for one.
+sweep is visible beside the menu before it arrives - which is exactly how it
+was first reported). Its texture is procedural and shared by every menu that
+asks for one.
 
 ### Animating what a gradient cannot
 
-Baked pixels never move: a gradient inside the panel is frozen at bake time, and
-no amount of style will slide it. What moves is a texture's sampling **window**,
-so an animated background is a layer of its own:
+Baked pixels never move: a gradient inside the panel is frozen at bake time,
+and no amount of style will slide it. What moves is a texture's sampling
+**window**, so an animated background is a layer of its own:
 
 ```css
 panel { background-anim: url(res/hud/stars.png) scroll 12px/s -4px/s; }
@@ -213,8 +213,8 @@ panel { background-anim: url(res/hud/flame.png) frames 8 1.2s; }
 
 Either way it is **one sprite and one texture**, drawn under everything the
 panel bakes - so give the panel's own background some transparency or the layer
-will not show. This is the mechanism to reach for when you want a living
-backdrop: a drifting starfield, a slow gradient wash, a flickering torch.
+will not show. This is the mechanism for a living backdrop: a drifting
+starfield, a slow gradient wash, a flickering torch.
 
 ### The selection caret
 
@@ -229,9 +229,9 @@ marker { translate-x: 40px; }                     /* move it (32 by default) */
 
 Or replace **`res/hud/save-cursor.png`** (16x16) in the project: the built-in
 sprites are written only when missing, so an edited one survives every build -
-but note that file is also the SAVE menu's cursor, so it changes both. A sheet's
-own `marker: url(...)` changes only the menus that use that sheet, and the
-preview draws whichever of the two applies.
+but that file is also the SAVE menu's cursor, so it changes both. A sheet's own
+`marker: url(...)` changes only the menus using that sheet, and the preview
+draws whichever of the two applies.
 
 A style whose `row:selected` paints a full-width plate usually wants
 `marker: none` - the caret would just sit on top of the plate. The three
@@ -321,16 +321,16 @@ fattened to match and round corners turned into ovals.
 So the horizontal factor divides that stretch back out:
 `(width/512) * (4:3 / windowAspect)`. In 4:3 the ratio is exactly 1 and nothing
 moves; in 16:9 it is 0.75, and in the pillarboxed widescreen 1080i window 0.80.
-The panel then keeps the **physical size and proportions it was authored at** on
+The panel keeps the **physical size and proportions it was authored at** on
 every output — what changes is how much of the screen it covers, because the
 screen got wider. `RendererSettings::getWindowAspect()` is where that shape
 comes from; the panel's runtime text (a key-rebind row's live binding) is
 squeezed with the same factor, or it would not fit the row it sits in.
 
-**Still nothing is baked twice, and it could not be**: widescreen is not a build
-setting. *Set Widescreen* and the DISPLAY menu's widescreen row flip it while
-the game runs, so a second set of panels would have to be swapped in VRAM mid-
-game — the compensation costs one multiply instead.
+**Still nothing is baked twice, and it could not be**: widescreen is not a
+build setting. *Set Widescreen* and the DISPLAY menu's widescreen row flip it
+while the game runs, so a second set of panels would have to be swapped in VRAM
+mid-game — the compensation costs one multiply instead.
 
 The Menu Editor's **Aspect** control (next to *Preview in*) forces 4:3 or 16:9
 over the project's setting, the way the safe-area overlay's does
@@ -339,9 +339,9 @@ around it does not.
 
 The **cutscene letterbox masks** (Cutscene Director, and the *Set Letterbox
 Bars* flow node) follow from the same fact and go the other way: a mask
-letterboxes *inside* the picture, so on a 16:9 output *Wide 16:9* covers nothing
-and *Cinema 2.39:1* is thinner than it is on 4:3. Their coverage is therefore
-the one cutscene number that is **not** baked — `seqBarsFractions`
+letterboxes *inside* the picture, so on a 16:9 output *Wide 16:9* covers
+nothing and *Cinema 2.39:1* is thinner than it is on 4:3. Their coverage is
+therefore the one cutscene number that is **not** baked — `seqBarsFractions`
 (`src/sequence.hpp`) has a runtime twin in `src/gen/sequences.gen.cpp` and the
 sequence table carries the style.
 
@@ -386,9 +386,9 @@ The CSS framing invites all of these, and none of them are here:
   sampling window moves)
 - the layer order is fixed: dim, chrome, rows, values, description, overlay,
   caret
-- motion is sprite position / tint / size / texel offset only — never a re-bake,
-  which also means per-row entry animations are out: rows live inside the panel
-  texture, so staggering them would need a sprite each
+- motion is sprite position / tint / size / texel offset only — never a
+  re-bake, which also means per-row entry animations are out: rows live inside
+  the panel texture, so staggering them would need a sprite each
 - no media queries, no inheritance beyond the cascade above, no functions
   besides `var()` and the colour / gradient forms
 

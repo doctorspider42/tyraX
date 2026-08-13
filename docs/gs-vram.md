@@ -1,6 +1,6 @@
 # GS VRAM residency
 
-Developer note, not a user guide. Covers how the engine fork
+A developer note (not a user guide) on how the engine fork
 (`vendor/tyra/engine/.../renderer/core/gs/renderer_core_gs_vram.*` and
 `.../texture/renderer_core_texture.*`) hands out the PlayStation 2's 4 MB of
 graphics memory, what the numbers actually are, and what happens when a scene
@@ -24,8 +24,8 @@ counts in words. A default project spends it like this:
 
 Each texture allocation also carries ~8 KB of padding (`getSize()` adds
 `1024 * 2` words before block alignment — an upstream workaround for
-overlapping textures), which is why many small textures are far more expensive
-than their pixel count suggests. Concretely, at 32bpp:
+overlapping textures), so many small textures cost far more than their pixel
+count suggests. At 32bpp:
 
 | Texture | Words | Of the ~1.08 MB heap |
 |---|---|---|
@@ -54,8 +54,8 @@ past them. For anything short and wide the two answers differ by a factor:
 
 A PSMCT32 page is 64×32 texels. The 512×16 font is one page row of **eight**
 pages, so it spans 16 384 words while being sized at 10 240 — and the next
-texture was placed 10 240 words in, which is page 5 of the font's own 8. It
-overwrote pages 5, 6 and 7: **every glyph from x = 320 rightwards**.
+texture was placed 10 240 words in, page 5 of the font's own 8. It overwrote
+pages 5, 6 and 7: **every glyph from x = 320 rightwards**.
 
 That is the bug behind *"opening the menu makes letters disappear"*. The HUD
 read `V AM` because `R` sits at x = 480 and was the only glyph past x = 320 on
@@ -82,9 +82,9 @@ line moving 3.21 → 3.23 MB.
 
 - **The permanent region**, at the bottom, filled by `allocateBuffer()` during
   renderer init — both frame buffers, the z buffer, the post-fx scratch
-  buffers, the noise texture, the env-map and camera-feed render targets. It is
-  a plain bump region and is never released. `free()` does not know those
-  addresses, so nothing — including a buggy caller — can reclaim them.
+  buffers, the noise texture, the env-map and camera-feed render targets. A
+  plain bump region, never released; `free()` does not know those addresses,
+  so nothing — including a buggy caller — can reclaim them.
 - **The texture heap** above it, managed by a **coalescing free list**.
   `allocate()` takes a best-fit block; `free()` returns it in **any order** and
   merges it with its neighbours.
@@ -132,9 +132,9 @@ a stack pop. Freeing the *newest* allocation is correct; freeing anything else
 rewinds the bump pointer **underneath still-live textures**, and the next
 allocation is handed memory that other textures are rendering from.
 
-That is not theoretical — streaming layers hit it on every unload. A fixture
-with six textured boxes, three of them in a layer that unloads at t=6 s and
-loads again at t=10 s, showed on the old allocator:
+Streaming layers hit it on every unload. A fixture with six textured boxes,
+three of them in a layer that unloads at t=6 s and loads again at t=10 s,
+showed on the old allocator:
 
 ```
 free 821248, free 839680, free 858112   (newest live allocation: 931840)
@@ -150,24 +150,23 @@ reload is identical to the picture before the unload.
 ## Eviction policy
 
 When an incoming texture does not fit, upstream deallocated **every** resident
-texture and started over, so one over-budget texture cost a full re-upload of
+texture and started over — one over-budget texture cost a full re-upload of
 the entire working set on the following frames.
 
 `RendererCoreTexture::makeRoomFor()` instead evicts one allocation at a time
-until the newcomer fits, choosing the victim in two tiers
-(`pickVictim()`):
+until the newcomer fits, choosing the victim in two tiers (`pickVictim()`):
 
 1. **Stale entries** — not bound in this frame *or* the one before it. Coldest
    first (lowest bind sequence), ties broken by the larger allocation. These
    are textures that went off-screen or belong to a layer that was streamed
-   out, and they are always the cheapest thing to give up.
-2. **Everything is in the live working set** — i.e. what the scene draws
-   genuinely does not fit. Here LRU is the *worst* policy: a scene re-binds its
-   textures in the same order every frame, so the coldest entry is precisely
-   the one that will be requested first next frame, and the whole set cycles.
-   The victim is the **most recently bound** allocation instead
-   (scan-resistant MRU): the head of the scan stays resident and only the
-   overflow tail keeps re-uploading.
+   out — always the cheapest thing to give up.
+2. **Everything is in the live working set** — what the scene draws genuinely
+   does not fit. Here LRU is the *worst* policy: a scene re-binds its textures
+   in the same order every frame, so the coldest entry is precisely the one
+   that will be requested first next frame, and the whole set cycles. The
+   victim is the **most recently bound** allocation instead (scan-resistant
+   MRU): the head of the scan stays resident and only the overflow tail keeps
+   re-uploading.
 
 The two-frame window in tier 1 is deliberate. "Not bound yet in this frame" is
 not evidence of coldness — the tail of last frame's scan simply has not come
@@ -244,11 +243,10 @@ All PCSX2, software renderer, PAL, 512×448.
 
 The showcase numbers are byte-identical before and after — a realistic project
 never evicts anything, so this work changes nothing for it. The interesting
-column is the middle one: a scene that is *slightly* over budget used to pay as
-if it were massively over budget, and now pays roughly what it overspends. A
-scene that is genuinely 2.4× over budget still thrashes, because no policy can
-invent VRAM — the answer there is palettized textures, an atlas, or smaller
-source images.
+column is the middle one: a scene *slightly* over budget used to pay as if it
+were massively over budget, and now pays roughly what it overspends. A scene
+genuinely 2.4× over budget still thrashes, because no policy can invent VRAM —
+the answer there is palettized textures, an atlas, or smaller source images.
 
 Frame cost on the just-over-budget fixture (vsync off, so the 50 Hz cap does
 not hide it): 5.51 → 5.33 ms of EE time per frame, and PCSX2's GS thread load

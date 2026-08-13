@@ -1,10 +1,10 @@
 # The neural upscaler (BLSS)
 
-**BLSS** — *Bieda-Level Super Sampling* (Polish *bieda*, "poverty": the budget
-cousin of DLSS). The 3D scene renders into a **half-resolution** GS render
+**BLSS** (*Bieda-Level Super Sampling* — Polish *bieda*, "poverty": the budget
+cousin of DLSS) renders the 3D scene into a **half-resolution** GS render
 target; a small **neural network**, trained on the host and baked into the game,
-then decides — per 32×32 screen tile, every frame — *how* that image should be
-blown up to the display buffer, and how much of the previous frame to reuse.
+then decides — per 32×32 screen tile, every frame — *how* that image is blown
+up to the display buffer, and how much of the previous frame to reuse.
 
 It is not a super-resolution network: nothing on the PS2 processes a whole image
 through a net (327 680 pixels × even one MAC is out of the question at 50 Hz).
@@ -47,13 +47,12 @@ rasteriser and no pixel shaders at all.
 > break-even above is the price of the *network* — 4.60 ms of EE to decide, per
 > tile, how to blow the image up. **Plain mode
 > ([below](#plain-mode--the-reduced-raster-without-the-network)) buys none of
-> that and keeps everything else**: the same reduced raster, the same VRAM
-> saving, one bilinear composite pass, **0.52 ms** of EE and a break-even of
+> that and keeps everything else**: same reduced raster, same VRAM saving, one
+> bilinear composite pass, **0.52 ms** of EE and a break-even of
 > **2.6 full-screen coverages at 512×448** (2.3 at 512×512). It draws the
 > **byte-identical picture** to the neural mode whenever the network asks for
 > nothing, which is often. Ask the Evaluate tab whether your scene has a ceiling
-> before paying for a network; if it has none, the mode to turn on is the plain
-> one.
+> before paying for a network; if it has none, turn on plain.
 >
 > **The regime is heavy alpha-blended overdraw.** Haze, smoke, layered
 > billboards, anything that paints the same pixels many times. Triangle count is
@@ -63,10 +62,10 @@ rasteriser and no pixel shaders at all.
 > here but a bill.
 >
 > **Ask whether your scene has a ceiling. If it has one, turn it on — a network
-> already ships.** That is the one sentence on this page with a decision in it,
-> and it is the second thing to replace *"fit the project you will ship, and ship
-> that net"*, which was right about the net it named and wrong about the general
-> case. `--blss-eval <projectDir>` answers the ceiling question in one line and
+> already ships.** That is the one sentence on this page with a decision in it.
+> It replaces *"fit the project you will ship, and ship that net"*, which was
+> right about the net it named and wrong about the general case.
+> `--blss-eval <projectDir>` answers the ceiling question in one line and
 > **needs no trained network to do it** ([net-free evaluation](#training));
 > **twelve of the thirty-two example projects have an oracle ceiling under
 > +0.10 dB**, where no net can win anything and the question of which net to ship
@@ -669,18 +668,17 @@ its knobs are properties of the network, not of a scene.
 ### Why the switch is free, and why it nearly could not have been
 
 `RendererCoreBlss::configure()` **re-lays the whole permanent VRAM region and
-evicts every resident texture** — which is why it is safe at the top of `init()`,
-before a single asset is loaded, and nowhere later. That is what killed the
-proposed per-*frame* toggle (`docs/backlog.md`).
+evicts every resident texture** — safe at the top of `init()`, before a single
+asset is loaded, and nowhere later. That is what killed the proposed per-*frame*
+toggle (`docs/backlog.md`).
 
 The hopeful theory for per-scene was that a scene change already churns the
-texture heap, so a reconfiguration would ride along for nearly nothing. **That
-theory is false, and it was checked before anything was designed around it.**
-`loadScene()` releases and re-acquires textures one at a time, ref-counted, and
-only those the incoming scene does not also need (`applyLayerResidency`); it
-never calls `vram.reset()`, never calls `evictAll()`, and never moves a permanent
-buffer. A `configure()` at scene load would have been the per-frame problem in a
-quieter place.
+texture heap, so a reconfiguration would ride along for nearly nothing. **False,
+and checked before anything was designed around it**: `loadScene()` releases and
+re-acquires textures one at a time, ref-counted, and only those the incoming
+scene does not also need (`applyLayerResidency`); it never calls `vram.reset()`,
+never calls `evictAll()`, and never moves a permanent buffer. A `configure()` at
+scene load would have been the per-frame problem in a quieter place.
 
 So the switch does not reconfigure at all. The one thing that must be decided
 before any texture exists is **how big the z buffer is**, because the z buffer
@@ -1613,9 +1611,9 @@ to stdout). The network is 123 floats, so it is a header, not an asset.
 
 ## Using it
 
-The interface is **two layers**, and which one you meet depends on what you are
-trying to do. *Project ▸ Preferences ▸ Display ▸ Frame delivery* asks the three
-questions that decide whether to ship the feature and states one line of verdict
+The interface is **two layers**. *Project ▸ Preferences ▸ Display ▸ Frame
+delivery* asks the three questions that decide whether to ship the feature and
+states one line of verdict
 about your own scenes — on the **Display** tab, next to the video signal and the
 presentation, because "how does a frame reach the screen" is one question and
 this is one of its answers. *Tools ▸ Neural Upscaler (BLSS)* — behind an

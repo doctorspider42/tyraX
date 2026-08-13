@@ -3,21 +3,20 @@
 An infinite tunnel built from **one** authored chunk. A **Scroller object**
 tiles a segment — a floor slab, two walls and a bright arch beam — along its
 axis forever and slides the copies toward you, so the corridor streams past to
-the horizon without a single object placed past the first ring. It is the
-"level generator in a train window": author one piece, watch it repeat to
-infinity.
+the horizon without a single object placed past the first ring. The "level
+generator in a train window": author one piece, watch it repeat to infinity.
 
 Open `endless-scroller.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor.exe --build <this folder> --run`.
 
 ## What to do
 
-You spawn (first-person) standing in the mouth of the tunnel looking down its
-length. The walls, floor and the cyan arch beams recede to a vanishing point
-and **scroll toward you** — each arch sweeps overhead and vanishes behind as
-the next one appears far ahead. Walk forward (left stick) and the belt keeps
-generating corridor ahead of you; you can never reach the end. (Try turning
-around: the belt fills behind you too, out to the *keep-behind* distance.)
+You spawn (first-person) in the mouth of the tunnel looking down its length.
+The walls, floor and cyan arch beams recede to a vanishing point and **scroll
+toward you** — each arch sweeps overhead and vanishes behind as the next
+appears far ahead. Walk forward (left stick) and the belt keeps generating
+corridor ahead of you; you can never reach the end. Try turning around: the
+belt fills behind you too, out to the *keep-behind* distance.
 
 ## How it's wired
 

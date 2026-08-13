@@ -1,23 +1,22 @@
 # Procedural generation (scatter graphs)
 
-*Tools > Procedural* — a node graph that fills a region with instances: forests,
-rock fields, fence posts, orchards, roadside props. You author the RULES; the
-editor turns them into ordinary static geometry when you build.
+*Tools > Procedural* is a node graph that fills a region with instances —
+forests, rock fields, fence posts, orchards, roadside props. You author the
+rules; the editor turns them into ordinary static geometry when you build.
 
 The rule that shapes the whole feature: **the graph runs on the PC, the console
 gets a finished mesh.** The PlayStation 2 never evaluates a graph, never
-transforms an instance, never knows the feature exists. It loads chunk meshes
+transforms an instance, never knows the feature exists — it loads chunk meshes
 the way it loads any other model.
 
 Working demo: [examples/procedural](../examples/procedural) — six volumes that
 between them use every node below, from a noise-thinned forest to a colonnade
 placed exactly by `Radial Array`.
 
-That is the BAKED half, and it is what this page is about. A volume can instead
-run **on the console, while the game runs** — a world that is different every
-boot and takes no disc space, for a much smaller set of nodes and some load
-time. Everything below still applies; the differences are in
-[runtime procedural generation](procedural-runtime.md).
+This page covers the BAKED half. A volume can instead run **on the console,
+while the game runs** — different every boot, no disc space, a much smaller
+node set, some load time. Everything below still applies; the differences live
+in [runtime procedural generation](procedural-runtime.md).
 
 ---
 
@@ -25,23 +24,21 @@ time. Everything below still applies; the differences are in
 
 On real hardware every static-pipeline submit costs roughly **0.7–1.5 ms of
 fixed EE overhead**, whatever the vertex count. "Draw one tree 500 times" is
-therefore not a rendering strategy on this machine — 500 submits is half a
-second per frame. So the bake **merges** the instances of one asset inside one
-world chunk into a single mesh, and the game draws a handful of chunks.
+not a rendering strategy on this machine — 500 submits is half a second per
+frame. So the bake **merges** the instances of one asset inside one world chunk
+into a single mesh, and the game draws a handful of chunks.
 
 Three consequences you will feel:
 
 - **Triangles are the budget, not instances.** 500 trees of 600 triangles is
-  300 000 triangles of static geometry — impossible. 500 trees of 120
-  triangles is 60 000, still too much for a whole scene. The *Output* node has
-  a live triangle budget and the window warns the moment you cross it.
-  Author scatter assets **low-poly on purpose**: the Tree Generator's
-  poly-budget levers (levels, sides/rings, leaf count) get a usable tree down
-  to 100–150 triangles.
+  300 000 triangles — impossible. 500 trees of 120 triangles is 60 000, still
+  too much for a whole scene. The *Output* node has a live triangle budget and
+  the window warns the moment you cross it. Author scatter assets **low-poly
+  on purpose**: the Tree Generator's poly-budget levers (levels, sides/rings,
+  leaf count) get a usable tree down to 100–150 triangles.
 - **Nothing about an instance changes at runtime.** Merged geometry has no
   per-instance identity: no per-instance color, no runtime moving, hiding or
-  scripting. Anything that has to move in the game is a hand-placed object,
-  not scattered content.
+  scripting. Anything that has to move in the game is a hand-placed object.
 - **Chunk size is a real trade.** Bigger chunks = fewer draw calls but coarser
   culling (a chunk is drawn whole or not at all). The default 48 units suits a
   128×128 map.
@@ -52,27 +49,22 @@ Three consequences you will feel:
 
 ### The Procedural volume
 
-A procedural graph lives on a **Procedural volume** — an object type you add
-with *+ Add object > Procedural volume...*, or with *New volume* in the
-Procedural window. Both are the same verb and land in the same place: the graph
-editor with the new volume selected. Its **transform is the region**: position =
-centre, scale = box size, Y rotation yaws the footprint. Move or resize it with
-the ordinary gizmo and the content follows.
-
-The object says nothing about HOW the box gets filled — that is the graph's job,
-and the graph can scatter, follow a curve, or repeat something exactly. (The
-type is still written to the project file as `scatter`, and the enum is still
+A graph lives on a **Procedural volume** — added with *+ Add object >
+Procedural volume...*, or *New volume* in the Procedural window; both land in
+the graph editor with the new volume selected. Its **transform is the region**:
+position = centre, scale = box size, Y rotation yaws the footprint. Move or
+resize it with the ordinary gizmo and the content follows. HOW the box gets
+filled is the graph's job — scatter, follow a curve, or repeat something
+exactly. (The project file still says `scatter` and the enum is still
 `PrimitiveType::Scatter`; only the name you read changed, because naming the
 region after one of its source nodes made it look like a choice of method.)
 
-The volume itself is authoring-only: a wireframe box in the editor, nothing at
-all in the game. Its box usually covers half the map, so it never wins a click
-outright — everything else under the cursor is offered first. Click the **same
-spot again** and the pick steps through what is stacked there, the volume
-included; selecting it in the Project panel or the Procedural window works as
-before. Either way the gizmo then works as usual.
-
-A scene can hold as many volumes as you like: one per species mix, one per
+The volume is authoring-only: a wireframe box in the editor, nothing in the
+game. Its box usually covers half the map, so it never wins a click outright —
+everything else under the cursor is offered first; click the **same spot
+again** to step through the stack, volume included. The Project panel and the
+Procedural window select it as before, and the gizmo then works as usual. A
+scene can hold as many volumes as you like: one per species mix, one per
 region, one for the roadside lamps.
 
 ### The graph
@@ -141,15 +133,15 @@ is why the library composes without a combinatorial explosion of node types.
 - **Keep Away From** — clear (or restrict to) the area around an object, around
   every solid object in the scene, or around a curve. Writes `dist`.
 - **Merge Points** — up to four clouds into one.
-- **Limit Count** — truncate to a budget. Because points arrive in
-  low-discrepancy order, keeping the first N thins the cloud **evenly** instead
-  of cutting off a corner.
+- **Limit Count** — truncate to a budget. Points arrive in low-discrepancy
+  order, so keeping the first N thins the cloud **evenly** instead of cutting
+  off a corner.
 
 **Repeat** — the analytic counterpart to the scatter sources: exact copies at
 exact places, no randomness anywhere. Both nodes copy **every** point that
 reaches them, so they work on one *Single Point* ("this pillar, twelve times
-around a circle") and on a whole scattered field alike ("every bush, three times
-up the cliff").
+around a circle") and on a whole scattered field ("every bush, three times up
+the cliff") alike.
 
 - **Array** — `count` copies along a straight line: a world XYZ step, plus an
   optional yaw and scale increment per copy. A stack is Step Y = the asset's
@@ -162,8 +154,8 @@ up the cliff").
   *Turn with the ring* yaws each copy to face outward.
 
 Copies inherit the source point's attributes and its picked asset, and each one
-gets its own stable identity — so a hand edit sticks to "copy 7 of that point"
-and survives every later re-evaluation. Because they multiply their input, both
+gets its own stable identity — a hand edit sticks to "copy 7 of that point" and
+survives every later re-evaluation. Because they multiply their input, both
 nodes stop at 200 000 points and say so rather than eating the frame.
 
 **Attributes**
@@ -184,8 +176,8 @@ shadow, collision, **instance detail** (decimate the source mesh once before
 merging) and the triangle budget. One per graph.
 
 **Object Settings** — the "and all of them are like this" node: a list of
-properties applied to **every scene object this volume bakes**. It has no pins,
-because it is not a step in the chain — it states a fact about the whole output,
+properties applied to **every scene object this volume bakes**. It has no pins —
+it states a fact about the whole output rather than being a step in the chain,
 so it sits beside the graph rather than in it.
 
 | Property | What it does |
@@ -216,10 +208,9 @@ terrain layers ([terrain painting](terrain-painting.md)), so this is a mask:
 
 The mask reads the material's **visible coverage**, not the raw brush weight:
 layers paint over one another, so grass you later covered with rock reads as
-rock — which is what you see and therefore what should decide the scatter. Two
-materials at once is a **Combine Masks** on *Max* (grass **or** sand), and
-"grass but not on the steep parts" is another Terrain Mask on *Slope* combined
-with *Multiply*.
+rock — what you see is what decides the scatter. Two materials at once is a
+**Combine Masks** on *Max* (grass **or** sand); "grass but not on the steep
+parts" is another Terrain Mask on *Slope* combined with *Multiply*.
 
 This is a **build-time** mask: the splat map is an editor asset and never ships,
 so a [runtime volume](procedural-runtime.md) is told so under its budget bar and
@@ -227,29 +218,27 @@ must use Height / Slope / Curvature instead.
 
 Every node's tooltip — the add menu and the node hover draw the same thing — is
 its description **followed by one line per control**: each parameter's label
-with its `tip`, and, for a node whose body is a table (an asset pool, a prefab
-pool, a curve, the settings list), what that table's columns mean. The registry
-entry is the documentation, and a paragraph that explains the idea while naming
-none of the knobs sitting under it is only half of one — the reader is looking
-at `w 34` and `1.00 1.00`. So when you add a parameter, give it a `.tip`; the
-pool columns and the node's own prose are worth keeping short in exchange.
+with its `tip`, plus, for table-bodied nodes (asset pool, prefab pool, curve,
+settings list), what the columns mean. The registry entry is the documentation —
+the reader is looking at `w 34` and `1.00 1.00`, so prose that names none of
+the knobs is only half of one. When you add a parameter, give it a `.tip`.
 
 ---
 
 ## Working in the window
 
-There is a built-in **Procedural** window layout (`Layout > Procedural`): the
-graph along the bottom, the viewport above it, Project on the left, Properties
-on the right (a volume's box *is* the region, so its transform is a graph
-parameter in everything but name), and Prefabs as a bottom tab where its member
-table gets real width. A slider and the world it changes end up on screen at the
-same time, which is the whole workflow.
+The built-in **Procedural** layout (`Layout > Procedural`) puts the graph along
+the bottom, the viewport above it, Project on the left, Properties on the right
+(a volume's box *is* the region, so its transform is a graph parameter in
+everything but name), and Prefabs as a bottom tab where its member table gets
+real width. A slider and the world it changes on screen at once — that is the
+whole workflow.
 
 The header line is the whole state of the bake: instances, candidates, chunks,
-triangles, estimated console RAM, how many nodes actually re-ran, and the
-evaluation time, plus a budget bar that turns red when you cross the Output's
-limit. Under it, any problems: unconnected required inputs, an empty asset
-pool, a missing Output.
+triangles, estimated console RAM, how many nodes actually re-ran, the
+evaluation time, and a budget bar that turns red past the Output's limit. Under
+it, any problems: unconnected required inputs, an empty asset pool, a missing
+Output.
 
 - **Right-click the canvas** to add a node, **right-click a node** for
   *Preview this node* / *Bypass* / *Delete*. Mouse wheel zooms, Delete removes
@@ -261,20 +250,19 @@ pool, a missing Output.
 - **Bypass** passes a node's first input straight through: an instant A/B of one
   step.
 - **Height offset** on *Scatter on Surface* and *Scatter on Grid* is where the
-  first point sits, measured from whatever the node chose as its base — the
-  terrain under each point (Snap on) or the volume's centre height (Snap off).
-  It FOLLOWS the ground rather than flattening it, so a lifted stack over hilly
-  terrain stays parallel to the hills. On Grid it is applied before the level
-  stacking, which is how a tower starts above the ground instead of on it.
+  first point sits, measured from the node's base — the terrain under each
+  point (Snap on) or the volume's centre height (Snap off). It FOLLOWS the
+  ground rather than flattening it, so a lifted stack over hilly terrain stays
+  parallel to the hills. On Grid it applies before the level stacking, which is
+  how a tower starts above the ground instead of on it.
 - **To scatter a primitive**, or anything else already standing in the scene,
   open a *Pick Prefab* row's picker and choose it under **Capture from the
   scene**. That makes an ordinary one-member prefab, so a scattered box travels
   the exact path a scattered room does — merged into the chunk bags, costed by
   the Prefabs window, runnable on the console. There is deliberately no second
-  "scatter a scene object" mechanism: it would be the same feature with its own
-  bugs. *Pick Asset* stays what it is — `.obj` files from `res/models`.
-  Capturing leaves the original object in the scene; delete it if it was only a
-  template.
+  "scatter a scene object" mechanism (same feature, its own bugs), and *Pick
+  Asset* stays what it is — `.obj` files from `res/models`. Capturing leaves
+  the original in the scene; delete it if it was only a template.
 - **Prefab instances preview as their real geometry.** A *Pick Prefab* point
   carries a prefab and no asset, so the viewport expands each instance through
   the same `prefab::instantiate` that *Insert into scene* and the runtime
@@ -282,12 +270,11 @@ pool, a missing Output.
   budget counts each instance's mergeable members. (Past ~6000 preview objects
   the expansion truncates and says so; the console still builds them all.)
 - **Show preview** (also *View > Procedural preview*) hides the generated
-  geometry. A finished forest sits on top of the ground it grows on, and at some
-  point you need to edit that ground. The graph keeps being **evaluated** while
-  hidden — the counts, the warnings and the seed simulator are why the window is
-  open, and freezing them silently would be the worse lie — and the mask/curve
-  node previews and the curve handles still draw, because those are tools rather
-  than output.
+  geometry — at some point you need to edit the ground the forest sits on. The
+  graph keeps being **evaluated** while hidden (the counts, warnings and seed
+  simulator are why the window is open; freezing them silently would be the
+  worse lie), and the mask/curve node previews and curve handles still draw,
+  because those are tools rather than output.
 - **Seed** reshuffles everything; **Reseed** rolls a new one. A *runtime* volume
   also gets a [seed simulator](procedural-runtime.md#the-seed-simulator) —
   several seeds evaluated at once, so the spread rather than one draw.
@@ -310,11 +297,11 @@ viewport:
 - **Ctrl+click** (or *Remove instance*) deletes it,
 - *Revert* restores it to what the graph generated.
 
-Those edits are stored against the point's **stable identity**, not its index in
-an array. Change the density upstream, add a node, re-open the project — the
-edits still apply to the same instances. The window shows how many edits exist,
-how many no longer match a point (kept, because a point may come back when a
-slider moves) and offers an explicit *Drop unmatched*.
+Edits are stored against the point's **stable identity**, not its index in an
+array. Change the density upstream, add a node, re-open the project — the edits
+still apply to the same instances. The window shows how many edits exist, how
+many no longer match a point (kept, because a point may come back when a slider
+moves) and offers an explicit *Drop unmatched*.
 
 ### Asking the AI Assistant for a graph
 
@@ -322,25 +309,23 @@ The [AI Assistant](ai-chat.md) can author a scatter graph: it reads the node
 catalog and the volume's current graph, writes the whole graph back, and bakes
 it — "*scatter rocks and pine trees over the north half, thin them on slopes
 above 30 degrees*" is a request it can carry out end to end, including telling
-you the triangle and RAM cost it came to.
+you the triangle and RAM cost it came to. Three things to know:
 
-Three things worth knowing when you use it that way:
-
-- **It writes the graph whole.** Your per-instance hand edits are dropped by such
-  a write (they are bound to points the old graph made), so do the hand pass
-  after the graph has settled.
+- **It writes the graph whole.** Your per-instance hand edits are dropped by
+  such a write (they are bound to points the old graph made), so do the hand
+  pass after the graph has settled.
 - **It cannot import assets.** A `Pick Asset` pool can only name files already
   under `res/models/`; ask it to scatter something you have not imported and it
   will say so and point at the Asset Browser.
-- **Nothing appears until it bakes** — same rule as for you. It is told this, and
-  the bake report it quotes is the real one from `procbake`.
+- **Nothing appears until it bakes** — same rule as for you. It is told this,
+  and the bake report it quotes is the real one from `procbake`.
 
 ---
 
 ## Determinism, stability, speed
 
-Three properties the evaluator is built around. They are what make the tool
-usable rather than merely clever:
+Three properties the evaluator is built around — what makes the tool usable
+rather than merely clever:
 
 1. **Determinism.** Every random draw comes from
    `hash(seed, node id, point key, channel)` — never a running counter. The
@@ -368,8 +353,7 @@ snaps to the full result as soon as you let go.
 Baking is automatic: **every build re-bakes the volumes whose graph, region,
 terrain or referenced objects changed** — in the GUI (any Build/Run/Export path)
 and headlessly (`--build`, `--refresh-gen`). *Bake now* in the window does it
-immediately when you want to look at the result; the indicator next to it reads
-`baked` or `bake is stale`.
+immediately; the indicator next to it reads `baked` or `bake is stale`.
 
 What a bake writes, per volume:
 
@@ -384,19 +368,17 @@ What a bake writes, per volume:
 
 Those chunk objects are ordinary Model objects, which is the point: the
 `.tmdl` bake, distance mesh LOD, texture quantization, the disc layout and
-frustum culling all work on them with no special case. They are **not drawn in
-the editor viewport** — the live graph preview stands in for them, and drawing
-both would double every tree. Re-baking matches chunks by name, so object
-identity (and with it live link and collaboration) survives.
+frustum culling all work on them with no special case — and anything that
+consumes scene objects consumes a bake for free. The one worth knowing about:
+list chunks as members of an [endless scroller](endless-scroller.md) segment
+and a strip of world you generated once tiles past the camera **forever** — see
+[examples/endless-runner](../examples/endless-runner). Chunks are **not drawn
+in the editor viewport** — the live graph preview stands in for them, and
+drawing both would double every tree. Re-baking matches chunks by name, so
+object identity (and with it live link and collaboration) survives.
 
 Deleting a volume deletes its chunk objects and their mesh files. *Clear bake*
 does the same without deleting the volume.
-
-Because a chunk is an ordinary `Model` scene object, anything that consumes
-scene objects consumes a bake for free. The one worth knowing about: list them
-as members of an [endless scroller](endless-scroller.md) segment and a strip of
-world you generated once tiles past the camera **forever** — see
-[examples/endless-runner](../examples/endless-runner).
 
 ---
 
@@ -412,9 +394,9 @@ instances of two Tree-Generator trees at 132 and 380 triangles, chunk size 48):
 | triangles | 13 572 |
 | PS2 frame rate (PCSX2, software renderer, vsync off) | 109 FPS |
 
-That is comfortably above the 50 FPS PAL cap, i.e. there is room — but note how
-few instances it takes to reach 13 k triangles. Halving the tree count or
-halving the source detail is a bigger win than any renderer trick.
+Comfortably above the 50 FPS PAL cap, so there is room — but note how few
+instances it takes to reach 13 k triangles. Halving the tree count or halving
+the source detail is a bigger win than any renderer trick.
 
 **Instance detail** (Output node) decimates the source mesh once before merging.
 It helps trunks and rocks; it does **not** help a canopy made of alpha-cutout
@@ -446,13 +428,13 @@ only be made cheaper by authoring fewer, bigger cards.
 
 ## Troubleshooting
 
-**Nothing appears.** Check the problem list under the budget bar. The usual
-causes: the Pick Asset pool is empty, no Output node, or a filter cut
-everything — right-click nodes and *Preview this node* down the chain to find
-where the points vanish.
+**Nothing appears.** Check the problem list under the budget bar. Usual causes:
+an empty Pick Asset pool, no Output node, or a filter cut everything —
+right-click nodes and *Preview this node* down the chain to find where the
+points vanish.
 
-**Instances float above or sink into the ground.** The terrain changed after the
-bake: the indicator will say `bake is stale`; build (or *Bake now*).
+**Instances float above or sink into the ground.** The terrain changed after
+the bake: the indicator will say `bake is stale`; build (or *Bake now*).
 
 **Trees inside a building.** Add a **Keep Away From** node with an empty Object
 field — with no curve connected it clears every solid object in the scene.

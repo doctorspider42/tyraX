@@ -3,11 +3,10 @@
 Custom game logic is written in C++ and compiled into the ELF by the normal
 build - there is no interpreter on the PS2, so scripts run at native speed.
 An **object script** is a class you write once and *attach* to any number of
-scene objects in the editor, the way components work in Unity: every
-attachment becomes its own instance at scene load, with its own member
-variables and a `self` pointer to the object it hangs on. Attach `Spinner`
-to five crates and five independent spinners run; detach it and the class
-costs nothing.
+scene objects, the way components work in Unity: every attachment becomes
+its own instance at scene load, with its own member variables and a `self`
+pointer to the object it hangs on. Attach `Spinner` to five crates and five
+independent spinners run; detach it and the class costs nothing.
 
 ```
 Properties > Scripts (attach "Spinner" to box-1, box-2)
@@ -21,22 +20,22 @@ news one instance per attachment, calls onStart; every frame it refreshes
 `self` and calls onUpdate (and onUsed when the player USEs the object)
 ```
 
-`src/scripts/` is **exclusively yours** - all engine-generated sources live
-in `src/gen/`, so the editor's Scripts list shows only your files. Subfolders
+`src/scripts/` is **exclusively yours** - engine-generated sources live in
+`src/gen/`, so the editor's Scripts list shows only your files. Subfolders
 are fine (`src/scripts/ai/guard.cpp` compiles and scans like any other; the
-**New script...** dialog accepts `ai/guard` to create one). Your `.cpp` files
-are **never regenerated or parsed for compilation** - the editor only scans
-them (read-only) for `TYRA_OBJECT_SCRIPT(...)` registrations to populate the
-attach list. (Projects built with an older editor still carry generated
-copies inside `src/scripts/` - the first build with this version deletes
-them automatically.)
+**New script...** dialog accepts `ai/guard`). Your `.cpp` files are **never
+regenerated or parsed for compilation** - the editor only scans them
+read-only for `TYRA_OBJECT_SCRIPT(...)` registrations to fill the attach
+list. (Projects from an older editor still carry generated copies inside
+`src/scripts/`; the first build with this version deletes them
+automatically.)
 
 ## Quick start
 
 1. Select an object and click **New script...** in **Properties > Scripts**
-   (also available in the Project panel's *Scripts* section). The editor
-   writes `src/scripts/<name>.cpp` from an attachable stub and attaches the
-   class to the selected object.
+   (also in the Project panel's *Scripts* section). The editor writes
+   `src/scripts/<name>.cpp` from an attachable stub and attaches the class
+   to the selected object.
 2. Click **Open in VS Code** (Project panel > Scripts) - the generated
    `.vscode/c_cpp_properties.json` gives working IntelliSense against the
    engine and PS2SDK headers.
@@ -87,16 +86,16 @@ while its ownership-marker line is intact, so the API tracks the editor).
 | `onUsed(ScriptContext&)` | The frame the player pressed USE on `self` (objects with **Usable** checked - same dispatch as the flow graph's *On Used* trigger). |
 
 Instances are created at scene load and deleted when the scene is left -
-member variables reset on every scene switch or reload. For state that must
-survive scenes or power-off, write `ctx.saveValues` (see *Save data* in the
-Project panel).
+member variables reset on every scene switch or reload. State that must
+survive scenes or power-off goes in `ctx.saveValues` (see *Save data* in
+the Project panel).
 
 ### `self` - the attached object
 
-`self` is a `RuntimeObject*` pointing at the object this instance is
-attached to (`selfIndex` is its index in `ctx.objects`); the driver
-refreshes it every frame. Mutate the object through it, then set
-`self->dirty = true` so the geometry rebuilds:
+`self` is a `RuntimeObject*` for the object this instance is attached to
+(`selfIndex` is its index in `ctx.objects`), refreshed by the driver every
+frame. Mutate the object through it, then set `self->dirty = true` so the
+geometry rebuilds:
 
 | Field | Meaning |
 |---|---|
@@ -113,13 +112,13 @@ refreshes it every frame. Mutate the object through it, then set
 
 `TYRA_OBJECT_SCRIPT(ClassName);` goes at file scope **inside your project
 namespace** (the stub places it correctly). The stringized class name is
-what the editor's attach list shows and what is stored in the project file -
-rename the class and existing attachments show a red *not found* until you
-re-attach or rename them back. One file may register several classes.
+what the attach list shows and what the project file stores - rename the
+class and existing attachments show a red *not found* until you re-attach
+or rename back. One file may register several classes.
 
 ### `ScriptContext` - everything a script can see
 
-The same context global scripts receive; the fields you will actually use:
+The same context global scripts receive; the fields you'll actually use:
 
 | Field | Meaning |
 |---|---|
@@ -142,27 +141,26 @@ play identically), `g_frameScale`, the `SCENE_*` accessor macros.
 ## Empty objects
 
 **+ Add object > Empty** inserts a pure transform: a small sphere marker in
-the editor viewport, *nothing* in the game - no geometry, no collision, no
-USE target. It exists exactly so scripts and flow graphs have something to
-hang on:
+the viewport, *nothing* in the game - no geometry, no collision, no USE
+target. It exists so scripts and flow graphs have something to hang on:
 
-- an anchor for an object script that manages a spot in the world (spawner,
-  trigger zone via distance check, cutscene camera target),
+- an anchor for a script that manages a spot in the world (spawner, trigger
+  zone via distance check, cutscene camera target),
 - a waypoint: flow-graph *Move Object* nodes and scripts can read/write its
   position like any object,
-- its editable **color** never renders in-game, which makes it a free
-  per-object parameter (`self->data.color`) - e.g. one "SkyTint" script
-  attached to differently-colored empties per scene.
+- its editable **color** never renders in-game, so it's a free per-object
+  parameter (`self->data.color`) - e.g. one "SkyTint" script attached to
+  differently-colored empties per scene.
 
 Rotation, scale and *Save state* work like on any object; collision is
 always off.
 
 ## Global scripts
 
-The pre-existing flavor still works and is the right tool for logic that is
-not about one object: derive from `Script`, override `init`/`update`,
-register with `TYRA_SCRIPT(MyScript);` (note: at file scope, *outside* or
-inside the namespace with a qualified name - see the FPP example script).
+The pre-existing flavor still works and is the right tool for logic that
+isn't about one object: derive from `Script`, override `init`/`update`,
+register with `TYRA_SCRIPT(MyScript);` (at file scope, *outside* the
+namespace or inside it with a qualified name - see the FPP example script).
 One instance for the whole game, `update` runs every frame in every scene.
 Existing projects keep compiling unchanged; the flow-graph compiler and the
 object-script driver are themselves global scripts under the hood.
@@ -175,7 +173,7 @@ object-script driver are themselves global scripts under the hood.
   touches no strings.
 - Scenes with no attachments cost an empty loop; unattached classes cost
   only their code size.
-- The usual costs are what the script *does*: `self->dirty = true` rebuilds
+- The real costs are what the script *does*: `self->dirty = true` rebuilds
   that object's vertex buffers this frame (fine for a handful of moving
   objects - the flow graph's Move/Recolor nodes do the same), and per-frame
   math over `ctx.objects` scales with scene size.
@@ -185,11 +183,11 @@ object-script driver are themselves global scripts under the hood.
 | Symptom | Cause / fix |
 |---|---|
 | Class missing from the **Attach script...** combo | No `TYRA_OBJECT_SCRIPT(Name);` in a `src/scripts/*.cpp` file (the scan is textual and per-file - check spelling and that the file is saved). |
-| Attached entry shows red *"not found"* | The registration disappeared (file deleted, class renamed). The game will skip it with a log line; remove the entry or restore the class. |
-| `Object script not registered: X` in the game log (Debug panel, `bin/log.txt`) | Same as above, seen at runtime - scene loads fine, that attachment is skipped. |
-| Script does nothing | Is it attached to an object *in the active scene*? Attachments are per object per scene; the class running in scene A does not run in scene B. |
+| Attached entry shows red *"not found"* | The registration disappeared (file deleted, class renamed). The game skips it with a log line; remove the entry or restore the class. |
+| `Object script not registered: X` in the game log (Debug panel, `bin/log.txt`) | Same as above, seen at runtime - the scene loads fine, that attachment is skipped. |
+| Script does nothing | Is it attached to an object *in the active scene*? Attachments are per object per scene. |
 | State resets when the scene changes | By design - instances are recreated per scene load. Persist through `ctx.saveValues` or a `static` member (statics survive scene switches but not power-off). |
 | Movement speed differs between PAL and NTSC | Multiply per-frame deltas by `g_frameDt` (seconds) or `g_frameScale` (50 Hz-relative) - never hardcode per-frame steps. |
 | `onUsed` never fires | The object needs **Usable** checked (Properties), the player must be close and press USE; menus swallow input while open. Markers (spawn, player, lights, empties) cannot be usable. |
 | Nothing moves while a menu is open | Menus with *Pause gameplay* checked pause all scripts - that is the pause menu working as intended. |
-| Editing the `.cpp` does nothing in the running game | Scripts compile at build time - **Build & Run** again (there is no hot reload on the console). |
+| Editing the `.cpp` does nothing in the running game | Scripts compile at build time - **Build & Run** again (no hot reload on the console). |
