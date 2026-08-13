@@ -1,5 +1,7 @@
 # Texture atlasing
 
+![Texture atlasing in Rendering preferences](img/project-preferences-rendering.png)
+
 Texture atlasing packs small material textures into shared **256×256 pages**
 at build time — *Project > Preferences > Rendering > Texture atlasing*
 (default off). The GS then keeps **one VRAM allocation (+~8 KB allocation

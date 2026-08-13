@@ -1,5 +1,7 @@
 # Baked ambient occlusion (contact shadows)
 
+![Ambient occlusion and global illumination controls](img/ambience-editor.png)
+
 Baked ambient occlusion puts soft contact shadows where geometry meets:
 terrain self-shadowing (ravines, the foot of hills) and darkening where
 objects touch the ground and each other. The occlusion is baked at build into

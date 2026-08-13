@@ -1,5 +1,9 @@
 # Streaming layers
 
+![Layered buildings in the editor](img/streaming-layers-editor.png)
+
+![Layer controls in Project Preferences](img/project-preferences-world.png)
+
 Layers group scene objects so the game can **unload them from memory and
 stream them back in at runtime** — the way GTA3 kept only the part of the
 world around you in the PS2's 32 MB of RAM. Walk into a corridor, drop the

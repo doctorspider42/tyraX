@@ -1,5 +1,7 @@
 # Sound: voices, priority and who gets cut off
 
+![Sound rooms and their reverb settings](img/reverb-area.png)
+
 The PlayStation 2 plays a fixed number of sounds at once. Not "a lot" — a
 number, and a small one. This page is what that number is, who spends it, and
 what happens when a game asks for one more sound than the chip has left. For

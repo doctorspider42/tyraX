@@ -1,5 +1,7 @@
 # Live Link — edit the running game
 
+![Live Link and the other devkit channels](img/project-preferences-build.png)
+
 Live Link mirrors scene edits into the **running** game without a rebuild: drag
 an object with the gizmo, spin it, scale it, recolor it — even **add or delete
 objects** — and watch the scene change on the PS2 (or in PCSX2) as you work. In

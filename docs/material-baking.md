@@ -1,5 +1,7 @@
 # Material map baking (matbake)
 
+![Material Editor](img/material-editor.png)
+
 `src/matbake.cpp/.hpp` is the Material Editor's UV-space raytraced baker: it
 turns a mesh (a preview primitive or one of the project's `.obj` models)
 into a set of texture-space maps - ambient occlusion, bent normals,

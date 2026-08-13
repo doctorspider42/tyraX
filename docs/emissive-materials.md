@@ -1,5 +1,7 @@
 # Emissive materials (glow)
 
+![Editing a material in the Material Editor](img/material-editor.png)
+
 A material that lights **itself** — and, if you want, everything around it.
 Lava cracks, neon signs, monitor screens, sci-fi panels, magic runes: anything
 that must stay visible, in its own color, when the scene around it is pitch

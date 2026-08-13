@@ -1,5 +1,7 @@
 # Baked global illumination + light probes
 
+![Global illumination controls and bake status](img/ambience-editor.png)
+
 Static geometry gets a baked multi-bounce lightmap. Everything that moves gets
 its light from a probe grid. The PlayStation 2 pays **nothing** at run time for
 either: the ray tracing happens on your desktop and ships as one texture and one

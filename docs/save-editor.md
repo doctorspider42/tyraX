@@ -5,6 +5,8 @@ the save presents itself in the PS2 browser, exactly what one slot costs, the
 named values and texts every slot carries, and the checkpoint system that saves
 progress without touching the card at all.
 
+![The Save Editor showing the animated card icon, slot settings and exact storage cost.](img/save-editor.png)
+
 The game keeps **three slots** in its own directory on card 1
 (`/TYRA-<PROJECT>`). When the BIOS memory-card modules cannot be loaded, or no
 formatted card answers, the slots fall back to `save<n>.sav` next to the ELF —

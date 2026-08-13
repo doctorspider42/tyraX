@@ -1,5 +1,7 @@
 # Keyboard & mouse controls
 
+![Keyboard and mouse controls enabled for a debug build](img/project-preferences-build.png)
+
 Generated games can be played with a USB keyboard and mouse — in PCSX2 out of
 the box, and on a real PS2 with USB devices in the front ports. The feature is
 a project preference: *Project > Preferences > Build > Keyboard & mouse

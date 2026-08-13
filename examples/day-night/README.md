@@ -45,7 +45,7 @@ use, both were on screen for **0 %** of their time up.
 | The **fog** | Tinted per moment to match its sky, so the far edge of the terrain never disagrees with the horizon behind it. |
 | **Noon vs night** | The moon disc is not drawn at noon and the sun is not drawn at night. A body more than 10° below the horizon is skipped. |
 | The **`live`** scene | The arch is baked at noon with neutral light and still goes warm at sunset and cold blue at night — measured 120,119,114 → 106,75,59 → 24,26,36 while its vertex colours never change. That is the drift grade. |
-| The **sunset in `live`**, about 1.5 s after it starts | The cast shadows **dissolve** as the sun reaches the horizon, and the moon's fade in behind them. They never jump to the other side of the caster: the light direction swaps bodies at the middle of twilight, and the shadow it throws is at 0.03 % opacity when it does. Console-logged: 167.97 degrees of direction change at a shadow fade of 0.0002. See [the handover](../../docs/day-night-cycle.md#two-rules-the-math-keeps-and-why). |
+| The **sunset in `live`**, about 1.5 s after it starts | The cast shadows **dissolve** as the sun reaches the horizon, and the moon's fade in behind them. They never jump to the other side of the caster: the light direction swaps bodies at the middle of twilight, and the shadow it throws is at 0.03 % opacity when it does. Console-logged: 167.97 degrees of direction change at a shadow fade of 0.0002. See [the handover](../../docs/day-night-cycle.md#sun-and-moon-arcs). |
 
 ## Where the moments come from
 

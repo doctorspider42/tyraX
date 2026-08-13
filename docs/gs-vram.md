@@ -1,5 +1,7 @@
 # GS VRAM residency
 
+![Display settings warn when the selected buffers do not fit in VRAM](img/project-preferences-display.png)
+
 A developer note (not a user guide) on how the engine fork
 (`vendor/tyra/engine/.../renderer/core/gs/renderer_core_gs_vram.*` and
 `.../texture/renderer_core_texture.*`) hands out the PlayStation 2's 4 MB of

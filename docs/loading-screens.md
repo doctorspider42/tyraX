@@ -5,6 +5,8 @@ A **loading screen** is what the game shows while a scene loads — at boot (the
 screens, each with a background color, images, texts and **progress bars**,
 then assign one per scene or set a project default.
 
+![A loading screen with one text label and a continuous progress bar, previewed at 65 percent.](img/loading-screen-editor.png)
+
 Open it from **Tools > Loading Screens** (or the button in *Project >
 Preferences*). The master switch is *Project > Preferences > "Loading screen
 between scenes"* — off, scenes cut straight in.

@@ -9,6 +9,20 @@ optionally locked to a world axis.
 
 ## Switching
 
+The same scene makes the difference clearer than a definition:
+
+**Perspective —** good for judging the scene as a player will see it.
+
+![The showcase scene in perspective view.](img/view-perspective.png)
+
+**Top —** the same scene becomes a floor plan, so spacing is easy to compare.
+
+![The showcase scene snapped to Top view.](img/view-top.png)
+
+**Front —** the same scene becomes an elevation, so height is easy to compare.
+
+![The showcase scene snapped to Front view.](img/view-front.png)
+
 ### The axis gizmo
 
 The quickest way is the widget in the viewport's **top-right corner** — the

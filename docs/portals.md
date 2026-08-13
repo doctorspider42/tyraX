@@ -1,5 +1,7 @@
 # Portals
 
+![A portal linked to its target](img/portals-editor.png)
+
 A **Portal** is a scene object (Insert > Gameplay > Portal): a rectangle that
 links to another Portal in the same scene. The surface shows a **live view
 through to the target** — a second camera, kept in lockstep with the player

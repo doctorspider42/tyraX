@@ -1,5 +1,7 @@
 # Placing objects: surface snapping and deferred paste
 
+![Surface snap in the perspective viewport](img/view-perspective.png)
+
 Two conveniences for building a scene by hand: new objects **rest on what is
 under them** instead of sinking into it, and a paste **follows the cursor**
 until you put it down.

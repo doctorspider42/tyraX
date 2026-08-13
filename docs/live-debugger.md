@@ -1,5 +1,7 @@
 # Live Debugger — step through a PS2 game's logic from the editor
 
+![Live Debugger waiting for a running game](img/live-debugger.png)
+
 Live Link streams edits *into* the running game. The Live Debugger is the other
 direction: the game streams back **what its flow graphs are doing**, and takes
 commands. Nodes light up in the editor as the console runs them, exec links glow

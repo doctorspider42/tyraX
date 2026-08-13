@@ -1,5 +1,9 @@
 # PS2 output in the viewport
 
+![Editor viewport mode](img/ps2-viewport-editor.png)
+
+![The same scene in PS2 GS mode](img/ps2-viewport-gs.png)
+
 Two ways of looking at the same scene:
 
 - **Editor** (default) — the viewport's own image. Full monitor resolution,

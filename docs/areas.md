@@ -1,5 +1,7 @@
 # Areas (invisible volumes)
 
+![Area volumes outlined in the editor](img/reverb-area.png)
+
 An **Area** is a scene object with no geometry: an oriented box you place with
 the gizmo, wireframe in the editor, completely absent from the game — no
 collision, no triangles, no VRAM.

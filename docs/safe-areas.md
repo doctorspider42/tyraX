@@ -1,5 +1,9 @@
 # TV safe areas
 
+![PAL safe-area guide](img/safe-area-pal.png)
+
+![PAL and NTSC guides together](img/safe-area-pal-ntsc.png)
+
 Guides in the viewport for framing something a real television will not crop.
 They live behind the **gear in the viewport's bottom-left corner** so they cost
 no screen space until wanted, and the settings are machine-global (`editor.ini`)

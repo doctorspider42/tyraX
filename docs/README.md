@@ -1,5 +1,7 @@
 # TyraX documentation
 
+![TyraX editor overview](img/editor-overview.png)
+
 User-facing guides for what TyraX — the engine and its editor — can do, written
 for people building games with it. Internals live in code comments, the git log
 (commit messages carry what changed and how it was verified) and the
@@ -7,7 +9,7 @@ for people building games with it. Internals live in code comments, the git log
 
 **World & objects**
 
-- [Animated models (.glb)](animated-models.md) — authoring in Blender, import,
+- [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) — why the
   game reads a binary model instead of your `.obj`, and distance LOD with
@@ -65,9 +67,9 @@ for people building games with it. Internals live in code comments, the git log
   bake follows, sun and moon arcs, the runtime clock.
 - [Custom screen effects](custom-screen-effects.md) — your own full-screen post
   effects in `.screenfx` text files, no editor rebuild.
-- [The neural upscaler (BLSS)](neural-upscaler.md) — render at half resolution,
-  reconstruct with a small neural net, measured 1.63x on real hardware. Also a
-  six-act cautionary tale about measuring things honestly.
+- [The neural upscaler (BLSS)](neural-upscaler.md) — reduce the 3D raster and
+  reconstruct it in plain or neural mode; includes the measured break-even and
+  training workflow.
 
 **Gameplay & logic**
 

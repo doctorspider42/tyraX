@@ -1,5 +1,7 @@
 # The terrain, and building without one
 
+![Sculpting and painting terrain](img/terrain-painting.png)
+
 Every scene starts with a **terrain**: a flat ground plane, as wide and deep
 as the scene, that you can sculpt and paint ([terrain
 painting](terrain-painting.md)). It's what everything stands on — the player,

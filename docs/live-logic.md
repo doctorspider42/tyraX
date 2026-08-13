@@ -1,5 +1,7 @@
 # Live Logic — edit a flow graph, no rebuild
 
+![Live Logic enabled with the devkit channels](img/project-preferences-build.png)
+
 Live Link streams object state into the running game. The Live Debugger streams
 back what ran. **Live Logic streams the program itself**: change a flow graph in
 the editor and the game's behavior changes on the PlayStation 2 within a fraction

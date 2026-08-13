@@ -9,6 +9,8 @@ The project opens with the **Material Editor already docked** (every window
 layout requests it) and ships in the **debug** profile so Live Link + hot
 reload work straight after F5.
 
+![The altar material with baked AO, edge wear, cavity grime and the live model preview.](../../docs/img/material-editor.png)
+
 ## What to look at in the game (Build & Run)
 
 - The altar's shading is *in the texture*: contact darkening where the

@@ -7,6 +7,8 @@ piece of world state — `world.power.state`, `characters.marta.trust`,
 flow graphs, combined into reusable conditions, reacted to by rules, and
 watched live while the game runs.
 
+![The World Facts catalog: nested names on the left and the selected fact's definition on the right.](img/world-facts.png)
+
 It is the declared half of what the **Variables** flow nodes already do
 undeclared. Those keep working and are a separate namespace: a variable is a
 scratch value that exists by being typed somewhere, a fact is state somebody

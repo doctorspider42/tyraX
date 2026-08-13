@@ -6,6 +6,8 @@ the disc except the graph that describes it and five one-cube models.
 Open `blocks-terrain.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor.exe --build <this folder> --run`.
 
+![The generated block landscape in the viewport with the Terrain Editor open.](../../docs/img/terrain-painting.png)
+
 **TRIANGLE builds a new world** — not a reload. The graph runs again on the EE
 with a fresh seed; the old geometry is thrown away and a different landscape
 merged in its place, in a fraction of a second.

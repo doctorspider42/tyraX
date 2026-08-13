@@ -1,5 +1,7 @@
 # AI support in generated projects
 
+![AI support installers in Project Preferences](img/project-preferences-build.png)
+
 **What the option does:** it copies assistant guidance files into your game
 project so an AI coding assistant opened inside it (Claude Code, Codex, GitHub
 Copilot) immediately knows what a TyraX project is: which files are

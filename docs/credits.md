@@ -5,6 +5,8 @@ images and page breaks that scroll up over music, with a skip button and
 somewhere to go when it is over. Rolls are project-wide data (like Ambience
 presets or Loading Screens), authored in **Tools > Credits Editor**.
 
+![The Credits Editor with blocks, visual settings, playback controls and the baked-page preview.](img/credits-editor.png)
+
 A roll **owns the screen and the pad** while it plays. Gameplay, scripts and
 flow graphs are frozen, nothing renders behind it, and when it ends — or the
 player skips it — it runs its own **finish action**: resume the game, switch

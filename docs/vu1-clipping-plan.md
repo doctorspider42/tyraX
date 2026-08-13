@@ -1,5 +1,7 @@
 # Moving StaPip clipping from the EE to VU1 — design & plan
 
+![Clipping mode in Rendering preferences](img/project-preferences-rendering.png)
+
 This is the developer design doc (not a user guide) for moving StaPip's
 precise clipping off the EE and onto VU1. Status: **M0–M4 done** — VU1
 clipping is the **default** for new projects and the first choice in the

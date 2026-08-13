@@ -5,6 +5,8 @@ the [procedural generation](../../docs/procedural-generation.md) library — fro
 "scatter a forest with clearings" to "put this pillar twelve times around a
 circle, exactly".
 
+![The forest volume's graph and its baked preview in the editor.](../../docs/img/procedural-editor.png)
+
 Open `procedural.tyra` in the editor and Build & Run (`F5`), or build headless:
 `tyrax-editor.exe --build <this folder> --run`. The project opens on its
 **Procedural** window layout, so the graph editor is already there; the volume

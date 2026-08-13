@@ -1,5 +1,7 @@
 # Raytraced reflections (VU0, experimental PoC)
 
+![Raytraced mirror settings](img/raytraced-mirror-editor.png)
+
 Yes, actual ray tracing on a PlayStation 2 — as a proof of concept. A Mirror
 object with **Properties > Mirror > Raytraced (VU0, experimental)** checked
 stops re-submitting reflected geometry and instead **ray-traces its reflection

@@ -5,6 +5,8 @@ saved once and stamped into the world as many times as you like: by hand, by a
 [procedural graph](procedural-runtime.md), or by a flow node while the game is
 running.
 
+![A one-object prefab created from the selected sphere, with its member and runtime cost shown.](img/prefabs-editor.png)
+
 Build a hut out of primitives, select it, press **Create from selection**.
 From then on it is one thing with a name — and a **Notes** field, a wrapped
 paragraph you click to edit rather than a one-line box, because what a prefab

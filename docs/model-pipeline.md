@@ -1,5 +1,7 @@
 # Static models: the .tmdl pipeline and mesh LOD
 
+![Browsing model assets before placing them](img/asset-browser.png)
+
 You author static geometry as `.obj` and nothing about that changes. What
 changed is what the **game** reads: the build compiles every `.obj` a scene
 uses into a binary `.tmdl` next to it, and that is what ships on the disc.

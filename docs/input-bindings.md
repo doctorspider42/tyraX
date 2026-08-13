@@ -6,6 +6,8 @@ that had no recourse. Now every button read goes through a named **action**,
 actions are bound in per-project **presets**, and the player can **rebind them
 in-game** from a menu row.
 
+![The Input Map with an action selected, its pad and keyboard bindings, and the active preset.](img/input-map.png)
+
 Three layers, each optional:
 
 | Layer | Who sets it | Where it lives |

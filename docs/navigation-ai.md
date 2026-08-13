@@ -1,5 +1,9 @@
 # NavMesh + NPC AI
 
+![Navigation mesh overlay](img/navmesh-overlay.png)
+
+![Patrol and chase flow graph](img/nav-ai-flow.png)
+
 NPCs that find their own way: a navigation grid baked from the scene on the
 **host** at build time, A* pathfinding on the PS2's EE, and four flow-graph
 nodes — **Patrol Waypoints**, **Chase Player**, **Flee From Player**, **On

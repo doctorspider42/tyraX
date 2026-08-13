@@ -1,5 +1,7 @@
 # Two-player games (shared screen & split screen)
 
+![Player and multiplayer settings](img/project-preferences-player.png)
+
 TyraX games can host a second local player: both players on one screen with a
 camera that frames the pair (**shared screen**), or each player with their own
 view (**split screen**, P1 top / P2 bottom). Player 2 can join and leave while

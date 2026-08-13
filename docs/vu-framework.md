@@ -1,5 +1,7 @@
 # The VU framework
 
+![Generated VU programs and their micro-memory budget](img/vu-programs.png)
+
 Writing a VU1 microprogram is the one part of this engine that stayed
 hand-carved. This is the machinery that makes it ordinary work: **describe a
 program in C++, generate both sides of it, and run it on the host** — no Docker,

@@ -50,6 +50,14 @@ exist.
 wireframe of exactly the box above. Session state, not project data, and it
 costs one wireframe draw per object.
 
+Without the overlay, you only see the scene geometry:
+
+![The physics playground with collision boxes hidden.](img/collision-boxes-off.png)
+
+Turn it on to see the boxes the player and camera actually hit:
+
+![The same scene with collision boxes shown as red wireframes.](img/collision-boxes-on.png)
+
 **In the game** — *Project > Preferences > Build > Show collision boxes*
 (**debug** build profile only, exactly like *Show areas*). Red wireframes
 drawn in the running game, following anything that moves — a tumbling physics

@@ -1,5 +1,9 @@
 # Runtime procedural generation
 
+![Runtime procedural rules](img/procedural-rules.png)
+
+![Procedural preview](img/procedural-preview.png)
+
 The other half of [procedural generation](procedural-generation.md): a
 Procedural volume has a **mode**, at the top of the *Tools > Procedural* window:
 

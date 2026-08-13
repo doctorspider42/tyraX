@@ -1,5 +1,7 @@
 # World scale: units, meters, and imports that land at the right size
 
+![Units per meter in World preferences](img/project-preferences-world.png)
+
 The engine has no unit. A "unit" is whatever a project decides it is, and the
 generated game never learns otherwise — it just multiplies the numbers it is
 given.

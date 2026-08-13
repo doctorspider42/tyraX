@@ -1,5 +1,7 @@
 # Object scripts (Unity-style components)
 
+![The Scripts section on a selected object](img/animated-model-properties.png)
+
 Custom game logic is written in C++ and compiled into the ELF by the normal
 build - there is no interpreter on the PS2, so scripts run at native speed.
 An **object script** is a class you write once and *attach* to any number of

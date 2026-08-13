@@ -1,5 +1,7 @@
 # Reflective materials (sphere-mapped "chrome")
 
+![Reflective objects in the example scene](img/reflective-object.png)
+
 The way PS2-era games faked reflections on car paint and chrome: the GS has no
 pixel shaders, so a *spherical environment map* (a small texture of the
 surroundings) is sampled per **vertex** with UVs derived from the camera-space

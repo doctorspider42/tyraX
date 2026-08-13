@@ -1,5 +1,7 @@
 # Text icons (button glyphs in text)
 
+![Editing text-bearing UI in Menu Designer](img/menu-designer.png)
+
 Write `{{cross}}` in any text and the game draws the ✕ button glyph there:
 
 ```

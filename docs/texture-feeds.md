@@ -1,5 +1,7 @@
 # Live texture feeds (camera CCTV + raytraced-mirror streams)
 
+![Camera and monitor surfaces in the texture-feed example](img/texture-feed-object.png)
+
 Any renderable object's surface can show a **live texture feed** instead of its
 material: *Properties > Texture feed*. Two sources:
 
