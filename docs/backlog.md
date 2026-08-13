@@ -96,6 +96,36 @@ the fault fired during those three clean cycles at all.
 
 ### Find what produces the anomalous SIF RPC completion
 
+**Four reproduction approaches are exhausted, all negative**, so this is now a
+code-reading job rather than an experiment:
+
+| approach | scale | result |
+|---|---|---|
+| amplified RPC load | 120 min, ~79 500 frames, 2.7x density | nothing |
+| live editing session | all four channels writing, 50 min | nothing |
+| teardown (kill the file server) | 6 unguarded, 4+3 guarded | no crash |
+| livetex hammer | 1024 bumps, **757 confirmed PNG re-reads** | nothing |
+
+The last one closed the final condition from the original report - a whole PNG
+decoded inside one frame on the main thread while the streamer thread reads. It
+needs no GUI: the `livetex.bin` layout is `TXLT`, version, seq, count, then
+104-byte records of a 96-byte path + u32 generation, and a footer of
+`seq ^ 0x5A5A5A5A`. Re-announce a byte-identical file so `reload()` cannot take
+its changed-size escape, target a path the game really knows
+(`inc/texture_data.gen.hpp`), and write tmp-then-rename with a retry - Windows
+refuses the rename while the file server holds the target, constantly. A
+`--livetex` CLI verb next to `--pad` would make this a first-class test tool.
+
+Two things that shape the search now. The fault fired **once**, in a session
+nobody instrumented, and nothing since has moved it - so treat any future
+occurrence as precious and read the counters immediately. And note the guard
+lives only in the GAME's sifrpc instance while ps2link keeps its own live in the
+same address space: if completions are being dispatched through ps2link's
+unguarded `_request_end`, the game's counter would stay at zero no matter what,
+which is consistent with every zero measured so far. **That is the first thing to
+check.**
+
+
 The guard proves *a* completion arrives with a null packet; it does not say who
 sent it. Ranked candidates, none discriminated: ps2link's `pkoSendSifCmd()`
 reusing one unsynchronised 1 KB buffer with no DMA wait (its own known rough
