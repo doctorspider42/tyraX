@@ -68,7 +68,7 @@ every field above. See [animation-import.md](animation-import.md).
 ## Third-person players
 
 A third-person Player can use any imported animated model as its avatar. Map
-Idle and Walk, then optionally Run, Jump, Back and strafe clips. The runtime
+Idle and Walk, then optionally Run, Sprint, Jump, Back and strafe clips. The runtime
 chooses locomotion from actual movement speed, matches playback speed and
 crossfades automatically. **Run at** is the fraction of the player's full-stick
 **run speed** at which the Run clip takes over; sprinting is always above it.

@@ -46,6 +46,9 @@ Live:
 - **position, rotation, scale, color** of every scene object — the same
   mutations the *Move/Set Color* flow nodes perform at runtime, so geometry
   rebuild, physics and collision all follow the patched values;
+- a Player object's **walk / run / sprint speeds** (the resolved values, so the
+  sprint multiplier's effect streams too) — tuning movement feel is exactly the
+  edit-run loop a rebuild would ruin ([player-speeds.md](player-speeds.md));
 - **adding objects** — a new object is instantiated through the game's runtime
   spawn pool by cloning an authored object with the same "recipe" (same type,
   model, material, detail, layer, physics…), then patched to its own
@@ -64,7 +67,8 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   primitive detail (and a cylinder's *Vertical rings*, which is the same
   geometry decision), physics (the flag and, while it is on, the mass /
   bounciness / friction / tumble material) / collision, layer membership,
-  emitter / sound / player / animation parameters…
+  emitter / sound / player (except the three speeds, which are live) /
+  animation parameters…
 - adding an object with **no matching template** in the built scene (nothing
   of the same recipe existed at build time), or one that can't be faithfully
   spawned at runtime: **point lights** (baked into vertex colors),
@@ -86,9 +90,10 @@ emulator, the ps2link/ps2client file server on a real console. One mechanism,
 both targets.
 
 - The editor (`App::liveLinkTick`, ~10 Hz) snapshots the active scene as one
-  64-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
-  editor id), a spawn-template index for objects added since the build, and
-  the 12 live floats — and writes `bin/livelink.bin` (`TXLL` magic, version,
+  80-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
+  editor id), a spawn-template index for objects added since the build, the
+  12 live floats and (on Player objects) the three resolved speed tiers — and
+  writes `bin/livelink.bin` (`TXLL` magic, version,
   sequence number, a footer echoing the sequence) atomically via a sibling
   tmp file + rename, whenever the payload changed.
 - The game side is a generated global script, `src/gen/live_link.gen.cpp`

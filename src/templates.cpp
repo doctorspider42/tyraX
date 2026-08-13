@@ -1432,6 +1432,12 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    int sprintClip = -1;  // -1 = the run clip covers sprinting
+    // walk / run / sprint, seeded from the scene tables at load. A variable
+    // rather than the constants so Live Link can stream a speed edit into a
+    // running debug build (docs/player-speeds.md); a release build just
+    // reads what the load wrote.
+    float speeds[3] = {0.1F, 0.1F, 0.18F};
     // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
     // the walk clip covers that direction.
     int backClip = -1, strafeLClip = -1, strafeRClip = -1;
@@ -1486,7 +1492,7 @@ class TerrainGame : public Tyra::Game {
   // (strafe) locomotion - the movement direction relative to the avatar's
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded, float moveLocal);
+                       bool grounded, float moveLocal, bool sprinting);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -2685,6 +2691,12 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    int sprintClip = -1;  // -1 = the run clip covers sprinting
+    // walk / run / sprint, seeded from the scene tables at load. A variable
+    // rather than the constants so Live Link can stream a speed edit into a
+    // running debug build (docs/player-speeds.md); a release build just
+    // reads what the load wrote.
+    float speeds[3] = {0.1F, 0.1F, 0.18F};
     // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
     // the walk clip covers that direction.
     int backClip = -1, strafeLClip = -1, strafeRClip = -1;
@@ -2739,7 +2751,7 @@ class TerrainGame : public Tyra::Game {
   // (strafe) locomotion - the movement direction relative to the avatar's
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded, float moveLocal);
+                       bool grounded, float moveLocal, bool sprinting);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -6030,6 +6042,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.playerSpeeds[0] = players[0].speeds;
+  scriptCtx.playerSpeeds[1] = players[1].speeds;
   scriptCtx.spawnPrefab = &spawnPrefabThunk;
   scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
   scriptCtx.generateVolume = &generateVolumeThunk;
@@ -8315,6 +8329,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
       P.runClip =
           PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.sprintClip = PP_SPRINT_CLIP(pi)[0]
+                         ? resolveClipIndex(P.objIndex, PP_SPRINT_CLIP(pi))
+                         : -1;
+      P.speeds[0] = PP_WALK_SPEED(pi);
+      P.speeds[1] = PP_RUN_SPEED(pi);
+      P.speeds[2] = PP_SPRINT_SPEED(pi);
       P.jumpClip =
           PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       P.backClip =
@@ -12478,9 +12498,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const bool sprinting =
       IA_ROLE_SPRINT >= 0 && inputPressed(pad, IA_ROLE_SPRINT);
   const float moveSpeed =
-      sprinting ? PP_SPRINT_SPEED(pi)
-                : PP_WALK_SPEED(pi) +
-                      (PP_RUN_SPEED(pi) - PP_WALK_SPEED(pi)) * stickMag;
+      sprinting ? P.speeds[2]
+                : P.speeds[0] + (P.speeds[1] - P.speeds[0]) * stickMag;
 
   if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -12658,9 +12677,9 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       // speed" whether or not a run speed was set (with none, RUN == WALK and
       // this is the expression it always was). Sprinting exceeds the run
       // speed, so it still pushes the fraction past the threshold.
-      const float step = PP_RUN_SPEED(pi) * g_frameScale;
+      const float step = P.speeds[1] * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
-                      moveLocal);
+                      moveLocal, sprinting);
     }
     return;
   }
@@ -12781,12 +12800,13 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
                                   float speedFrac, bool grounded,
-                                  float moveLocal) {
+                                  float moveLocal, bool sprinting) {
   if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
   const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
+  bool onSprintClip = false;
   if (!grounded && P.jumpClip >= 0)
     want = P.jumpClip;
   else if (speedFrac < 0.12F)
@@ -12803,19 +12823,29 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
       dir = P.backClip;
     else if (a > 1.0471976F)  // 60..120 deg
       dir = moveLocal < 0.0F ? P.strafeRClip : P.strafeLClip;
+    // Above the run threshold the sprint clip REPLACES the run clip while the
+    // sprint action is held - the tier is a button, not a speed band, so it is
+    // read from the button. A project with no sprint clip keeps using the run
+    // clip for both, exactly as before.
     if (dir >= 0)
       want = dir;
-    else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    else if (speedFrac < PP_RUN_THRESHOLD(pi))
       want = P.walkClip;
-    else
+    else if (sprinting && P.sprintClip >= 0) {
+      want = P.sprintClip;
+      onSprintClip = true;
+    } else if (P.runClip >= 0)
       want = P.runClip;
+    else
+      want = P.walkClip;
   }
   if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == P.idleClip || body.animClip == P.walkClip ||
-      body.animClip == P.runClip || body.animClip == P.jumpClip ||
+      body.animClip == P.runClip || body.animClip == P.sprintClip ||
+      body.animClip == P.jumpClip ||
       body.animClip == P.backClip || body.animClip == P.strafeLClip ||
       body.animClip == P.strafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
@@ -12829,9 +12859,18 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F)
-    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
-  else
+  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F) {
+    // speedFrac is measured against the RUN speed, so a sprint clip - authored
+    // at sprint pace - would be driven at sprint/run times its authored rate
+    // and visibly gallop. Normalise it against the tier the clip belongs to,
+    // so a sprint clip plays 1x while actually sprinting.
+    float frac = speedFrac;
+    if (onSprintClip && P.speeds[1] > 1e-6F) {
+      const float ratio = P.speeds[2] / P.speeds[1];
+      if (ratio > 1e-6F) frac /= ratio;
+    }
+    body.animSpeed = base * (frac < 0.6F ? 0.6F : frac);
+  } else
     body.animSpeed = base;
 }
 
@@ -20361,6 +20400,10 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+  // Each points at that player's live walk/run/sprint triple (PlayerCtl::
+  // speeds), so Live Link can stream a speed edit into a running debug build.
+  // Null when the game has no walker. Set by the game.
+  float* playerSpeeds[2] = {nullptr, nullptr};
 
   // Prefabs (docs/prefabs.md) and runtime procedural volumes
   // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static
@@ -23451,6 +23494,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         playerClip("IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
         playerClip("WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
         playerClip("RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
+        playerClip("SPRINT_CLIPS",
+                   [](const SceneObject& o) { return o.playerSprintClip; });
         playerClip("JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
         // Directional clips only reach the game with face-camera locomotion on:
         // with turn-to-face they would flicker in during the turn transient
@@ -24138,6 +24183,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_SPRINT_CLIP PLAYER_SPRINT_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
 // Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
@@ -24164,6 +24210,7 @@ inline int everyFrames(float seconds) {
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_SPRINT_CLIP(pi) PP_TBL(pi, SPRINT_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 // Directional locomotion (face-camera / strafe mode).
 #define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
@@ -33545,10 +33592,10 @@ static std::string liveLinkScript(const Project& p) {
            "\n"
            "typedef unsigned long long llu64;\n"
            "constexpr u32 LL_MAGIC = 0x4C4C5854;  // \"TXLL\"\n"
-           "constexpr u32 LL_VERSION = 2;\n"
+           "constexpr u32 LL_VERSION = 3;\n"
            "constexpr int LL_HEADER = 24;\n"
-           "constexpr int LL_STRIDE = 64;  // one record (id + template + 12 "
-           "floats)\n"
+           "constexpr int LL_STRIDE = 80;  // id + template + 12 floats + "
+           "3 speeds + pad\n"
            "// Largest authored object table across scenes - table bounds.\n"
            "constexpr int LL_MAX_OBJECTS = " << maxObjects << ";\n"
            "// Live-spawned clones tracked at once; matches the game's\n"
@@ -33604,14 +33651,24 @@ static std::string liveLinkScript(const Project& p) {
            "      const unsigned char* r = buf + LL_HEADER + i * LL_STRIDE;\n"
            "      llu64 id;\n"
            "      s32 tmpl;\n"
-           "      float v[12];\n"
+           "      float v[15];\n"
            "      memcpy(&id, r + 0, 8);\n"
            "      memcpy(&tmpl, r + 8, 4);\n"
-           "      memcpy(v, r + 16, 48);\n"
+           "      memcpy(v, r + 16, 60);\n"
            "\n"
            "      const int idx = findAuthored(id);\n"
            "      if (idx >= 0) {\n"
            "        if (idx < LL_MAX_OBJECTS) present[idx] = true;\n"
+           "        // A Player record also carries the resolved walk/run/\n"
+           "        // sprint speeds - stream them into the walker (the whole\n"
+           "        // reason a speed edit needs no rebuild). Zeros mean the\n"
+           "        // editor left them out.\n"
+           "        for (int pi = 0; pi < 2; ++pi)\n"
+           "          if (idx == (pi == 0 ? PLAYER_INDEXES[ctx.scene]\n"
+           "                              : PLAYER2_INDEXES[ctx.scene]) &&\n"
+           "              ctx.playerSpeeds[pi] && v[12] > 0.0F)\n"
+           "            for (int c = 0; c < 3; ++c)\n"
+           "              ctx.playerSpeeds[pi][c] = v[12 + c];\n"
            "        if (idx >= ctx.objectCount) continue;\n"
            "        RuntimeObject& o = ctx.objects[idx];\n"
            "        bool changed = patch(o, v);\n"

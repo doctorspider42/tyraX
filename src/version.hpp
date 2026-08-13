@@ -735,7 +735,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 26
+#define TYRAX_VERSION_MINOR 27
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -941,6 +941,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // every model is host-side only - SkelNode::name, which writeTskl does not
 // serialize - so no .tskl version moved either and an unimported model bakes
 // the same bytes it did before.
-inline constexpr int kFormatVersion = 19;
+// v20 (sprint clip + live speeds, docs/player-speeds.md): SceneObject::
+// playerSprintClip - the third-person avatar clip for the sprint tier, stored
+// in the thirdPerson object and written only when set, so an untouched project
+// resaves byte for byte. No migration step: "" means "the run clip covers
+// sprinting", which is what every project did. The same commit moves the
+// walkers onto PlayerCtl::speeds and streams speed edits over Live Link
+// record v3 - channel-internal, not project format.
+inline constexpr int kFormatVersion = 20;
 
 }  // namespace version

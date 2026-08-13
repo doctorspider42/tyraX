@@ -2720,6 +2720,7 @@ void App::renameAnimClipRefs(const std::string& model, const std::string& from,
             swap(o.playerIdleClip);
             swap(o.playerWalkClip);
             swap(o.playerRunClip);
+            swap(o.playerSprintClip);
             swap(o.playerJumpClip);
             // Animation nodes in this object's own graph default to "self",
             // so their Clip param names a clip of THIS model. A node whose

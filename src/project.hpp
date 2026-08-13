@@ -435,6 +435,14 @@ struct SceneObject {
     std::string playerIdleClip;       // clip name; "" = the model's first clip
     std::string playerWalkClip;       // "" = the model's first clip
     std::string playerRunClip;        // "" = never runs (walk covers all speeds)
+    // The clip for the sprint TIER (docs/player-speeds.md): played while the
+    // sprint action is held and the avatar is above the run threshold.
+    // "" = the run clip covers sprinting too, which is what every project did
+    // before this existed. Chosen from the sprint BUTTON rather than from a
+    // speed fraction - sprint is a binary modifier, and inferring it from speed
+    // would need a second threshold that could never be set reliably (sprint
+    // and run speeds may be a hair apart, or identical).
+    std::string playerSprintClip;
     std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
     // Directional locomotion (all optional; "" = the walk clip covers that
     // direction). Only visible with playerFaceCamera on: facing then stays on
@@ -921,6 +929,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerIdleClip == b.playerIdleClip &&
            a.playerWalkClip == b.playerWalkClip &&
            a.playerRunClip == b.playerRunClip &&
+           a.playerSprintClip == b.playerSprintClip &&
            a.playerJumpClip == b.playerJumpClip &&
            a.playerRunThreshold == b.playerRunThreshold &&
            a.playerCamDist == b.playerCamDist &&

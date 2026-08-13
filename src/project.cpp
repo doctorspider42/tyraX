@@ -764,6 +764,12 @@ std::string objectJson(const SceneObject& o) {
                 ", \"thirdPerson\": { \"idleClip\": \"" + jsonEscape(o.playerIdleClip) +
                 "\", \"walkClip\": \"" + jsonEscape(o.playerWalkClip) +
                 "\", \"runClip\": \"" + jsonEscape(o.playerRunClip) +
+                // Written only when set, so a project that never picked a
+                // sprint clip resaves byte for byte.
+                (o.playerSprintClip.empty()
+                     ? std::string()
+                     : "\", \"sprintClip\": \"" +
+                           jsonEscape(o.playerSprintClip)) +
                 "\", \"jumpClip\": \"" + jsonEscape(o.playerJumpClip) +
                 "\", \"backClip\": \"" + jsonEscape(o.playerBackClip) +
                 "\", \"strafeLeftClip\": \"" + jsonEscape(o.playerStrafeLeftClip) +
@@ -4580,6 +4586,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (const auto* v = tp->find("idleClip")) o.playerIdleClip = v->stringOr("");
                 if (const auto* v = tp->find("walkClip")) o.playerWalkClip = v->stringOr("");
                 if (const auto* v = tp->find("runClip")) o.playerRunClip = v->stringOr("");
+                if (const auto* v = tp->find("sprintClip"))
+                    o.playerSprintClip = v->stringOr("");
                 if (const auto* v = tp->find("jumpClip")) o.playerJumpClip = v->stringOr("");
                 if (const auto* v = tp->find("backClip")) o.playerBackClip = v->stringOr("");
                 if (const auto* v = tp->find("strafeLeftClip"))
@@ -6835,14 +6843,16 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.materialPath);
     // Player entity tunables (markers in the world, but baked per scene).
     fnvMix(h, (uint64_t)o.playerMode);
-    fnvMixF(h, o.playerWalkSpeed), fnvMixF(h, o.playerLookSpeed);
-    // Baked into the PLAYER_*_SPEEDS tables, so editing one needs a rebuild -
-    // the recipe hash is what flips the LIVE chip to amber and says so.
-    fnvMixF(h, o.playerRunSpeed), fnvMixF(h, o.playerSprintSpeed);
+    // The three speed tiers are deliberately NOT in this hash: the walker
+    // reads them from PlayerCtl::speeds, which Live Link streams into
+    // (record v3), so a speed edit updates the running game instead of
+    // flipping the chip amber. Look speed stays baked.
+    fnvMixF(h, o.playerLookSpeed);
     fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
     fnvMixS(h, o.playerRunClip), fnvMixS(h, o.playerJumpClip);
+    fnvMixS(h, o.playerSprintClip);
     fnvMixS(h, o.playerBackClip), fnvMixS(h, o.playerStrafeLeftClip);
     fnvMixS(h, o.playerStrafeRightClip);
     fnvMix(h, o.playerFaceCamera ? 1 : 0);

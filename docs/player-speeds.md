@@ -50,7 +50,12 @@ it always did.
 ## Animation
 
 The third-person avatar's locomotion clip is chosen from its actual planar speed
-as a fraction of the **run** speed (*Properties > Run at*, default 0.55). So
+as a fraction of the **run** speed (*Properties > Run at*, default 0.55). A
+separate **Sprint clip** (optional) replaces the run clip while the sprint
+action is held — chosen from the button, not from a second speed threshold, and
+its playback rate is normalised to the sprint tier so a clip authored at sprint
+pace plays 1× while actually sprinting. Unset, the run clip covers sprinting,
+exactly as before. So
 "Run at 0.55" means "the run clip takes over past 55% of full-stick speed",
 whether or not a run speed was set — with none, the run speed *is* the walk
 speed and the number means exactly what it did before. Sprinting is above the
@@ -81,6 +86,10 @@ and the Properties panel prints them through the same two functions — so the
 runtime needs no fallback branch and the panel cannot promise a speed the
 console does not run.
 
-Editing any of the three needs a rebuild: they are baked scene tables, so they
-ride `liveLinkRecipeHash` and flip the LIVE chip to amber *(rebuild)* rather
-than streaming.
+All three speeds **stream over [Live Link](live-link.md)**: in a debug build
+with the LIVE chip green, dragging a speed field updates the running game in
+about a tenth of a second, no rebuild. The scene tables still seed the values at
+load; the walker reads them from `PlayerCtl::speeds`, which a Live Link record
+(v3) overwrites with the same resolved numbers the panel shows. The fallback
+walker of a Player-less scene keeps its baked constants — settings are not in
+the stream.

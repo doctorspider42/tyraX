@@ -1782,6 +1782,7 @@ void App::drawPropertiesWindow() {
                         o.playerIdleClip.clear();
                         o.playerWalkClip.clear();
                         o.playerRunClip.clear();
+                        o.playerSprintClip.clear();
                         o.playerJumpClip.clear();
                         o.playerBackClip.clear();
                         o.playerStrafeLeftClip.clear();
@@ -1844,6 +1845,16 @@ void App::drawPropertiesWindow() {
                     clipCombo("Idle clip", o.playerIdleClip, false);
                     clipCombo("Walk clip", o.playerWalkClip, false);
                     clipCombo("Run clip", o.playerRunClip, true);
+                    clipCombo("Sprint clip", o.playerSprintClip, true);
+                    prefHelp(
+                        "Played while the 'sprint' action is held and the\n"
+                        "avatar is past 'Run at' below. <none> = the run clip\n"
+                        "covers sprinting too.\n\n"
+                        "Chosen from the sprint BUTTON, not from a speed - so\n"
+                        "it works even when the sprint and run speeds are a\n"
+                        "hair apart. Its playback is matched to the sprint\n"
+                        "speed, so a clip authored at sprint pace plays at 1x\n"
+                        "when the player is actually sprinting.");
                     clipCombo("Jump clip", o.playerJumpClip, true);
                     // A fraction of the RUN speed - which is the walk speed
                     // until one is set, so the number means what it always did

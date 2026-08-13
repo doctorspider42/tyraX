@@ -682,7 +682,14 @@ merely loading; and the stick's deflection ramps walk -> run
 would have changed partial-stick behaviour for every existing project. Both walkers
 (`updatePlayerWalker` and the FPP tail's) carry the expression, and `drivePlayerAnim`
 normalises `speedFrac` by the RUN speed so "Run at" keeps meaning "fraction of
-full-stick speed".
+full-stick speed". **The Player walker reads the tiers from `PlayerCtl::speeds[3]`,
+seeded from the tables at scene load** - a variable, not the constants, because a
+Live Link v3 record (80-byte stride) carries the resolved triple and streams a speed
+edit into the running game through `ScriptContext::playerSpeeds` (the three fields
+are deliberately OUT of `liveLinkRecipeHash` for that reason; look speed stays
+baked). A per-object sprint CLIP (`playerSprintClip`, "" = the run clip covers
+sprinting) is chosen from the sprint BUTTON, never from a speed threshold, and its
+playback rate divides out sprint/run so a clip authored at sprint pace plays 1x.
 
 **Player / two-player work** (docs/multiplayer.md): the generated game's
 walker state is a per-player `PlayerCtl` struct (`players[2]` in the game hpp
