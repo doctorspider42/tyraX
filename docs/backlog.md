@@ -20,6 +20,54 @@ the verification, and any fact worth reusing belongs in the relevant
 - Lighting-effects batch: dynamic point lights (done, 113), sun lens flare,
   god rays, dynamic light on animated models, visible beams, blob shadows.
 
+## OPEN: the guard hangs the waiter - do not merge PR #222 as written
+
+**Measured 2026-08-13 on hardware, and it points at our own change.** The
+trigger is not load at all: it is TEARDOWN - killing the `host:` file server
+(what closing the editor mid-session does). Under that trigger:
+
+| build | teardowns | hangs |
+|---|---|---|
+| guard NOT installed | 6 | **0** |
+| guard installed | 4 | **2** |
+
+Two ELFs from one generated tree, one call apart (`engine.o` referencing
+`install()` or not; md5 `0301f688` vs `f36b34a7`), same crash handler, same
+fixture. Verdict per cycle is log-free and TV-free: reattach a client afterwards
+and count the game's own `open host:` lines - a live game resumes polling
+(251-427 opens observed), a hung one says nothing at all.
+
+2/4 against 0/6 is **suggestive, not significant** (Fisher p ~= 0.13), so this
+is not yet proof. But one hang was read out of console RAM as
+`g_noPacket = 1, g_reported = 0`: the guard rejected exactly one completion, and
+the main loop never reached `report()` afterwards - i.e. the loop was already
+stuck. Hang and rejection coincide.
+
+**The likely defect is in `requestEnd`, and it is a false rejection.** The
+comment there claims the `rpc_id` check "cannot false-reject a live call". That
+assumes `cd->hdr.rpc_id` only goes stale when the packet is recycled. But
+`_SifCmdIntHandler` calls `EI()` at its top, so a completion CAN be dispatched
+re-entrantly, and ps2sdk's `_request_end` signals the semaphore BEFORE clearing
+`pkt_addr` - so a woken thread can start the next call on the same client inside
+that window. A legitimate late completion then looks exactly like a recycled
+one, and dropping it leaves its waiter blocked for ever. ps2sdk crashes there;
+we hang there. **Neither is correct.**
+
+**The fix to try next** (untested): on every rejection still
+`iSignalSema(cd->hdr.sema_id)` and skip only the `rpc_packet_free` /
+`pkt_addr` write. The semaphore has `max_count = 1`, so an extra signal on an
+already-completed call is capped and harmless, and a stale (deleted) sema id is
+a no-op error return - while a waiter that would otherwise hang gets released.
+That should prevent the crash AND the hang. Re-run the table above to check it;
+3 cycles per arm is enough to see a 2-in-4 rate.
+
+**Two protocol facts for whoever re-runs it.** Five rapid reset+teardown cycles
+drive the console into "answers ping, `tcp/18193` listening, refuses every
+deploy" - a repeatable recipe for that wedge, which is worth having on its own
+(it is the third item below). Allow 32 s after `ps2client reset`, not 20. And a
+hung game can block the IOP's `host:` server hard enough that even `dumpmem`
+gets no answer, so read the counters early or not at all.
+
 ## OPEN: what produces the duplicate SIF RPC completion
 
 The EE crash in ps2sdk's `_request_end` (`BadAddr 0x00000010`, EPC in
