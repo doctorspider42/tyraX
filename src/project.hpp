@@ -400,6 +400,25 @@ struct SceneObject {
     // shows and edits this in units per SECOND; only the file and the game
     // see the step form.
     float playerWalkSpeed = 0.1f;
+    // The two speed tiers above the walk (docs/player-speeds.md), in the same
+    // per-1/50 s step unit. Both are 0 by default, which means "inherit", and
+    // that is what keeps every project written before they existed moving
+    // EXACTLY as it did: run resolves to the walk speed (so the ramp below is
+    // flat) and sprint to walk x ProjectSettings::sprintMultiplier, which is
+    // the constant the walkers used to apply on their own.
+    //
+    // How the three are selected at runtime, all in updatePlayerWalker:
+    //   - the left stick's deflection ramps the speed WALK -> RUN, so a gentle
+    //     stick walks and a full stick runs. A digital source (d-pad, keyboard)
+    //     always reads full deflection and therefore always runs.
+    //   - holding the "sprint" input action pins the speed at SPRINT instead,
+    //     flat, ignoring the ramp - a deliberate "go fast" modifier rather than
+    //     a third analog tier.
+    // The avatar's locomotion clip is chosen from the fraction of the RUN
+    // speed, so playerRunThreshold keeps meaning "fraction of full-stick
+    // speed" whether or not a run speed was set.
+    float playerRunSpeed = 0.0f;    // 0 = same as walk (no ramp)
+    float playerSprintSpeed = 0.0f; // 0 = run x settings.sprintMultiplier
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
@@ -416,6 +435,14 @@ struct SceneObject {
     std::string playerIdleClip;       // clip name; "" = the model's first clip
     std::string playerWalkClip;       // "" = the model's first clip
     std::string playerRunClip;        // "" = never runs (walk covers all speeds)
+    // The clip for the sprint TIER (docs/player-speeds.md): played while the
+    // sprint action is held and the avatar is above the run threshold.
+    // "" = the run clip covers sprinting too, which is what every project did
+    // before this existed. Chosen from the sprint BUTTON rather than from a
+    // speed fraction - sprint is a binary modifier, and inferring it from speed
+    // would need a second threshold that could never be set reliably (sprint
+    // and run speeds may be a hair apart, or identical).
+    std::string playerSprintClip;
     std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
     // Directional locomotion (all optional; "" = the walk clip covers that
     // direction). Only visible with playerFaceCamera on: facing then stays on
@@ -889,6 +916,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
+           a.playerRunSpeed == b.playerRunSpeed &&
+           a.playerSprintSpeed == b.playerSprintSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
@@ -900,6 +929,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerIdleClip == b.playerIdleClip &&
            a.playerWalkClip == b.playerWalkClip &&
            a.playerRunClip == b.playerRunClip &&
+           a.playerSprintClip == b.playerSprintClip &&
            a.playerJumpClip == b.playerJumpClip &&
            a.playerRunThreshold == b.playerRunThreshold &&
            a.playerCamDist == b.playerCamDist &&
@@ -1265,11 +1295,18 @@ struct ProjectSettings {
     // it is why projects tended to get built several times larger than metric
     // (docs/world-scale.md). Existing projects keep whatever they saved.
     float walkSpeed = 0.1f;
+    // The full-stick tier for the same fallback walker, mirroring
+    // SceneObject::playerRunSpeed: 0 = no ramp, the walk speed IS the top
+    // speed (what every project did before this existed).
+    float runSpeed = 0.0f;
     float lookSpeed = 1.0f;  // multiplier
 
     // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
-    // walkers multiply their walk speed by this. 1.0 = sprinting does nothing
-    // (the switch that turns the feature off without unbinding the button).
+    // walkers multiply their RUN speed by this (the run speed is the walk speed
+    // unless one was set, so this keeps meaning exactly what it always did).
+    // 1.0 = sprinting does nothing - the switch that turns the feature off
+    // without unbinding the button. A Player object can override the result
+    // outright with SceneObject::playerSprintSpeed.
     float sprintMultiplier = 1.8f;  // 1..4
 
     // Analog sticks: offsets below this fraction of full deflection read as
@@ -1535,7 +1572,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
-           a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.walkSpeed == b.walkSpeed && a.runSpeed == b.runSpeed &&
+           a.lookSpeed == b.lookSpeed &&
            a.sprintMultiplier == b.sprintMultiplier &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
@@ -2509,6 +2547,67 @@ inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
 }
 
 // ---------------------------------------------------------------------------
+// Animation imported from ANOTHER model file (docs/animation-import.md,
+// Tools > Animation Editor > Imported clips).
+//
+// One row = "take these clips out of `source` and put them on `model`". The
+// donor file is never merged into the target on disk and neither file is
+// rewritten: the merge happens on the parsed skeleton, at preview time and
+// again on the way into the .tskl, exactly like AnimClipEdit's trims and
+// renames. So the record of what was imported stays legible and reversible,
+// re-exporting either asset picks the change up, and the console pays nothing.
+//
+// The imported clips land in the model's clip list under their donor names
+// (plus `prefix`), which means every existing mechanism applies to them with
+// no further work - they can be renamed, trimmed, retimed and made in-place by
+// an AnimClipEdit, picked in any clip combo, and mapped to Player locomotion.
+struct AnimImport {
+    std::string model;   // target asset, e.g. "res/models/hero.glb"
+    std::string source;  // donor asset, e.g. "res/models/anim/run.fbx"
+    // Which of the donor's clips to take. EMPTY MEANS ALL, and that is the
+    // useful default: a Mixamo download is one clip per file.
+    std::vector<std::string> clips;
+    std::string prefix;  // prepended to each imported name; "" = keep them
+
+    // Hand-made donor-bone -> target-bone pairs from the bone-mapping editor
+    // (Map bones... in the Animation Editor). Wins over name matching; empty
+    // for the common same-rig case.
+    std::vector<std::pair<std::string, std::string>> boneMap;
+
+    // World-yaw of the source rig, degrees; -1 = auto from both rigs' feet.
+    // And the mirrored import (walk_right out of walk_left) - see
+    // docs/animation-import.md.
+    int facing = -1;
+    bool mirror = false;
+    // Posture fine-tune, degrees: + leans the torso forward, - back. The
+    // knob for a retarget that walks well but stands a few degrees off.
+    float lean = 0.0f;
+
+    // The retarget policy - animmerge::MergeOptions, stored as plain fields so
+    // the model does not depend on that header. The defaults are what makes a
+    // merge safe: root-only translation is what stops a donor's bone lengths
+    // from stretching the target.
+    int translation = 0;  // 0 root bones only, 1 animated only, 2 copy all
+    bool ignoreScale = true;
+    bool retargetRoot = true;
+    bool stripNamespace = true;
+    bool caseInsensitive = true;
+    bool skeletonTracksOnly = true;
+};
+
+inline bool operator==(const AnimImport& a, const AnimImport& b) {
+    return a.model == b.model && a.source == b.source && a.clips == b.clips &&
+           a.boneMap == b.boneMap &&
+           a.facing == b.facing && a.mirror == b.mirror &&
+           a.lean == b.lean &&
+           a.prefix == b.prefix && a.translation == b.translation &&
+           a.ignoreScale == b.ignoreScale && a.retargetRoot == b.retargetRoot &&
+           a.stripNamespace == b.stripNamespace &&
+           a.caseInsensitive == b.caseInsensitive &&
+           a.skeletonTracksOnly == b.skeletonTracksOnly;
+}
+
+// ---------------------------------------------------------------------------
 // WHAT THE NEURAL UPSCALER'S TRAINING CORPUS IS ALLOWED TO SEE
 // (Tools > Neural Upscaler (BLSS) > Training shots, docs/neural-upscaler.md).
 //
@@ -2896,6 +2995,12 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Clips borrowed from other model files (docs/animation-import.md). Folded
+    // into the parsed skeleton BEFORE animClipEdits, so an imported clip is
+    // trimmed, retimed and renamed by exactly the same machinery as a native
+    // one. Same lifetime rules as the list above: saved, outside undo.
+    std::vector<AnimImport> animImports;
+
     // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
     // objects - their flow graphs included - stamped into the world by hand,
     // by a procedural graph, or by the Spawn Prefab node while the game runs.
@@ -3261,6 +3366,7 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    AnimImports,     // "animImports" (clips borrowed from other model files)
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
@@ -3278,7 +3384,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 20,
+static_assert(kSectionCount == 21,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");
@@ -3336,6 +3442,22 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
 // runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// The Player speed tiers with the "0 = inherit" rule already applied, in the
+// stored per-1/50 s step unit (docs/player-speeds.md). ONE answer to "how fast
+// does this player actually move", read by codegen's PLAYER_*_SPEEDS tables AND
+// by the Properties readout - a second copy of the fallback chain is exactly how
+// a panel comes to promise a number the console does not run.
+//
+// Sprint falls back to run x sprintMultiplier rather than to walk x, which is
+// the same number whenever no run speed was set and is what makes an existing
+// project's sprint byte-identical.
+float playerRunSpeed(const SceneObject& o);
+float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st);
+// The same pair for the fallback walker of a scene with no Player object,
+// which is driven by ProjectSettings instead (Preferences > Player).
+float settingsRunSpeed(const ProjectSettings& st);
+float settingsSprintSpeed(const ProjectSettings& st);
 
 // What the neural upscaler resolves to across the WHOLE project (docs/
 // neural-upscaler.md, "Per scene"). One answer, read by codegen, by the build

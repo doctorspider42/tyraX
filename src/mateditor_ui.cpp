@@ -1078,6 +1078,15 @@ void App::matEdSavePaintTarget() {
 // it next to the ELF (tmp + rename, the game never sees a half file) and
 // bump bin/livetex.bin. The generated live_tex poller re-decodes the file
 // and re-sends the pixels to the texture's existing GS VRAM address.
+//
+// The game knows a texture by the path it was SHIPPED under, which is not
+// always where the texture lives: an animated model's bake renames every
+// texture its override .mtl names into a copy next to the .tskl
+// (templates::animTextureAliases), so one paint can have several targets -
+// and for a texture only animated models use, its own location is not one of
+// them at all. Every target is re-baked and announced as ONE group, so the
+// poller can tell "this path is not the one the game loaded" (ordinary) from
+// "none of them were" (the reload did not happen, and says so).
 void App::liveTexNotify(const std::string& texResRel) {
     if (!hasProject_) return;
     if (project_.settings.buildProfile != "debug" ||
@@ -1085,52 +1094,80 @@ void App::liveTexNotify(const std::string& texResRel) {
         return;  // mirrors the poller's existence in the build
     if (texResRel.rfind("res/", 0) != 0) return;
     if (matEdPaintW_ < 1 || matEdPaintPixels_.empty()) return;
-    const std::string gameRel = texResRel.substr(4);
-    if (gameRel.size() >= 96) return;  // record path field is 96 bytes
     namespace fs = std::filesystem;
     const fs::path binDir = fs::path(project_.dir) / "bin";
-    const fs::path dst = binDir / gameRel;
     std::error_code ec;
-    if (!fs::exists(dst, ec)) return;  // never shipped - nothing to reload
 
-    // shipped format from the PNG header: color type 3 = paletted, bit
-    // depth picks the palette size; anything else = full color
-    int cols = 0;
+    std::vector<std::string> targets;  // game-relative (= bin/-relative)
     {
-        std::ifstream in(dst, std::ios::binary);
-        unsigned char hdr[26] = {};
-        in.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
-        if (in.gcount() >= 26 && hdr[25] == 3)
-            cols = hdr[24] == 4 ? 16 : 256;
+        auto add = [&](const std::string& rel) {
+            if (rel.empty() || rel.size() >= 96) return;  // path field is 96 B
+            if (targets.size() >= 64) return;  // the manifest's record cap
+            for (const std::string& t : targets)
+                if (t == rel) return;
+            std::error_code e;
+            // never shipped -> the game cannot have loaded it
+            if (!fs::exists(binDir / rel, e)) return;
+            targets.push_back(rel);
+        };
+        add(texResRel.substr(4));
+        for (const std::string& alias :
+             templates::animTextureAliases(project_, texResRel))
+            add(alias);
     }
-    const fs::path tmp = binDir / (gameRel + ".txtmp");
-    fs::create_directories(tmp.parent_path(), ec);
-    std::string err;
-    const bool ok =
-        cols > 0 ? pngquant::quantizeRGBA(tmp.string(),
-                                          matEdPaintPixels_.data(),
-                                          matEdPaintW_, matEdPaintH_, cols, err)
-                 : pngquant::writePngRGBA(tmp.string(),
-                                          matEdPaintPixels_.data(),
-                                          matEdPaintW_, matEdPaintH_, err);
-    if (!ok) {
-        fs::remove(tmp, ec);
-        return;
+    if (targets.empty()) return;
+
+    std::vector<std::string> written;
+    for (const std::string& rel : targets) {
+        const fs::path dst = binDir / rel;
+        // shipped format from the PNG header: color type 3 = paletted, bit
+        // depth picks the palette size; anything else = full color. Asked per
+        // target - the texture bake quantizes each shipped copy on its own.
+        int cols = 0;
+        {
+            std::ifstream in(dst, std::ios::binary);
+            unsigned char hdr[26] = {};
+            in.read(reinterpret_cast<char*>(hdr), sizeof(hdr));
+            if (in.gcount() >= 26 && hdr[25] == 3)
+                cols = hdr[24] == 4 ? 16 : 256;
+        }
+        const fs::path tmp = binDir / (rel + ".txtmp");
+        fs::create_directories(tmp.parent_path(), ec);
+        std::string err;
+        const bool ok =
+            cols > 0
+                ? pngquant::quantizeRGBA(tmp.string(), matEdPaintPixels_.data(),
+                                         matEdPaintW_, matEdPaintH_, cols, err)
+                : pngquant::writePngRGBA(tmp.string(), matEdPaintPixels_.data(),
+                                         matEdPaintW_, matEdPaintH_, err);
+        if (!ok) {
+            fs::remove(tmp, ec);
+            continue;
+        }
+        fs::rename(tmp, dst, ec);
+        if (ec) {  // the game holds the file open right now - drop this one
+            fs::remove(tmp, ec);
+            ec.clear();
+            continue;
+        }
+        written.push_back(rel);
     }
-    fs::rename(tmp, dst, ec);
-    if (ec) {  // the game holds the file open right now - drop this update
-        fs::remove(tmp, ec);
-        return;
-    }
+    if (written.empty()) return;
 
     // announce: livetex.bin lists every repainted texture with a growing
     // generation; the poller applies the ones it hasn't seen. The list is
     // cumulative for the session so a game booted later catches up.
-    ++liveTexGen_[gameRel];
-    if (liveTexGen_.size() > 64) {  // record cap; keep the current one
-        const uint32_t keep = liveTexGen_[gameRel];
-        liveTexGen_.clear();
-        liveTexGen_[gameRel] = keep;
+    const uint32_t group = ++liveTexGroup_;
+    for (const std::string& rel : written) {
+        LiveTexRec& r = liveTexGen_[rel];
+        ++r.gen;
+        r.group = group;
+    }
+    if (liveTexGen_.size() > 64) {  // record cap; keep this paint's group
+        std::map<std::string, LiveTexRec> keep;
+        for (const auto& [rel, r] : liveTexGen_)
+            if (r.group == group) keep[rel] = r;
+        liveTexGen_.swap(keep);
     }
     const uint32_t seq = ++liveTexSeq_;
     std::vector<unsigned char> file;
@@ -1142,10 +1179,11 @@ void App::liveTexNotify(const std::string& texResRel) {
     app32(1u);
     app32(seq);
     app32((uint32_t)liveTexGen_.size());
-    for (const auto& [rel, gen] : liveTexGen_) {
+    for (const auto& [rel, r] : liveTexGen_) {
         char rec[104] = {};
         std::snprintf(rec, 96, "%s", rel.c_str());
-        std::memcpy(rec + 96, &gen, 4);
+        std::memcpy(rec + 96, &r.gen, 4);
+        std::memcpy(rec + 100, &r.group, 4);
         file.insert(file.end(), rec, rec + 104);
     }
     app32(seq ^ 0x5A5A5A5Au);

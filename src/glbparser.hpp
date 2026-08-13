@@ -108,6 +108,15 @@ struct SkelNode {
     float t[3] = {0, 0, 0};
     float r[4] = {0, 0, 0, 1};  // x, y, z, w quaternion
     float s[3] = {1, 1, 1};
+    // The authored node/bone name. HOST-SIDE ONLY - writeTskl does not
+    // serialize it and the console never sees it, so this costs the PS2
+    // nothing and needs no .tskl version bump. It exists because a channel
+    // addresses its node by INDEX, and an index is meaningless across two
+    // different files: importing animation from another model
+    // (docs/animation-import.md) matches bones by this name and nothing else.
+    // Duplicates are made unique at parse time ("Hips", "Hips_1", ...) - two
+    // nodes sharing a name would silently cross-wire a merge.
+    std::string name;
 };
 
 // One matrix-palette slot: joint global * ibm skins the verts bound to it.
@@ -180,6 +189,13 @@ struct Skel {
 // Parses a .glb into the skeletal representation above. Same support matrix
 // and failure conditions as bake().
 bool parseSkel(const std::string& path, Skel& out, std::string& error);
+
+// Names every node exactly once: an unnamed node becomes "node_<index>" and a
+// repeated name gains a "_1", "_2" suffix. Called at the end of BOTH parseSkel
+// implementations, because animation import resolves bones by name and two
+// nodes answering to one name would cross-wire the merge silently. Purely
+// host-side (the name never reaches the .tskl).
+void uniqueNodeNames(Skel& skel);
 
 // Generates the distance LODs (SkelPart::lods) by quadric-error half-edge
 // collapse on the bind-pose mesh: ~50% and ~25% of the base vertex count.

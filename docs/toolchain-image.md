@@ -3427,7 +3427,7 @@ pipelines set `PRIM_TRIANGLE` - an independent triangle **list** - so the GS kic
   between: `eng_stapip_cull_tce_vu1` (**resident**), `gen_vu_script3_d`, `gen_vu_script3_tce`.
   Triangle T is drawn iff `!(v1 out || v2 out || v3 of T-1 out)`. That is **not conservative in
   either direction** - a triangle whose third vertex is outside is drawn unclipped when the
-  previous triangle's third was inside (the smeared-triangle failure `docs/vu1-clipping-plan.md`
+  previous triangle's third was inside (the smeared-triangle failure the retired `vu1-clipping-plan.md` (in git history)
   names), and a fully-inside triangle is dropped when the previous one's third was outside. Along
   a frustum silhouette both happen.
 * **2 of 23 are load-bearing and survive by luck.** Their gap is two rows and the row between is
@@ -3465,7 +3465,7 @@ have. That is the number to check against now.
 scene where those particular programs' kicking vertex judges a triangle on the frustum silhouette;
 `examples/reflections` renders byte-identically before and after, so the visual consequence here
 is inferred from the mechanism and the detector rather than observed. PCSX2's hardware renderer
-masks this class outright (`docs/vu1-clipping-plan.md`), so any attempt needs the software
+masks this class outright (recorded in the retired `vu1-clipping-plan.md`, still in git history), so any attempt needs the software
 renderer - which is what the screenshots above use - and a scene built for it.
 
 ### A third one, and this time the detector came first
@@ -4412,7 +4412,7 @@ before the branch**. So every iteration after the first tested the **previous** 
 the clipper applied the wrong subset of the six planes, and geometry that should have been
 clipped reached the GS. Which planes are wrong depends on where the object sits in the
 frustum, which is why it moves with the camera. **PCSX2 cannot see it** - its VU has no such
-hazard, the branch reads the value written the row before - and `docs/vu1-clipping-plan.md`
+hazard, the branch reads the value written the row before - and the retired `vu1-clipping-plan.md`
 predicted that this class would be masked there. This is the first demonstration.
 
 **Sony is the control, and it settles the threshold without a new hardware ladder.** A new

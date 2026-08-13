@@ -181,6 +181,19 @@ static std::string animBakedTsklRel(const std::string& modelPath,
     return base + suf + ".tskl";
 }
 
+// The res-relative path an extracted animated-model texture bakes to: the
+// image is RENAMED with the .tskl's stem so two models' equally-named images
+// cannot collide next to each other. The bake (bakeAnimAssets) and the
+// hot-reload alias lookup (animTextureAliases) must derive the same name.
+static std::string animBakedTextureRel(const std::string& modelPath,
+                                       const std::string& materialPath,
+                                       const std::string& imageName) {
+    std::string tskl = animBakedTsklRel(modelPath, materialPath);
+    if (const size_t dot = tskl.rfind('.'); dot != std::string::npos)
+        tskl = tskl.substr(0, dot);
+    return tskl + "_" + imageName;
+}
+
 // The .tmdl a static-model identity bakes to (res-relative), mirroring
 // animBakedTsklRel: the material override is resolved into the file at bake
 // time, so a {model, override} pair maps to its own artifact. Both the emit
@@ -435,7 +448,10 @@ int main(int argc, char** argv) {
   // "log.txt" (next to the ELF) instead of the EE console, which does not
   // reach PCSX2's emulog. The TyraX Debug window tails that file. Must
   // be set before the Engine is constructed (its init logging is the first to
-  // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
+  // hit the file). NOTE: this used to claim "no cost in a release (NDEBUG)
+  // build - the macros compile out", and that is FALSE - a game build never
+  // defines NDEBUG (release only drops -g and KEEPSYM), so every TYRA_LOG
+  // ships. Measured 2026-08-13; see docs/devkit.md.
   // Under ps2link the EE console is BETTER than the file: ps2link forwards
   // printf over the network and the editor shows it live in the Output panel.
   Tyra::Info::writeLogsToFile = !ps2link;
@@ -515,6 +531,11 @@ constexpr float TERRAIN_VIEW_DISTANCE = {{TERRAIN_VIEW_DISTANCE}};
 
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
+// The full-stick tier and the sprint tier, already resolved (0 = inherit is
+// applied by the editor, docs/player-speeds.md): with no run speed set these
+// are WALK_SPEED and WALK_SPEED x the sprint multiplier.
+constexpr float RUN_SPEED = {{RUN_SPEED}};
+constexpr float SPRINT_SPEED = {{SPRINT_SPEED}};
 constexpr float LOOK_SPEED = {{LOOK_SPEED}};    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -1444,6 +1465,12 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    int sprintClip = -1;  // -1 = the run clip covers sprinting
+    // walk / run / sprint, seeded from the scene tables at load. A variable
+    // rather than the constants so Live Link can stream a speed edit into a
+    // running debug build (docs/player-speeds.md); a release build just
+    // reads what the load wrote.
+    float speeds[3] = {0.1F, 0.1F, 0.18F};
     // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
     // the walk clip covers that direction.
     int backClip = -1, strafeLClip = -1, strafeRClip = -1;
@@ -1498,7 +1525,7 @@ class TerrainGame : public Tyra::Game {
   // (strafe) locomotion - the movement direction relative to the avatar's
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded, float moveLocal);
+                       bool grounded, float moveLocal, bool sprinting);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -2697,6 +2724,12 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    int sprintClip = -1;  // -1 = the run clip covers sprinting
+    // walk / run / sprint, seeded from the scene tables at load. A variable
+    // rather than the constants so Live Link can stream a speed edit into a
+    // running debug build (docs/player-speeds.md); a release build just
+    // reads what the load wrote.
+    float speeds[3] = {0.1F, 0.1F, 0.18F};
     // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
     // the walk clip covers that direction.
     int backClip = -1, strafeLClip = -1, strafeRClip = -1;
@@ -2751,7 +2784,7 @@ class TerrainGame : public Tyra::Game {
   // (strafe) locomotion - the movement direction relative to the avatar's
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded, float moveLocal);
+                       bool grounded, float moveLocal, bool sprinting);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -6042,6 +6075,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.playerSpeeds[0] = players[0].speeds;
+  scriptCtx.playerSpeeds[1] = players[1].speeds;
   scriptCtx.spawnPrefab = &spawnPrefabThunk;
   scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
   scriptCtx.generateVolume = &generateVolumeThunk;
@@ -8327,6 +8362,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
       P.runClip =
           PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.sprintClip = PP_SPRINT_CLIP(pi)[0]
+                         ? resolveClipIndex(P.objIndex, PP_SPRINT_CLIP(pi))
+                         : -1;
+      P.speeds[0] = PP_WALK_SPEED(pi);
+      P.speeds[1] = PP_RUN_SPEED(pi);
+      P.speeds[2] = PP_SPRINT_SPEED(pi);
       P.jumpClip =
           PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       P.backClip =
@@ -12470,17 +12511,28 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  // Sprint (Tools > Input Map "sprint" action + Preferences > Input > Sprint
-  // speed): scales the walk speed while the action is held. SPRINT_MULT 1 or
-  // an unbound/absent sprint action = no sprinting, no cost. The avatar's
-  // locomotion clip is chosen from speedFrac against the UNSPRINTED speed
-  // further down, so sprinting is what pushes it over the run threshold.
+  // The three speed tiers (docs/player-speeds.md). The stick's DEFLECTION
+  // ramps the speed from walk to run, so easing the stick walks and pushing it
+  // all the way runs; a digital source (d-pad, keyboard) always reads full
+  // deflection and therefore always runs. Holding the "sprint" action pins the
+  // top speed FLAT instead of ramping - a deliberate go-fast modifier.
+  //
+  // Both tiers are RESOLVED at build time (project::playerRunSpeed /
+  // playerSprintSpeed), so a project that set neither has RUN == WALK - the
+  // ramp is then a no-op - and SPRINT == walk x SPRINT_MULT, which is the
+  // expression this used to compute here. That is what makes an existing
+  // project move exactly as it did.
+  //
+  // forward/strafe are each -1..1 and already carry the stick's magnitude into
+  // the position delta below, so the ramp must scale the SPEED only; the clamp
+  // matters because a d-pad diagonal reads sqrt(2).
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
+  const bool sprinting =
+      IA_ROLE_SPRINT >= 0 && inputPressed(pad, IA_ROLE_SPRINT);
   const float moveSpeed =
-      PP_WALK_SPEED(pi) *
-      ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-        inputPressed(pad, IA_ROLE_SPRINT))
-           ? SPRINT_MULT
-           : 1.0F);
+      sprinting ? P.speeds[2]
+                : P.speeds[0] + (P.speeds[1] - P.speeds[0]) * stickMag;
 
   if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -12653,9 +12705,14 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[1] = P.y;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
-      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      // Locomotion clips are measured against the RUN speed - the top of the
+      // stick ramp - so PP_RUN_THRESHOLD keeps meaning "fraction of full-stick
+      // speed" whether or not a run speed was set (with none, RUN == WALK and
+      // this is the expression it always was). Sprinting exceeds the run
+      // speed, so it still pushes the fraction past the threshold.
+      const float step = P.speeds[1] * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
-                      moveLocal);
+                      moveLocal, sprinting);
     }
     return;
   }
@@ -12776,12 +12833,13 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
                                   float speedFrac, bool grounded,
-                                  float moveLocal) {
+                                  float moveLocal, bool sprinting) {
   if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
   const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
+  bool onSprintClip = false;
   if (!grounded && P.jumpClip >= 0)
     want = P.jumpClip;
   else if (speedFrac < 0.12F)
@@ -12798,19 +12856,29 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
       dir = P.backClip;
     else if (a > 1.0471976F)  // 60..120 deg
       dir = moveLocal < 0.0F ? P.strafeRClip : P.strafeLClip;
+    // Above the run threshold the sprint clip REPLACES the run clip while the
+    // sprint action is held - the tier is a button, not a speed band, so it is
+    // read from the button. A project with no sprint clip keeps using the run
+    // clip for both, exactly as before.
     if (dir >= 0)
       want = dir;
-    else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    else if (speedFrac < PP_RUN_THRESHOLD(pi))
       want = P.walkClip;
-    else
+    else if (sprinting && P.sprintClip >= 0) {
+      want = P.sprintClip;
+      onSprintClip = true;
+    } else if (P.runClip >= 0)
       want = P.runClip;
+    else
+      want = P.walkClip;
   }
   if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == P.idleClip || body.animClip == P.walkClip ||
-      body.animClip == P.runClip || body.animClip == P.jumpClip ||
+      body.animClip == P.runClip || body.animClip == P.sprintClip ||
+      body.animClip == P.jumpClip ||
       body.animClip == P.backClip || body.animClip == P.strafeLClip ||
       body.animClip == P.strafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
@@ -12824,9 +12892,18 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F)
-    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
-  else
+  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F) {
+    // speedFrac is measured against the RUN speed, so a sprint clip - authored
+    // at sprint pace - would be driven at sprint/run times its authored rate
+    // and visibly gallop. Normalise it against the tier the clip belongs to,
+    // so a sprint clip plays 1x while actually sprinting.
+    float frac = speedFrac;
+    if (onSprintClip && P.speeds[1] > 1e-6F) {
+      const float ratio = P.speeds[2] / P.speeds[1];
+      if (ratio > 1e-6F) frac /= ratio;
+    }
+    body.animSpeed = base * (frac < 0.6F ? 0.6F : frac);
+  } else
     body.animSpeed = base;
 }
 
@@ -19227,12 +19304,17 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
-  // Sprint: same rule as the Player-entity walker (Tools > Input Map).
+  // Speed tiers: the same rule as the Player-entity walker - the stick's
+  // deflection ramps WALK -> RUN, and holding sprint pins the top flat
+  // (docs/player-speeds.md). RUN_SPEED and SPRINT_SPEED are resolved at build
+  // time, so with no run speed set RUN_SPEED == WALK_SPEED (a flat ramp) and
+  // SPRINT_SPEED == WALK_SPEED x SPRINT_MULT, which is what this computed.
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
   const float moveSpeed =
-      WALK_SPEED * ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-                     inputPressed(engine->pad, IA_ROLE_SPRINT))
-                        ? SPRINT_MULT
-                        : 1.0F);
+      (IA_ROLE_SPRINT >= 0 && inputPressed(engine->pad, IA_ROLE_SPRINT))
+          ? SPRINT_SPEED
+          : WALK_SPEED + (RUN_SPEED - WALK_SPEED) * stickMag;
   float nextX = playerX + (fx * forward - fz * strafe) * moveSpeed * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * moveSpeed * g_frameScale;
 
@@ -20351,6 +20433,10 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+  // Each points at that player's live walk/run/sprint triple (PlayerCtl::
+  // speeds), so Live Link can stream a speed edit into a running debug build.
+  // Null when the game has no walker. Set by the game.
+  float* playerSpeeds[2] = {nullptr, nullptr};
 
   // Prefabs (docs/prefabs.md) and runtime procedural volumes
   // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static
@@ -23386,6 +23472,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         // The fallbacks fill scenes that have no Player object at all; keep
         // them on the SceneObject defaults (walk = 0.1 units per 1/50 s).
         playerFloat("WALK_SPEEDS", [](const SceneObject& o) { return o.playerWalkSpeed; }, 0.1f);
+        // The two tiers above the walk, RESOLVED here (docs/player-speeds.md):
+        // the "0 = inherit" chain is project::playerRunSpeed /
+        // playerSprintSpeed, the same functions the Properties panel prints, so
+        // the runtime needs no fallback branch and cannot disagree with the
+        // editor. A project that set neither bakes run = walk (a flat ramp) and
+        // sprint = walk x sprintMultiplier, i.e. exactly the constants the
+        // walkers used to compute inline.
+        playerFloat("RUN_SPEEDS",
+                    [](const SceneObject& o) { return project::playerRunSpeed(o); },
+                    0.1f);
+        playerFloat("SPRINT_SPEEDS",
+                    [&](const SceneObject& o) {
+                        return project::playerSprintSpeed(o, p.settings);
+                    },
+                    0.1f * (p.settings.sprintMultiplier > 1.0f
+                                ? p.settings.sprintMultiplier
+                                : 1.0f));
         playerFloat("LOOK_SPEEDS", [](const SceneObject& o) { return o.playerLookSpeed; }, 1.0f);
         playerFloat("EYE_HEIGHTS", [](const SceneObject& o) { return o.playerEyeHeight; }, 1.8f);
         playerFloat("JUMP_SPEEDS", [](const SceneObject& o) { return o.playerJumpSpeed; }, 4.5f);
@@ -23432,6 +23535,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         playerClip("IDLE_CLIPS", [](const SceneObject& o) { return o.playerIdleClip; });
         playerClip("WALK_CLIPS", [](const SceneObject& o) { return o.playerWalkClip; });
         playerClip("RUN_CLIPS", [](const SceneObject& o) { return o.playerRunClip; });
+        playerClip("SPRINT_CLIPS",
+                   [](const SceneObject& o) { return o.playerSprintClip; });
         playerClip("JUMP_CLIPS", [](const SceneObject& o) { return o.playerJumpClip; });
         // Directional clips only reach the game with face-camera locomotion on:
         // with turn-to-face they would flicker in during the turn transient
@@ -24101,6 +24206,8 @@ inline int everyFrames(float seconds) {
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_RUN_SPEED PLAYER_RUN_SPEEDS[g_activeScene]
+#define PLAYER_SPRINT_SPEED PLAYER_SPRINT_SPEEDS[g_activeScene]
 #define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
@@ -24117,6 +24224,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_SPRINT_CLIP PLAYER_SPRINT_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
 // Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
@@ -24125,6 +24233,8 @@ inline int everyFrames(float seconds) {
 #define PP_INDEX(pi) PP_TBL(pi, INDEXES)
 #define PP_MODE(pi) PP_TBL(pi, MODES)
 #define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_RUN_SPEED(pi) PP_TBL(pi, RUN_SPEEDS)
+#define PP_SPRINT_SPEED(pi) PP_TBL(pi, SPRINT_SPEEDS)
 #define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
 #define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
 #define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
@@ -24141,6 +24251,7 @@ inline int everyFrames(float seconds) {
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_SPRINT_CLIP(pi) PP_TBL(pi, SPRINT_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 // Directional locomotion (face-camera / strafe mode).
 #define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
@@ -25077,6 +25188,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
+    s = replaceAll(s, "{{RUN_SPEED}}", floatLit(project::settingsRunSpeed(st)));
+    s = replaceAll(s, "{{SPRINT_SPEED}}",
+                   floatLit(project::settingsSprintSpeed(st)));
     s = replaceAll(s, "{{LOOK_SPEED}}", floatLit(st.lookSpeed));
     s = replaceAll(s, "{{DEADZONE_L}}", floatLit(st.stickDeadzoneL));
     s = replaceAll(s, "{{DEADZONE_R}}", floatLit(st.stickDeadzoneR));
@@ -31458,7 +31572,10 @@ int progCount = 0, blockCount = 0, instrCount = 0, condCount = 0, strCount = 0;
 
 unsigned int lastSeq = 0;
 unsigned int lastGen = 0xFFFFFFFFU;  // scene generation the state belongs to
-int cooldown = 1;
+// PHASE, not a delay - see "Why the seven polls start on different frames" in
+// docs/devkit.md. Every channel used to start at 1 and re-arm to the same
+// number, so all seven stayed locked to one frame in 25 forever.
+int cooldown = 9;
 
 // One static read buffer - the EE does not allocate for this.
 unsigned char buf[LP_HEADER + 8 + MAX_PROGRAMS * 24 + MAX_BLOCKS * BLK_STRIDE +
@@ -32197,7 +32314,9 @@ void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
-int pollCooldown = 1;
+int pollCooldown = 21;  // poll phase - see docs/devkit.md
+// The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
+// it is the editor's liveness signal, and delaying it delays "the game is up".
 int flushCooldown = 1;
 bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
@@ -33134,7 +33253,7 @@ unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
 u32 seqOut = 0;         // captures written
 u32 frameNo = 0;        // monotonic across restores: the history's ordering key
 u32 lastRestoreSeq = 0;  // the restore we last applied
-int cooldown = 1;
+int cooldown = 13;  // poll phase - see docs/devkit.md
 unsigned int lastGen = 0xFFFFFFFFu;
 
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -33519,10 +33638,10 @@ static std::string liveLinkScript(const Project& p) {
            "\n"
            "typedef unsigned long long llu64;\n"
            "constexpr u32 LL_MAGIC = 0x4C4C5854;  // \"TXLL\"\n"
-           "constexpr u32 LL_VERSION = 2;\n"
+           "constexpr u32 LL_VERSION = 3;\n"
            "constexpr int LL_HEADER = 24;\n"
-           "constexpr int LL_STRIDE = 64;  // one record (id + template + 12 "
-           "floats)\n"
+           "constexpr int LL_STRIDE = 80;  // id + template + 12 floats + "
+           "3 speeds + pad\n"
            "// Largest authored object table across scenes - table bounds.\n"
            "constexpr int LL_MAX_OBJECTS = " << maxObjects << ";\n"
            "// Live-spawned clones tracked at once; matches the game's\n"
@@ -33578,14 +33697,24 @@ static std::string liveLinkScript(const Project& p) {
            "      const unsigned char* r = buf + LL_HEADER + i * LL_STRIDE;\n"
            "      llu64 id;\n"
            "      s32 tmpl;\n"
-           "      float v[12];\n"
+           "      float v[15];\n"
            "      memcpy(&id, r + 0, 8);\n"
            "      memcpy(&tmpl, r + 8, 4);\n"
-           "      memcpy(v, r + 16, 48);\n"
+           "      memcpy(v, r + 16, 60);\n"
            "\n"
            "      const int idx = findAuthored(id);\n"
            "      if (idx >= 0) {\n"
            "        if (idx < LL_MAX_OBJECTS) present[idx] = true;\n"
+           "        // A Player record also carries the resolved walk/run/\n"
+           "        // sprint speeds - stream them into the walker (the whole\n"
+           "        // reason a speed edit needs no rebuild). Zeros mean the\n"
+           "        // editor left them out.\n"
+           "        for (int pi = 0; pi < 2; ++pi)\n"
+           "          if (idx == (pi == 0 ? PLAYER_INDEXES[ctx.scene]\n"
+           "                              : PLAYER2_INDEXES[ctx.scene]) &&\n"
+           "              ctx.playerSpeeds[pi] && v[12] > 0.0F)\n"
+           "            for (int c = 0; c < 3; ++c)\n"
+           "              ctx.playerSpeeds[pi][c] = v[12 + c];\n"
            "        if (idx >= ctx.objectCount) continue;\n"
            "        RuntimeObject& o = ctx.objects[idx];\n"
            "        bool changed = patch(o, v);\n"
@@ -33707,7 +33836,7 @@ static std::string liveLinkScript(const Project& p) {
            "    return -1;\n"
            "  }\n"
            "\n"
-           "  int cooldown_ = 1;\n"
+           "  int cooldown_ = 5;  // poll phase - see docs/devkit.md\n"
            "  u32 lastSeq_ = 0;\n"
            "  unsigned int gen_ = 0xFFFFFFFFU;  // forces the first rebuild\n"
            "  int n_ = 0;\n"
@@ -33970,8 +34099,17 @@ static std::string livePadSource(const Project& p) {
 // geometry difference needs a real build. Binary layout v1 (little-endian):
 //   u32 magic 'TXLT', u32 version=1, u32 seq, u32 count,
 //   count records of 104 bytes: char path[96] (game-relative, NUL-padded),
-//     u32 generation, u32 pad
+//     u32 generation, u32 group
 //   u32 footer = seq ^ 0x5A5A5A5A
+// The group is what one PAINT announced: the texture's own shipped path plus
+// the renamed copy every animated model carrying it ships (templates::
+// animTextureAliases), because the game only ever loaded one of them. So a
+// single record matching nothing is expected and a whole GROUP matching
+// nothing is the failure - reported per path, because a hot reload that
+// silently does nothing is indistinguishable from a feature that is not
+// there. It landed in the spare 4 bytes every record already carried (the
+// livedbg stats-block trick): a game built before it reads a zeroed field
+// and simply tallies every record as one group, which is what it did anyway.
 static std::string liveTexScript(const Project& p) {
     const std::string ns = sanitizeNamespace(p.name);
     std::ostringstream out;
@@ -34029,18 +34167,53 @@ static std::string liveTexScript(const Project& p) {
            "    memcpy(&foot, buf + 16 + count * LT_STRIDE, 4);\n"
            "    if (foot != (seq ^ 0x5A5A5A5AU)) return;\n"
            "\n"
+           "    // Per-group tally: one paint announces every path the\n"
+           "    // texture may have shipped under, so a record matching no\n"
+           "    // loaded texture is ordinary - a group matching none is the\n"
+           "    // reload silently not happening.\n"
+           "    static unsigned char fresh[LT_MAX];  // applied in this pass\n"
+           "    static u32 grpId[LT_MAX];\n"
+           "    static int grpHit[LT_MAX];\n"
+           "    int groups = 0;\n"
            "    for (u32 i = 0; i < count; ++i) {\n"
+           "      fresh[i] = 0;\n"
            "      const unsigned char* r = buf + 16 + i * LT_STRIDE;\n"
            "      char path[LT_PATH];\n"
            "      memcpy(path, r, LT_PATH);\n"
            "      path[LT_PATH - 1] = 0;\n"
-           "      u32 gen;\n"
+           "      u32 gen, group;\n"
            "      memcpy(&gen, r + LT_PATH, 4);\n"
+           "      memcpy(&group, r + LT_PATH + 4, 4);\n"
            "      const int slot = genSlot(path);\n"
            "      if (slot < 0 || applied_[slot] >= gen) continue;\n"
            "      applied_[slot] = gen;  // even on failure - a broken file\n"
            "                             // must not be retried every poll\n"
-           "      reload(ctx, path);\n"
+           "      fresh[i] = 1;\n"
+           "      int g = -1;\n"
+           "      for (int j = 0; j < groups; ++j)\n"
+           "        if (grpId[j] == group) g = j;\n"
+           "      if (g < 0) {\n"
+           "        g = groups++;\n"
+           "        grpId[g] = group;\n"
+           "        grpHit[g] = 0;\n"
+           "      }\n"
+           "      grpHit[g] += reload(ctx, path);\n"
+           "    }\n"
+           "    for (u32 i = 0; i < count; ++i) {\n"
+           "      if (!fresh[i]) continue;\n"
+           "      const unsigned char* r = buf + 16 + i * LT_STRIDE;\n"
+           "      char path[LT_PATH];\n"
+           "      memcpy(path, r, LT_PATH);\n"
+           "      path[LT_PATH - 1] = 0;\n"
+           "      u32 group;\n"
+           "      memcpy(&group, r + LT_PATH + 4, 4);\n"
+           "      for (int j = 0; j < groups; ++j)\n"
+           "        if (grpId[j] == group && grpHit[j] == 0)\n"
+           "          TYRA_SOFT_ERROR(\"Live texture reload: nothing loaded \"\n"
+           "                          \"from \", path,\n"
+           "                          \" - the repaint reached no texture in \"\n"
+           "                          \"this scene; rebuild if the model or \"\n"
+           "                          \"its material is new\");\n"
            "    }\n"
            "    lastSeq_ = seq;\n"
            "  }\n"
@@ -34050,12 +34223,17 @@ static std::string liveTexScript(const Project& p) {
            "  // repository texture loaded from that path, then re-send them\n"
            "  // to the already-allocated VRAM address. Never touches the\n"
            "  // allocation itself, so it is safe against the bump allocator.\n"
-           "  void reload(ScriptContext& ctx, const char* relPath) {\n"
+           "  // Returns how many loaded textures the path MATCHED - a\n"
+           "  // size/format mismatch counts (it reported itself already);\n"
+           "  // zero is the caller's business.\n"
+           "  int reload(ScriptContext& ctx, const char* relPath) {\n"
            "    auto& repo = ctx.engine->renderer.getTextureRepository();\n"
            "    auto& core = ctx.engine->renderer.core.texture;\n"
            "    const std::string full = Tyra::FileUtils::fromCwd(relPath);\n"
+           "    int matched = 0;\n"
            "    for (Tyra::Texture* t : *repo.getAll()) {\n"
            "      if (t->vramResident || t->sourcePath != full) continue;\n"
+           "      ++matched;\n"
            "      Tyra::PngLoader loader;\n"
            "      Tyra::TextureBuilderData* d = loader.load(full);\n"
            "      if (!d) continue;\n"
@@ -34093,6 +34271,7 @@ static std::string liveTexScript(const Project& p) {
            "      if (d->clut) delete[] d->clut;\n"
            "      delete d;\n"
            "    }\n"
+           "    return matched;\n"
            "  }\n"
            "\n"
            "  // per-path applied generation, keyed by an FNV-1a hash\n"
@@ -34110,7 +34289,7 @@ static std::string liveTexScript(const Project& p) {
            "    return n_++;\n"
            "  }\n"
            "\n"
-           "  int cooldown_ = 3;  // offset from LiveLink's poll frame\n"
+           "  int cooldown_ = 17;  // poll phase - see docs/devkit.md\n"
            "  u32 lastSeq_ = 0;\n"
            "  u32 hash_[LT_MAX];\n"
            "  u32 applied_[LT_MAX];\n"
@@ -38141,9 +38320,6 @@ std::vector<File> bakeAnimAssets(const Project& p,
         }
         if (const size_t dot = stem.rfind('.'); dot != std::string::npos)
             stem = stem.substr(0, dot);
-        // the game's cwd-relative directory ("res/" is copied next to the ELF)
-        std::string binDir = dir;
-        if (binDir.rfind("res/", 0) == 0) binDir = binDir.substr(4);
 
         glbparser::Skel skel;
         std::string error;
@@ -38151,6 +38327,17 @@ std::vector<File> bakeAnimAssets(const Project& p,
             warn(relPath + ": " + error);
             continue;
         }
+        // Clips borrowed from other model files (docs/animation-import.md).
+        // FIRST, before anything else touches the skeleton: an imported clip
+        // has to be an ordinary clip of this model from here on, so that the
+        // LOD pass, the clip edits and the .tskl writer treat it exactly like
+        // a native one - and so a rename or trim can target it.
+        if (animmerge::applyImports(animedit::importsFor(p, relPath), skel,
+                                    warnings))
+            // Console-side only: these bounds are what the game frustum-culls
+            // and box-collides with, and an imported clip can reach outside
+            // the ones the model's own clips implied.
+            animmerge::refreshPoseBounds(skel);
         for (const std::string& w : skel.warnings) warn(relPath + ": " + w);
         // Material override (docs/animated-models.md): resolve the assigned
         // .mtl into the part colors/textures now, so the .tskl (and every
@@ -38184,13 +38371,16 @@ std::vector<File> bakeAnimAssets(const Project& p,
 
         // Extracted textures land next to the .tskl, prefixed with the model
         // stem so two models' equally-named images cannot collide. The game
-        // loads them by these bin/-relative paths (stored in the .tskl).
+        // loads them by these bin/-relative paths (stored in the .tskl) - the
+        // reason a repaint cannot be announced under the texture's own path
+        // (animTextureAliases derives these same names).
         std::vector<std::string> textureNames;
         for (size_t i = 0; i < skel.images.size(); ++i) {
-            const std::string png = stem + "_" + skel.images[i].name;
-            textureNames.push_back(binDir + png);
+            const std::string png =
+                animBakedTextureRel(relPath, materialPath, skel.images[i].name);
+            textureNames.push_back(resToBin(png));
             files.push_back(
-                {replaceAll(dir, "/", "\\") + png,
+                {replaceAll(png, "/", "\\"),
                  std::string(
                      reinterpret_cast<const char*>(skel.images[i].png.data()),
                      skel.images[i].png.size())});
@@ -38199,6 +38389,55 @@ std::vector<File> bakeAnimAssets(const Project& p,
                          glbparser::writeTskl(skel, textureNames)});
     }
     return files;
+}
+
+std::vector<std::string> animTextureAliases(const Project& p,
+                                            const std::string& texResRel) {
+    std::vector<std::string> out;
+    if (texResRel.empty()) return out;
+    const std::string wantBase =
+        std::filesystem::path(texResRel).filename().string();
+    for (const auto& key : collectAnimModelKeys(p)) {
+        // Only an override's textures have a res/ file to repaint at all - an
+        // image embedded in the .glb/.fbx exists nowhere else, so the Material
+        // Editor can never be painting one.
+        if (key.second.empty()) continue;
+        std::vector<objparser::MtlMaterial> lib;
+        if (!objparser::loadMtl(p.filePath(key.second), lib)) continue;
+        // Does this override name the painted file - and is its basename
+        // unambiguous within the library? applyMaterialOverride resolves a
+        // same-basename clash with a counter prefix whose value depends on the
+        // MODEL's part order, which the .mtl alone cannot say; announcing a
+        // guess there would upload one texture's pixels over the other's.
+        bool refs = false;
+        int sameBase = 0;
+        std::vector<std::string> seen;
+        for (const objparser::MtlMaterial& m : lib) {
+            if (m.texture.empty()) continue;
+            const std::string rel = resolveTexRel(key.second, m.texture);
+            bool dup = false;
+            for (const std::string& s : seen) dup |= (s == rel);
+            if (dup) continue;
+            seen.push_back(rel);
+            if (std::filesystem::path(rel).filename().string() != wantBase)
+                continue;
+            ++sameBase;
+            refs |= (rel == texResRel);
+        }
+        if (!refs || sameBase != 1) continue;
+        const std::string baked =
+            animBakedTextureRel(key.first, key.second, wantBase);
+        // The bake only extracts an image some PART actually uses, so the
+        // shipped file is the proof this model carries the texture (a .mtl
+        // may define materials the model never references).
+        std::error_code ec;
+        if (!std::filesystem::exists(p.filePath(baked), ec)) continue;
+        const std::string gameRel = resToBin(baked);
+        bool have = false;
+        for (const std::string& e : out) have |= (e == gameRel);
+        if (!have) out.push_back(gameRel);
+    }
+    return out;
 }
 
 // src/gen/object_scripts.gen.cpp - the object-script runtime: attachment

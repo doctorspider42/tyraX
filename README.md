@@ -123,7 +123,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Models** — `.obj` compiled into a binary
   [`.tmdl` with distance LOD](docs/model-pipeline.md), and
   [`.glb`/`.fbx` animated models](docs/animated-models.md) with a non-destructive
-  clip editor.
+  clip editor that can also
+  [borrow clips from another rigged file](docs/animation-import.md) — drop a
+  Mixamo download onto a character you already have.
 - **[Asset Browser](docs/asset-browser.md)** — a real file manager over `res/`
   that knows who references every asset and moves files with their references.
 - **[Materials and texture painting](docs/material-painting.md)** — `.mtl`
@@ -160,7 +162,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [`.flownode` nodes](docs/custom-flow-nodes.md).
 - **[Object scripts](docs/object-scripts.md)** — Unity-style C++ components in
   `src/scripts/`, a directory the editor never touches.
-- **Player and physics** — FPP / third-person / noclip player entities, rigid
+- **Player and physics** — FPP / third-person / noclip player entities with
+  [walk, run and sprint speeds](docs/player-speeds.md), rigid
   bodies, [collision boxes](docs/collision-boxes.md), pickable and usable
   objects, and [two-player shared or split screen](docs/multiplayer.md).
 - **World state** — [areas](docs/areas.md),
@@ -402,8 +405,7 @@ This project stands on the shoulders of the PS2 homebrew community:
   [ufbx](https://github.com/ufbx/ufbx),
   [miniaudio](https://github.com/mackron/miniaudio).
 - **[PCSX2](https://pcsx2.net/)** — the emulator behind every `F5`.
-- **Wellinator** — the 3D cat model starring in the example projects.
-- **[Tyra Discord](https://discord.gg/PpTAkQh6u)** - all the amazing people
+- **[Tyra Discord](https://discord.gg/PpTAkQh6u)** — the amazing project community.
 
 Every notice, full license text and exact redistribution term — plus the
 file-by-file policy for third-party assets — is in

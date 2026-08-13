@@ -1028,6 +1028,94 @@ private:
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
+    // The "Imported clips" block of that window (docs/animation-import.md):
+    // borrow clips from another model file. Returns true when it changed
+    // something, which the caller turns into a commit + a cache drop - an
+    // import alters what clips a model HAS, so every parse of it is stale.
+    bool drawAnimImportSection(const std::string& modelRel);
+    // Everything derived from a model's parse: the GlbInfo summary, the
+    // viewport's baked draw and the material preview. Called after an import
+    // change, since those caches all hold a clip list. With `modelRel` given
+    // only THAT model's entries drop - an Apply on one character must not
+    // re-bake every animated model in the project.
+    void invalidateAnimCaches(const std::string& modelRel = std::string());
+    // Staged donor pick for the import block; "" = nothing chosen yet.
+    std::string animImpSource_;
+    // Clip-list name filter (Animation Editor, left pane).
+    char animEdFilter_[48] = {};
+    // Everything the import panel needs to know about a (target, source) pair.
+    // Answering it means parsing two models, which a panel body must not do
+    // every frame - so it is computed once per pair and dropped by
+    // invalidateAnimCaches() with every other parse-derived cache.
+    struct AnimImportProbe {
+        bool ok = false;
+        std::string error;
+        int clipCount = 0;
+        float match = 0.0f;   // 0..1, fraction of animated bones with a home
+        int bonesTotal = 0;   // donor skinning bones
+        int bonesMapped = 0;  // ...that resolve to a target bone
+        animmerge::RetargetInfo retarget;  // which path, gap, facing
+    };
+    std::map<std::string, AnimImportProbe> animProbeCache_;
+    // Parsed skeletons, shared by the probe, the bone mapper and glbInfo -
+    // one parse per FILE instead of one per consumer (the concrete stalls:
+    // open, Add clips, Map bones). Revalidates by size+mtime, so it survives
+    // invalidateAnimCaches() and still notices a re-imported asset.
+    animmerge::SkelCache skelCache_;
+    // `boneMap` participates in the cache key, so a row with hand-made pairs
+    // reads its own numbers and a mapping commit refreshes them.
+    const AnimImportProbe& animImportProbe(
+        const std::string& modelRel, const std::string& sourceRel,
+        const std::vector<std::pair<std::string, std::string>>& boneMap);
+
+    // --- the bone-mapping editor (Map bones... on an import row) -----------
+    // Staged entirely on the App: the two skeletons are parsed ONCE when the
+    // window opens and the pair list is a working copy, committed on Apply.
+    int animMapRow_ = -1;  // index into project_.animImports; -1 = closed
+    bool animMapParsed_ = false;
+    glbparser::Skel animMapTarget_, animMapDonor_;
+    std::vector<float> animMapTPos_, animMapDPos_;  // bind-pose globals
+    std::vector<std::pair<std::string, std::string>> animMapPairs_;  // staged
+    std::vector<animmerge::BoneSuggestion> animMapSugg_;
+    int animMapSelDonor_ = -1;  // selected donor node, -1 = none
+    // The pair list's hover, read by the canvas NEXT frame (the list is laid
+    // out after the canvas but must highlight into it - the standard one-frame
+    // ImGui trick). Donor/target node indices, -1 = none.
+    int animMapHiD_ = -1, animMapHiT_ = -1;
+    // Canvas view: wheel zooms to the cursor, middle-drag pans - without it
+    // finger and toe joints of a real rig are unclickable. Reset on open.
+    float animMapZoom_ = 1.0f, animMapPanX_ = 0.0f, animMapPanY_ = 0.0f;
+    // Test pose: both rigs posed through the CURRENT mapping - the check
+    // that beats every percentage (docs/animation-import.md).
+    int animMapPoseClip_ = -1;  // donor clip index, -1 = off
+    float animMapPoseT_ = 0.0f;
+    bool animMapPosePlay_ = false;
+    std::vector<float> animMapDPosed_, animMapTPosed_;
+    // One affix rule covering many unmatched bones (recomputed with the
+    // suggestions), and the AI assist (aigen backend, one-shot).
+    animmerge::AffixRule animMapAffix_;
+    bool animMapAffixOk_ = false;
+    std::unique_ptr<aigen::Generator> animMapAiGen_;
+    std::vector<std::pair<std::string, std::string>> animMapAiSugg_;
+    std::string animMapAiErr_;
+    // The user's accepted pairs, machine-global (<configDir>/bone-aliases.ini)
+    // - once "Oyayubi1" was mapped onto "Thumb1", the next file from the same
+    // pack suggests itself. Written on Apply, loaded lazily.
+    std::map<std::string, std::string> boneAliases_;
+    bool boneAliasesLoaded_ = false;
+    void loadBoneAliases();
+    void saveBoneAliases();
+    // Suggestions are recomputed only when the staged pairs change - they
+    // were per-frame, which is wasted work and made the window read as busy.
+    std::vector<std::pair<std::string, std::string>> animMapSuggFor_;
+    bool animMapSuggValid_ = false;
+    void openAnimBoneMap(int importRow);
+    // Draws the window when open; returns true on an applied change.
+    bool drawAnimBoneMapWindow();
+    // Staged text of the row being typed into, so a Name prefix edit costs a
+    // re-merge once on commit instead of once per keystroke.
+    int animImpEditRow_ = -1;
+    char animImpPrefix_[64] = {};
     // Preview lighting shared by the Material and Animation Editors.
     // `sel` is the stored selection (see matEdLight_): resolves it into the
     // override the viewport bakes with, and draws the combo that picks it
@@ -2598,8 +2686,16 @@ private:
     // via bin/livetex.bin; the generated live_tex poller re-uploads the
     // pixels into the running game's existing GS VRAM allocation. Paint in
     // the editor, watch the texture change on the console.
-    std::map<std::string, uint32_t> liveTexGen_;  // game-relative -> generation
+    // One paint may have SEVERAL shipped paths (an animated model's .tskl
+    // renames its textures), so each record carries the paint it belongs to -
+    // the game reports a failed reload per group, not per path.
+    struct LiveTexRec {
+        uint32_t gen = 0;    // grows per repaint; the poller applies unseen
+        uint32_t group = 0;  // the paint that announced it
+    };
+    std::map<std::string, LiveTexRec> liveTexGen_;  // game-relative -> record
     uint32_t liveTexSeq_ = 0;
+    uint32_t liveTexGroup_ = 0;
     void liveTexNotify(const std::string& texResRel);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;

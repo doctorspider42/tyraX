@@ -735,8 +735,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 24
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_MINOR 31
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -917,6 +917,49 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // unchanged, and no migration step is needed for the renumber either - a file
 // claiming 8 now means "the neural upscaler", which an animation-only project
 // simply does not use.)
-inline constexpr int kFormatVersion = 17;
+// v18 (Player speed tiers, docs/player-speeds.md): SceneObject::playerRunSpeed
+// and playerSprintSpeed, plus ProjectSettings::runSpeed for the fallback
+// walker. All three are additive AND are written only when non-zero, so a
+// project that never opens the new fields resaves byte for byte - checked, not
+// assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere.
+//
+// No migration step, and the reason is the "0 = inherit" default rather than
+// mere additivity: 0 resolves to the numbers the walkers used to compute
+// inline (run = walk, sprint = walk x sprintMultiplier), so an old project is
+// not merely readable, it MOVES identically. Verified on the generated side -
+// examples/script-demo regenerated RUN_SPEED == WALK_SPEED == 0.4 and
+// SPRINT_SPEED == 0.72 == 0.4 x 1.8.
+// v19 (animation import, docs/animation-import.md): Project::animImports and
+// its "animImports" manifest section - clips borrowed from another model file.
+// A whole new section rather than a field, so a project that has imported
+// nothing emits no key at all and resaves byte for byte; every retarget flag
+// inside a row is likewise written only when it differs from its default.
+//
+// No migration step: nothing existing is renamed, moved or reinterpreted, and
+// the feature is inert without a row. The one thing that DID change shape for
+// every model is host-side only - SkelNode::name, which writeTskl does not
+// serialize - so no .tskl version moved either and an unimported model bakes
+// the same bytes it did before.
+// v20 (sprint clip + live speeds, docs/player-speeds.md): SceneObject::
+// playerSprintClip - the third-person avatar clip for the sprint tier, stored
+// in the thirdPerson object and written only when set, so an untouched project
+// resaves byte for byte. No migration step: "" means "the run clip covers
+// sprinting", which is what every project did. The same commit moves the
+// walkers onto PlayerCtl::speeds and streams speed edits over Live Link
+// record v3 - channel-internal, not project format.
+// v21 (bone mapping, docs/animation-import.md): AnimImport::boneMap - the
+// hand-made donor->target bone pairs from the Map bones editor, an array of
+// {s, t} objects written only when non-empty. Additive with a safe default
+// (empty = pure name matching, the previous behaviour), so no migration step.
+// v22 (the full retargeter, docs/animation-import.md): AnimImport::facing
+// (world yaw of the source, -1 = auto from the rigs' feet) and ::mirror
+// (left<->right flipped import). Written only when set and true respectively,
+// so untouched projects resave byte for byte; no migration step. The
+// retarget path itself is chosen automatically and stores nothing.
+// v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
+// degrees of torso pitch applied by the retargeter. Written only when
+// non-zero; no migration step.
+inline constexpr int kFormatVersion = 23;
 
 }  // namespace version

@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "animmerge.hpp"
 #include "glbparser.hpp"
 #include "project.hpp"
 
@@ -29,6 +30,14 @@ namespace animedit {
 // Every multiplier in this header is a speed, so an output duration is always
 // the input duration DIVIDED by it.
 float projectTimeScale(const ProjectSettings& st);
+
+// The Project::animImports rows belonging to `modelRel`, turned into what the
+// merger takes: donor paths made ABSOLUTE against the project, flags mapped
+// onto animmerge::MergeOptions. The single translation from project data to
+// the retarget, so the preview and the .tskl bake cannot resolve a donor
+// differently (docs/animation-import.md).
+std::vector<animmerge::ImportSpec> importsFor(const Project& p,
+                                              const std::string& modelRel);
 
 // The user's entry for one source clip of one model, or nullptr when the clip
 // has never been touched (which means "bake it exactly as authored").

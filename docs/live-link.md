@@ -1,32 +1,34 @@
 # Live Link — edit the running game
 
-Live Link mirrors scene edits into the **running** game without a rebuild:
-drag an object with the gizmo, spin it, scale it, recolor it — even **add or
-delete objects** — and watch the scene change on the PS2 (or in PCSX2) as you
-work. In 2002 this kind of live tuning loop was devkit-studio magic; here it
-rides entirely on infrastructure the project already has.
+![Live Link and the other devkit channels](img/project-preferences-build.png)
+
+Live Link mirrors scene edits into the **running** game without a rebuild: drag
+an object with the gizmo, spin it, scale it, recolor it — even **add or delete
+objects** — and watch the scene change on the PS2 (or in PCSX2) as you work. In
+2002 this kind of live tuning loop was devkit-studio magic; here it rides
+entirely on infrastructure the project already has.
 
 ## Using it
 
 1. Set the project's build profile to **debug** (*Project > Preferences >
-   Build > Build profile*). Release builds carry no Live Link code at all.
-   **New projects already start there** — debug profile, Live Link on — because
-   that is the profile you author in; switch to release for the disc, which
-   strips both the poller and the overlays. Projects created before that
-   default keep whatever they saved.
+   Build > Build profile*) — release builds carry no Live Link code at all.
+   **New projects already start there** (debug profile, Live Link on): that
+   is the profile you author in, and release — which strips both the poller
+   and the overlays — is for the disc. Projects created before that default
+   keep whatever they saved.
 2. Build & run as usual — **F5** (PCSX2) or **F6** (real PS2 over ps2link).
 3. Edit the scene: move / rotate / scale / recolor objects, duplicate them,
-   delete them. The changes appear in the running game within a fraction of a
+   delete them. Changes appear in the running game within a fraction of a
    second; a gizmo drag streams continuously.
 
 The **LIVE chip** in the toolbar (after the run buttons) shows the session
-state — and clicking it toggles Live Link on/off:
+state, and clicking it toggles Live Link on/off:
 
 - **● LIVE** (green) — edits are streaming into the game.
 - **● LIVE (rebuild)** (amber) — the scene changed in a way the session can't
-  absorb (see below); streaming is paused so nothing is ever mis-patched.
-  Build & Run again and it resumes automatically — an Undo back to the built
-  structure also resumes it without any rebuild.
+  absorb (see below), so streaming pauses rather than mis-patch anything.
+  Build & Run resumes it; so does an Undo back to the built structure, no
+  rebuild needed.
 - **● LIVE (build)** (dim) — Live Link is on but the last build has no poller
   yet; Build & Run once.
 - **● LIVE off** (gray) — disabled for this project.
@@ -44,6 +46,9 @@ Live:
 - **position, rotation, scale, color** of every scene object — the same
   mutations the *Move/Set Color* flow nodes perform at runtime, so geometry
   rebuild, physics and collision all follow the patched values;
+- a Player object's **walk / run / sprint speeds** (the resolved values, so the
+  sprint multiplier's effect streams too) — tuning movement feel is exactly the
+  edit-run loop a rebuild would ruin ([player-speeds.md](player-speeds.md));
 - **adding objects** — a new object is instantiated through the game's runtime
   spawn pool by cloning an authored object with the same "recipe" (same type,
   model, material, detail, layer, physics…), then patched to its own
@@ -62,10 +67,11 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   primitive detail (and a cylinder's *Vertical rings*, which is the same
   geometry decision), physics (the flag and, while it is on, the mass /
   bounciness / friction / tumble material) / collision, layer membership,
-  emitter / sound / player / animation parameters…
+  emitter / sound / player (except the three speeds, which are live) /
+  animation parameters…
 - adding an object with **no matching template** in the built scene (nothing
-  of the same recipe existed at build time), or an object that can't be
-  faithfully spawned at runtime: **point lights** (baked into vertex colors),
+  of the same recipe existed at build time), or one that can't be faithfully
+  spawned at runtime: **point lights** (baked into vertex colors),
   **projecting decals** (baked host projection), **mirrors** (baked reflection
   table), **portals** (baked PORTALS link table), or objects carrying a
   **flow graph / attached scripts** (compiled per authored object);
@@ -78,15 +84,16 @@ session — they simply don't show up in the game until the next build.
 
 ## How it works
 
-There is no socket and no extra protocol stack — the transport is the **host
-filesystem the game already loads its assets from**: PCSX2's *Host Filesystem*
-on the emulator, the ps2link/ps2client file server on a real console. One
-mechanism, both targets.
+No socket, no extra protocol stack — the transport is the **host filesystem
+the game already loads its assets from**: PCSX2's *Host Filesystem* on the
+emulator, the ps2link/ps2client file server on a real console. One mechanism,
+both targets.
 
 - The editor (`App::liveLinkTick`, ~10 Hz) snapshots the active scene as one
-  64-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
-  editor id), a spawn-template index for objects added since the build, and
-  the 12 live floats — and writes `bin/livelink.bin` (`TXLL` magic, version,
+  80-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
+  editor id), a spawn-template index for objects added since the build, the
+  12 live floats and (on Player objects) the three resolved speed tiers — and
+  writes `bin/livelink.bin` (`TXLL` magic, version,
   sequence number, a footer echoing the sequence) atomically via a sibling
   tmp file + rename, whenever the payload changed.
 - The game side is a generated global script, `src/gen/live_link.gen.cpp`
@@ -122,12 +129,14 @@ whole pipeline. Every saved paint stroke / applied bake layer:
 
 1. re-bakes the texture into `bin/<path>` in exactly the format the build
    shipped (the palette layout is read from the existing PNG's header, so
-   the swap is format-identical), written atomically;
+   the swap is format-identical), written atomically — **once per path the
+   texture ships under**, see below;
 2. bumps `bin/livetex.bin` — a tiny manifest of repainted textures with
    growing generations (`TXLT` magic, seq + footer echo like the scene
    snapshot; cumulative per session, so a game booted later catches up).
+   Every path one paint produced shares a **group** number.
 
-The generated poller (`src/scripts/live_tex.gen.cpp`, same debug + Live Link
+The generated poller (`src/gen/live_tex.gen.cpp`, same debug + Live Link
 gate) re-decodes the PNG and **re-uploads the pixels into the texture's
 existing GS VRAM allocation** (`RendererCoreTexture::updateTextureInfo` —
 same address, so the GS bump allocator is never disturbed; textures are
@@ -137,16 +146,36 @@ texture's dimensions or palette format is skipped with a soft error in the
 log — that needs a real build. The Runner deletes `livetex.bin` at build
 start (the fresh build re-bakes everything).
 
+**The path the game knows is not always where the texture lives.** An
+animated model bakes every texture its material override names into a
+*renamed* copy next to its `.tskl` — `res/materials/Body-tex.png` ships as
+`models/hero__ovr3a65_Body-tex.png`, and that renamed path is what the
+`.tskl` stores and the game loads. So the editor resolves the painted file
+through the bake's own naming (`templates::animTextureAliases`) and updates
+**and announces every one of those copies as well**, one per animated model
+carrying the texture. For a texture only animated models use, the texture's
+own location is not among them at all — which is exactly why a repaint used
+to do nothing there, with no diagnostic anywhere.
+
+**A reload that matches nothing says so.** The poller reports per *group*:
+one record matching no loaded texture is ordinary (the paint announces every
+path the texture may have shipped under, and the game loaded one of them),
+but when a whole group matches nothing it prints a soft error naming each
+path it tried. That is the case where the repaint genuinely did not happen —
+the model is not in the running scene, or it is new since the last build —
+and it used to be silent, i.e. indistinguishable from the feature not
+existing.
+
 ## Limits & notes
 
-- The snapshot targets the editor's **active scene**; if the game is in a
-  different scene it ignores it (switch scenes in the editor to tune there).
+- The snapshot targets the editor's **active scene**; a game in a different
+  scene ignores it (switch scenes in the editor to tune there).
 - A live-added object has no compiled flow graph / scripts / save-state until
   the next build (spawning refuses such objects — amber chip — so this can't
   surprise you silently).
 - Deleting live hides the object; its collision stays until a rebuild
   (exactly the *Hide Object* approximation).
-- An object that physics is actively moving will be snapped back once per
-  edit — the same behavior a *Set Position* flow node has.
+- An object that physics is actively moving is snapped back once per edit —
+  the same behavior a *Set Position* flow node has.
 - On a real PS2 the poll cadence is ~0.5 s to keep the ps2link file server
   happy; PCSX2 polls ~10x per second.

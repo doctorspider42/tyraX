@@ -1,13 +1,17 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <memory>
+#include <thread>
 #include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "animmerge.hpp"
 #include "aobake.hpp"
 #include "gibake.hpp"
 #include "glbparser.hpp"
@@ -430,6 +434,17 @@ public:
         animEdits_ = std::move(edits);
         animProjectScale_ = projectScale > 0.001f ? projectScale : 1.0f;
     }
+    // Clips borrowed from other model files (docs/animation-import.md), pushed
+    // in the same way and for the same reason: the merge has to happen on this
+    // side too, or an imported clip would exist on the console and nowhere the
+    // author can see it. Keyed by project-relative model path, and a model
+    // absent from the map takes the untouched parser path.
+    void setAnimImports(
+        std::map<std::string, std::vector<animmerge::ImportSpec>> imports) {
+        if (imports == animImports_) return;  // nothing changed, keep the cache
+        animImports_ = std::move(imports);
+        invalidateAnimatedModels();
+    }
 
     // Animation Editor live preview: one animated model on a checker floor,
     // posed at an explicit time so the panel owns play/pause/scrub. Times are
@@ -512,6 +527,12 @@ public:
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
+    // Re-bakes cached animated models IN THE BACKGROUND: entries are marked
+    // stale and keep drawing their old bake until the fresh one lands. An
+    // import change alters the CLIP LIST of a model, which is baked into the
+    // cache entry - unlike a clip edit, which is applied per pose. `relPath`
+    // limits it to one model's entries ("" = all).
+    void invalidateAnimatedModels(const std::string& relPath = std::string());
 
     // Camera controls, driven by the UI layer. The camera orbits a movable
     // target point: pan slides it in the view plane (middle mouse drag),
@@ -893,12 +914,39 @@ private:
             uint32_t tex = 0;
         };
         std::vector<Part> parts;  // parallel to baked.parts
+        bool stale = false;  // a rebake is in flight; keep drawing this one
     };
     // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
     // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
+    // The bake runs on a WORKER (parse + merge + skinning cost seconds on a
+    // real character, and it used to run inline on the first frame that drew
+    // the model - the "opening the project stalls" report). A stale entry
+    // keeps drawing its old bake until the fresh one lands; a brand-new model
+    // draws the box placeholder for the moment the bake needs.
+    struct AnimBakeJob {
+        std::string key, relPath, materialRel;
+        glbparser::Baked baked;
+        bool ok = false;
+        // An invalidation that arrives while this job is in flight: the job
+        // was started with the OLD imports, so its result must land already
+        // stale and re-bake. Without it a rapid pair of edits could keep the
+        // first edit's preview forever.
+        bool restale = false;
+        std::atomic<bool> done{false};
+        std::thread worker;
+    };
+    std::vector<std::unique_ptr<AnimBakeJob>> animBakeJobs_;
+    void animBakeStart(const std::string& key, const std::string& relPath,
+                       const std::string& materialRel);
+    void animBakeCollect();  // GL thread: finished jobs -> cache + uploads
     AnimModelDraw* animModelDraw(const std::string& relPath,
                                  const std::string& materialRel);
+    // How many bakes are in flight - the Animation Editor's spinner reads it.
+   public:
+    int animBakesPending() const { return (int)animBakeJobs_.size(); }
+
+   private:
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     // Uploads one explicit pose: `frame` is a fractional index into the whole
@@ -914,6 +962,12 @@ private:
     float animProjectScale_ = 1.0f;  // project fps ratio (animedit.hpp)
     const AnimClipEdit* animEditFor(const std::string& modelRel,
                                     const std::string& sourceClip) const;
+    // Clips borrowed from other files, pushed in by the app alongside the
+    // edits above. Keyed by project-relative model path; a model with no entry
+    // returns an empty list and therefore takes the untouched parser bake.
+    std::map<std::string, std::vector<animmerge::ImportSpec>> animImports_;
+    const std::vector<animmerge::ImportSpec>& animImportsFor(
+        const std::string& modelRel) const;
 
     // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
     struct MaterialDraw {

@@ -21,17 +21,16 @@ every 14 seconds (and back after 7), and only the dynamic surfaces follow.
   instantly (the reflections are re-rendered each frame), while the static
   sunset spheres don't care. 7 s later the day sky returns. That's the whole
   point of the dynamic mode in one glance.
-- **Walk and look around**: the highlight slides across every sphere as the
-  camera moves — the matcap ST is computed per vertex on VU1 from the camera
-  basis.
+- **Walk and look around**: the highlight slides across every sphere — the
+  matcap ST is computed per vertex on VU1 from the camera basis.
 - **Find the red box in the chrome**: the matte control box and the red/blue
   paint spheres are marked *Show in reflections* (Properties), so the
   dynamic surfaces mirror them — walk between them and watch the reflections
   move.
 - The sky cycler is a plain flow graph on the `sky-cycler` Empty:
   *Every N Seconds (14)* → *Set Sky Color (sunset)*, and in parallel
-  → *Delay (7)* → *Set Sky Color (day)*. (Note: built-in action nodes don't
-  chain exec onward — wire the Delay directly to the trigger.)
+  → *Delay (7)* → *Set Sky Color (day)*. (Built-in action nodes don't chain
+  exec onward — wire the Delay directly to the trigger.)
 
 ## How it's authored
 

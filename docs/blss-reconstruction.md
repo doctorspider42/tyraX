@@ -1,5 +1,7 @@
 # BLSS reconstruction math
 
+![The BLSS training and evaluation window](img/neural-upscaler-developer.png)
+
 Developer note, not a user guide. This page is the **twin contract** of the
 neural upscaler ([docs/neural-upscaler.md](neural-upscaler.md)): the exact
 arithmetic that `src/blss.cpp` executes on the host and
@@ -56,7 +58,7 @@ to decide what to teach.
 
 **`kTile` is 32 on both sides and the host can sweep it.** `--tile N` moves
 `blss::tileSize()` for one run, which is how the 16 / 32 / 64 tables on
-[the upscaler page](neural-upscaler.md#the-tile-size-swept) were measured; the
+[the upscaler page](neural-upscaler.md#settings) were measured; the
 engine's `RendererCoreBlss::kTile` is a compile-time constant, so **any value
 but 32 is a measurement configuration and the host says so on stdout when you
 ask for one.** Moving it for real is a change to this line, to
@@ -107,7 +109,7 @@ surfaces):
   alternates between two byte-identical phases with jitter on, and 0.00 % with
   it off. The jitter is the cause, the shipped net does reproduce it, and
   `blssJitter` now defaults to **false**. See
-  [neural-upscaler.md, "A/B/C"](neural-upscaler.md#abc-a-human-looked-at-three-builds-2026-08-08)
+  [neural-upscaler.md, measured results](neural-upscaler.md#should-you-use-it)
   and [profiling.md's stability gate](profiling.md#the-stability-gate-period-2--the-bob)
   for the rules that make the measurement able to see it.
 - **`getFieldYOffset16()` is identically 0 in every fixture that has ever shown
@@ -147,14 +149,14 @@ the same one.** The host twin is `blss::jitterEnabled()` /
 **read the project's own `blssJitter`** and fit against the sampler that project
 will ship with, `--no-jitter` / `--jitter` force it either way, and the bestiary
 (which has no project to ask) keeps it on, because that is the configuration
-every fold table on [the upscaler page](neural-upscaler.md#measured) was measured
+every fold table on [the upscaler page](neural-upscaler.md#training) was measured
 with. The corpus prints a line when it is off.
 
 **A net fitted with jitter on and run in a jitter-off build is fitted out of
 distribution.** `blss.net` recorded nothing that could detect it — the same shape
 as the whole-bag proxy and the animated models — until the trainer started
 writing a `<net>.meta` sidecar beside every net it produces
-([provenance](neural-upscaler.md#provenance-what-a-net-says-about-itself)). The
+([training](neural-upscaler.md#training)). The
 sampler is one of its fields, the bake compares it against the project's
 `blssJitter`, and a disagreement is now named in the generated header and in the
 boot log instead of being invisible. With jitter off the two
@@ -395,7 +397,7 @@ from one definition, so the pixel estimate and the box cannot drift apart.
 Engine half **`TYRA_BLSS_EMITTER_PROXY`**, host half **`--emitter-proxy`**, and
 **both ship at 0** — one number in two files, moved in the same commit or not at
 all. Measured on `examples/upscaler-lab` with it on (PCSX2, parked fixture, the
-full account is on [the upscaler page](neural-upscaler.md#the-sixth-rule-emitter-bags-describe-themselves)):
+the user-facing consequence is on [the upscaler page](neural-upscaler.md#quality-evaluation)):
 **198 proxies → 207, 262 projections → 273, 147 covered tiles → 224 of 224**,
 and `BLSSWORST` becomes an emitter box covering the whole frame at
 `w 18.30..42.80`. What that buys and what it costs are both real: `texDetail`
@@ -560,7 +562,7 @@ twins get checked:
   `--cv` run instead of an edit to `kFeatures` on both twins. Both channels this
   network has lost were retired on that measurement; the tables are in
   `src/blss.hpp` and
-  [the upscaler page](neural-upscaler.md#two-channels-the-network-lost-and-the-measurements-that-took-them).
+  [the upscaler page](neural-upscaler.md#how-it-works).
 
 ## 3. Reprojection  (`buildReproj()`)
 
@@ -624,7 +626,7 @@ channel at training time that the console would never reproduce). The channel wa
 measured and deleted, which took the whole recurrent path with it: no per-tile
 counters, no `prevDepth`/`prevCover`, no ordering hazard. `luma` went the same way
 one commit later. The measurements are
-[on the upscaler page](neural-upscaler.md#two-channels-the-network-lost-and-the-measurements-that-took-them);
+[on the upscaler page](neural-upscaler.md#how-it-works);
 the consequence here is that **no per-tile state survives a frame on either
 side**, so there is nothing in this section for the two implementations to
 sequence differently.
@@ -651,7 +653,7 @@ implements it behind `--act-table N` and defaults to `blss::kEngineActTable`;
 which also defaults to **512**. They are one number in two files and they move in
 one commit — a host that fits against a table while the console evaluates libm is
 exactly the twin drift this page exists to prevent. The measurement that says it
-is free is [on the upscaler page](neural-upscaler.md#the-transcendentals-as-a-table),
+is free is [on the upscaler page](neural-upscaler.md#how-it-works),
 and the whole 39-fold table has since been re-run at the shipped activations
 (+0.42 → **+0.41 dB**, sd 0.34, proxy count unchanged at 1 217). The 257 stored `short`s are
 `tyrax-editor --blss-emit --act-table 512` **verbatim**; the FNV-1a below was
@@ -1108,7 +1110,7 @@ case regardless — see the packet budget above.
   dimensions from `RendererSettings::getRasterWidthUI/HeightUI`, so at 2×2 it is
   57 344 words instead of 229 376 (672 KB back at 512×448, 768 KB at 512×512).
   That is what makes the feature VRAM-positive; the measurement is in
-  [the upscaler page](neural-upscaler.md#5-vram).
+  [the upscaler page](neural-upscaler.md#settings).
 
   Note what the sharing means for addressing: the row stride comes from
   `FRAME.FBW`, so the low-res pass writes a contiguous **prefix** of z at the

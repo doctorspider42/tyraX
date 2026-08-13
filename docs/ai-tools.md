@@ -1,5 +1,7 @@
 # AI-agent CLI tools
 
+![The AI assistant inside TyraX](img/ai-assistant.png)
+
 The editor executable doubles as a headless toolbox for AI coding assistants
 (and scripts) working inside a generated project: inspect the project, read
 and write flow graphs, regenerate the game sources and drive AI generation —
