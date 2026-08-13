@@ -29,12 +29,41 @@ mechanism is in
 [ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
 Three things are still owed, in order of value:
 
-1. **A soak run.** Not done. The console was confirmed live and confirmed
-   running r6, but a run long enough to argue the race is gone is *hours*: the
-   same ELF managed 122 640 frames clean once and died at ~1 800 the next time,
-   so anything shorter is inside the noise. Run `examples/cube` (or anything
-   with streamed music — the song streamer thread is half the mechanism) in the
-   debug profile and watch `SifRpcGuard::rejected()`.
+1. **Reproduce it.** Attempted 2026-08-13 and **not achieved** — so the guard
+   is verified only as "does not break RPC" (PCSX2, frame 2640, BIND and CALL
+   across fio/audsrv/libmc), never as "catches the real fault". What the attempt
+   established, so the next one starts further along:
+
+   - **The A/B rig works and is cheap to rebuild.** Two ELFs from one generated
+     tree, differing in a single call: arm A's `engine.o` references only
+     `SifRpcGuard::report()`, arm B's also references `install()`. Check it with
+     `nm obj/engine.o | grep SifRpcGuard` — the symbol being *present* in the
+     linked ELF proves nothing, because `report()` pulls the object in either
+     way. Build by injecting `engine.cpp` into the `tyra-engine-*` volume and
+     running `make` in the compiler container; `/src` and `/tyra` are both
+     volumes, so editing the host tree alone reaches neither.
+   - **A hostile fixture is host:-bound, not CPU-bound.** Polling every 2 frames
+     instead of 25 with all seven phases collapsed onto one frame drops
+     `examples/showcase` to ~11 fps, because a cycle is ~21 network round trips.
+     Net effect: ~2.7x the RPCs per second but ~4.5x fewer frames per second.
+     Whether that helps depends on whether the fault is per-RPC or per-frame,
+     which is still unknown — so **do not assume amplification amplifies.**
+   - **The timescale is the real obstacle.** 30 min at 11 fps is ~20 000 frames;
+     the one clean natural run was 122 640. Budget 1.5-2 h per arm, or accept
+     that a clean arm means nothing.
+   - **The fixture was missing the editor**, and that is the most promising gap
+     left. Nothing wrote `livelink.bin` / `livedbg.cmd` / `livetime.rst`, and a
+     `livetex` generation bump — a whole PNG read inside one frame — never
+     happened. The natural failure at ~1 800 frames is suspiciously early for a
+     race, which points at editor-side traffic rather than at steady polling.
+     `--pad` in a loop is a partial stand-in (it moves the player, so geometry
+     rebuilds and streaming join in) and does not need a second `ps2client`.
+   - **Two dead ends, both mine.** `ps2client dumpmem` as an amplifier is
+     invalid — it stops the game in ~7 s by contending for the file channel
+     (now written up in ps2link-setup.md), and it invalidated one arm before I
+     noticed the timestamps. And after that arm died the console reached
+     "answers ping, `tcp/18193` listening, refuses every deploy"; three
+     `ps2client reset`s did nothing and it took the **physical Reset button**.
 2. **The producer.** The guard proves *a* duplicate arrives; it does not say
    who sent it. The ranked candidates, none yet discriminated: ps2link's own
    documented `pkoSendSifCmd()` buffer reuse (below in this file); the IOP-side
