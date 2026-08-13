@@ -221,11 +221,11 @@ void App::liveLinkTick() {
     }
     liveLinkState_ = LiveLinkState::Live;
 
-    // Snapshot body: scene + count + one 64-byte record per object (id +
-    // template + 12 floats). Deletions are implicit - the game hides whatever
-    // is absent.
+    // Snapshot body: scene + count + one 80-byte record per object (id +
+    // template + 12 floats + the resolved player speeds + pad). Deletions are
+    // implicit - the game hides whatever is absent.
     std::vector<unsigned char> body;
-    body.reserve(8 + recs.size() * 64);
+    body.reserve(8 + recs.size() * 80);
     auto put = [&](const void* v, size_t n) {
         const unsigned char* b = static_cast<const unsigned char*>(v);
         body.insert(body.end(), b, b + n);
@@ -243,6 +243,17 @@ void App::liveLinkTick() {
         put(r.o->rotation, 12);
         put(r.o->scale, 12);
         put(r.o->color, 12);
+        // Player records carry the RESOLVED speed tiers (the same functions
+        // codegen bakes with), so a speed edit streams instead of flipping
+        // the chip amber. Zeros on everything else.
+        float speeds[3] = {0.0f, 0.0f, 0.0f};
+        if (r.o->type == PrimitiveType::Player) {
+            speeds[0] = r.o->playerWalkSpeed;
+            speeds[1] = project::playerRunSpeed(*r.o);
+            speeds[2] = project::playerSprintSpeed(*r.o, project_.settings);
+        }
+        put(speeds, 12);
+        put(&pad, 4);
     }
     if (body == liveLinkLastPayload_) return;  // nothing to stream
 
@@ -253,7 +264,7 @@ void App::liveLinkTick() {
     const uint32_t seq = liveLinkSeq_ + 1;
     std::vector<unsigned char> file;
     file.reserve(24 + body.size() - 8 + 4);
-    const uint32_t magic = 0x4C4C5854, version = 2, reserved = 0;
+    const uint32_t magic = 0x4C4C5854, version = 3, reserved = 0;
     const uint32_t footer = seq ^ 0x5A5A5A5AU;
     auto app32 = [&](const void* v) {
         const unsigned char* b = static_cast<const unsigned char*>(v);

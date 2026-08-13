@@ -106,6 +106,11 @@ If an existing project feels like a stagecoach, this is the field to look at:
 set it to something like 5 units/s (or, at 5 units per metre, 25 units/s for
 the same 5 m/s) rather than rebuilding the world.
 
+Walk speed is only the first of three tiers — a Player object also has a **run**
+speed the stick ramps up to and a **sprint** speed the sprint button pins, both
+edited in the same units/s form with the same metric readout. See
+[player-speeds.md](player-speeds.md).
+
 ## Models: the real-world size of an asset
 
 A model asset can carry **how many meters one unit of the file measures**

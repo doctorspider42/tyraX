@@ -11,6 +11,10 @@ for people building games with it. Internals live in code comments, the git log
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.
+- [Importing animation from another file](animation-import.md) — borrow clips
+  from a second rigged file (a Mixamo download, another export) onto a model you
+  already have: name-based bone matching, the translation policy that keeps your
+  character's proportions instead of the source's, root-motion retargeting.
 - [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) — why the
   game reads a binary model instead of your `.obj`, and distance LOD with
   authored or auto-decimated tiers.
@@ -89,6 +93,9 @@ for people building games with it. Internals live in code comments, the git log
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding
   presets, the in-game rebind menu, the On Action / On Key nodes.
+- [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
+  tiers of a Player object, how the stick's deflection ramps walk into run while
+  the sprint button pins the top flat, and what an unset tier inherits.
 - [Text icons (button glyphs in text)](text-icons.md) — `{{cross}}` /
   `{{action:jump}}` placeholders that draw pad glyphs inside any text.
 - [Keyboard & mouse](keyboard-mouse.md) — USB keyboard and mouse on the

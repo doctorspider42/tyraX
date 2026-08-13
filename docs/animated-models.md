@@ -38,10 +38,14 @@ Assigning an `.mtl` overrides the imported materials for the whole model. Use
 this for simple recolours or effects; use the embedded materials when different
 mesh parts need different textures.
 
+A **clip-only file** — a downloaded move with no useful mesh — is imported the
+same way, but you put its animation on a character you already have rather than
+placing it. See [animation-import.md](animation-import.md).
+
 ## Edit clips
 
-Open **Tools > Animation Editor**. Select a model and clip, then preview,
-pause, scrub or switch to wireframe.
+Open **Tools > Animation Editor**. Select a model and clip (the list has a
+name filter), then preview, pause, scrub or switch to wireframe.
 
 Clip edits are non-destructive:
 
@@ -55,12 +59,20 @@ Project Preferences also has a global animation FPS for exports whose authored
 rate was interpreted incorrectly. Fix a single clip with Time scale; use the
 project setting only when every clip is wrong by the same factor.
 
+The same window's **Imported clips** section borrows clips out of a *different*
+rigged file — a Mixamo download, another export from an animator — and puts them
+on this model, matching bones by name and keeping this model's own proportions.
+An imported clip then behaves as one of this model's clips everywhere, including
+every field above. See [animation-import.md](animation-import.md).
+
 ## Third-person players
 
 A third-person Player can use any imported animated model as its avatar. Map
-Idle and Walk, then optionally Run, Jump, Back and strafe clips. The runtime
+Idle and Walk, then optionally Run, Sprint, Jump, Back and strafe clips. The runtime
 chooses locomotion from actual movement speed, matches playback speed and
-crossfades automatically.
+crossfades automatically. **Run at** is the fraction of the player's full-stick
+**run speed** at which the Run clip takes over; sprinting is always above it.
+See [player-speeds.md](player-speeds.md).
 
 **Face camera** enables directional locomotion. Camera styles include orbit,
 top-down, isometric and fixed angle. Distance, height and shoulder offset tune
@@ -143,7 +155,7 @@ Sources are never modified and the output is deterministic.
 | Clip switch pops | Add a 0.2–0.4 s crossfade |
 | Walk moves the object away | Enable **In place** on that clip |
 | Palette-slot error | Simplify the rig below 256 bones/nodes |
-| First assignment pauses | The preview bake is cached and should be brief. Several seconds usually means an FBX needs ufbx's slower posing path because it uses parent-scale inheritance or dual-quaternion skinning |
+| First assignment pauses | The scene preview now bakes in the background (a box placeholder shows for a moment); the Material Editor's own preview still bakes inline. Several seconds of bake usually means an FBX needs ufbx's slower posing path because it uses parent-scale inheritance or dual-quaternion skinning |
 
 Animated models receive the scene's directional and ambient light. Point-light
 bakes and the usable-object highlight rim currently apply only to static meshes.

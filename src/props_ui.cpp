@@ -1687,8 +1687,39 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Player");
         const char* modes[] = {"Walk (FPP)", "Noclip (fly)", "Third person"};
         if (ImGui::Combo("Mode", &o.playerMode, modes, 3)) committed = true;
-        walkSpeedDrag("Walk speed", o.playerWalkSpeed,
-                      project_.settings.unitsPerMeter, &committed);
+        // The three speed tiers (docs/player-speeds.md). Walk is what a gentle
+        // stick gives, Run what a full one gives - the deflection ramps between
+        // them - and Sprint pins the top flat while the sprint action is held.
+        // Run and Sprint resolve through project::playerRunSpeed/
+        // playerSprintSpeed, the same functions codegen bakes with, so an unset
+        // tier displays the number the console will really run.
+        const float ups = project_.settings.unitsPerMeter;
+        walkSpeedDrag("Walk speed", o.playerWalkSpeed, ups, &committed);
+        prefHelp(
+            "Speed at a gentle stick, and the bottom of the walk -> run ramp.\n"
+            "With no Run speed set this is the only speed there is, which is\n"
+            "how every project behaved before the tiers existed.");
+        speedTierDrag("Run speed", o.playerRunSpeed,
+                      project::playerRunSpeed(o), ups, "same as walk",
+                      &committed);
+        prefHelp(
+            "Speed at FULL stick. The stick's deflection ramps the speed from\n"
+            "Walk up to Run, so easing the stick walks and pushing it all the\n"
+            "way runs.\n\n"
+            "A digital source - the d-pad, or the keyboard - always reads full\n"
+            "deflection, so it always moves at the Run speed.\n\n"
+            "This is also what the avatar's Run clip is measured against: the\n"
+            "'Run at' fraction below is a fraction of THIS speed.");
+        speedTierDrag("Sprint speed", o.playerSprintSpeed,
+                      project::playerSprintSpeed(o, project_.settings), ups,
+                      "run x sprint multiplier", &committed);
+        prefHelp(
+            "Speed while the 'sprint' action is held (Tools > Input Map).\n"
+            "It pins the top speed flat, ignoring the stick ramp - a\n"
+            "deliberate go-fast modifier rather than a third analog tier.\n\n"
+            "Left unset it is the Run speed times Preferences > Input >\n"
+            "Sprint speed, which is exactly what sprinting did before this\n"
+            "field existed. Set it to state the speed outright instead.");
         ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat(o.playerMode == 2 ? "Body height" : "Eye height",
@@ -1751,6 +1782,7 @@ void App::drawPropertiesWindow() {
                         o.playerIdleClip.clear();
                         o.playerWalkClip.clear();
                         o.playerRunClip.clear();
+                        o.playerSprintClip.clear();
                         o.playerJumpClip.clear();
                         o.playerBackClip.clear();
                         o.playerStrafeLeftClip.clear();
@@ -1813,10 +1845,28 @@ void App::drawPropertiesWindow() {
                     clipCombo("Idle clip", o.playerIdleClip, false);
                     clipCombo("Walk clip", o.playerWalkClip, false);
                     clipCombo("Run clip", o.playerRunClip, true);
+                    clipCombo("Sprint clip", o.playerSprintClip, true);
+                    prefHelp(
+                        "Played while the 'sprint' action is held and the\n"
+                        "avatar is past 'Run at' below. <none> = the run clip\n"
+                        "covers sprinting too.\n\n"
+                        "Chosen from the sprint BUTTON, not from a speed - so\n"
+                        "it works even when the sprint and run speeds are a\n"
+                        "hair apart. Its playback is matched to the sprint\n"
+                        "speed, so a clip authored at sprint pace plays at 1x\n"
+                        "when the player is actually sprinting.");
                     clipCombo("Jump clip", o.playerJumpClip, true);
+                    // A fraction of the RUN speed - which is the walk speed
+                    // until one is set, so the number means what it always did
+                    // while now tracking the tier the stick actually tops out
+                    // at (docs/player-speeds.md).
                     ImGui::DragFloat("Run at", &o.playerRunThreshold, 0.01f, 0.1f,
-                                     1.0f, "%.2f of walk speed");
+                                     1.0f, "%.2f of run speed");
                     committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    prefHelp(
+                        "Fraction of the full-stick Run speed at which the Run\n"
+                        "clip replaces the Walk clip. Sprinting is above the\n"
+                        "run speed, so it always plays the run clip.");
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
                         "\"Play Animation\" one-shot plays to the end first.");
