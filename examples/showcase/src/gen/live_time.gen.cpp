@@ -60,7 +60,7 @@ unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
 u32 seqOut = 0;         // captures written
 u32 frameNo = 0;        // monotonic across restores: the history's ordering key
 u32 lastRestoreSeq = 0;  // the restore we last applied
-int cooldown = 1;
+int cooldown = 13;  // poll phase - see docs/devkit.md
 unsigned int lastGen = 0xFFFFFFFFu;
 
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }

@@ -537,6 +537,8 @@ inline const char* SND_PATHS[1] = {"sfx/fire.adpcm"};
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0, 0, 0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0, 0, 0};
 constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.65F, 0.65F, 0.65F};
+constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {0.65F, 0.65F, 0.65F};
+constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {1.17F, 1.17F, 1.17F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F};
@@ -553,6 +555,7 @@ constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false};
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {"", "", ""};
+constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", ""};
@@ -561,6 +564,8 @@ constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false, false, false};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1, -1, -1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0, 0, 0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F};
+constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F};
+constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F, 0.18F, 0.18F};
 constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F};
 constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F};
 constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F};
@@ -577,6 +582,7 @@ constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false};
 constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {"", "", ""};
+constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {"", "", ""};
 constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", ""};
@@ -773,6 +779,8 @@ inline int everyFrames(float seconds) {
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_RUN_SPEED PLAYER_RUN_SPEEDS[g_activeScene]
+#define PLAYER_SPRINT_SPEED PLAYER_SPRINT_SPEEDS[g_activeScene]
 #define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
@@ -789,6 +797,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_SPRINT_CLIP PLAYER_SPRINT_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
 // Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
@@ -797,6 +806,8 @@ inline int everyFrames(float seconds) {
 #define PP_INDEX(pi) PP_TBL(pi, INDEXES)
 #define PP_MODE(pi) PP_TBL(pi, MODES)
 #define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_RUN_SPEED(pi) PP_TBL(pi, RUN_SPEEDS)
+#define PP_SPRINT_SPEED(pi) PP_TBL(pi, SPRINT_SPEEDS)
 #define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
 #define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
 #define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
@@ -813,6 +824,7 @@ inline int everyFrames(float seconds) {
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_SPRINT_CLIP(pi) PP_TBL(pi, SPRINT_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 // Directional locomotion (face-camera / strafe mode).
 #define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)

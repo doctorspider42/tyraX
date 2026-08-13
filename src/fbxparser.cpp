@@ -799,7 +799,9 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
         sn.s[0] = (float)n->local_transform.scale.x;
         sn.s[1] = (float)n->local_transform.scale.y;
         sn.s[2] = (float)n->local_transform.scale.z;
+        sn.name.assign(n->name.data, n->name.length);
     }
+    glbparser::uniqueNodeNames(out);
 
     // Palette: one slot per skin cluster (bone + inverse bind matrix) and
     // one identity-IBM slot per rigid mesh node.

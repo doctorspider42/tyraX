@@ -46,6 +46,9 @@ Live:
 - **position, rotation, scale, color** of every scene object — the same
   mutations the *Move/Set Color* flow nodes perform at runtime, so geometry
   rebuild, physics and collision all follow the patched values;
+- a Player object's **walk / run / sprint speeds** (the resolved values, so the
+  sprint multiplier's effect streams too) — tuning movement feel is exactly the
+  edit-run loop a rebuild would ruin ([player-speeds.md](player-speeds.md));
 - **adding objects** — a new object is instantiated through the game's runtime
   spawn pool by cloning an authored object with the same "recipe" (same type,
   model, material, detail, layer, physics…), then patched to its own
@@ -64,7 +67,8 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   primitive detail (and a cylinder's *Vertical rings*, which is the same
   geometry decision), physics (the flag and, while it is on, the mass /
   bounciness / friction / tumble material) / collision, layer membership,
-  emitter / sound / player / animation parameters…
+  emitter / sound / player (except the three speeds, which are live) /
+  animation parameters…
 - adding an object with **no matching template** in the built scene (nothing
   of the same recipe existed at build time), or one that can't be faithfully
   spawned at runtime: **point lights** (baked into vertex colors),
@@ -86,9 +90,10 @@ emulator, the ps2link/ps2client file server on a real console. One mechanism,
 both targets.
 
 - The editor (`App::liveLinkTick`, ~10 Hz) snapshots the active scene as one
-  64-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
-  editor id), a spawn-template index for objects added since the build, and
-  the 12 live floats — and writes `bin/livelink.bin` (`TXLL` magic, version,
+  80-byte record per object — a stable **id hash** (FNV-1a 64 of the object's
+  editor id), a spawn-template index for objects added since the build, the
+  12 live floats and (on Player objects) the three resolved speed tiers — and
+  writes `bin/livelink.bin` (`TXLL` magic, version,
   sequence number, a footer echoing the sequence) atomically via a sibling
   tmp file + rename, whenever the payload changed.
 - The game side is a generated global script, `src/gen/live_link.gen.cpp`
@@ -124,12 +129,14 @@ whole pipeline. Every saved paint stroke / applied bake layer:
 
 1. re-bakes the texture into `bin/<path>` in exactly the format the build
    shipped (the palette layout is read from the existing PNG's header, so
-   the swap is format-identical), written atomically;
+   the swap is format-identical), written atomically — **once per path the
+   texture ships under**, see below;
 2. bumps `bin/livetex.bin` — a tiny manifest of repainted textures with
    growing generations (`TXLT` magic, seq + footer echo like the scene
    snapshot; cumulative per session, so a game booted later catches up).
+   Every path one paint produced shares a **group** number.
 
-The generated poller (`src/scripts/live_tex.gen.cpp`, same debug + Live Link
+The generated poller (`src/gen/live_tex.gen.cpp`, same debug + Live Link
 gate) re-decodes the PNG and **re-uploads the pixels into the texture's
 existing GS VRAM allocation** (`RendererCoreTexture::updateTextureInfo` —
 same address, so the GS bump allocator is never disturbed; textures are
@@ -138,6 +145,26 @@ Every mesh sharing the texture updates at once. A repaint that changed the
 texture's dimensions or palette format is skipped with a soft error in the
 log — that needs a real build. The Runner deletes `livetex.bin` at build
 start (the fresh build re-bakes everything).
+
+**The path the game knows is not always where the texture lives.** An
+animated model bakes every texture its material override names into a
+*renamed* copy next to its `.tskl` — `res/materials/Body-tex.png` ships as
+`models/hero__ovr3a65_Body-tex.png`, and that renamed path is what the
+`.tskl` stores and the game loads. So the editor resolves the painted file
+through the bake's own naming (`templates::animTextureAliases`) and updates
+**and announces every one of those copies as well**, one per animated model
+carrying the texture. For a texture only animated models use, the texture's
+own location is not among them at all — which is exactly why a repaint used
+to do nothing there, with no diagnostic anywhere.
+
+**A reload that matches nothing says so.** The poller reports per *group*:
+one record matching no loaded texture is ordinary (the paint announces every
+path the texture may have shipped under, and the game loaded one of them),
+but when a whole group matches nothing it prints a soft error naming each
+path it tried. That is the case where the repaint genuinely did not happen —
+the model is not in the running scene, or it is new since the last build —
+and it used to be silent, i.e. indistinguishable from the feature not
+existing.
 
 ## Limits & notes
 
