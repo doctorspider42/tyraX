@@ -1,5 +1,7 @@
 # Remote Pad — hold the running game's controller from the editor (or a script)
 
+![Remote Pad](img/remote-pad.png)
+
 Live Link streams edits *into* the running game, the Live Debugger reads *out* of
 it, the time machine rewinds it. The Remote Pad answers the question none of
 those can: **who is pressing the buttons.**

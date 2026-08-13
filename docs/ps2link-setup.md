@@ -1,5 +1,7 @@
 # Running and debugging on a real PS2 — the TyraX ps2link
 
+![Debug channels used with ps2link](img/project-preferences-build.png)
+
 The console side of this editor is **always our own ps2link**: a pinned upstream
 checkout plus [`tools/ps2link/tyrax.patch`](../tools/ps2link/tyrax.patch), built
 here in Docker and flashed onto the memory card once. Stock ps2link is not a
@@ -181,9 +183,8 @@ initialized" flags in `.bss` and only a re-executed image gets them cleared by
 crt0.
 
 The game dies on every Stop, measured and reproducible. Whether **ps2link**
-comes back is a separate and still-open question — this section used to claim
-four clean Run → Stop cycles, which later re-measurement could not reproduce on
-any build; see the ps2link entry in [backlog.md](backlog.md) for the numbers.
+comes back is separate: this section used to claim four clean Run → Stop cycles,
+which later re-measurement could not reproduce on any build.
 
 None of this changes the protocol, so it needs no `ps2client` change and an old
 `ps2client` still talks to it.
@@ -301,9 +302,9 @@ taken.
    > image, whose segment lands on FMCB's loader mid-copy. Building with `make`
    > instead of `make ee` gives us the packed shape (118 740 B, entry
    > `0x01d0001c`) — **and that does not boot either**, so packing is not the
-   > whole story. The question is parked with everything measured so far in
-   > [backlog.md](backlog.md); the high build is the default because it is the
-   > one that demonstrably boots.
+   > whole story. The proposed single-build fix is to
+   > [load the USB modules from the card](backlog.md#load-ps2link-usb-modules-from-the-memory-card).
+   > The high build is the default because it is the one that demonstrably boots.
 2. Put an **`IPCONFIG.DAT`** in the *same directory* — ps2link opens it by a
    relative path, so it reads the one next to itself. One line, three
    space-separated fields, `ip netmask gateway`:
@@ -474,7 +475,7 @@ Differences on real hardware:
   *Also over ps2link* sub-option under it is already on — the game reuses
   ps2link's resident USB stack instead of loading one it cannot load. See
   [keyboard-mouse.md](keyboard-mouse.md).
-- **The EE crash handler** ([devkit.md](devkit.md#the-ee-crash-handler-experimental-opt-in))
+- **The EE crash handler** ([devkit.md](devkit.md#crashes-and-hangs))
   is still opt-in and unproven on hardware; the heartbeat post-mortem needs
   nothing from the game and works here.
 

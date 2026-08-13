@@ -1,5 +1,7 @@
 # A binary format for static models (`.tmdl`) + static mesh LODs — design & plan
 
+![Static model assets in the Asset Browser](img/asset-browser.png)
+
 Developer design doc (not a user guide). Status: **M1–M3 done** — the format
 ships, static models carry distance LOD tiers, and a model can name its own
 LOD meshes. The user-facing guide is [model-pipeline.md](model-pipeline.md).
