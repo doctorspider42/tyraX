@@ -1082,6 +1082,26 @@ private:
     // Canvas view: wheel zooms to the cursor, middle-drag pans - without it
     // finger and toe joints of a real rig are unclickable. Reset on open.
     float animMapZoom_ = 1.0f, animMapPanX_ = 0.0f, animMapPanY_ = 0.0f;
+    // Test pose: both rigs posed through the CURRENT mapping - the check
+    // that beats every percentage (docs/animation-import.md).
+    int animMapPoseClip_ = -1;  // donor clip index, -1 = off
+    float animMapPoseT_ = 0.0f;
+    bool animMapPosePlay_ = false;
+    std::vector<float> animMapDPosed_, animMapTPosed_;
+    // One affix rule covering many unmatched bones (recomputed with the
+    // suggestions), and the AI assist (aigen backend, one-shot).
+    animmerge::AffixRule animMapAffix_;
+    bool animMapAffixOk_ = false;
+    std::unique_ptr<aigen::Generator> animMapAiGen_;
+    std::vector<std::pair<std::string, std::string>> animMapAiSugg_;
+    std::string animMapAiErr_;
+    // The user's accepted pairs, machine-global (<configDir>/bone-aliases.ini)
+    // - once "Oyayubi1" was mapped onto "Thumb1", the next file from the same
+    // pack suggests itself. Written on Apply, loaded lazily.
+    std::map<std::string, std::string> boneAliases_;
+    bool boneAliasesLoaded_ = false;
+    void loadBoneAliases();
+    void saveBoneAliases();
     // Suggestions are recomputed only when the staged pairs change - they
     // were per-frame, which is wasted work and made the window read as busy.
     std::vector<std::pair<std::string, std::string>> animMapSuggFor_;

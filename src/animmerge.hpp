@@ -142,9 +142,68 @@ struct BoneSuggestion {
     std::string target;
     float score = 0.0f;  // 0..1
 };
-std::vector<BoneSuggestion> suggestBoneMap(const glbparser::Skel& target,
-                                           const glbparser::Skel& donor,
-                                           const MergeOptions& options);
+// `aliases` (optional): the user's own past decisions - canonicalBoneKey of
+// a donor bone -> the target bone NAME it was hand-mapped to before. A hit
+// nearly maxes the name signal, which is what makes the same rename resolve
+// itself in the next file from the same pack.
+std::vector<BoneSuggestion> suggestBoneMap(
+    const glbparser::Skel& target, const glbparser::Skel& donor,
+    const MergeOptions& options,
+    const std::map<std::string, std::string>* aliases = nullptr);
+
+// The alias book's key: namespace stripped, lowercased, tokens canonicalized
+// through the synonym table and joined - so "mixamorig:LeftUpLeg" and
+// "UpperLeg_L" share a key with themselves across files, not with each other.
+std::string canonicalBoneKey(const std::string& name);
+
+// One affix transformation that maps MANY unmatched donor bones onto target
+// bones at once - the "two rigs identical modulo a prefix/suffix" case, which
+// deserves one reviewable rule instead of thirty fuzzy scores. Either the
+// strip pair (donor = prefix + target + suffix) or the add pair (target =
+// prefix + donor + suffix) is set, never both.
+struct AffixRule {
+    std::string stripPrefix, stripSuffix;
+    std::string addPrefix, addSuffix;
+    int matches = 0;
+    // Human-readable form for the button label ("strip 'rigX:'+'X'").
+    std::string describe() const;
+};
+// Finds the most-voted rule over the unmatched donor bones; true when one
+// covers at least 3 of them (and at least a third of the unmatched set).
+bool detectAffixRule(const glbparser::Skel& target,
+                     const glbparser::Skel& donor, const MergeOptions& options,
+                     AffixRule& out);
+// The pairs that rule produces (only where the transformed name IS a free
+// target bone) - handed to the UI as ready-to-accept pairs.
+std::vector<std::pair<std::string, std::string>> applyAffixRule(
+    const glbparser::Skel& target, const glbparser::Skel& donor,
+    const MergeOptions& options, const AffixRule& rule);
+
+// The mapper's "test pose": donor posed at `t` of its clip `donorClip`, and
+// the TARGET posed by borrowing the mapped donor rotations - exactly what the
+// merge would bake (default policy: rotations travel, the target keeps its
+// own translations, the root is retargeted by hip height). A wrong mapping
+// shows as a folded limb long before any percentage says so. Outputs are
+// global joint positions, 3 floats per node, ready for the canvas.
+void posedPreview(const glbparser::Skel& target, const glbparser::Skel& donor,
+                  const MergeOptions& options, int donorClip, float t,
+                  std::vector<float>& donorXyz, std::vector<float>& targetXyz);
+
+// --- the AI assist (docs/animation-import.md, "Ask AI") --------------------
+// Everything a model needs to map the rigs, as one text block: both bone
+// hierarchies with depths and normalized bind positions, the pairs already
+// resolved (context), the unmatched list (the task), and the output contract
+// ({"pairs":[{"s":..,"t":..}]}). Pure text from parsed data, so the harness
+// can check it without any backend.
+std::string aiMapPrompt(const glbparser::Skel& target,
+                        const glbparser::Skel& donor,
+                        const MergeOptions& options);
+// The reply parsed and VALIDATED: only pairs whose donor name exists and
+// whose target names a real target bone survive, one per donor. Lenient
+// about fences and prose the way every model-reply parser here is.
+std::vector<std::pair<std::string, std::string>> parseAiBoneMap(
+    const std::string& reply, const glbparser::Skel& target,
+    const glbparser::Skel& donor);
 
 // Bind-pose global position of every node (3 floats each) - what the mapping
 // editor projects into its 2D skeleton view.

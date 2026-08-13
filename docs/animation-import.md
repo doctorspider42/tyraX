@@ -71,12 +71,33 @@ matching names, and an exact match always wins over a normalised one.
 When the two rigs' names genuinely differ, **Map bones…** (on each import row;
 it also opens itself when *Add clips* lands a partial match) shows both
 skeletons drawn from their bind poses, side by side. Green joints matched by
-name; **amber** ones carry a fuzzy suggestion — names cut into tokens, side
-words collapsed (`LeftUpLeg` ≈ `UpperLeg_L`) — and **red** ones matched
-nothing. Click a red or amber joint, then the joint on the right it should
-drive; right-click removes a pair; *Accept suggestions* takes every amber guess
-at once. Suggestions are never applied on their own — a wrong guess bends the
-wrong limb, so a person confirms them.
+name; **amber** ones carry a suggestion; **red** ones matched nothing. Click a
+red or amber joint, then the joint on the right it should drive; right-click
+removes a pair; *Accept suggestions* takes every amber guess at once.
+Suggestions are never applied on their own — a wrong guess bends the wrong
+limb, so a person confirms them.
+
+The suggester reads four signals, not just spelling: **names** (tokens run
+through a bone-vocabulary table, so `LeftUpLeg` ≈ `thigh_l` across
+Mixamo/UE/Rigify conventions), **structure** (chain depth, subtree size — once
+the hips anchor, their children look among the mapped hips' children), **bind
+geometry** (normalized joint positions and bone directions, which is also what
+pairs a rig whose names say nothing at all), and **your own history** (every
+pair you ever accepted lands in a machine-global alias book, so the next file
+from the same pack suggests itself). A left token or a clearly-left position
+still never pairs with a right one.
+
+Two shortcuts sit above the fuzzy scores. When the rigs differ by one rename
+pattern, an **Apply rule** button appears — `strip 'rigX:'+'X' (34)` — one
+reviewable transformation instead of thirty scores. And **Test pose** poses
+both skeletons through the current mapping with a clip of the source (slider +
+Play): a wrong pair shows as a folded limb in a quarter of a second, which
+beats every percentage this window prints.
+
+**Ask AI** (optional — uses the backend from *Edit > Preferences*) sends both
+hierarchies with bind positions to the model and lands its proposals in the
+list as one more suggestion group, blue, each with its own accept button.
+Nothing it says is applied on its own, exactly like the local suggestions.
 
 Hovering any joint shows its link at once — the other end rings up and a line
 ties the two, accent for a real mapping, amber for a pending suggestion. The

@@ -7,10 +7,12 @@
 #include <cstring>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "fbxparser.hpp"  // animimport:: - the format dispatch
+#include "json.hpp"       // parseAiBoneMap reads a model reply
 
 namespace animmerge {
 namespace {
@@ -219,6 +221,9 @@ void sampleChannel(const SkelChannel& ch, float t, int stride, float* out) {
     }
 }
 
+void composeGlobals(const Skel& s, const std::vector<M4>& locals,
+                    std::vector<M4>& globals);
+
 // Global matrix per node at time t of `clip`. A node with no channel of a
 // given path keeps its BIND component - the rule that preserves the target's
 // own proportions when a donor track was stripped or never existed.
@@ -258,6 +263,14 @@ void poseGlobals(const Skel& s, const SkelClip& clip, float t,
         locals[i] = trs(tt, rr, ss);
     }
 
+    composeGlobals(s, locals, globals);
+}
+
+// Locals -> globals along the parent chains; parents are NOT guaranteed to
+// precede children (the glTF lesson), hence the chain walk.
+void composeGlobals(const Skel& s, const std::vector<M4>& locals,
+                    std::vector<M4>& globals) {
+    const size_t n = s.nodes.size();
     globals.assign(n, M4{});
     std::vector<char> done(n, 0);
     std::vector<int> chain;
@@ -286,7 +299,6 @@ void poseGlobals(const Skel& s, const SkelClip& clip, float t,
             done[(size_t)node] = 1;
         }
     }
-    (void)clip;
 }
 
 }  // namespace
@@ -301,6 +313,34 @@ namespace {
 // Bone-name tokens for the fuzzy suggester: split on separators AND camelCase
 // boundaries, lowercase, collapse the side words - so "mixamorig:LeftUpLeg"
 // and "UpperLeg_L" both carry an "l" token and comparable stems.
+// The vocabulary map: every rig family names the same bone differently
+// (Rigify upper_arm, UE upperarm, Mixamo Arm, DAZ ShldrBend...), and token
+// overlap sees none of that. Both sides canonicalize BEFORE comparing, so
+// the table only has to reach a shared word, not be complete.
+const char* boneSynonym(const std::string& t) {
+    struct Row { const char* from, *to; };
+    static const Row kRows[] = {
+        {"left", "l"}, {"right", "r"},
+        {"pelvis", "hips"}, {"root", "hips"}, {"cog", "hips"},
+        {"torso", "spine"}, {"chest", "spine"}, {"body", "spine"},
+        {"collar", "clavicle"}, {"collarbone", "clavicle"},
+        {"shoulder", "clavicle"}, {"shldr", "clavicle"},
+        {"upperarm", "arm"}, {"uparm", "arm"}, {"bicep", "arm"},
+        {"forearm", "lowerarm"}, {"elbow", "lowerarm"},
+        {"wrist", "hand"},
+        {"upleg", "thigh"}, {"upperleg", "thigh"}, {"hip", "thigh"},
+        {"leg", "shin"}, {"lowerleg", "shin"}, {"calf", "shin"},
+        {"knee", "shin"},
+        {"ankle", "foot"}, {"ball", "toe"}, {"toebase", "toe"},
+        {"skull", "head"},
+        {"finger", "f"}, {"pinkie", "pinky"},
+        {"upper", "up"}, {"lower", "low"},
+    };
+    for (const Row& r : kRows)
+        if (t == r.from) return r.to;
+    return nullptr;
+}
+
 std::vector<std::string> boneTokens(const std::string& raw) {
     // Namespace off first, same rule as normalize().
     std::string name = raw;
@@ -311,8 +351,14 @@ std::vector<std::string> boneTokens(const std::string& raw) {
     std::string cur;
     auto flush = [&] {
         if (cur.empty()) return;
-        if (cur == "left") cur = "l";
-        else if (cur == "right") cur = "r";
+        // Numeric tokens lose leading zeros, so spine01 == spine_1 == Spine1.
+        if (std::isdigit((unsigned char)cur[0])) {
+            size_t z = 0;
+            while (z + 1 < cur.size() && cur[z] == '0') ++z;
+            cur = cur.substr(z);
+        } else if (const char* syn = boneSynonym(cur)) {
+            cur = syn;
+        }
         tokens.push_back(cur);
         cur.clear();
     };
@@ -322,9 +368,14 @@ std::vector<std::string> boneTokens(const std::string& raw) {
             flush();
             continue;
         }
-        // camelCase boundary: an upper after a lower starts a new token.
-        if (std::isupper((unsigned char)c) && !cur.empty() &&
-            std::islower((unsigned char)cur.back()))
+        // Boundaries: an upper after a lower (camelCase), and any
+        // letter<->digit switch, start a new token.
+        const bool digitSwitch =
+            !cur.empty() && (std::isdigit((unsigned char)c) !=
+                             std::isdigit((unsigned char)cur.back()));
+        if ((std::isupper((unsigned char)c) && !cur.empty() &&
+             std::islower((unsigned char)cur.back())) ||
+            digitSwitch)
             flush();
         cur += (char)std::tolower((unsigned char)c);
     }
@@ -379,53 +430,340 @@ float boneScore(const std::vector<std::string>& a,
 
 }  // namespace
 
-std::vector<BoneSuggestion> suggestBoneMap(const Skel& target,
-                                           const Skel& donor,
-                                           const MergeOptions& options) {
+// Everything one bone contributes to the matching, precomputed per skeleton:
+// tokens, bone-tree shape and normalized bind geometry. `parentBone` chains
+// bones across helper nodes, the same walk the canvas draws lines with.
+struct BoneInfo {
+    int node = -1;
+    int parentBone = -1;  // index into the BoneInfo vector, -1 = root bone
+    int depth = 0;        // along the BONE chain
+    int subtree = 1;      // bones in this bone's subtree, self included
+    int childCount = 0;   // direct bone children
+    std::vector<std::string> tokens;
+    char side = 0;      // 'l' / 'r' from tokens
+    float geoSide = 0;  // sign of bind X when clearly off the middle
+    float pos[3] = {0, 0, 0};  // bind position, centered + height-normalized
+    float dir[3] = {0, 0, 0};  // toward the bone children (0 = leaf)
+};
+
+std::vector<BoneInfo> buildBoneInfos(const Skel& s) {
+    std::vector<char> isBone, isRoot;
+    boneSets(s, isBone, isRoot);
+    std::vector<float> xyz;
+    bindGlobals(s, xyz);
+
+    std::vector<int> nodeToBone(s.nodes.size(), -1);
+    std::vector<BoneInfo> bones;
+    for (size_t i = 0; i < s.nodes.size(); ++i) {
+        if (!isBone[i]) continue;
+        nodeToBone[i] = (int)bones.size();
+        BoneInfo b;
+        b.node = (int)i;
+        b.tokens = boneTokens(s.nodes[i].name);
+        for (const std::string& t : b.tokens)
+            if (t == "l" || t == "r") b.side = t[0];
+        bones.push_back(std::move(b));
+    }
+    // Parent-bone chain (nodes are not ordered, walk the node parents).
+    for (BoneInfo& b : bones) {
+        int p = s.nodes[(size_t)b.node].parent;
+        while (p >= 0 && p < (int)s.nodes.size() && nodeToBone[(size_t)p] < 0)
+            p = s.nodes[(size_t)p].parent == p ? -1 : s.nodes[(size_t)p].parent;
+        b.parentBone = p >= 0 && p < (int)s.nodes.size() ? nodeToBone[(size_t)p]
+                                                         : -1;
+    }
+    // Depth / children / subtree (iterate depths - the vector is unordered).
+    for (size_t bi = 0; bi < bones.size(); ++bi) {
+        int d = 0;
+        for (int p = bones[bi].parentBone; p >= 0; p = bones[(size_t)p].parentBone)
+            ++d;
+        bones[bi].depth = d;
+        if (bones[bi].parentBone >= 0)
+            ++bones[(size_t)bones[bi].parentBone].childCount;
+    }
+    for (size_t bi = 0; bi < bones.size(); ++bi)
+        for (int p = bones[bi].parentBone; p >= 0; p = bones[(size_t)p].parentBone)
+            ++bones[(size_t)p].subtree;
+    // Geometry: center on the bone centroid, scale by the largest extent.
+    float mn[3] = {1e9f, 1e9f, 1e9f}, mx[3] = {-1e9f, -1e9f, -1e9f};
+    for (const BoneInfo& b : bones)
+        for (int c = 0; c < 3; ++c) {
+            const float v = xyz[(size_t)b.node * 3 + (size_t)c];
+            mn[c] = std::min(mn[c], v);
+            mx[c] = std::max(mx[c], v);
+        }
+    float span = 1e-6f;
+    for (int c = 0; c < 3; ++c) span = std::max(span, mx[c] - mn[c]);
+    const float midX = (mn[0] + mx[0]) * 0.5f;
+    for (BoneInfo& b : bones) {
+        for (int c = 0; c < 3; ++c)
+            b.pos[c] = (xyz[(size_t)b.node * 3 + (size_t)c] -
+                        (mn[c] + mx[c]) * 0.5f) /
+                       span;
+        const float rawX = xyz[(size_t)b.node * 3] - midX;
+        if (std::fabs(rawX) > span * 0.04f) b.geoSide = rawX > 0 ? 1.0f : -1.0f;
+    }
+    for (size_t bi = 0; bi < bones.size(); ++bi) {
+        const int p = bones[bi].parentBone;
+        if (p < 0) continue;
+        float d[3];
+        float len = 0;
+        for (int c = 0; c < 3; ++c) {
+            d[c] = bones[bi].pos[c] - bones[(size_t)p].pos[c];
+            len += d[c] * d[c];
+        }
+        len = std::sqrt(len);
+        if (len > 1e-6f)
+            for (int c = 0; c < 3; ++c)
+                bones[(size_t)p].dir[c] += d[c] / len;  // summed, then normed
+    }
+    for (BoneInfo& b : bones) {
+        const float len = std::sqrt(b.dir[0] * b.dir[0] + b.dir[1] * b.dir[1] +
+                                    b.dir[2] * b.dir[2]);
+        if (len > 1e-6f)
+            for (int c = 0; c < 3; ++c) b.dir[c] /= len;
+    }
+    return bones;
+}
+
+std::vector<BoneSuggestion> suggestBoneMap(
+    const Skel& target, const Skel& donor, const MergeOptions& options,
+    const std::map<std::string, std::string>* aliases) {
+    Resolver res(target, options);
+    const std::vector<BoneInfo> tb = buildBoneInfos(target);
+    const std::vector<BoneInfo> db = buildBoneInfos(donor);
+    std::map<int, int> tNodeToBone;
+    for (size_t i = 0; i < tb.size(); ++i) tNodeToBone[tb[i].node] = (int)i;
+
+    // mapped[donor bone] = target bone; seeded by the name chain, grown by
+    // the accepted suggestions each round (that is what feeds consistency).
+    std::vector<int> mapped(db.size(), -1);
+    std::vector<char> taken(tb.size(), 0);
+    std::vector<int> unmatched;
+    for (size_t i = 0; i < db.size(); ++i) {
+        const int hit = res.resolve(donor.nodes[(size_t)db[i].node].name);
+        const auto it = hit >= 0 ? tNodeToBone.find(hit) : tNodeToBone.end();
+        if (it != tNodeToBone.end()) {
+            mapped[i] = it->second;
+            taken[(size_t)it->second] = 1;
+        } else {
+            unmatched.push_back((int)i);
+        }
+    }
+
+    float maxSubtree = 1.0f;
+    for (const BoneInfo& b : db) maxSubtree = std::max(maxSubtree, (float)b.subtree);
+
+    auto pairScore = [&](const BoneInfo& d, const BoneInfo& t) {
+        // Hard side guard first - token side, then clear geometric side.
+        if (d.side && t.side && d.side != t.side) return 0.0f;
+        if (d.geoSide != 0 && t.geoSide != 0 && d.geoSide != t.geoSide &&
+            !d.side && !t.side)
+            return 0.0f;
+        float name = boneScore(d.tokens, t.tokens);
+        if (aliases) {
+            const auto it =
+                aliases->find(canonicalBoneKey(donor.nodes[(size_t)d.node].name));
+            if (it != aliases->end() &&
+                it->second == target.nodes[(size_t)t.node].name)
+                name = std::max(name, 0.97f);
+        }
+        float structS = 1.0f;
+        structS -= std::min(1.0f, std::fabs((float)(d.depth - t.depth)) / 6.0f) * 0.5f;
+        structS -= std::min(1.0f, std::fabs((float)(d.subtree - t.subtree)) /
+                                      maxSubtree) * 0.3f;
+        if (d.childCount != t.childCount) structS -= 0.2f;
+        structS = std::max(0.0f, structS);
+        float dx = d.pos[0] - t.pos[0], dy = d.pos[1] - t.pos[1],
+              dz = d.pos[2] - t.pos[2];
+        const float posD = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const float posS = std::max(0.0f, 1.0f - posD * 1.5f);
+        const bool dLeaf = d.dir[0] == 0 && d.dir[1] == 0 && d.dir[2] == 0;
+        const bool tLeaf = t.dir[0] == 0 && t.dir[1] == 0 && t.dir[2] == 0;
+        const float dot = d.dir[0] * t.dir[0] + d.dir[1] * t.dir[1] +
+                          d.dir[2] * t.dir[2];
+        const float dirS = (dLeaf || tLeaf) ? 0.5f : (dot + 1.0f) * 0.5f;
+        const float geo = 0.6f * posS + 0.4f * dirS;
+        // Consistency: my nearest mapped ancestor must map to an ancestor of
+        // the candidate. Roots pair with roots.
+        float cons = 0.4f;  // no mapped ancestor yet - neutral
+        int a = d.parentBone;
+        int hops = 0;
+        while (a >= 0 && mapped[(size_t)a] < 0 && hops < 4) {
+            a = db[(size_t)a].parentBone;
+            ++hops;
+        }
+        if (d.parentBone < 0) {
+            cons = t.parentBone < 0 ? 1.0f : 0.0f;
+        } else if (a >= 0 && mapped[(size_t)a] >= 0) {
+            cons = 0.0f;
+            int ta = t.parentBone;
+            for (int h = 0; ta >= 0 && h < 4 + hops; ++h) {
+                if (ta == mapped[(size_t)a]) {
+                    cons = 1.0f;
+                    break;
+                }
+                ta = tb[(size_t)ta].parentBone;
+            }
+        }
+        return 0.5f * name + 0.15f * structS + 0.2f * geo + 0.15f * cons;
+    };
+
+    // Iterate: each round's accepted pairs anchor the next round's
+    // consistency, which is how a chain with useless names walks itself down
+    // from an anchored root. Deterministic: stable sort, index tie-breaks.
+    std::vector<BoneSuggestion> out;
+    for (int round = 0; round < 8; ++round) {
+        struct Cand {
+            int d, t;
+            float score;
+        };
+        std::vector<Cand> cands;
+        for (int di : unmatched) {
+            if (mapped[(size_t)di] >= 0) continue;
+            for (size_t ti = 0; ti < tb.size(); ++ti) {
+                if (taken[ti]) continue;
+                const float sc = pairScore(db[(size_t)di], tb[ti]);
+                if (sc >= 0.5f) cands.push_back({di, (int)ti, sc});
+            }
+        }
+        std::stable_sort(cands.begin(), cands.end(), [](const Cand& a,
+                                                        const Cand& b) {
+            if (a.score != b.score) return a.score > b.score;
+            if (a.d != b.d) return a.d < b.d;
+            return a.t < b.t;
+        });
+        bool any = false;
+        for (const Cand& c : cands) {
+            if (mapped[(size_t)c.d] >= 0 || taken[(size_t)c.t]) continue;
+            mapped[(size_t)c.d] = c.t;
+            taken[(size_t)c.t] = 1;
+            out.push_back({donor.nodes[(size_t)db[(size_t)c.d].node].name,
+                           target.nodes[(size_t)tb[(size_t)c.t].node].name,
+                           c.score});
+            any = true;
+        }
+        if (!any) break;
+    }
+    return out;
+}
+
+std::string canonicalBoneKey(const std::string& name) {
+    std::string key;
+    for (const std::string& t : boneTokens(name)) {
+        if (!key.empty()) key += '.';
+        key += t;
+    }
+    return key;
+}
+
+std::string AffixRule::describe() const {
+    auto q = [](const std::string& s) { return "'" + s + "'"; };
+    std::string d;
+    if (!stripPrefix.empty() || !stripSuffix.empty()) {
+        d = "strip ";
+        if (!stripPrefix.empty()) d += q(stripPrefix);
+        if (!stripPrefix.empty() && !stripSuffix.empty()) d += "+";
+        if (!stripSuffix.empty()) d += q(stripSuffix);
+    } else {
+        d = "add ";
+        if (!addPrefix.empty()) d += q(addPrefix);
+        if (!addPrefix.empty() && !addSuffix.empty()) d += "+";
+        if (!addSuffix.empty()) d += q(addSuffix);
+    }
+    return d;
+}
+
+bool detectAffixRule(const Skel& target, const Skel& donor,
+                     const MergeOptions& options, AffixRule& out) {
     Resolver res(target, options);
     std::vector<char> tIsBone, tIsRoot, dIsBone, dIsRoot;
     boneSets(target, tIsBone, tIsRoot);
     boneSets(donor, dIsBone, dIsRoot);
+    std::vector<std::string> unmatched, targets;
+    for (size_t i = 0; i < donor.nodes.size(); ++i)
+        if (dIsBone[i] && res.resolve(donor.nodes[i].name) < 0)
+            unmatched.push_back(donor.nodes[i].name);
+    for (size_t i = 0; i < target.nodes.size(); ++i)
+        if (tIsBone[i]) targets.push_back(target.nodes[i].name);
+    if (unmatched.size() < 3) return false;
 
-    // Free target bones: not already the home of a name-resolved donor bone.
-    std::vector<char> taken(target.nodes.size(), 0);
-    std::vector<int> unmatched;
+    // Vote: every (donor, target) containment yields one candidate rule.
+    std::map<std::string, int> votes;
+    for (const std::string& dn : unmatched)
+        for (const std::string& tn : targets) {
+            if (tn.size() >= 3 && dn.size() > tn.size()) {
+                const size_t at = dn.find(tn);
+                if (at != std::string::npos)
+                    ++votes["D\x01" + dn.substr(0, at) + "\x01" +
+                            dn.substr(at + tn.size())];
+            }
+            if (dn.size() >= 3 && tn.size() > dn.size()) {
+                const size_t at = tn.find(dn);
+                if (at != std::string::npos)
+                    ++votes["A\x01" + tn.substr(0, at) + "\x01" +
+                            tn.substr(at + dn.size())];
+            }
+        }
+    std::string best;
+    int bestVotes = 0;
+    for (const auto& [rule, v] : votes)
+        if (v > bestVotes) best = rule, bestVotes = v;
+    if (bestVotes < 3) return false;
+
+    AffixRule rule;
+    const size_t s1 = best.find('\x01'), s2 = best.find('\x01', s1 + 1);
+    if (best[0] == 'D') {
+        rule.stripPrefix = best.substr(2, s2 - 2);
+        rule.stripSuffix = best.substr(s2 + 1);
+    } else {
+        rule.addPrefix = best.substr(2, s2 - 2);
+        rule.addSuffix = best.substr(s2 + 1);
+    }
+    // The honest count: how many pairs it really produces.
+    rule.matches = (int)applyAffixRule(target, donor, options, rule).size();
+    if (rule.matches < 3 || rule.matches < (int)unmatched.size() / 3)
+        return false;
+    out = rule;
+    return true;
+}
+
+std::vector<std::pair<std::string, std::string>> applyAffixRule(
+    const Skel& target, const Skel& donor, const MergeOptions& options,
+    const AffixRule& rule) {
+    Resolver res(target, options);
+    std::vector<char> tIsBone, tIsRoot, dIsBone, dIsRoot;
+    boneSets(target, tIsBone, tIsRoot);
+    boneSets(donor, dIsBone, dIsRoot);
+    std::set<std::string> targetBones;
+    for (size_t i = 0; i < target.nodes.size(); ++i)
+        if (tIsBone[i]) targetBones.insert(target.nodes[i].name);
+    std::vector<std::pair<std::string, std::string>> pairs;
+    std::set<std::string> usedTargets;
     for (size_t i = 0; i < donor.nodes.size(); ++i) {
         if (!dIsBone[i]) continue;
-        const int hit = res.resolve(donor.nodes[i].name);
-        if (hit >= 0)
-            taken[(size_t)hit] = 1;
-        else
-            unmatched.push_back((int)i);
-    }
-
-    // Score every (unmatched donor, free target-bone) pair, then assign
-    // greedily best-first so no target bone is suggested twice.
-    struct Cand {
-        int donor, target;
-        float score;
-    };
-    std::vector<Cand> cands;
-    for (int di : unmatched) {
-        const auto dt = boneTokens(donor.nodes[(size_t)di].name);
-        for (size_t ti = 0; ti < target.nodes.size(); ++ti) {
-            if (!tIsBone[ti] || taken[ti]) continue;
-            const float sc = boneScore(dt, boneTokens(target.nodes[ti].name));
-            if (sc >= 0.5f) cands.push_back({di, (int)ti, sc});
+        const std::string& dn = donor.nodes[i].name;
+        if (res.resolve(dn) >= 0) continue;
+        std::string tn;
+        if (!rule.stripPrefix.empty() || !rule.stripSuffix.empty()) {
+            if (dn.size() <= rule.stripPrefix.size() + rule.stripSuffix.size())
+                continue;
+            if (dn.rfind(rule.stripPrefix, 0) != 0) continue;
+            if (!rule.stripSuffix.empty() &&
+                dn.substr(dn.size() - rule.stripSuffix.size()) !=
+                    rule.stripSuffix)
+                continue;
+            tn = dn.substr(rule.stripPrefix.size(),
+                           dn.size() - rule.stripPrefix.size() -
+                               rule.stripSuffix.size());
+        } else {
+            tn = rule.addPrefix + dn + rule.addSuffix;
         }
+        if (!targetBones.count(tn) || usedTargets.count(tn)) continue;
+        usedTargets.insert(tn);
+        pairs.emplace_back(dn, tn);
     }
-    std::stable_sort(cands.begin(), cands.end(),
-                     [](const Cand& a, const Cand& b) { return a.score > b.score; });
-    std::vector<BoneSuggestion> out;
-    std::vector<char> donorDone(donor.nodes.size(), 0);
-    for (const Cand& c : cands) {
-        if (donorDone[(size_t)c.donor] || taken[(size_t)c.target]) continue;
-        donorDone[(size_t)c.donor] = 1;
-        taken[(size_t)c.target] = 1;
-        out.push_back({donor.nodes[(size_t)c.donor].name,
-                       target.nodes[(size_t)c.target].name, c.score});
-    }
-    return out;
+    return pairs;
 }
 
 void bindGlobals(const Skel& skel, std::vector<float>& xyz) {
@@ -873,6 +1211,193 @@ bool mergedSkel(const std::string& modelPath,
     }
     applyImports(imports, out, &out.warnings, cache);
     return true;
+}
+
+void posedPreview(const Skel& target, const Skel& donor,
+                  const MergeOptions& options, int donorClip, float t,
+                  std::vector<float>& donorXyz, std::vector<float>& targetXyz) {
+    donorXyz.clear();
+    targetXyz.clear();
+    if (donorClip < 0 || donorClip >= (int)donor.clips.size()) return;
+    const SkelClip& clip = donor.clips[(size_t)donorClip];
+
+    // Donor: its own clip, posed exactly like the preview bake poses it.
+    std::vector<std::vector<const SkelChannel*>> byNode(donor.nodes.size());
+    for (const SkelChannel& ch : clip.channels)
+        if (ch.node >= 0 && ch.node < (int)donor.nodes.size())
+            byNode[(size_t)ch.node].push_back(&ch);
+    std::vector<M4> dg;
+    poseGlobals(donor, clip, t, byNode, dg);
+    donorXyz.resize(donor.nodes.size() * 3);
+    for (size_t i = 0; i < dg.size(); ++i) {
+        donorXyz[i * 3 + 0] = dg[i].m[12];
+        donorXyz[i * 3 + 1] = dg[i].m[13];
+        donorXyz[i * 3 + 2] = dg[i].m[14];
+    }
+
+    // Target: bind locals, with the mapped donor ROTATIONS borrowed in -
+    // which is what the merged clip does to it (default policy). The root
+    // bone additionally takes the donor's retargeted translation.
+    Resolver res(target, options);
+    std::vector<char> tIsBone, tIsRoot, dIsBone, dIsRoot;
+    boneSets(target, tIsBone, tIsRoot);
+    boneSets(donor, dIsBone, dIsRoot);
+    std::vector<M4> locals(target.nodes.size());
+    for (size_t i = 0; i < target.nodes.size(); ++i)
+        locals[i] = localOf(target.nodes[i]);
+    for (const SkelChannel& ch : clip.channels) {
+        if (ch.node < 0 || ch.node >= (int)donor.nodes.size()) continue;
+        const int tn = res.resolve(donor.nodes[(size_t)ch.node].name);
+        if (tn < 0 || target.nodes[(size_t)tn].hasMatrix) continue;
+        const SkelNode& b = target.nodes[(size_t)tn];
+        if (ch.path == 1) {
+            float rr[4] = {b.r[0], b.r[1], b.r[2], b.r[3]};
+            sampleChannel(ch, t, 4, rr);
+            const float len = std::sqrt(rr[0] * rr[0] + rr[1] * rr[1] +
+                                        rr[2] * rr[2] + rr[3] * rr[3]);
+            if (len > 1e-9f)
+                for (int c = 0; c < 4; ++c) rr[c] /= len;
+            float tt[3] = {b.t[0], b.t[1], b.t[2]};
+            // Keep whatever translation an earlier channel wrote.
+            tt[0] = locals[(size_t)tn].m[12];
+            tt[1] = locals[(size_t)tn].m[13];
+            tt[2] = locals[(size_t)tn].m[14];
+            locals[(size_t)tn] = trs(tt, rr, b.s);
+        } else if (ch.path == 0 && dIsRoot[(size_t)ch.node] &&
+                   tIsRoot[(size_t)tn] && options.retargetRoot) {
+            float tv[3];
+            sampleChannel(ch, t, 3, tv);
+            float donorRest[3], targetRest[3];
+            restGlobalTranslation(donor, ch.node, donorRest);
+            restGlobalTranslation(target, tn, targetRest);
+            float ratio = 1.0f;
+            if (std::fabs(donorRest[1]) > 1e-3f &&
+                std::fabs(targetRest[1]) > 1e-3f)
+                ratio = std::clamp(targetRest[1] / donorRest[1], 0.05f, 20.0f);
+            const float* dl = donor.nodes[(size_t)ch.node].t;
+            const SkelNode& tb = target.nodes[(size_t)tn];
+            for (int c = 0; c < 3; ++c)
+                locals[(size_t)tn].m[12 + c] =
+                    tb.t[c] + (tv[c] - dl[c]) * ratio;
+        }
+    }
+    std::vector<M4> tg;
+    composeGlobals(target, locals, tg);
+    targetXyz.resize(target.nodes.size() * 3);
+    for (size_t i = 0; i < tg.size(); ++i) {
+        targetXyz[i * 3 + 0] = tg[i].m[12];
+        targetXyz[i * 3 + 1] = tg[i].m[13];
+        targetXyz[i * 3 + 2] = tg[i].m[14];
+    }
+}
+
+std::string aiMapPrompt(const Skel& target, const Skel& donor,
+                        const MergeOptions& options) {
+    Resolver res(target, options);
+    std::vector<char> tIsBone, tIsRoot, dIsBone, dIsRoot;
+    boneSets(target, tIsBone, tIsRoot);
+    boneSets(donor, dIsBone, dIsRoot);
+    std::vector<float> dXyz, tXyz;
+    bindGlobals(donor, dXyz);
+    bindGlobals(target, tXyz);
+
+    std::ostringstream out;
+    out << "You are matching the bones of two skeleton rigs so animation can "
+           "be retargeted.\n"
+           "Reply with ONLY this JSON, nothing else:\n"
+           "{\"pairs\": [{\"s\": \"<source bone>\", \"t\": \"<target "
+           "bone>\"}]}\n"
+           "Rules: map ONLY the bones listed under MAP THESE; use target "
+           "names from TARGET SKELETON exactly; skip a bone you are unsure "
+           "of; NEVER pair a left-side bone with a right-side one; each "
+           "target bone at most once.\n\n";
+    auto dump = [&](const char* title, const Skel& sk,
+                    const std::vector<char>& isBone,
+                    const std::vector<float>& xyz) {
+        out << title << " (name, parent, bind position x y z):\n";
+        for (size_t i = 0; i < sk.nodes.size(); ++i) {
+            if (!isBone[i]) continue;
+            int p = sk.nodes[i].parent;
+            while (p >= 0 && p < (int)sk.nodes.size() && !isBone[(size_t)p])
+                p = sk.nodes[(size_t)p].parent == p ? -1
+                                                    : sk.nodes[(size_t)p].parent;
+            char line[256];
+            snprintf(line, sizeof line, "  %s | parent: %s | %.2f %.2f %.2f\n",
+                     sk.nodes[i].name.c_str(),
+                     p >= 0 ? sk.nodes[(size_t)p].name.c_str() : "-",
+                     xyz[i * 3], xyz[i * 3 + 1], xyz[i * 3 + 2]);
+            out << line;
+        }
+    };
+    dump("SOURCE SKELETON", donor, dIsBone, dXyz);
+    out << "\n";
+    dump("TARGET SKELETON", target, tIsBone, tXyz);
+
+    out << "\nALREADY MATCHED (context, do not repeat):\n";
+    std::vector<std::string> unmatched;
+    for (size_t i = 0; i < donor.nodes.size(); ++i) {
+        if (!dIsBone[i]) continue;
+        const int tn = res.resolve(donor.nodes[i].name);
+        if (tn >= 0)
+            out << "  " << donor.nodes[i].name << " -> "
+                << target.nodes[(size_t)tn].name << "\n";
+        else
+            unmatched.push_back(donor.nodes[i].name);
+    }
+    out << "\nMAP THESE:\n";
+    for (const std::string& u : unmatched) out << "  " << u << "\n";
+    return out.str();
+}
+
+std::vector<std::pair<std::string, std::string>> parseAiBoneMap(
+    const std::string& reply, const Skel& target, const Skel& donor) {
+    std::vector<std::pair<std::string, std::string>> out;
+    // First balanced top-level {...}, string-aware - models fence and chat.
+    int depth = 0;
+    size_t start = std::string::npos, end = std::string::npos;
+    bool inStr = false;
+    for (size_t i = 0; i < reply.size(); ++i) {
+        const char c = reply[i];
+        if (inStr) {
+            if (c == '\\') ++i;
+            else if (c == '"') inStr = false;
+            continue;
+        }
+        if (c == '"') inStr = true;
+        else if (c == '{') {
+            if (depth == 0) start = i;
+            ++depth;
+        } else if (c == '}') {
+            if (depth > 0 && --depth == 0) {
+                end = i;
+                break;
+            }
+        }
+    }
+    if (start == std::string::npos || end == std::string::npos) return out;
+    json::Value root;
+    if (!json::parse(reply.substr(start, end - start + 1), root)) return out;
+    const json::Value* pairs = root.find("pairs");
+    if (!pairs || pairs->type != json::Value::Type::Array) return out;
+
+    std::set<std::string> donorNames, targetBones, usedD, usedT;
+    std::vector<char> tIsBone, tIsRoot;
+    boneSets(target, tIsBone, tIsRoot);
+    for (const SkelNode& nd : donor.nodes) donorNames.insert(nd.name);
+    for (size_t i = 0; i < target.nodes.size(); ++i)
+        if (tIsBone[i]) targetBones.insert(target.nodes[i].name);
+    for (const json::Value& pr : pairs->arr) {
+        const json::Value* sV = pr.find("s");
+        const json::Value* tV = pr.find("t");
+        if (!sV || !tV) continue;
+        const std::string sN = sV->stringOr(""), tN = tV->stringOr("");
+        if (!donorNames.count(sN) || !targetBones.count(tN)) continue;
+        if (usedD.count(sN) || usedT.count(tN)) continue;
+        usedD.insert(sN);
+        usedT.insert(tN);
+        out.emplace_back(sN, tN);
+    }
+    return out;
 }
 
 bool bakedWithImports(const std::string& modelPath,
