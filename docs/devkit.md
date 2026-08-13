@@ -150,6 +150,32 @@ very different visibility:
 | a real EE exception (bad pointer, address error, reserved instruction) | **nothing** - the game just stops | crash report + symbolized backtrace, and the crash says so on screen (below) |
 | a hang | **nothing** | the editor notices the heartbeat stopped and shows the post-mortem |
 
+### Why the seven polls start on different frames
+
+Each channel counts down a cooldown and re-arms it to the same number (25 on
+ps2link, 6 in PCSX2). Every one of them used to be **initialised to 1**, so they
+all fired on the first pumped frame and then re-armed together — and stayed
+phase-locked forever, because identical periods never drift apart. One frame in
+25 therefore performed **seven consecutive blocking `host:` round trips**, each
+a network transaction on hardware, while the rest did none.
+
+The initialisers are now distinct *phases* rather than delays — 5 (livelink),
+9 (livelogic), 13 (livetime), 17 (livetex), 21 (livedbg command poll) — which
+spreads the same work across the cycle at no cost: the number of round trips per
+second is unchanged, only their clumping. Two are deliberately left at 1:
+
+- **the livedbg flush**, which is the editor's liveness signal — delaying it
+  delays "the game is up";
+- **livepad**, which re-arms to 4 rather than 25 and is latency-critical.
+
+The phases are odd multiples of 4 apart so they stay distinct under the 25-frame
+period; under PCSX2's 6 they fold into pairs, which is harmless there because a
+`host:` round trip costs microseconds instead of milliseconds.
+
+This is a **mitigation** for the crash below — it shrinks the window the race
+lives in and flattens a once-per-25-frames frame-time spike. It is not a fix and
+must not be mistaken for one.
+
 ### One crash class the devkit path causes itself
 
 Polling seven `host:` channel files per cycle turns every devkit session into

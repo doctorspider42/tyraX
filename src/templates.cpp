@@ -31433,7 +31433,10 @@ int progCount = 0, blockCount = 0, instrCount = 0, condCount = 0, strCount = 0;
 
 unsigned int lastSeq = 0;
 unsigned int lastGen = 0xFFFFFFFFU;  // scene generation the state belongs to
-int cooldown = 1;
+// PHASE, not a delay - see "Why the seven polls start on different frames" in
+// docs/devkit.md. Every channel used to start at 1 and re-arm to the same
+// number, so all seven stayed locked to one frame in 25 forever.
+int cooldown = 9;
 
 // One static read buffer - the EE does not allocate for this.
 unsigned char buf[LP_HEADER + 8 + MAX_PROGRAMS * 24 + MAX_BLOCKS * BLK_STRIDE +
@@ -32172,7 +32175,9 @@ void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
-int pollCooldown = 1;
+int pollCooldown = 21;  // poll phase - see docs/devkit.md
+// The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
+// it is the editor's liveness signal, and delaying it delays "the game is up".
 int flushCooldown = 1;
 bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
@@ -33109,7 +33114,7 @@ unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
 u32 seqOut = 0;         // captures written
 u32 frameNo = 0;        // monotonic across restores: the history's ordering key
 u32 lastRestoreSeq = 0;  // the restore we last applied
-int cooldown = 1;
+int cooldown = 13;  // poll phase - see docs/devkit.md
 unsigned int lastGen = 0xFFFFFFFFu;
 
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -33682,7 +33687,7 @@ static std::string liveLinkScript(const Project& p) {
            "    return -1;\n"
            "  }\n"
            "\n"
-           "  int cooldown_ = 1;\n"
+           "  int cooldown_ = 5;  // poll phase - see docs/devkit.md\n"
            "  u32 lastSeq_ = 0;\n"
            "  unsigned int gen_ = 0xFFFFFFFFU;  // forces the first rebuild\n"
            "  int n_ = 0;\n"
@@ -34085,7 +34090,7 @@ static std::string liveTexScript(const Project& p) {
            "    return n_++;\n"
            "  }\n"
            "\n"
-           "  int cooldown_ = 3;  // offset from LiveLink's poll frame\n"
+           "  int cooldown_ = 17;  // poll phase - see docs/devkit.md\n"
            "  u32 lastSeq_ = 0;\n"
            "  u32 hash_[LT_MAX];\n"
            "  u32 applied_[LT_MAX];\n"

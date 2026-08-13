@@ -36,6 +36,18 @@ class SifRpcGuard {
    */
   static void install();
 
+  /**
+   * Log the counters, but ONLY when they have changed since the last call, so
+   * this is a compare-and-return on every healthy frame. Called once per frame
+   * from Engine::realLoop; must NOT be called from the handler itself, which
+   * runs in interrupt context where stdio is not usable.
+   *
+   * Compiles to nothing in a release build (TYRA_WARN is a no-op under
+   * NDEBUG), which is deliberate: the guard still protects a release game, it
+   * just has no way to talk about it.
+   */
+  static void report();
+
   /** Total completions dropped. 0 in a healthy session. */
   static unsigned int rejected();
 

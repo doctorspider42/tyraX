@@ -5,6 +5,8 @@
 
 #include "debug/sifrpc_guard.hpp"
 
+#include "debug/debug.hpp"
+
 #include <kernel.h>
 #include <sifcmd.h>
 #include <sifrpc.h>
@@ -20,6 +22,9 @@ volatile unsigned int g_badClient = 0;
 volatile unsigned int g_noPacket = 0;
 volatile unsigned int g_staleId = 0;
 bool g_installed = false;
+
+// Last total handed to report(), so a healthy frame costs one compare.
+unsigned int g_reported = 0;
 
 /**
  * ps2sdk's _request_end (ee/kernel/src/sifrpc.c) plus the three checks it is
@@ -129,6 +134,20 @@ void SifRpcGuard::install() {
   DI();
   SifAddCmdHandler(SIF_CMD_RPC_END, requestEnd, nullptr);
   EI();
+}
+
+void SifRpcGuard::report() {
+  // The healthy path is this compare and nothing else.
+  const unsigned int total = rejected();
+  if (total == g_reported) return;
+  g_reported = total;
+
+  // TYRA_WARN and not TYRA_LOG: a rejection means the fault reproduced, which
+  // is exactly what somebody running a soak is waiting to be told. The editor's
+  // log classifier puts a ==WARN line in the Debug panel's warning bucket.
+  TYRA_WARN("SIF RPC: dropped ", total, " anomalous completion(s) - noPacket ",
+            g_noPacket, ", staleId ", g_staleId, ", badClient ", g_badClient,
+            " (docs/ps2link-setup.md)");
 }
 
 unsigned int SifRpcGuard::rejected() {

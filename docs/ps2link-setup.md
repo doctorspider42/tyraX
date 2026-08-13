@@ -737,6 +737,25 @@ count is not proof the race is gone** — only proof it did not fire.
 > to argue the race is gone has been run — see the entry in
 > [backlog.md](backlog.md).
 
+### Do not run a second `ps2client` against a console serving a game
+
+Measured 2026-08-13: firing `ps2client dumpmem` at a console while a game was
+running over ps2link **stopped the game within 7 seconds**. ps2link itself
+survived — ping answered, `tcp/18193` kept listening, the `execee` file server
+process was still alive — but the game never wrote another devkit snapshot,
+i.e. it lost `host:` and stayed lost.
+
+This is the ["one file server at a time"](#one-file-server-at-a-time) rule seen
+from the other end: the rule is usually stated as "do not kill someone else's
+`ps2client`", but the converse matters just as much — **do not add a second
+client to a console that is already serving one**, even a read-only one, even
+your own. It is not a diagnostic you can use on a live session, and it makes a
+poor amplifier in an experiment: it perturbs the file channel rather than the
+SIF RPC path, so a game that dies under it has told you nothing about RPC.
+
+Use it on an idle console (identifying a flashed card, below), or after a
+session has already ended.
+
 ### Identifying a flashed card over the network
 
 The boot banner goes to the TV via `scr_printf`, not over udptty, so it does

@@ -38,6 +38,8 @@ void Engine::realLoop() {
   if (kbdMouse.isEnabled()) kbdMouse.update();
   game->loop();
   info.update();
+  // One compare per frame unless the guard has actually dropped something.
+  SifRpcGuard::report();
 }
 
 void Engine::initAll(const EngineOptions& options) {
