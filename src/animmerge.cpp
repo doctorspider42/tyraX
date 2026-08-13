@@ -1150,21 +1150,59 @@ RetargetCtx buildRetargetCtx(const Skel& target, const Skel& donor,
     // the centroid of the bone children; a leaf inherits its parent pair's.
     auto boneDir = [&](const Skel& s, const std::vector<M4>& bind, int node,
                        const std::vector<char>& isBone, float out[3]) {
-        float c[3] = {0, 0, 0};
-        int cnt = 0;
-        for (size_t i = 0; i < s.nodes.size(); ++i) {
-            if (!isBone[i]) continue;
-            // bone child = nearest bone ancestor is `node`
-            int p = s.nodes[i].parent;
+        // Bone children with their offsets and subtree sizes. The DIRECTION a
+        // bone points is what the reference arc aligns, and a centroid over
+        // children pulling opposite ways (the hips: spine up, two legs down)
+        // is a near-zero vector whose direction is numeric noise - measured
+        // as the pelvis pitching over and the spine_01 joint landing BELOW
+        // the pelvis on the reported pair. When the centroid degenerates
+        // (< half the mean child distance), follow the child with the LARGEST
+        // bone subtree instead - for hips that is the spine on any humanoid,
+        // and the same rule picks the same chain on both rigs, which is all
+        // the arc needs.
+        auto boneParentOf = [&](int i) {
+            int p = s.nodes[(size_t)i].parent;
             while (p >= 0 && p < (int)s.nodes.size() && !isBone[(size_t)p])
                 p = s.nodes[(size_t)p].parent == p ? -1 : s.nodes[(size_t)p].parent;
-            if (p != node) continue;
-            for (int k = 0; k < 3; ++k)
-                c[k] += bind[i].m[12 + k] - bind[(size_t)node].m[12 + k];
+            return p;
+        };
+        float c[3] = {0, 0, 0};
+        float meanLen = 0.0f;
+        int cnt = 0;
+        int bestChild = -1;
+        int bestSubtree = -1;
+        for (size_t i = 0; i < s.nodes.size(); ++i) {
+            if (!isBone[i] || boneParentOf((int)i) != node) continue;
+            float off[3];
+            float len = 0.0f;
+            for (int k = 0; k < 3; ++k) {
+                off[k] = bind[i].m[12 + k] - bind[(size_t)node].m[12 + k];
+                c[k] += off[k];
+                len += off[k] * off[k];
+            }
+            meanLen += std::sqrt(len);
             ++cnt;
+            int subtree = 0;  // bones under child i, i included
+            for (size_t j = 0; j < s.nodes.size(); ++j) {
+                if (!isBone[j]) continue;
+                for (int a = (int)j; a >= 0; a = boneParentOf(a))
+                    if (a == (int)i) {
+                        ++subtree;
+                        break;
+                    }
+            }
+            if (subtree > bestSubtree) bestSubtree = subtree, bestChild = (int)i;
         }
         if (!cnt) return false;
-        const float len = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        meanLen /= (float)cnt;
+        float len = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        if (cnt > 1 && len < 0.5f * (float)cnt * meanLen * 0.5f) {
+            // Degenerate centroid: the dominant chain decides.
+            for (int k = 0; k < 3; ++k)
+                c[k] = bind[(size_t)bestChild].m[12 + k] -
+                       bind[(size_t)node].m[12 + k];
+            len = std::sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+        }
         if (len < 1e-5f) return false;
         for (int k = 0; k < 3; ++k) out[k] = c[k] / len;
         return true;
