@@ -18,6 +18,15 @@ namespace {
 // volatile: the read must not be hoisted out of a polling loop. A 32-bit
 // aligned word is atomic on the EE, and the handler is the only writer, so
 // no lock is needed either way.
+// Every completion this handler was given. Without it, `rejected() == 0` is
+// ambiguous - it reads the same whether nothing went wrong or whether the
+// handler is not on the dispatch path at all. A game deployed over ps2link runs
+// in ps2link's EE address space, so there are TWO ps2sdk sifrpc instances live
+// and only the game's carries this guard; a zero total would mean completions
+// are going through ps2link's unguarded _request_end and this class can never
+// see the fault it exists for. So the total is the thing that makes the zero
+// mean something.
+volatile unsigned int g_seen = 0;
 volatile unsigned int g_badClient = 0;
 volatile unsigned int g_noPacket = 0;
 volatile unsigned int g_staleId = 0;
@@ -25,6 +34,7 @@ bool g_installed = false;
 
 // Last total handed to report(), so a healthy frame costs one compare.
 unsigned int g_reported = 0;
+bool g_announced = false;
 
 /**
  * ps2sdk's _request_end (ee/kernel/src/sifrpc.c) plus the three checks it is
@@ -77,6 +87,8 @@ void requestEnd(void* packet, void* harg) {
   // identical in both, so bumping the image is a rename here and nothing more.
   SifRpcRendPkt_t* request = static_cast<SifRpcRendPkt_t*>(packet);
   SifRpcClientData_t* cd = request->client;
+
+  g_seen = g_seen + 1;
 
   // A completion naming no usable client tells us nothing to complete, so it
   // is the one case with nothing to do but count it.
@@ -151,6 +163,18 @@ void SifRpcGuard::install() {
 }
 
 void SifRpcGuard::report() {
+  // Say ONCE that completions are actually reaching this handler. Without it a
+  // zero rejected() count is ambiguous: a game deployed over ps2link shares its
+  // EE address space with ps2link's own ps2sdk, so there are two sifrpc
+  // instances and only this one is guarded. "The game works" does NOT settle
+  // it - ps2link's _request_end takes `cd` from the packet payload and would
+  // complete this game's client just as correctly. The count is the only
+  // evidence, so it goes in the log where anybody can see it.
+  if (!g_announced && g_seen > 0) {
+    g_announced = true;
+    TYRA_LOG("SIF RPC guard: live, ", g_seen, " completion(s) handled");
+  }
+
   // The healthy path is this compare and nothing else.
   const unsigned int total = rejected();
   if (total == g_reported) return;
@@ -159,10 +183,12 @@ void SifRpcGuard::report() {
   // TYRA_WARN and not TYRA_LOG: a rejection means the fault reproduced, which
   // is exactly what somebody running a soak is waiting to be told. The editor's
   // log classifier puts a ==WARN line in the Debug panel's warning bucket.
-  TYRA_WARN("SIF RPC: dropped ", total, " anomalous completion(s) - noPacket ",
-            g_noPacket, ", staleId ", g_staleId, ", badClient ", g_badClient,
-            " (docs/ps2link-setup.md)");
+  TYRA_WARN("SIF RPC: guarded ", total, " of ", g_seen,
+            " completion(s) - noPacket ", g_noPacket, ", badClient ",
+            g_badClient, " (docs/ps2link-setup.md)");
 }
+
+unsigned int SifRpcGuard::seen() { return g_seen; }
 
 unsigned int SifRpcGuard::rejected() {
   return g_badClient + g_noPacket + g_staleId;

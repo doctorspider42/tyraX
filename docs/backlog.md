@@ -68,6 +68,43 @@ picture under REPEAT while bounding coordinates by chunk size.
 
 ## Medium
 
+### FIRST: the guard may not be on the dispatch path at all under ps2link
+
+**Measured, and it can invalidate every other number this feature has produced.**
+The guard now counts *every* completion it is handed (`SifRpcGuard::seen()`) and
+announces itself once in the log the first time that count is non-zero. Across
+**two ps2link sessions, ~6000 and ~7000 `[ps2]` log lines each**, that line never
+appeared - so the handler recorded **zero** completions, while the game's `host:`
+file I/O worked throughout. The line is present in the deployed ELF (`strings`),
+54 other engine `TYRA_LOG` lines arrived in the same capture, `engine.o`
+references both `install()` and `report()`, the generated game really does go
+through `Engine::run` -> `realLoop` -> `report()`, and moving `install()` to the
+very end of `initAll` changed nothing.
+
+If completions are dispatched through **ps2link's own** ps2sdk sifrpc instance -
+it keeps one live in the same EE address space, with the stock unguarded
+`_request_end` - then a zero `rejected()` count means "never asked", not
+"nothing wrong", and the guard cannot protect the devkit session it was written
+for. "The game works" does **not** discriminate: ps2link's `_request_end` takes
+`cd` from the packet payload and would complete the game's client just as
+correctly.
+
+**The lead to pull first is a correlation, not a theory.** The one session that
+ever reported a non-zero counter (`g_noPacket = 1`) had
+`ProjectSettings::eeCrashHandler` **off**. Every session that measured
+`seen == 0` had it **on**, and `ee_dbg_install()` hooks the EE exception vectors.
+So: run the same announce build twice, with the crash handler off and on, and see
+whether the liveness line appears. That is one build and two deploys.
+
+Also worth checking directly: whether the game's `sceSifInitCmd()` actually
+repoints the IOP (it should send `SIF_CMD_CHANGE_SADDR` with its own `pktbuf`
+because ps2link left `SIF_SYSREG_SUBADDR` non-zero), and which of the two
+`_SifCmdIntHandler`s on `DMAC_SIF0` ends up seeing a non-zero `psize`.
+
+**Until this is settled, treat the guard as unproven in both directions** - it
+has no demonstrated benefit and now no demonstrated reach either. PR #222 is a
+draft again for that reason.
+
 ### Finish verifying the SIF RPC completion guard
 
 The guard (`vendor/tyra/engine/src/debug/sifrpc_guard.cpp`) is measured to do no

@@ -53,7 +53,16 @@ class SifRpcGuard {
    */
   static void report();
 
-  /** Total completions dropped. 0 in a healthy session. */
+  /**
+   * EVERY completion this handler was given. Read it alongside rejected():
+   * a zero total means the handler is not on the dispatch path, which is a
+   * real possibility under ps2link (two sifrpc instances share the EE address
+   * space and only the game's is guarded) and would make a zero rejected()
+   * count meaningless rather than reassuring.
+   */
+  static unsigned int seen();
+
+  /** Total completions the free was skipped for. 0 in a healthy session. */
   static unsigned int rejected();
 
   /** Dropped because the packet named no usable client. */
