@@ -1079,6 +1079,9 @@ private:
     // out after the canvas but must highlight into it - the standard one-frame
     // ImGui trick). Donor/target node indices, -1 = none.
     int animMapHiD_ = -1, animMapHiT_ = -1;
+    // Canvas view: wheel zooms to the cursor, middle-drag pans - without it
+    // finger and toe joints of a real rig are unclickable. Reset on open.
+    float animMapZoom_ = 1.0f, animMapPanX_ = 0.0f, animMapPanY_ = 0.0f;
     // Suggestions are recomputed only when the staged pairs change - they
     // were per-frame, which is wasted work and made the window read as busy.
     std::vector<std::pair<std::string, std::string>> animMapSuggFor_;

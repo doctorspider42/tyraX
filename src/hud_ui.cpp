@@ -2881,6 +2881,8 @@ void App::openAnimBoneMap(int importRow) {
     }
     animMapSuggValid_ = false;
     animMapHiD_ = animMapHiT_ = -1;
+    animMapZoom_ = 1.0f;
+    animMapPanX_ = animMapPanY_ = 0.0f;
     if (animMapParsed_) {
         animmerge::bindGlobals(animMapTarget_, animMapTPos_);
         animmerge::bindGlobals(animMapDonor_, animMapDPos_);
@@ -2999,6 +3001,34 @@ bool App::drawAnimBoneMapWindow() {
     const bool canvasHover = ImGui::IsItemHovered();
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
+    // View input first, so this frame already draws the moved view: wheel
+    // zooms around the cursor, middle-drag pans (the viewport's gestures).
+    const ImVec2 cCenter(cMin.x + cSize.x * 0.5f, cMin.y + cSize.y * 0.5f);
+    if (canvasHover) {
+        const float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) {
+            const float oldZoom = animMapZoom_;
+            animMapZoom_ = std::clamp(animMapZoom_ * std::pow(1.15f, wheel),
+                                      0.5f, 12.0f);
+            const float k = animMapZoom_ / oldZoom;
+            animMapPanX_ = mouse.x - cCenter.x - (mouse.x - cCenter.x - animMapPanX_) * k;
+            animMapPanY_ = mouse.y - cCenter.y - (mouse.y - cCenter.y - animMapPanY_) * k;
+        }
+    }
+    if (canvasHover && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
+        const ImVec2 d = ImGui::GetIO().MouseDelta;
+        animMapPanX_ += d.x;
+        animMapPanY_ += d.y;
+    }
+    if (canvasHover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Middle)) {
+        animMapZoom_ = 1.0f;
+        animMapPanX_ = animMapPanY_ = 0.0f;
+    }
+    auto view = [&](ImVec2 pt) {
+        return ImVec2(cCenter.x + (pt.x - cCenter.x) * animMapZoom_ + animMapPanX_,
+                      cCenter.y + (pt.y - cCenter.y) * animMapZoom_ + animMapPanY_);
+    };
+
     // Fit each skeleton into its half: front view (x right, y up).
     struct Fit {
         float minX = 0, maxX = 0, minY = 0, maxY = 0;
@@ -3036,8 +3066,8 @@ bool App::drawAnimBoneMapWindow() {
     const Fit tFit = fitOf(animMapTPos_, targetBones, half + scaled(8),
                            cSize.x - scaled(8));
     auto place = [&](const Fit& f, const std::vector<float>& pos, int n) {
-        return ImVec2(f.org.x + pos[(size_t)n * 3] * f.scale,
-                      f.org.y - pos[(size_t)n * 3 + 1] * f.scale);
+        return view(ImVec2(f.org.x + pos[(size_t)n * 3] * f.scale,
+                           f.org.y - pos[(size_t)n * 3 + 1] * f.scale));
     };
 
     const theme::Semantics& sem = theme::semantics();
@@ -3123,6 +3153,42 @@ bool App::drawAnimBoneMapWindow() {
         dl->AddCircleFilled(pt, R, col);
         if (n == hoverTarget)
             dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+    }
+
+    // Hovering a JOINT shows its link at once: ring the other end and tie
+    // them with a line - accent for a real mapping (by name or by hand),
+    // amber for a pending suggestion. Same for hovering a target joint,
+    // which points back at whatever lands on it.
+    if (hoverDonor >= 0) {
+        const ImVec2 dp = place(dFit, animMapDPos_, hoverDonor);
+        int tn = resolved.count(hoverDonor) ? resolved[hoverDonor] : -1;
+        bool isSugg = false;
+        if (tn < 0 && suggested.count(hoverDonor)) {
+            tn = suggested[hoverDonor];
+            isSugg = true;
+        }
+        if (tn >= 0 && targetBones.count(tn)) {
+            const ImVec2 tp = place(tFit, animMapTPos_, tn);
+            const ImU32 col =
+                isSugg ? cAmber : ImGui::GetColorU32(sem.accent);
+            dl->AddCircle(tp, R + scaled(3), col, 0, 2.0f);
+            dl->AddLine(dp, tp, col, 1.5f);
+        }
+    } else if (hoverTarget >= 0) {
+        const ImVec2 tp = place(tFit, animMapTPos_, hoverTarget);
+        for (auto& [dn, tn] : resolved) {
+            if (tn != hoverTarget) continue;
+            const ImVec2 dp = place(dFit, animMapDPos_, dn);
+            dl->AddCircle(dp, R + scaled(3), ImGui::GetColorU32(sem.accent), 0,
+                          2.0f);
+            dl->AddLine(dp, tp, ImGui::GetColorU32(sem.accent), 1.5f);
+        }
+        for (auto& [dn, tn] : suggested) {
+            if (tn != hoverTarget) continue;
+            const ImVec2 dp = place(dFit, animMapDPos_, dn);
+            dl->AddCircle(dp, R + scaled(3), cAmber, 0, 2.0f);
+            dl->AddLine(dp, tp, cAmber, 1.5f);
+        }
     }
 
     // The list pane's hover: ring both ends and tie them with a line, so
@@ -3256,7 +3322,8 @@ bool App::drawAnimBoneMapWindow() {
     ImGui::SameLine();
     if (ImGui::Button("Close")) animMapRow_ = -1;
     ImGui::SameLine();
-    ImGui::TextDisabled("right-click a joint removes its pair");
+    ImGui::TextDisabled(
+        "wheel zoom - middle-drag pan - right-click removes a pair");
 
     ImGui::End();
     if (!openFlag) animMapRow_ = -1;

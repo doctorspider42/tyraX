@@ -78,6 +78,11 @@ drive; right-click removes a pair; *Accept suggestions* takes every amber guess
 at once. Suggestions are never applied on their own — a wrong guess bends the
 wrong limb, so a person confirms them.
 
+Hovering any joint shows its link at once — the other end rings up and a line
+ties the two, accent for a real mapping, amber for a pending suggestion. The
+**wheel zooms to the cursor** and **middle-drag pans** (double middle-click
+resets), which is what makes finger and toe joints clickable at all.
+
 Beside the canvas, the **pair list** shows every hand-made pair, every pending
 suggestion and the bones nothing matched; hovering a row rings both joints in
 the drawing and ties them with a line, so "which bone is this" never needs
