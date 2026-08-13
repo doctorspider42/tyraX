@@ -17,29 +17,27 @@ build\tyrax-editor.exe --build examples\showcase --run
    rift gateway to trigger `Rift Ignition` and enter the laboratory.
 2. **Rift Lab** combines animated creatures, patrol/chase navigation, physics
    props, particles, floor/ceiling teleport portals and a live VU0 ray-traced
-   quantum mirror. Its bio, portal and reflection wings stream independently
-   so each expensive subsystem gets a clear hero moment. Use the city uplink
-   to continue.
-3. **Neon City** is the final stress scene: streamed city blocks, animated
+   quantum mirror. Use the city uplink to continue.
+3. **Neon City** is the final stress scene: dense city blocks, animated
    traffic, a police-car cinematic, rooftop portals, rain, steam, neon point
    lights and distant geometry culling.
 
 Use the left stick and camera controls to explore. Press **Square** at a
 highlighted gateway, **Circle** to toggle the flashlight, and **Start** for the
-options menu. Cinematics are skippable.
+options menu. Cinematics are skippable, suppress the gameplay HUD and suspend
+the player flashlight while they own the camera.
 
 ## Engine features on display
 
 - three scenes and five timeline cinematics with camera, object and effects
-  tracks;
+  tracks, HUD suppression and exact `Play Sequence` `after` chaining;
 - same-scene spatial portals, object teleportation and scene-transition
   gateways driven by flow graphs;
 - animated FBX creatures with animation/mesh LOD, navigation waypoints,
   patrol graphs and player-sighting chase behaviour;
 - a VU0 per-pixel ray-traced mirror plus ambient occlusion and baked global
   illumination;
-- streamed scene layers, heightmapped terrain, draw-distance budgets and static
-  batching;
+- heightmapped terrain, draw-distance budgets and static batching;
 - directional, point and flickering dynamic lights, transition bloom, grading,
   fog, rain, steam, fire, smoke and sparks;
 - physics bodies and graph-driven impulses;
@@ -53,13 +51,17 @@ one test room.
 ## Rebuilding the authored project
 
 `build-showcase.py` is the deterministic high-level authoring source for the
-107 objects, three heightmaps, sequences and graphs. It makes large structural
+97 objects, three heightmaps, sequences and graphs. It makes large structural
 changes reviewable and prevents hand-edited JSON drift. After changing it, run:
 
 ```powershell
 python examples\showcase\build-showcase.py
 build\tyrax-editor.exe --refresh-gen examples\showcase
 ```
+
+The two scene gateways connect `Play Sequence.after` directly to `Switch Scene`;
+there is deliberately no duration-shaped `Delay` to drift away from an edited
+or skipped cutscene.
 
 The checked-in source of truth is `showcase.tyra`, `objects/*.json`, authored
 assets under `res/`, the terrain height files and the explicit GI bake under
@@ -89,7 +91,11 @@ actions. The final animated meshes are 634, 746 and 719 triangles.
 Already-low-poly assets were left untouched. The
 village buildings use a 10-unit per-object mesh-LOD threshold, keeping their
 full silhouettes nearby and switching to baked 50%/25% tiers at gameplay
-distance. The showcase keeps the PS2's memory and fill-rate limits visible instead of hiding
-them behind an emulator: layers stream by district or feature wing, far props
-are culled, skeletal updates have an LOD radius, particle pools are bounded,
-and the FPS/free-memory overlays are enabled in the debug profile.
+distance. The showcase keeps the PS2's memory and fill-rate limits visible
+instead of hiding them behind an emulator: far props are culled, skeletal
+updates have an LOD radius, particle pools are bounded, and the FPS/free-memory
+overlays are enabled in the debug profile. All three compact scenes stay
+resident; scene layers are deliberately not demonstrated here because toggling
+nearby geometry made spatial-portal views pop. Layer streaming belongs in a
+genuinely large-map example where its memory saving outweighs that presentation
+cost.

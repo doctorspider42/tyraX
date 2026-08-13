@@ -2,8 +2,8 @@
 # Maps the node keys the running game reports (livedbg.bin) onto
 # scene objects (stable editor id) and flow-graph node ids.
 1
-hash b3ae3e8023236cd5
-nodes 71
+hash 73d9b0d2b0941504
+nodes 39
 n 0 0 127e8adc6b63f265 1 OnStart
 n 1 0 127e8adc6b63f265 2 Sequence
 n 2 0 127e8adc6b63f265 3 PlaySequence
@@ -15,66 +15,34 @@ n 7 0 a2810c85e2af60f3 1 OnUsed
 n 8 0 a2810c85e2af60f3 2 Sequence
 n 9 0 a2810c85e2af60f3 3 PlaySequence
 n 10 0 a2810c85e2af60f3 4 SetBloom
-n 11 0 a2810c85e2af60f3 5 Delay
-n 12 0 a2810c85e2af60f3 6 SwitchScene
-n 13 0 5bbfe974863b51ef 1 NearObject
-n 14 0 5bbfe974863b51ef 2 SetLayerLoaded
-n 15 0 5bbfe974863b51ef 3 SetLayerLoaded
-n 16 0 7e5f97b7b665cd23 1 NearObject
-n 17 0 7e5f97b7b665cd23 2 SetLayerLoaded
-n 18 0 7e5f97b7b665cd23 3 SetLayerLoaded
-n 19 1 eeed7083c6e1ab5a 1 OnStart
-n 20 1 eeed7083c6e1ab5a 2 Sequence
-n 21 1 eeed7083c6e1ab5a 3 PlaySequence
-n 22 1 eeed7083c6e1ab5a 4 SetGrading
-n 23 1 eeed7083c6e1ab5a 5 DisplayText
-n 24 1 27c010d4314966c7 1 OnUsed
-n 25 1 27c010d4314966c7 2 Sequence
-n 26 1 27c010d4314966c7 3 PlaySequence
-n 27 1 27c010d4314966c7 4 SetBloom
-n 28 1 27c010d4314966c7 5 Delay
-n 29 1 27c010d4314966c7 6 SwitchScene
-n 30 1 e531d6f68f49c53f 1 NearObject
-n 31 1 e531d6f68f49c53f 2 SetLayerLoaded
-n 32 1 e531d6f68f49c53f 3 SetLayerLoaded
-n 33 1 849ff0a0a19c8297 1 NearObject
-n 34 1 849ff0a0a19c8297 2 SetLayerLoaded
-n 35 1 849ff0a0a19c8297 3 SetLayerLoaded
-n 36 1 ed1f2bad1cd8ffbf 1 NearObject
-n 37 1 ed1f2bad1cd8ffbf 2 SetLayerLoaded
-n 38 1 ed1f2bad1cd8ffbf 3 SetLayerLoaded
-n 39 1 b5b0443b25e7ad66 1 NearObject
-n 40 1 b5b0443b25e7ad66 2 SetLayerLoaded
-n 41 1 b5b0443b25e7ad66 3 SetLayerLoaded
-n 42 1 863b6c36f4f16079 1 NearObject
-n 43 1 863b6c36f4f16079 2 SetLayerLoaded
-n 44 1 863b6c36f4f16079 3 SetLayerLoaded
-n 45 1 55eeb2efb8e5f15d 1 NearObject
-n 46 1 55eeb2efb8e5f15d 2 SetLayerLoaded
-n 47 1 55eeb2efb8e5f15d 3 SetLayerLoaded
-n 48 1 654ce3b1161ac275 1 OnStart
-n 49 1 654ce3b1161ac275 2 PatrolWaypoints
-n 50 1 654ce3b1161ac275 3 OnPlayerSeen
-n 51 1 654ce3b1161ac275 4 ChasePlayer
-n 52 1 4dca234605821914 1 OnStart
-n 53 1 4dca234605821914 2 SpinObject
-n 54 1 5b5d39f54898852b 1 OnStart
-n 55 1 5b5d39f54898852b 2 SpinObject
-n 56 1 f329b15553d31404 1 EverySeconds
-n 57 1 f329b15553d31404 2 PushObject
-n 58 2 61d77245ed87411d 1 OnStart
-n 59 2 61d77245ed87411d 2 Sequence
-n 60 2 61d77245ed87411d 3 PlaySequence
-n 61 2 61d77245ed87411d 4 SetGrading
-n 62 2 61d77245ed87411d 5 DisplayText
-n 63 2 a8dab4d80597abf2 1 NearObject
-n 64 2 a8dab4d80597abf2 2 SetLayerLoaded
-n 65 2 a8dab4d80597abf2 3 SetLayerLoaded
-n 66 2 44cc040b432dd3c7 1 NearObject
-n 67 2 44cc040b432dd3c7 2 SetLayerLoaded
-n 68 2 44cc040b432dd3c7 3 SetLayerLoaded
-n 69 2 c53144f298705309 1 OnStart
-n 70 2 c53144f298705309 2 SpinObject
+n 11 0 a2810c85e2af60f3 5 SwitchScene
+n 12 1 eeed7083c6e1ab5a 1 OnStart
+n 13 1 eeed7083c6e1ab5a 2 Sequence
+n 14 1 eeed7083c6e1ab5a 3 PlaySequence
+n 15 1 eeed7083c6e1ab5a 4 SetGrading
+n 16 1 eeed7083c6e1ab5a 5 DisplayText
+n 17 1 27c010d4314966c7 1 OnUsed
+n 18 1 27c010d4314966c7 2 Sequence
+n 19 1 27c010d4314966c7 3 PlaySequence
+n 20 1 27c010d4314966c7 4 SetBloom
+n 21 1 27c010d4314966c7 5 SwitchScene
+n 22 1 654ce3b1161ac275 1 OnStart
+n 23 1 654ce3b1161ac275 2 PatrolWaypoints
+n 24 1 654ce3b1161ac275 3 OnPlayerSeen
+n 25 1 654ce3b1161ac275 4 ChasePlayer
+n 26 1 4dca234605821914 1 OnStart
+n 27 1 4dca234605821914 2 SpinObject
+n 28 1 5b5d39f54898852b 1 OnStart
+n 29 1 5b5d39f54898852b 2 SpinObject
+n 30 1 f329b15553d31404 1 EverySeconds
+n 31 1 f329b15553d31404 2 PushObject
+n 32 2 61d77245ed87411d 1 OnStart
+n 33 2 61d77245ed87411d 2 Sequence
+n 34 2 61d77245ed87411d 3 PlaySequence
+n 35 2 61d77245ed87411d 4 SetGrading
+n 36 2 61d77245ed87411d 5 DisplayText
+n 37 2 c53144f298705309 1 OnStart
+n 38 2 c53144f298705309 2 SpinObject
 vars 5
 v 0 s orbs
 v 1 s gfx-fog

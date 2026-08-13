@@ -66,29 +66,17 @@ def intro_graph(sequence: str, grading: str, title: str):
     return g.out()
 
 
-def gateway_graph(sequence: str, target: str, delay: float):
+def gateway_graph(sequence: str, target: str):
     g = Graph()
     used = g.node("OnUsed", 0, 40)
     seq = g.node("Sequence", 220, 40)
     play = g.node("PlaySequence", 460, 0, sequence)
     fade = g.node("SetBloom", 460, 110, nums=[0.8, 0, 0, 0])
-    wait = g.node("Delay", 700, 40, nums=[delay, 0, 0, 0])
-    switch = g.node("SwitchScene", 930, 40, target)
+    switch = g.node("SwitchScene", 700, 0, target)
     g.link(used, seq)
     g.link(seq, play)
     g.link(seq, fade, fpin=1)
-    g.link(seq, wait, fpin=2)
-    g.link(wait, switch)
-    return g.out()
-
-
-def layer_gate(load: str, unload: str, radius=24):
-    g = Graph()
-    near = g.node("NearObject", 0, 40, nums=[radius, 0, 0, 0])
-    on = g.node("SetLayerLoaded", 260, 0, load)
-    off = g.node("SetLayerLoaded", 260, 110, unload)
-    g.link(near, on)
-    g.link(near, off, pin=1)
+    g.link(play, switch)
     return g.out()
 
 
@@ -127,8 +115,9 @@ def obj(key, name, kind, pos, *, scale=(1, 1, 1), rot=(0, 0, 0),
             "position": [round(v, 4) for v in pos],
             "rotation": list(rot), "scale": list(scale),
             "color": list(color), "physics": False}
-    if layer:
-        data["layer"] = layer
+    # These compact scenes stay resident. `layer` is kept as an authoring-group
+    # hint in the object lists but is deliberately not serialized: unloading
+    # nearby districts made spatial-portal views pop like a renderer bug.
     if model:
         data["model"] = model
     if graph:
@@ -182,7 +171,8 @@ def camera_key(t, eye, target, fov, ease=1, shake=0):
 
 def sequence(name, duration, cameras, tracks=None, bars=0.85):
     return {"name": name, "duration": duration, "loop": False,
-            "cameraEnabled": True, "hidePlayer": False, "bars": bars,
+            "cameraEnabled": True, "hidePlayer": False, "disableHud": True,
+            "bars": bars,
             "skippable": True, "fadeIn": 0.55, "fadeOut": 0.7,
             "barsSlideIn": 0.45, "barsSlideOut": 0.65,
             "tracks": tracks or [], "cameraKeys": cameras}
@@ -216,19 +206,15 @@ def village_objects():
             graph=spinner(55), collision="none"),
         obj("v-gate-console", "rift-console", "cylinder", (0, 0.45, -23.5),
             scale=(1.15, 0.9, 1.15), color=(0.07, 0.12, 0.2), usable=True,
-            graph=gateway_graph("Rift Ignition", "rift-lab", 3.2)),
+            graph=gateway_graph("Rift Ignition", "rift-lab")),
         emitter("v-rift-sparks", "rift-sparks", (0, 2.5, -27), "sparks",
                 (0.2, 0.9, 1), 72, 0.12, (3, 4, 2)),
         light("v-rift-light", "rift-light", (0, 3, -26.5),
               (0.25, 0.8, 1), 14, 1.5, flicker=0.12),
-        obj("v-layer-market", "market-stream-gate", "empty", (12, 0, 2),
-            graph=layer_gate("market", "ridge"), collision="none"),
-        obj("v-layer-ridge", "ridge-stream-gate", "empty", (-17, 0, -8),
-            graph=layer_gate("ridge", "market"), collision="none"),
     ]
     # Fertile Soil's CC0 kit is assembled into complete, single-draw models.
-    # The detailed hero buildings stream by district; the smaller cottages are
-    # real geometry too, replacing the old box-and-cone skyline placeholders.
+    # The detailed hero buildings and smaller cottages are real geometry,
+    # replacing the old box-and-cone skyline placeholders.
     out += [
         model("v-ridge-tower", "ridge-watchtower",
               "res/models/modular-village/village-watchtower.obj",
@@ -327,24 +313,12 @@ def lab_objects():
         model("l-gateway", "city-uplink",
               "res/models/scifi/Prop_Locker.obj", (14.8, 1.2, -18),
               rot=(0, 90, 0), scale=(1.8, 1.8, 1.8), usable=True,
-              graph=gateway_graph("City Uplink", "neon-city", 3.0)),
+              graph=gateway_graph("City Uplink", "neon-city")),
         model("l-uplink-right", "uplink-frame-right",
               "res/models/scifi/Prop_Locker.obj", (19.2, 1.2, -18),
               rot=(0, -90, 0), scale=(1.8, 1.8, 1.8)),
         emitter("l-gateway-fx", "uplink-plasma", (17, 2.8, -17.4), "sparks",
                 (1, 0.15, 0.65), 48, 0.14, (3, 5, 2)),
-        obj("l-bio-gate-a", "bio-wing-gate-a", "empty", (0, 0, 16),
-            graph=layer_gate("bio", "reflection", 13), collision="none"),
-        obj("l-bio-gate-b", "bio-wing-gate-b", "empty", (0, 0, 16),
-            graph=layer_gate("bio", "portal", 13), collision="none"),
-        obj("l-portal-gate-a", "portal-wing-gate-a", "empty", (-12, 0, -2),
-            graph=layer_gate("portal", "bio", 8), collision="none"),
-        obj("l-portal-gate-b", "portal-wing-gate-b", "empty", (-12, 0, -2),
-            graph=layer_gate("portal", "reflection", 8), collision="none"),
-        obj("l-reflect-gate-a", "reflection-wing-gate-a", "empty", (0, 0, -19),
-            graph=layer_gate("reflection", "bio", 8), collision="none"),
-        obj("l-reflect-gate-b", "reflection-wing-gate-b", "empty", (0, 0, -19),
-            graph=layer_gate("reflection", "portal", 8), collision="none"),
     ]
     for i, (name, path, pos, scale) in enumerate([
         ("eye-drone", "Enemy_EyeDrone.fbx", (-7, 3.2, -8), 1.7),
@@ -425,10 +399,6 @@ def city_objects():
                          rot=(0, 90 if x > 0 else -90, 0), scale=(3.2, 3.2, 3.2),
                          layer=layer_name))
     out += [
-        obj("c-west-gate", "west-block-gate", "empty", (-12, 0, 0),
-            graph=layer_gate("west", "east", 30), collision="none"),
-        obj("c-east-gate", "east-block-gate", "empty", (12, 0, 0),
-            graph=layer_gate("east", "west", 30), collision="none"),
         model("c-police", "police-cruiser", "res/models/urban/police-car.obj",
               (-4, 0.8, -8), rot=(0, 180, 0), scale=(1.15, 1.15, 1.15)),
         model("c-truck", "cargo-truck", "res/models/urban/truck-green.obj",
@@ -532,7 +502,6 @@ def main():
                                     24, 72, 0.0, 0.0,
                                     "res/materials/village-ground.mtl"),
          "overrides": overrides, "ambiencePreset": "Elysian Dawn",
-         "layers": [{"name": "market"}, {"name": "ridge", "startLoaded": False}],
          "objects": [o["id"] for o in village]},
         {"name": "rift-lab", "terrain": {"width": 56, "depth": 56},
          "settings": scene_settings([0.1, 0.9, 0.35], 0.58, 0.74,
@@ -541,9 +510,6 @@ def main():
                                     10, 48, 0.0, 0.0,
                                     "res/materials/ground.mtl"),
          "overrides": overrides, "ambiencePreset": "Rift Lab",
-         "layers": [{"name": "bio"},
-                    {"name": "portal", "startLoaded": False},
-                    {"name": "reflection", "startLoaded": False}],
          "objects": [o["id"] for o in lab]},
         {"name": "neon-city", "terrain": {"width": 96, "depth": 96},
          "settings": scene_settings([0.15, 0.82, -0.2], 0.16, 0.48,
@@ -552,7 +518,6 @@ def main():
                                     14, 70, 0.0, 0.0,
                                     "res/materials/city-asphalt.mtl"),
          "overrides": overrides, "ambiencePreset": "Neon Rain",
-         "layers": [{"name": "west"}, {"name": "east", "startLoaded": False}],
          "objects": [o["id"] for o in city]},
     ]
     settings = manifest["settings"]

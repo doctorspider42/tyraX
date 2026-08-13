@@ -1,1 +1,1 @@
-{"id":"9db9398226a76ec3","name":"market-tavern","type":"model","position":[18,0.15,10],"rotation":[0,215,0],"scale":[1.55,1.55,1.55],"color":[1,1,1],"physics":false,"layer":"market","model":"res/models/modular-village/village-tavern.obj","meshLod":10}
+{"id":"9db9398226a76ec3","name":"market-tavern","type":"model","position":[18,0.15,10],"rotation":[0,215,0],"scale":[1.55,1.55,1.55],"color":[1,1,1],"physics":false,"model":"res/models/modular-village/village-tavern.obj","meshLod":10}

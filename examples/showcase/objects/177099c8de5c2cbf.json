@@ -1,1 +1,1 @@
-{"id":"177099c8de5c2cbf","name":"village-cottage-2","type":"model","position":[14,0.12,-13],"rotation":[0,205,0],"scale":[1.42,1.42,1.42],"color":[1,1,1],"physics":false,"layer":"ridge","model":"res/models/modular-village/village-cottage.obj","meshLod":10}
+{"id":"177099c8de5c2cbf","name":"village-cottage-2","type":"model","position":[14,0.12,-13],"rotation":[0,205,0],"scale":[1.42,1.42,1.42],"color":[1,1,1],"physics":false,"model":"res/models/modular-village/village-cottage.obj","meshLod":10}

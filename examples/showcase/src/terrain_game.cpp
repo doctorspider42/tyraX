@@ -2671,8 +2671,14 @@ void TerrainGame::loop() {
     gameMenuIndex = -1;
     gameMenuStackDepth = 0;
   }
-  if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // A player-owned flashlight must not jump onto the Cutscene Director's
+  // camera. Keep both authored/toggled state bits intact and only suppress the
+  // presentation; the beam comes back exactly as it was after camera cleanup.
+  const bool cutsceneOwnsFlashlight =
+      sequences::playing() || scriptCtx.cameraOverride;
+  if (!menuOwnsPad && !cutsceneOwnsFlashlight && flashlightTogglePressed(engine))
+    g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn && !cutsceneOwnsFlashlight) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -8147,7 +8153,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // smaller than the mesh tessellation, so aiming at your own feet
       // (a footprint well under one terrain cell) lit nothing at all.
       // Follow the view ray to the terrain and put a pool there instead.
-      if (!g_flashEnabled || !g_flashOn) continue;
+      if (!g_flashEnabled || !g_flashOn || sequences::playing() ||
+          scriptCtx.cameraOverride)
+        continue;
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
       float dz = cameraLookAt.z - cameraPosition.z;

@@ -1,1 +1,1 @@
-{"id":"4e8f017f0c9d985c","name":"reactor-haze","type":"emitter","position":[0,0.7,-6],"rotation":[0,0,0],"scale":[18,1,18],"color":[0.18,0.4,0.65],"physics":false,"layer":"portal","emitter":{"kind":"fog","count":38,"size":3.2,"enabled":true,"followPlayer":false}}
+{"id":"4e8f017f0c9d985c","name":"reactor-haze","type":"emitter","position":[0,0.7,-6],"rotation":[0,0,0],"scale":[18,1,18],"color":[0.18,0.4,0.65],"physics":false,"emitter":{"kind":"fog","count":38,"size":3.2,"enabled":true,"followPlayer":false}}

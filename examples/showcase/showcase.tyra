@@ -199,15 +199,6 @@
         "highlight": true
       },
       "ambiencePreset": "Elysian Dawn",
-      "layers": [
-        {
-          "name": "market"
-        },
-        {
-          "name": "ridge",
-          "startLoaded": false
-        }
-      ],
       "objects": [
         "dfc834342759fb67",
         "127e8adc6b63f265",
@@ -216,8 +207,6 @@
         "a2810c85e2af60f3",
         "8bcc2ac8f26edb8e",
         "83d3fc50e1286a15",
-        "5bbfe974863b51ef",
-        "7e5f97b7b665cd23",
         "13eca4f3b3e186e7",
         "f0ceb149a52fe330",
         "9db9398226a76ec3",
@@ -322,19 +311,6 @@
         "highlight": true
       },
       "ambiencePreset": "Rift Lab",
-      "layers": [
-        {
-          "name": "bio"
-        },
-        {
-          "name": "portal",
-          "startLoaded": false
-        },
-        {
-          "name": "reflection",
-          "startLoaded": false
-        }
-      ],
       "objects": [
         "773b3088c9efb356",
         "eeed7083c6e1ab5a",
@@ -348,12 +324,6 @@
         "27c010d4314966c7",
         "902d3212e0ef35ae",
         "f3f2e6c19105cc6d",
-        "e531d6f68f49c53f",
-        "849ff0a0a19c8297",
-        "ed1f2bad1cd8ffbf",
-        "b5b0443b25e7ad66",
-        "863b6c36f4f16079",
-        "55eeb2efb8e5f15d",
         "285c5e39f09bd12e",
         "654ce3b1161ac275",
         "d58c5528cb21ca10",
@@ -455,15 +425,6 @@
         "highlight": true
       },
       "ambiencePreset": "Neon Rain",
-      "layers": [
-        {
-          "name": "west"
-        },
-        {
-          "name": "east",
-          "startLoaded": false
-        }
-      ],
       "objects": [
         "1a0c91c19e242d17",
         "61d77245ed87411d",
@@ -498,8 +459,6 @@
         "489f13217ba198a4",
         "2da88254431410ea",
         "7c7cb8f15a2948d6",
-        "a8dab4d80597abf2",
-        "44cc040b432dd3c7",
         "4e094240c511168a",
         "bbc9b2de3609537e",
         "1b1a083e938a3a1a",
@@ -897,6 +856,7 @@
       "loop": false,
       "cameraEnabled": true,
       "hidePlayer": false,
+      "disableHud": true,
       "bars": 0.85,
       "skippable": true,
       "fadeIn": 0.55,
@@ -973,6 +933,7 @@
       "loop": false,
       "cameraEnabled": true,
       "hidePlayer": false,
+      "disableHud": true,
       "bars": 0.85,
       "skippable": true,
       "fadeIn": 0.55,
@@ -1097,6 +1058,7 @@
       "loop": false,
       "cameraEnabled": true,
       "hidePlayer": false,
+      "disableHud": true,
       "bars": 0.85,
       "skippable": true,
       "fadeIn": 0.55,
@@ -1173,6 +1135,7 @@
       "loop": false,
       "cameraEnabled": true,
       "hidePlayer": false,
+      "disableHud": true,
       "bars": 0.85,
       "skippable": true,
       "fadeIn": 0.55,
@@ -1236,6 +1199,7 @@
       "loop": false,
       "cameraEnabled": true,
       "hidePlayer": false,
+      "disableHud": true,
       "bars": 0.85,
       "skippable": true,
       "fadeIn": 0.55,

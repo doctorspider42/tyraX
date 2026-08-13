@@ -174,7 +174,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Cinematics** — the Cutscene Director, fed by keyframes or by a
   [phone-recorded 6DoF take](docs/camera-takes.md) or the
   [live phone viewfinder](docs/phone-camera.md), with per-sequence camera,
-  player and HUD control.
+  player and HUD control. A player flashlight is suspended instead of following
+  the cinematic camera, and the `Play Sequence` flow node exposes an `after`
+  output for chaining gameplay to that exact playback instead of guessing its
+  duration with a timer.
 - **Input** — [named actions and rebinding](docs/input-bindings.md),
   [button glyphs in text](docs/text-icons.md), and
   [USB keyboard & mouse](docs/keyboard-mouse.md).

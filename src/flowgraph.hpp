@@ -1373,9 +1373,11 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .strKind = FlowParamKind::SequenceName,
          .strTip = "The cutscene from Tools > Cutscene Director. Retriggering "
                    "RESTARTS it from the top.",
+         .execThrough = true,
          .desc = "Starts a cutscene. It drives the camera (and whatever "
-                 "tracks it owns) until it ends; On Sequence Finished is how "
-                 "you carry on afterwards."},
+                 "tracks it owns) until it ends; 'after' fires when this "
+                 "particular playback runs out, is stopped, skipped, or is "
+                 "replaced by another sequence."},
         {.key = "StopSequence", .title = "Stop Sequence", .category = "Scene",
          .desc = "Stops the active cutscene."},
         // Endless scroller (Insert > World > Scroller, docs/endless-scroller.md).

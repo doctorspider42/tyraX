@@ -1,1 +1,1 @@
-{"id":"bbb12d4c0dee2f54","name":"neon-dumpster","type":"model","position":[8,0.5,-4],"rotation":[0,-30,0],"scale":[2,2,2],"color":[1,1,1],"physics":false,"layer":"east","model":"res/models/urban/detail-dumpster-open.obj"}
+{"id":"bbb12d4c0dee2f54","name":"neon-dumpster","type":"model","position":[8,0.5,-4],"rotation":[0,-30,0],"scale":[2,2,2],"color":[1,1,1],"physics":false,"model":"res/models/urban/detail-dumpster-open.obj"}

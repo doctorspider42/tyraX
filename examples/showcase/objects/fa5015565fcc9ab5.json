@@ -1,1 +1,1 @@
-{"id":"fa5015565fcc9ab5","name":"quantum-mirror","type":"mirror","position":[0,4.5,-24.3],"rotation":[0,180,0],"scale":[12,7,1],"color":[0.8,0.9,1],"physics":false,"layer":"reflection","mirror":{"opacity":0.3,"reflectPlayer":true,"raytraced":true,"rtSize":32,"objects":["eye-drone","physics-orb-a"]}}
+{"id":"fa5015565fcc9ab5","name":"quantum-mirror","type":"mirror","position":[0,4.5,-24.3],"rotation":[0,180,0],"scale":[12,7,1],"color":[0.8,0.9,1],"physics":false,"mirror":{"opacity":0.3,"reflectPlayer":true,"raytraced":true,"rtSize":32,"objects":["eye-drone","physics-orb-a"]}}

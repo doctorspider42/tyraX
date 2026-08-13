@@ -1,1 +1,1 @@
-{"id":"72cf22592a8567a7","name":"tower-2-roof","type":"model","position":[-17,17.0,5],"rotation":[0,-90,0],"scale":[3.2,3.2,3.2],"color":[1,1,1],"physics":false,"layer":"west","model":"res/models/urban/wall-b-roof-detailed.obj"}
+{"id":"72cf22592a8567a7","name":"tower-2-roof","type":"model","position":[-17,17.0,5],"rotation":[0,-90,0],"scale":[3.2,3.2,3.2],"color":[1,1,1],"physics":false,"model":"res/models/urban/wall-b-roof-detailed.obj"}

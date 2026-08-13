@@ -1,1 +1,1 @@
-{"id":"99fc1be1e800d80c","name":"lab-crate-d","type":"model","position":[9,1,9],"rotation":[0,81,0],"scale":[1.5,1.5,1.5],"color":[1,1,1],"physics":false,"layer":"reflection","model":"res/models/scifi/Prop_Crate_Large.obj"}
+{"id":"99fc1be1e800d80c","name":"lab-crate-d","type":"model","position":[9,1,9],"rotation":[0,81,0],"scale":[1.5,1.5,1.5],"color":[1,1,1],"physics":false,"model":"res/models/scifi/Prop_Crate_Large.obj"}

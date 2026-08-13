@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.33.0 (Play Sequence says when ITS playback ends): the action gains an
+// asynchronous `after` exec output. Codegen stores the director's monotonically
+// increasing playback token per node, so the branch fires for the run that node
+// started when it runs out, is stopped, skipped or replaced - even when a new
+// sequence is already active before that graph updates. This removes guessed
+// duration-shaped Delays from cutscene transitions. A playing sequence also
+// presentation-suspends the player flashlight (including its ground pool) so
+// the beam cannot jump from the player onto the cinematic camera; its master
+// and toggle state survive unchanged and return after camera cleanup. Feature =
+// MINOR; flow links already store arbitrary source pins, so the project format
+// does not change.
+//
 // 1.32.0 (a cutscene can own the game HUD): the Cutscene Director gains a
 // per-sequence Disable HUD option. It suppresses HUD images, USE/pick prompts,
 // baked HUD text and dynamic flow-graph text for the whole cutscene, including
@@ -747,7 +759,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 32
+#define TYRAX_VERSION_MINOR 33
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

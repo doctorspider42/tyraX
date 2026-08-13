@@ -5755,8 +5755,14 @@ void TerrainGame::loop() {
     gameMenuIndex = -1;
     gameMenuStackDepth = 0;
   }
-  if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // A player-owned flashlight must not jump onto the Cutscene Director's
+  // camera. Keep both authored/toggled state bits intact and only suppress the
+  // presentation; the beam comes back exactly as it was after camera cleanup.
+  const bool cutsceneOwnsFlashlight =
+      sequences::playing() || scriptCtx.cameraOverride;
+  if (!menuOwnsPad && !cutsceneOwnsFlashlight && flashlightTogglePressed(engine))
+    g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn && !cutsceneOwnsFlashlight) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -11233,7 +11239,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // smaller than the mesh tessellation, so aiming at your own feet
       // (a footprint well under one terrain cell) lit nothing at all.
       // Follow the view ray to the terrain and put a pool there instead.
-      if (!g_flashEnabled || !g_flashOn) continue;
+      if (!g_flashEnabled || !g_flashOn || sequences::playing() ||
+          scriptCtx.cameraOverride)
+        continue;
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
       float dz = cameraLookAt.z - cameraPosition.z;
@@ -18967,8 +18975,14 @@ void TerrainGame::loop() {
     gameMenuIndex = -1;
     gameMenuStackDepth = 0;
   }
-  if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // A player-owned flashlight must not jump onto the Cutscene Director's
+  // camera. Keep both authored/toggled state bits intact and only suppress the
+  // presentation; the beam comes back exactly as it was after camera cleanup.
+  const bool cutsceneOwnsFlashlight =
+      sequences::playing() || scriptCtx.cameraOverride;
+  if (!menuOwnsPad && !cutsceneOwnsFlashlight && flashlightTogglePressed(engine))
+    g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn && !cutsceneOwnsFlashlight) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -25390,7 +25404,9 @@ std::string sequencesHeader(const Project& p) {
            "namespace sequences {\n"
            "// Cutscene Director runtime (see src/gen/sequences.gen.cpp),\n"
            "// driven by the Play Sequence / Stop Sequence flow nodes.\n"
-           "void play(int index);  // start Project::sequences[index] at t=0\n"
+           "// Returns a playback token. finished(token) becomes true when THAT\n"
+           "// run ends, even if another sequence immediately replaces it.\n"
+           "int play(int index);   // start Project::sequences[index] at t=0\n"
            "void stop();           // stop the active sequence, free the camera\n"
            "// Widescreen bars + fade-to-black compositor, called by the game\n"
            "// loop inside beginFrame/endFrame after the HUD (solid 2D quads;\n"
@@ -25400,6 +25416,7 @@ std::string sequencesHeader(const Project& p) {
            "// flow trigger edge-detects, and what tells a flow-graph camera or\n"
            "// letterbox that a cutscene currently owns those.\n"
            "bool playing();\n"
+           "bool finished(int token);\n"
            "// True while the director owns the normal game HUD, including its\n"
            "// deferred cleanup frame. Menus/debug overlays stay outside the gate.\n"
            "bool hudDisabled();\n"
@@ -25932,6 +25949,9 @@ static float sampleObj(const ObjKey* k, int n, float t, int comp, int which) {
 // wall-clock speed on PAL and NTSC alike.
 class SequenceDirector : public Script {
   int active_ = -1;
+  int nextRun_ = 0;
+  int activeRun_ = 0;
+  int finishedThrough_ = 0;
   float time_ = 0.0F;
   bool cleanup_ = false;   // hand everything back on the next update
   bool hudDisabled_ = false;
@@ -25964,22 +25984,40 @@ class SequenceDirector : public Script {
     cleanup_ = false;
   }
 
+  // Only one sequence can own the director. Playback tokens therefore finish
+  // in increasing order: starting a replacement first completes the old run,
+  // and finishedThrough_ lets a graph notice that even if both events happen
+  // between two of its updates.
+  void finishRun() {
+    if (activeRun_ > finishedThrough_) finishedThrough_ = activeRun_;
+    activeRun_ = 0;
+    active_ = -1;
+  }
+
  public:
-  void begin(int idx) {
-    if (idx < 0 || idx >= kSeqCount) return;
+  int begin(int idx) {
+    if (idx < 0 || idx >= kSeqCount) return 0;
+    finishRun();  // replacing a live sequence finishes its playback token
     active_ = idx;
+    activeRun_ = ++nextRun_;
     time_ = 0.0F;
     cleanup_ = false;
     // Set immediately: Play Sequence may run after this director's update, and
     // the same frame's HUD must not flash before the first cutscene tick.
     hudDisabled_ = kSeqs[idx].disableHud != 0;
+    return activeRun_;
   }
   void end() {
-    if (active_ >= 0) cleanup_ = true;
-    active_ = -1;
+    if (active_ >= 0) {
+      cleanup_ = true;
+      finishRun();
+    }
   }
   int activeIndex() const { return active_; }
   bool hudDisabled() const { return hudDisabled_; }
+  bool finished(int token) const {
+    return token > 0 && token <= finishedThrough_;
+  }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -25989,7 +26027,7 @@ class SequenceDirector : public Script {
     const Seq& s = kSeqs[active_];
     // A skippable cutscene ends early on START.
     if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
-      active_ = -1;
+      finishRun();
       release(ctx);
       return;
     }
@@ -26177,7 +26215,7 @@ class SequenceDirector : public Script {
         time_ -= s.duration;
         if (time_ < 0.0F) time_ = 0.0F;
       } else {
-        active_ = -1;
+        finishRun();
         cleanup_ = true;  // release() on the next update
       }
     }
@@ -26193,9 +26231,10 @@ static const bool g_seqRegistered = []() {
 }  // namespace
 
 namespace sequences {
-void play(int index) { g_seqDirector.begin(index); }
+int play(int index) { return g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool finished(int token) { return g_seqDirector.finished(token); }
 bool hudDisabled() { return g_seqDirector.hudDisabled(); }
 
 // Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
@@ -29096,8 +29135,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     c << pad << "// node " << n.id
                       << " (PlaySequence): unknown sequence '" << n.str << "'\n";
                 } else {
-                    c << pad << "sequences::play(" << si << ");  // \"" << n.str
-                      << "\"\n";
+                    c << pad << "seqRun" << n.id << " = sequences::play(" << si
+                      << ");  // \"" << n.str << "\"\n";
                 }
             } else if (n.type == "StopSequence") {
                 c << pad << "sequences::stop();\n";
@@ -30420,6 +30459,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
         // armed this frame starts counting/moving on the NEXT frame:
         //  - Delay: countdown armed by its exec input; fires its "after"
         //    actions the frame it reaches 0.
+        //  - Play Sequence: playback token armed by its exec input; fires its
+        //    "after" actions when that specific run finishes.
         //  - Move Object To: glides the target toward the (live) goal at
         //    Speed units/s until it arrives.
         //
@@ -30460,6 +30501,13 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                         clsOut << "    livedbg::timer(" << tk << ", " << var
                                << ");\n";
                 }
+            } else if (n.type == "PlaySequence") {
+                const std::string var = "seqRun" + std::to_string(n.id);
+                addMember("int", var, "0", 'i', 1);
+                flagResets << "      " << var << " = 0;\n";
+                clsOut << "    if (" << var << " > 0 && sequences::finished("
+                       << var << ")) {\n      " << var << " = 0;\n"
+                       << linkedActions(n.id, "      ") << "    }\n";
             } else if (n.type == "DisplayText") {
                 // The wired text is a live value (a save value, a counter), so
                 // re-read it every frame the slot is on - that is what makes

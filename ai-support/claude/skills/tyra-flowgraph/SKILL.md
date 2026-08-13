@@ -169,10 +169,15 @@ over guessing from this file.
   full black. A letterbox is measured inside the picture the console outputs, so
   on a 16:9 project the wide (16:9) style covers nothing and cinema 2.39:1 is
   thinner - that is correct, not a broken node. **Set Player Visible** drops the third-person avatar for a
-  free-flying camera move. **On Sequence Finished** fires when a cutscene stops
-  for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
-  "play the cutscene, then carry on"; its bool output is "a cutscene is playing
-  right now", for gating gameplay logic out while one runs.
+  free-flying camera move. **Play Sequence** has an `after` exec output that
+  fires when THAT playback stops for any reason (ran out, Stop Sequence,
+  player skipped, or another sequence replaced it) - use it to chain "play
+  this cutscene, then carry on" without a guessed Delay. **On Sequence
+  Finished** is the global observer: it fires when whichever cutscene was
+  active stops, and its bool output is "a cutscene is playing right now", for
+  gating gameplay logic out while one runs. The player's flashlight is
+  presentation-suspended during sequence playback and restored unchanged when
+  the sequence releases the camera.
   **Set Sound Volume** ducks all sound effects (music has its own node).
   **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
   takes over the screen and the pad - this graph included - until it ends or the

@@ -1,1 +1,1 @@
-{"id":"f926cb25cbd29f8e","name":"tower-2-floor-2","type":"model","position":[-17,5.6,5],"rotation":[0,-90,0],"scale":[3.2,3.2,3.2],"color":[1,1,1],"physics":false,"layer":"west","model":"res/models/urban/wall-b-window.obj"}
+{"id":"f926cb25cbd29f8e","name":"tower-2-floor-2","type":"model","position":[-17,5.6,5],"rotation":[0,-90,0],"scale":[3.2,3.2,3.2],"color":[1,1,1],"physics":false,"model":"res/models/urban/wall-b-window.obj"}
