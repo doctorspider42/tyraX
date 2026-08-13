@@ -1,1 +1,1 @@
-{"id":"24bc0de5ccceb3e4","name":"market-well","type":"model","position":[-9,0.2,8],"rotation":[0,0,0],"scale":[1.6,1.6,1.6],"color":[1,1,1],"physics":false,"model":"res/models/modular-village/village-well.obj"}
+{ "id": "24bc0de5ccceb3e4", "name": "market-well", "type": "model", "position": [-10.2177, 0.122476, 2.79813], "rotation": [0, -0, 0], "scale": [1.6, 1.6, 1.6], "color": [1, 1, 1], "physics": false, "model": "res/models/modular-village/village-well.obj" }

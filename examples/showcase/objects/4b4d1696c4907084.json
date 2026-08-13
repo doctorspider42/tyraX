@@ -1,1 +1,1 @@
-{"id":"4b4d1696c4907084","name":"physics-orb-c","type":"sphere","position":[-14,11,-2],"rotation":[0,0,0],"scale":[0.8,0.8,0.8],"color":[0.4,1,0.4],"physics":true,"physMass":0.8,"physBounce":0.72,"physFriction":0.12,"physTumble":true,"physSleep":3}
+{ "id": "4b4d1696c4907084", "name": "physics-orb-c", "type": "sphere", "position": [-14, 11, -2], "rotation": [0, 0, 0], "scale": [0.8, 0.8, 0.8], "color": [0.4, 1, 0.4], "physics": true, "physMass": 0.8, "physBounce": 0.72, "physFriction": 0.12, "physTumble": true, "physSleep": 3 }

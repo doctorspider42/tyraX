@@ -1,1 +1,1 @@
-{"id":"9fc9f27be1aa4810","name":"neon-light-1","type":"point-light","position":[-10,4,12],"rotation":[0,0,0],"scale":[0.35,0.35,0.35],"color":[1,0.1,0.55],"physics":false,"light":{"brightness":1.45,"radius":9,"dynamic":true,"flicker":0.12,"beam":2}}
+{ "id": "9fc9f27be1aa4810", "name": "neon-light-1", "type": "point-light", "position": [-10, 4, 12], "rotation": [0, 0, 0], "scale": [0.35, 0.35, 0.35], "color": [1, 0.1, 0.55], "physics": false, "light": { "brightness": 1.45, "radius": 9, "dynamic": true, "flicker": 0.12, "beam": 2 } }

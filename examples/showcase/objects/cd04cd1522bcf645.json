@@ -1,1 +1,1 @@
-{"id":"cd04cd1522bcf645","name":"lab-back-wall","type":"box","position":[0,6,-25],"rotation":[0,0,0],"scale":[52,13,1],"color":[0.08,0.1,0.16],"physics":false}
+{ "id": "cd04cd1522bcf645", "name": "lab-back-wall", "type": "box", "position": [0, 6, -25], "rotation": [0, 0, 0], "scale": [52, 13, 1], "color": [0.08, 0.1, 0.16], "physics": false }

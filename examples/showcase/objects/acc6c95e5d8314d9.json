@@ -1,1 +1,1 @@
-{"id":"acc6c95e5d8314d9","name":"tower-1-floor-1","type":"model","position":[-18,1.8,-16],"rotation":[0,-90,0],"scale":[3.2,3.2,3.2],"color":[1,1,1],"physics":false,"model":"res/models/urban/wall-a-window.obj"}
+{ "id": "acc6c95e5d8314d9", "name": "tower-1-floor-1", "type": "model", "position": [-18, 1.8, -16], "rotation": [0, -90, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/urban/wall-a-window.obj" }

@@ -1,1 +1,1 @@
-{"id":"902d3212e0ef35ae","name":"uplink-frame-right","type":"model","position":[19.2,1.2,-18],"rotation":[0,-90,0],"scale":[1.8,1.8,1.8],"color":[1,1,1],"physics":false,"model":"res/models/scifi/Prop_Locker.obj"}
+{ "id": "902d3212e0ef35ae", "name": "uplink-frame-right", "type": "model", "position": [19.2, 1.2, -18], "rotation": [0, -90, 0], "scale": [1.8, 1.8, 1.8], "color": [1, 1, 1], "physics": false, "model": "res/models/scifi/Prop_Locker.obj" }

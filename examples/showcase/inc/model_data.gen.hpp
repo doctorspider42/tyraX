@@ -76,7 +76,7 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/urban/scaffolding-structure.obj",
     "res/models/urban/detail-dumpster-open.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, true, true, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 3;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {

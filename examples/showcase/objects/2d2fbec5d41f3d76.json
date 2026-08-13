@@ -1,1 +1,1 @@
-{"id":"2d2fbec5d41f3d76","name":"lab-right-wall","type":"box","position":[25,6,0],"rotation":[0,0,0],"scale":[1,13,52],"color":[0.08,0.1,0.16],"physics":false}
+{ "id": "2d2fbec5d41f3d76", "name": "lab-right-wall", "type": "box", "position": [25, 6, 0], "rotation": [0, 0, 0], "scale": [1, 13, 52], "color": [0.08, 0.1, 0.16], "physics": false }

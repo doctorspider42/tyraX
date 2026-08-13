@@ -1,1 +1,1 @@
-{"id":"83d3fc50e1286a15","name":"rift-light","type":"point-light","position":[0,3,-26.5],"rotation":[0,0,0],"scale":[0.35,0.35,0.35],"color":[0.25,0.8,1],"physics":false,"light":{"brightness":1.5,"radius":14,"dynamic":true,"flicker":0.12,"beam":2}}
+{ "id": "83d3fc50e1286a15", "name": "rift-light", "type": "point-light", "position": [0, 3, -26.5], "rotation": [0, 0, 0], "scale": [0.35, 0.35, 0.35], "color": [0.25, 0.8, 1], "physics": false, "light": { "brightness": 1.5, "radius": 14, "dynamic": true, "flicker": 0.12, "beam": 2 } }

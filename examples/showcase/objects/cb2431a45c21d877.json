@@ -1,1 +1,1 @@
-{"id":"cb2431a45c21d877","name":"lab-crate-a","type":"model","position":[-16,1,6],"rotation":[0,0,0],"scale":[1.5,1.5,1.5],"color":[1,1,1],"physics":false,"model":"res/models/scifi/Prop_Crate_Large.obj"}
+{ "id": "cb2431a45c21d877", "name": "lab-crate-a", "type": "model", "position": [-16, 1, 6], "rotation": [0, 0, 0], "scale": [1.5, 1.5, 1.5], "color": [1, 1, 1], "physics": false, "model": "res/models/scifi/Prop_Crate_Large.obj" }

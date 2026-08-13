@@ -1,1 +1,1 @@
-{"id":"38fd67c00f6101e2","name":"neon-rain","type":"emitter","position":[0,13,0],"rotation":[0,0,0],"scale":[22,1,22],"color":[0.45,0.65,1],"physics":false,"emitter":{"kind":"rain","count":112,"size":0.12,"enabled":true,"followPlayer":true}}
+{ "id": "38fd67c00f6101e2", "name": "neon-rain", "type": "emitter", "position": [0, 13, 0], "rotation": [0, 0, 0], "scale": [22, 1, 22], "color": [0.45, 0.65, 1], "physics": false, "emitter": { "kind": "rain", "count": 112, "size": 0.12, "enabled": true, "followPlayer": true } }

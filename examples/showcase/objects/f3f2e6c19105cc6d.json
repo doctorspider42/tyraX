@@ -1,1 +1,1 @@
-{"id":"f3f2e6c19105cc6d","name":"uplink-plasma","type":"emitter","position":[17,2.8,-17.4],"rotation":[0,0,0],"scale":[3,5,2],"color":[1,0.15,0.65],"physics":false,"emitter":{"kind":"sparks","count":48,"size":0.14,"enabled":true,"followPlayer":false}}
+{ "id": "f3f2e6c19105cc6d", "name": "uplink-plasma", "type": "emitter", "position": [17, 2.8, -17.4], "rotation": [0, 0, 0], "scale": [3, 5, 2], "color": [1, 0.15, 0.65], "physics": false, "emitter": { "kind": "sparks", "count": 48, "size": 0.14, "enabled": true, "followPlayer": false } }
