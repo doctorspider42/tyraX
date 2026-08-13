@@ -78,9 +78,19 @@ drive; right-click removes a pair; *Accept suggestions* takes every amber guess
 at once. Suggestions are never applied on their own — a wrong guess bends the
 wrong limb, so a person confirms them.
 
+Beside the canvas, the **pair list** shows every hand-made pair, every pending
+suggestion and the bones nothing matched; hovering a row rings both joints in
+the drawing and ties them with a line, so "which bone is this" never needs
+reading coordinates. `+` accepts one suggestion, `x` removes one pair.
+
 The accepted pairs are stored on the import row (`boneMap` in the `.tyra`) and
 consulted **before** any name matching, so a hand-made pair always wins. The
 merge itself never guesses.
+
+Everything here is fed from a shared parsed-skeleton cache and the scene
+preview re-bakes **in the background** (a small `baking preview` spinner shows
+in the Animation Editor while it does), so picking a source, adding clips and
+applying a mapping keep the editor responsive.
 
 A clip whose tracks all fail to match is **not added**, and the build says so
 rather than shipping an empty clip. A name collision gains a `_1` suffix, so

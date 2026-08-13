@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -149,6 +150,34 @@ std::vector<BoneSuggestion> suggestBoneMap(const glbparser::Skel& target,
 // editor projects into its 2D skeleton view.
 void bindGlobals(const glbparser::Skel& skel, std::vector<float>& xyz);
 
+// ---------------------------------------------------------------------------
+// Parsed-skeleton cache. Parsing is the expensive half of everything above -
+// a big .fbx costs seconds in ufbx - and before this existed every consumer
+// (the panel's probe, the mapping editor, the model info, the preview) parsed
+// the same files again, so one click could stall the editor three parses
+// deep. One instance lives on the App and every UI-thread consumer goes
+// through it; entries revalidate by file size + mtime, so a re-imported
+// asset is picked up without anyone clearing anything.
+//
+// NOT thread-safe by design - the viewport's background bake parses without
+// it rather than putting a mutex on the UI thread's hot path.
+class SkelCache {
+   public:
+    // Parsed skeleton for `path`, or nullptr with `error` set. The pointer is
+    // valid until the next get() - copy the Skel if it must outlive that.
+    const glbparser::Skel* get(const std::string& path, std::string& error);
+
+   private:
+    struct Entry {
+        long long size = -1;
+        long long mtime = 0;  // file_clock ticks - compared, never interpreted
+        bool ok = false;
+        std::string error;
+        glbparser::Skel skel;
+    };
+    std::map<std::string, Entry> entries_;
+};
+
 // Appends `donor`'s selected clips to `target`, rebound onto the target's own
 // nodes. A clip whose name is taken gains a "_1" suffix, so importing twice
 // cannot silently replace anything. Returns false only when nothing at all was
@@ -174,9 +203,12 @@ void refreshPoseBounds(glbparser::Skel& skel);
 // It does NOT refresh the pose bounds: that is a second full skinning pass,
 // and only the .tskl bake needs it (the preview re-skins every frame anyway).
 // Call refreshPoseBounds yourself when the result is going to the console.
+// `cache` (optional) supplies parsed donors without re-reading their files -
+// pass the App's on the UI thread, nullptr from a worker.
 bool applyImports(const std::vector<ImportSpec>& imports,
                   glbparser::Skel& target,
-                  std::vector<std::string>* warnings);
+                  std::vector<std::string>* warnings,
+                  SkelCache* cache = nullptr);
 
 // ---------------------------------------------------------------------------
 // The preview half.
@@ -201,6 +233,15 @@ bool skelToBaked(const glbparser::Skel& skel, float fps, glbparser::Baked& out,
 // parseSkel + merge + skelToBaked.
 bool bakedWithImports(const std::string& modelPath,
                       const std::vector<ImportSpec>& imports, float fps,
-                      glbparser::Baked& out, std::string& error);
+                      glbparser::Baked& out, std::string& error,
+                      SkelCache* cache = nullptr);
+
+// The MERGED skeleton alone - every parse cache-assisted, no skinning. What
+// the model-info path wants: clip names, bounds and materials are all here,
+// and the morph-frame bake it used to pay for is the single most expensive
+// thing the editor can do to a model.
+bool mergedSkel(const std::string& modelPath,
+                const std::vector<ImportSpec>& imports, glbparser::Skel& out,
+                std::string& error, SkelCache* cache = nullptr);
 
 }  // namespace animmerge

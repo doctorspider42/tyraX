@@ -7201,15 +7201,43 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     if (it != glbInfoCache_.end()) return it->second;
 
     GlbInfo info;
-    glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    // Clips borrowed from other files count as this model's clips everywhere
-    // the editor asks "what can this model play" - the clip lists in the
-    // Animation Editor, every clip combo, the Player locomotion pickers. With
-    // no imports this is the plain parser bake it always was.
-    if (animmerge::bakedWithImports(full.string(),
-                                    animedit::importsFor(project_, relPath),
-                                    12.0f, baked, info.error)) {
+    const auto imports = animedit::importsFor(project_, relPath);
+    if (!imports.empty()) {
+        // Clips borrowed from other files count as this model's clips
+        // everywhere the editor asks "what can this model play". Everything
+        // this summary holds lives on the SKELETON, so it is read off the
+        // cache-assisted merge - never the morph-frame bake, whose skinning
+        // pass is what made Add clips and a prefix commit stall the editor.
+        glbparser::Skel skel;
+        if (animmerge::mergedSkel(full.string(), imports, skel, info.error,
+                                  &skelCache_)) {
+            info.ok = true;
+            for (const auto& c : skel.clips) info.clips.push_back(c.name);
+            info.vertexCount = skel.totalVertexCount();
+            // Nominal frames at the preview rate - display only.
+            float dur = 0.0f;
+            for (const auto& c : skel.clips) dur += c.duration;
+            info.frameCount = (int)(dur * 12.0f) + (int)skel.clips.size();
+            for (int c = 0; c < 3; ++c) {
+                info.min[c] = skel.min[c];
+                info.max[c] = skel.max[c];
+            }
+            info.warnings = skel.warnings;
+            for (const glbparser::SkelPart& p : skel.parts) {
+                GlbInfo::Material mat;
+                mat.name = p.material.empty() ? "material" : p.material;
+                mat.color[0] = p.baseColor[0];
+                mat.color[1] = p.baseColor[1];
+                mat.color[2] = p.baseColor[2];
+                mat.textured = p.image >= 0;
+                info.materials.push_back(std::move(mat));
+            }
+        }
+        return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
+    }
+    glbparser::Baked baked;
+    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();

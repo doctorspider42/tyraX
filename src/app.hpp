@@ -1039,6 +1039,8 @@ private:
     void invalidateAnimCaches();
     // Staged donor pick for the import block; "" = nothing chosen yet.
     std::string animImpSource_;
+    // Clip-list name filter (Animation Editor, left pane).
+    char animEdFilter_[48] = {};
     // Everything the import panel needs to know about a (target, source) pair.
     // Answering it means parsing two models, which a panel body must not do
     // every frame - so it is computed once per pair and dropped by
@@ -1052,6 +1054,11 @@ private:
         int bonesMapped = 0;  // ...that resolve to a target bone
     };
     std::map<std::string, AnimImportProbe> animProbeCache_;
+    // Parsed skeletons, shared by the probe, the bone mapper and glbInfo -
+    // one parse per FILE instead of one per consumer (the concrete stalls:
+    // open, Add clips, Map bones). Revalidates by size+mtime, so it survives
+    // invalidateAnimCaches() and still notices a re-imported asset.
+    animmerge::SkelCache skelCache_;
     // `boneMap` participates in the cache key, so a row with hand-made pairs
     // reads its own numbers and a mapping commit refreshes them.
     const AnimImportProbe& animImportProbe(
@@ -1068,6 +1075,14 @@ private:
     std::vector<std::pair<std::string, std::string>> animMapPairs_;  // staged
     std::vector<animmerge::BoneSuggestion> animMapSugg_;
     int animMapSelDonor_ = -1;  // selected donor node, -1 = none
+    // The pair list's hover, read by the canvas NEXT frame (the list is laid
+    // out after the canvas but must highlight into it - the standard one-frame
+    // ImGui trick). Donor/target node indices, -1 = none.
+    int animMapHiD_ = -1, animMapHiT_ = -1;
+    // Suggestions are recomputed only when the staged pairs change - they
+    // were per-frame, which is wasted work and made the window read as busy.
+    std::vector<std::pair<std::string, std::string>> animMapSuggFor_;
+    bool animMapSuggValid_ = false;
     void openAnimBoneMap(int importRow);
     // Draws the window when open; returns true on an applied change.
     bool drawAnimBoneMapWindow();

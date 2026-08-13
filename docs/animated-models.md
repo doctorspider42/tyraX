@@ -44,8 +44,8 @@ placing it. See [animation-import.md](animation-import.md).
 
 ## Edit clips
 
-Open **Tools > Animation Editor**. Select a model and clip, then preview,
-pause, scrub or switch to wireframe.
+Open **Tools > Animation Editor**. Select a model and clip (the list has a
+name filter), then preview, pause, scrub or switch to wireframe.
 
 Clip edits are non-destructive:
 
@@ -155,7 +155,7 @@ Sources are never modified and the output is deterministic.
 | Clip switch pops | Add a 0.2–0.4 s crossfade |
 | Walk moves the object away | Enable **In place** on that clip |
 | Palette-slot error | Simplify the rig below 256 bones/nodes |
-| First assignment pauses | The preview bake is cached and should be brief. Several seconds usually means an FBX needs ufbx's slower posing path because it uses parent-scale inheritance or dual-quaternion skinning |
+| First assignment pauses | The scene preview now bakes in the background (a box placeholder shows for a moment); the Material Editor's own preview still bakes inline. Several seconds of bake usually means an FBX needs ufbx's slower posing path because it uses parent-scale inheritance or dual-quaternion skinning |
 
 Animated models receive the scene's directional and ambient light. Point-light
 bakes and the usable-object highlight rim currently apply only to static meshes.

@@ -2808,27 +2808,28 @@ const App::AnimImportProbe& App::animImportProbe(
     // editor can do to a model, and picking a file from a combo must not cost
     // it just to print "3 clips".
     AnimImportProbe probe;
-    glbparser::Skel target, donor;
     std::string err;
-    if (!animimport::parseSkel(project_.filePath(sourceRel), donor, err)) {
-        probe.error = err;
-    } else if (!animimport::parseSkel(project_.filePath(modelRel), target,
-                                      err)) {
+    const glbparser::Skel* donor =
+        skelCache_.get(project_.filePath(sourceRel), err);
+    const glbparser::Skel* target =
+        donor ? skelCache_.get(project_.filePath(modelRel), err) : nullptr;
+    if (!donor || !target) {
         probe.error = err;
     } else {
         probe.ok = true;
-        probe.clipCount = (int)donor.clips.size();
+        probe.clipCount = (int)donor->clips.size();
         animmerge::MergeOptions opts;
         opts.boneMap = boneMap;
-        probe.match = animmerge::compatibility(target, donor, opts);
+        probe.match = animmerge::compatibility(*target, *donor, opts);
         // Bones with a home - the number the mapping editor moves.
         std::set<int> boneNodes;
-        for (const glbparser::SkelJoint& j : donor.palette)
+        for (const glbparser::SkelJoint& j : donor->palette)
             boneNodes.insert(j.node);
         for (int n : boneNodes) {
-            if (n < 0 || n >= (int)donor.nodes.size()) continue;
+            if (n < 0 || n >= (int)donor->nodes.size()) continue;
             ++probe.bonesTotal;
-            if (animmerge::resolveBoneName(target, donor.nodes[(size_t)n].name,
+            if (animmerge::resolveBoneName(*target,
+                                           donor->nodes[(size_t)n].name,
                                            opts) >= 0)
                 ++probe.bonesMapped;
         }
@@ -2840,6 +2841,9 @@ void App::invalidateAnimCaches() {
     // Every one of these holds a clip list derived from a parse of the model,
     // and an import changes which clips exist - so they all go together. The
     // model-info pair is always evicted as a unit (app.cpp precedent).
+    // NOT skelCache_: files did not change (size+mtime revalidation covers
+    // the case where they did), and keeping it is what makes the re-derive
+    // below a merge instead of a parse.
     glbInfoCache_.clear();
     modelInfoCache_.clear();
     animProbeCache_.clear();
@@ -2865,9 +2869,18 @@ void App::openAnimBoneMap(int importRow) {
     if (importRow < 0 || importRow >= (int)project_.animImports.size()) return;
     const AnimImport& a = project_.animImports[(size_t)importRow];
     std::string err;
-    animMapParsed_ =
-        animimport::parseSkel(project_.filePath(a.model), animMapTarget_, err) &&
-        animimport::parseSkel(project_.filePath(a.source), animMapDonor_, err);
+    // Through the cache: the probe just parsed both files, so opening the
+    // window is a copy, not a parse (the "Map bones stalls" report).
+    const glbparser::Skel* t = skelCache_.get(project_.filePath(a.model), err);
+    const glbparser::Skel* d =
+        t ? skelCache_.get(project_.filePath(a.source), err) : nullptr;
+    animMapParsed_ = t && d;
+    if (animMapParsed_) {
+        animMapTarget_ = *t;
+        animMapDonor_ = *d;
+    }
+    animMapSuggValid_ = false;
+    animMapHiD_ = animMapHiT_ = -1;
     if (animMapParsed_) {
         animmerge::bindGlobals(animMapTarget_, animMapTPos_);
         animmerge::bindGlobals(animMapDonor_, animMapDPos_);
@@ -2926,7 +2939,11 @@ bool App::drawAnimBoneMapWindow() {
         explicitPair[n] = exp;
         if (resolved[n] >= 0) ++mapped;
     }
-    animMapSugg_ = animmerge::suggestBoneMap(tgt, don, opts);
+    if (!animMapSuggValid_ || animMapSuggFor_ != animMapPairs_) {
+        animMapSugg_ = animmerge::suggestBoneMap(tgt, don, opts);
+        animMapSuggFor_ = animMapPairs_;
+        animMapSuggValid_ = true;
+    }
     std::map<int, int> suggested;  // donor node -> target node
     for (const animmerge::BoneSuggestion& sg : animMapSugg_)
         for (int n : donorBones)
@@ -2953,11 +2970,24 @@ bool App::drawAnimBoneMapWindow() {
         if (ImGui::SmallButton("Clear pairs")) animMapPairs_.clear();
         ImGui::SameLine();
     }
-    ImGui::TextDisabled("click a red joint, then its match on the right");
+    // Legend - the canvas colors, named once, tersely.
+    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "matched");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "suggested");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "unmatched");
+    ImGui::SameLine();
+    ImGui::TextDisabled("- click a joint, then its match on the right");
+
+    // The list pane's hover from LAST frame - the canvas draws before the
+    // list is laid out, so it highlights with one frame of lag.
+    const int hiD = animMapHiD_, hiT = animMapHiT_;
+    animMapHiD_ = animMapHiT_ = -1;
 
     // --- the canvas ---------------------------------------------------------
     const float footerH = ImGui::GetFrameHeightWithSpacing() + scaled(8);
-    ImGui::BeginChild("##bonecanvas", ImVec2(0, -footerH),
+    const float listW = scaled(230);
+    ImGui::BeginChild("##bonecanvas", ImVec2(-listW, -footerH),
                       ImGuiChildFlags_Borders);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 cMin = ImGui::GetCursorScreenPos();
@@ -3095,6 +3125,19 @@ bool App::drawAnimBoneMapWindow() {
             dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
     }
 
+    // The list pane's hover: ring both ends and tie them with a line, so
+    // "which joint is this row" needs no reading of coordinates.
+    if (hiD >= 0 && donorBones.count(hiD)) {
+        const ImVec2 pt = place(dFit, animMapDPos_, hiD);
+        dl->AddCircle(pt, R + scaled(3), ImGui::GetColorU32(sem.accent), 0, 2.0f);
+        if (hiT >= 0 && targetBones.count(hiT)) {
+            const ImVec2 tp = place(tFit, animMapTPos_, hiT);
+            dl->AddCircle(tp, R + scaled(3), ImGui::GetColorU32(sem.accent), 0,
+                          2.0f);
+            dl->AddLine(pt, tp, ImGui::GetColorU32(sem.accent), 1.5f);
+        }
+    }
+
     // Hover name + click actions.
     if (hoverDonor >= 0) {
         ImGui::SetTooltip("%s", don.nodes[(size_t)hoverDonor].name.c_str());
@@ -3121,6 +3164,83 @@ bool App::drawAnimBoneMapWindow() {
             if (!found) animMapPairs_.emplace_back(from, to);
             animMapSelDonor_ = -1;
         }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    // --- the pair list: what is mapped onto what, hover = show me ----------
+    ImGui::BeginChild("##bonelist", ImVec2(0, -footerH),
+                      ImGuiChildFlags_Borders);
+    {
+        auto nodeByName = [](const glbparser::Skel& sk, const std::string& nm) {
+            for (size_t k = 0; k < sk.nodes.size(); ++k)
+                if (sk.nodes[k].name == nm) return (int)k;
+            return -1;
+        };
+        auto hoverRow = [&](int dNode, int tNode) {
+            if (!ImGui::IsItemHovered()) return;
+            animMapHiD_ = dNode;
+            animMapHiT_ = tNode;
+        };
+        int removePair = -1;
+        if (!animMapPairs_.empty()) {
+            ImGui::SeparatorText("Pairs");
+            for (size_t k = 0; k < animMapPairs_.size(); ++k) {
+                ImGui::PushID((int)k);
+                if (ImGui::SmallButton("x")) removePair = (int)k;
+                ImGui::SameLine();
+                ImGui::TextUnformatted(animMapPairs_[k].first.c_str());
+                hoverRow(nodeByName(don, animMapPairs_[k].first),
+                         nodeByName(tgt, animMapPairs_[k].second));
+                ImGui::Indent(scaled(18));
+                ImGui::TextDisabled("> %s", animMapPairs_[k].second.c_str());
+                hoverRow(nodeByName(don, animMapPairs_[k].first),
+                         nodeByName(tgt, animMapPairs_[k].second));
+                ImGui::Unindent(scaled(18));
+                ImGui::PopID();
+            }
+        }
+        if (removePair >= 0)
+            animMapPairs_.erase(animMapPairs_.begin() + removePair);
+        if (!animMapSugg_.empty()) {
+            ImGui::SeparatorText("Suggestions");
+            int accept = -1;
+            for (size_t k = 0; k < animMapSugg_.size(); ++k) {
+                const animmerge::BoneSuggestion& sg = animMapSugg_[k];
+                ImGui::PushID(1000 + (int)k);
+                if (ImGui::SmallButton("+")) accept = (int)k;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Accept.");
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%s",
+                                   sg.donor.c_str());
+                hoverRow(nodeByName(don, sg.donor), nodeByName(tgt, sg.target));
+                ImGui::Indent(scaled(18));
+                ImGui::TextDisabled("~ %s", sg.target.c_str());
+                hoverRow(nodeByName(don, sg.donor), nodeByName(tgt, sg.target));
+                ImGui::Unindent(scaled(18));
+                ImGui::PopID();
+            }
+            if (accept >= 0)
+                animMapPairs_.emplace_back(animMapSugg_[(size_t)accept].donor,
+                                           animMapSugg_[(size_t)accept].target);
+        }
+        // Unmatched and unsuggested: the ones only a human can place.
+        std::vector<int> orphans;
+        for (int nd : donorBones)
+            if (resolved.count(nd) && resolved[nd] < 0 && !suggested.count(nd))
+                orphans.push_back(nd);
+        if (!orphans.empty()) {
+            ImGui::SeparatorText("Unmatched");
+            for (int nd : orphans) {
+                ImGui::PushID(2000 + nd);
+                if (ImGui::Selectable(don.nodes[(size_t)nd].name.c_str(),
+                                      animMapSelDonor_ == nd))
+                    animMapSelDonor_ = nd;
+                hoverRow(nd, -1);
+                ImGui::PopID();
+            }
+        }
+        if (animMapPairs_.empty() && animMapSugg_.empty() && orphans.empty())
+            ImGui::TextDisabled("all bones matched by name");
     }
     ImGui::EndChild();
 
@@ -3385,6 +3505,15 @@ void App::drawAnimEditorWindow() {
         ImGui::EndCombo();
     }
     ImGui::SameLine();
+    // Background preview bakes in flight (the async viewport rebake). The
+    // work is off the UI thread now, so the panel STAYS interactive - this
+    // is the "it is still working" signal, not a stall.
+    if (viewport_.animBakesPending() > 0) {
+        ImGui::TextColored(
+            ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%c baking preview",
+            "|/-\\"[(int)(ImGui::GetTime() * 8.0) & 3]);
+        ImGui::SameLine();
+    }
     const float projScale = animedit::projectTimeScale(project_.settings);
     if (std::fabs(projScale - 1.0f) > 0.001f)
         ImGui::TextDisabled("project fps: %.0f -> %.0f (%.3fx)",
@@ -3459,7 +3588,20 @@ void App::drawAnimEditorWindow() {
     // --- left: the model's clips -------------------------------------------
     ImGui::BeginChild("##ae_clips", ImVec2(scaled(210), -scaled(4)),
                       ImGuiChildFlags_Borders);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##ae_filter", "Filter", animEdFilter_,
+                             sizeof animEdFilter_);
+    auto passesFilter = [&](const std::string& name) {
+        if (!animEdFilter_[0]) return true;
+        // case-insensitive substring
+        std::string a = name, b = animEdFilter_;
+        for (char& ch : a) ch = (char)std::tolower((unsigned char)ch);
+        for (char& ch : b) ch = (char)std::tolower((unsigned char)ch);
+        return a.find(b) != std::string::npos;
+    };
     for (const std::string& c : info.clips) {
+        if (!passesFilter(animedit::effectiveName(project_, animEdModel_, c)))
+            continue;
         const AnimClipEdit* e = animedit::findEdit(project_, animEdModel_, c);
         std::string label = animedit::effectiveName(project_, animEdModel_, c);
         if (e && !e->isDefault()) label += "  *";

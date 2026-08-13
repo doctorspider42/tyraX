@@ -1,7 +1,10 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <memory>
+#include <thread>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -524,9 +527,10 @@ public:
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
-    // Drops every cached animated-model bake. An import change alters the CLIP
-    // LIST of a model, which is baked into the cache entry, so the cache has
-    // to go - unlike a clip edit, which is applied per pose on the way out.
+    // Re-bakes every cached animated model IN THE BACKGROUND: entries are
+    // marked stale and keep drawing their old bake until the fresh one lands.
+    // An import change alters the CLIP LIST of a model, which is baked into
+    // the cache entry - unlike a clip edit, which is applied per pose.
     void invalidateAnimatedModels();
 
     // Camera controls, driven by the UI layer. The camera orbits a movable
@@ -909,12 +913,39 @@ private:
             uint32_t tex = 0;
         };
         std::vector<Part> parts;  // parallel to baked.parts
+        bool stale = false;  // a rebake is in flight; keep drawing this one
     };
     // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
     // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
+    // The bake runs on a WORKER (parse + merge + skinning cost seconds on a
+    // real character, and it used to run inline on the first frame that drew
+    // the model - the "opening the project stalls" report). A stale entry
+    // keeps drawing its old bake until the fresh one lands; a brand-new model
+    // draws the box placeholder for the moment the bake needs.
+    struct AnimBakeJob {
+        std::string key, relPath, materialRel;
+        glbparser::Baked baked;
+        bool ok = false;
+        // An invalidation that arrives while this job is in flight: the job
+        // was started with the OLD imports, so its result must land already
+        // stale and re-bake. Without it a rapid pair of edits could keep the
+        // first edit's preview forever.
+        bool restale = false;
+        std::atomic<bool> done{false};
+        std::thread worker;
+    };
+    std::vector<std::unique_ptr<AnimBakeJob>> animBakeJobs_;
+    void animBakeStart(const std::string& key, const std::string& relPath,
+                       const std::string& materialRel);
+    void animBakeCollect();  // GL thread: finished jobs -> cache + uploads
     AnimModelDraw* animModelDraw(const std::string& relPath,
                                  const std::string& materialRel);
+    // How many bakes are in flight - the Animation Editor's spinner reads it.
+   public:
+    int animBakesPending() const { return (int)animBakeJobs_.size(); }
+
+   private:
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     // Uploads one explicit pose: `frame` is a fractional index into the whole

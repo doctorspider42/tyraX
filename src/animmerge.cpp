@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <cstring>
 #include <map>
 #include <set>
@@ -633,19 +634,57 @@ void refreshPoseBounds(Skel& skel) {
     }
 }
 
+const glbparser::Skel* SkelCache::get(const std::string& path,
+                                      std::string& error) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    // Size + raw mtime ticks: compared for EQUALITY only, so the file_clock
+    // epoch trap (implementation-defined, in the future on this libstdc++)
+    // cannot bite - no 0-means-absent, no cross-clock comparison.
+    const long long size = (long long)fs::file_size(path, ec);
+    if (ec) {
+        error = "cannot read '" + path + "'";
+        entries_.erase(path);
+        return nullptr;
+    }
+    const long long mtime =
+        (long long)fs::last_write_time(path, ec).time_since_epoch().count();
+    auto it = entries_.find(path);
+    if (it == entries_.end() || it->second.size != size ||
+        it->second.mtime != mtime) {
+        Entry e;
+        e.size = size;
+        e.mtime = mtime;
+        e.ok = animimport::parseSkel(path, e.skel, e.error);
+        it = entries_.insert_or_assign(path, std::move(e)).first;
+    }
+    if (!it->second.ok) {
+        error = it->second.error;
+        return nullptr;
+    }
+    return &it->second.skel;
+}
+
 bool applyImports(const std::vector<ImportSpec>& imports, Skel& target,
-                  std::vector<std::string>* warnings) {
+                  std::vector<std::string>* warnings, SkelCache* cache) {
     auto warn = [&](const std::string& m) {
         if (warnings) warnings->push_back(m);
     };
     bool merged = false;
     for (const ImportSpec& spec : imports) {
-        Skel donor;
+        Skel parsed;
+        const Skel* donorP = nullptr;
         std::string error;
-        if (!animimport::parseSkel(spec.path, donor, error)) {
+        if (cache) {
+            donorP = cache->get(spec.path, error);
+        } else if (animimport::parseSkel(spec.path, parsed, error)) {
+            donorP = &parsed;
+        }
+        if (!donorP) {
             warn("animation import '" + spec.path + "': " + error);
             continue;
         }
+        const Skel& donor = *donorP;
         MergeReport report;
         if (!merge(target, donor, spec, report, error)) {
             warn("animation import '" + spec.path + "': " + error);
@@ -822,21 +861,41 @@ bool skelToBaked(const Skel& skel, float fps, Baked& out, std::string& error) {
     return true;
 }
 
+bool mergedSkel(const std::string& modelPath,
+                const std::vector<ImportSpec>& imports, Skel& out,
+                std::string& error, SkelCache* cache) {
+    if (cache) {
+        const Skel* base = cache->get(modelPath, error);
+        if (!base) return false;
+        out = *base;  // merge mutates, the cache entry must stay pristine
+    } else if (!animimport::parseSkel(modelPath, out, error)) {
+        return false;
+    }
+    applyImports(imports, out, &out.warnings, cache);
+    return true;
+}
+
 bool bakedWithImports(const std::string& modelPath,
                       const std::vector<ImportSpec>& imports, float fps,
-                      Baked& out, std::string& error) {
+                      Baked& out, std::string& error, SkelCache* cache) {
     // No imports: the parser's own bake, untouched. A model nobody has
     // imported into must be unaffected by any of this.
     if (imports.empty()) return animimport::bake(modelPath, fps, out, error);
 
     Skel skel;
-    if (!animimport::parseSkel(modelPath, skel, error)) return false;
+    if (cache) {
+        const Skel* base = cache->get(modelPath, error);
+        if (!base) return false;
+        skel = *base;
+    } else if (!animimport::parseSkel(modelPath, skel, error)) {
+        return false;
+    }
     // No refreshPoseBounds here on purpose: those bounds exist for the
     // console's culling and collision, and skelToBaked computes what the
     // preview needs from the frames it is about to bake anyway. Skipping the
     // extra full-skeleton skinning pass is most of what keeps opening a model
     // with imports as cheap as opening one without.
-    applyImports(imports, skel, &skel.warnings);
+    applyImports(imports, skel, &skel.warnings, cache);
     return skelToBaked(skel, fps, out, error);
 }
 

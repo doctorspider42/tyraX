@@ -1270,6 +1270,11 @@ bool Viewport::init() {
 }
 
 void Viewport::shutdown() {
+    // Background bakes first: a worker writing into a job the destructor is
+    // about to free is the only way this subsystem can crash on exit.
+    for (auto& j : animBakeJobs_)
+        if (j->worker.joinable()) j->worker.join();
+    animBakeJobs_.clear();
     if (program_) glDeleteProgram(program_);
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
@@ -2989,6 +2994,9 @@ void Viewport::clearModelCache() {
     modelCache_.clear();
     modelBoundsCache_.clear();  // re-read bounds after a disk change too
     materialCache_.clear();  // GL textures are owned by texCache_
+    for (auto& j : animBakeJobs_)
+        if (j->worker.joinable()) j->worker.join();
+    animBakeJobs_.clear();
     for (auto& [path, draw] : animModelCache_)
         for (auto& part : draw.parts) {
             destroyMesh(part.mesh);
@@ -2999,12 +3007,10 @@ void Viewport::clearModelCache() {
 }
 
 void Viewport::invalidateAnimatedModels() {
-    for (auto& [path, draw] : animModelCache_)
-        for (auto& part : draw.parts) {
-            destroyMesh(part.mesh);
-            if (part.tex) glDeleteTextures(1, &part.tex);
-        }
-    animModelCache_.clear();
+    // Stale, not destroyed: the old bake keeps drawing until the background
+    // rebake lands, so an import commit costs no stall and no blink.
+    for (auto& [key, draw] : animModelCache_) draw.stale = true;
+    for (auto& j : animBakeJobs_) j->restale = true;  // in-flight = old inputs
     clearMatPrevModel();  // the Material Editor bakes the same source
 }
 
@@ -3376,47 +3382,107 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
 // colors/textures remapped by material name), exactly as the game bakes it
 // into the .tskl - so the preview matches. Failures cache as !ok and the
 // caller falls back to the box.
+void Viewport::animBakeStart(const std::string& key, const std::string& relPath,
+                             const std::string& materialRel) {
+    for (const auto& j : animBakeJobs_)
+        if (j->key == key) return;  // already in flight
+    auto job = std::make_unique<AnimBakeJob>();
+    job->key = key;
+    job->relPath = relPath;
+    job->materialRel = materialRel;
+    const std::string full =
+        (std::filesystem::path(projectDir_) / relPath).string();
+    const std::string matFull =
+        materialRel.empty()
+            ? std::string()
+            : (std::filesystem::path(projectDir_) / materialRel).string();
+    const std::vector<animmerge::ImportSpec> imports = animImportsFor(relPath);
+    AnimBakeJob* raw = job.get();
+    // Everything the worker touches is copied in; no cache (not thread-safe),
+    // no GL. It signals through `done` and the GL thread does the uploads.
+    job->worker = std::thread([raw, full, matFull, imports]() {
+        std::string error;
+        raw->ok = animmerge::bakedWithImports(full, imports, 12.0f, raw->baked,
+                                              error);
+        if (raw->ok && !matFull.empty())
+            objparser::applyMaterialOverride(raw->baked, matFull);
+        raw->done.store(true, std::memory_order_release);
+    });
+    animBakeJobs_.push_back(std::move(job));
+}
+
+void Viewport::animBakeCollect() {
+    for (size_t i = 0; i < animBakeJobs_.size();) {
+        AnimBakeJob& j = *animBakeJobs_[i];
+        if (!j.done.load(std::memory_order_acquire)) {
+            ++i;
+            continue;
+        }
+        j.worker.join();
+        // Replace (or create) the cache entry; the old GL objects die only
+        // now, after the fresh bake is ready - no placeholder blink on a
+        // rebake, which is what makes an import commit invisible here.
+        // Staleness carries over from BOTH sides of the race: an entry
+        // re-marked while the job flew, or the job itself flagged by
+        // invalidateAnimatedModels - either way the fresh entry re-bakes.
+        bool staleAgain = j.restale;
+        if (auto it = animModelCache_.find(j.key); it != animModelCache_.end()) {
+            staleAgain |= it->second.stale;
+            for (auto& part : it->second.parts) {
+                destroyMesh(part.mesh);
+                if (part.tex) glDeleteTextures(1, &part.tex);
+            }
+            animModelCache_.erase(it);
+        }
+        AnimModelDraw draw;
+        draw.stale = staleAgain;
+        if (j.ok) {
+            draw.ok = true;
+            draw.baked = std::move(j.baked);
+            std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
+            for (size_t k = 0; k < draw.baked.images.size(); ++k) {
+                int w = 0, h = 0, comp = 0;
+                unsigned char* pixels = stbi_load_from_memory(
+                    draw.baked.images[k].png.data(),
+                    (int)draw.baked.images[k].png.size(), &w, &h, &comp, 4);
+                if (!pixels) continue;
+                glGenTextures(1, &imageTex[k]);
+                glBindTexture(GL_TEXTURE_2D, imageTex[k]);
+                glUploadTexRgba(w, h, pixels);
+                stbi_image_free(pixels);
+            }
+            for (size_t pi = 0; pi < draw.baked.parts.size(); ++pi) {
+                const glbparser::Part& src = draw.baked.parts[pi];
+                AnimModelDraw::Part part;
+                if (src.image >= 0 && src.image < (int)imageTex.size())
+                    part.tex = imageTex[src.image];
+                std::vector<float> interleaved((size_t)src.vertexCount * 8,
+                                               0.0f);
+                part.mesh = uploadMesh(interleaved);
+                draw.parts.push_back(part);
+            }
+        }
+        animModelCache_.emplace(j.key, std::move(draw));
+        animBakeJobs_.erase(animBakeJobs_.begin() + (int)i);
+    }
+}
+
 Viewport::AnimModelDraw* Viewport::animModelDraw(const std::string& relPath,
                                                  const std::string& materialRel) {
     if (relPath.empty()) return nullptr;
     const std::string key = relPath + "|" + materialRel;
     auto it = animModelCache_.find(key);
-    if (it != animModelCache_.end()) return &it->second;
-
-    AnimModelDraw draw;
-    std::string error;
-    const std::string full = (std::filesystem::path(projectDir_) / relPath).string();
-    if (animmerge::bakedWithImports(full, animImportsFor(relPath), 12.0f,
-                                    draw.baked, error)) {
-        draw.ok = true;
-        if (!materialRel.empty())
-            objparser::applyMaterialOverride(
-                draw.baked,
-                (std::filesystem::path(projectDir_) / materialRel).string());
-        std::vector<uint32_t> imageTex(draw.baked.images.size(), 0);
-        for (size_t i = 0; i < draw.baked.images.size(); ++i) {
-            int w = 0, h = 0, comp = 0;
-            unsigned char* pixels = stbi_load_from_memory(
-                draw.baked.images[i].png.data(),
-                (int)draw.baked.images[i].png.size(), &w, &h, &comp, 4);
-            if (!pixels) continue;
-            glGenTextures(1, &imageTex[i]);
-            glBindTexture(GL_TEXTURE_2D, imageTex[i]);
-            glUploadTexRgba(w, h, pixels);
-            stbi_image_free(pixels);
+    if (it != animModelCache_.end()) {
+        if (it->second.stale) {
+            it->second.stale = false;
+            animBakeStart(key, relPath, materialRel);
         }
-        for (size_t pi = 0; pi < draw.baked.parts.size(); ++pi) {
-            const glbparser::Part& src = draw.baked.parts[pi];
-            AnimModelDraw::Part part;
-            if (src.image >= 0 && src.image < (int)imageTex.size())
-                part.tex = imageTex[src.image];
-            // frame-0 upload sizes the (dynamic) buffer; poses overwrite it
-            std::vector<float> interleaved((size_t)src.vertexCount * 8, 0.0f);
-            part.mesh = uploadMesh(interleaved);
-            draw.parts.push_back(part);
-        }
+        return &it->second;  // possibly the old bake - replaced on arrival
     }
-    return &animModelCache_.emplace(key, std::move(draw)).first->second;
+    // First sight of this model: bake in the background, draw the box
+    // placeholder meanwhile (nullptr = the callers' existing fallback).
+    animBakeStart(key, relPath, materialRel);
+    return nullptr;
 }
 
 // Interpolates the object's current pose (start clip + preview clock, the
@@ -3866,6 +3932,10 @@ void Viewport::fly(float forward, float strafe, float dt) {
 
 uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>& objects,
                           const std::vector<int>& selection, int primary) {
+    // Finished background model bakes land here, on the GL thread, before
+    // anything draws.
+    animBakeCollect();
+
     if (width < 1) width = 1;
     if (height < 1) height = 1;
     // PS2 output mode: the scene is rasterized at the GS framebuffer size and
