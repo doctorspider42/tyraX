@@ -3424,6 +3424,60 @@ this migration are all that same minefield.
 **And one build trap:** `vclpp` chokes on CRLF, which is why `.gitattributes` enforces LF
 under `vendor/tyra`.
 
+### What the image actually depends on, and the backup forks
+
+Two questions worth answering in writing, because neither is visible from the Dockerfile
+alone: what has to exist for this image to be rebuildable, and what happens when one of
+those things does not.
+
+**Our own build pulls four things.** `docker/Dockerfile.fromsource` is five stages over a
+**digest-pinned** base (`ps2dev/ps2dev@sha256:8e6dc456…`; only the ps2link stage uses the
+`v2.0.0` tag). Into that base it copies artifacts built in separate stages:
+
+| stage | fetches | produces |
+|---|---|---|
+| `vu-tools` | `ps2dev/openvcl` @ `a5867c3d` + **our patch**, `glampert/vclpp` @ `00e44ecf` | `openvcl`, `vclpp`, `bin2s` |
+| `audsrv-build` | `ps2dev/ps2sdk` @ `e78a9cb2`, with `ee/rpc/audsrv` **replaced by ours** | `libaudsrv.a`, `audsrv.h` |
+| `ps2link-build` | in-tree sources | the ps2link package |
+
+The final stage writes `/usr/local/bin/vcl` as a **shell wrapper** that calls `openvcl` with
+the twenty density flags baked in, so the engine's Makefiles keep calling `vcl` and never
+learn anything changed, plus a `vcl-impl` marker the Runner reads. There is deliberately no
+`VCL_IMPL` switch: this image has no Sony binary to fall back to.
+
+**The base image is a pull, not a build — and behind it is a four-level tree.** Today
+`ps2dev/ps2dev` comes from Docker Hub, so none of the following is fetched at our build
+time. It all matters the moment anyone wants to *rebuild* that base, which is the only way
+to stop depending on someone else's published image:
+
+```
+ps2dev/ps2dev          ps2toolchain · ps2sdk · ps2sdk-ports · ps2-packer · ps2client
+  └ ps2toolchain       -dvp · -iop · -ee
+      ├ dvp            binutils-gdb · masp · openvcl
+      ├ iop            gnu.googlesource.com/{binutils-gdb, gcc}   <- NOT GitHub
+      └ ee             binutils-gdb · gcc · newlib · pthread-embedded
+```
+
+**Every GitHub repo in that tree is now forked** under `doctorspider42`, as a backup and as
+the raw material if we ever build our own base image. Nothing is wired to them: the
+Dockerfiles still point at `ps2dev/*`, deliberately, so this changes no build today.
+
+**What a fork does and does not buy.** Every fetch above is pinned by commit or digest, and
+a git hash is content-addressed, so **integrity was never the exposure** — you cannot be
+handed different bytes. The exposure is **availability**, and a fork covers only part of it:
+GitHub reparents forks when an upstream repo is deleted, so deletion is survivable; a
+takedown can purge forks with it, and a GitHub outage or an offline build takes forks along
+with originals. Two gaps stay open after this:
+
+* **The IOP toolchain is not on GitHub.** `ps2toolchain-iop` fetches binutils and gcc from
+  `gnu.googlesource.com`, which `gh repo fork` cannot touch. Backing those up means a
+  `git clone --mirror` pushed into a repo of ours — real work, since gcc's history is
+  gigabytes.
+* **Nothing here is offline.** For that, the bytes have to live somewhere we control that is
+  not a git host: the cheapest version is committing the base sources as a checksummed
+  tarball next to the Dockerfile — measured at **340 KB gzipped for all of openvcl**, which
+  is less than our own patch (344 KB) and a tenth of the ps2link package we already carry.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
