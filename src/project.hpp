@@ -1276,6 +1276,16 @@ struct ProjectSettings {
     // like the layer streaming). 0 = whole map resident. Large maps at high
     // detail NEED this - the full mesh would not fit in the PS2's 32 MB.
     float terrainViewDistance = 0.0f;  // world units, 0 = off
+    // Distance detail (docs/terrain-lod.md): beyond this range the game builds
+    // terrain chunks from every 2nd heightmap sample, and beyond 2.2x it from
+    // every 4th - a quarter and a sixteenth of the triangles, stitched to their
+    // neighbours so no crack shows. It is the OTHER half of the answer to a big
+    // map: the view distance decides how much terrain exists at all, this
+    // decides what the part you can see costs. 0 = every chunk at full detail,
+    // which is what every project did before the setting existed.
+    // Gameplay is unaffected - collision and every height query read the
+    // heightmap, never the mesh.
+    float terrainLodDistance = 0.0f;  // world units, 0 = off
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -1569,6 +1579,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.unitsPerMeter == b.unitsPerMeter &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
+           a.terrainLodDistance == b.terrainLodDistance &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&

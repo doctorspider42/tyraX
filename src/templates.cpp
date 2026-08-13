@@ -512,6 +512,14 @@ constexpr int TERRAIN_MAX_CELLS = {{DETAIL}};
 constexpr int TERRAIN_CHUNK_CELLS = 16;
 constexpr float TERRAIN_VIEW_DISTANCE = {{TERRAIN_VIEW_DISTANCE}};
 
+// Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
+// range a tile is built from every 2nd heightmap sample, and beyond 2.2x it
+// from every 4th - a quarter and a sixteenth of the triangles. Edges are
+// stitched to the neighbouring tile's stride, so the drop in detail costs no
+// crack. 0 = every tile at full detail. Gameplay reads TERRAIN_HEIGHTS and is
+// never affected.
+constexpr float TERRAIN_LOD_DISTANCE = {{TERRAIN_LOD_DISTANCE}};
+
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
@@ -660,6 +668,17 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
+  // The grid stride chunk (cx, cz) is drawn at: 1 near the player, 2 and then
+  // 4 further out (docs/terrain-lod.md). A PURE function of the snapped foci
+  // below and nothing else - which is the whole trick: a chunk can work out
+  // what its neighbours are doing without asking whether they exist, so the two
+  // sides of a shared edge agree by construction instead of by bookkeeping.
+  int terrainLodStep(int cx, int cz) const;
+  // The foci the bands are measured from, SNAPPED to half a chunk. Snapping is
+  // what bounds the churn: the LOD field then only moves when the player
+  // crosses a snap line, instead of on every centimetre of walking.
+  float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
+  int terrainLodFocusCount = 0;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
@@ -724,6 +743,15 @@ class TerrainGame : public Tyra::Game {
     // Height extent of this chunk's cells, filled at build - the portal
     // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
     float minY = 0.0F, maxY = 0.0F;
+    // Distance detail (docs/terrain-lod.md): the grid stride this chunk was
+    // built at, and the stride each of its four neighbours had AT THAT MOMENT -
+    // a shared edge is drawn at the coarser of the two, so a neighbour changing
+    // detail invalidates this chunk exactly as much as its own band moving
+    // does. Both are one comparison in updateTerrainChunks. 1 everywhere with
+    // the feature off, which is what makes that build byte-identical to the
+    // pre-LOD one.
+    unsigned char lod = 1;
+    unsigned char lodW = 1, lodE = 1, lodN = 1, lodS = 1;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -1801,11 +1829,15 @@ class TerrainGame : public Tyra::Game {
   // texture to the repository.
   Tyra::Texture* flashPoolTex = nullptr;
   std::string flashPoolTexPath;
+  // ...and the built-in one it falls back to: the baked gobo
+  // (res/hud/flashlight-gobo.png, loaded in buildScene when FLASHLIGHT_USED).
+  Tyra::Texture* flashGoboTex = nullptr;
   // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
   // lighting cannot draw a spot smaller than the mesh tessellation, so
   // looking down at your own feet lit nothing (the cone footprint is
-  // smaller than a terrain cell). That patch follows the view ray's
-  // terrain hit instead.
+  // smaller than a terrain cell). That patch is PROJECTED from the beam's
+  // own frustum instead, so its shape comes from the gobo texture and not
+  // from the terrain's vertex grid (docs/flashlight.md).
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
   void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
@@ -1918,6 +1950,17 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
+  // The grid stride chunk (cx, cz) is drawn at: 1 near the player, 2 and then
+  // 4 further out (docs/terrain-lod.md). A PURE function of the snapped foci
+  // below and nothing else - which is the whole trick: a chunk can work out
+  // what its neighbours are doing without asking whether they exist, so the two
+  // sides of a shared edge agree by construction instead of by bookkeeping.
+  int terrainLodStep(int cx, int cz) const;
+  // The foci the bands are measured from, SNAPPED to half a chunk. Snapping is
+  // what bounds the churn: the LOD field then only moves when the player
+  // crosses a snap line, instead of on every centimetre of walking.
+  float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
+  int terrainLodFocusCount = 0;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
@@ -1983,6 +2026,15 @@ class TerrainGame : public Tyra::Game {
     // Height extent of this chunk's cells, filled at build - the portal
     // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
     float minY = 0.0F, maxY = 0.0F;
+    // Distance detail (docs/terrain-lod.md): the grid stride this chunk was
+    // built at, and the stride each of its four neighbours had AT THAT MOMENT -
+    // a shared edge is drawn at the coarser of the two, so a neighbour changing
+    // detail invalidates this chunk exactly as much as its own band moving
+    // does. Both are one comparison in updateTerrainChunks. 1 everywhere with
+    // the feature off, which is what makes that build byte-identical to the
+    // pre-LOD one.
+    unsigned char lod = 1;
+    unsigned char lodW = 1, lodE = 1, lodN = 1, lodS = 1;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -3060,11 +3112,15 @@ class TerrainGame : public Tyra::Game {
   // texture to the repository.
   Tyra::Texture* flashPoolTex = nullptr;
   std::string flashPoolTexPath;
+  // ...and the built-in one it falls back to: the baked gobo
+  // (res/hud/flashlight-gobo.png, loaded in buildScene when FLASHLIGHT_USED).
+  Tyra::Texture* flashGoboTex = nullptr;
   // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
   // lighting cannot draw a spot smaller than the mesh tessellation, so
   // looking down at your own feet lit nothing (the cone footprint is
-  // smaller than a terrain cell). That patch follows the view ray's
-  // terrain hit instead.
+  // smaller than a terrain cell). That patch is PROJECTED from the beam's
+  // own frustum instead, so its shape comes from the gobo texture and not
+  // from the terrain's vertex grid (docs/flashlight.md).
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
   void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
@@ -6073,6 +6129,15 @@ void TerrainGame::buildScene() {
   // it globally) and the scene lights paint their ground pools as smooth
   // additive patches instead (updateAndRenderLightPools).
   infoBag->dynLightPick = false;
+  // ...and out of the camera SPOT too, when the project has a flashlight
+  // (docs/flashlight.md). That light is per VERTEX, and a terrain cell is
+  // never finer than one world unit, so on the ground the cone is not a cone -
+  // it is a Gouraud diamond that moves in cell-sized steps. The beam's real
+  // shape is drawn there per pixel by its projected pool, and running both
+  // gives the worst of the two: a soft ellipse sitting inside a blocky wedge.
+  // The pool is only built for a project that HAS a flashlight, so the flag
+  // follows the same predicate - nothing changes for a project without one.
+  infoBag->spotLit = !FLASHLIGHT_USED;
   // Always classify per package against the frustum: packages fully outside
   // are skipped, packages touching a plane get per-triangle clipping
   // (CLIP_PRECISE, Project > Preferences) or per-triangle culling (fast -
@@ -6091,6 +6156,8 @@ void TerrainGame::buildScene() {
   layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   layerInfoBag->fullClipChecks = CLIP_PRECISE;
   layerInfoBag->blendingEnabled = true;
+  // A painted layer is the same ground, so it answers the spot the same way.
+  layerInfoBag->spotLit = !FLASHLIGHT_USED;
   // Scene-lightmap ADD pass (docs/emissive-materials.md): same shape, but the
   // additive equation Cv = Cs*FIX/128 + Cd at full strength, and unfogged -
   // GS fog would add the fog color through an additive blend and brighten
@@ -6397,6 +6464,13 @@ void TerrainGame::buildScene() {
     if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
+    // The camera flashlight's gobo (docs/flashlight.md): the pool patch takes
+    // its STs from the light's own frustum, so this 128x128 IS the shape of the
+    // beam. FLASHLIGHT_USED matches the refreshGenerated predicate that bakes
+    // it, so a project with no flashlight pays no VRAM for it.
+    if (FLASHLIGHT_USED)
+      flashGoboTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flashlight-gobo.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
@@ -11127,21 +11201,26 @@ void TerrainGame::setupLightBeams() {
 // in RGB - additive bags ignore texture alpha), tinted by the light color.
 void TerrainGame::setupLightPools() {
   lightPools.clear();
-  if (!beamCoronaTex) return;
-  // A pool is a patch dropped ON the ground: with no terrain (docs/terrain.md)
-  // there is nothing to drop it onto, so the scene simply has none - the beams,
-  // the coronas and the per-vertex light are unaffected.
-  if (!TERRAIN_ENABLED) return;
+  if (!beamCoronaTex && !flashGoboTex) return;
+  // A scene light's pool is a patch dropped ON THE GROUND: with no terrain
+  // (docs/terrain.md) there is nothing to drop it onto, so those simply do not
+  // exist - the beams, the coronas and the per-vertex light are unaffected.
+  // The FLASHLIGHT's pool is projected onto whatever its beam lands on,
+  // receivers included (docs/flashlight.md), so that one exists either way -
+  // which is what makes a torch work in a room built out of placed floors.
+  const bool groundPools = TERRAIN_ENABLED;
   constexpr int kCells = 4;
   // One pool per dynamic point light, plus a last one (objIndex -1) that
-  // follows the camera flashlight's terrain hit.
+  // follows the camera flashlight's beam.
   int poolCount = 1;
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
-      ++poolCount;
+  if (groundPools)
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+      if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
+        ++poolCount;
   lightPools.reserve(poolCount);
   for (int i = 0; i <= SCENE_OBJECT_COUNT; ++i) {
     if (i < SCENE_OBJECT_COUNT) {
+      if (!groundPools) continue;
       const SceneObjectData& d = SCENE_OBJECTS[i];
       if (d.type != 9 || !d.lightDynamic) continue;
     }
@@ -11177,17 +11256,22 @@ void TerrainGame::setupLightPools() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = beamCoronaTex;
-    // The flashlight's pool can carry an authored sprite instead - that
-    // texture IS the beam's shape (gobo, cross, cracked lens). Additive,
-    // so the shape lives in RGB; alpha is ignored.
-    if (b.objIndex < 0 && FLASHLIGHT_TEX[0] != '\0') {
-      const std::string want(FLASHLIGHT_TEX);
-      if (!flashPoolTex || flashPoolTexPath != want) {
-        flashPoolTex =
-            engine->renderer.getTextureRepository().add(FileUtils::fromCwd(want));
-        flashPoolTexPath = want;
+    // The flashlight's pool is PROJECTED, so its texture IS the beam's shape
+    // (gobo, cross, cracked lens): the baked gobo by default, or an authored
+    // sprite when the Player object names one. Additive, so the shape lives in
+    // RGB; alpha is ignored. The corona stays as the last resort - a project
+    // whose gobo failed to load draws a soft blob rather than nothing.
+    if (b.objIndex < 0) {
+      if (flashGoboTex) b.texBag->texture = flashGoboTex;
+      if (FLASHLIGHT_TEX[0] != '\0') {
+        const std::string want(FLASHLIGHT_TEX);
+        if (!flashPoolTex || flashPoolTexPath != want) {
+          flashPoolTex = engine->renderer.getTextureRepository().add(
+              FileUtils::fromCwd(want));
+          flashPoolTexPath = want;
+        }
+        if (flashPoolTex) b.texBag->texture = flashPoolTex;
       }
-      if (flashPoolTex) b.texBag->texture = flashPoolTex;
     }
     b.texBag->coordinates = b.sts.data();
     b.bag = std::make_unique<StaPipBag>();
@@ -11227,10 +11311,15 @@ void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
   for (LightPool& b : lightPools) {
     if (b.objIndex < 0) {
-      // The camera flashlight. Per-vertex lighting cannot draw a spot
-      // smaller than the mesh tessellation, so aiming at your own feet
-      // (a footprint well under one terrain cell) lit nothing at all.
-      // Follow the view ray to the terrain and put a pool there instead.
+      // The camera flashlight (docs/flashlight.md). Per-vertex lighting cannot
+      // draw a spot smaller than the mesh tessellation, and a terrain cell is
+      // never finer than one world unit, so the cone the VU1 spot paints on the
+      // ground is a Gouraud diamond and aiming at your own feet lit nothing at
+      // all. So the beam's shape is PROJECTED here instead: the patch takes its
+      // STs from the light's own frustum - the same trick renderProjShadows
+      // uses to sample a silhouette - and the gobo texture decides what a torch
+      // looks like. Nothing below depends on how finely the ground is
+      // tessellated, which is the whole point.
       if (!g_flashEnabled || !g_flashOn) continue;
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
@@ -11238,19 +11327,28 @@ void TerrainGame::updateAndRenderLightPools() {
       const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
       if (dl < 0.0001F) continue;
       dx /= dl, dy /= dl, dz /= dl;
+      // What the beam can land on, collected ONCE for the whole march (the
+      // point-light dcache lesson - never scan the object table per step).
+      // yMax is the EYE: a wall taller than the player is not a floor, and
+      // admitting one as a receiver would put a bright ellipse on top of it.
+      // Excluded, the beam runs past it to the ground behind, where the patch's
+      // z test hides it - exactly what the old terrain-only march did.
+      projCollectReceivers(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                           cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+                           FLASHLIGHT_RANGE * 0.5F + 2.0F, cameraPosition.y);
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
       for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
         if (cameraPosition.y + dy * t <=
-            terrainHeightAt(cameraPosition.x + dx * t,
-                            cameraPosition.z + dz * t)) {
+            projSurfaceAt(cameraPosition.x + dx * t,
+                          cameraPosition.z + dz * t)) {
           float lo = prev, hi2 = t;
           for (int k2 = 0; k2 < 6; ++k2) {
             const float mid = (lo + hi2) * 0.5F;
             if (cameraPosition.y + dy * mid <=
-                terrainHeightAt(cameraPosition.x + dx * mid,
-                                cameraPosition.z + dz * mid))
+                projSurfaceAt(cameraPosition.x + dx * mid,
+                              cameraPosition.z + dz * mid))
               hi2 = mid;
             else
               lo = mid;
@@ -11263,21 +11361,153 @@ void TerrainGame::updateAndRenderLightPools() {
       if (hit < 0.0F) continue;
       const float gx = cameraPosition.x + dx * hit;
       const float gz = cameraPosition.z + dz * hit;
-      // Cone footprint at that distance, widened a little for the soft
-      // edge and floored so a straight-down look still gets a visible
-      // puddle. Grazing angles stretch the real footprint - the round
-      // patch is the PS2-era approximation, not a projection.
+      // What the patch lies on is decided ONCE, at the landing point, never per
+      // vertex: projSurfaceAt answers "the top of any receiver over this point",
+      // so a prop standing inside the patch would otherwise punch a cliff into
+      // it and the quad between would rasterize as a wall (renderProjShadows
+      // pays for that lesson in full). Terrain relief IS followed - it is
+      // smooth, and following it is what keeps the pool on the ground.
+      const float baseY = projSurfaceAt(gx, gz);
+      if (baseY <= TERRAIN_VOID_Y * 0.5F) continue;  // no floor there at all
+      const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
+
       const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
-      float r = hit * tanA * 1.7F;
-      if (r < 0.7F) r = 0.7F;
-      if (r > 8.0F) r = 8.0F;
-      buildPoolPatch(b, gx, gz, r, 0.045F);
+      // Beam basis for the projection. cross(dir, worldUp) degenerates when you
+      // look straight down - which is precisely the case this pool exists for -
+      // so world Z stands in there.
+      float rx, ry, rz;
+      if (dy > 0.995F || dy < -0.995F) {
+        rx = dy, ry = -dx, rz = 0.0F;
+      } else {
+        rx = -dz, ry = 0.0F, rz = dx;
+      }
+      const float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+      if (rl < 0.0001F) continue;
+      rx /= rl, ry /= rl, rz /= rl;
+      const float ux = ry * dz - rz * dy;  // up = right x forward
+      const float uy = rz * dx - rx * dz;
+      const float uz = rx * dy - ry * dx;
+
+      // Where this point sits in the beam's own frustum. 0.43 puts the cone
+      // edge at r = 0.86 in the gobo's radius convention (menubake::kGoboEdge),
+      // which is where its profile has already reached black - so the clamp
+      // below can never smear a lit texel outward into a hard rectangle.
+      // Clamp HERE, on the EE: nothing in the 3D pipeline emits GS_REG_CLAMP,
+      // so a texture's own wrap setting is silently ignored (same note as the
+      // projected shadows' receiver patch).
+      auto goboST = [&](float x, float y, float z) {
+        const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
+                    ez = z - cameraPosition.z;
+        const float fwd = ex * dx + ey * dy + ez * dz;
+        if (fwd < 0.05F) return Vec4(1.0F, 1.0F, 1.0F, 0.0F);  // at the lens
+        const float inv = 0.43F / (fwd * tanA);
+        float du = (ex * rx + ey * ry + ez * rz) * inv;
+        float dv = -(ex * ux + ey * uy + ez * uz) * inv;
+        // Clamp RADIALLY, never per component. Nothing in the 3D pipeline
+        // emits GS_REG_CLAMP - a texture's own wrap setting is silently
+        // ignored, so an ST outside 0..1 would REPEAT the gobo and draw a
+        // second pool - but clamping u and v separately turns a point that is
+        // out past the corner into one that is out along an AXIS, which bends
+        // the beam's own direction and lands as straight bright wedges around
+        // the patch (measured in PCSX2: they read as facets of the ground).
+        // Pushing the offset back along its own direction keeps the direction
+        // and puts the sample on the gobo's black margin, where it belongs.
+        const float d2 = du * du + dv * dv;
+        constexpr float kEdge = 0.47F;  // inside the texture, outside the beam
+        if (d2 > kEdge * kEdge) {
+          const float k = kEdge / sqrtf(d2);
+          du *= k, dv *= k;
+        }
+        return Vec4(0.5F + du, 0.5F + dv, 1.0F, 0.0F);
+      };
+      // The patch is depth-TESTED and never writes z, so it has to win that
+      // test against the surface it lies 4.5 cm above - which on one enormous
+      // floor triangle is not a margin the GS can always resolve. Pulling each
+      // vertex a fixed FRACTION of its eye distance closer wins at every range
+      // and costs nothing visually: the displacement is along the view ray, so
+      // the vertex projects to the same pixel (the projected shadows' zBias).
+      auto zBias = [&](float x, float y, float z) {
+        constexpr float k = 0.996F;
+        return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
+                    cameraPosition.y + (y - cameraPosition.y) * k,
+                    cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
+      };
+
+      // The lit footprint is an ELLIPSE: a beam meeting the floor at a grazing
+      // angle reaches far further than it is wide. So the patch is laid out
+      // along the beam's ground run rather than axis-aligned - a round one
+      // either clips the pool or spends fill rate on corners the gobo leaves
+      // black. Only COVERAGE is decided here; the shape is the texture's.
+      float ax = dx, az = dz;
+      const float al = sqrtf(ax * ax + az * az);
+      if (al < 0.0001F) {
+        ax = 1.0F, az = 0.0F;
+      } else {
+        ax /= al, az /= al;
+      }
+      const float cx2 = -az, cz2 = ax;  // across the beam
+      float across = hit * tanA * 1.3F + 0.35F;
+      if (across > 7.0F) across = 7.0F;
+      float sinE = -dy;  // sine of the incidence angle with a level floor
+      if (sinE < 0.22F) sinE = 0.22F;
+      float along = across / sinE;
+      if (along > across * 4.5F) along = across * 4.5F;
+      // The stretch belongs BEYOND the landing point, not around it.
+      const float shift = (along - across) * 0.55F;
+      const float px0 = gx + ax * shift, pz0 = gz + az * shift;
+
+      constexpr int kCells = 4;  // 96 vertices = one VU1 package
+      // The STs are exact at the vertices and LINEAR between them, so the
+      // patch's own grid is visible wherever the projection curves fastest -
+      // which is the hot core, dead centre. Clustering the cells toward the
+      // middle puts the vertices where that error is, for no extra geometry;
+      // uniform cells drew a faint diagonal straight through the hotspot.
+      float aOff[kCells + 1], cOff[kCells + 1];
+      for (int i = 0; i <= kCells; ++i) {
+        const float s = (float)i / kCells * 2.0F - 1.0F;  // -1 .. 1
+        const float w = (s < 0.0F ? -1.0F : 1.0F) * powf(s < 0.0F ? -s : s, 1.3F);
+        aOff[i] = w * along;
+        cOff[i] = w * across;
+      }
+      int v = 0;
+      for (int iz = 0; iz < kCells; ++iz) {
+        for (int ix = 0; ix < kCells; ++ix) {
+          const float a0 = aOff[iz], a1 = aOff[iz + 1];
+          const float c0 = cOff[ix], c1 = cOff[ix + 1];
+          // Corner order matches buildPoolPatch's winding (along first, then
+          // across): the beam basis is right-handed the other way round, and
+          // reversing it here keeps every pool submitting the same way.
+          const float qx[4] = {px0 + ax * a0 + cx2 * c0, px0 + ax * a1 + cx2 * c0,
+                               px0 + ax * a1 + cx2 * c1, px0 + ax * a0 + cx2 * c1};
+          const float qz[4] = {pz0 + az * a0 + cz2 * c0, pz0 + az * a1 + cz2 * c0,
+                               pz0 + az * a1 + cz2 * c1, pz0 + az * a0 + cz2 * c1};
+          Vec4 pv[4], ps[4];
+          for (int k2 = 0; k2 < 4; ++k2) {
+            const float py =
+                (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + 0.045F;
+            // The ST comes from the TRUE surface point: the depth bias must
+            // move the patch in z only, never slide the beam across it.
+            ps[k2] = goboST(qx[k2], py, qz[k2]);
+            pv[k2] = zBias(qx[k2], py, qz[k2]);
+          }
+          constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
+          for (int k2 = 0; k2 < 6; ++k2) {
+            b.verts[v + k2] = pv[kTri[k2]];
+            b.sts[v + k2] = ps[kTri[k2]];
+          }
+          v += 6;
+        }
+      }
       b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-      // Fade out over the last third of the reach so the pool dies with
-      // the per-vertex beam instead of ending on a hard circle.
+      // Fade with reach so the pool dies together with the per-vertex cone
+      // instead of ending on a hard edge, and dim it at grazing angles: the
+      // same cone spread over four times the ground really is four times
+      // weaker per texel, and that is most of the difference between a torch
+      // and a decal that follows you around.
       float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
       fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
-      const float fix = 110.0F * fade;
+      fade *= 0.45F + 0.55F * sinE;
+      const float fix = 118.0F * fade;
       if (fix < 1.0F) continue;
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
@@ -17670,6 +17900,40 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunkSlot.assign(total, -1);
 }
 
+// Distance detail (docs/terrain-lod.md). Two bands, then the floor: full grid
+// inside TERRAIN_LOD_DISTANCE, every 2nd sample out to 2.2x it, every 4th
+// beyond. 2.2 rather than 2 so the middle band is wide enough to be crossed
+// rather than straddled - the whole point of a band is that walking through it
+// rebuilds a ring once.
+//
+// The distance is measured to the chunk's CENTRE, from whichever focus is
+// nearest (split screen has two), and both are snapped by the caller. A chunk
+// asks this about its neighbours as well as itself, so the answer must depend on
+// nothing but the arguments and that snapped state - never on what is resident.
+int TerrainGame::terrainLodStep(int cx, int cz) const {
+  if (TERRAIN_LOD_DISTANCE <= 0.0F || terrainLodFocusCount <= 0) return 1;
+  if (cx < 0 || cz < 0 || cx >= terrainChunksX || cz >= terrainChunksZ) return 1;
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  if (cellsX <= 0 || cellsZ <= 0) return 1;
+  const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+  const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+  const float wx = -TERRAIN_WIDTH * 0.5F + (cx + 0.5F) * spanX;
+  const float wz = -TERRAIN_DEPTH * 0.5F + (cz + 0.5F) * spanZ;
+  float best = -1.0F;
+  for (int i = 0; i < terrainLodFocusCount; ++i) {
+    const float dx = wx - terrainLodFocus[i][0];
+    const float dz = wz - terrainLodFocus[i][1];
+    const float d2 = dx * dx + dz * dz;
+    if (best < 0.0F || d2 < best) best = d2;
+  }
+  const float near2 = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+  if (best <= near2) return 1;
+  const float mid = TERRAIN_LOD_DISTANCE * 2.2F;
+  if (best <= mid * mid) return 2;
+  return 4;
+}
+
 // Macro ground variation (docs/terrain-painting.md): deterministic value
 // noise over WORLD position - two smoothstepped octaves - multiplied into the
 // vertex shade below. Large soft patches of lighter/darker ground at zero
@@ -17847,15 +18111,87 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   if (gx1 > cellsX) gx1 = cellsX;  // edge chunks cover the remainder
   if (gz1 > cellsZ) gz1 = cellsZ;
 
+  // Distance detail (docs/terrain-lod.md): far chunks take every 2nd or 4th
+  // heightmap sample, so a big map costs its vertices where the player is
+  // rather than uniformly. Gameplay never notices - terrainHeightAt samples
+  // TERRAIN_HEIGHTS and not the mesh - and with the feature off every stride is
+  // 1 and this whole build is the pre-LOD one, quad for quad.
+  const int lod = terrainLodStep(cx, cz);
+  ch.lod = (unsigned char)lod;
+  ch.lodW = (unsigned char)terrainLodStep(cx - 1, cz);
+  ch.lodE = (unsigned char)terrainLodStep(cx + 1, cz);
+  ch.lodN = (unsigned char)terrainLodStep(cx, cz - 1);
+  ch.lodS = (unsigned char)terrainLodStep(cx, cz + 1);
+  // A vertex on an edge whose neighbour is COARSER has to sit on the
+  // NEIGHBOUR's segment, or the two meshes disagree along that line and the
+  // difference shows as a hairline of background - the classic geomipmap crack.
+  // Interpolating it onto the coarse segment is exact and adds no vertices
+  // (skirts, the other cure, add a quarter as much geometry again to the chunks
+  // that can least afford it). The shade is interpolated the same way: matching
+  // only the height would close the hole and leave a colour seam in its place.
+  // Corners need no special case - a chunk corner is a multiple of every
+  // stride, so both interpolations land on the vertex itself.
+  struct EdgeMix {
+    int a = 0, b = 0;
+    float t = 0.0F;
+    bool alongZ = false, snap = false;
+  };
+  auto edgeMix = [&](int ix, int iz) {
+    EdgeMix m;
+    int sn = 0;
+    bool alongZ = true;
+    if (ix == gx0 && cx > 0)
+      sn = ch.lodW;
+    else if (ix == gx1 && cx < terrainChunksX - 1)
+      sn = ch.lodE;
+    if (sn <= lod) {
+      sn = 0;
+      alongZ = false;
+      if (iz == gz0 && cz > 0)
+        sn = ch.lodN;
+      else if (iz == gz1 && cz < terrainChunksZ - 1)
+        sn = ch.lodS;
+    }
+    if (sn <= lod) return m;
+    const int i = alongZ ? iz : ix;
+    const int i0 = alongZ ? gz0 : gx0;
+    const int iMax = alongZ ? gz1 : gx1;
+    const int a = i0 + ((i - i0) / sn) * sn;
+    int b = a + sn;
+    if (b > iMax) b = iMax;
+    if (b <= a || i == a) return m;
+    m.a = a, m.b = b, m.alongZ = alongZ, m.snap = true;
+    m.t = (float)(i - a) / (float)(b - a);
+    return m;
+  };
+  auto hAtE = [&](int ix, int iz) {
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return hAt(ix, iz);
+    const float ha = m.alongZ ? hAt(ix, m.a) : hAt(m.a, iz);
+    const float hb = m.alongZ ? hAt(ix, m.b) : hAt(m.b, iz);
+    return ha + (hb - ha) * m.t;
+  };
+  auto shadeAtE = [&](int ix, int iz) -> V3 {
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return shadeAt(ix, iz);
+    const V3 sa = m.alongZ ? shadeAt(ix, m.a) : shadeAt(m.a, iz);
+    const V3 sb = m.alongZ ? shadeAt(ix, m.b) : shadeAt(m.b, iz);
+    return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
+              sa.z + (sb.z - sa.z) * m.t};
+  };
+  // Quads this chunk really emits - the reserve has to follow the stride or a
+  // distant chunk asks for sixteen times the memory it fills.
+  const int quadsX = (gx1 - gx0 + lod - 1) / lod;
+  const int quadsZ = (gz1 - gz0 + lod - 1) / lod;
+
   ch.vertices.clear();
   ch.colors.clear();
   ch.sts.clear();
   ch.emisCols.clear();
-  if (terrainMapLit)
-    ch.emisCols.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  ch.vertices.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  if (terrainMapLit) ch.emisCols.reserve((size_t)quadsX * quadsZ * 6);
+  ch.vertices.reserve((size_t)quadsX * quadsZ * 6);
+  ch.colors.reserve((size_t)quadsX * quadsZ * 6);
+  if (textured) ch.sts.reserve((size_t)quadsX * quadsZ * 6);
 
   // Painted terrain layers: find which layers have any weight on this chunk's
   // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
@@ -17883,8 +18219,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.layer = activeLayers[a];
     lp.colors.clear();
     lp.sts.clear();
-    lp.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-    lp.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+    lp.colors.reserve((size_t)quadsX * quadsZ * 6);
+    lp.sts.reserve((size_t)quadsX * quadsZ * 6);
   }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
@@ -17894,18 +18230,25 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
   };
 
-  for (int z = gz0; z < gz1; ++z) {
-    for (int x = gx0; x < gx1; ++x) {
+  for (int z = gz0; z < gz1; z += lod) {
+    for (int x = gx0; x < gx1; x += lod) {
+      // The far corner, clamped: an edge chunk covers the map's remainder, so
+      // the last quad of a row may be shorter than the stride.
+      const int xN = x + lod > gx1 ? gx1 : x + lod;
+      const int zN = z + lod > gz1 ? gz1 : z + lod;
       const float x0 = startX + x * stepX;
-      const float x1 = x0 + stepX;
+      const float x1 = startX + xN * stepX;
       const float z0 = startZ + z * stepZ;
-      const float z1 = z0 + stepZ;
-      const float* base = ((x + z) % 2 == 0) ? baseA : baseB;
+      const float z1 = startZ + zN * stepZ;
+      // The untextured checker counts QUADS, not cells: on x += 2 the parity of
+      // (x + z) never changes, so a distant chunk would come out one flat
+      // colour and the band boundary would read as a seam in the ground.
+      const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
 
-      const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
-      const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
-      const V3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
-      const V3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+      const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
+      const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
+      const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
+      const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
       auto shaded = [&](const V3& s) {
         return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
       };
@@ -17961,8 +18304,13 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
                        tint[2] * lk * s.z, w * 128.0F);
         };
-        const float w00 = splatAt(x, z, l), w10 = splatAt(x + 1, z, l);
-        const float w01 = splatAt(x, z + 1, l), w11 = splatAt(x + 1, z + 1, l);
+        // Sampled at the quad's own corners: a painted layer's weight is a
+        // blend factor, so a coarse chunk reading coarse weights loses detail
+        // in the painting exactly the way it loses it in the relief. The edge
+        // snap deliberately does NOT extend here - a weight that disagrees by a
+        // few percent across a seam is invisible, unlike a height.
+        const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
+        const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
         lp.colors.push_back(lcol(s00, w00));
         lp.colors.push_back(lcol(s10, w10));
         lp.colors.push_back(lcol(s01, w01));
@@ -18199,6 +18547,23 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
   addRect(focusX, focusZ);
   if (twoFoci) addRect(focus2X, focus2Z);
 
+  // The LOD bands' own foci, SNAPPED to half a chunk. Detail is a step
+  // function, so its input may as well be one: without the snap the field
+  // changes on every centimetre of walking and a chunk sitting on a band
+  // boundary rebuilds itself for ever.
+  if (TERRAIN_LOD_DISTANCE > 0.0F) {
+    auto snap = [](float v, float step) {
+      return floorf(v / step) * step + step * 0.5F;
+    };
+    const float snapX = spanX * 0.5F, snapZ = spanZ * 0.5F;
+    terrainLodFocusCount = 0;
+    for (int r = 0; r < rectCount; ++r) {
+      terrainLodFocus[r][0] = snap(rects[r].fx, snapX);
+      terrainLodFocus[r][1] = snap(rects[r].fz, snapZ);
+      ++terrainLodFocusCount;
+    }
+  }
+
   if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
@@ -18233,7 +18598,7 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
             bestD = d;
           }
         }
-    if (bestCx < 0) return;  // everything in view is built
+    if (bestCx < 0) break;  // everything in view is built
 
     int slot = -1;
     for (int s = 0; s < (int)terrainChunks.size(); ++s)
@@ -18244,6 +18609,31 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     if (slot < 0) return;  // pool momentarily full - eviction frees one soon
 
     buildTerrainChunk(slot, bestCx, bestCz);
+    --budget;
+  }
+
+  // Then the resident chunks whose detail has gone stale - their own band
+  // moved, or a NEIGHBOUR's did, which is a crack along the edge they share.
+  // Missing chunks are built first on purpose: a hole in the ground is a worse
+  // frame than a hairline, and both are settled within a few frames at one
+  // build apiece.
+  if (TERRAIN_LOD_DISTANCE <= 0.0F) return;
+  while (budget > 0) {
+    int slot = -1;
+    for (int s = 0; s < (int)terrainChunks.size(); ++s) {
+      const TerrainChunk& ch = terrainChunks[s];
+      if (ch.cx < 0) continue;
+      if (ch.lod == terrainLodStep(ch.cx, ch.cz) &&
+          ch.lodW == terrainLodStep(ch.cx - 1, ch.cz) &&
+          ch.lodE == terrainLodStep(ch.cx + 1, ch.cz) &&
+          ch.lodN == terrainLodStep(ch.cx, ch.cz - 1) &&
+          ch.lodS == terrainLodStep(ch.cx, ch.cz + 1))
+        continue;
+      slot = s;
+      break;
+    }
+    if (slot < 0) return;
+    buildTerrainChunk(slot, terrainChunks[slot].cx, terrainChunks[slot].cz);
     --budget;
   }
 }
@@ -23821,6 +24211,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Same contract for the light-beam corona sprite (projectUsesBeams).
     out << "constexpr int BEAMS_USED = " << (projectUsesBeams(p) ? 1 : 0)
         << ";\n";
+    // ...and for the flashlight's projected gobo, res/hud/flashlight-gobo.png
+    // (templates::projectUsesFlashlight, docs/flashlight.md).
+    out << "constexpr int FLASHLIGHT_USED = "
+        << (projectUsesFlashlight(p) ? 1 : 0) << ";\n";
     // ...and for the day/night cycle's sun and moon discs
     // (templates::projectUsesDayCycle bakes res/hud/{sun,moon}-disc.png).
     out << "constexpr int DAYCYCLE_USED = " << (projectUsesDayCycle(p) ? 1 : 0)
@@ -25161,6 +25555,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{BUILD_LIBS}}", dbgProfile ? " -leedebug" : "");
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
+    s = replaceAll(s, "{{TERRAIN_LOD_DISTANCE}}", floatLit(st.terrainLodDistance));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{RUN_SPEED}}", floatLit(project::settingsRunSpeed(st)));
@@ -25331,16 +25726,25 @@ const DayCycle* projectStarCycle(const Project& p) {
 bool projectUsesBeams(const Project& p) {
     // Dynamic lights count too: their ground pools draw with the same corona
     // sprite (the terrain opts out of the per-chunk light pick, so the pool
-    // is how a scene light reaches the ground smoothly). So does the camera
-    // flashlight - its pool is what lets you light your own feet, which
-    // per-vertex lighting cannot do (the footprint is smaller than a
-    // terrain cell). A Set Flashlight node can turn one on at runtime, so
-    // that counts as well.
+    // is how a scene light reaches the ground smoothly).
     for (const SceneData& sc : p.scenes)
-        for (const SceneObject& o : sc.objects) {
+        for (const SceneObject& o : sc.objects)
             if (o.type == PrimitiveType::PointLight &&
                 (o.lightBeam != 0 || o.lightDynamic))
                 return true;
+    // The camera flashlight's pool used to draw through the corona sprite too,
+    // so it kept this predicate true. It has its own gobo now
+    // (projectUsesFlashlight), but the corona is still the fallback when that
+    // texture is missing, so a flashlight project keeps loading it.
+    return projectUsesFlashlight(p);
+}
+
+bool projectUsesFlashlight(const Project& p) {
+    // The pool is what lets you light your own feet: per-vertex lighting cannot
+    // draw a spot smaller than a terrain cell. A Set Flashlight node can turn
+    // one on at runtime, so that counts as well.
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) {
             if (o.type == PrimitiveType::Player && o.flashlightEnabled)
                 return true;
             for (const FlowNode& n : o.flowGraph.nodes)

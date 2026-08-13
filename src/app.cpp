@@ -14160,6 +14160,36 @@ void App::drawPreferencesWindow() {
         "whole map resident. Meant for FPP - orbit showcases see the whole\n"
         "map at once and should leave it 0.");
 
+    ImGui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
+                     0.0f, 2000.0f,
+                     prefSettings_.terrainLodDistance > 0.0f
+                         ? "%.0f units"
+                         : "off (full detail everywhere)");
+    if (prefSettings_.terrainLodDistance < 0.0f)
+        prefSettings_.terrainLodDistance = 0.0f;
+    prefHelp(
+        "Beyond this range the ground is built from every 2nd heightmap\n"
+        "sample, and beyond 2.2x it from every 4th - a quarter and a\n"
+        "sixteenth of the triangles. Edges are stitched to the neighbouring\n"
+        "tile, so no crack shows, and collision is unaffected. This is what\n"
+        "makes a large map affordable to DRAW; the view distance above is\n"
+        "what makes it fit in memory. 0 = full detail everywhere.");
+    if (prefSettings_.terrainLodDistance > 0.0f) {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        // What one full-detail tile costs, so the bands mean something in
+        // triangles rather than in units.
+        const float span = 16.0f * (float)sc.terrain.width /
+                           (float)(cellsX > 0 ? cellsX : 1);
+        ImGui::TextDisabled(
+            "Full detail to %.0f units, 1/4 of the triangles beyond it, 1/16 "
+            "beyond %.0f (tile = %.0f units).",
+            prefSettings_.terrainLodDistance,
+            prefSettings_.terrainLodDistance * 2.2f, span);
+    }
+
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
     // 32 B untextured / 48 B textured, chunks of 16x16 cells.

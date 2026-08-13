@@ -1,0 +1,767 @@
+{
+ "name": "night-walk",
+ "formatVersion": 24,
+ "editorVersion": "1.32.0",
+ "template": "fpp",
+ "projectId": "e6b0bf4e49f40133",
+ "settings": {
+  "videoSystem": "auto",
+  "displayMode": "interlaced",
+  "palFullHeight": true,
+  "widescreen": false,
+  "buildProfile": "debug",
+  "textureQuant": "4bit",
+  "textureAtlas": false,
+  "showFps": true,
+  "showMemory": true,
+  "showProfiler": false,
+  "showAreas": false,
+  "showCollision": false,
+  "liveLink": true,
+  "liveDebug": true,
+  "eeCrashHandler": false,
+  "liveLogic": true,
+  "timeMachine": true,
+  "remotePad": true,
+  "keyboardMouse": false,
+  "keyboardMousePs2Link": true,
+  "disableVsync": false,
+  "clipping": "vu1",
+  "animLodDistance": 0,
+  "meshLodDistance": 70,
+  "animSourceFps": 24,
+  "animPlayFps": 24,
+  "staticBatching": true,
+  "envProbeReflected": false,
+  "navCellSize": 1,
+  "navMaxSlope": 40,
+  "navAgentRadius": 0.4,
+  "unitsPerMeter": 1,
+  "terrainDetail": 512,
+  "terrainViewDistance": 320.0,
+  "terrainLodDistance": 55.0,
+  "skyColor": [
+   0.05,
+   0.07,
+   0.13
+  ],
+  "skyTopColor": [
+   0.01,
+   0.02,
+   0.05
+  ],
+  "skyDome": true,
+  "zenithSize": 0.5,
+  "eyeHeight": 1.8,
+  "walkSpeed": 0.1,
+  "lookSpeed": 1,
+  "sprintMultiplier": 1.8,
+  "stickDeadzoneL": 0.2,
+  "stickDeadzoneR": 0.2,
+  "stickCurveL": 0,
+  "stickCurveR": 0,
+  "stickExpL": 2,
+  "stickExpR": 2,
+  "multiplayer": "off",
+  "p2JoinOnStart": true,
+  "orbitSpeed": 1,
+  "gravity": 9.8,
+  "jumpSpeed": 4.5,
+  "lightDir": [
+   -0.35,
+   0.78,
+   0.52
+  ],
+  "ambient": 0.1,
+  "diffuse": 0.16,
+  "lightColor": [
+   0.55,
+   0.66,
+   0.95
+  ],
+  "brightness": 1,
+  "aoEnabled": false,
+  "aoStrength": 0.55,
+  "aoRadius": 2.5,
+  "giEnabled": false,
+  "giRays": 128,
+  "giBounces": 2,
+  "giSkyLight": 1,
+  "giSunLight": 1,
+  "giAmbientFloor": 0.03,
+  "giProbes": true,
+  "giProbeSpacing": 3,
+  "giProbeHeight": 2,
+  "giProbeLevels": 4,
+  "terrainMaterial": "",
+  "bloom": 0,
+  "bloomThreshold": 0,
+  "bloomSpread": 0,
+  "grain": 0,
+  "dofAmount": 0,
+  "dofFocus": 20,
+  "dofRange": 15,
+  "flare": 0,
+  "godRays": 0,
+  "blobShadows": false,
+  "blssEnabled": false,
+  "blssScale": 0,
+  "blssNetwork": true,
+  "blssSharpen": 0.5,
+  "blssTemporal": true,
+  "blssJitter": false,
+  "blssDebugView": 0,
+  "fogEnabled": true,
+  "fogColor": [
+   0.03,
+   0.04,
+   0.08
+  ],
+  "fogStart": 55,
+  "fogEnd": 185,
+  "highlightUsable": false,
+  "highlightDistance": 6,
+  "highlightColor": [
+   1,
+   0.85,
+   0.15
+  ],
+  "highlightWidth": 0.35,
+  "highlightSteps": 4,
+  "highlightOpacity": 0.56,
+  "highlightOverlay": false,
+  "loadingScreen": true
+ },
+ "scenes": [
+  {
+   "name": "main",
+   "terrain": {
+    "width": 2048,
+    "depth": 2048
+   },
+   "settings": {
+    "lighting": {
+     "dir": [
+      0.37,
+      0.82,
+      0.44
+     ],
+     "ambient": 0.55,
+     "diffuse": 0.45,
+     "color": [
+      1,
+      1,
+      1
+     ],
+     "brightness": 1
+    },
+    "sky": {
+     "color": [
+      0.25,
+      0.55,
+      0.78
+     ],
+     "topColor": [
+      0.08,
+      0.3,
+      0.65
+     ],
+     "dome": true,
+     "zenithSize": 0.5
+    },
+    "clipping": "vu1",
+    "terrainMaterial": "",
+    "postfx": {
+     "bloom": 0,
+     "bloomThreshold": 0,
+     "bloomSpread": 0,
+     "grain": 0,
+     "dofAmount": 0,
+     "dofFocus": 20,
+     "dofRange": 15,
+     "flare": 0,
+     "godRays": 0
+    },
+    "fog": {
+     "enabled": false,
+     "color": [
+      0.5,
+      0.5,
+      0.55
+     ],
+     "start": 15,
+     "end": 120
+    },
+    "highlight": {
+     "usable": false,
+     "distance": 6,
+     "color": [
+      1,
+      0.85,
+      0.15
+     ],
+     "width": 0.35,
+     "steps": 4,
+     "opacity": 0.56,
+     "overlay": false
+    }
+   },
+   "overrides": {
+    "lighting": false,
+    "sky": false,
+    "clipping": false,
+    "terrainMat": false,
+    "postFx": false,
+    "fog": false,
+    "highlight": false
+   },
+   "objects": [
+    "03b7b92d790d3bb7",
+    "5c17a90e63b84d21",
+    "c286b8b6e3f15b6d",
+    "274455678359ccbe",
+    "c55b6825e5e354d5",
+    "5c01c7152bef814f",
+    "e7d66e60b0d49a9e",
+    "bd044a37f9b73e2d",
+    "961671bd3f4d5f03",
+    "0f63eb49724b5060",
+    "63b8ac3c6f052409",
+    "55cc047aab7ab537",
+    "cfcc8b20c68017f1",
+    "f2965b0703db9469",
+    "ee9e1083e73b0036",
+    "261c3188238ae5ce",
+    "01b39d67849a1c80",
+    "32dd3aa61ddc1693",
+    "99db5b525d7bbccd",
+    "dcb5630140006b27",
+    "4bade4a3734e0caf",
+    "7a070ff3fabc0627",
+    "0be79f3d8240c1cf",
+    "5ed344ce74751ebe",
+    "3dca2d7ef675c663",
+    "b5fcdca940c42584",
+    "ca57d9ab38055a7a",
+    "4ea1bb3f36633384",
+    "3280a41777de9dea",
+    "661f44f17665febd",
+    "0405b0755b984432",
+    "372b4084404981d6",
+    "a52c81fd41d174f9",
+    "c4a1ff06dde9a3a1",
+    "fc0358e15a090bc0",
+    "fabfbb21200eab2f",
+    "47673378412c835e",
+    "d07d4677b6b155ed",
+    "141fa4d940b90a6c",
+    "2e5c3669d5ed161e",
+    "d080afacdcc6b3b4",
+    "8b4f816fe874623e",
+    "07f46deacd7f9165",
+    "e5bdf073541318a7",
+    "f0a5a877a004dc9d",
+    "13a8cf72213b5999",
+    "8649774a89020b5f",
+    "75b0eb7588859d8e",
+    "769c11892698f61e",
+    "f24622496f565007",
+    "2df39209e633ecab",
+    "0d37f8c9dda35fe6",
+    "e487283d86699219",
+    "5a499dc9f36ae6ee",
+    "ab0c42f6f8affc7a",
+    "2620847a83aa45e4",
+    "6d8521890e3098c7",
+    "1d836640b060289d",
+    "1ce417991b8f1ba0",
+    "a656ff6e55799594",
+    "11e592e6954ce309",
+    "27b498affe6b56aa",
+    "d812339f5fbada16",
+    "b73a2f30b3161469",
+    "8e32e05e522e4ff1",
+    "aa961aa29dea4973",
+    "91f2b45ccb39b491",
+    "032b7d1bcdb5a920",
+    "1c07b8795b1e2c35",
+    "76b9c33b626f4aaf",
+    "1bba00ad1368ba43",
+    "3eb6fa90a5d3d73b",
+    "820b23c08c42b8cb",
+    "d70bef222ea87ad1",
+    "271b256ebe77c63f"
+   ]
+  }
+ ],
+ "fonts": [
+  {
+   "name": "Default",
+   "path": "",
+   "atlasSize": 16,
+   "color": [
+    1,
+    1,
+    1
+   ],
+   "shadow": true,
+   "quant": "4bit"
+  }
+ ],
+ "hud": [],
+ "usePrompt": {
+  "image": "",
+  "pos": [
+   0.5,
+   0.755714
+  ],
+  "size": [
+   128,
+   32
+  ],
+  "texW": 0,
+  "texH": 0,
+  "texQuant": ""
+ },
+ "usePromptIsText": true,
+ "usePromptText": {
+  "text": "{{use}} USE",
+  "size": 20,
+  "color": [
+   1,
+   1,
+   1
+  ],
+  "shadow": true
+ },
+ "pickPromptIsText": true,
+ "pickPromptText": {
+  "text": "{{use}} PICK UP",
+  "size": 20,
+  "color": [
+   1,
+   1,
+   1
+  ],
+  "shadow": true
+ },
+ "hudTexts": [],
+ "textIcons": [
+  {
+   "name": "cross",
+   "path": "res/hud/icon-cross.png"
+  },
+  {
+   "name": "square",
+   "path": "res/hud/icon-square.png"
+  },
+  {
+   "name": "triangle",
+   "path": "res/hud/icon-triangle.png"
+  },
+  {
+   "name": "circle",
+   "path": "res/hud/icon-circle.png"
+  },
+  {
+   "name": "dpadup",
+   "path": "res/hud/icon-dpadup.png"
+  },
+  {
+   "name": "dpaddown",
+   "path": "res/hud/icon-dpaddown.png"
+  },
+  {
+   "name": "dpadleft",
+   "path": "res/hud/icon-dpadleft.png"
+  },
+  {
+   "name": "dpadright",
+   "path": "res/hud/icon-dpadright.png"
+  },
+  {
+   "name": "l1",
+   "path": "res/hud/icon-l1.png"
+  },
+  {
+   "name": "l2",
+   "path": "res/hud/icon-l2.png"
+  },
+  {
+   "name": "l3",
+   "path": "res/hud/icon-l3.png"
+  },
+  {
+   "name": "r1",
+   "path": "res/hud/icon-r1.png"
+  },
+  {
+   "name": "r2",
+   "path": "res/hud/icon-r2.png"
+  },
+  {
+   "name": "r3",
+   "path": "res/hud/icon-r3.png"
+  },
+  {
+   "name": "start",
+   "path": "res/hud/icon-start.png"
+  },
+  {
+   "name": "select",
+   "path": "res/hud/icon-select.png"
+  }
+ ],
+ "hudBloomLayer": -1,
+ "hudGrainLayer": -1,
+ "music": [],
+ "sounds": [],
+ "saveValues": [],
+ "saveTexts": [],
+ "saveTitle": "",
+ "saveIcon": "",
+ "saveIconModel": "",
+ "saveIconClip": "",
+ "saveIconFrames": 6,
+ "saveIconMotion": "",
+ "saveIconMotionAmount": 1,
+ "saveMenuWritesCheckpoint": false,
+ "saveAutosaveSlot": -1,
+ "saveSlotCount": 3,
+ "saveSlotsPerPage": 3,
+ "saveAsync": false,
+ "saveSpinner": true,
+ "saveSpinnerImage": "",
+ "saveSpinnerFrames": 8,
+ "saveSpinnerCorner": 3,
+ "saveSpinnerMargin": 20,
+ "saveSpinnerScale": 1,
+ "gradings": [],
+ "defaultGrading": -1,
+ "ambience": [
+  {
+   "name": "Default",
+   "skyColor": [
+    0.05,
+    0.07,
+    0.13
+   ],
+   "skyTopColor": [
+    0.01,
+    0.02,
+    0.05
+   ],
+   "skyDome": true,
+   "zenithSize": 0.5,
+   "lightDir": [
+    -0.35,
+    0.78,
+    0.52
+   ],
+   "ambient": 0.1,
+   "diffuse": 0.16,
+   "lightColor": [
+    0.55,
+    0.66,
+    0.95
+   ],
+   "brightness": 1,
+   "aoEnabled": false,
+   "aoStrength": 0.55,
+   "aoRadius": 2.5,
+   "fogEnabled": true,
+   "fogColor": [
+    0.03,
+    0.04,
+    0.08
+   ],
+   "fogStart": 55,
+   "fogEnd": 185
+  }
+ ],
+ "defaultAmbience": 0,
+ "loadingScreens": [],
+ "defaultLoadingScreen": -1,
+ "splashScreens": [],
+ "credits": [],
+ "sequences": [],
+ "menus": [
+  {
+   "name": "save",
+   "title": "SAVE GAME",
+   "saveMenu": true,
+   "screenPos": [
+    0.5,
+    0.45
+   ],
+   "accent": [
+    0.47,
+    0.82,
+    1
+   ],
+   "entries": []
+  }
+ ],
+ "input": {
+  "activePreset": 0,
+  "allowRebind": true,
+  "actions": [
+   {
+    "name": "move-forward",
+    "label": "Move forward",
+    "role": "move-forward"
+   },
+   {
+    "name": "move-back",
+    "label": "Move back",
+    "role": "move-back"
+   },
+   {
+    "name": "move-left",
+    "label": "Move left",
+    "role": "move-left"
+   },
+   {
+    "name": "move-right",
+    "label": "Move right",
+    "role": "move-right"
+   },
+   {
+    "name": "jump",
+    "label": "Jump",
+    "role": "jump"
+   },
+   {
+    "name": "sprint",
+    "label": "Sprint",
+    "role": "sprint"
+   },
+   {
+    "name": "use",
+    "label": "Use",
+    "role": "use"
+   },
+   {
+    "name": "throw",
+    "label": "Throw",
+    "role": "throw"
+   },
+   {
+    "name": "fly-up",
+    "label": "Fly up",
+    "role": "fly-up"
+   },
+   {
+    "name": "fly-down",
+    "label": "Fly down",
+    "role": "fly-down"
+   },
+   {
+    "name": "confirm",
+    "label": "Confirm",
+    "role": "confirm",
+    "rebindable": false
+   },
+   {
+    "name": "back",
+    "label": "Back",
+    "role": "back",
+    "rebindable": false
+   },
+   {
+    "name": "menu",
+    "label": "Pause menu",
+    "role": "menu",
+    "rebindable": false
+   },
+   {
+    "name": "alt",
+    "label": "Alternate",
+    "role": "alt",
+    "rebindable": false
+   },
+   {
+    "name": "menu-up",
+    "label": "Menu up",
+    "role": "menu-up",
+    "rebindable": false
+   },
+   {
+    "name": "menu-down",
+    "label": "Menu down",
+    "role": "menu-down",
+    "rebindable": false
+   },
+   {
+    "name": "menu-left",
+    "label": "Menu left",
+    "role": "menu-left",
+    "rebindable": false
+   },
+   {
+    "name": "menu-right",
+    "label": "Menu right",
+    "role": "menu-right",
+    "rebindable": false
+   }
+  ],
+  "presets": [
+   {
+    "name": "Default",
+    "bindings": [
+     {
+      "action": "move-forward",
+      "key": 26
+     },
+     {
+      "action": "move-back",
+      "key": 22
+     },
+     {
+      "action": "move-left",
+      "key": 4
+     },
+     {
+      "action": "move-right",
+      "key": 7
+     },
+     {
+      "action": "jump",
+      "pad": "Cross",
+      "key": 44,
+      "mouse": 2
+     },
+     {
+      "action": "sprint",
+      "pad": "R2",
+      "key": 225
+     },
+     {
+      "action": "use",
+      "pad": "Square",
+      "key": 8,
+      "mouse": 1
+     },
+     {
+      "action": "throw",
+      "pad": "Circle",
+      "mouse": 3
+     },
+     {
+      "action": "fly-up",
+      "pad": "Cross",
+      "key": 44
+     },
+     {
+      "action": "fly-down",
+      "pad": "Square",
+      "key": 8
+     },
+     {
+      "action": "confirm",
+      "pad": "Cross",
+      "key": 40
+     },
+     {
+      "action": "back",
+      "pad": "Triangle",
+      "key": 42
+     },
+     {
+      "action": "menu",
+      "pad": "Start",
+      "key": 41
+     },
+     {
+      "action": "alt",
+      "pad": "Circle",
+      "key": 21,
+      "mouse": 3
+     },
+     {
+      "action": "menu-up",
+      "pad": "DpadUp",
+      "key": 82
+     },
+     {
+      "action": "menu-down",
+      "pad": "DpadDown",
+      "key": 81
+     },
+     {
+      "action": "menu-left",
+      "pad": "DpadLeft",
+      "key": 80
+     },
+     {
+      "action": "menu-right",
+      "pad": "DpadRight",
+      "key": 79
+     }
+    ]
+   }
+  ]
+ },
+ "editor": {
+  "selectedObject": -1,
+  "gizmo": 0,
+  "gizmoSpace": 0,
+  "viewMode": 0,
+  "viewProjection": 0,
+  "breakpoints": []
+ },
+ "activeLayout": 0,
+ "layouts": [
+  {
+   "name": "Default",
+   "recipe": 0,
+   "open": [
+    "debugger"
+   ],
+   "ini": ""
+  },
+  {
+   "name": "Director",
+   "recipe": 1,
+   "open": [
+    "cutscene"
+   ],
+   "ini": ""
+  },
+  {
+   "name": "Material Designer",
+   "recipe": 2,
+   "open": [
+    "material"
+   ],
+   "ini": ""
+  },
+  {
+   "name": "Debugger",
+   "recipe": 3,
+   "open": [
+    "debugger"
+   ],
+   "ini": ""
+  },
+  {
+   "name": "Procedural",
+   "recipe": 4,
+   "open": [
+    "proc",
+    "prefabs"
+   ],
+   "ini": ""
+  },
+  {
+   "name": "Menu Designer",
+   "recipe": 5,
+   "open": [
+    "menus",
+    "menupreview",
+    "fonts"
+   ],
+   "ini": ""
+  }
+ ]
+}

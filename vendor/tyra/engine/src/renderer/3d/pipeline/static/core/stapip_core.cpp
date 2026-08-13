@@ -25,6 +25,16 @@
 
 namespace Tyra {
 
+// Modified by TyraX: the light a `spotLit = false` bag is handed - off and
+// black, which the color programs compute with as a no-op. At namespace scope
+// rather than as a function static so the per-bag path pays no init guard.
+static const RendererCoreSpotLight kNoSpotLight = [] {
+  RendererCoreSpotLight l;
+  l.color = Color(0.0F, 0.0F, 0.0F, 128.0F);
+  l.range = 0.0F;
+  return l;
+}();
+
 StaPipCore::StaPipCore() {
   maxVertCount = 0;
   setPrim();
@@ -370,6 +380,12 @@ void StaPipCore::render(StaPipBag* bag) {
   if (wantsLightPick) {
     bagLight = rendererCore->pickDynLight(worldCenter, worldRadius);
   }
+  // Modified by TyraX: a bag may opt out of the camera spot as well
+  // (PipelineInfoBag::spotLit - the terrain, whose light comes from the
+  // flashlight's projected pool instead). A null bagLight means "the global
+  // flashlight", so opting out needs a light OBJECT rather than a null: the
+  // one below is off and black, which the programs compute with as a no-op.
+  if (!bag->info->spotLit) bagLight = &kNoSpotLight;
   qbufferRenderer.setBagLight(bagLight);
 
   // Modified by TyraX: the BLSS bag feed. Inert when BLSS is off (and when it

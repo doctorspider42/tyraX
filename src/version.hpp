@@ -16,6 +16,54 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.32.0 (the flashlight stops being drawn by the terrain's vertex grid, and
+// the ground gets distance detail): two halves of one report - a torch on a big
+// map looked bad, and the proposed cure was a finer heightmap near the player.
+// The second half is built here as its own feature, because it is a good answer
+// to a big map and NOT the answer to the torch.
+//
+// WHY NOT: a terrain cell can never be finer than one world unit
+// (sceneGridDims caps cells at the map's own width in units), and the VU1 spot
+// is per vertex with no N.L, so the cone on the ground is a Gouraud diamond
+// whatever the detail cap says. A footprint two units across gets two vertices.
+// Aiming at your own feet had lit nothing at all, which is why the ground POOL
+// existed in the first place - a flat round patch under the beam's terrain hit,
+// textured with the lens-flare corona, radius capped at 8 units.
+//
+// THE FIX IS PROJECTION, and every part of it was already in the tree: the
+// receiver patch now takes its STs from the beam's own frustum, exactly the way
+// renderProjShadows samples a silhouette through a light view-proj, so the
+// light's SHAPE is a texture and the ground's tessellation stops being able to
+// decide it. With that, three long-standing approximations go: the patch is
+// laid out along the beam's ground run instead of axis-aligned (a grazing beam
+// really does reach four times further than it is wide), the radius cap is gone,
+// and it lands on placed geometry as well as terrain via projCollectReceivers -
+// so a torch works in a room built out of floors, where a scene with no terrain
+// at all used to have no pool by construction. The image itself is a baked
+// 128x128 gobo (menubake::bakeFlashGoboRGBA - hotspot, penumbra, reflector ring,
+// two low-frequency lobes so the circle is not perfect) instead of the corona
+// sprite, gated by FLASHLIGHT_USED so a project without a flashlight pays no GS
+// VRAM, and the authored Pool texture override keeps working - as a real gobo
+// now, which is what its own documentation always claimed it was.
+//
+// DISTANCE DETAIL (docs/terrain-lod.md, ProjectSettings::terrainLodDistance,
+// format v24): beyond the set range a terrain tile is built from every 2nd
+// heightmap sample and beyond 2.2x it from every 4th - a quarter and a
+// sixteenth of the triangles. The load-bearing decision is that the stride is a
+// PURE function of the snapped view focus, so a tile can work out what its
+// neighbours are doing without asking whether they are resident, and the finer
+// side of a shared edge interpolates its vertices onto the coarser side's
+// segment. That is what makes cracks impossible rather than merely rare, and it
+// adds no geometry - skirts, the usual cure, add a quarter as much again to the
+// tiles that can least afford it. The shade is interpolated with the height,
+// or the closed hole leaves a colour seam in its place. Collision is untouched:
+// every height query reads TERRAIN_HEIGHTS, never the mesh.
+//
+// MINOR: capabilities appear (a setting that did not exist, and a flashlight
+// that can light a floor). The gobo is not a default change - it replaces a
+// sprite that was never the right one - but the LOD key IS written into every
+// project's settings block on its next save, hence the format bump.
+//
 // 1.24.4 (--vu-check says when its two halves are not from one commit): every
 // comparison it makes diffs a program GENERATED from the descriptions compiled
 // into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
@@ -735,8 +783,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 31
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 32
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -960,6 +1008,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
 // degrees of torso pitch applied by the retargeter. Written only when
 // non-zero; no migration step.
-inline constexpr int kFormatVersion = 23;
+// v24 (terrain distance detail, docs/terrain-lod.md):
+// ProjectSettings::terrainLodDistance - beyond it the ground is built from
+// every 2nd heightmap sample, beyond 2.2x it from every 4th. It defaults to 0,
+// which builds every tile at full detail, i.e. exactly what every project did
+// before the key existed, so an older file opens and RUNS unchanged and no
+// migration step is needed. It is written unconditionally, like the
+// terrainViewDistance beside it in that flat settings block, so an untouched
+// project does gain the key on its next save - which is precisely what this
+// number exists to make safe.
+inline constexpr int kFormatVersion = 24;
 
 }  // namespace version

@@ -1580,6 +1580,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
+         << "    \"terrainLodDistance\": "
+         << fmtFloat(p.settings.terrainLodDistance) << ",\n"
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -5100,6 +5102,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.terrainViewDistance = (float)v->numberOr(0.0);
             if (st.terrainViewDistance < 0.0f) st.terrainViewDistance = 0.0f;
         }
+        if (const auto* v = s->find("terrainLodDistance")) {
+            st.terrainLodDistance = (float)v->numberOr(0.0);
+            if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
+        }
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -7741,6 +7747,24 @@ std::string refreshGenerated(const Project& p) {
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
         }
+    }
+
+    // The camera flashlight's gobo (docs/flashlight.md): the pool patch under
+    // the beam takes its STs from the light's own frustum, so this image IS the
+    // shape of the light. Gated exactly like the sprites above -
+    // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
+    // with no flashlight pays no GS VRAM for it. Written through writeFile so
+    // an unchanged bake keeps its mtime and the build stays incremental.
+    if (templates::projectUsesFlashlight(p)) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeFlashGoboPNG(png))
+            return "Flashlight gobo bake failed";
+        if (auto err = writeFile(
+                fs::path(p.dir) / "res" / "hud" / "flashlight-gobo.png",
+                std::string(reinterpret_cast<const char*>(png.data()),
+                            png.size()));
+            !err.empty())
+            return err;
     }
 
     // Game menu panels: derived from project data (labels, colors), so

@@ -24,6 +24,8 @@ for people building games with it. Internals live in code comments, the git log
   plane is optional; what "no terrain" means in the editor and in the game.
 - [Terrain painting](terrain-painting.md) — blending grass/rock/path layers
   with a brush, two-pass GS splatting, stochastic tiling.
+- [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
+  heightmap samples, stitched so no crack shows; what makes a big map drawable.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
@@ -54,6 +56,8 @@ for people building games with it. Internals live in code comments, the git log
   256x256 pages and what that reclaims in GS VRAM.
 - [Emissive materials (glow)](emissive-materials.md) — self-lit materials, the
   white-hot core, bloom threshold and spread, and baked emissive light.
+- [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
+  projected ground pool, and the gobo texture that decides its shape.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
