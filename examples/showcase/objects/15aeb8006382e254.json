@@ -1,1 +1,0 @@
-{ "id": "15aeb8006382e254", "name": "ruins-mist", "type": "emitter", "position": [-40, 0.5659, -40], "rotation": [0, 0, 0], "scale": [8, 1, 8], "color": [0.55, 0.7, 0.6], "physics": false, "layer": "ruins", "emitter": { "kind": "fog", "count": 30, "size": 3, "enabled": true, "followPlayer": false } }

@@ -39,9 +39,31 @@ struct Seq { const char* name; float duration; int loop; int camEnabled;
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
 
-static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
+static const Track kS0Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS0Cam[] = {{0.0F, {-28.0F, 13.0F, 30.0F}, {0.0F, 2.0F, -4.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {3.0F, {24.0F, 8.0F, 18.0F}, {0.0F, 2.0F, -10.0F}, 65.0F, 0.0F, 0.0F, 1, -1, -1}, {6.0F, {8.0F, 4.0F, -18.0F}, {0.0F, 2.5F, -28.0F}, 52.0F, 0.0F, 0.0F, 2, -1, -1}, {8.0F, {0.0F, 3.0F, 15.0F}, {0.0F, 2.0F, -10.0F}, 70.0F, 0.0F, 0.0F, 1, -1, -1}};
+
+static const ObjKey kS1T0K[] = {{0.0F, {0.0F, 2.4F, -27.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.7F, 1.0F}, 1, 1}, {3.2F, {0.0F, 2.4F, -27.5F}, {0.0F, 720.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {1.0F, 0.35F, 0.8F}, 1, 1}};  // "rift-core" -> scene 0 obj 3
+static const Track kS1Tracks[] = {{0, 3, 0, 1, 1, 1, 0, kS1T0K, 2}};
+static const CamKey kS1Cam[] = {{0.0F, {7.0F, 3.0F, -18.0F}, {0.0F, 2.4F, -28.0F}, 55.0F, 0.0F, 0.0F, 2, -1, -1}, {2.1F, {0.0F, 2.8F, -21.0F}, {0.0F, 2.4F, -28.0F}, 88.0F, 0.08F, 0.0F, 1, -1, -1}, {3.2F, {0.0F, 2.4F, -25.0F}, {0.0F, 2.4F, -28.0F}, 100.0F, 0.16F, 0.0F, 1, -1, -1}};
+
+static const Track kS2Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS2Cam[] = {{0.0F, {-20.0F, 8.0F, 20.0F}, {0.0F, 2.0F, -6.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {2.4F, {-10.0F, 3.0F, 3.0F}, {-12.0F, 4.0F, -2.0F}, 75.0F, 0.0F, 0.0F, 1, -1, -1}, {4.7F, {13.0F, 4.0F, 6.0F}, {0.0F, 4.0F, -24.0F}, 50.0F, 0.0F, 0.0F, 1, -1, -1}, {7.0F, {0.0F, 3.0F, 20.0F}, {0.0F, 2.0F, -8.0F}, 68.0F, 0.0F, 0.0F, 2, -1, -1}};
+
+static const Track kS3Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS3Cam[] = {{0.0F, {10.0F, 4.0F, -10.0F}, {17.0F, 2.8F, -18.0F}, 62.0F, 0.0F, 0.0F, 2, -1, -1}, {2.0F, {17.0F, 3.0F, -11.0F}, {17.0F, 3.0F, -18.0F}, 95.0F, 0.1F, 0.0F, 1, -1, -1}, {3.0F, {17.0F, 3.0F, -16.0F}, {17.0F, 3.0F, -18.0F}, 110.0F, 0.18F, 0.0F, 1, -1, -1}};
+
+static const ObjKey kS4T0K[] = {{0.0F, {-4.0F, 0.8F, -8.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 1, 1}, {10.0F, {-4.0F, 0.8F, 18.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 1, 1}};  // "police-cruiser" -> scene 2 obj 35
+static const Track kS4Tracks[] = {{2, 35, 1, 0, 0, 0, 0, kS4T0K, 2}};
+static const CamKey kS4Cam[] = {{0.0F, {-30.0F, 17.0F, 28.0F}, {0.0F, 3.0F, -5.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {3.0F, {8.0F, 5.0F, 22.0F}, {0.0F, 2.0F, -10.0F}, 74.0F, 0.0F, 0.0F, 1, -1, -1}, {6.0F, {-7.0F, 3.0F, -6.0F}, {0.0F, 6.0F, -15.0F}, 48.0F, 0.0F, 0.0F, 2, -1, -1}, {8.5F, {25.0F, 13.0F, -18.0F}, {0.0F, 5.0F, 0.0F}, 65.0F, 0.04F, 0.0F, 1, -1, -1}, {10.0F, {0.0F, 3.0F, 24.0F}, {0.0F, 2.0F, -4.0F}, 72.0F, 0.0F, 0.0F, 2, -1, -1}};
+
+static const Seq kSeqs[] = {
+  {"Dawn of Worlds", 8.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS0Tracks, 0, kS0Cam, 4},
+  {"Rift Ignition", 3.2F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS1Tracks, 1, kS1Cam, 3},
+  {"Portal Breach", 7.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS2Tracks, 0, kS2Cam, 4},
+  {"City Uplink", 3.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS3Tracks, 0, kS3Cam, 3},
+  {"Neon Overdrive", 10.0F, 0, 1, 0, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS4Tracks, 1, kS4Cam, 5}
 };
-static const int kSeqCount = 0;
+static const int kSeqCount = 5;
 
 // Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
 // 3 color) across a track's keys at time t. Holds the ends.

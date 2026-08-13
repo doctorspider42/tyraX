@@ -10,7 +10,7 @@ namespace Showcase {
 // project-wide; sky, clipping, post-FX and the usable-highlight can be
 // overridden per scene and live as SCENE_COUNT arrays in scene_data.hpp
 // (reached through the accessor macros defined in scene_data.hpp).
-constexpr int TERRAIN_MAX_CELLS = 48;
+constexpr int TERRAIN_MAX_CELLS = 32;
 
 // Terrain streaming (Preferences > Terrain). The terrain mesh is built in
 // TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS tiles; with a view distance > 0
@@ -18,7 +18,7 @@ constexpr int TERRAIN_MAX_CELLS = 48;
 // (the rest streams in as the player moves - pair with fog to hide pop-in).
 // 0 keeps the whole map resident, like before chunking existed.
 constexpr int TERRAIN_CHUNK_CELLS = 16;
-constexpr float TERRAIN_VIEW_DISTANCE = 88.0F;
+constexpr float TERRAIN_VIEW_DISTANCE = 62.0F;
 
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.5F;
@@ -53,9 +53,32 @@ constexpr bool P2_JOIN_ON_START = true;
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = true;
+
+// Experimental (Preferences > Display > Frame delivery,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = false;
+
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = 0.0F;
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = false;
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = true;
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -65,7 +88,7 @@ constexpr float ANIM_LOD_DISTANCE = 24.0F;
 // Mesh LOD (Preferences > Rendering): instances farther than this render
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
-constexpr float MESH_LOD_DISTANCE = 30.0F;
+constexpr float MESH_LOD_DISTANCE = 32.0F;
 
 // Static batching (Preferences > Rendering): merge non-moving primitive
 // objects sharing a material into combined world-space bags at scene load -

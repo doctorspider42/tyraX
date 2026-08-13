@@ -1,0 +1,1 @@
+{"id":"f9195f9a27642733","name":"rooftop-portal-a","type":"portal","position":[-14,3.5,-12],"rotation":[0,90,0],"scale":[2.4,3.6,1],"color":[1,0.15,0.65],"physics":false,"portal":{"target":"rooftop-portal-b","showTerrain":false,"teleportObjects":true,"viewAll":false,"objects":["tower-5-floor-3","tower-5-roof","city-eye-drone","neon-rain"]}}

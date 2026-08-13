@@ -41,3 +41,25 @@ The generated C++ in this project came from TyraX's templates. TyraX grants
 those generated files to you with NO conditions attached - no attribution, no
 license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
 section is a courtesy credit, and you may delete it.
+
+
+Showcase art assets - Creative Commons CC0 1.0
+------------------------------------------------
+The showcase includes modified copies of the following public-domain asset
+packs. Attribution is not required by CC0, but the authors and sources are
+listed here as a courtesy:
+
+- Medieval Village MegaKit (Standard), Quaternius
+  https://quaternius.com/packs/medievalvillagemegakit.html
+- Sci-Fi Essentials Kit, Quaternius
+  https://quaternius.com/packs/scifiessentialskit.html
+- Retro Urban Kit, Kenney
+  https://kenney.nl/assets/retro-urban-kit
+- PSX Style Cars, GGBotNet
+  https://ggbot.itch.io/psx-style-cars
+
+The source textures were downsampled for PS2 memory budgets, selected meshes
+were decimated in Blender, material texture paths were made project-relative,
+and only selected models from each pack are redistributed. The assets are
+dedicated to the public domain under Creative Commons CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/

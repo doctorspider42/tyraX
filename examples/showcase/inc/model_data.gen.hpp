@@ -3,13 +3,51 @@
 
 namespace Showcase {
 
-constexpr int MODEL_COUNT = 0;
+constexpr int MODEL_COUNT = 20;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "models/medieval/DoorFrame_Round_WoodDark.tmdl",
+    "models/medieval/Wall_Plaster_Window_Wide_Round.tmdl",
+    "models/medieval/Wall_Plaster_Straight.tmdl",
+    "models/medieval/Roof_RoundTiles_6x8.tmdl",
+    "models/medieval/Wall_UnevenBrick_Straight.tmdl",
+    "models/medieval/Prop_Wagon.tmdl",
+    "models/medieval/Prop_Crate.tmdl",
+    "models/scifi/Prop_Locker.tmdl",
+    "models/scifi/Prop_Crate_Large.tmdl",
+    "models/scifi/Prop_SatelliteDish.tmdl",
+    "models/scifi/Gun_Rifle.tmdl",
+    "models/urban/road-asphalt-straight.tmdl",
+    "models/urban/wall-a-window.tmdl",
+    "models/urban/wall-a-roof-detailed.tmdl",
+    "models/urban/wall-b-window.tmdl",
+    "models/urban/wall-b-roof-detailed.tmdl",
+    "models/urban/police-car.tmdl",
+    "models/urban/truck-green.tmdl",
+    "models/urban/scaffolding-structure.tmdl",
+    "models/urban/detail-dumpster-open.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "",
 };
 // The AUTHORED asset path each slot was baked from ("res/models/x.obj").
@@ -17,19 +55,40 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
-    "",
+    "res/models/medieval/DoorFrame_Round_WoodDark.obj",
+    "res/models/medieval/Wall_Plaster_Window_Wide_Round.obj",
+    "res/models/medieval/Wall_Plaster_Straight.obj",
+    "res/models/medieval/Roof_RoundTiles_6x8.obj",
+    "res/models/medieval/Wall_UnevenBrick_Straight.obj",
+    "res/models/medieval/Prop_Wagon.obj",
+    "res/models/medieval/Prop_Crate.obj",
+    "res/models/scifi/Prop_Locker.obj",
+    "res/models/scifi/Prop_Crate_Large.obj",
+    "res/models/scifi/Prop_SatelliteDish.obj",
+    "res/models/scifi/Gun_Rifle.obj",
+    "res/models/urban/road-asphalt-straight.obj",
+    "res/models/urban/wall-a-window.obj",
+    "res/models/urban/wall-a-roof-detailed.obj",
+    "res/models/urban/wall-b-window.obj",
+    "res/models/urban/wall-b-roof-detailed.obj",
+    "res/models/urban/police-car.obj",
+    "res/models/urban/truck-green.obj",
+    "res/models/urban/scaffolding-structure.obj",
+    "res/models/urban/detail-dumpster-open.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 1;
+constexpr int ANIM_MODEL_COUNT = 3;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
-    "models/wobbler.tskl",
+    "models/scifi/Enemy_EyeDrone.tskl",
+    "models/scifi/Enemy_QuadShell.tskl",
+    "models/scifi/Enemy_Trilobite.tskl",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 1;
+constexpr int MATERIAL_COUNT = 0;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
-    "materials/sign.mtl",
+    "",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)

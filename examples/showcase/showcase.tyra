@@ -18,7 +18,7 @@
     "disableVsync": false,
     "clipping": "precise",
     "animLodDistance": 24,
-    "meshLodDistance": 30,
+    "meshLodDistance": 32,
     "animSourceFps": 24,
     "animPlayFps": 24,
     "staticBatching": true,
@@ -27,10 +27,18 @@
     "navMaxSlope": 40,
     "navAgentRadius": 0.4,
     "unitsPerMeter": 1,
-    "terrainDetail": 48,
-    "terrainViewDistance": 88,
-    "skyColor": [0.86, 0.5, 0.32],
-    "skyTopColor": [0.1, 0.16, 0.42],
+    "terrainDetail": 32,
+    "terrainViewDistance": 62,
+    "skyColor": [
+      0.86,
+      0.5,
+      0.32
+    ],
+    "skyTopColor": [
+      0.1,
+      0.16,
+      0.42
+    ],
     "skyDome": true,
     "zenithSize": 0.5,
     "eyeHeight": 1.8,
@@ -48,14 +56,22 @@
     "orbitSpeed": 1,
     "gravity": 9.8,
     "jumpSpeed": 4.5,
-    "lightDir": [0.5, 0.42, -0.65],
+    "lightDir": [
+      0.5,
+      0.42,
+      -0.65
+    ],
     "ambient": 0.4,
     "diffuse": 0.7,
-    "lightColor": [1, 0.82, 0.6],
+    "lightColor": [
+      1,
+      0.82,
+      0.6
+    ],
     "brightness": 1,
-    "aoEnabled": false,
-    "aoStrength": 0.55,
-    "aoRadius": 2.5,
+    "aoEnabled": true,
+    "aoStrength": 0.52,
+    "aoRadius": 2.4,
     "terrainMaterial": "res/materials/ground.mtl",
     "bloom": 0.16,
     "bloomThreshold": 0,
@@ -65,154 +81,1631 @@
     "dofFocus": 20,
     "dofRange": 15,
     "fogEnabled": true,
-    "fogColor": [0.82, 0.55, 0.4],
+    "fogColor": [
+      0.82,
+      0.55,
+      0.4
+    ],
     "fogStart": 20,
     "fogEnd": 82,
     "highlightUsable": true,
     "highlightDistance": 6,
-    "highlightColor": [1, 0.85, 0.3],
+    "highlightColor": [
+      1,
+      0.85,
+      0.3
+    ],
     "highlightWidth": 0.19,
     "highlightSteps": 4,
     "highlightOpacity": 0.15,
     "highlightOverlay": true,
-    "loadingScreen": true
+    "loadingScreen": true,
+    "liveDebug": true,
+    "liveLogic": true,
+    "timeMachine": true,
+    "giEnabled": true,
+    "giRays": 64,
+    "giBounces": 2,
+    "giSkyLight": 0.8,
+    "giSunLight": 1,
+    "giAmbientFloor": 0.03,
+    "giProbes": true,
+    "giProbeSpacing": 4,
+    "giProbeHeight": 2,
+    "giProbeLevels": 3,
+    "blobShadows": true
   },
   "scenes": [
-    { "name": "vale",
-      "terrain": { "width": 192, "depth": 192 },
-      "settings": { "lighting": { "dir": [0.45, 0.4, 0.8], "ambient": 0.15, "diffuse": 0.35, "color": [0.6, 0.75, 1], "brightness": 0.9 }, "sky": { "color": [0.05, 0.06, 0.12], "topColor": [0.02, 0.02, 0.06], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0.5, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0.25, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": true, "color": [0.06, 0.08, 0.16], "start": 4, "end": 42 }, "highlight": { "usable": true, "distance": 6, "color": [0.4, 0.9, 1], "width": 0.4, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "layers": [{ "name": "forest" }, { "name": "village", "startLoaded": false }, { "name": "ruins", "startLoaded": false }, { "name": "weather" }],
-      "objects": ["4fb458d5fb772370", "0ddf52a560c3d0ac", "a30b1e8cea37ff76", "0279a23319d75a2b", "da4e27bb133c7ad4", "ada997b8860fd9cc", "bd0b0cc459287b4e", "ed26df93602850f6", "56827b7dc9e200a5", "3901772cece032da", "3a5e9d034812581e", "9e157352d0c272b0", "393851c3e58f781c", "c6aa080df3c32009", "ea5bc122f7dfcab7", "8abbd071950f5003", "1663e28e72240fab", "3d96b28d6174c7bf", "41217f349adae48c", "f53842e27f83a74b", "c0645e43bdc20d49", "16459ee2e048ff3a", "d9ad84dda134d84c", "141aebea2130876c", "cfe56a1cf6c7ce38", "f88a06cec903c60f", "c1846bc0aa13b0a1", "8cf19548174c6baf", "ef2674d5a9b496ca", "7c24ea807aed73e7", "7fe94b0260ae97a7", "df0fe6210464db62", "c19b40ea83254a40", "bf37bc0b8618211b", "fb728f205d82ed6f", "a253687053ed59fa", "c3dd0d3c1ae30e45", "582c12154c6fc6df", "c11631119aeddeef", "ed243b70b78efb88", "e84a9deb0f11efe5", "367eba763554f3df", "1224191c71c3a3ae", "4500bae3b354678c", "623bfc965062a7fc", "f18fa86c6de6e009", "3eb86c856639a827", "d25ad86143481c40", "f1654e547a98c44a", "47d777c38a179019", "6061e7cbccad9364", "2262ce5dc62044ff", "424e41545f27a55b", "9dddfa2bbdbb7852", "885bcc2fda8f6613", "d6d6db7e929e8ab7", "15aeb8006382e254", "1ae4503cac8d9099", "7419beeb1f6cc371", "e047a1ee010876e6"] },
-    { "name": "cavern",
-      "terrain": { "width": 64, "depth": 64 },
-      "settings": { "lighting": { "dir": [0.45, 0.4, 0.8], "ambient": 0.15, "diffuse": 0.35, "color": [0.6, 0.75, 1], "brightness": 0.9 }, "sky": { "color": [0.05, 0.06, 0.12], "topColor": [0.02, 0.02, 0.06], "dome": true, "zenithSize": 0.5 }, "clipping": "precise", "terrainMaterial": "", "postfx": { "bloom": 0.5, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0.25, "dofAmount": 0, "dofFocus": 20, "dofRange": 15 }, "fog": { "enabled": true, "color": [0.06, 0.08, 0.16], "start": 4, "end": 42 }, "highlight": { "usable": true, "distance": 6, "color": [0.4, 0.9, 1], "width": 0.4, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": true, "fog": false, "highlight": false }, "ambiencePreset": "cavern",
-      "layers": [{ "name": "crystals" }],
-      "objects": ["d194115a1706b863", "66aff9262f9136d4", "989df85ebe8a9fa4", "8e64067125a43e8c", "7069d495c59c43de", "c06c99f920c61a96", "ecdf0fd0df670229", "2a64979f6ccc749d", "c9176c47477e5bd2", "5ff3409bb72d0e6a", "192ba2ef614e02bc", "f2e47c809bf79bda", "58017db3301a5ee4", "4bd4d49b9d07d212"] }
+    {
+      "name": "elysian-village",
+      "terrain": {
+        "width": 80,
+        "depth": 80
+      },
+      "settings": {
+        "lighting": {
+          "dir": [
+            0.5,
+            0.72,
+            0.32
+          ],
+          "ambient": 0.42,
+          "diffuse": 0.7,
+          "color": [
+            1,
+            0.82,
+            0.62
+          ],
+          "brightness": 1
+        },
+        "sky": {
+          "color": [
+            0.46,
+            0.58,
+            0.76
+          ],
+          "topColor": [
+            0.055,
+            0.09,
+            0.23
+          ],
+          "dome": true,
+          "zenithSize": 0.5
+        },
+        "clipping": "precise",
+        "terrainMaterial": "res/materials/village-ground.mtl",
+        "postfx": {
+          "bloom": 0.0,
+          "bloomThreshold": 0.35,
+          "bloomSpread": 1,
+          "grain": 0.0,
+          "dofAmount": 0,
+          "dofFocus": 20,
+          "dofRange": 15,
+          "flare": 0.18,
+          "godRays": 0.28
+        },
+        "fog": {
+          "enabled": true,
+          "color": [
+            0.34,
+            0.42,
+            0.54
+          ],
+          "start": 24,
+          "end": 72
+        },
+        "highlight": {
+          "usable": true,
+          "distance": 7,
+          "color": [
+            0.2,
+            0.9,
+            1
+          ],
+          "width": 0.28,
+          "steps": 4,
+          "opacity": 0.5,
+          "overlay": false
+        }
+      },
+      "overrides": {
+        "lighting": true,
+        "sky": true,
+        "clipping": false,
+        "terrainMat": true,
+        "postFx": true,
+        "fog": true,
+        "highlight": true
+      },
+      "ambiencePreset": "Elysian Dawn",
+      "layers": [
+        {
+          "name": "market"
+        },
+        {
+          "name": "ridge",
+          "startLoaded": false
+        }
+      ],
+      "objects": [
+        "dfc834342759fb67",
+        "127e8adc6b63f265",
+        "a1339936e0cae53f",
+        "58ad92a86980abed",
+        "a2810c85e2af60f3",
+        "8bcc2ac8f26edb8e",
+        "83d3fc50e1286a15",
+        "5bbfe974863b51ef",
+        "7e5f97b7b665cd23",
+        "6ac506d1eda066d4",
+        "e143ab28faeb6891",
+        "f713d1230f88407d",
+        "ae5d1f6d490ccacd",
+        "e3814eabb0362d73",
+        "6e7d864401f38789",
+        "42fb8c81cc76e1bc",
+        "60dc13abf4213faf",
+        "407c04f94a28352e",
+        "e4855935e1e2b977",
+        "4ff416e1ab567786",
+        "9783d52b584b00c0",
+        "69a325432c3792c8",
+        "6f5f65729ed802de",
+        "40db6b2b09cdb435",
+        "8b8aa8d319a198c5",
+        "9f923b33fc6cb9bc",
+        "82e8a6d3f8c44e72",
+        "df64061277d7c47c",
+        "37f67e124e6b2d41",
+        "ac9b67490db13148",
+        "25d37890fc86fe05",
+        "2c0562fa6f383576",
+        "84c6c9aaf4de7720",
+        "3c292ad8dd0842fe",
+        "aeea0c932ced14f9",
+        "529fa59ea118583f"
+      ]
+    },
+    {
+      "name": "rift-lab",
+      "terrain": {
+        "width": 56,
+        "depth": 56
+      },
+      "settings": {
+        "lighting": {
+          "dir": [
+            0.1,
+            0.9,
+            0.35
+          ],
+          "ambient": 0.58,
+          "diffuse": 0.74,
+          "color": [
+            0.72,
+            0.85,
+            1
+          ],
+          "brightness": 1
+        },
+        "sky": {
+          "color": [
+            0.06,
+            0.09,
+            0.18
+          ],
+          "topColor": [
+            0.02,
+            0.035,
+            0.08
+          ],
+          "dome": true,
+          "zenithSize": 0.5
+        },
+        "clipping": "precise",
+        "terrainMaterial": "res/materials/ground.mtl",
+        "postfx": {
+          "bloom": 0.0,
+          "bloomThreshold": 0.35,
+          "bloomSpread": 1,
+          "grain": 0.0,
+          "dofAmount": 0,
+          "dofFocus": 20,
+          "dofRange": 15,
+          "flare": 0.18,
+          "godRays": 0.28
+        },
+        "fog": {
+          "enabled": true,
+          "color": [
+            0.08,
+            0.14,
+            0.22
+          ],
+          "start": 10,
+          "end": 48
+        },
+        "highlight": {
+          "usable": true,
+          "distance": 7,
+          "color": [
+            0.2,
+            0.9,
+            1
+          ],
+          "width": 0.28,
+          "steps": 4,
+          "opacity": 0.5,
+          "overlay": false
+        }
+      },
+      "overrides": {
+        "lighting": true,
+        "sky": true,
+        "clipping": false,
+        "terrainMat": true,
+        "postFx": true,
+        "fog": true,
+        "highlight": true
+      },
+      "ambiencePreset": "Rift Lab",
+      "layers": [
+        {
+          "name": "bio"
+        },
+        {
+          "name": "portal",
+          "startLoaded": false
+        },
+        {
+          "name": "reflection",
+          "startLoaded": false
+        }
+      ],
+      "objects": [
+        "773b3088c9efb356",
+        "eeed7083c6e1ab5a",
+        "ede8ed85ede8c781",
+        "cd04cd1522bcf645",
+        "c476a7b650a86da1",
+        "2d2fbec5d41f3d76",
+        "fa5015565fcc9ab5",
+        "feaeb18e5c73ee45",
+        "66532afc5c8dd872",
+        "27c010d4314966c7",
+        "902d3212e0ef35ae",
+        "f3f2e6c19105cc6d",
+        "e531d6f68f49c53f",
+        "849ff0a0a19c8297",
+        "ed1f2bad1cd8ffbf",
+        "b5b0443b25e7ad66",
+        "863b6c36f4f16079",
+        "55eeb2efb8e5f15d",
+        "285c5e39f09bd12e",
+        "654ce3b1161ac275",
+        "d58c5528cb21ca10",
+        "a6d17af6f444f199",
+        "8471d30a7215b683",
+        "4193c83d1882c0e3",
+        "cb2431a45c21d877",
+        "bdd8e37e00112a58",
+        "ebbc640ec48ad7f7",
+        "99fc1be1e800d80c",
+        "4dca234605821914",
+        "5b5d39f54898852b",
+        "4e8f017f0c9d985c",
+        "f329b15553d31404",
+        "866b71bec4d3a5ed",
+        "4b4d1696c4907084"
+      ]
+    },
+    {
+      "name": "neon-city",
+      "terrain": {
+        "width": 96,
+        "depth": 96
+      },
+      "settings": {
+        "lighting": {
+          "dir": [
+            0.15,
+            0.82,
+            -0.2
+          ],
+          "ambient": 0.16,
+          "diffuse": 0.48,
+          "color": [
+            0.45,
+            0.55,
+            1
+          ],
+          "brightness": 1
+        },
+        "sky": {
+          "color": [
+            0.025,
+            0.02,
+            0.09
+          ],
+          "topColor": [
+            0.002,
+            0.004,
+            0.02
+          ],
+          "dome": true,
+          "zenithSize": 0.5
+        },
+        "clipping": "precise",
+        "terrainMaterial": "res/materials/city-asphalt.mtl",
+        "postfx": {
+          "bloom": 0.0,
+          "bloomThreshold": 0.35,
+          "bloomSpread": 1,
+          "grain": 0.0,
+          "dofAmount": 0,
+          "dofFocus": 20,
+          "dofRange": 15,
+          "flare": 0.18,
+          "godRays": 0.28
+        },
+        "fog": {
+          "enabled": true,
+          "color": [
+            0.08,
+            0.04,
+            0.16
+          ],
+          "start": 14,
+          "end": 70
+        },
+        "highlight": {
+          "usable": true,
+          "distance": 7,
+          "color": [
+            0.2,
+            0.9,
+            1
+          ],
+          "width": 0.28,
+          "steps": 4,
+          "opacity": 0.5,
+          "overlay": false
+        }
+      },
+      "overrides": {
+        "lighting": true,
+        "sky": true,
+        "clipping": false,
+        "terrainMat": true,
+        "postFx": true,
+        "fog": true,
+        "highlight": true
+      },
+      "ambiencePreset": "Neon Rain",
+      "layers": [
+        {
+          "name": "west"
+        },
+        {
+          "name": "east",
+          "startLoaded": false
+        }
+      ],
+      "objects": [
+        "1a0c91c19e242d17",
+        "61d77245ed87411d",
+        "38fd67c00f6101e2",
+        "2030d43f232687c9",
+        "fd251b0238b60ce1",
+        "e232c836580233b9",
+        "6c451d8711f54e75",
+        "821a16ddb34aa067",
+        "a5b48c267cb864ee",
+        "d9e4ab85a2a64711",
+        "3ac30f41ca046654",
+        "acc6c95e5d8314d9",
+        "02821d479f4388c4",
+        "88b211aca6cd9b2b",
+        "8ee3ecf788a01c9d",
+        "4296e392cdef3b81",
+        "f926cb25cbd29f8e",
+        "de78dd10c1076ebd",
+        "5ac3b8348b7439b2",
+        "72cf22592a8567a7",
+        "3a4fa0cac0fcad0b",
+        "a4a82d10fd4d414d",
+        "bc5d7fe01d744cd5",
+        "5d33ce5b12f422c6",
+        "5b5f6edd6040d9e5",
+        "a16b42bcf3264b5b",
+        "51b48adb6045c261",
+        "9a8608f145cd4110",
+        "ce5942b563478b12",
+        "ca05449a82724f1a",
+        "489f13217ba198a4",
+        "2da88254431410ea",
+        "7c7cb8f15a2948d6",
+        "a8dab4d80597abf2",
+        "44cc040b432dd3c7",
+        "4e094240c511168a",
+        "bbc9b2de3609537e",
+        "1b1a083e938a3a1a",
+        "bbb12d4c0dee2f54",
+        "f9195f9a27642733",
+        "0753f17063fe27e9",
+        "9fc9f27be1aa4810",
+        "b053669d8c5a513e",
+        "f99696bcb22bdaab",
+        "c53144f298705309"
+      ]
+    }
   ],
   "fonts": [
-    { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
+    {
+      "name": "Default",
+      "path": "",
+      "atlasSize": 16,
+      "color": [
+        1,
+        1,
+        1
+      ],
+      "shadow": true,
+      "quant": "4bit"
+    }
   ],
   "hud": [
-    { "name": "crosshair", "image": "res/ui/crosshair.png", "pos": [0.5, 0.5], "size": [24, 24], "texW": 0, "texH": 0, "texQuant": "" }
+    {
+      "name": "crosshair",
+      "image": "res/ui/crosshair.png",
+      "pos": [
+        0.5,
+        0.5
+      ],
+      "size": [
+        24,
+        24
+      ],
+      "texW": 0,
+      "texH": 0,
+      "texQuant": ""
+    }
   ],
-  "usePrompt": { "image": "", "pos": [0.5, 0.596], "size": [128, 32], "texW": 0, "texH": 0, "texQuant": "" },
-  "usePromptIsText": false,
-  "usePromptText": { "text": "{{use}} USE", "size": 16, "color": [1, 1, 1], "shadow": true },
-  "pickPromptIsText": false,
-  "pickPromptText": { "text": "{{use}} PICK UP", "size": 20, "color": [1, 1, 1], "shadow": true },
+  "usePrompt": {
+    "image": "",
+    "pos": [
+      0.5,
+      0.596
+    ],
+    "size": [
+      128,
+      32
+    ],
+    "texW": 0,
+    "texH": 0,
+    "texQuant": ""
+  },
+  "usePromptIsText": true,
+  "usePromptText": {
+    "text": "{{use}} USE",
+    "size": 16,
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true
+  },
+  "pickPromptIsText": true,
+  "pickPromptText": {
+    "text": "{{use}} PICK UP",
+    "size": 20,
+    "color": [
+      1,
+      1,
+      1
+    ],
+    "shadow": true
+  },
   "hudTexts": [
-    { "name": "options-hint", "text": "SELECT: graphics options", "pos": [0.5, 0.93], "size": 13, "color": [1, 0.95, 0.7], "shadow": true, "visibleAtStart": false }
+    {
+      "name": "showcase-help",
+      "text": "{{square}} INTERACT   {{circle}} FLASHLIGHT   START OPTIONS",
+      "pos": [
+        0.5,
+        0.94
+      ],
+      "size": 13,
+      "color": [
+        0.82,
+        0.94,
+        1
+      ],
+      "shadow": true,
+      "visibleAtStart": true
+    }
   ],
   "textIcons": [
-    { "name": "cross", "path": "res/hud/icon-cross.png" },
-    { "name": "square", "path": "res/hud/icon-square.png" },
-    { "name": "triangle", "path": "res/hud/icon-triangle.png" },
-    { "name": "circle", "path": "res/hud/icon-circle.png" },
-    { "name": "dpadup", "path": "res/hud/icon-dpadup.png" },
-    { "name": "dpaddown", "path": "res/hud/icon-dpaddown.png" },
-    { "name": "dpadleft", "path": "res/hud/icon-dpadleft.png" },
-    { "name": "dpadright", "path": "res/hud/icon-dpadright.png" },
-    { "name": "l1", "path": "res/hud/icon-l1.png" },
-    { "name": "l2", "path": "res/hud/icon-l2.png" },
-    { "name": "l3", "path": "res/hud/icon-l3.png" },
-    { "name": "r1", "path": "res/hud/icon-r1.png" },
-    { "name": "r2", "path": "res/hud/icon-r2.png" },
-    { "name": "r3", "path": "res/hud/icon-r3.png" },
-    { "name": "start", "path": "res/hud/icon-start.png" },
-    { "name": "select", "path": "res/hud/icon-select.png" }
+    {
+      "name": "cross",
+      "path": "res/hud/icon-cross.png"
+    },
+    {
+      "name": "square",
+      "path": "res/hud/icon-square.png"
+    },
+    {
+      "name": "triangle",
+      "path": "res/hud/icon-triangle.png"
+    },
+    {
+      "name": "circle",
+      "path": "res/hud/icon-circle.png"
+    },
+    {
+      "name": "dpadup",
+      "path": "res/hud/icon-dpadup.png"
+    },
+    {
+      "name": "dpaddown",
+      "path": "res/hud/icon-dpaddown.png"
+    },
+    {
+      "name": "dpadleft",
+      "path": "res/hud/icon-dpadleft.png"
+    },
+    {
+      "name": "dpadright",
+      "path": "res/hud/icon-dpadright.png"
+    },
+    {
+      "name": "l1",
+      "path": "res/hud/icon-l1.png"
+    },
+    {
+      "name": "l2",
+      "path": "res/hud/icon-l2.png"
+    },
+    {
+      "name": "l3",
+      "path": "res/hud/icon-l3.png"
+    },
+    {
+      "name": "r1",
+      "path": "res/hud/icon-r1.png"
+    },
+    {
+      "name": "r2",
+      "path": "res/hud/icon-r2.png"
+    },
+    {
+      "name": "r3",
+      "path": "res/hud/icon-r3.png"
+    },
+    {
+      "name": "start",
+      "path": "res/hud/icon-start.png"
+    },
+    {
+      "name": "select",
+      "path": "res/hud/icon-select.png"
+    }
   ],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
-  "music": ["res/audio/ambient.wav"],
-  "sounds": ["res/sfx/fire.wav"],
+  "music": [
+    "res/audio/ambient.wav"
+  ],
+  "sounds": [
+    "res/sfx/fire.wav"
+  ],
   "saveValues": [
-    { "name": "orbs", "default": 0 },
-    { "name": "gfx-fog", "default": 1 },
-    { "name": "gfx-grain", "default": 1 },
-    { "name": "gfx-bloom", "default": 1 },
-    { "name": "gfx-part", "default": 1 }
+    {
+      "name": "orbs",
+      "default": 0
+    },
+    {
+      "name": "gfx-fog",
+      "default": 1
+    },
+    {
+      "name": "gfx-grain",
+      "default": 1
+    },
+    {
+      "name": "gfx-bloom",
+      "default": 1
+    },
+    {
+      "name": "gfx-part",
+      "default": 1
+    }
   ],
   "saveTexts": [],
   "gradings": [
-    { "name": "Golden Hour", "brightness": 1.05, "contrast": 1.12, "saturation": 1.15, "temperature": 0.28, "tint": [1, 0.7, 0.4], "tintAmount": 0.18, "lift": [0.02, 0, -0.02], "gain": [1.05, 0.98, 0.9] },
-    { "name": "Nightfall", "brightness": 0.9, "contrast": 1.2, "saturation": 0.85, "temperature": -0.35, "tint": [0.4, 0.6, 1], "tintAmount": 0.25, "lift": [-0.02, 0, 0.04], "gain": [0.85, 0.92, 1.1] }
+    {
+      "name": "Elysian",
+      "brightness": 0.96,
+      "contrast": 1.06,
+      "saturation": 1.06,
+      "temperature": 0.08,
+      "tint": [
+        1,
+        0.78,
+        0.58
+      ],
+      "tintAmount": 0.04,
+      "lift": [
+        0.005,
+        0,
+        0.005
+      ],
+      "gain": [
+        1.01,
+        1,
+        0.99
+      ]
+    },
+    {
+      "name": "Rift Lab",
+      "brightness": 1.18,
+      "contrast": 1.02,
+      "saturation": 1.04,
+      "temperature": -0.12,
+      "tint": [
+        0.35,
+        0.58,
+        1
+      ],
+      "tintAmount": 0.07,
+      "lift": [
+        0.035,
+        0.05,
+        0.085
+      ],
+      "gain": [
+        1.06,
+        1.12,
+        1.2
+      ]
+    },
+    {
+      "name": "Neon Rain",
+      "brightness": 0.9,
+      "contrast": 1.28,
+      "saturation": 1.24,
+      "temperature": -0.12,
+      "tint": [
+        0.82,
+        0.2,
+        1
+      ],
+      "tintAmount": 0.18,
+      "lift": [
+        -0.02,
+        -0.01,
+        0.035
+      ],
+      "gain": [
+        1.05,
+        0.9,
+        1.16
+      ]
+    }
   ],
   "defaultGrading": 0,
   "ambience": [
-    { "name": "Default", "skyColor": [0.86, 0.5, 0.32], "skyTopColor": [0.1, 0.16, 0.42], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.5, 0.42, -0.65], "ambient": 0.4, "diffuse": 0.7, "lightColor": [1, 0.82, 0.6], "brightness": 1, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": true, "fogColor": [0.82, 0.55, 0.4], "fogStart": 20, "fogEnd": 82 },
-    { "name": "cavern", "skyColor": [0.05, 0.06, 0.12], "skyTopColor": [0.02, 0.02, 0.06], "skyDome": true, "zenithSize": 0.5, "lightDir": [0.45, 0.4, 0.8], "ambient": 0.15, "diffuse": 0.35, "lightColor": [0.6, 0.75, 1], "brightness": 0.9, "aoEnabled": false, "aoStrength": 0.55, "aoRadius": 2.5, "fogEnabled": true, "fogColor": [0.06, 0.08, 0.16], "fogStart": 4, "fogEnd": 42 }
+    {
+      "name": "Elysian Dawn",
+      "skyColor": [
+        0.46,
+        0.58,
+        0.76
+      ],
+      "skyTopColor": [
+        0.055,
+        0.09,
+        0.23
+      ],
+      "skyDome": true,
+      "zenithSize": 0.5,
+      "lightDir": [
+        0.5,
+        0.72,
+        0.32
+      ],
+      "ambient": 0.42,
+      "diffuse": 0.7,
+      "lightColor": [
+        1,
+        0.82,
+        0.62
+      ],
+      "brightness": 1,
+      "aoEnabled": true,
+      "aoStrength": 0.52,
+      "aoRadius": 2.4,
+      "fogEnabled": true,
+      "fogColor": [
+        0.34,
+        0.42,
+        0.54
+      ],
+      "fogStart": 24,
+      "fogEnd": 72
+    },
+    {
+      "name": "Rift Lab",
+      "skyColor": [
+        0.06,
+        0.09,
+        0.18
+      ],
+      "skyTopColor": [
+        0.02,
+        0.035,
+        0.08
+      ],
+      "skyDome": false,
+      "zenithSize": 0.5,
+      "lightDir": [
+        0.1,
+        0.9,
+        0.35
+      ],
+      "ambient": 0.58,
+      "diffuse": 0.74,
+      "lightColor": [
+        0.72,
+        0.85,
+        1
+      ],
+      "brightness": 1.18,
+      "aoEnabled": true,
+      "aoStrength": 0.65,
+      "aoRadius": 2.2,
+      "fogEnabled": true,
+      "fogColor": [
+        0.08,
+        0.14,
+        0.22
+      ],
+      "fogStart": 10,
+      "fogEnd": 48
+    },
+    {
+      "name": "Neon Rain",
+      "skyColor": [
+        0.025,
+        0.02,
+        0.09
+      ],
+      "skyTopColor": [
+        0.002,
+        0.004,
+        0.02
+      ],
+      "skyDome": true,
+      "zenithSize": 0.38,
+      "lightDir": [
+        0.15,
+        0.82,
+        -0.2
+      ],
+      "ambient": 0.16,
+      "diffuse": 0.48,
+      "lightColor": [
+        0.45,
+        0.55,
+        1
+      ],
+      "brightness": 1,
+      "aoEnabled": true,
+      "aoStrength": 0.6,
+      "aoRadius": 2.6,
+      "fogEnabled": true,
+      "fogColor": [
+        0.08,
+        0.04,
+        0.16
+      ],
+      "fogStart": 14,
+      "fogEnd": 70
+    }
   ],
   "defaultAmbience": 0,
   "loadingScreens": [],
   "defaultLoadingScreen": -1,
   "splashScreens": [],
-  "sequences": [],
+  "sequences": [
+    {
+      "name": "Dawn of Worlds",
+      "duration": 8.0,
+      "loop": false,
+      "cameraEnabled": true,
+      "hidePlayer": false,
+      "bars": 0.85,
+      "skippable": true,
+      "fadeIn": 0.55,
+      "fadeOut": 0.7,
+      "barsSlideIn": 0.45,
+      "barsSlideOut": 0.65,
+      "tracks": [],
+      "cameraKeys": [
+        {
+          "t": 0,
+          "eye": [
+            -28,
+            13,
+            30
+          ],
+          "target": [
+            0,
+            2,
+            -4
+          ],
+          "fov": 58,
+          "ease": 2
+        },
+        {
+          "t": 3,
+          "eye": [
+            24,
+            8,
+            18
+          ],
+          "target": [
+            0,
+            2,
+            -10
+          ],
+          "fov": 65,
+          "ease": 1
+        },
+        {
+          "t": 6,
+          "eye": [
+            8,
+            4,
+            -18
+          ],
+          "target": [
+            0,
+            2.5,
+            -28
+          ],
+          "fov": 52,
+          "ease": 2
+        },
+        {
+          "t": 8,
+          "eye": [
+            0,
+            3,
+            15
+          ],
+          "target": [
+            0,
+            2,
+            -10
+          ],
+          "fov": 70,
+          "ease": 1
+        }
+      ]
+    },
+    {
+      "name": "Rift Ignition",
+      "duration": 3.2,
+      "loop": false,
+      "cameraEnabled": true,
+      "hidePlayer": false,
+      "bars": 0.85,
+      "skippable": true,
+      "fadeIn": 0.55,
+      "fadeOut": 0.7,
+      "barsSlideIn": 0.45,
+      "barsSlideOut": 0.65,
+      "tracks": [
+        {
+          "target": "rift-core",
+          "animPos": false,
+          "animRot": true,
+          "animScale": true,
+          "animColor": true,
+          "animVis": false,
+          "keys": [
+            {
+              "t": 0,
+              "pos": [
+                0,
+                2.4,
+                -27.5
+              ],
+              "rot": [
+                0,
+                0,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "color": [
+                0.2,
+                0.7,
+                1
+              ],
+              "vis": true,
+              "ease": 1
+            },
+            {
+              "t": 3.2,
+              "pos": [
+                0,
+                2.4,
+                -27.5
+              ],
+              "rot": [
+                0,
+                720,
+                0
+              ],
+              "scale": [
+                2.5,
+                2.5,
+                2.5
+              ],
+              "color": [
+                1,
+                0.35,
+                0.8
+              ],
+              "vis": true,
+              "ease": 1
+            }
+          ]
+        }
+      ],
+      "cameraKeys": [
+        {
+          "t": 0,
+          "eye": [
+            7,
+            3,
+            -18
+          ],
+          "target": [
+            0,
+            2.4,
+            -28
+          ],
+          "fov": 55,
+          "ease": 2
+        },
+        {
+          "t": 2.1,
+          "eye": [
+            0,
+            2.8,
+            -21
+          ],
+          "target": [
+            0,
+            2.4,
+            -28
+          ],
+          "fov": 88,
+          "ease": 1,
+          "shake": 0.08
+        },
+        {
+          "t": 3.2,
+          "eye": [
+            0,
+            2.4,
+            -25
+          ],
+          "target": [
+            0,
+            2.4,
+            -28
+          ],
+          "fov": 100,
+          "ease": 1,
+          "shake": 0.16
+        }
+      ]
+    },
+    {
+      "name": "Portal Breach",
+      "duration": 7.0,
+      "loop": false,
+      "cameraEnabled": true,
+      "hidePlayer": false,
+      "bars": 0.85,
+      "skippable": true,
+      "fadeIn": 0.55,
+      "fadeOut": 0.7,
+      "barsSlideIn": 0.45,
+      "barsSlideOut": 0.65,
+      "tracks": [],
+      "cameraKeys": [
+        {
+          "t": 0,
+          "eye": [
+            -20,
+            8,
+            20
+          ],
+          "target": [
+            0,
+            2,
+            -6
+          ],
+          "fov": 58,
+          "ease": 2
+        },
+        {
+          "t": 2.4,
+          "eye": [
+            -10,
+            3,
+            3
+          ],
+          "target": [
+            -12,
+            4,
+            -2
+          ],
+          "fov": 75,
+          "ease": 1
+        },
+        {
+          "t": 4.7,
+          "eye": [
+            13,
+            4,
+            6
+          ],
+          "target": [
+            0,
+            4,
+            -24
+          ],
+          "fov": 50,
+          "ease": 1
+        },
+        {
+          "t": 7,
+          "eye": [
+            0,
+            3,
+            20
+          ],
+          "target": [
+            0,
+            2,
+            -8
+          ],
+          "fov": 68,
+          "ease": 2
+        }
+      ]
+    },
+    {
+      "name": "City Uplink",
+      "duration": 3.0,
+      "loop": false,
+      "cameraEnabled": true,
+      "hidePlayer": false,
+      "bars": 0.85,
+      "skippable": true,
+      "fadeIn": 0.55,
+      "fadeOut": 0.7,
+      "barsSlideIn": 0.45,
+      "barsSlideOut": 0.65,
+      "tracks": [],
+      "cameraKeys": [
+        {
+          "t": 0,
+          "eye": [
+            10,
+            4,
+            -10
+          ],
+          "target": [
+            17,
+            2.8,
+            -18
+          ],
+          "fov": 62,
+          "ease": 2
+        },
+        {
+          "t": 2,
+          "eye": [
+            17,
+            3,
+            -11
+          ],
+          "target": [
+            17,
+            3,
+            -18
+          ],
+          "fov": 95,
+          "ease": 1,
+          "shake": 0.1
+        },
+        {
+          "t": 3,
+          "eye": [
+            17,
+            3,
+            -16
+          ],
+          "target": [
+            17,
+            3,
+            -18
+          ],
+          "fov": 110,
+          "ease": 1,
+          "shake": 0.18
+        }
+      ]
+    },
+    {
+      "name": "Neon Overdrive",
+      "duration": 10.0,
+      "loop": false,
+      "cameraEnabled": true,
+      "hidePlayer": false,
+      "bars": 0.85,
+      "skippable": true,
+      "fadeIn": 0.55,
+      "fadeOut": 0.7,
+      "barsSlideIn": 0.45,
+      "barsSlideOut": 0.65,
+      "tracks": [
+        {
+          "target": "police-cruiser",
+          "animPos": true,
+          "animRot": false,
+          "animScale": false,
+          "animColor": false,
+          "animVis": false,
+          "keys": [
+            {
+              "t": 0,
+              "pos": [
+                -4,
+                0.8,
+                -8
+              ],
+              "rot": [
+                0,
+                180,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "color": [
+                1,
+                1,
+                1
+              ],
+              "vis": true,
+              "ease": 1
+            },
+            {
+              "t": 10,
+              "pos": [
+                -4,
+                0.8,
+                18
+              ],
+              "rot": [
+                0,
+                180,
+                0
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ],
+              "color": [
+                1,
+                1,
+                1
+              ],
+              "vis": true,
+              "ease": 1
+            }
+          ]
+        }
+      ],
+      "cameraKeys": [
+        {
+          "t": 0,
+          "eye": [
+            -30,
+            17,
+            28
+          ],
+          "target": [
+            0,
+            3,
+            -5
+          ],
+          "fov": 58,
+          "ease": 2
+        },
+        {
+          "t": 3,
+          "eye": [
+            8,
+            5,
+            22
+          ],
+          "target": [
+            0,
+            2,
+            -10
+          ],
+          "fov": 74,
+          "ease": 1
+        },
+        {
+          "t": 6,
+          "eye": [
+            -7,
+            3,
+            -6
+          ],
+          "target": [
+            0,
+            6,
+            -15
+          ],
+          "fov": 48,
+          "ease": 2
+        },
+        {
+          "t": 8.5,
+          "eye": [
+            25,
+            13,
+            -18
+          ],
+          "target": [
+            0,
+            5,
+            0
+          ],
+          "fov": 65,
+          "ease": 1,
+          "shake": 0.04
+        },
+        {
+          "t": 10,
+          "eye": [
+            0,
+            3,
+            24
+          ],
+          "target": [
+            0,
+            2,
+            -4
+          ],
+          "fov": 72,
+          "ease": 2
+        }
+      ]
+    }
+  ],
   "menus": [
-    { "name": "pause", "title": "PAUSED", "pauseMenu": true, "screenPos": [0.5, 0.45], "accent": [1, 0.8, 0.4],
+    {
+      "name": "pause",
+      "title": "TYRAX // PAUSED",
+      "pauseMenu": true,
+      "screenPos": [
+        0.5,
+        0.45
+      ],
+      "accent": [
+        1,
+        0.8,
+        0.4
+      ],
       "entries": [
-        { "label": "Resume", "action": "close" },
-        { "label": "Save Game", "action": "save-menu" }
-      ] },
-    { "name": "options", "title": "GRAPHICS", "pause": false, "entrySize": 13, "screenPos": [0.5, 0.5], "accent": [0.5, 0.85, 1],
+        {
+          "label": "Resume",
+          "action": "close"
+        },
+        {
+          "label": "Save Game",
+          "action": "save-menu"
+        }
+      ]
+    },
+    {
+      "name": "options",
+      "title": "GRAPHICS",
+      "pause": false,
+      "entrySize": 13,
+      "screenPos": [
+        0.5,
+        0.5
+      ],
+      "accent": [
+        0.5,
+        0.85,
+        1
+      ],
       "entries": [
-        { "label": "Fog", "action": "toggle", "param": "gfx-fog", "options": ["Off", "On"] },
-        { "label": "Grain", "action": "toggle", "param": "gfx-grain", "options": ["Off", "On"] },
-        { "label": "Bloom", "action": "toggle", "param": "gfx-bloom", "options": ["Off", "On"] },
-        { "label": "Particles", "action": "toggle", "param": "gfx-part", "options": ["Off", "On"] },
-        { "label": "Close", "action": "close" }
-      ] }
+        {
+          "label": "Fog",
+          "action": "toggle",
+          "param": "gfx-fog",
+          "options": [
+            "Off",
+            "On"
+          ]
+        },
+        {
+          "label": "Grain",
+          "action": "toggle",
+          "param": "gfx-grain",
+          "options": [
+            "Off",
+            "On"
+          ]
+        },
+        {
+          "label": "Bloom",
+          "action": "toggle",
+          "param": "gfx-bloom",
+          "options": [
+            "Off",
+            "On"
+          ]
+        },
+        {
+          "label": "Particles",
+          "action": "toggle",
+          "param": "gfx-part",
+          "options": [
+            "Off",
+            "On"
+          ]
+        },
+        {
+          "label": "Close",
+          "action": "close"
+        }
+      ]
+    }
   ],
   "input": {
     "activePreset": 0,
     "allowRebind": true,
     "actions": [
-      { "name": "move-forward", "label": "Move forward", "role": "move-forward" },
-      { "name": "move-back", "label": "Move back", "role": "move-back" },
-      { "name": "move-left", "label": "Move left", "role": "move-left" },
-      { "name": "move-right", "label": "Move right", "role": "move-right" },
-      { "name": "jump", "label": "Jump", "role": "jump" },
-      { "name": "sprint", "label": "Sprint", "role": "sprint" },
-      { "name": "use", "label": "Use", "role": "use" },
-      { "name": "throw", "label": "Throw", "role": "throw" },
-      { "name": "fly-up", "label": "Fly up", "role": "fly-up" },
-      { "name": "fly-down", "label": "Fly down", "role": "fly-down" },
-      { "name": "confirm", "label": "Confirm", "role": "confirm", "rebindable": false },
-      { "name": "back", "label": "Back", "role": "back", "rebindable": false },
-      { "name": "menu", "label": "Pause menu", "role": "menu", "rebindable": false },
-      { "name": "alt", "label": "Alternate", "role": "alt", "rebindable": false },
-      { "name": "menu-up", "label": "Menu up", "role": "menu-up", "rebindable": false },
-      { "name": "menu-down", "label": "Menu down", "role": "menu-down", "rebindable": false },
-      { "name": "menu-left", "label": "Menu left", "role": "menu-left", "rebindable": false },
-      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false }
+      {
+        "name": "move-forward",
+        "label": "Move forward",
+        "role": "move-forward"
+      },
+      {
+        "name": "move-back",
+        "label": "Move back",
+        "role": "move-back"
+      },
+      {
+        "name": "move-left",
+        "label": "Move left",
+        "role": "move-left"
+      },
+      {
+        "name": "move-right",
+        "label": "Move right",
+        "role": "move-right"
+      },
+      {
+        "name": "jump",
+        "label": "Jump",
+        "role": "jump"
+      },
+      {
+        "name": "sprint",
+        "label": "Sprint",
+        "role": "sprint"
+      },
+      {
+        "name": "use",
+        "label": "Use",
+        "role": "use"
+      },
+      {
+        "name": "throw",
+        "label": "Throw",
+        "role": "throw"
+      },
+      {
+        "name": "fly-up",
+        "label": "Fly up",
+        "role": "fly-up"
+      },
+      {
+        "name": "fly-down",
+        "label": "Fly down",
+        "role": "fly-down"
+      },
+      {
+        "name": "confirm",
+        "label": "Confirm",
+        "role": "confirm",
+        "rebindable": false
+      },
+      {
+        "name": "back",
+        "label": "Back",
+        "role": "back",
+        "rebindable": false
+      },
+      {
+        "name": "menu",
+        "label": "Pause menu",
+        "role": "menu",
+        "rebindable": false
+      },
+      {
+        "name": "alt",
+        "label": "Alternate",
+        "role": "alt",
+        "rebindable": false
+      },
+      {
+        "name": "menu-up",
+        "label": "Menu up",
+        "role": "menu-up",
+        "rebindable": false
+      },
+      {
+        "name": "menu-down",
+        "label": "Menu down",
+        "role": "menu-down",
+        "rebindable": false
+      },
+      {
+        "name": "menu-left",
+        "label": "Menu left",
+        "role": "menu-left",
+        "rebindable": false
+      },
+      {
+        "name": "menu-right",
+        "label": "Menu right",
+        "role": "menu-right",
+        "rebindable": false
+      }
     ],
     "presets": [
-      { "name": "Default", "bindings": [
-          { "action": "move-forward", "key": 26 },
-          { "action": "move-back", "key": 22 },
-          { "action": "move-left", "key": 4 },
-          { "action": "move-right", "key": 7 },
-          { "action": "jump", "pad": "Cross", "key": 44, "mouse": 2 },
-          { "action": "sprint", "pad": "R2", "key": 225 },
-          { "action": "use", "pad": "Square", "key": 8, "mouse": 1 },
-          { "action": "throw", "pad": "Circle", "mouse": 3 },
-          { "action": "fly-up", "pad": "Cross", "key": 44 },
-          { "action": "fly-down", "pad": "Square", "key": 8 },
-          { "action": "confirm", "pad": "Cross", "key": 40 },
-          { "action": "back", "pad": "Triangle", "key": 42 },
-          { "action": "menu", "pad": "Start", "key": 41 },
-          { "action": "alt", "pad": "Circle", "key": 21, "mouse": 3 },
-          { "action": "menu-up", "pad": "DpadUp", "key": 82 },
-          { "action": "menu-down", "pad": "DpadDown", "key": 81 },
-          { "action": "menu-left", "pad": "DpadLeft", "key": 80 },
-          { "action": "menu-right", "pad": "DpadRight", "key": 79 }
-        ] }
+      {
+        "name": "Default",
+        "bindings": [
+          {
+            "action": "move-forward",
+            "key": 26
+          },
+          {
+            "action": "move-back",
+            "key": 22
+          },
+          {
+            "action": "move-left",
+            "key": 4
+          },
+          {
+            "action": "move-right",
+            "key": 7
+          },
+          {
+            "action": "jump",
+            "pad": "Cross",
+            "key": 44,
+            "mouse": 2
+          },
+          {
+            "action": "sprint",
+            "pad": "R2",
+            "key": 225
+          },
+          {
+            "action": "use",
+            "pad": "Square",
+            "key": 8,
+            "mouse": 1
+          },
+          {
+            "action": "throw",
+            "pad": "Circle",
+            "mouse": 3
+          },
+          {
+            "action": "fly-up",
+            "pad": "Cross",
+            "key": 44
+          },
+          {
+            "action": "fly-down",
+            "pad": "Square",
+            "key": 8
+          },
+          {
+            "action": "confirm",
+            "pad": "Cross",
+            "key": 40
+          },
+          {
+            "action": "back",
+            "pad": "Triangle",
+            "key": 42
+          },
+          {
+            "action": "menu",
+            "pad": "Start",
+            "key": 41
+          },
+          {
+            "action": "alt",
+            "pad": "Circle",
+            "key": 21,
+            "mouse": 3
+          },
+          {
+            "action": "menu-up",
+            "pad": "DpadUp",
+            "key": 82
+          },
+          {
+            "action": "menu-down",
+            "pad": "DpadDown",
+            "key": 81
+          },
+          {
+            "action": "menu-left",
+            "pad": "DpadLeft",
+            "key": 80
+          },
+          {
+            "action": "menu-right",
+            "pad": "DpadRight",
+            "key": 79
+          }
+        ]
+      }
     ]
   },
-  "editor": { "selectedObject": 36, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0 },
+  "editor": {
+    "selectedObject": -1,
+    "gizmo": 0,
+    "gizmoSpace": 0,
+    "viewMode": 0,
+    "viewProjection": 0,
+    "breakpoints": []
+  },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,19\nSize=657,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260713\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260713\n\n[Window][Output]\nPos=659,753\nSize=880,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260713\n\n[Window][Debug]\nPos=659,753\nSize=880,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260713\n\n[Window][Flow Graph]\nPos=659,19\nSize=880,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260713\n\n[Window][Viewport]\nPos=659,19\nSize=880,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260713\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260713\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260713\n\n[Window][Project Preferences]\nPos=696,12\nSize=527,992\nCollapsed=0\nLastUsed=20260713\n\n[Window][UI Editor]\nPos=381,137\nSize=720,615\nCollapsed=0\nLastUsed=20260713\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260713\n\n[Window][Menu Editor]\nPos=277,104\nSize=680,540\nCollapsed=0\nLastUsed=20260713\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=657,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1261,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=880,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n" },
-    { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
-    { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" }
+    {
+      "name": "Default",
+      "recipe": 0,
+      "open": [],
+      "ini": "[Window][Project]\nPos=0,19\nSize=657,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260713\n\n[Window][Properties]\nPos=1541,19\nSize=379,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260713\n\n[Window][Output]\nPos=659,753\nSize=880,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260713\n\n[Window][Debug]\nPos=659,753\nSize=880,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260713\n\n[Window][Flow Graph]\nPos=659,19\nSize=880,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260713\n\n[Window][Viewport]\nPos=659,19\nSize=880,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260713\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260713\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260713\n\n[Window][Project Preferences]\nPos=696,12\nSize=527,992\nCollapsed=0\nLastUsed=20260713\n\n[Window][UI Editor]\nPos=381,137\nSize=720,615\nCollapsed=0\nLastUsed=20260713\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260713\n\n[Window][Menu Editor]\nPos=277,104\nSize=680,540\nCollapsed=0\nLastUsed=20260713\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=657,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1261,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=880,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n"
+    },
+    {
+      "name": "Director",
+      "recipe": 1,
+      "open": [
+        "cutscene"
+      ],
+      "ini": ""
+    },
+    {
+      "name": "Material Designer",
+      "recipe": 2,
+      "open": [
+        "material"
+      ],
+      "ini": ""
+    }
   ]
 }

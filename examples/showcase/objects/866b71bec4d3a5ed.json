@@ -1,0 +1,1 @@
+{"id":"866b71bec4d3a5ed","name":"physics-orb-b","type":"sphere","position":[-10,9,-2],"rotation":[0,0,0],"scale":[0.8,0.8,0.8],"color":[0.2,0.8,1],"physics":true,"layer":"portal","physMass":0.8,"physBounce":0.72,"physFriction":0.12,"physTumble":true,"physSleep":3}

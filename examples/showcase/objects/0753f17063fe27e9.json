@@ -1,0 +1,1 @@
+{"id":"0753f17063fe27e9","name":"rooftop-portal-b","type":"portal","position":[14,8.5,15],"rotation":[0,-90,0],"scale":[2.4,3.6,1],"color":[0.15,0.8,1],"physics":false,"portal":{"target":"rooftop-portal-a","showTerrain":false,"teleportObjects":false,"viewAll":false,"objects":["tower-1-floor-3","tower-1-roof","police-cruiser","street-steam"]}}

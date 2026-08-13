@@ -1,67 +1,84 @@
-# Showcase
+# Showcase: Worlds Collide
 
-A larger example project that exercises most of the editor's feature set in one
-game. It's a checked-in TyraX project (like `script-demo`): open it in the
-editor, or build it headless with
+The flagship TyraX example is a three-act playable tour built to put the editor
+and the PS2 runtime under real pressure. It moves from a warm fantasy village,
+through an unstable portal laboratory, to a rain-soaked neon city. The project
+uses production-style CC0 art rather than placeholder geometry, but remains a
+normal checked-in TyraX project that can be opened and changed in the editor.
 
 ```powershell
 build\tyrax-editor.exe --build examples\showcase --run
 ```
 
-The source of truth is `showcase.tyra` + the authored assets under `res/` +
-the `terrain-*.heights` files. The generated game sources, `Makefile`, etc.
-are rewritten on every build (see `refreshGenerated` in `src/project.cpp`);
-`obj/`, `bin/`, `.res-baked/` and `*.history` are not checked in.
+## The tour
 
-## What it demonstrates
+1. **Elysian Village** opens with the `Dawn of Worlds` cinematic. Explore the
+   modular houses and market, cross the paired spatial portals, then use the
+   rift gateway to trigger `Rift Ignition` and enter the laboratory.
+2. **Rift Lab** combines animated creatures, patrol/chase navigation, physics
+   props, particles, floor/ceiling teleport portals and a live VU0 ray-traced
+   quantum mirror. Its bio, portal and reflection wings stream independently
+   so each expensive subsystem gets a clear hero moment. Use the city uplink
+   to continue.
+3. **Neon City** is the final stress scene: streamed city blocks, animated
+   traffic, a police-car cinematic, rooftop portals, rain, steam, neon point
+   lights and distant geometry culling.
 
-- **Large terrain with chunk streaming** — a 192×192 heightmapped valley
-  (`vale`) with rolling hills, plus a smaller `cavern` scene. The valley uses
-  `terrainViewDistance` (camera-ring terrain chunk streaming) so only the
-  terrain near the camera is resident — needed for smooth playback on real
-  PS2 hardware; the fog is tuned to hide the streaming edge.
-- **Streaming layers, loaded dynamically** — the `village` and `ruins`
-  districts start unloaded; two `Near Object` gates `Load Layer` the district
-  you approach and `Unload Layer` the other (GTA-style budget). The `forest`
-  and `weather` layers stay resident.
-- **Skeletal animation** — `res/models/wobbler.glb` is a cylinder skinned to a
-  5-joint chain with two looping clips (`Wiggle`, `Twist`). The build bakes it
-  into a `.tskl` skeletal model; several instances play it around the scenes.
-- **Level of detail** — object draw-distance culling on the trees/rocks,
-  animation LOD (`animLodDistance`) and baked mesh LOD (`meshLodDistance`) on
-  the animated models.
-- **Directional + point lights** — a warm golden-hour sun baked into the
-  terrain/vertex colours, plus point lights at the campfire, village lanterns,
-  ruins and cavern crystals.
-- **Particle effects** — fire and smoke at the campfire, camera-following
-  rain, sparks and ground fog in the ruins, fog and fireflies in the cavern.
-- **Fog** — GS distance fog tuned to the terrain scale, with a denser blue
-  override in the cavern.
-- **Post-processing & grading** — bloom + film grain, and two colour-grading
-  presets (`Golden Hour` outdoors, `Nightfall` switched on in the cavern).
-- **Extras** — a pause menu (Start), a HUD crosshair, a first-person player
-  with a toggleable flashlight, a save point + a save value (`orbs`) collected
-  from a usable relic, usable-object highlighting, a gradient sky dome,
-  ambient music and a spatial campfire sound, and a portal pair that switches
-  between the two scenes.
-- **Graphics options menu (menu toggles)** — press **Select** for a floating
-  menu with real **Toggle rows**: Fog / Grain / Bloom / Particles each show
-  their On/Off state right on the row (Cross or dpad left/right flips it).
-  Each toggle is bound to a save value (`gfx-*`); the flow graphs react
-  through *Value At Least* → *On Condition* → Set Fog / Set Bloom / Set Grain /
-  Set Particles, so you can trade effects for frame rate — and the states
-  persist in save slots and reapply on scene entry.
-- **On-screen text** — an `options-hint` HUD text ("SELECT: graphics options")
-  pops up on scene start via the *Show Text* flow node and auto-hides after 6
-  seconds (texts are baked to sprites at build; see Tools > UI Editor > Texts).
+Use the left stick and camera controls to explore. Press **Square** at a
+highlighted gateway, **Circle** to toggle the flashlight, and **Start** for the
+options menu. Cinematics are skippable.
 
-## Performance
+## Engine features on display
 
-Tuned to hold 50 FPS on real PS2 hardware, where GS fill-rate and EE geometry
-cost dominate (PCSX2's software renderer hides both). The levers: terrain
-**chunk streaming** (`terrainViewDistance`), a lean skeletal model + anim/mesh
-**LOD**, per-object **draw distance**, modest particle pools, and post-FX
-(bloom/grain) off by default. The on-screen **FPS + free-RAM overlay** is on
-(`buildProfile: debug`); combined with the Select options menu it lets you
-measure each effect's cost on hardware. For the clean look, set `buildProfile`
-to `release` and turn `showFps`/`showMemory` off in Preferences.
+- three scenes and five timeline cinematics with camera, object and effects
+  tracks;
+- same-scene spatial portals, object teleportation and scene-transition
+  gateways driven by flow graphs;
+- animated FBX creatures with animation/mesh LOD, navigation waypoints,
+  patrol graphs and player-sighting chase behaviour;
+- a VU0 per-pixel ray-traced mirror plus ambient occlusion and baked global
+  illumination;
+- streamed scene layers, heightmapped terrain, draw-distance budgets and static
+  batching;
+- directional, point and flickering dynamic lights, transition bloom, grading,
+  fog, rain, steam, fire, smoke and sparks;
+- physics bodies and graph-driven impulses;
+- HUD prompts, usable-object highlights, first-person controls, a flashlight,
+  pause/options menus, loading screen and performance overlays.
+
+The scenes deliberately use different colour, fog and grading profiles. This
+makes scene transitions read as complete acts rather than three variations of
+one test room.
+
+## Rebuilding the authored project
+
+`build-showcase.py` is the deterministic high-level authoring source for the
+115 objects, three heightmaps, sequences and graphs. It makes large structural
+changes reviewable and prevents hand-edited JSON drift. After changing it, run:
+
+```powershell
+python examples\showcase\build-showcase.py
+build\tyrax-editor.exe --refresh-gen examples\showcase
+```
+
+The checked-in source of truth is `showcase.tyra`, `objects/*.json`, authored
+assets under `res/`, the terrain height files and the explicit GI bake under
+`.res-baked/gi/`. Generated C++, baked `.tmdl`/`.tskl` model data, extracted FBX
+textures, `obj/`, `bin/` and history files are regenerated and ignored.
+
+## Asset sources and PS2 budgets
+
+All third-party art is CC0. The village and laboratory use Quaternius' Medieval
+Village MegaKit and Sci-Fi Essentials Kit. The city combines Kenney's Retro
+Urban Kit with GGBotNet's PSX Style Cars. See `THIRD-PARTY-NOTICES.txt` for the
+source links and license notes.
+
+Source textures were downsampled to 128 or 256 pixels and material paths were
+made project-relative. Blender's collapse decimator reduced the five heaviest
+static meshes and all three skinned creatures while preserving their UVs,
+materials, armatures and animation actions. The final animated meshes are 634,
+746 and 719 triangles. Already-low-poly assets were left untouched. The
+showcase keeps the PS2's memory and fill-rate limits visible instead of hiding
+them behind an emulator: layers stream by district or feature wing, far props
+are culled, skeletal updates have an LOD radius, particle pools are bounded,
+and the FPS/free-memory overlays are enabled in the debug profile.

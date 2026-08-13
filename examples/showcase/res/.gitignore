@@ -7,12 +7,16 @@
 
 # Baked animated-model output (.glb is the source; .tskl/.tanm + any extracted
 # textures are regenerated from it on every build).
-/models/*.tskl
-/models/*.tanm
+/models/**/*.tskl
+/models/**/*.tanm
 
 # Baked static-model output (the .obj next to it is the source;
 # regenerated on every build - docs/model-pipeline.md).
-/models/*.tmdl
+/models/**/*.tmdl
+
+# FBX textures extracted by the animation baker. Authored textures keep their
+# short T_*.png names; only these generated enemy sheets use this prefix.
+/models/scifi/Enemy_*_t_*.png
 
 # Baked credits page strips - regenerated on every build (docs/credits.md).
 # The images an Image block points at live in res/credits/ and stay checked in.

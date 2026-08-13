@@ -1,0 +1,1 @@
+{"id":"b053669d8c5a513e","name":"neon-light-2","type":"point-light","position":[10,5,10],"rotation":[0,0,0],"scale":[0.35,0.35,0.35],"color":[0.1,0.8,1],"physics":false,"layer":"east","light":{"brightness":1.45,"radius":9,"dynamic":true,"flicker":0.12,"beam":2}}

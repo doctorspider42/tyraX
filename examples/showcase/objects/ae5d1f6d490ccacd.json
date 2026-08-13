@@ -1,0 +1,1 @@
+{"id":"ae5d1f6d490ccacd","name":"house-1-lamp","type":"point-light","position":[-18,2.4,-6],"rotation":[0,0,0],"scale":[0.35,0.35,0.35],"color":[1,0.55,0.2],"physics":false,"layer":"ridge","light":{"brightness":0.8,"radius":8,"dynamic":true,"flicker":0.25,"beam":2}}
