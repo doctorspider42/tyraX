@@ -3385,6 +3385,45 @@ twice with the same signature. Per `docs/ps2link-setup.md` that class is marked 
 either the flashed card predates r6 or this is new; the banner could not be captured to tell. **It
 needs the console's physical Reset button**, and the scene runs on hardware are owed after that.
 
+### Four facts carried out of the retired clipping plan
+
+`docs/vu1-clipping-plan.md` was deleted as an obsolete design document, which it was —
+the work it planned has landed. Four things in it were not obsolete, three of them
+measurements that cannot be re-derived without redoing the benchmark, so they are
+recorded here rather than left in `git log --diff-filter=D -- docs/vu1-clipping-plan.md`.
+
+**The EE clipper's cost, measured on a real PS2** (2026-07-11; fresh `fpp` project,
+128x128 terrain at detail 128, ~98k verts, sky dome, FPP camera auto-spinning; COP0
+timers around `clipper.clip()`, 4 runs of ~2400 frames):
+
+| mode | vsync | frame avg | `clipper.clip` EE | packages clip+cull |
+|---|---|---|---|---|
+| precise | on | 40.0 ms (25 FPS) | 8.6-9.8 ms (max 11.6) | 181 + 175 |
+| fast | on | 40.0 ms (25 FPS) | 0.4 ms (sky dome only) | 6 + 841 |
+| precise | off | 33.8 ms (~30 FPS) | 9.4 ms | ~356 |
+| fast | off | 27.2 ms (~37 FPS) | 0.4 ms | 847 |
+
+The frame was **100% EE-bound** (endFrame 0.5 ms with vsync off, GS and VU1 idle), and
+the clipper cost **~1.3 us / ~380 cycles per vertex** of a frustum-crossing package with
+~52% of surviving packages crossing. And the line that matters most for anything measured
+here: **PCSX2 undercounts the clip cost by 15-20% — confirm on hardware.**
+
+**PCSX2 masks two whole classes of defect.** The HW renderer hides GS raster-window wrap
+and the ADC-bit corruption whose signature is *stray smeared triangles at screen edges* —
+judge those on the software renderer or on a console. That warning was in the retired
+document before this migration started, and §17 is what it costs to walk past it. Note
+what the software renderer does **not** buy: a VU1 *timing* hazard is invisible under
+every renderer, because PCSX2's VU does not model the hazard at all.
+
+**Prior art on register pressure, which this effort re-earned.** Three guard-band attempts
+in the *cull* programs — an I-register scale, a STATUS-flag `w` test, and a DIV/Q constant —
+**all** corrupted ADC bits under the assembler's register allocation. The document's advice
+was to budget for fights with the register allocator, and defects 2, 3, 11, 13 and 16 of
+this migration are all that same minefield.
+
+**And one build trap:** `vclpp` chokes on CRLF, which is why `.gitattributes` enforces LF
+under `vendor/tyra`.
+
 ### The regression suite
 
 The nine reproducers lived in a scratch directory and were checked by hand. They are now
