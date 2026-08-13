@@ -1,0 +1,1 @@
+{ "id": "561d9175cc6052c3", "name": "market-tavern-lamp", "type": "point-light", "position": [16.5, 2.8, 11.7], "rotation": [0, 0, 0], "scale": [0.35, 0.35, 0.35], "color": [1, 0.55, 0.2], "physics": false, "light": { "brightness": 0.8, "radius": 8, "dynamic": true, "flicker": 0.25, "beam": 2 } }

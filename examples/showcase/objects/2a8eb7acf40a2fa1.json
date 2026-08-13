@@ -1,0 +1,1 @@
+{ "id": "2a8eb7acf40a2fa1", "name": "village-cottage-5", "type": "model", "position": [-8, -1.36825, -24], "rotation": [0, -4.99999, 0], "scale": [1.18, 1.18, 1.18], "color": [1, 1, 1], "physics": false, "model": "res/models/modular-village/village-cottage.obj", "meshLod": 10 }

@@ -1,1 +1,0 @@
-{ "id": "0279a23319d75a2b", "name": "campfire-smoke", "type": "emitter", "position": [-6, 1.1788, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.35, 0.34, 0.33], "physics": false, "emitter": { "kind": "smoke", "count": 26, "size": 0.8, "enabled": true, "followPlayer": false } }

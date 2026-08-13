@@ -7,6 +7,7 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
+#include "scripts/navigation.gen.hpp"  // AI nodes (Patrol/Chase/Flee/On Player Seen)
 #include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 #include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
@@ -16,6 +17,30 @@
 #include <string>
 
 namespace Showcase {
+
+// Text-plane helpers (Convert nodes / Get Save Value)
+static inline std::string flowNumText(float v) {
+  char b[32];
+  snprintf(b, sizeof(b), "%g", (double)v);
+  return std::string(b);
+}
+static inline std::string flowPosText(float x, float y, float z) {
+  char b[64];
+  snprintf(b, sizeof(b), "(%g, %g, %g)", (double)x, (double)y, (double)z);
+  return std::string(b);
+}
+
+// Display Text: copy a runtime string into its slot's buffer
+// (silently truncated - the slot is a fixed DYN_TEXT_LEN).
+static inline void flowSetDynText(ScriptContext& ctx, int slot,
+                                  const std::string& s) {
+  if (!ctx.dynTextBuf || slot < 0 || slot >= ctx.dynTextCount) return;
+  char* dst = ctx.dynTextBuf + slot * ctx.dynTextLen;
+  int n = (int)s.size();
+  if (n > ctx.dynTextLen - 1) n = ctx.dynTextLen - 1;
+  for (int i = 0; i < n; ++i) dst[i] = s[i];
+  dst[n] = '\0';
+}
 
 // World Facts (docs/world-facts.md): the declared state of
 // the game world. One float array for every scalar fact, one
@@ -86,11 +111,11 @@ void factProfileRestore(const FactSaveRow* rows, int count) {
 bool factProfileDirty() {
   return false;
 }
-class FlowGraphScript_0_0;
-FlowGraphScript_0_0* g_time_FlowGraphScript_0_0 = nullptr;
+class FlowGraphScript_0_1;
+FlowGraphScript_0_1* g_time_FlowGraphScript_0_1 = nullptr;
 
-// Scene "vale": graph of "player" (object 0)
-class FlowGraphScript_0_0 : public Script {
+// Scene "elysian-village": graph of "village-director" (object 1)
+class FlowGraphScript_0_1 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -99,679 +124,217 @@ class FlowGraphScript_0_0 : public Script {
     if (livedbg::halted()) return;
     // Live Logic: while the editor has a patch for this graph, the
     // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 0)) return;
+    if (livelogic::patched(0, 1)) return;
     if (ctx.sceneGeneration != generation) {
       // scene was (re)loaded - back to the initial state
       generation = ctx.sceneGeneration;
       frame = 0;
       started = false;
-      cond10 = false;
-      cond13 = false;
-      cond16 = false;
-      cond19 = false;
-      cond22 = false;
-      cond25 = false;
-      cond28 = false;
-      cond31 = false;
+      seqRun3 = 0;
     }
     frame++;
+    if (seqRun3 > 0 && sequences::finished(seqRun3)) {
+      seqRun3 = 0;
+    }
+    if (ctx.dynTextOn && ctx.dynTextOn[0])
+      flowSetDynText(ctx, 0, std::string("ACT I  /  ELYSIAN VILLAGE"));
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
       livedbg::hit(1);
-      applySceneGrading(ctx.engine, 0);  // "Golden Hour"
-      livedbg::hit(2);
-      ctx.textRequest[0] = 1;  // "options-hint"
-      ctx.textDuration[0] = 6.0F;
-      livedbg::hit(3);
-      {
-        auto& song = ctx.engine->audio.song;
-        song.stop();
-        song.load(Tyra::FileUtils::fromCwd("audio/ambient.wav"));
-        song.inLoop = true;
-        song.setVolume(85);
-        song.play();
+      {  // Sequence output 1
+        livedbg::hit(2);
+        seqRun3 = sequences::play(0);  // "Dawn of Worlds"
+      }
+      {  // Sequence output 2
+        livedbg::hit(3);
+        applySceneGrading(ctx.engine, 0);  // "Elysian"
+      }
+      {  // Sequence output 3
+        livedbg::hit(4);
+        ctx.dynTextRequest[0] = 1;
+        ctx.dynTextDuration[0] = 5.0F;
+        flowSetDynText(ctx, 0, std::string("ACT I  /  ELYSIAN VILLAGE"));
       }
     }
     if (!started) {
       started = true;
       livedbg::hit(0);
       livedbg::hit(1);
-      applySceneGrading(ctx.engine, 0);  // "Golden Hour"
-      livedbg::hit(2);
-      ctx.textRequest[0] = 1;  // "options-hint"
-      ctx.textDuration[0] = 6.0F;
-      livedbg::hit(3);
-      {
-        auto& song = ctx.engine->audio.song;
-        song.stop();
-        song.load(Tyra::FileUtils::fromCwd("audio/ambient.wav"));
-        song.inLoop = true;
-        song.setVolume(85);
-        song.play();
+      {  // Sequence output 1
+        livedbg::hit(2);
+        seqRun3 = sequences::play(0);  // "Dawn of Worlds"
+      }
+      {  // Sequence output 2
+        livedbg::hit(3);
+        applySceneGrading(ctx.engine, 0);  // "Elysian"
+      }
+      {  // Sequence output 3
+        livedbg::hit(4);
+        ctx.dynTextRequest[0] = 1;
+        ctx.dynTextDuration[0] = 5.0F;
+        flowSetDynText(ctx, 0, std::string("ACT I  /  ELYSIAN VILLAGE"));
       }
     }
-    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
-      livedbg::hit(4);
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_1() { g_time_FlowGraphScript_0_1 = this; }
+  static const unsigned int kTimeBytes = 9;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &seqRun3, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&seqRun3, p + 5, 4);
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int seqRun3 = 0;
+};
+class FlowGraphScript_0_3;
+FlowGraphScript_0_3* g_time_FlowGraphScript_0_3 = nullptr;
+
+// Scene "elysian-village": graph of "rift-core" (object 3)
+class FlowGraphScript_0_3 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 3)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(5)) {  // Live Debugger: fired from the editor
       livedbg::hit(5);
-      ctx.openMenu = 1;  // "options"
-    }
-    if (ctx.engine->pad.getClicked().Select) {
-      livedbg::hit(4);
-      livedbg::hit(5);
-      ctx.openMenu = 1;  // "options"
-    }
-    if (livedbg::forced(6)) {  // Live Debugger: fired from the editor
       livedbg::hit(6);
-      livedbg::hit(7);
-      ctx.fog = 1;
-    }
-    {
-      const bool c = ((ctx.saveValues[1] >= 1.0F));
-      if (c && !cond10) {
-      livedbg::hit(6);
-      livedbg::hit(7);
-      ctx.fog = 1;
-      }
-      cond10 = c;
-    }
-    if (livedbg::forced(8)) {  // Live Debugger: fired from the editor
-      livedbg::hit(8);
-      livedbg::hit(9);
-      ctx.fog = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[1] >= 1.0F))));
-      if (c && !cond13) {
-      livedbg::hit(8);
-      livedbg::hit(9);
-      ctx.fog = 0;
-      }
-      cond13 = c;
-    }
-    if (livedbg::forced(10)) {  // Live Debugger: fired from the editor
-      livedbg::hit(10);
-      livedbg::hit(11);
-      ctx.grain = 18;
-    }
-    {
-      const bool c = ((ctx.saveValues[2] >= 1.0F));
-      if (c && !cond16) {
-      livedbg::hit(10);
-      livedbg::hit(11);
-      ctx.grain = 18;
-      }
-      cond16 = c;
-    }
-    if (livedbg::forced(12)) {  // Live Debugger: fired from the editor
-      livedbg::hit(12);
-      livedbg::hit(13);
-      ctx.grain = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[2] >= 1.0F))));
-      if (c && !cond19) {
-      livedbg::hit(12);
-      livedbg::hit(13);
-      ctx.grain = 0;
-      }
-      cond19 = c;
-    }
-    if (livedbg::forced(14)) {  // Live Debugger: fired from the editor
-      livedbg::hit(14);
-      livedbg::hit(15);
-      ctx.bloom = 45;
-    }
-    {
-      const bool c = ((ctx.saveValues[3] >= 1.0F));
-      if (c && !cond22) {
-      livedbg::hit(14);
-      livedbg::hit(15);
-      ctx.bloom = 45;
-      }
-      cond22 = c;
-    }
-    if (livedbg::forced(16)) {  // Live Debugger: fired from the editor
-      livedbg::hit(16);
-      livedbg::hit(17);
-      ctx.bloom = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[3] >= 1.0F))));
-      if (c && !cond25) {
-      livedbg::hit(16);
-      livedbg::hit(17);
-      ctx.bloom = 0;
-      }
-      cond25 = c;
-    }
-    if (livedbg::forced(18)) {  // Live Debugger: fired from the editor
-      livedbg::hit(18);
-      livedbg::hit(19);
-      ctx.particles = 1;
-    }
-    {
-      const bool c = ((ctx.saveValues[4] >= 1.0F));
-      if (c && !cond28) {
-      livedbg::hit(18);
-      livedbg::hit(19);
-      ctx.particles = 1;
-      }
-      cond28 = c;
-    }
-    if (livedbg::forced(20)) {  // Live Debugger: fired from the editor
-      livedbg::hit(20);
-      livedbg::hit(21);
-      ctx.particles = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[4] >= 1.0F))));
-      if (c && !cond31) {
-      livedbg::hit(20);
-      livedbg::hit(21);
-      ctx.particles = 0;
-      }
-      cond31 = c;
-    }
-  }
-
- public:
-  // Time machine (docs/time-machine.md): this graph's own
-  // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_0() { g_time_FlowGraphScript_0_0 = this; }
-  static const unsigned int kTimeBytes = 13;
-  void timeCapture(unsigned char* p) const {
-    memcpy(p + 0, &frame, 4);
-    p[4] = started ? 1 : 0;
-    p[5] = cond10 ? 1 : 0;
-    p[6] = cond13 ? 1 : 0;
-    p[7] = cond16 ? 1 : 0;
-    p[8] = cond19 ? 1 : 0;
-    p[9] = cond22 ? 1 : 0;
-    p[10] = cond25 ? 1 : 0;
-    p[11] = cond28 ? 1 : 0;
-    p[12] = cond31 ? 1 : 0;
-  }
-  void timeRestore(const unsigned char* p) {
-    memcpy(&frame, p + 0, 4);
-    started = p[4] != 0;
-    cond10 = p[5] != 0;
-    cond13 = p[6] != 0;
-    cond16 = p[7] != 0;
-    cond19 = p[8] != 0;
-    cond22 = p[9] != 0;
-    cond25 = p[10] != 0;
-    cond28 = p[11] != 0;
-    cond31 = p[12] != 0;
-  }
-
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-  bool cond10 = false;
-  bool cond13 = false;
-  bool cond16 = false;
-  bool cond19 = false;
-  bool cond22 = false;
-  bool cond25 = false;
-  bool cond28 = false;
-  bool cond31 = false;
-};
-class FlowGraphScript_0_7;
-FlowGraphScript_0_7* g_time_FlowGraphScript_0_7 = nullptr;
-
-// Scene "vale": graph of "portal-to-cavern" (object 7)
-class FlowGraphScript_0_7 : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
-    // Live Logic: while the editor has a patch for this graph, the
-    // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 7)) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-    }
-    frame++;
-    if (livedbg::forced(22)) {  // Live Debugger: fired from the editor
-      livedbg::hit(22);
-      livedbg::hit(23);
-      ctx.requestScene = 1;  // "cavern"
-    }
-    if (ctx.usedObject == 7) {
-      livedbg::hit(22);
-      livedbg::hit(23);
-      ctx.requestScene = 1;  // "cavern"
-    }
-  }
-
- public:
-  // Time machine (docs/time-machine.md): this graph's own
-  // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_7() { g_time_FlowGraphScript_0_7 = this; }
-  static const unsigned int kTimeBytes = 5;
-  void timeCapture(unsigned char* p) const {
-    memcpy(p + 0, &frame, 4);
-    p[4] = started ? 1 : 0;
-  }
-  void timeRestore(const unsigned char* p) {
-    memcpy(&frame, p + 0, 4);
-    started = p[4] != 0;
-  }
-
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-};
-class FlowGraphScript_0_9;
-FlowGraphScript_0_9* g_time_FlowGraphScript_0_9 = nullptr;
-
-// Scene "vale": graph of "gate-village" (object 9)
-class FlowGraphScript_0_9 : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
-    // Live Logic: while the editor has a patch for this graph, the
-    // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 9)) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-      near1 = false;
-    }
-    frame++;
-    if (livedbg::forced(24)) {  // Live Debugger: fired from the editor
-      livedbg::hit(24);
-      livedbg::hit(25);
-      if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 1;  // "village"
-      livedbg::hit(26);
-      if (ctx.layerRequest && 2 < ctx.layerCount) ctx.layerRequest[2] = 0;  // "ruins"
-    }
-    {
-      const float dx = ctx.playerPosition.x - ctx.objects[9].data.position[0];
-      const float dz = ctx.playerPosition.z - ctx.objects[9].data.position[2];
-      const bool isNear = dx * dx + dz * dz < 2116.0F;
-      if (isNear && !near1) {
-      livedbg::hit(24);
-      livedbg::hit(25);
-      if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 1;  // "village"
-      livedbg::hit(26);
-      if (ctx.layerRequest && 2 < ctx.layerCount) ctx.layerRequest[2] = 0;  // "ruins"
-      }
-      near1 = isNear;
-    }
-  }
-
- public:
-  // Time machine (docs/time-machine.md): this graph's own
-  // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_9() { g_time_FlowGraphScript_0_9 = this; }
-  static const unsigned int kTimeBytes = 6;
-  void timeCapture(unsigned char* p) const {
-    memcpy(p + 0, &frame, 4);
-    p[4] = started ? 1 : 0;
-    p[5] = near1 ? 1 : 0;
-  }
-  void timeRestore(const unsigned char* p) {
-    memcpy(&frame, p + 0, 4);
-    started = p[4] != 0;
-    near1 = p[5] != 0;
-  }
-
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-  bool near1 = false;
-};
-class FlowGraphScript_0_10;
-FlowGraphScript_0_10* g_time_FlowGraphScript_0_10 = nullptr;
-
-// Scene "vale": graph of "gate-ruins" (object 10)
-class FlowGraphScript_0_10 : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
-    // Live Logic: while the editor has a patch for this graph, the
-    // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 10)) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-      near1 = false;
-    }
-    frame++;
-    if (livedbg::forced(27)) {  // Live Debugger: fired from the editor
-      livedbg::hit(27);
-      livedbg::hit(28);
-      if (ctx.layerRequest && 2 < ctx.layerCount) ctx.layerRequest[2] = 1;  // "ruins"
-      livedbg::hit(29);
-      if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 0;  // "village"
-    }
-    {
-      const float dx = ctx.playerPosition.x - ctx.objects[10].data.position[0];
-      const float dz = ctx.playerPosition.z - ctx.objects[10].data.position[2];
-      const bool isNear = dx * dx + dz * dz < 2116.0F;
-      if (isNear && !near1) {
-      livedbg::hit(27);
-      livedbg::hit(28);
-      if (ctx.layerRequest && 2 < ctx.layerCount) ctx.layerRequest[2] = 1;  // "ruins"
-      livedbg::hit(29);
-      if (ctx.layerRequest && 1 < ctx.layerCount) ctx.layerRequest[1] = 0;  // "village"
-      }
-      near1 = isNear;
-    }
-  }
-
- public:
-  // Time machine (docs/time-machine.md): this graph's own
-  // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_10() { g_time_FlowGraphScript_0_10 = this; }
-  static const unsigned int kTimeBytes = 6;
-  void timeCapture(unsigned char* p) const {
-    memcpy(p + 0, &frame, 4);
-    p[4] = started ? 1 : 0;
-    p[5] = near1 ? 1 : 0;
-  }
-  void timeRestore(const unsigned char* p) {
-    memcpy(&frame, p + 0, 4);
-    started = p[4] != 0;
-    near1 = p[5] != 0;
-  }
-
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-  bool near1 = false;
-};
-class FlowGraphScript_0_59;
-FlowGraphScript_0_59* g_time_FlowGraphScript_0_59 = nullptr;
-
-// Scene "vale": graph of "relic-orb" (object 59)
-class FlowGraphScript_0_59 : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 0) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
-    // Live Logic: while the editor has a patch for this graph, the
-    // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(0, 59)) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-    }
-    frame++;
-    if (livedbg::forced(30)) {  // Live Debugger: fired from the editor
-      livedbg::hit(30);
-      livedbg::hit(31);
-      ctx.saveValues[0] += 1.0F;  // "orbs"
-      livedbg::hit(32);
-      ctx.objects[59].visible = false;
-    }
-    if (ctx.usedObject == 59) {
-      livedbg::hit(30);
-      livedbg::hit(31);
-      ctx.saveValues[0] += 1.0F;  // "orbs"
-      livedbg::hit(32);
-      ctx.objects[59].visible = false;
-    }
-  }
-
- public:
-  // Time machine (docs/time-machine.md): this graph's own
-  // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_0_59() { g_time_FlowGraphScript_0_59 = this; }
-  static const unsigned int kTimeBytes = 5;
-  void timeCapture(unsigned char* p) const {
-    memcpy(p + 0, &frame, 4);
-    p[4] = started ? 1 : 0;
-  }
-  void timeRestore(const unsigned char* p) {
-    memcpy(&frame, p + 0, 4);
-    started = p[4] != 0;
-  }
-
- private:
-  unsigned int generation = 0;
-  int frame = 0;
-  bool started = false;
-};
-class FlowGraphScript_1_0;
-FlowGraphScript_1_0* g_time_FlowGraphScript_1_0 = nullptr;
-
-// Scene "cavern": graph of "player" (object 0)
-class FlowGraphScript_1_0 : public Script {
- public:
-  void update(ScriptContext& ctx) override {
-    if (ctx.scene != 1) return;
-    // Live Debugger: nothing in this graph advances while the game is
-    // stopped at a breakpoint (the loop's own pause covers the rest).
-    if (livedbg::halted()) return;
-    // Live Logic: while the editor has a patch for this graph, the
-    // interpreter runs it instead of this compiled copy.
-    if (livelogic::patched(1, 0)) return;
-    if (ctx.sceneGeneration != generation) {
-      // scene was (re)loaded - back to the initial state
-      generation = ctx.sceneGeneration;
-      frame = 0;
-      started = false;
-      cond10 = false;
-      cond13 = false;
-      cond16 = false;
-      cond19 = false;
-      cond22 = false;
-      cond25 = false;
-      cond28 = false;
-      cond31 = false;
-    }
-    frame++;
-    if (livedbg::forced(33)) {  // Live Debugger: fired from the editor
-      livedbg::hit(33);
-      livedbg::hit(34);
-      applySceneGrading(ctx.engine, 1);  // "Nightfall"
-      livedbg::hit(35);
-      ctx.flashlight = 1;
+      ctx.objects[3].spinRate[0] = 0.0F;
+      ctx.objects[3].spinRate[1] = 55.0F;
+      ctx.objects[3].spinRate[2] = 0.0F;
     }
     if (!started) {
       started = true;
-      livedbg::hit(33);
-      livedbg::hit(34);
-      applySceneGrading(ctx.engine, 1);  // "Nightfall"
-      livedbg::hit(35);
-      ctx.flashlight = 1;
-    }
-    if (livedbg::forced(36)) {  // Live Debugger: fired from the editor
-      livedbg::hit(36);
-      livedbg::hit(37);
-      ctx.openMenu = 1;  // "options"
-    }
-    if (ctx.engine->pad.getClicked().Select) {
-      livedbg::hit(36);
-      livedbg::hit(37);
-      ctx.openMenu = 1;  // "options"
-    }
-    if (livedbg::forced(38)) {  // Live Debugger: fired from the editor
-      livedbg::hit(38);
-      livedbg::hit(39);
-      ctx.fog = 1;
-    }
-    {
-      const bool c = ((ctx.saveValues[1] >= 1.0F));
-      if (c && !cond10) {
-      livedbg::hit(38);
-      livedbg::hit(39);
-      ctx.fog = 1;
-      }
-      cond10 = c;
-    }
-    if (livedbg::forced(40)) {  // Live Debugger: fired from the editor
-      livedbg::hit(40);
-      livedbg::hit(41);
-      ctx.fog = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[1] >= 1.0F))));
-      if (c && !cond13) {
-      livedbg::hit(40);
-      livedbg::hit(41);
-      ctx.fog = 0;
-      }
-      cond13 = c;
-    }
-    if (livedbg::forced(42)) {  // Live Debugger: fired from the editor
-      livedbg::hit(42);
-      livedbg::hit(43);
-      ctx.grain = 18;
-    }
-    {
-      const bool c = ((ctx.saveValues[2] >= 1.0F));
-      if (c && !cond16) {
-      livedbg::hit(42);
-      livedbg::hit(43);
-      ctx.grain = 18;
-      }
-      cond16 = c;
-    }
-    if (livedbg::forced(44)) {  // Live Debugger: fired from the editor
-      livedbg::hit(44);
-      livedbg::hit(45);
-      ctx.grain = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[2] >= 1.0F))));
-      if (c && !cond19) {
-      livedbg::hit(44);
-      livedbg::hit(45);
-      ctx.grain = 0;
-      }
-      cond19 = c;
-    }
-    if (livedbg::forced(46)) {  // Live Debugger: fired from the editor
-      livedbg::hit(46);
-      livedbg::hit(47);
-      ctx.bloom = 45;
-    }
-    {
-      const bool c = ((ctx.saveValues[3] >= 1.0F));
-      if (c && !cond22) {
-      livedbg::hit(46);
-      livedbg::hit(47);
-      ctx.bloom = 45;
-      }
-      cond22 = c;
-    }
-    if (livedbg::forced(48)) {  // Live Debugger: fired from the editor
-      livedbg::hit(48);
-      livedbg::hit(49);
-      ctx.bloom = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[3] >= 1.0F))));
-      if (c && !cond25) {
-      livedbg::hit(48);
-      livedbg::hit(49);
-      ctx.bloom = 0;
-      }
-      cond25 = c;
-    }
-    if (livedbg::forced(50)) {  // Live Debugger: fired from the editor
-      livedbg::hit(50);
-      livedbg::hit(51);
-      ctx.particles = 1;
-    }
-    {
-      const bool c = ((ctx.saveValues[4] >= 1.0F));
-      if (c && !cond28) {
-      livedbg::hit(50);
-      livedbg::hit(51);
-      ctx.particles = 1;
-      }
-      cond28 = c;
-    }
-    if (livedbg::forced(52)) {  // Live Debugger: fired from the editor
-      livedbg::hit(52);
-      livedbg::hit(53);
-      ctx.particles = 0;
-    }
-    {
-      const bool c = ((!((ctx.saveValues[4] >= 1.0F))));
-      if (c && !cond31) {
-      livedbg::hit(52);
-      livedbg::hit(53);
-      ctx.particles = 0;
-      }
-      cond31 = c;
+      livedbg::hit(5);
+      livedbg::hit(6);
+      ctx.objects[3].spinRate[0] = 0.0F;
+      ctx.objects[3].spinRate[1] = 55.0F;
+      ctx.objects[3].spinRate[2] = 0.0F;
     }
   }
 
  public:
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
-  FlowGraphScript_1_0() { g_time_FlowGraphScript_1_0 = this; }
-  static const unsigned int kTimeBytes = 13;
+  FlowGraphScript_0_3() { g_time_FlowGraphScript_0_3 = this; }
+  static const unsigned int kTimeBytes = 5;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
     p[4] = started ? 1 : 0;
-    p[5] = cond10 ? 1 : 0;
-    p[6] = cond13 ? 1 : 0;
-    p[7] = cond16 ? 1 : 0;
-    p[8] = cond19 ? 1 : 0;
-    p[9] = cond22 ? 1 : 0;
-    p[10] = cond25 ? 1 : 0;
-    p[11] = cond28 ? 1 : 0;
-    p[12] = cond31 ? 1 : 0;
   }
   void timeRestore(const unsigned char* p) {
     memcpy(&frame, p + 0, 4);
     started = p[4] != 0;
-    cond10 = p[5] != 0;
-    cond13 = p[6] != 0;
-    cond16 = p[7] != 0;
-    cond19 = p[8] != 0;
-    cond22 = p[9] != 0;
-    cond25 = p[10] != 0;
-    cond28 = p[11] != 0;
-    cond31 = p[12] != 0;
   }
 
  private:
   unsigned int generation = 0;
   int frame = 0;
   bool started = false;
-  bool cond10 = false;
-  bool cond13 = false;
-  bool cond16 = false;
-  bool cond19 = false;
-  bool cond22 = false;
-  bool cond25 = false;
-  bool cond28 = false;
-  bool cond31 = false;
+};
+class FlowGraphScript_0_4;
+FlowGraphScript_0_4* g_time_FlowGraphScript_0_4 = nullptr;
+
+// Scene "elysian-village": graph of "rift-console" (object 4)
+class FlowGraphScript_0_4 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(0, 4)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      seqRun3 = 0;
+    }
+    frame++;
+    if (seqRun3 > 0 && sequences::finished(seqRun3)) {
+      seqRun3 = 0;
+      livedbg::hit(11);
+      ctx.requestScene = 1;  // "rift-lab"
+    }
+    if (livedbg::forced(7)) {  // Live Debugger: fired from the editor
+      livedbg::hit(7);
+      livedbg::hit(8);
+      {  // Sequence output 1
+        livedbg::hit(9);
+        seqRun3 = sequences::play(1);  // "Rift Ignition"
+      }
+      {  // Sequence output 2
+        livedbg::hit(10);
+        ctx.bloom = 102;
+      }
+    }
+    if (ctx.usedObject == 4) {
+      livedbg::hit(7);
+      livedbg::hit(8);
+      {  // Sequence output 1
+        livedbg::hit(9);
+        seqRun3 = sequences::play(1);  // "Rift Ignition"
+      }
+      {  // Sequence output 2
+        livedbg::hit(10);
+        ctx.bloom = 102;
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_0_4() { g_time_FlowGraphScript_0_4 = this; }
+  static const unsigned int kTimeBytes = 9;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &seqRun3, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&seqRun3, p + 5, 4);
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int seqRun3 = 0;
 };
 class FlowGraphScript_1_1;
 FlowGraphScript_1_1* g_time_FlowGraphScript_1_1 = nullptr;
 
-// Scene "cavern": graph of "portal-to-vale" (object 1)
+// Scene "rift-lab": graph of "lab-director" (object 1)
 class FlowGraphScript_1_1 : public Script {
  public:
   void update(ScriptContext& ctx) override {
@@ -787,17 +350,50 @@ class FlowGraphScript_1_1 : public Script {
       generation = ctx.sceneGeneration;
       frame = 0;
       started = false;
+      seqRun3 = 0;
     }
     frame++;
-    if (livedbg::forced(54)) {  // Live Debugger: fired from the editor
-      livedbg::hit(54);
-      livedbg::hit(55);
-      ctx.requestScene = 0;  // "vale"
+    if (seqRun3 > 0 && sequences::finished(seqRun3)) {
+      seqRun3 = 0;
     }
-    if (ctx.usedObject == 1) {
-      livedbg::hit(54);
-      livedbg::hit(55);
-      ctx.requestScene = 0;  // "vale"
+    if (ctx.dynTextOn && ctx.dynTextOn[1])
+      flowSetDynText(ctx, 1, std::string("ACT II  /  RIFT LABORATORY"));
+    if (livedbg::forced(12)) {  // Live Debugger: fired from the editor
+      livedbg::hit(12);
+      livedbg::hit(13);
+      {  // Sequence output 1
+        livedbg::hit(14);
+        seqRun3 = sequences::play(2);  // "Portal Breach"
+      }
+      {  // Sequence output 2
+        livedbg::hit(15);
+        applySceneGrading(ctx.engine, 1);  // "Rift Lab"
+      }
+      {  // Sequence output 3
+        livedbg::hit(16);
+        ctx.dynTextRequest[1] = 1;
+        ctx.dynTextDuration[1] = 5.0F;
+        flowSetDynText(ctx, 1, std::string("ACT II  /  RIFT LABORATORY"));
+      }
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(12);
+      livedbg::hit(13);
+      {  // Sequence output 1
+        livedbg::hit(14);
+        seqRun3 = sequences::play(2);  // "Portal Breach"
+      }
+      {  // Sequence output 2
+        livedbg::hit(15);
+        applySceneGrading(ctx.engine, 1);  // "Rift Lab"
+      }
+      {  // Sequence output 3
+        livedbg::hit(16);
+        ctx.dynTextRequest[1] = 1;
+        ctx.dynTextDuration[1] = 5.0F;
+        flowSetDynText(ctx, 1, std::string("ACT II  /  RIFT LABORATORY"));
+      }
     }
   }
 
@@ -805,6 +401,477 @@ class FlowGraphScript_1_1 : public Script {
   // Time machine (docs/time-machine.md): this graph's own
   // state - armed Delays, edge latches, latched outputs.
   FlowGraphScript_1_1() { g_time_FlowGraphScript_1_1 = this; }
+  static const unsigned int kTimeBytes = 9;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &seqRun3, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&seqRun3, p + 5, 4);
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int seqRun3 = 0;
+};
+class FlowGraphScript_1_9;
+FlowGraphScript_1_9* g_time_FlowGraphScript_1_9 = nullptr;
+
+// Scene "rift-lab": graph of "city-uplink" (object 9)
+class FlowGraphScript_1_9 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 9)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      seqRun3 = 0;
+    }
+    frame++;
+    if (seqRun3 > 0 && sequences::finished(seqRun3)) {
+      seqRun3 = 0;
+      livedbg::hit(21);
+      ctx.requestScene = 2;  // "neon-city"
+    }
+    if (livedbg::forced(17)) {  // Live Debugger: fired from the editor
+      livedbg::hit(17);
+      livedbg::hit(18);
+      {  // Sequence output 1
+        livedbg::hit(19);
+        seqRun3 = sequences::play(3);  // "City Uplink"
+      }
+      {  // Sequence output 2
+        livedbg::hit(20);
+        ctx.bloom = 102;
+      }
+    }
+    if (ctx.usedObject == 9) {
+      livedbg::hit(17);
+      livedbg::hit(18);
+      {  // Sequence output 1
+        livedbg::hit(19);
+        seqRun3 = sequences::play(3);  // "City Uplink"
+      }
+      {  // Sequence output 2
+        livedbg::hit(20);
+        ctx.bloom = 102;
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_9() { g_time_FlowGraphScript_1_9 = this; }
+  static const unsigned int kTimeBytes = 9;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &seqRun3, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&seqRun3, p + 5, 4);
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int seqRun3 = 0;
+};
+class FlowGraphScript_1_13;
+FlowGraphScript_1_13* g_time_FlowGraphScript_1_13 = nullptr;
+
+// Scene "rift-lab": graph of "quad-shell" (object 13)
+class FlowGraphScript_1_13 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 13)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      seen3 = false;
+    }
+    frame++;
+    if (livedbg::forced(22)) {  // Live Debugger: fired from the editor
+      livedbg::hit(22);
+      livedbg::hit(23);
+      // node 2 (PatrolWaypoints): no objects named 'lab-wp-1<n>'
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(22);
+      livedbg::hit(23);
+      // node 2 (PatrolWaypoints): no objects named 'lab-wp-1<n>'
+    }
+    if (livedbg::forced(24)) {  // Live Debugger: fired from the editor
+      livedbg::hit(24);
+      livedbg::hit(25);
+      navChase(ctx, 13, 3.2F, 1.4F, 28.0F);
+    }
+    {
+      const bool isSeen = navPlayerSeen(ctx, 13, 16.0F, 120.0F, 1);
+      if (isSeen && !seen3) {
+      livedbg::hit(24);
+      livedbg::hit(25);
+      navChase(ctx, 13, 3.2F, 1.4F, 28.0F);
+      }
+      seen3 = isSeen;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_13() { g_time_FlowGraphScript_1_13 = this; }
+  static const unsigned int kTimeBytes = 6;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    p[5] = seen3 ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    seen3 = p[5] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  bool seen3 = false;
+};
+class FlowGraphScript_1_22;
+FlowGraphScript_1_22* g_time_FlowGraphScript_1_22 = nullptr;
+
+// Scene "rift-lab": graph of "tracking-dish" (object 22)
+class FlowGraphScript_1_22 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 22)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(26)) {  // Live Debugger: fired from the editor
+      livedbg::hit(26);
+      livedbg::hit(27);
+      ctx.objects[22].spinRate[0] = 0.0F;
+      ctx.objects[22].spinRate[1] = 18.0F;
+      ctx.objects[22].spinRate[2] = 0.0F;
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(26);
+      livedbg::hit(27);
+      ctx.objects[22].spinRate[0] = 0.0F;
+      ctx.objects[22].spinRate[1] = 18.0F;
+      ctx.objects[22].spinRate[2] = 0.0F;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_22() { g_time_FlowGraphScript_1_22 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+class FlowGraphScript_1_23;
+FlowGraphScript_1_23* g_time_FlowGraphScript_1_23 = nullptr;
+
+// Scene "rift-lab": graph of "artifact-rifle" (object 23)
+class FlowGraphScript_1_23 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 23)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(28)) {  // Live Debugger: fired from the editor
+      livedbg::hit(28);
+      livedbg::hit(29);
+      ctx.objects[23].spinRate[0] = 0.0F;
+      ctx.objects[23].spinRate[1] = 24.0F;
+      ctx.objects[23].spinRate[2] = 0.0F;
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(28);
+      livedbg::hit(29);
+      ctx.objects[23].spinRate[0] = 0.0F;
+      ctx.objects[23].spinRate[1] = 24.0F;
+      ctx.objects[23].spinRate[2] = 0.0F;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_23() { g_time_FlowGraphScript_1_23 = this; }
+  static const unsigned int kTimeBytes = 5;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+class FlowGraphScript_1_25;
+FlowGraphScript_1_25* g_time_FlowGraphScript_1_25 = nullptr;
+
+// Scene "rift-lab": graph of "physics-orb-a" (object 25)
+class FlowGraphScript_1_25 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(1, 25)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      every1 = 1;
+    }
+    frame++;
+    if (livedbg::forced(30)) {  // Live Debugger: fired from the editor
+      livedbg::hit(30);
+      livedbg::hit(31);
+      ctx.objects[25].velocityX += 1.5F * g_frameDt;
+      ctx.objects[25].velocityY += 8.0F * g_frameDt;
+      ctx.objects[25].velocityZ += -2.0F * g_frameDt;
+      ctx.objects[25].restFrames = 0;
+    }
+    if (--every1 <= 0) {
+      every1 = everyFrames(4.0F);
+      livedbg::hit(30);
+      livedbg::hit(31);
+      ctx.objects[25].velocityX += 1.5F * g_frameDt;
+      ctx.objects[25].velocityY += 8.0F * g_frameDt;
+      ctx.objects[25].velocityZ += -2.0F * g_frameDt;
+      ctx.objects[25].restFrames = 0;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_1_25() { g_time_FlowGraphScript_1_25 = this; }
+  static const unsigned int kTimeBytes = 9;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &every1, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&every1, p + 5, 4);
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int every1 = 1;
+};
+class FlowGraphScript_2_1;
+FlowGraphScript_2_1* g_time_FlowGraphScript_2_1 = nullptr;
+
+// Scene "neon-city": graph of "city-director" (object 1)
+class FlowGraphScript_2_1 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 2) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(2, 1)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      seqRun3 = 0;
+    }
+    frame++;
+    if (seqRun3 > 0 && sequences::finished(seqRun3)) {
+      seqRun3 = 0;
+    }
+    if (ctx.dynTextOn && ctx.dynTextOn[2])
+      flowSetDynText(ctx, 2, std::string("ACT III  /  NEON OVERDRIVE"));
+    if (livedbg::forced(32)) {  // Live Debugger: fired from the editor
+      livedbg::hit(32);
+      livedbg::hit(33);
+      {  // Sequence output 1
+        livedbg::hit(34);
+        seqRun3 = sequences::play(4);  // "Neon Overdrive"
+      }
+      {  // Sequence output 2
+        livedbg::hit(35);
+        applySceneGrading(ctx.engine, 2);  // "Neon Rain"
+      }
+      {  // Sequence output 3
+        livedbg::hit(36);
+        ctx.dynTextRequest[2] = 1;
+        ctx.dynTextDuration[2] = 5.0F;
+        flowSetDynText(ctx, 2, std::string("ACT III  /  NEON OVERDRIVE"));
+      }
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(32);
+      livedbg::hit(33);
+      {  // Sequence output 1
+        livedbg::hit(34);
+        seqRun3 = sequences::play(4);  // "Neon Overdrive"
+      }
+      {  // Sequence output 2
+        livedbg::hit(35);
+        applySceneGrading(ctx.engine, 2);  // "Neon Rain"
+      }
+      {  // Sequence output 3
+        livedbg::hit(36);
+        ctx.dynTextRequest[2] = 1;
+        ctx.dynTextDuration[2] = 5.0F;
+        flowSetDynText(ctx, 2, std::string("ACT III  /  NEON OVERDRIVE"));
+      }
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_2_1() { g_time_FlowGraphScript_2_1 = this; }
+  static const unsigned int kTimeBytes = 9;
+  void timeCapture(unsigned char* p) const {
+    memcpy(p + 0, &frame, 4);
+    p[4] = started ? 1 : 0;
+    memcpy(p + 5, &seqRun3, 4);
+  }
+  void timeRestore(const unsigned char* p) {
+    memcpy(&frame, p + 0, 4);
+    started = p[4] != 0;
+    memcpy(&seqRun3, p + 5, 4);
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int seqRun3 = 0;
+};
+class FlowGraphScript_2_42;
+FlowGraphScript_2_42* g_time_FlowGraphScript_2_42 = nullptr;
+
+// Scene "neon-city": graph of "city-eye-drone" (object 42)
+class FlowGraphScript_2_42 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 2) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    // Live Logic: while the editor has a patch for this graph, the
+    // interpreter runs it instead of this compiled copy.
+    if (livelogic::patched(2, 42)) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (livedbg::forced(37)) {  // Live Debugger: fired from the editor
+      livedbg::hit(37);
+      livedbg::hit(38);
+      ctx.objects[42].spinRate[0] = 0.0F;
+      ctx.objects[42].spinRate[1] = 24.0F;
+      ctx.objects[42].spinRate[2] = 0.0F;
+    }
+    if (!started) {
+      started = true;
+      livedbg::hit(37);
+      livedbg::hit(38);
+      ctx.objects[42].spinRate[0] = 0.0F;
+      ctx.objects[42].spinRate[1] = 24.0F;
+      ctx.objects[42].spinRate[2] = 0.0F;
+    }
+  }
+
+ public:
+  // Time machine (docs/time-machine.md): this graph's own
+  // state - armed Delays, edge latches, latched outputs.
+  FlowGraphScript_2_42() { g_time_FlowGraphScript_2_42 = this; }
   static const unsigned int kTimeBytes = 5;
   void timeCapture(unsigned char* p) const {
     memcpy(p + 0, &frame, 4);
@@ -831,45 +898,65 @@ void flowDbgReadVar(int index, float* out3) {
 
 // Time machine (docs/time-machine.md): every graph's own state.
 unsigned int flowTimeScriptBytes() {
-  return FlowGraphScript_0_0::kTimeBytes +
-         FlowGraphScript_0_7::kTimeBytes +
-         FlowGraphScript_0_9::kTimeBytes +
-         FlowGraphScript_0_10::kTimeBytes +
-         FlowGraphScript_0_59::kTimeBytes +
-         FlowGraphScript_1_0::kTimeBytes +
-         FlowGraphScript_1_1::kTimeBytes;
+  return FlowGraphScript_0_1::kTimeBytes +
+         FlowGraphScript_0_3::kTimeBytes +
+         FlowGraphScript_0_4::kTimeBytes +
+         FlowGraphScript_1_1::kTimeBytes +
+         FlowGraphScript_1_9::kTimeBytes +
+         FlowGraphScript_1_13::kTimeBytes +
+         FlowGraphScript_1_22::kTimeBytes +
+         FlowGraphScript_1_23::kTimeBytes +
+         FlowGraphScript_1_25::kTimeBytes +
+         FlowGraphScript_2_1::kTimeBytes +
+         FlowGraphScript_2_42::kTimeBytes;
 }
 void flowTimeScriptCapture(unsigned char* p) {
-  if (g_time_FlowGraphScript_0_0) g_time_FlowGraphScript_0_0->timeCapture(p);
-  p += FlowGraphScript_0_0::kTimeBytes;
-  if (g_time_FlowGraphScript_0_7) g_time_FlowGraphScript_0_7->timeCapture(p);
-  p += FlowGraphScript_0_7::kTimeBytes;
-  if (g_time_FlowGraphScript_0_9) g_time_FlowGraphScript_0_9->timeCapture(p);
-  p += FlowGraphScript_0_9::kTimeBytes;
-  if (g_time_FlowGraphScript_0_10) g_time_FlowGraphScript_0_10->timeCapture(p);
-  p += FlowGraphScript_0_10::kTimeBytes;
-  if (g_time_FlowGraphScript_0_59) g_time_FlowGraphScript_0_59->timeCapture(p);
-  p += FlowGraphScript_0_59::kTimeBytes;
-  if (g_time_FlowGraphScript_1_0) g_time_FlowGraphScript_1_0->timeCapture(p);
-  p += FlowGraphScript_1_0::kTimeBytes;
+  if (g_time_FlowGraphScript_0_1) g_time_FlowGraphScript_0_1->timeCapture(p);
+  p += FlowGraphScript_0_1::kTimeBytes;
+  if (g_time_FlowGraphScript_0_3) g_time_FlowGraphScript_0_3->timeCapture(p);
+  p += FlowGraphScript_0_3::kTimeBytes;
+  if (g_time_FlowGraphScript_0_4) g_time_FlowGraphScript_0_4->timeCapture(p);
+  p += FlowGraphScript_0_4::kTimeBytes;
   if (g_time_FlowGraphScript_1_1) g_time_FlowGraphScript_1_1->timeCapture(p);
   p += FlowGraphScript_1_1::kTimeBytes;
+  if (g_time_FlowGraphScript_1_9) g_time_FlowGraphScript_1_9->timeCapture(p);
+  p += FlowGraphScript_1_9::kTimeBytes;
+  if (g_time_FlowGraphScript_1_13) g_time_FlowGraphScript_1_13->timeCapture(p);
+  p += FlowGraphScript_1_13::kTimeBytes;
+  if (g_time_FlowGraphScript_1_22) g_time_FlowGraphScript_1_22->timeCapture(p);
+  p += FlowGraphScript_1_22::kTimeBytes;
+  if (g_time_FlowGraphScript_1_23) g_time_FlowGraphScript_1_23->timeCapture(p);
+  p += FlowGraphScript_1_23::kTimeBytes;
+  if (g_time_FlowGraphScript_1_25) g_time_FlowGraphScript_1_25->timeCapture(p);
+  p += FlowGraphScript_1_25::kTimeBytes;
+  if (g_time_FlowGraphScript_2_1) g_time_FlowGraphScript_2_1->timeCapture(p);
+  p += FlowGraphScript_2_1::kTimeBytes;
+  if (g_time_FlowGraphScript_2_42) g_time_FlowGraphScript_2_42->timeCapture(p);
+  p += FlowGraphScript_2_42::kTimeBytes;
 }
 void flowTimeScriptRestore(const unsigned char* p) {
-  if (g_time_FlowGraphScript_0_0) g_time_FlowGraphScript_0_0->timeRestore(p);
-  p += FlowGraphScript_0_0::kTimeBytes;
-  if (g_time_FlowGraphScript_0_7) g_time_FlowGraphScript_0_7->timeRestore(p);
-  p += FlowGraphScript_0_7::kTimeBytes;
-  if (g_time_FlowGraphScript_0_9) g_time_FlowGraphScript_0_9->timeRestore(p);
-  p += FlowGraphScript_0_9::kTimeBytes;
-  if (g_time_FlowGraphScript_0_10) g_time_FlowGraphScript_0_10->timeRestore(p);
-  p += FlowGraphScript_0_10::kTimeBytes;
-  if (g_time_FlowGraphScript_0_59) g_time_FlowGraphScript_0_59->timeRestore(p);
-  p += FlowGraphScript_0_59::kTimeBytes;
-  if (g_time_FlowGraphScript_1_0) g_time_FlowGraphScript_1_0->timeRestore(p);
-  p += FlowGraphScript_1_0::kTimeBytes;
+  if (g_time_FlowGraphScript_0_1) g_time_FlowGraphScript_0_1->timeRestore(p);
+  p += FlowGraphScript_0_1::kTimeBytes;
+  if (g_time_FlowGraphScript_0_3) g_time_FlowGraphScript_0_3->timeRestore(p);
+  p += FlowGraphScript_0_3::kTimeBytes;
+  if (g_time_FlowGraphScript_0_4) g_time_FlowGraphScript_0_4->timeRestore(p);
+  p += FlowGraphScript_0_4::kTimeBytes;
   if (g_time_FlowGraphScript_1_1) g_time_FlowGraphScript_1_1->timeRestore(p);
   p += FlowGraphScript_1_1::kTimeBytes;
+  if (g_time_FlowGraphScript_1_9) g_time_FlowGraphScript_1_9->timeRestore(p);
+  p += FlowGraphScript_1_9::kTimeBytes;
+  if (g_time_FlowGraphScript_1_13) g_time_FlowGraphScript_1_13->timeRestore(p);
+  p += FlowGraphScript_1_13::kTimeBytes;
+  if (g_time_FlowGraphScript_1_22) g_time_FlowGraphScript_1_22->timeRestore(p);
+  p += FlowGraphScript_1_22::kTimeBytes;
+  if (g_time_FlowGraphScript_1_23) g_time_FlowGraphScript_1_23->timeRestore(p);
+  p += FlowGraphScript_1_23::kTimeBytes;
+  if (g_time_FlowGraphScript_1_25) g_time_FlowGraphScript_1_25->timeRestore(p);
+  p += FlowGraphScript_1_25::kTimeBytes;
+  if (g_time_FlowGraphScript_2_1) g_time_FlowGraphScript_2_1->timeRestore(p);
+  p += FlowGraphScript_2_1::kTimeBytes;
+  if (g_time_FlowGraphScript_2_42) g_time_FlowGraphScript_2_42->timeRestore(p);
+  p += FlowGraphScript_2_42::kTimeBytes;
 }
 
 // Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
@@ -908,10 +995,14 @@ void flowLiveGetVarPos(int index, float* out3) {
 
 }  // namespace Showcase
 
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_0);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_7);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_9);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_10);
-TYRA_SCRIPT(Showcase::FlowGraphScript_0_59);
-TYRA_SCRIPT(Showcase::FlowGraphScript_1_0);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_1);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_3);
+TYRA_SCRIPT(Showcase::FlowGraphScript_0_4);
 TYRA_SCRIPT(Showcase::FlowGraphScript_1_1);
+TYRA_SCRIPT(Showcase::FlowGraphScript_1_9);
+TYRA_SCRIPT(Showcase::FlowGraphScript_1_13);
+TYRA_SCRIPT(Showcase::FlowGraphScript_1_22);
+TYRA_SCRIPT(Showcase::FlowGraphScript_1_23);
+TYRA_SCRIPT(Showcase::FlowGraphScript_1_25);
+TYRA_SCRIPT(Showcase::FlowGraphScript_2_1);
+TYRA_SCRIPT(Showcase::FlowGraphScript_2_42);

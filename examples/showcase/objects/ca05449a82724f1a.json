@@ -1,0 +1,1 @@
+{ "id": "ca05449a82724f1a", "name": "tower-5-floor-1", "type": "model", "position": [14, 1.8, 20], "rotation": [0, 90, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/urban/wall-b-window.obj" }

@@ -1,0 +1,1 @@
+{ "id": "bdd8e37e00112a58", "name": "lab-crate-b", "type": "model", "position": [-8, 1, 8], "rotation": [0, 27, 0], "scale": [1.5, 1.5, 1.5], "color": [1, 1, 1], "physics": false, "model": "res/models/scifi/Prop_Crate_Large.obj" }

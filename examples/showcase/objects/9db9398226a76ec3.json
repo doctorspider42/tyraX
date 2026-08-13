@@ -1,0 +1,1 @@
+{ "id": "9db9398226a76ec3", "name": "market-tavern", "type": "model", "position": [18, -0.92149, 10], "rotation": [-180, -35, -180], "scale": [1.55, 1.55, 1.55], "color": [1, 1, 1], "physics": false, "collision": "mesh", "model": "res/models/modular-village/village-tavern.obj", "meshLod": 10 }

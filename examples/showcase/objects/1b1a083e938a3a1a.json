@@ -1,0 +1,1 @@
+{ "id": "1b1a083e938a3a1a", "name": "hero-scaffolding", "type": "model", "position": [-10, 0.2, -20], "rotation": [0, 90, 0], "scale": [3, 3, 3], "color": [1, 1, 1], "physics": false, "model": "res/models/urban/scaffolding-structure.obj" }

@@ -1143,6 +1143,11 @@ void App::drawCutsceneWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hide the third-person player avatar while the cutscene\n"
                           "plays (no effect in FPP/noclip - they have no body).");
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    if (ImGui::Checkbox("Disable HUD", &s.disableHud)) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hide HUD images, prompts and texts while this cutscene plays.\n"
+                          "Menus and debug overlays remain visible.");
 
     // Cinematic dressing: widescreen masks + fades, composited over the frame
     // (and the HUD) on the PS2 and previewed on the viewport image.

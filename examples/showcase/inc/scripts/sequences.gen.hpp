@@ -7,7 +7,9 @@ namespace Showcase {
 namespace sequences {
 // Cutscene Director runtime (see src/gen/sequences.gen.cpp),
 // driven by the Play Sequence / Stop Sequence flow nodes.
-void play(int index);  // start Project::sequences[index] at t=0
+// Returns a playback token. finished(token) becomes true when THAT
+// run ends, even if another sequence immediately replaces it.
+int play(int index);   // start Project::sequences[index] at t=0
 void stop();           // stop the active sequence, free the camera
 // Widescreen bars + fade-to-black compositor, called by the game
 // loop inside beginFrame/endFrame after the HUD (solid 2D quads;
@@ -17,6 +19,10 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx);
 // flow trigger edge-detects, and what tells a flow-graph camera or
 // letterbox that a cutscene currently owns those.
 bool playing();
+bool finished(int token);
+// True while the director owns the normal game HUD, including its
+// deferred cleanup frame. Menus/debug overlays stay outside the gate.
+bool hudDisabled();
 // Letterbox mask style for the Set Letterbox Bars flow node, used
 // by renderOverlay when NO sequence is active (0 none, 1 cinema
 // 2.39:1, 2 wide 16:9, 3 pillarbox, 4 frame). The style, not its

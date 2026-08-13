@@ -1,0 +1,1 @@
+{ "id": "8bcc2ac8f26edb8e", "name": "rift-sparks", "type": "emitter", "position": [0, 2.5, -27], "rotation": [0, 0, 0], "scale": [3, 4, 2], "color": [0.2, 0.9, 1], "physics": false, "emitter": { "kind": "sparks", "count": 72, "size": 0.12, "enabled": true, "followPlayer": false } }

@@ -1,0 +1,1 @@
+{ "id": "8ee3ecf788a01c9d", "name": "tower-1-roof", "type": "model", "position": [-18, 13.2, -16], "rotation": [0, -90, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/urban/wall-a-roof-detailed.obj" }

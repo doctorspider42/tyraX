@@ -1,0 +1,1 @@
+{ "id": "3c292ad8dd0842fe", "name": "festival-light", "type": "point-light", "position": [-4, 2, 4], "rotation": [0, 0, 0], "scale": [0.35, 0.35, 0.35], "color": [1, 0.42, 0.12], "physics": false, "light": { "brightness": 1.35, "radius": 13, "dynamic": true, "flicker": 0.5, "beam": 2 } }

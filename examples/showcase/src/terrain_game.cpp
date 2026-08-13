@@ -39,6 +39,10 @@
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
+// The frame-timing rig (docs/profiling.md, "Timing a frame that BLSS is in").
+// TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
+// a preprocessor pass and nothing else.
+#include "debug/frame_profile.hpp"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -1521,18 +1525,288 @@ static inline u32 profTicks() {
   return v;
 }
 
+#if TYRA_FRAME_PROFILE
+// ---------------------------------------------------------------------------
+// The FRAMETIME line: the frame-timing rig's output half (the counters live in
+// the engine, inc/debug/frame_profile.hpp; the protocol is docs/profiling.md).
+//
+// ONCE A SECOND, never once a frame. TyraDebug::writeInLogFile does a full
+// ofstream open + append + flush PER LINE (vendor/tyra/engine/src/debug/
+// debug.cpp), over host: on real hardware - a per-frame line would be
+// measuring the logger. One snprintf, one TYRA_LOG, the same 1 Hz cadence
+// RendererCoreBlss::logFeatureSpread already uses.
+//
+// The whole block charges its own cost to FrameProfile::tExcluded, which
+// endFrame() subtracts from tFrameWork - otherwise one frame in fifty is a
+// 20 ms outlier made entirely of measurement apparatus.
+// ---------------------------------------------------------------------------
+namespace ftrig {
+
+constexpr int kWindow = 50;    // frames per FRAMETIME line
+constexpr int kRaw = 512;      // buffered per-frame samples (paired stats)
+constexpr float kTicksPerMs = 294912.0F;
+constexpr u32 kBudget20ms = 5898240U;  // 20 ms of COP0 Count = the PAL budget
+
+u32 work[kWindow], drain[kWindow];
+u64 sBeg = 0, sEnd = 0, sCmp = 0, sCmpEe = 0;
+// The split of the two big EE terms. The first hardware A/B read the
+// composite's EE half off ONE counter and got "~3.9 ms of scene submission"
+// by SUBTRACTION, which is not a measurement; these make both attributable.
+u64 sPrx = 0, sAcc = 0, sRep = 0, sFea = 0, sNet = 0, sPkt = 0;
+int n = 0;
+u32 frame = 0;  // frames since boot - the alignment key between runs A and B
+u32 raw[kRaw];
+int rawN = 0;
+u32 rawFirst = 0;
+// One-frame delay line. drawDebugHud runs BEFORE endFrame, so the BLSS
+// counters it can see are THIS frame's while tFrameWork/tDrain are still last
+// frame's. Holding the BLSS values back by one frame makes every record
+// coherent instead of skewed.
+u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
+u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
+bool pValid = false;
+
+// u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
+// a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
+// wrapped and printed BELOW the median - which is how a 500 ms frame first
+// reported itself as 37 ms. Per-frame values (median, p95) were always fine;
+// only the accumulators were wrong.
+inline float ms(u64 ticks, int count) {
+  return (float)ticks / (kTicksPerMs * (float)count);
+}
+
+void sortU32(u32* a, int cnt) {
+  for (int i = 1; i < cnt; i++) {
+    const u32 v = a[i];
+    int j = i - 1;
+    while (j >= 0 && a[j] > v) {
+      a[j + 1] = a[j];
+      j--;
+    }
+    a[j + 1] = v;
+  }
+}
+
+// Dumps the buffered per-frame work ticks so runs A and B can be compared as
+// PAIRED samples (frame k of A against frame k of B - the fixture's camera is
+// frame-indexed, so those are the same view). Same I/O cost as one summary
+// line, 512x the data; 64 values a line keeps each line under 600 bytes.
+void dumpRaw() {
+  char line[600];
+  for (int base = 0; base < rawN; base += 64) {
+    int at = snprintf(line, sizeof(line), "FTRAW %lu",
+                      (unsigned long)(rawFirst + (u32)base));
+    const int end = base + 64 < rawN ? base + 64 : rawN;
+    for (int i = base; i < end; i++)
+      at += snprintf(line + at, sizeof(line) - at, " %lx",
+                     (unsigned long)raw[i]);
+    TYRA_LOG(line);
+  }
+  rawN = 0;
+}
+
+void tick(const Vec4& camPos, const Vec4& camAt) {
+  namespace FP = Tyra::FrameProfile;
+  const int i = n;
+  work[i] = FP::tFrameWork;
+  drain[i] = FP::tDrain;
+  if (pValid) {
+    sBeg += pBeg;
+    sEnd += pEnd;
+    sCmp += pCmp;
+    sCmpEe += pCmpEe;
+    sPrx += pPrx;
+    sAcc += pAcc;
+    sRep += pRep;
+    sFea += pFea;
+    sNet += pNet;
+    sPkt += pPkt;
+  }
+  pBeg = FP::tBlssBegin;
+  pEnd = FP::tBlssEnd;
+  pCmp = FP::tBlssComposite;
+  pCmpEe = FP::tBlssCompositeEe;
+  pPrx = FP::tBlssProxy;
+  pAcc = FP::tBlssAccum;
+  pRep = FP::tBlssReproj;
+  pFea = FP::tBlssFeat;
+  pNet = FP::tBlssNet;
+  pPkt = FP::tBlssPacket;
+  pValid = true;
+  if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
+  if (rawN == 1) rawFirst = frame;
+  frame++;
+  if (++n < kWindow) return;
+  n = 0;
+
+  u32 sorted[kWindow];
+  u64 sumW = 0, sumD = 0;
+  int over = 0;
+  for (int k = 0; k < kWindow; k++) {
+    sorted[k] = work[k];
+    sumW += work[k];
+    sumD += drain[k];
+    if (work[k] > kBudget20ms) over++;
+  }
+  sortU32(sorted, kWindow);
+
+  // Heading, not orbit angle: it is defined for any fixture camera, and it is
+  // the independent confirmation that frame f of run A really was looking
+  // where frame f of run B was. `f` is the exact key; `cam` is the check.
+  const float cam = atan2f(camAt.x - camPos.x, camAt.z - camPos.z);
+  const float mean = ms(sumW, kWindow);
+  const float dr = ms(sumD, kWindow);
+
+  char line[320];
+  snprintf(line, sizeof(line),
+           "FRAMETIME n=%d f=%lu work=%.2f/%.2f/%.2f submit=%.2f drain=%.2f "
+           "blss=%.2f/%.2f/%.2f comp=%.2f/%.2f over20=%d cam=%.4f",
+           kWindow, (unsigned long)(frame - kWindow), (double)mean,
+           (double)ms(sorted[kWindow / 2], 1),
+           (double)ms(sorted[(kWindow * 95) / 100], 1), (double)(mean - dr),
+           (double)dr, (double)ms(sBeg, kWindow), (double)ms(sEnd, kWindow),
+           (double)ms(sCmp, kWindow), (double)ms(sCmpEe, kWindow),
+           (double)ms(sCmp - sCmpEe, kWindow), over, (double)cam);
+  TYRA_LOG(line);
+  // The attribution line. `proxy` is charged inside StaPipCore (scene
+  // SUBMISSION, not the composite); the other four split the composite's EE
+  // half at its four phases, so reproj+feat+net+pkt reconstructs comp's EE
+  // figure above to within the counters' own overhead.
+  //
+  // `proxy=total/accum` splits the proxy feed itself: `accum` is
+  // RendererCoreBlss::addBag, the read-modify-write per (proxy, TILE), and
+  // `total - accum` is the projection half - eight corners through the MVP,
+  // the near clip, the bbox reduce, once per VU1 package. They are the two
+  // halves the same millisecond can be taken off in completely different ways,
+  // and this feature has already paid once for splitting a term by
+  // subtraction instead of measuring it.
+  // THREE decimals, not two, and the reason is that this line has outlived the
+  // sizes it was written for. When it was added the terms it splits ran 2-4 ms
+  // and 0.01 was noise; the cuts since have taken reproj to 0.28 and feat to
+  // 0.19, where a real 0.05 ms saving is five units of the last digit and a
+  // 0.02 one is two. A term measured to 0.01 ms cannot resolve a cut worth
+  // 0.03, and rounding is not something more paired windows can average away.
+  snprintf(line, sizeof(line),
+           "FTSPLIT f=%lu proxy=%.3f/%.3f reproj=%.3f feat=%.3f net=%.3f "
+           "pkt=%.3f",
+           (unsigned long)(frame - kWindow), (double)ms(sPrx, kWindow),
+           (double)ms(sAcc, kWindow),
+           (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
+           (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
+  TYRA_LOG(line);
+  sBeg = sEnd = sCmp = sCmpEe = 0;
+  sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
+  if (rawN >= kRaw) dumpRaw();
+}
+
+#if TYRA_FRAME_PROFILE_CALIB
+// The calibration gate. K full-screen textured alpha-blended sprites a frame,
+// each with its own draw_finish + wait; the slope of the sweep is what one
+// full-screen GS pass costs on THIS machine. PCSX2 runs a software rasteriser
+// and is not fill-rate accurate, and BLSS trades GS fill for GS fill - a slope
+// near zero means no emulator number about this feature's GS cost is
+// admissible. Real hardware should read ~0.2-0.4 ms per pass at 512x448.
+constexpr int kCalibK[5] = {0, 2, 4, 8, 16};
+u32 calSum[5] = {0, 0, 0, 0, 0};
+int calN[5] = {0, 0, 0, 0, 0};
+int calFrame = 0;
+// THE RESOLUTION THE SWEEP RAN AT. The probe sizes its sprite from the current
+// framebuffer, so `slope` is ms per full-screen pass AT THIS RASTER and means
+// nothing without it - the 0.5872 this rig published was measured on a PAL 576i
+// fixture (512x512) and then read against 512x448 coverages for a year, which
+// is 14.3 % more pixels than the constant describes. Printed on the line, next
+// to a per-megapixel figure that does not depend on the mode at all.
+int calW = 0, calH = 0;
+
+void calibrate(Engine* engine) {
+  const int slot = (calFrame / 10) % 5;  // 10 frames per K, then rotate
+  calFrame++;
+  auto& core = engine->renderer.core;
+  const u32 t = Tyra::FrameProfile::gsFillProbe(&core.gs, &core.sync,
+                                                core.getPath1(),
+                                                kCalibK[slot], &calW, &calH);
+  calSum[slot] += t;
+  calN[slot]++;
+  if (calFrame % 250) return;
+  char line[200];
+  int at = snprintf(line, sizeof(line), "GSFILL");
+  for (int i = 0; i < 5; i++)
+    at += snprintf(line + at, sizeof(line) - at, " k%d=%.3f", kCalibK[i],
+                   calN[i] ? (double)ms(calSum[i], calN[i]) : 0.0);
+  // Least-squares slope of ms against K, i.e. ms per full-screen pass.
+  float sx = 0.0F, sy = 0.0F, sxx = 0.0F, sxy = 0.0F;
+  for (int i = 0; i < 5; i++) {
+    const float x = (float)kCalibK[i];
+    const float y = calN[i] ? ms(calSum[i], calN[i]) : 0.0F;
+    sx += x;
+    sy += y;
+    sxx += x * x;
+    sxy += x * y;
+  }
+  const float den = 5.0F * sxx - sx * sx;
+  const float slope = den != 0.0F ? (5.0F * sxy - sx * sy) / den : 0.0F;
+  // raster= is what `slope` is per; perMpx= is the same measurement with the
+  // mode divided out, so two consoles - or two display modes on one console -
+  // can be compared without anybody having to remember which fixture booted in
+  // which resolution.
+  const float mpx = (float)calW * (float)calH * 1e-6F;
+  snprintf(line + at, sizeof(line) - at, " raster=%dx%d slope=%.4f perMpx=%.4f",
+           calW, calH, (double)slope, mpx > 0.0F ? (double)(slope / mpx) : 0.0);
+  TYRA_LOG(line);
+}
+#endif  // TYRA_FRAME_PROFILE_CALIB
+
+}  // namespace ftrig
+#endif  // TYRA_FRAME_PROFILE
+
 /** Debug-profile HUD (Project > Preferences > Build): FPS, RAM
  * (used/total EE MB) and the per-phase EE-time profiler in the top-left
  * corner. Compiles to nothing in a release build (the DEBUG_SHOW_* constants
- * in terrain_config.hpp fold the calls away). */
-void drawDebugHud(Engine* engine) {
+ * in terrain_config.hpp fold the calls away). The camera is passed in for the
+ * frame-timing rig's `cam` field - it is the only thing here that needs it,
+ * and it is unused when TYRA_FRAME_PROFILE is 0. */
+void drawDebugHud(Engine* engine, const Vec4& camPos, const Vec4& camAt) {
+#if TYRA_FRAME_PROFILE
+  {
+    // Everything in here is apparatus, so it comes straight back out of
+    // tFrameWork (see FrameProfile::tExcluded).
+    const u32 fpE0 = Tyra::FrameProfile::ticks();
+#if TYRA_FRAME_PROFILE_CALIB
+    ftrig::calibrate(engine);
+#endif
+    ftrig::tick(camPos, camAt);
+    Tyra::FrameProfile::tExcluded += Tyra::FrameProfile::ticks() - fpE0;
+  }
+#else
+  (void)camPos;
+  (void)camAt;
+#endif
   if (!DEBUG_SHOW_FPS && !DEBUG_SHOW_MEM && !DEBUG_SHOW_PROFILER) return;
   static int memRefresh = 0;
   static float memFreeMB = 0.0F;
   char line[40];
   float y = 16.0F;
   if (DEBUG_SHOW_FPS) {
-    snprintf(line, sizeof(line), "FPS %d", (int)engine->info.getFps());
+    // RENDERED frames per second, averaged over the engine's stated 0.5 s
+    // window (Info::getFps - it reads COP0 Count, not the video mode's
+    // scanline timer). Frame extrapolation presents a synthesised frame after
+    // endFrame() returns, so the game then shows about twice the rate it
+    // renders: SHOWN is that second number, and it appears only when the two
+    // genuinely differ. docs/profiling.md, "The three frame rate counters".
+    // The CAP is printed beside the rate because without it the same game
+    // reads 25 in PAL 576i and 30-40 in 1080i and looks like a counting bug -
+    // it is not. Those modes refresh at 50 and 60 Hz, and a frame that misses
+    // its field halves to 25 or 30 respectively; getRefreshRate() is the
+    // engine's own answer (DTV modes 60, Pal576i 50, the rest follow the video
+    // mode). Reported as "coś tu chyba źle liczy".
+    const float cap = engine->renderer.core.getSettings().getRefreshRate();
+    if (engine->info.isPresentingExtraFrames())
+      snprintf(line, sizeof(line), "FPS %.1f SHOWN %.1f/%.0f",
+               (double)engine->info.getFps(),
+               (double)engine->info.getPresentedFps(), (double)cap);
+    else
+      snprintf(line, sizeof(line), "FPS %.1f/%.0f",
+               (double)engine->info.getFps(), (double)cap);
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -1545,6 +1819,22 @@ void drawDebugHud(Engine* engine) {
       memRefresh = everyFrames(2.0F);
     }
     snprintf(line, sizeof(line), "MEM %.1f/32 MB", 32.0F - memFreeMB);
+    drawHudText(engine, line, 16.0F, y);
+    y += 20.0F;
+    // GS VRAM, beside it and deliberately so. MEM is the EE's 32 MB of main
+    // memory and does NOT move when the display mode changes - the
+    // framebuffers and the z buffer live in the GS' separate 4 MB, and that
+    // is the pool a taller mode eats. Reported as "I change the display mode
+    // and the memory reading never moves", which was the HUD answering a
+    // question it was never asked. Free rather than used: the texture heap is
+    // what a mode change takes from, and free space is what the next texture
+    // upload actually has (docs/gs-vram.md) - but it is printed as USED over
+    // the GS' 4 MB so it reads the same way round as MEM above it. Note the
+    // HUD glyph atlas is digits, '.' and UPPERCASE only: a lowercase word
+    // here silently draws nothing (the first cut of this line ended in
+    // "free" and rendered as blank).
+    snprintf(line, sizeof(line), "VRAM %.2f/4 MB",
+             4.0F - (double)engine->renderer.core.gs.vram.getFreeSpaceInMB());
     drawHudText(engine, line, 16.0F, y);
     y += 20.0F;
   }
@@ -1857,7 +2147,7 @@ void TerrainGame::init() {
   g_stickCurveR = STICK_CURVE_R;
   g_stickExpL = STICK_EXP_L;
   g_stickExpR = STICK_EXP_R;
-  // Experimental (Project > Preferences > Build): skip the vsync wait -
+  // Experimental (Project > Preferences > Display): skip the vsync wait -
   // continuous frame rate instead of the 50/25 vsync snap, with tearing.
   if (!FRAME_LIMIT) engine->renderer.core.setFrameLimit(false);
 
@@ -2381,8 +2671,14 @@ void TerrainGame::loop() {
     gameMenuIndex = -1;
     gameMenuStackDepth = 0;
   }
-  if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // A player-owned flashlight must not jump onto the Cutscene Director's
+  // camera. Keep both authored/toggled state bits intact and only suppress the
+  // presentation; the beam comes back exactly as it was after camera cleanup.
+  const bool cutsceneOwnsFlashlight =
+      sequences::playing() || scriptCtx.cameraOverride;
+  if (!menuOwnsPad && !cutsceneOwnsFlashlight && flashlightTogglePressed(engine))
+    g_flashOn = !g_flashOn;
+  if (g_flashEnabled && g_flashOn && !cutsceneOwnsFlashlight) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
@@ -2459,6 +2755,7 @@ void TerrainGame::loop() {
     // bloom (with color grading) and film grain composite at independent
     // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
     // pass applies at endFrame, over everything (menus included).
+    const bool showGameHud = scriptCtx.hudVisible && !sequences::hudDisabled();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
@@ -2466,12 +2763,12 @@ void TerrainGame::loop() {
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible)
+      if (showGameHud)
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0) {
+    if (showGameHud && useTargetIndex >= 0) {
       const bool pick = runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
@@ -2491,18 +2788,175 @@ void TerrainGame::loop() {
                    (float)slots[s].size);
       }
     }
-    updateAndRenderHudTexts();
-    updateAndRenderDynTexts();
+    updateAndRenderHudTexts(showGameHud);
+    updateAndRenderDynTexts(showGameHud);
     // Cutscene Director widescreen bars + fade-to-black: solid quads over the
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
-    drawDebugHud(engine);
+    drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }
   engine->renderer.endFrame();
+  // Frame extrapolation (docs/frame-extrapolation.md): synthesise one extra
+  // presented frame from the one just finished, so the television keeps the
+  // field rate while the world runs at half of it. Compiled away entirely
+  // unless the project asked for it.
+  if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
+}
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
+bool TerrainGame::extrapolationWorthIt() {
+  // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
+  // A cutscene that WANTS the synthesised frames - the camera is doing the
+  // moving and the world can afford to be slower - asks for 2, because the
+  // gate below would otherwise decline on a scene that is already fast.
+  if (scriptCtx.frameExtrapolation >= 0) {
+    extrapolationMode = scriptCtx.frameExtrapolation;
+    scriptCtx.frameExtrapolation = -1;
+  }
+  if (extrapolationMode == 0) return false;
+  if (extrapolationMode == 2 || FRAME_EXTRAPOLATION_FORCE) return true;
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return false;
+  const unsigned int field = (unsigned int)(294912000.0F / refresh);
+  // WHOLE-LOOP work: the period since this ran last, minus everything the
+  // renderer spent stalled in it. Measuring the renderer's own span instead
+  // would miss a game that is slow in its scripts - they run outside
+  // beginFrame/endFrame, and a 25 ms one went unnoticed by exactly that bug.
+  unsigned int now;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(now));
+  const unsigned int period = now - extrapolationMark;
+  extrapolationMark = now;
+  const unsigned int stall = engine->renderer.core.takeStallTicks();
+  if (!extrapolationSeeded) {  // first loop has no period to speak of
+    extrapolationSeeded = true;
+    return false;
+  }
+  const unsigned int work = period > stall ? period - stall : 0;
+  // WHERE the synthesised frame actually lands, as a fraction of the gap
+  // between two real ones. It is presented one FIELD after the real frame,
+  // while the next real frame is a whole loop period away - so with a loop of
+  // three fields it sits at 1/3, not at the half this used to assume. Guessing
+  // 0.5 over-extrapolates the camera by 50% and the next real frame visibly
+  // snaps back, which is its own judder on top of the uneven cadence below.
+  if (period > field) {
+    float f = (float)field / (float)period;
+    if (f < 0.05F) f = 0.05F;
+    if (f > 0.95F) f = 0.95F;
+    extrapolationFrac = f;
+  }
+  // How much work has to be there before the extra present is FREE, and it
+  // differs by buffering mode. Double buffered, the loop is quantised to whole
+  // fields anyway, so any overrun past one field already buys a second field
+  // that is mostly idle - the warp fits in it. Triple buffered there is no
+  // quantisation: the loop is work-bound, so a second present costs a real
+  // field unless the work already fills two.
+  const unsigned int need =
+      engine->renderer.core.gs.getFrameBufferCount() >= 3 ? field * 2 : field;
+  // 15% over to switch on, 5% under to switch off, and eight frames of
+  // agreement either way - a scene sitting exactly on the boundary should pick
+  // one answer and keep it rather than flicker between two frame rates.
+  const bool want = extrapolating ? work > (unsigned int)(need * 0.95F)
+                                  : work > (unsigned int)(need * 1.15F);
+  if (want == extrapolating) {
+    extrapolationRun = 0;
+    return extrapolating;
+  }
+  if (++extrapolationRun >= 8) {
+    extrapolating = want;
+    extrapolationRun = 0;
+    // Say so: "the feature is on but nothing happens" and "the gate declined"
+    // are the same picture, and only this line tells them apart.
+    TYRA_LOG("Frame extrapolation ", extrapolating ? "ON" : "OFF",
+             " - frame work ", (int)work, " EE ticks, threshold ", (int)need,
+             ", field ", (int)field);
+  }
+  return extrapolating;
+}
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
+void TerrainGame::presentExtrapolatedFrame() {
+  auto& rcore = engine->renderer.core;
+  rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
+  // The floor under the camera. terrainHeightAtScene answers TERRAIN_VOID_Y in
+  // a scene with no terrain, which is unreachably low - so eyeH comes out
+  // enormous, 1/w collapses to ~0 and the warp degrades to rotation only,
+  // which is the right answer when there is no floor to speak of.
+  rcore.warp.setGroundPlane(
+      FRAME_EXTRAPOLATION_GROUND,
+      terrainHeightAtScene(g_activeScene, cameraPosition.x, cameraPosition.z));
+  Tyra::WarpCamera cur;
+  cur.position = cameraPosition;
+  float fx = cameraLookAt.x - cameraPosition.x;
+  float fy = cameraLookAt.y - cameraPosition.y;
+  float fz = cameraLookAt.z - cameraPosition.z;
+  float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl; fy /= fl; fz /= fl;
+  cur.forward = Tyra::Vec4(fx, fy, fz, 0.0F);
+  float rx = fy * cameraUp.z - fz * cameraUp.y;
+  float ry = fz * cameraUp.x - fx * cameraUp.z;
+  float rz = fx * cameraUp.y - fy * cameraUp.x;
+  float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rl < 1e-4F) return;  // looking straight along up - no basis to build
+  rx /= rl; ry /= rl; rz /= rl;
+  cur.right = Tyra::Vec4(rx, ry, rz, 0.0F);
+  cur.up = Tyra::Vec4(ry * fz - rz * fy, rz * fx - rx * fz, rx * fy - ry * fx,
+                      0.0F);
+  cur.tanHalfFovY = tanf(rcore.renderer3D.getFov() * 0.5F * 3.14159265F / 180.0F);
+  cur.tanHalfFovX = cur.tanHalfFovY * rcore.getSettings().getAspectRatio();
+
+  if (warpPrevValid) {
+    Tyra::WarpCamera to = cur;
+    const float k = extrapolationFrac;
+    to.position = Tyra::Vec4(
+        cur.position.x + (cur.position.x - warpPrev.position.x) * k,
+        cur.position.y + (cur.position.y - warpPrev.position.y) * k,
+        cur.position.z + (cur.position.z - warpPrev.position.z) * k, 1.0F);
+    float ex = cur.forward.x + (cur.forward.x - warpPrev.forward.x) * k;
+    float ey = cur.forward.y + (cur.forward.y - warpPrev.forward.y) * k;
+    float ez = cur.forward.z + (cur.forward.z - warpPrev.forward.z) * k;
+    float el = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (el > 1e-4F) {
+      ex /= el; ey /= el; ez /= el;
+      to.forward = Tyra::Vec4(ex, ey, ez, 0.0F);
+      float tx = ey * cameraUp.z - ez * cameraUp.y;
+      float ty = ez * cameraUp.x - ex * cameraUp.z;
+      float tz = ex * cameraUp.y - ey * cameraUp.x;
+      float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+      if (tl > 1e-4F) {
+        tx /= tl; ty /= tl; tz /= tl;
+        to.right = Tyra::Vec4(tx, ty, tz, 0.0F);
+        to.up = Tyra::Vec4(ty * ez - tz * ey, tz * ex - tx * ez,
+                           tx * ey - ty * ex, 0.0F);
+      }
+    }
+    rcore.presentWarpFrame(cur, to);
+  }
+  warpPrev = cur;
+  warpPrevValid = true;
 }
 
 void TerrainGame::buildScene() {
@@ -2525,6 +2979,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.playerSpeeds[0] = players[0].speeds;
+  scriptCtx.playerSpeeds[1] = players[1].speeds;
   scriptCtx.spawnPrefab = &spawnPrefabThunk;
   scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
   scriptCtx.generateVolume = &generateVolumeThunk;
@@ -4810,6 +5266,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
       P.runClip =
           PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.sprintClip = PP_SPRINT_CLIP(pi)[0]
+                         ? resolveClipIndex(P.objIndex, PP_SPRINT_CLIP(pi))
+                         : -1;
+      P.speeds[0] = PP_WALK_SPEED(pi);
+      P.speeds[1] = PP_RUN_SPEED(pi);
+      P.speeds[2] = PP_SPRINT_SPEED(pi);
       P.jumpClip =
           PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       P.backClip =
@@ -6972,7 +7434,7 @@ void TerrainGame::renderGameMenu() {
 
 // On-screen texts: apply the frame's Show/Hide Text requests, tick the
 // auto-hide timers, draw what is visible. Baked sprites - one 2D quad each.
-void TerrainGame::updateAndRenderHudTexts() {
+void TerrainGame::updateAndRenderHudTexts(bool render) {
   for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
     if (scriptCtx.textRequest && scriptCtx.textRequest[i] >= 0) {
       hudTextOn[i] = scriptCtx.textRequest[i] != 0 ? 1 : 0;
@@ -6986,7 +7448,8 @@ void TerrainGame::updateAndRenderHudTexts() {
         hudTextTimer[i] = 0.0F;
       }
     }
-    if (hudTextOn[i]) engine->renderer.renderer2D.render(hudTextSprites[i]);
+    if (render && hudTextOn[i])
+      engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
@@ -7234,6 +7697,7 @@ void TerrainGame::buildStarField() {
     sb.info->fullClipChecks = false;
     sb.info->fogDisabled = true;    // past the fog end, like the dome
     sb.info->dynLightPick = false;  // a torch must not tint the sky
+    sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
     sb.colorBag->many = sb.colors.data();
@@ -7384,6 +7848,10 @@ void TerrainGame::setupSkyBodies() {
     b.info->fogDisabled = true;
     // Centred on the camera like the dome: a nearby torch must not tint the sun.
     b.info->dynLightPick = false;
+    // ...and it rides the dome, so it is a shell fragment too - see the dome's
+    // blssProxy. A disc at 94% of the dome radius has a w range the upscaler
+    // would read as "the far plane, everywhere it covers".
+    b.info->blssProxy = false;
     b.info->fullClipChecks = true;  // crosses the screen edge constantly
     if (additive) b.info->additiveBlendFix = 128;
     else b.info->blendingEnabled = true;
@@ -7685,7 +8153,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // smaller than the mesh tessellation, so aiming at your own feet
       // (a footprint well under one terrain cell) lit nothing at all.
       // Follow the view ray to the terrain and put a pool there instead.
-      if (!g_flashEnabled || !g_flashOn) continue;
+      if (!g_flashEnabled || !g_flashOn || sequences::playing() ||
+          scriptCtx.cameraOverride)
+        continue;
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
       float dz = cameraLookAt.z - cameraPosition.z;
@@ -8490,7 +8960,7 @@ void TerrainGame::updateAndRenderLightBeams() {
 // Runtime texts: same request/timer protocol as the baked ones, but the string
 // lives in dynTextBuf (refreshed every frame by the owning flow-graph script
 // while the slot is on) and is drawn glyph by glyph from the font's atlas.
-void TerrainGame::updateAndRenderDynTexts() {
+void TerrainGame::updateAndRenderDynTexts(bool render) {
   for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
     if (scriptCtx.dynTextRequest[i] >= 0) {
       dynTextOn[i] = scriptCtx.dynTextRequest[i] != 0 ? 1 : 0;
@@ -8504,7 +8974,7 @@ void TerrainGame::updateAndRenderDynTexts() {
         dynTextTimer[i] = 0.0F;
       }
     }
-    if (!dynTextOn[i]) continue;
+    if (!render || !dynTextOn[i]) continue;
     const DynTextData& d = DYN_TEXTS[i];
     const char* s = &dynTextBuf[(size_t)i * DYN_TEXT_LEN];
     if (!s[0]) continue;
@@ -8948,17 +9418,28 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  // Sprint (Tools > Input Map "sprint" action + Preferences > Input > Sprint
-  // speed): scales the walk speed while the action is held. SPRINT_MULT 1 or
-  // an unbound/absent sprint action = no sprinting, no cost. The avatar's
-  // locomotion clip is chosen from speedFrac against the UNSPRINTED speed
-  // further down, so sprinting is what pushes it over the run threshold.
+  // The three speed tiers (docs/player-speeds.md). The stick's DEFLECTION
+  // ramps the speed from walk to run, so easing the stick walks and pushing it
+  // all the way runs; a digital source (d-pad, keyboard) always reads full
+  // deflection and therefore always runs. Holding the "sprint" action pins the
+  // top speed FLAT instead of ramping - a deliberate go-fast modifier.
+  //
+  // Both tiers are RESOLVED at build time (project::playerRunSpeed /
+  // playerSprintSpeed), so a project that set neither has RUN == WALK - the
+  // ramp is then a no-op - and SPRINT == walk x SPRINT_MULT, which is the
+  // expression this used to compute here. That is what makes an existing
+  // project move exactly as it did.
+  //
+  // forward/strafe are each -1..1 and already carry the stick's magnitude into
+  // the position delta below, so the ramp must scale the SPEED only; the clamp
+  // matters because a d-pad diagonal reads sqrt(2).
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
+  const bool sprinting =
+      IA_ROLE_SPRINT >= 0 && inputPressed(pad, IA_ROLE_SPRINT);
   const float moveSpeed =
-      PP_WALK_SPEED(pi) *
-      ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-        inputPressed(pad, IA_ROLE_SPRINT))
-           ? SPRINT_MULT
-           : 1.0F);
+      sprinting ? P.speeds[2]
+                : P.speeds[0] + (P.speeds[1] - P.speeds[0]) * stickMag;
 
   if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -9131,9 +9612,14 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[1] = P.y;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
-      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      // Locomotion clips are measured against the RUN speed - the top of the
+      // stick ramp - so PP_RUN_THRESHOLD keeps meaning "fraction of full-stick
+      // speed" whether or not a run speed was set (with none, RUN == WALK and
+      // this is the expression it always was). Sprinting exceeds the run
+      // speed, so it still pushes the fraction past the threshold.
+      const float step = P.speeds[1] * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
-                      moveLocal);
+                      moveLocal, sprinting);
     }
     return;
   }
@@ -9254,12 +9740,13 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
                                   float speedFrac, bool grounded,
-                                  float moveLocal) {
+                                  float moveLocal, bool sprinting) {
   if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
   const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
+  bool onSprintClip = false;
   if (!grounded && P.jumpClip >= 0)
     want = P.jumpClip;
   else if (speedFrac < 0.12F)
@@ -9276,19 +9763,29 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
       dir = P.backClip;
     else if (a > 1.0471976F)  // 60..120 deg
       dir = moveLocal < 0.0F ? P.strafeRClip : P.strafeLClip;
+    // Above the run threshold the sprint clip REPLACES the run clip while the
+    // sprint action is held - the tier is a button, not a speed band, so it is
+    // read from the button. A project with no sprint clip keeps using the run
+    // clip for both, exactly as before.
     if (dir >= 0)
       want = dir;
-    else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    else if (speedFrac < PP_RUN_THRESHOLD(pi))
       want = P.walkClip;
-    else
+    else if (sprinting && P.sprintClip >= 0) {
+      want = P.sprintClip;
+      onSprintClip = true;
+    } else if (P.runClip >= 0)
       want = P.runClip;
+    else
+      want = P.walkClip;
   }
   if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == P.idleClip || body.animClip == P.walkClip ||
-      body.animClip == P.runClip || body.animClip == P.jumpClip ||
+      body.animClip == P.runClip || body.animClip == P.sprintClip ||
+      body.animClip == P.jumpClip ||
       body.animClip == P.backClip || body.animClip == P.strafeLClip ||
       body.animClip == P.strafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
@@ -9302,9 +9799,18 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F)
-    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
-  else
+  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F) {
+    // speedFrac is measured against the RUN speed, so a sprint clip - authored
+    // at sprint pace - would be driven at sprint/run times its authored rate
+    // and visibly gallop. Normalise it against the tier the clip belongs to,
+    // so a sprint clip plays 1x while actually sprinting.
+    float frac = speedFrac;
+    if (onSprintClip && P.speeds[1] > 1e-6F) {
+      const float ratio = P.speeds[2] / P.speeds[1];
+      if (ratio > 1e-6F) frac /= ratio;
+    }
+    body.animSpeed = base * (frac < 0.6F ? 0.6F : frac);
+  } else
     body.animSpeed = base;
 }
 
@@ -9372,6 +9878,13 @@ void TerrainGame::buildSkyDome() {
   // The dome is centered on the camera - a nearby dynamic light would win
   // its pick and tint the whole sky.
   skyDome.infoBag->dynLightPick = false;
+  // ...and for the same reason it cannot be described to the BLSS upscaler:
+  // a shell around the eye has no screen bounding box that means anything.
+  // Its package boxes wrap the near plane, so each one reports "the frame,
+  // fully covered, at the nearest representable depth" and flattens coverage,
+  // depth and depthGrad wherever it lands. Measured: with the dome in, the
+  // widest proxy of an `fpp` frame was the top 106 rows of the screen.
+  skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
   skyDome.colorBag->many = skyDome.colors.data();
   skyDome.bag = std::make_unique<StaPipBag>();
@@ -14832,12 +15345,17 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
-  // Sprint: same rule as the Player-entity walker (Tools > Input Map).
+  // Speed tiers: the same rule as the Player-entity walker - the stick's
+  // deflection ramps WALK -> RUN, and holding sprint pins the top flat
+  // (docs/player-speeds.md). RUN_SPEED and SPRINT_SPEED are resolved at build
+  // time, so with no run speed set RUN_SPEED == WALK_SPEED (a flat ramp) and
+  // SPRINT_SPEED == WALK_SPEED x SPRINT_MULT, which is what this computed.
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
   const float moveSpeed =
-      WALK_SPEED * ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-                     inputPressed(engine->pad, IA_ROLE_SPRINT))
-                        ? SPRINT_MULT
-                        : 1.0F);
+      (IA_ROLE_SPRINT >= 0 && inputPressed(engine->pad, IA_ROLE_SPRINT))
+          ? SPRINT_SPEED
+          : WALK_SPEED + (RUN_SPEED - WALK_SPEED) * stickMag;
   float nextX = playerX + (fx * forward - fz * strafe) * moveSpeed * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * moveSpeed * g_frameScale;
 

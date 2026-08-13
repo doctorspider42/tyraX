@@ -3,24 +3,26 @@
 
 namespace Showcase {
 
-constexpr int TEXTURE_COUNT = 1;
+constexpr int TEXTURE_COUNT = 3;
 inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {
+    "materials/village-grass.png",
     "materials/ground.png",
+    "materials/city-asphalt.png",
 };
 
-constexpr int TERRAIN_TEXTURES[2] = {0, 0};
-constexpr float TERRAIN_TILE_US[2] = {0.125F, 0.125F};
-constexpr float TERRAIN_TILE_VS[2] = {0.125F, 0.125F};
-constexpr bool TERRAIN_HAS_MATERIALS[2] = {true, true};
-constexpr float TERRAIN_TINTS[2][3] = {{1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}};
-constexpr float TERRAIN_TINT_VARIATIONS[2] = {0.0F, 0.0F};
-constexpr float TERRAIN_TINT_SCALES[2] = {24.0F, 24.0F};
+constexpr int TERRAIN_TEXTURES[3] = {0, 1, 2};
+constexpr float TERRAIN_TILE_US[3] = {0.125F, 0.125F, 0.125F};
+constexpr float TERRAIN_TILE_VS[3] = {0.125F, 0.125F, 0.125F};
+constexpr bool TERRAIN_HAS_MATERIALS[3] = {true, true, true};
+constexpr float TERRAIN_TINTS[3][3] = {{1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}};
+constexpr float TERRAIN_TINT_VARIATIONS[3] = {0.0F, 0.0F, 0.0F};
+constexpr float TERRAIN_TINT_SCALES[3] = {24.0F, 24.0F, 24.0F};
 
-constexpr int TERRAIN_LAYER_COUNTS[2] = {0, 0};
+constexpr int TERRAIN_LAYER_COUNTS[3] = {0, 0, 0};
 constexpr int TERRAIN_MAX_LAYERS = 1;
-constexpr int TERRAIN_LAYER_TEXTURES[2][1] = {};
-constexpr float TERRAIN_LAYER_TILE_US[2][1] = {};
-constexpr float TERRAIN_LAYER_TILE_VS[2][1] = {};
-constexpr float TERRAIN_LAYER_TINTS[2][1][3] = {};
+constexpr int TERRAIN_LAYER_TEXTURES[3][1] = {};
+constexpr float TERRAIN_LAYER_TILE_US[3][1] = {};
+constexpr float TERRAIN_LAYER_TILE_VS[3][1] = {};
+constexpr float TERRAIN_LAYER_TINTS[3][1][3] = {};
 
 }  // namespace Showcase

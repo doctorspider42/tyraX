@@ -1,0 +1,9 @@
+# Created by Kenney (www.kenney.nl)
+
+newmtl wall_metal
+Kd 1 1 1
+map_Kd Textures/metal_wall.png
+
+newmtl concrete
+Kd 1 1 1
+map_Kd Textures/concrete.png

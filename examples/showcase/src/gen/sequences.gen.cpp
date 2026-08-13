@@ -34,14 +34,37 @@ struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
              int hidePlayer;  // hide the third-person avatar while playing
+             int disableHud;  // suppress normal game HUD while playing
              int bars; int skippable; float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
 
-static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
+static const Track kS0Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS0Cam[] = {{0.0F, {-28.0F, 13.0F, 30.0F}, {0.0F, 2.0F, -4.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {3.0F, {24.0F, 8.0F, 18.0F}, {0.0F, 2.0F, -10.0F}, 65.0F, 0.0F, 0.0F, 1, -1, -1}, {6.0F, {8.0F, 4.0F, -18.0F}, {0.0F, 2.5F, -28.0F}, 52.0F, 0.0F, 0.0F, 2, -1, -1}, {8.0F, {0.0F, 3.0F, 15.0F}, {0.0F, 2.0F, -10.0F}, 70.0F, 0.0F, 0.0F, 1, -1, -1}};
+
+static const ObjKey kS1T0K[] = {{0.0F, {0.0F, 2.4F, -27.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.2F, 0.7F, 1.0F}, 1, 1}, {3.2F, {0.0F, 2.4F, -27.5F}, {0.0F, 720.0F, 0.0F}, {2.5F, 2.5F, 2.5F}, {1.0F, 0.35F, 0.8F}, 1, 1}};  // "rift-core" -> scene 0 obj 3
+static const Track kS1Tracks[] = {{0, 3, 0, 1, 1, 1, 0, kS1T0K, 2}};
+static const CamKey kS1Cam[] = {{0.0F, {7.0F, 3.0F, -18.0F}, {0.0F, 2.4F, -28.0F}, 55.0F, 0.0F, 0.0F, 2, -1, -1}, {2.1F, {0.0F, 2.8F, -21.0F}, {0.0F, 2.4F, -28.0F}, 88.0F, 0.08F, 0.0F, 1, -1, -1}, {3.2F, {0.0F, 2.4F, -25.0F}, {0.0F, 2.4F, -28.0F}, 100.0F, 0.16F, 0.0F, 1, -1, -1}};
+
+static const Track kS2Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS2Cam[] = {{0.0F, {-20.0F, 8.0F, 20.0F}, {0.0F, 2.0F, -6.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {2.4F, {-10.0F, 3.0F, 3.0F}, {-12.0F, 4.0F, -2.0F}, 75.0F, 0.0F, 0.0F, 1, -1, -1}, {4.7F, {13.0F, 4.0F, 6.0F}, {0.0F, 4.0F, -24.0F}, 50.0F, 0.0F, 0.0F, 1, -1, -1}, {7.0F, {0.0F, 3.0F, 20.0F}, {0.0F, 2.0F, -8.0F}, 68.0F, 0.0F, 0.0F, 2, -1, -1}};
+
+static const Track kS3Tracks[] = {{0, -1, 0, 0, 0, 0, 0, nullptr, 0}};
+static const CamKey kS3Cam[] = {{0.0F, {10.0F, 4.0F, -10.0F}, {17.0F, 2.8F, -18.0F}, 62.0F, 0.0F, 0.0F, 2, -1, -1}, {2.0F, {17.0F, 3.0F, -11.0F}, {17.0F, 3.0F, -18.0F}, 95.0F, 0.1F, 0.0F, 1, -1, -1}, {3.0F, {17.0F, 3.0F, -16.0F}, {17.0F, 3.0F, -18.0F}, 110.0F, 0.18F, 0.0F, 1, -1, -1}};
+
+static const ObjKey kS4T0K[] = {{0.0F, {-4.0F, 0.8F, -8.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 1, 1}, {10.0F, {-4.0F, 0.8F, 18.0F}, {0.0F, 180.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 1, 1}};  // "police-cruiser" -> scene 2 obj 33
+static const Track kS4Tracks[] = {{2, 33, 1, 0, 0, 0, 0, kS4T0K, 2}};
+static const CamKey kS4Cam[] = {{0.0F, {-30.0F, 17.0F, 28.0F}, {0.0F, 3.0F, -5.0F}, 58.0F, 0.0F, 0.0F, 2, -1, -1}, {3.0F, {8.0F, 5.0F, 22.0F}, {0.0F, 2.0F, -10.0F}, 74.0F, 0.0F, 0.0F, 1, -1, -1}, {6.0F, {-7.0F, 3.0F, -6.0F}, {0.0F, 6.0F, -15.0F}, 48.0F, 0.0F, 0.0F, 2, -1, -1}, {8.5F, {25.0F, 13.0F, -18.0F}, {0.0F, 5.0F, 0.0F}, 65.0F, 0.04F, 0.0F, 1, -1, -1}, {10.0F, {0.0F, 3.0F, 24.0F}, {0.0F, 2.0F, -4.0F}, 72.0F, 0.0F, 0.0F, 2, -1, -1}};
+
+static const Seq kSeqs[] = {
+  {"Dawn of Worlds", 8.0F, 0, 1, 0, 1, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS0Tracks, 0, kS0Cam, 4},
+  {"Rift Ignition", 3.2F, 0, 1, 0, 1, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS1Tracks, 1, kS1Cam, 3},
+  {"Portal Breach", 7.0F, 0, 1, 0, 1, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS2Tracks, 0, kS2Cam, 4},
+  {"City Uplink", 3.0F, 0, 1, 0, 1, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS3Tracks, 0, kS3Cam, 3},
+  {"Neon Overdrive", 10.0F, 0, 1, 0, 1, 0, 1, 0.55F, 0.7F, 0.45F, 0.65F, kS4Tracks, 1, kS4Cam, 5}
 };
-static const int kSeqCount = 0;
+static const int kSeqCount = 5;
 
 // Interpolates one component of an object channel (0 pos, 1 rot, 2 scale,
 // 3 color) across a track's keys at time t. Holds the ends.
@@ -72,8 +95,12 @@ static float sampleObj(const ObjKey* k, int n, float t, int comp, int which) {
 // wall-clock speed on PAL and NTSC alike.
 class SequenceDirector : public Script {
   int active_ = -1;
+  int nextRun_ = 0;
+  int activeRun_ = 0;
+  int finishedThrough_ = 0;
   float time_ = 0.0F;
   bool cleanup_ = false;   // hand everything back on the next update
+  bool hudDisabled_ = false;
   float baseFov_ = -1.0F;  // projection FOV before the first override
 
   // Clamp + apply a shot FOV; the first application snapshots the FOV to
@@ -95,6 +122,7 @@ class SequenceDirector : public Script {
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
+    hudDisabled_ = false;
     if (baseFov_ >= 0.0F && ctx.engine) {
       ctx.engine->renderer.core.renderer3D.setFov(baseFov_);
       baseFov_ = -1.0F;
@@ -102,17 +130,40 @@ class SequenceDirector : public Script {
     cleanup_ = false;
   }
 
- public:
-  void begin(int idx) {
-    if (idx < 0 || idx >= kSeqCount) return;
-    active_ = idx;
-    time_ = 0.0F;
-  }
-  void end() {
-    if (active_ >= 0) cleanup_ = true;
+  // Only one sequence can own the director. Playback tokens therefore finish
+  // in increasing order: starting a replacement first completes the old run,
+  // and finishedThrough_ lets a graph notice that even if both events happen
+  // between two of its updates.
+  void finishRun() {
+    if (activeRun_ > finishedThrough_) finishedThrough_ = activeRun_;
+    activeRun_ = 0;
     active_ = -1;
   }
+
+ public:
+  int begin(int idx) {
+    if (idx < 0 || idx >= kSeqCount) return 0;
+    finishRun();  // replacing a live sequence finishes its playback token
+    active_ = idx;
+    activeRun_ = ++nextRun_;
+    time_ = 0.0F;
+    cleanup_ = false;
+    // Set immediately: Play Sequence may run after this director's update, and
+    // the same frame's HUD must not flash before the first cutscene tick.
+    hudDisabled_ = kSeqs[idx].disableHud != 0;
+    return activeRun_;
+  }
+  void end() {
+    if (active_ >= 0) {
+      cleanup_ = true;
+      finishRun();
+    }
+  }
   int activeIndex() const { return active_; }
+  bool hudDisabled() const { return hudDisabled_; }
+  bool finished(int token) const {
+    return token > 0 && token <= finishedThrough_;
+  }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -122,7 +173,7 @@ class SequenceDirector : public Script {
     const Seq& s = kSeqs[active_];
     // A skippable cutscene ends early on START.
     if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
-      active_ = -1;
+      finishRun();
       release(ctx);
       return;
     }
@@ -310,7 +361,7 @@ class SequenceDirector : public Script {
         time_ -= s.duration;
         if (time_ < 0.0F) time_ = 0.0F;
       } else {
-        active_ = -1;
+        finishRun();
         cleanup_ = true;  // release() on the next update
       }
     }
@@ -326,9 +377,11 @@ static const bool g_seqRegistered = []() {
 }  // namespace
 
 namespace sequences {
-void play(int index) { g_seqDirector.begin(index); }
+int play(int index) { return g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
 bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool finished(int token) { return g_seqDirector.finished(token); }
+bool hudDisabled() { return g_seqDirector.hudDisabled(); }
 
 // Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
 // active. A cutscene's own style wins, because it writes barsAmount every frame

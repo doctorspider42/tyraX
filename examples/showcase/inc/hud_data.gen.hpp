@@ -23,14 +23,14 @@ constexpr int HUD_BLOOM_LAYER = -1;
 constexpr int HUD_GRAIN_LAYER = -1;
 
 // The USE prompt sprite (shown while looking at a usable object)
-constexpr const char* USE_PROMPT_PATH = "hud/use.png";
+constexpr const char* USE_PROMPT_PATH = "hud/use-text.png";
 constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
 constexpr float USE_PROMPT_Y = 0.596F;
-constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
+constexpr float USE_PROMPT_W = 64.0F;  // on-screen pixels
 constexpr float USE_PROMPT_H = 32.0F;
 // The "PICK UP" variant, shown instead for pickable objects
 // (same screen position as USE; its own text/image and size)
-constexpr const char* PICK_PROMPT_PATH = "hud/pickup.png";
+constexpr const char* PICK_PROMPT_PATH = "hud/pick-text.png";
 constexpr float PICK_PROMPT_W = 128.0F;
 constexpr float PICK_PROMPT_H = 32.0F;
 
@@ -45,13 +45,13 @@ struct PromptIconSlot {
   short x, y;     // top-left inside the prompt sprite, pixels
   short size;     // glyph box side, pixels
 };
-constexpr int USE_PROMPT_ICON_COUNT = 0;
+constexpr int USE_PROMPT_ICON_COUNT = 1;
 inline const PromptIconSlot USE_PROMPT_ICONS[USE_PROMPT_ICON_COUNT > 0 ? USE_PROMPT_ICON_COUNT : 1] = {
-    {-1, 0, 0, 0},
+    {6, 6, 4, 16},  // use
 };
-constexpr int PICK_PROMPT_ICON_COUNT = 0;
+constexpr int PICK_PROMPT_ICON_COUNT = 1;
 inline const PromptIconSlot PICK_PROMPT_ICONS[PICK_PROMPT_ICON_COUNT > 0 ? PICK_PROMPT_ICON_COUNT : 1] = {
-    {-1, 0, 0, 0},
+    {6, 10, 2, 20},  // use
 };
 
 struct HudTextData {
@@ -63,7 +63,7 @@ struct HudTextData {
 
 constexpr int HUD_TEXT_COUNT = 1;
 inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1] = {
-    {"hud/text-options-hint.png", 0.5F, 0.93F, 256, 32, 0},  // options-hint
+    {"hud/text-showcase-help.png", 0.5F, 0.94F, 512, 32, 1},  // showcase-help
 };
 
 }  // namespace Showcase

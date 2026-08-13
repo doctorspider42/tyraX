@@ -1,0 +1,1 @@
+{ "id": "df64061277d7c47c", "name": "market-wagon", "type": "model", "position": [8, 0.3, 3], "rotation": [0, 72, 0], "scale": [1.4, 1.4, 1.4], "color": [1, 1, 1], "physics": false, "model": "res/models/medieval/Prop_Wagon.obj" }

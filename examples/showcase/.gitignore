@@ -2,5 +2,7 @@ obj/
 bin/*.elf
 *.history
 .vscode/
-.res-baked/
+.res-baked/*
+!.res-baked/gi/
+!.res-baked/gi/**
 docker-compose.yml

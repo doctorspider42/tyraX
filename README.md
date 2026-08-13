@@ -173,7 +173,11 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **Cinematics** — the Cutscene Director, fed by keyframes or by a
   [phone-recorded 6DoF take](docs/camera-takes.md) or the
-  [live phone viewfinder](docs/phone-camera.md).
+  [live phone viewfinder](docs/phone-camera.md), with per-sequence camera,
+  player and HUD control. A player flashlight is suspended instead of following
+  the cinematic camera, and the `Play Sequence` flow node exposes an `after`
+  output for chaining gameplay to that exact playback instead of guessing its
+  duration with a timer.
 - **Input** — [named actions and rebinding](docs/input-bindings.md),
   [button glyphs in text](docs/text-icons.md), and
   [USB keyboard & mouse](docs/keyboard-mouse.md).
@@ -242,14 +246,14 @@ build that provably carries none of it
 Every project under [examples/](examples) opens with `File > Open Project` and
 has its own README saying what to look at and how it is wired.
 
-Fair warning: the examples are work in progress. They were built to prove their
-feature, not to be pretty — expect programmer art and rough edges while they
-wait for their polish pass.
+Most examples are focused technical exhibits, so some still favour clarity over
+presentation. The showcase is the polished exception: a full playable tour
+built to demonstrate how those systems work together.
 
 | Example | What it shows |
 | --- | --- |
 | [script-demo](examples/script-demo) | Start here. Walk to the box, press X, and the sky obeys — one object script, and you've touched the whole pipeline |
-| [showcase](examples/showcase) | The kitchen sink: two scenes joined by a portal, and half the manual — streaming, animation, particles, menus, post-FX — making cameos |
+| [showcase](examples/showcase) | Three worlds collide: a cinematic fantasy village, portal laboratory and neon city combining animation, AI, streaming, physics, VU0 ray tracing, GI and every ounce of PS2 spectacle |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |

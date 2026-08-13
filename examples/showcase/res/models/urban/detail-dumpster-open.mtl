@@ -1,0 +1,17 @@
+# Created by Kenney (www.kenney.nl)
+
+newmtl dirt
+Kd 1 1 1
+map_Kd Textures/dirt.png
+
+newmtl wall_metal
+Kd 1 1 1
+map_Kd Textures/metal_wall.png
+
+newmtl wall
+Kd 1 1 1
+map_Kd Textures/wall.png
+
+newmtl roof
+Kd 1 1 1
+map_Kd Textures/roof.png
