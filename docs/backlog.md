@@ -68,7 +68,45 @@ picture under REPEAT while bounding coordinates by chunk size.
 
 ## Medium
 
-### SETTLED: the guard works in PCSX2 and is INERT under ps2link
+### RETRACTED, then still open: whether the guard runs under ps2link
+
+**The measurement below was invalid and the conclusion it produced is
+withdrawn.** Recorded in full because the flaw is the reusable part.
+
+What was claimed: the guard handled 429 completions in PCSX2 and zero across
+several ps2link sessions, therefore it is inert under ps2link.
+
+**The PCSX2 half stands** - 429 completions, so the guard works and the counter
+works. The ps2link half does not, for two compounding reasons:
+
+1. **`--run-ps2` never captured the boot output.** A manual `ps2client execee`
+   capture contains `Pad initialized`, `Clut set`, `Hello from TyraX`; four
+   `--run-ps2` captures contain none of them. The liveness line fires ONCE, on
+   the first frame, so it sat outside every capture window.
+2. **Worse: "the game came up" was never actually verified.** The check was "did
+   `bin/livedbg.bin` appear", and a game **already running from an earlier
+   deploy** resumes polling the moment a file server reappears and writes that
+   file. So a refused deploy looks exactly like a successful one. Caught by the
+   frame counter in a late capture reading **f=136800** - about 45 minutes of
+   uptime, i.e. an old ELF. Several late measurements, including the
+   `eeCrashHandler` on/off comparison, were made against a binary that was not
+   the one just built.
+
+**Protocol fix, mandatory for any future run on this:** a deploy counts as fresh
+only if the capture contains a boot line (`Clut set` or `Pad initialized`) **or**
+the first `VRAMSTAT` reports a low `f=`. Never trust `livedbg.bin` appearing.
+And make any liveness announcement PERIODIC, not once, so a late-starting capture
+cannot miss it.
+
+So the question is open exactly as before: does the game's `SIF_CMD_RPC_END`
+handler run under ps2link? The evidence that it CAN is unchanged and still the
+strongest thing here - the original crash reported `EPC 0x00271C78`, which is
+inside the game's image (games load at `0x00100000`, the low ps2link sits at
+`0x00094000`), so the game's own `_request_end` was executing when it faulted.
+
+The withdrawal also **restores** the two conclusions the invalid measurement had
+knocked out: the v1-vs-v2 hang table and the `g_noPacket = 1` reading are back to
+what they were - suggestive, unproven, and not contradicted.
 
 Same ELF, two targets, one counter (`SifRpcGuard::seen()` + a one-time log line):
 

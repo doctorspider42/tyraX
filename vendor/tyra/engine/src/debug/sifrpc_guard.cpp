@@ -11,6 +11,29 @@
 #include <sifcmd.h>
 #include <sifrpc.h>
 
+// ps2sdk's sifcmd.c declares `_sif_cmd_data` with EXTERNAL linkage (nm shows a
+// capital B), so the dispatch table it points at can be read directly. That is
+// the only way to answer "is my handler the one registered right now" from
+// inside the game - dumpmem could not be made to answer reliably while the game
+// is polling. Layout mirrors `struct cmd_data` as sceSifInitCmd() fills it.
+extern "C" {
+struct TxSifCmdHandler {
+  void* handler;
+  void* harg;
+};
+struct TxSifCmdData {
+  void* pktbuf;
+  void* unused;
+  TxSifCmdHandler* sys_cmd_handlers;
+  u32 nr_sys_handlers;
+  void* usr_cmd_handlers;
+  u32 nr_usr_handlers;
+  void* sregs;
+  void* iopbuf;
+};
+extern TxSifCmdData _sif_cmd_data;
+}
+
 namespace Tyra {
 namespace {
 
@@ -170,9 +193,20 @@ void SifRpcGuard::report() {
   // it - ps2link's _request_end takes `cd` from the packet payload and would
   // complete this game's client just as correctly. The count is the only
   // evidence, so it goes in the log where anybody can see it.
-  if (!g_announced && g_seen > 0) {
+  if (!g_announced) {
     g_announced = true;
-    TYRA_LOG("SIF RPC guard: live, ", g_seen, " completion(s) handled");
+    // Report the DISPATCH TABLE regardless of whether anything arrived: on
+    // ps2link the count stays at zero, and the question is whether that is
+    // because nothing was dispatched or because this handler is not the one
+    // registered. Print both so the log answers it either way.
+    const void* slot = nullptr;
+    const u32 id = SIF_CMD_RPC_END & 0x7FFFFFFFu;
+    if (_sif_cmd_data.sys_cmd_handlers && id < _sif_cmd_data.nr_sys_handlers)
+      slot = _sif_cmd_data.sys_cmd_handlers[id].handler;
+    TYRA_LOG("SIF RPC guard: seen ", g_seen, ", slot ", (u32)(unsigned long)slot,
+             ", mine ", (u32)(unsigned long)&requestEnd, ", pktbuf ",
+             (u32)(unsigned long)_sif_cmd_data.pktbuf, ", iopbuf ",
+             (u32)(unsigned long)_sif_cmd_data.iopbuf);
   }
 
   // The healthy path is this compare and nothing else.
