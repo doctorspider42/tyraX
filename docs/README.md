@@ -185,8 +185,14 @@ Developer design docs (internals, not user guides):
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
-- [VU1 clipping plan](vu1-clipping-plan.md) — measured EE-clipper cost and the
-  milestones for moving StaPip clipping onto VU1.
+- [The toolchain image](toolchain-image.md) — where the Docker image games are
+  compiled in comes from, and the long measured account of replacing Sony's
+  unlicensed `vcl` with `openvcl` so the image can be published at all:
+  seventeen miscompiles, what each one broke, and the VU1 latencies measured on
+  a real console rather than assumed.
+- [What to send upstream to openvcl](upstream-openvcl.md) — the openvcl defects
+  that work found, each with the mechanism and a reproducer that fires on the
+  stock commit, plus the density flags, ready to hand over.
 - [GS VRAM residency](gs-vram.md) — where the 4 MB goes, the texture heap and
   its eviction policy, measured before/after numbers.
 - [Frame extrapolation](frame-extrapolation.md) — synthesising an extra frame

@@ -3065,6 +3065,10 @@ struct Project {
     // headless --build path (main.cpp) also sets ps2LinkIp here directly.
     std::string emulatorPath;  // PCSX2 exe; empty = auto-detect under Program Files
     std::string ps2LinkIp;     // ps2link IP for "Run on PS2"; empty = disabled
+    // Docker image the game compiles in. Empty = say nothing and let the
+    // generated compose file's `${TYRAX_IMAGE:-h4570/tyra}` resolve from the
+    // project's own .env, which is how this worked before the setting existed.
+    std::string toolchainImage;
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }

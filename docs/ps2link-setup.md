@@ -58,7 +58,7 @@ Two things worth knowing before you hit a wall:
 | A way to boot homebrew | FreeMcBoot / FreeDVDBoot / uLaunchELF / a disc-swap exploit — whatever already runs `.ELF` files off your memory card. |
 | A memory card | It holds `PS2LINK.ELF` + `IPCONFIG.DAT`. |
 | A wired LAN | Console and PC on the **same subnet**; the PS2 has no Wi-Fi and ps2link has no DHCP. |
-| Docker Desktop on the PC (plain `docker` on Linux) | The ps2link build runs inside the `ps2dev/ps2dev` toolchain image. |
+| Docker Desktop on the PC (plain `docker` on Linux) | The ps2link build runs inside the `ps2dev/ps2dev` toolchain image — or you copy the ready-made ELF out of the TyraX toolchain image, which also needs Docker. |
 
 ## 1. Build the TyraX ps2link
 
@@ -70,14 +70,26 @@ On Linux: `tools/ps2link/build.sh` (the same script, same pins). Add `-Clean` /
 `--clean` to throw the work tree away first.
 
 It clones ps2link pinned at `0c6138c`, applies `tyrax.patch`, builds inside
-`ps2dev/ps2dev:latest` and drops **`tools/ps2link/ps2link.elf`** (~120 KB) next
-to the script. Like upstream's releases it is run through `ps2-packer`, which
-is what lets a launcher boot it: an unpacked ELF has its segment at the final
-address and FreeMcBoot's menu keeps its own loader there. `-Unpacked` /
-`--unpacked` builds the raw image instead, for debugging - it only boots from
-uLaunchELF. The first run pulls the toolchain image; later runs reuse the
+`ps2dev/ps2dev:v2.0.0` and drops **`tools/ps2link/ps2link.elf`** (~285 KB) next
+to the script: high (`0x01ee8000`), unpacked, USB HID included. `-Low` /
+`--low`, `-Packed` / `--packed` and `-NoUsb` / `--no-usb` combine into the other
+variants, and **the build to flash is low + packed + no USB** — like upstream's
+releases it goes through `ps2-packer`, which is what lets FreeMcBoot's menu boot
+it at the low address (an unpacked low image lands on that loader mid-load and
+black-screens). The first run pulls the toolchain image; later runs reuse the
 clone in `tools/ps2link/build/`. The ELF is gitignored — the patch is the source
 of truth, not the binary.
+
+**Or skip this step.** Both ELFs are built into the toolchain image
+([docs/toolchain-image.md](toolchain-image.md)) from the same commit and the same
+patch, so any project's build container already has them:
+
+```powershell
+docker compose cp compiler:/usr/local/share/tyrax/ps2link/ps2link-low-nousb-packed.elf .
+```
+
+(run in a project directory, with its container up — or `docker create` the image
+directly). CI also publishes them as a `ps2link` workflow artifact.
 
 What the patch does to upstream today, in two groups.
 

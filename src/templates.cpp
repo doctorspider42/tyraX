@@ -379,6 +379,23 @@ include /tyra/Makefile.base
 // which is the toolchain telling us exactly this. `external` means compose
 // looks the volume up instead of owning it, so the label stops mattering; the
 // runner creates it with `docker volume create` (idempotent) before `up`.
+//
+//
+// The image name is a compose variable so a project can be pointed at another
+// toolchain image WITHOUT an editor change: `docker compose` interpolates it
+// from the environment and from a `.env` file in the project directory, and
+// this file is regenerated on every build, so an override in .env survives
+// while an edit to this line would not. One line switches a project onto the
+// image this repo builds itself (docker/Dockerfile.fromsource,
+// docs/toolchain-image.md):
+//
+//     TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain-src:latest
+//
+// The default stays h4570/tyra - the image every game here has been built with,
+// and the one a fresh clone can pull without credentials. The published package
+// inherits this repo's visibility, so while the repo is private that line also
+// needs a `docker login ghcr.io`; the default flips the day the package is
+// public, and nothing else has to change.
 static const char* TPL_COMPOSE = R"(name: {{NAME_LOWER}}
 volumes:
   tyra-game-volume:
@@ -390,7 +407,7 @@ services:
     environment:
       TERM: xterm-256color
     network_mode: host
-    image: h4570/tyra
+    image: ${TYRAX_IMAGE:-h4570/tyra}
     working_dir: /src
     command: ["sleep", "infinity"]
     tty: true
@@ -20862,6 +20879,10 @@ bin/*.elf.sym
 .vscode/
 .res-baked/
 docker-compose.yml
+# Per-machine compose overrides, e.g. TYRAX_IMAGE to build against another
+# toolchain image (docs/toolchain-image.md). Never one person's choice for
+# everyone who clones the project.
+.env
 # Pre-migration snapshots of the project's own model files, written by a format
 # migration (docs/format-versioning.md). Local safety copies, not source: the
 # history that matters is already in git.
@@ -21048,9 +21069,13 @@ still work as plain git files.
 
 ## Not tracked / regenerated
 
-`obj/`, `bin/*.elf`, `.res-baked/`, `docker-compose.yml`, `*.history` and the
-`*.gen.*` sources are build output or local state (see `.gitignore`) - never
+`obj/`, `bin/*.elf`, `.res-baked/`, `docker-compose.yml`, `.env`, `*.history` and
+the `*.gen.*` sources are build output or local state (see `.gitignore`) - never
 resolve merge conflicts in generated files; fix the source and rebuild.
+
+`.env` is the one you may want to write yourself: `docker-compose.yml` is
+rewritten on every build, but it reads `TYRAX_IMAGE` from `.env`, so that is
+where a per-machine choice of build image belongs.
 )";
 
 static std::string floatLit(float v) {

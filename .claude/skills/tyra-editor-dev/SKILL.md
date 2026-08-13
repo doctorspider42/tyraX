@@ -31,7 +31,14 @@ graphs, preferences) stored in a `<name>.tyra` manifest plus one `objects/<id>.j
 file per scene object (merge-friendly split), and on every build
 **generates a complete PS2 game project** (C++ sources, Makefile, docker-compose.yml).
 The game is compiled inside a Docker container (`h4570/tyra` image, PS2DEV
-`mips64r5900el-ps2-elf-g++` toolchain) and launched in the PCSX2 emulator.
+`mips64r5900el-ps2-elf-g++` toolchain) and launched in the PCSX2 emulator. That
+image is now also built from this repo - `docker/Dockerfile`, published to GHCR
+by `.github/workflows/toolchain-image.yml`; the compose file names
+`${TYRAX_IMAGE:-h4570/tyra}` so a project can be pointed elsewhere from its own
+`.env` - or from *Edit > Preferences > Build toolchain*, a machine-global setting
+the Runner exports for its compose commands (empty = say nothing, so `.env` still
+decides). Read `docs/toolchain-image.md` before touching any of it: which parts of
+that image can move and which cannot is measured there, not guessed.
 
 The one-line pipeline to keep in your head:
 

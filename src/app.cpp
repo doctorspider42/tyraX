@@ -74,6 +74,14 @@ struct EditorConfig {
     NavConfig nav;
     std::string emulatorPath;  // pcsx2-qt.exe; empty = auto-detect
     std::string ps2LinkIp;     // LAN IP of a PS2 running ps2link; empty = disabled
+    // Docker image the game is COMPILED in (docs/toolchain-image.md). Empty =
+    // decide nothing: the generated compose file's own `${TYRAX_IMAGE:-h4570/tyra}`
+    // applies, so a project's hand-written .env keeps winning exactly as before.
+    // Non-empty = the Runner exports TYRAX_IMAGE for its compose commands, which
+    // outranks .env. Machine config, not project data: which images this PC has
+    // pulled or built is a property of the PC, and a value baked into a shared
+    // .tyra would name an image a teammate does not have.
+    std::string toolchainImage;
     // When true (default), a TYRA assertion from the running game pops up a
     // copyable error dialog. When false, errors go only to the console / Debug
     // window (the game already logs them there either way).
@@ -208,6 +216,7 @@ static EditorConfig loadEditorConfig() {
         else if (match("navOrbitSelection", v)) cfg.nav.orbitAroundSelection = toI(v, 1) != 0;
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
+        else if (match("toolchainImage", v)) cfg.toolchainImage = v;
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
         else if (match("displayName", v)) cfg.displayName = v;
@@ -287,6 +296,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n"
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
+      << "toolchainImage=" << cfg.toolchainImage << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
       << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
       << "displayName=" << cfg.displayName << "\n"
@@ -544,6 +554,7 @@ int App::run(const std::string& initialProjectDir) {
         nav_ = cfg.nav;
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
+        globalToolchainImage_ = cfg.toolchainImage;
         errorPopupEnabled_ = cfg.errorPopup;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
         globalDisplayName_ = cfg.displayName;
@@ -1059,6 +1070,7 @@ void App::saveGlobalConfig() {
     recent.reserve(recentProjects_.size());
     for (const RecentProject& r : recentProjects_) recent.push_back(r.dir);
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
+                      globalToolchainImage_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
                       matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
@@ -1178,6 +1190,8 @@ void App::drawMenuBar() {
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          globalEmulatorPath_.c_str());
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+                snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
+                         globalToolchainImage_.c_str());
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
                 snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
@@ -6099,6 +6113,7 @@ void App::attachProject() {
     if (migrated) saveGlobalConfig();
     project_.emulatorPath = globalEmulatorPath_;
     project_.ps2LinkIp = globalPs2Ip_;
+    project_.toolchainImage = globalToolchainImage_;
 
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
@@ -14772,7 +14787,14 @@ void App::drawEditorPreferencesModal() {
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
-
+    // AlwaysAutoResize does NOT clamp to the screen, so this dialog's height is
+    // the sum of what it draws - and with a multi-line paragraph under every
+    // setting it had grown to the point where one more section pushed Save and
+    // Cancel past the bottom of a 1009-px window. They still submit there, so
+    // `dump` lists them and a scripted click reports success while pressing
+    // nothing. The fix is not a scrollbar (a fill-height BeginChild inside an
+    // auto-resizing window collapses to zero, which is worse): per-field prose
+    // belongs in a `(?)` tooltip, and that is where it now lives.
     if (!ImGui::BeginPopupModal("Editor Preferences", nullptr,
                                 ImGuiWindowFlags_AlwaysAutoResize))
         return;
@@ -14795,13 +14817,20 @@ void App::drawEditorPreferencesModal() {
         }
         ImGui::EndCombo();
     }
+    {
+        // prefHelp takes a plain string, and this one reports live state.
+        char tip[256];
+        snprintf(tip, sizeof(tip),
+                 "Interface font: %s (the first UI face found on this machine).\n"
+                 "Scale lives in View > Interface scale - currently %d%%%s.",
+                 uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
+                 (int)std::lround(uiScaleApplied_ * 100.0f),
+                 uiScaleUser_ == 0.0f ? " (auto)" : "");
+        prefHelp(tip);
+    }
+    // The theme's own one-liner stays inline: it changes with the selection, so
+    // it is a readout rather than documentation.
     ImGui::TextDisabled("%s", theme::info(theme_).desc);
-    ImGui::TextDisabled(
-        "Interface font: %s (the first UI face found on this machine).\n"
-        "Scale lives in View > Interface scale - currently %d%%%s.",
-        uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
-        (int)std::lround(uiScaleApplied_ * 100.0f),
-        uiScaleUser_ == 0.0f ? " (auto)" : "");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,
@@ -14817,7 +14846,7 @@ void App::drawEditorPreferencesModal() {
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear##projdir")) prefDefaultProjectsDir_[0] = '\0';
     }
-    ImGui::TextDisabled(
+    prefHelp(
         "Parent folder proposed as the location when you create a new project\n"
         "(File > New Project). Leave empty to default to ~/TyraProjects.");
 
@@ -14833,20 +14862,68 @@ void App::drawEditorPreferencesModal() {
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear##pcsx2")) prefEmulatorPath_[0] = '\0';
     }
-    ImGui::TextDisabled(
+    prefHelp(
         "Path to pcsx2-qt.exe used by Build && Run. Leave empty to auto-detect\n"
         "under Program Files. The emulator's log appears in the Debug window.");
 
     ImGui::SeparatorText("Real PS2 (network deploy)");
     ImGui::InputText("PS2 (ps2link) IP", prefPs2Ip_, sizeof(prefPs2Ip_));
-    ImGui::TextDisabled(
+    prefHelp(
         "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Build > Build &&\n"
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
 
+    ImGui::SeparatorText("Build toolchain");
+    // The buffer is the single truth and the combo is a shortcut into it: the
+    // selected row is DERIVED from the text every frame, so typing an image by
+    // hand cannot leave the two disagreeing. Empty is a real choice, not an
+    // unset value - it means "say nothing", which is what keeps a project's own
+    // .env working.
+    struct ToolchainChoice {
+        const char* label;
+        const char* image;
+    };
+    // The GHCR row names the FROM-SOURCE package, because that is the only one
+    // CI publishes. The inherited image stays in the repo as the A/B reference
+    // against Sony's vcl and is built locally (docker/build.*), which is what
+    // the "locally built" row picks up - it is the tag those scripts default to.
+    static const ToolchainChoice kToolchains[] = {
+        {"Project default (.env, else h4570/tyra)", ""},
+        {"Original Tyra (h4570/tyra)", "h4570/tyra"},
+        {"TyraX toolchain (GHCR)",
+         "ghcr.io/doctorspider42/tyrax-toolchain-src:latest"},
+        {"TyraX toolchain (locally built)", "tyrax-toolchain:local"},
+    };
+    int toolchainSel = -1;  // -1 = none of the presets, i.e. a custom image
+    for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i)
+        if (std::strcmp(prefToolchainImage_, kToolchains[i].image) == 0) toolchainSel = i;
+    const char* toolchainLabel =
+        toolchainSel >= 0 ? kToolchains[toolchainSel].label : "Custom";
+    if (ImGui::BeginCombo("Compiler image", toolchainLabel)) {
+        for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i) {
+            if (ImGui::Selectable(kToolchains[i].label, toolchainSel == i))
+                snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
+                         kToolchains[i].image);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::InputText("Image name", prefToolchainImage_, sizeof(prefToolchainImage_));
+    prefHelp(
+        "Docker image the GAME is compiled in - not the editor. The TyraX image\n"
+        "is built from the official ps2dev base with a from-source VU assembler,\n"
+        "the audsrv fork and our patched ps2link (docs/toolchain-image.md); pick\n"
+        "Original Tyra to fall back on the 2022 image every game here was built\n"
+        "with - it is also the only one carrying Sony's vcl.\n"
+        "The GHCR image needs a docker login while this repo is private.\n"
+        "Leave empty to decide nothing here, so a project's own .env still wins.\n"
+        "Changing this rebuilds the engine and the VU microcode on the next build.\n"
+        "\n"
+        "Headless builds (tyrax-editor --build) do not read this - they follow the\n"
+        "project's .env, the same way they auto-detect the emulator.");
+
     ImGui::SeparatorText("Collaboration sessions");
     ImGui::InputText("Display name", prefDisplayName_, sizeof(prefDisplayName_));
-    ImGui::TextDisabled(
+    prefHelp(
         "The name other participants see in a live session. Leave empty to\n"
         "use your Windows user name.");
     ImGui::InputText("Joined-project cache", prefSessionCacheDir_,
@@ -14858,7 +14935,7 @@ void App::drawEditorPreferencesModal() {
             snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
                      dir.c_str());
     }
-    ImGui::TextDisabled(
+    prefHelp(
         "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
         "files never transfer twice). Leave empty for\n"
         "the editor config folder (remote-cache).");
@@ -14906,7 +14983,7 @@ void App::drawEditorPreferencesModal() {
             ImGui::InputTextWithHint("Model id", "as the backend expects it",
                                      prefAiModel_, sizeof(prefAiModel_));
         ImGui::Checkbox("Thinking", &prefAiThinking_);
-        ImGui::TextDisabled(
+        prefHelp(
             "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
             "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
             "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
@@ -14918,6 +14995,7 @@ void App::drawEditorPreferencesModal() {
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
+        globalToolchainImage_ = prefToolchainImage_;
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
         globalDisplayName_ = prefDisplayName_;
         globalSessionCacheDir_ = prefSessionCacheDir_;
@@ -14929,6 +15007,10 @@ void App::drawEditorPreferencesModal() {
         if (hasProject_) {
             project_.emulatorPath = globalEmulatorPath_;
             project_.ps2LinkIp = globalPs2Ip_;
+            // The Runner reads the image off the project too, so an already-open
+            // one has to be told now - otherwise the change only takes effect the
+            // next time the project is opened.
+            project_.toolchainImage = globalToolchainImage_;
         }
         ImGui::CloseCurrentPopup();
     }

@@ -535,8 +535,62 @@ processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on t
 ELF.
 
 Notes:
-- First-ever build downloads the `h4570/tyra` image and compiles the engine
-  (minutes). Subsequent builds take seconds unless the engine changed.
+- First-ever build downloads the toolchain image (`h4570/tyra`, 812 MB) and
+  compiles the engine (minutes). Subsequent builds take seconds unless the
+  engine changed.
+- **Testing a change to the toolchain image itself**: build it with
+  `docker\build.ps1` / `docker/build.sh` (add `-FromSource` / `--from-source`
+  for `docker/Dockerfile.fromsource`, the one CI publishes; without it you get
+  `docker/Dockerfile`, the inherited A/B reference, which **CI does not build at
+  all** - so local is the only check it gets). Both scripts run the same checks
+  CI does. Then point a scratch project at it with one line,
+  `TYRAX_IMAGE=tyrax-toolchain:local` in the project's `.env`, and take it all
+  the way to a PCSX2 boot. `docker compose config` in the project directory
+  prints which image will actually be used; `docker ps -a --filter
+  name=<project>` confirms which one the container was created from. Nothing in
+  the editor needs rebuilding for this - `docker-compose.yml` is regenerated per
+  build and reads that variable. See `docs/toolchain-image.md`.
+- **A VU1 packet capture can be armed WITHOUT the GUI**, which is what makes a
+  microcode A/B into numbers instead of screenshots:
+  `python .claude/skills/tyra-testing/scripts/arm-vucap.py <projectDir> <flushIndex>`
+  writes the same `bin/livedbg.cmd` the *Debugger > VU > Capture VU1 packet* button
+  **`--full` and `--peek` are what make it a comparison tool.** The plain decode
+  prints the first four staged packets and four vertices of each, which is right for
+  reading and useless for diffing two builds - the packet that differs is rarely the
+  first. `--dump-vucap <dir> --full` prints all of them; `--peek <qw>[,n]` prints raw
+  data-memory quadwords as floats and words. That second one is how a microprogram
+  reports its own intermediates: **quadwords 1016..1023 are free** in the static
+  pipeline's map, and code ABOVE `begin:` runs once per activation while `begin:`
+  loops per batch - so a slot pointer set up there turns those eight quadwords into a
+  ring with one slot per batch. Without that, every peek reports the LAST batch,
+  which is exactly the one where two builds usually agree.
+  does, the game answers with `bin/vucap.bin`, and
+  `tyrax-editor --dump-vucap <projectDir>` decodes it — chain, VU1 memory, and **the
+  GIF packets the program staged for XGKICK**. Name the flush index: "the next packet"
+  is a different draw every time, a named index is the same draw forever.
+  **Two gotchas.** The responder only exists when the project has instrumentable
+  flow-graph nodes (`liveDebugOn = liveDebugEnabled && !syms.nodes.empty()`), so a
+  bare scratch project answers nothing — give it one node
+  (`--apply-graph <dir> <object> graph.json` with an `OnStart` → `Log` pair is enough)
+  and rebuild. And the decode prints only the first few staged packets, so a
+  difference deeper in the list shows up in the header counts, not the listing.
+- **An image swap used to rebuild NOTHING, which made it the easiest A/B to get
+  wrong.** The incremental logic keys off source timestamps, and an image swap
+  touches no source, so the previous image's objects were relinked and the new
+  toolchain appeared to change nothing. This was not theoretical: three
+  consecutive `VCL_FLAGS` probes each booted the *previous* probe's VU microcode
+  and produced three identical screenshots, one of which was then chased as a
+  rendering bug. Since 2026-08-05 the Runner stamps the VU assembler itself
+  (`/tyra/.vcl-stamp`) and prints `VU assembler changed - rebuilding the
+  microprograms`. The stamp hashes the resolved `vcl`, `vclpp` AND the `openvcl`
+  binary behind the wrapper - hashing only the wrapper missed a rebuilt openvcl whose
+  flags had not changed, and the previous binary's microcode was relinked while the
+  measurements said the new one should fit. Look for that line after a swap, and in
+  general **verify from the log that the work happened** — `grep -cE '(^| )vcl '` (one line per
+  microprogram, 25 of them) and `grep -c 'elf-g++ .* -c -o'` — before you believe
+  any picture. Note that a full microcode rebuild is ~2 min under Sony's `vcl`
+  but **seconds** under openvcl, so a fast build is not by itself evidence that
+  nothing was rebuilt.
 - **The whole pipeline is incremental, so measure a build by what it
   RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
   log is the number that means something: on `examples/showcase` (18 TUs, 6
@@ -1139,6 +1193,21 @@ Notes:
   the object at *positive* X. An hour went into a banding hypothesis about the
   wrong cylinder. The cheap disambiguator: force one object's colour to
   something absurd for a single run and see which one changes.
+- **A VU1 TIMING hazard is invisible in PCSX2 under EVERY renderer, and only a
+  console shows it.** The rule above is about the GS; this one is about the VU,
+  and switching renderers does nothing for it. PCSX2's VU does not model the
+  pipeline hazards the hardware has, so a microprogram that reads a register one
+  row too early runs *correctly* in the emulator. Measured the hard way: a branch
+  at a label whose condition was produced in a jump's delay slot clipped against
+  the wrong frustum planes on a real PS2 — triangles appearing and occluding the
+  screen, changing with camera movement — while the same ELF rendered a clean
+  picture in PCSX2, logged zero asserts, and passed a path-sensitive value oracle
+  over 277 traces and 2631 branch conditions. Every value oracle is blind to it by
+  construction: the defect changes WHEN a register is readable, not what is
+  computed. If a change touches VU scheduling, latency or padding, PCSX2 is a
+  smoke test and the console is the verdict. Symptom vocabulary for the related
+  ADC-bit class: **stray smeared triangles at screen edges**, which the HW
+  renderer also masks.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then

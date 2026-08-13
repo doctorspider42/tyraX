@@ -36,6 +36,35 @@ as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
 
+**This file covers what the repository and the editor binary ship.** The
+**toolchain image** ([`docker/`](docker)) is a separate matter: publishing a
+container image redistributes everything inside it, which for that image means the
+PS2DEV toolchain (GCC/binutils, GPL-3.0-or-later, with its source-offer duty),
+PS2SDK (AFL-2.0), our ps2link build — and `vcl`, which identifies itself as *VCL
+1.4beta7, Sony Computer Entertainment America © 2001* and carries no license at
+all. That is why the published package is not public and why the from-source
+`openvcl` migration is a prerequisite rather than an optimisation. The inventory
+and the reasoning are in
+[docs/toolchain-image.md](docs/toolchain-image.md#licensing-of-the-published-image).
+
+**Our copy of openvcl lives in its own repo**, at
+[doctorspider42/openvcl-tyrax](https://github.com/doctorspider42/openvcl-tyrax) —
+upstream's full history with our changes on top, so the diff is reviewable
+(`compare/upstream-a5867c3...tyrax`). openvcl is **AFL-2.0**, which grants copying,
+derivative works and redistribution outright (its §5 — the clause AFL 3.0 uses to
+make derivatives stay under the same terms — is intentionally omitted, so it is
+permissive, not copyleft). The two obligations it does impose are met there: §6
+*Attribution Rights* by that repo's `README.md`, which retains every upstream notice
+and states in its opening paragraphs that the Original Work was modified, and §4
+*Exclusions* by not using the authors' names to endorse the copy. Nothing has been
+submitted upstream.
+
+The toolchain image still builds openvcl the self-contained way — clone upstream at
+its pinned commit, apply [`docker/openvcl-tyrax.patch`](docker/openvcl-tyrax.patch) —
+so the image has exactly one external source and this repo carries a reviewable
+record of what it changes. The fork is where that work is developed and where it
+would be offered from.
+
 ---
 
 ## Tyra engine — Apache License 2.0

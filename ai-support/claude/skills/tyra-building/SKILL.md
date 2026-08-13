@@ -27,7 +27,11 @@ up as `// node N: unknown ...` comments in `src/gen/flow_graph.gen.cpp`).
 
 Requirements: **Docker Desktop running** (the build happens in the `h4570/tyra`
 PS2DEV container; the first build pulls it and takes minutes, warm rebuilds are
-fast) and, for `--run`, PCSX2 installed. The build output streams to stdout and
+fast) and, for `--run`, PCSX2 installed. The image name is not fixed in
+`docker-compose.yml` - that file is regenerated on every build and reads
+`image: ${TYRAX_IMAGE:-h4570/tyra}`, so a project can be built against a
+different toolchain image by putting one `TYRAX_IMAGE=<ref>` line in `.env` next
+to it. Do not edit `docker-compose.yml` itself; the next build overwrites it. The build output streams to stdout and
 ends in `bin/<name>.elf`. The same pipeline runs from the editor GUI (F5).
 
 Manual alternative from the project directory: `docker compose up -d --build`

@@ -1139,6 +1139,21 @@ Notes:
   the object at *positive* X. An hour went into a banding hypothesis about the
   wrong cylinder. The cheap disambiguator: force one object's colour to
   something absurd for a single run and see which one changes.
+- **A VU1 TIMING hazard is invisible in PCSX2 under EVERY renderer, and only a
+  console shows it.** The rule above is about the GS; this one is about the VU,
+  and switching renderers does nothing for it. PCSX2's VU does not model the
+  pipeline hazards the hardware has, so a microprogram that reads a register one
+  row too early runs *correctly* in the emulator. Measured the hard way: a branch
+  at a label whose condition was produced in a jump's delay slot clipped against
+  the wrong frustum planes on a real PS2 — triangles appearing and occluding the
+  screen, changing with camera movement — while the same ELF rendered a clean
+  picture in PCSX2, logged zero asserts, and passed a path-sensitive value oracle
+  over 277 traces and 2631 branch conditions. Every value oracle is blind to it by
+  construction: the defect changes WHEN a register is readable, not what is
+  computed. If a change touches VU scheduling, latency or padding, PCSX2 is a
+  smoke test and the console is the verdict. Symptom vocabulary for the related
+  ADC-bit class: **stray smeared triangles at screen edges**, which the HW
+  renderer also masks.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then

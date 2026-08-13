@@ -1630,5 +1630,6 @@ check the contact sheet against what your fixture is supposed to look like.
 
 - `.claude/skills/tyra-testing` — building, booting PCSX2, the screenshot
   script, and the layered verification story.
-- [VU1 clipping plan](vu1-clipping-plan.md) — real-hardware EE-clipper cost
-  measurements and the clipping-to-VU1 design.
+- The retired `vu1-clipping-plan.md` — real-hardware EE-clipper cost measurements
+  and the clipping-to-VU1 design. Removed once the work landed; still in git
+  history (`git log --diff-filter=D -- docs/vu1-clipping-plan.md`).

@@ -1,0 +1,4593 @@
+# The toolchain image
+
+Every generated game is compiled inside a Docker container, and that container's
+image is the PS2 toolchain: `mips64r5900el-ps2-elf-g++`, the PS2SDK, `vcl`/`vclpp`
+for the VU1 microprograms. This page is about **where that image comes from** —
+which, as of this change, is this repository.
+
+## What it was
+
+Every project's `docker-compose.yml` named `h4570/tyra`, with no tag, so Docker
+resolved `:latest`. That image is:
+
+| | |
+|---|---|
+| published | 2022-07-07 (unchanged since) |
+| digest | `sha256:1fa117cbd140b3e6506a41654fb1476c73c568ed1522a6470744eee50fab525f` |
+| size / platform | 812 MB, `linux/amd64` only |
+| base | Ubuntu 20.04 |
+| compiler | GCC 11.3.0 |
+| built from | a `Dockerfile` in the **upstream Tyra repo**, not here |
+
+So the reference had two problems. Nothing in this repo could rebuild the image,
+and `:latest` is a moving target — a rebuild upstream, or a fresh clone on a new
+machine, could quietly get a different toolchain than the one every game here was
+tuned against.
+
+## What it is now
+
+> **Two images, one published.** This section describes
+> [`docker/Dockerfile`](../docker/Dockerfile), which inherits from `h4570/tyra`
+> and was the first answer. It is now the **A/B reference** rather than the
+> shipped image: it is the only one that can run Sony's `vcl`, which every
+> comparison in this file is measured against, and it is built locally
+> (`docker/build.*`) rather than published. What CI publishes is
+> [`docker/Dockerfile.fromsource`](../docker/Dockerfile.fromsource) - see
+> *Building it from source instead*, further down. Read this section anyway: the
+> reasoning here is what the other image had to answer.
+
+[`docker/Dockerfile`](../docker/Dockerfile) builds the image from this repo. Two
+deliberate changes over the old image, and nothing else:
+
+1. **The toolchain layer is pinned by digest**, not `:latest`. Same bits, but they
+   cannot move under us. Bumping that digest is a toolchain change and gets
+   verified like one (build a game, boot it — `tyra-testing` layer 3).
+2. **Our patched ps2link ships inside the image**, at
+   `/usr/local/share/tyrax/ps2link/`:
+
+   | file | what it is |
+   |---|---|
+   | `ps2link.elf` | high (`0x01ee8000`), unpacked, USB HID — the dev default |
+   | `ps2link-low-nousb-packed.elf` | low + packed + no USB — **the build to flash** |
+
+   Both are built from the same pinned upstream commit and the same
+   `tools/ps2link/tyrax.patch` as [`tools/ps2link/build.ps1`](../tools/ps2link/build.ps1)
+   / `build.sh`, so a console can be flashed straight out of the image instead of
+   building it per machine. See [ps2link-setup.md](ps2link-setup.md).
+
+The compiler, the PS2SDK, `vcl` and `vclpp` are **untouched** — the image is a
+strict superset of the old one. Why, in painful detail, below.
+
+## Building and using it
+
+```powershell
+docker\build.ps1                    # -> tyrax-toolchain:local, then checks it
+docker\build.ps1 -FromSource        # the published one, from the ps2dev base
+```
+
+`docker/build.sh` is the Linux twin (`--from-source`). Both take `-Tag`/`--tag`,
+`-Push`/`--push` and `-NoCache`/`--no-cache`, and both run the same checks the CI
+workflow does (every tool present, a real VCL program through `vcl` → `dvp-as`,
+both ps2link ELFs non-empty). The build context is the repo root —
+`tools/ps2link/tyrax.patch` has to be in it — and the matching
+`<dockerfile>.dockerignore` keeps the rest of the repo out. They differ in what
+they let through: the inherited image needs nothing from `vendor/`, the
+from-source one needs the audsrv fork's EE sources, because it compiles them.
+
+**Only the from-source image is published.** CI builds, checks and pushes
+`ghcr.io/<owner>/tyrax-toolchain-src`; the inherited one is not in the workflow
+at all. A reference is needed rarely and by whoever is doing the comparison, and
+a second job on every push to `docker/` plus a second GHCR package is a standing
+cost for that. The consequence is worth stating plainly rather than discovering:
+**a change to `docker/Dockerfile` gets no CI coverage** — build it locally before
+committing one.
+
+## Choosing which image a build uses
+
+Two doors, and they are for different jobs.
+
+**In the editor: *Edit > Preferences > Build toolchain*.** A combo with the images
+worth naming - the project default, the original `h4570/tyra`, this repo's
+published one (`tyrax-toolchain-src`), a locally built one (`tyrax-toolchain:local`,
+the tag `docker/build.*` writes, which is how the unpublished A/B reference is
+selected) - plus a free-text field for anything else.
+It is a **machine-global** setting (`editor.ini`, next to the PCSX2 path and the
+ps2link IP), not project data: which images a PC has pulled is a property of that
+PC, and a value stored in a shared `.tyra` would name an image a teammate does not
+have. **Leaving it empty is a real choice** - the editor then exports nothing and
+the project's own `.env` decides, exactly as it did before the setting existed.
+That is also the *fall back to the original Tyra image* switch: pick it, build, and
+the game is compiled by Sony's `vcl` again.
+
+The Runner applies it as an environment variable on its `docker compose` commands
+rather than by writing `.env` - that file is the user's own override sheet and
+rewriting it from under them is not the editor's business. An exported variable
+outranks `.env`, so an explicit choice in the editor wins over one made there.
+One asymmetry worth knowing: **headless builds (`tyrax-editor --build`) do not read
+`editor.ini`** and therefore follow `.env`, the same way they auto-detect the
+emulator rather than using the configured path.
+
+**In a project: `.env`.** Write one line into the **project** directory:
+
+```
+TYRAX_IMAGE=ghcr.io/doctorspider42/tyrax-toolchain-src:latest
+```
+
+The generated `docker-compose.yml` reads
+`image: ${TYRAX_IMAGE:-h4570/tyra}`, and `docker compose` interpolates it from
+`.env` (or from the environment, which wins over `.env`). This indirection exists
+because `docker-compose.yml` is **regenerated on every build** — an edit to that
+line would be overwritten, an override in `.env` survives. `.env` is in the
+generated `.gitignore`: it is one machine's choice, not the project's.
+
+`.gitignore` is written when a project is created and never refreshed (it has no
+ownership marker, so rewriting it would clobber whatever the team added), which
+means **projects made before this change do not ignore `.env`** — add the line by
+hand there, including in `examples/`. `docker compose config` in the project
+directory prints the image that will actually be used, and
+`docker ps -a --filter name=<project>` says which one the existing container came
+from; a container that already exists is recreated on the next build (the Runner
+always runs `compose up -d`, which reconciles it with the compose file).
+
+The default is still `h4570/tyra`, because this repo is private and so is the
+published package — a fresh clone can pull the old image without credentials and
+cannot pull ours. That is the only thing holding the default back; the technical
+side is done, including the one dependency that used to make the two images
+genuinely different (audsrv — see below). **When the repo goes public:** make the
+GHCR package public in its package settings, then change the default in
+`TPL_COMPOSE` ([`src/templates.cpp`](../src/templates.cpp)) and the mentions in
+`README.md`. That is the whole switch.
+
+Until then the pointer is the editor preset, which needs a `docker login ghcr.io`
+once per machine. The Runner's audsrv overlay is what keeps `h4570/tyra` a
+working choice meanwhile: it applies the committed `vendor/tyra/audsrv/bin/`
+artifacts to an image that does not carry the fork, and skips when the image
+already does.
+
+## Why the toolchain was inherited, and what changed
+
+> **Resolved.** Everything in this section was true until openvcl became good
+> enough, and it is kept because the reasoning is what makes the resolution
+> readable. [`docker/Dockerfile.fromsource`](../docker/Dockerfile.fromsource) is
+> the image this section says is impossible; "Building it from source instead"
+> below is what it cost. The inherited image stays the default, for one reason
+> that has nothing to do with the argument here: it is the only one that can run
+> Sony's `vcl`, and every A/B in this document is measured against it.
+
+The obvious version of this change — base the image on the official
+`ps2dev/ps2dev`, build the VU tools from source, get a small multi-arch image with
+no 4-year-old layers — was tried and measured before being rejected. The blocker
+is `vcl`.
+
+**`vcl` is a prebuilt 32-bit x86 binary with no source in the loop.** 482 736 B,
+`ELF 32-bit i386`, glibc, `sha256:83bee75205b5b0f37dbefc2c2769eba2c353befa532472c49aedb2ebaf168274`.
+Upstream's Dockerfile `wget`s it from `h4570/tyra/raw/master/assets/vcl` — verified
+byte-identical to `/usr/bin/vcl` in the image. That single binary is why the image
+also carries `qemu-i386`, `binfmt-support` and `libstdc++5:i386`.
+
+**The official ps2dev images are Alpine, so they cannot host it.** `ps2dev/ps2dev`
+is musl-based (`v1.3.0` = Alpine 3.14 / GCC 11.1, `v2.0.0` = Alpine 3.23 /
+GCC 15.2); a glibc i386 binary will not run there. Keeping `vcl` therefore means a
+glibc base, which means building the whole PS2DEV toolchain from source on Ubuntu
+the way upstream does (`ps2dev/build-all.sh`, ~1 h, and it clones its
+sub-projects at their tips — so it is not reproducible either, just slow).
+
+**The from-source replacement is not a drop-in.** `openvcl` — a free
+reimplementation originally by Jesper Svennevid and Daniel Collin, now maintained
+by Francisco Javier Trujillo Mata under AFL-2.0, and explicitly written from
+public VCL documentation and examples rather than by reverse-engineering the
+binary (v0.4.0 at `a5867c3`) — builds cleanly on Alpine in ~80 s, runs natively, and
+would delete the qemu/i386 layers *and* unlock arm64. Then it was run against the
+engine's VU1 microprograms — same `vclpp` output fed to both, `.vsm` compared:
+
+| result, as it stood before any fixes | count |
+|---|---|
+| byte-identical to `vcl` | **0** of 25 |
+| different schedule produced | 21 |
+| failed to compile at all | **4** |
+
+The four failures were `stapip_clip_d_vu1`, `stapip_clip_td_vu1`,
+`stapip_cull_td_vu1` and `vu0_rt_kernel` (the VU0 raytracer). Worse, of the "21
+that compiled" most were quietly wrong — see the `clipw` finding below. `.vsm` is
+*scheduled* VU assembly, so a different scheduler is free to be different — and
+also free to change cycle counts and VU1 package sizes, which this engine has been
+tuned around program by program (see `tyra-engine-dev`).
+
+**All four failures were subsequently fixed** and every program compiles under
+openvcl today; what stops the switch now is code size, not correctness. The rest of
+that story, with the measurements, is "The openvcl migration" below — this section
+stands as the reason the *default* is still the inherited toolchain.
+
+Also worth knowing if you try: `openvcl` accepts a bare `nop` as a whole program;
+the legacy `vcl` rejects it outside RAW mode (`instruction 'nop' is unsupported`).
+That is why the image checks use a real `add.xyzw`.
+
+## The openvcl migration
+
+Started because the licensing inventory above makes it a prerequisite, not an
+optimisation: a publishable image cannot contain Sony's `vcl`. Two source-level
+defects were found and fixed first — both were latent bugs in *our* sources that
+only the stricter assembler noticed, and **both are free under the legacy one**
+(verified by diffing its emitted instruction stream, not by reasoning).
+
+**1. `clipw` was being silently dropped.** The engine wrote
+
+```
+clipw.xyz   t_vertex,   t_vertex
+fcand       VI01,       0x3FFFF
+```
+
+`CLIPw.xyz` takes `vf_dest_xyz, vf_src_w` — the `w` was always implied, and Sony's
+vcl infers it. openvcl requires it spelled out, and when it is missing it does not
+fail the build: it **drops the `clipw` and keeps the `fcand`**, so the emitted
+microprogram tests clip flags nobody set. Measured on `stapip_cull_c`: legacy
+output 3 `clipw`, openvcl output 0, `fcand` 3 in both. Every vertex pipeline in
+the renderer uses that macro, so "21 of 25 programs merely differ" was too kind a
+reading of the first sweep — those 21 were wrong, not just different.
+
+The fix is one token, `t_vertex[w]`, in 45 places (the two shared macros in
+`vcl_sml.i` / `tyra_macros.i` plus the `clip`/`billboard` programs that spell it
+inline). Under the legacy vcl the emitted instruction stream is **byte-identical**
+before and after (`stapip_cull_c`: 175 instructions, zero diff), so this is a
+spelling correction, not a behavior change.
+
+**2. Zero-init by self-subtraction reads an uninitialized register.** The VU0
+raytracer zeroed its accumulators with `sub.x bT, bT, bT` — deliberately (`x-x` is
+a true zero even over saturated garbage), but it reads `bT` before anything writes
+it, and openvcl refuses the whole program: *"Read-attempt from uninitialized float
+register"*. Rewritten as `sub.x bT, vf00, vf00` (vf00 is hardwired `0,0,0,1`), 16
+places in `vu0_rt_kernel.vclpp`. Again byte-identical under the legacy vcl (483
+instructions, zero diff), and openvcl then compiles the kernel.
+
+**3. openvcl needed exactly one fix of its own** — [`docker/openvcl-tyrax.patch`](../docker/openvcl-tyrax.patch),
+applied in the image's `openvcl-build` stage (openvcl is AFL-2.0; same pattern as
+`tools/ps2link/tyrax.patch`), and it is worth upstreaming: *accept CLIPw's implied
+w component*. The ISA gives the second operand no other meaning, and the original
+VCL infers it. Rejecting it would be defensible; what openvcl did instead was emit
+the program **without** that instruction. Fixed by defaulting the field to `w` when
+the source omits it, so the engine's sources need no change at all (and must not
+have one — see the vclpp trap above). openvcl's own 419 tests stay green.
+
+A second hunk was written and then thrown away, which is worth recording because it
+is the kind of fix that looks right: relaxing the register allocator's conflict
+test so live ranges that merely *touch* (one ending on the line the next begins)
+could share a register. It bought exactly the one register `stapip_clip_d` was
+short of — and it fails an upstream test that pins the strict rule deliberately.
+The pressure belonged to the engine anyway (next paragraph), so the tool did not
+need changing at all.
+
+**4. Three programs wanted more registers than exist** — and the fix was in the
+engine, not the tool. `stapip_clip_td` peaked at **35** simultaneous float values,
+`stapip_cull_td` at **34** and `stapip_clip_d` at **32**, against 31 allocatable.
+Real pressure, not a counting artefact: `begin:` in those programs is a *loop*
+(`b begin` at the bottom, one iteration per batch), so everything loaded above it
+stays live through the whole body.
+
+Five of those values are GIF tags (`gifSetTag`, `lodGifTag`, `testsTag`,
+`texBufferClutGifTag`, `alphaGifTag`) that are read **once per batch**, by the tag
+store at the top of the loop — and were being loaded before the loop and held for
+its entire duration. Moving those loads next to their reader frees five registers
+across the whole body and costs nothing: the batch already stored the tag block
+exactly once. It is the same trick the engine already used one level down, where
+the light registers are reloaded per triangle "so they do not stay live across the
+Sutherland-Hodgman block".
+
+### Where it started: compiles, does not fit
+
+Over the engine's 25 microprograms, at the point the density work began (where it
+ended up, including a game that runs and renders identically, is two sections
+down):
+
+| | legacy `vcl` | patched `openvcl` |
+|---|---|---|
+| compile | 25 | **25** |
+| lose a `clipw` | 0 | **0** |
+| words emitted | 3982 | **4208** (was 6969) |
+| resident VU1 set, ceiling 2042 | 2035 | **2180** (was 3072) |
+| a game builds | yes | **yes** |
+| a game runs | yes | **no — 138 words over** |
+
+The openvcl-built game boots and dies on its own assertion:
+
+```
+| VU1 pipeline programs overflow into the draw-finish program
+| File : src/renderer/core/paths/path1/path1.cpp:145
+```
+
+Which is the engine catching the real problem: **openvcl emits 71% more
+instructions than Sony's vcl**, and VU1 micro memory holds 2048 of them, full
+stop. Measured over the 15 programs both assemblers had produced at the time:
+
+| | instructions |
+|---|---|
+| legacy `vcl` | 1925 |
+| patched `openvcl` | 3295 (**+71%**) |
+
+Per program the spread runs from +18% (`mcpip_as_is`) to +150% (`dynpip_c`:
+99 → 248). So the blocker on `openvcl` is no longer correctness - it compiles
+everything and drops nothing - but **scheduling density**.
+
+### How much density is missing, and where
+
+Measured over all 25 programs (`--dump-schedule-info` gives openvcl's own slot
+list, so the numbers are its opinion of its own output, not a reconstruction):
+
+| | cycles |
+|---|---|
+| openvcl | 6728 |
+| **floor: a perfect packer** (`max(upper ops, lower ops)`) | **2989** |
+| Sony's vcl | 3982 |
+| of openvcl's total: pure `nop`/`nop` stall cycles | **1860** |
+
+Two things follow, and the first one is the reason this is worth finishing:
+
+1. **The floor is 25% BELOW what Sony's vcl achieves.** openvcl is emitting the
+   same work - 4836 occupied pipe slots against the legacy 4822, a 0.3%
+   difference - so nothing is missing from its output except packing. A good
+   scheduler here would not just match VCL, it could beat it.
+2. **openvcl sits 98% above that floor; Sony's vcl sits 33% above it.** The gap is
+   entirely stalls and unpaired cycles: 6% of openvcl's rows use both pipes,
+   against 25% for legacy.
+
+The scheduler is not naive, which is worth knowing before touching it: it builds a
+real dependency graph (with ACC/MAC/CLIP modelled as precise resources), keeps a
+ready list with critical-path-ish priorities, scores candidates by latency delay,
+and tries to pair a partner into the other pipe. What limits it is **window**: it
+runs per *segment*, and segments are cut at every non-schedulable token, at every
+change of the ignorable-flag-WAW mask, and at the last MAC/CLIP reader - which in a
+vertex pipeline is several cuts per vertex. It can only hide a latency with work
+that is inside its current segment, so the cuts are where the 1860 stall cycles
+come from. `stapip_cull_c`'s vertex loop is a fair sample: 187 cycles for 118
+upper-pipe and 41 lower-pipe ops, of which 50 cycles are pure stalls.
+
+### Ask the tool you are replacing
+
+The single most productive hour of this work was reading `vcl -h`. SCE's binary
+lists its own passes, and they are all **on by default**:
+
+```
+-t<nseconds>  set timeout for optimiser to <nseconds>, default is 4
+-L            globally disable loop code generation
+-S            enabled staggered memory accesses in loop mode
+-C            disable code size reduction pass
+-P            disable unused instruction/operand pruning pass
+-d            enable only dumb code generation
+```
+
+Which turns the "what does Sony do that we don't" question into experiments you
+can just run, on the engine's own programs:
+
+| `stapip_clip_c` under SCE vcl | instructions |
+|---|---|
+| default | 257 |
+| `-L` (no loop code generation) | 257 — **no effect** |
+| `-P` (no pruning) | 257 — no effect |
+| `-d` (**dumb** code generation) | 262 — nearly as good as default |
+| `-C` (no code size reduction) | **327** |
+
+So its advantage is neither software pipelining nor a clever scheduler: it is the
+**code size reduction pass**, worth 70 instructions (21%) on that one program. And
+what that pass removes is not instructions - it is *stall rows*: `nop`/`nop` count
+goes 88 → 18 while the paired-row count stays at 43 → 44.
+
+### Why those stalls can go: the FMAC interlocks
+
+The VU stalls by itself when an instruction's source is still in the FMAC pipeline,
+so padding a VF-to-VF wait with `nop`s buys nothing and costs micro memory. That is
+not a reading of a manual, it is what SCE's shipped output does: `stapip_clip_c`
+contains **41 VF dependencies with a gap of only 2-3 cycles**, e.g.
+
+```
+mul.x    VF21,VF15,VF21     ...3 rows later...   mulx.xyz VF23,VF12,VF21
+lq       VF23,0(VI02)       ...3 rows later...   mulax    ACC,VF02,VF23x
+```
+
+If the hardware did not interlock, the tool that built PS2 games would be emitting
+garbage. What it *does* still pad for is everything the hardware does **not**
+interlock, and the 18 rows it keeps sit exactly there: in front of branches
+(`ibne`/`ibeq`/`ibltz`), flag reads (`fcand`), integer ops reading a just-written
+VI, and Q consumers.
+
+### What was done about it: -12%, and the segment is where it lives
+
+Two changes, both in `docker/openvcl-tyrax.patch`, both with openvcl's 419 tests
+still green:
+
+- **The flag-WAW mask now comes from the segment's last token, not from each
+  token.** That mask answers exactly one question - is this flag read *after* the
+  range the dependency graph covers - because inside the range
+  `addPreciseImplicitFlagDependencies` finds every reader itself and orders the
+  writers against it. Deriving it per token forced a segment break at every change
+  and again at the last MAC/CLIP reader. On its own this changes no output; it is
+  what makes the next change honest.
+- **`--schedule-flag-readers`** lets instructions that implicitly read MAC/CLIP
+  (i.e. every `fcand`) take part in list scheduling instead of ending the segment.
+  In a vertex pipeline that is one break per vertex, at the `fcand` after each
+  `clipw`. Result: **6728 → 5913 cycles (-12%)**, 25/25 still compile, no `clipw`
+  lost.
+- **`--fmac-interlock`** stops paying for interlocked VF waits in instruction
+  words. `VuLatencyTracker` gained `manualReadHazardDelay()` - the part of a wait
+  the hardware will *not* resolve on its own (integer pipeline, MAC/CLIP flags,
+  Q/P) - and a padding slot now carries `emitCycleCount` beside `cycleCount`, so
+  the cycle model stays honest while the emitter writes only the words that are
+  really needed. The same distinction then loosened the **pairing** gate, which had
+  been refusing to share an instruction word over a latency the hardware stalls
+  for anyway (same-word read/write hazards are checked separately and still are).
+
+Together, on emitted words - which is what micro memory actually holds:
+
+| | total words | resident 10-program set |
+|---|---|---|
+| openvcl before | 6969 | 3489 |
+| + `--fmac-interlock` | 4659 | 2385 |
+| + looser pairing | **4208** | **2177** |
+| SCE `vcl` | 3982 | 2035 (ceiling 2042) |
+
+`stapip_clip_c` is the clean way to see what is left: both tools emit **exactly 283
+operations**, and openvcl needs 286 rows for them against SCE's 257. The whole
+difference is 43 stall rows against 18, plus 4 pairings (40 against 44).
+
+Measured on the built objects rather than on emitted text - which is the check the
+engine's own comment asks for, and it agrees with the table above to within three
+words:
+
+```bash
+# per program: section bytes / 8 = instructions
+docker run --rm -v "tyra-engine-<hash>:/tyra" tyrax-toolchain:local sh -c '
+  for n in cull/stapip_cull_c ... clip/stapip_clip_tce; do
+    o=$(find /tyra/engine/obj -path "*${n}_vu1.o")
+    mips64r5900el-ps2-elf-size -A "$o" | awk "/^\.vutext|^\.text/{s+=\$2} END{print s/8}"
+  done'
+```
+
+| resident set, from the objects | instructions |
+|---|---|
+| openvcl | **2180** |
+| ceiling | 2042 |
+| **over by** | **138** |
+
+Per program the overshoot is almost entirely the five clip variants (+29, +21, +20,
++28, +30); the cull five are within +13 of SCE and two of them are already
+*smaller*.
+
+### Calibrating the rest against SCE, not against a manual
+
+The same trick works for the latencies that are *not* interlocked, and it needs no
+documentation at all: run the analysis over SCE's own output and take, per
+producer/consumer class, the **smallest distance it ever emits**. A tool that
+shipped games does not emit an illegal gap, so that minimum is the requirement.
+Then run the identical analysis over openvcl's output and compare what it believes:
+
+| dependency | SCE emits (min) | openvcl assumed |
+|---|---|---|
+| integer ALU → integer op | 1 | 1 |
+| `xtop` → integer op | 1 | 1 |
+| `mtir` → integer op | 1 | 1 |
+| integer ALU → branch condition | 2 | 2 |
+| **`clipw` → `fcand` (CLIP flags)** | **1** | **4** |
+| **`ilw` (memory) → integer op** | **3** | **5** |
+
+The two mismatches were worth 22 and 61 words on the resident set. The flag one is
+verified down to the rows - SCE emits five `clipw` → `fcand` pairs exactly one row
+apart, and the `0x3FFFF`/`0x3F` masks say the `fcand` is testing the `clipw` right
+above it:
+
+```
+clipw.xyz VF15xyz,VF15 | ior   VI09,VI09,VI08
+addw.x    VF05,VF05,.. | fcand VI01,63
+```
+
+`--sce-latencies` sets both (flag visibility 1, load result at issue+3).
+
+### Delay slots: a word each, and most of them were empty
+
+A branch's delay slot is an instruction word whether or not anything useful sits in
+it. `fillBranchDelaySlots()` runs *before* scheduling and gives up after **one**
+try - the instruction immediately preceding the branch in source order - so on
+`stapip_clip_c` 13 of 20 slots stayed empty, against 9 of 20 for SCE, whose filled
+slots hold `sq`/`isw` as often as integer ops (34 against 37 of its 94 filled
+slots across the corpus).
+
+`--emit-delay-fillers` does two things about that, both reusing openvcl's own
+legality test `canMoveIntoBranchDelaySlot` (no label, no second branch, and the
+branch must not read what the candidate writes - it used to see the new value):
+
+- the pre-scheduling pass keeps **walking back** when the immediate predecessor
+  will not fit, accepting a candidate further up as long as it can cross
+  everything in between (`vuTokenCanMoveBefore`, the same rule the scheduler uses),
+  and plain stores are now candidates too;
+- the emitter offers, as a last resort, the instruction the *schedule* placed just
+  before the branch - taking its already-emitted row back and re-emitting the pair
+  as branch + filler.
+
+### Where it stands now: it fits
+
+| resident set (`nm`-measured, see the budget note) | instructions |
+|---|---|
+| openvcl, `--fmac-interlock` only | 2180 |
+| + flag latency 1 | 2116 |
+| + load ready at +3 | 2094 |
+| + delay fillers | 2075 |
+| + branch interlock | 2070 |
+| + **branch bubble on dependency** | **2040** |
+| SCE `vcl` | 2042 |
+| ceiling | 2042 |
+| **spare** | **2** |
+
+**The budget arithmetic, because everyone re-derives it wrong once.** The ceiling is
+not a constant: `Path1::createProgramsCache` asserts against
+`drawFinishAddr = VU1_MICRO_MEM_SIZE - <draw-finish size>`, which is
+2048 - 6 = **2042** today. And each program contributes
+`VU1Program::calculateProgramSize()`, which is `(CodeEnd - CodeStart) / 8` **rounded
+up to an even instruction count** - MPG uploads in 64-bit pairs. Ten programs means
+up to ten words of rounding, so summing raw rows out of the `.vsm` files understates
+the total. Ask the objects instead:
+
+```bash
+# in the project directory, after a build
+docker compose exec -T compiler sh -c 'cd /tyra/engine/obj && for f in $(find . -name "stapip_cull_*_vu1.o" -o -name "stapip_clip_*_vu1.o" -o -name "draw_finish.o" | sort); do
+  s=$(mips64r5900el-ps2-elf-nm "$f" | grep -i CodeStart | awk "{print \$1}")
+  e=$(mips64r5900el-ps2-elf-nm "$f" | grep -i CodeEnd | awk "{print \$1}")
+  n=$(( (0x$e - 0x$s) / 8 )); r=$n; [ $((n % 2)) -eq 1 ] && r=$((n+1))
+  printf "%-44s %4d -> %4d\n" "$(basename $f)" "$n" "$r"; done'
+```
+
+Measured that way **SCE's set lands on 2042 exactly** - not one word of slack - and
+openvcl's on 2040.
+
+Per program openvcl is now within a few words of SCE everywhere - **and smaller on
+two of the ten**:
+
+| | openvcl | SCE | |
+|---|---|---|---|
+| `cull_td` | 149 | 155 | **-6** |
+| `cull_d` | 142 | 145 | **-3** |
+| `cull_c` | 177 | 175 | +2 |
+| `cull_tc` | 184 | 181 | +3 |
+| `clip_d` | 213 | 209 | +4 |
+| `clip_td` | 226 | 222 | +4 |
+| `clip_tc` | 278 | 270 | +8 |
+| `clip_tce` | 262 | 254 | +8 |
+| `cull_tce` | 177 | 167 | +10 |
+| `clip_c` | 267 | 257 | +10 |
+
+The remaining words are stall rows that SCE does not need because of *where it puts
+things*. Over the ten resident programs:
+
+| nop/nop rows | SCE | openvcl |
+|---|---|---|
+| in front of a branch | 46 in 36 sites | 90 in 80 sites |
+| unfilled delay slots | 39 | 35 |
+| the `[E]` / `b begin` epilogue | 30 | 30 |
+| everything else | 19 | 30 |
+| **total** | **104** | **130** |
+
+**Almost all of it was one shape: a stall in front of a branch, and openvcl had
+twice as many of those sites.** That is now fixed - see "The last 28 words" below.
+Both assemblers pay one word when an ordinary integer op feeds a branch (SCE never
+comes closer than two instructions either, 24 of its 45 cases sit at exactly two);
+what openvcl was doing was paying it *unconditionally*.
+
+**Three levers were built and measured as dead ends first, recorded because they
+each look like the obvious fix:**
+
+* **Rank the ready list by the critical path in CYCLES** rather than in
+  instructions, counting each dependence edge at its real issue distance, and hand
+  the segment scheduler the token that follows it so the producers of a branch's
+  operands can rise. Correct in principle, **zero words on this engine**: the
+  producers it wants to hoist are pinned where they are by an anti-dependence, not
+  by their priority.
+* **Prefer a register nobody read recently** when several are free. That
+  anti-dependence comes from first-fit allocation reusing the lowest non-conflicting
+  register - `ilw.x VI01,8(VI00)` cannot move above the four rows that read VI01 as
+  the buffer pointer, and SCE gives that flag a register of its own. Also zero:
+  instrumented, and the allocator's free-register search **never runs** on these
+  programs. Every alias is already decided by the preallocation and two-address
+  chain passes above it, so the choice this would improve does not exist yet.
+* **Swap the last two emitted rows** instead of padding in front of a branch, with
+  the crossing checked both ways and the latency model replayed over the new order.
+  Zero as well, and the trace says why: at the segment boundary the scheduler no
+  longer reports a hazard at all (17 calls, 0 with a delay). The rows come from the
+  emitter's own padding path, one level below where this pass sits.
+
+All three failed for the same reason, which is the answer: **the rows were never the
+scheduler's.** `CodeGenerator::padForBranchPreBubble` inserts one nop in front of a
+branch, and its test is `branchNeedsPreBubble` - which looks only at the branch's own
+flags:
+
+```cpp
+if( access.instructionFlags & VU_INSTR_REGISTER_BRANCH )  return true;
+return !(access.instructionFlags & VU_INSTR_UNCONDITIONAL_BRANCH);
+```
+
+Every conditional branch, always, whether or not anything above it produces an
+operand. That is the entire 80-against-36 difference.
+
+### The last 28 words: `--branch-bubble-on-dependency`
+
+The bubble now gets decided per branch, from the slots the strict emitter is holding:
+does the row above write a register this branch reads? Three details, each one
+measured rather than assumed:
+
+* **Do not ask the latency tracker.** The first attempt gated the bubble on
+  `manualReadHazardDelay` and produced **32 sites where a branch reads a register
+  written by the row directly above it** - a distance SCE never emits. Cause:
+  `recordWrites()` returns early for anything with `latency() <= 1`, i.e. for most
+  integer ops, so the tracker has never heard of this hazard. **The unconditional
+  bubble was its implementation.** Caught by re-running the SCE-gap measurement, not
+  by a test.
+* **Interlocked producers still do not need it.** A load or flag reader above the
+  branch answers "yes, I write it" but the hardware stalls anyway
+  (`--branch-interlock`), so the bubble has to skip those too - otherwise it takes
+  back exactly the words that flag saved.
+* **Look two rows up only when the row above can be taken away.** With
+  `--emit-delay-fillers` the i-1 row can be retracted into the delay slot, which
+  promotes i-2 to being adjacent. Checking i-2 unconditionally kept bubbles SCE does
+  not need - `fcand` / `iadd VI10` / `fcand` / `ibne VI10,VI01` in `clip_c` and
+  `clip_d`, where SCE emits no bubble at all. Gated on the filler's own legality test
+  so the two decisions cannot disagree.
+
+Result: **2070 → 2040 against the 2042 ceiling**, 100 stall rows against SCE's 104,
+and every hazard distance now matches SCE's measured minimum exactly:
+
+| producer of the branch's operand | SCE | openvcl |
+|---|---|---|
+| ordinary integer op | 2 | **2** |
+| integer load | 1 | **1** |
+| flag reader | 1 | **1** |
+| `mtir` | 2 | **2** |
+
+Over all 25 programs openvcl now emits 3996 words against SCE's 3982 - +0.35%, from
++75% where this started.
+
+### The last +14 words are a scheduling-ORDER problem, and a peephole cannot reach them
+
+With the padding fixed, the remaining difference over all 25 programs inverted its
+cause. openvcl now emits **fewer** stall rows than SCE (161 against 191) and **more**
+single-slot rows (2840 against 2760): it packs 995 paired rows where SCE packs 1031.
+Each missing pair is one word, which is the whole +14.
+
+The profile says exactly which pairs are missing:
+
+| pair | SCE | openvcl |
+|---|---|---|
+| `ftoi` + `iadd` | 30 | 6 |
+| `ftoi` + `sq` | 37 | 14 |
+| `min` + `loi` | 22 | 3 |
+| `max` + `lq` | 18 | 7 |
+| `add` + `div` | 16 | 3 |
+
+with `ftoi` sitting alone in the upper pipe 92 times against SCE's 23, and `iadd`
+alone in the lower pipe 407 against 336 — adjacent rows that look like they should be
+one row.
+
+**They should not be, and that is the finding.** `chooseReadyPairPartner` only
+considers instructions that are dependency-ready at the instant the primary is chosen,
+so the obvious fix is to retry against rows already emitted. Implemented, gated,
+instrumented: on `dynpip_c` it gets 641 chances and takes **zero**. First against the
+row above only — 484 of the refusals are "same pipe", because the ready list is
+dominated by lower-pipe work and the scheduler emits runs of it. Then widened to search
+four rows back, with every crossed row checked by `vuTokenCanMoveBefore`: still zero,
+because the adjacent singles are **genuinely dependent on each other** — which is also
+why no partner was ready in the first place.
+
+So the missing pairs are not a missing merge step. They are the consequence of an
+ORDER that leaves dependent instructions adjacent, where SCE interleaves independent
+work between them. Closing it means changing how the ready list is ranked (lookahead,
+or a cost model that prefers a candidate leaving a pairable successor), not another
+peephole — the same conclusion the pre-branch stalls reached before their real cause
+turned out to be elsewhere. The dead-end code is not in the shipped patch.
+
+**Verified, not just counted:** 419/419 upstream tests, 25/25 outputs through
+`dvp-as`, the loop-carried liveness checker clean, and in PCSX2 with the VU1 clipper
+the full openvcl build **boots with 0 assertions** (it no longer overflows) while
+nine of the ten resident programs are pixel-identical to a legacy build - the tenth
+is the `stapip_clip_c` miscompile below, which predates all of this. The EE-clipper
+path stays pixel-identical too.
+
+Every output was checked through `dvp-as` as well as counted: 25 of 25 assemble.
+
+### A fifth flag, and SCE annotating the answer
+
+`--branch-interlock` is worth its own note because SCE's output *says* what the rule
+is. Asked for the minimum distance it keeps between an integer write and a branch
+reading it, its 25 programs answer in three different ways:
+
+| producer of the branch's operand | SCE's minimum | openvcl's | |
+|---|---|---|---|
+| ordinary integer op | 2 (24 cases at exactly 2) | 2 | agrees |
+| integer **load** | **1** | 3 | 2 words wasted per site |
+| **flag reader** (`fcand`) | **1** | 2 | 1 word wasted per site |
+
+And the gap-1 cases are not an artefact of reading the listing linearly - no label
+sits between them, and SCE labels one of them itself:
+
+```
+ilw.x  VI01,8(VI00)
+iblez  VI01,multiColor      ;  STALL_LATENCY ?3
+```
+
+That comment is SCE saying "three cycles, left to the hardware". It is the same
+distinction `--fmac-interlock` draws for the FMAC pipeline, one file down: the cycles
+are real, the instruction words are not ours to spend. Five programs put an `ilw`
+directly in front of the branch that reads it, five more put `fcand VI01,8` there.
+
+Worth **-5 words** on the resident set (2075 → 2070) - less than the 15 the sites
+add up to, because at some of them a second hazard needs the row anyway. 419/419
+upstream tests still pass, 25 of 25 outputs still assemble, and the loop-carried
+liveness checker stays clean for both assemblers.
+
+### It runs - and the picture is identical to Sony's
+
+Counting instructions says a program fits. It does not say the microcode is
+*right*, and until 2026-08-05 nothing built by `openvcl` had ever been executed.
+It has now, because a project does not have to use the set that overflows: with
+the **EE clipper** (Project Preferences > Rendering > Clipping, anything other
+than `vu1`) the resident VU1 set is five `cull_*` plus five `as_is_*` programs -
+**1403** instructions against the same 2042 ceiling, 639 to spare.
+
+A terrain project built that way, `VCL_IMPL=openvcl` with all four flags, in
+PCSX2, **after the miscompile the next section describes was fixed**:
+
+| | boots | `bin/log.txt` asserts | FPS | framebuffer vs legacy |
+|---|---|---|---|---|
+| openvcl, all four flags | yes | 0 | 50 (PAL cap) | **0 of 514600 pixels differ** |
+
+Pixel-identical, not "looks the same": the emulator's framebuffer area was
+compared channel by channel against a legacy build of the same project, and the
+maximum channel delta is 0. The four density flags change *where* instructions
+sit, and this is the evidence that they do not change what the program computes.
+
+Two things it does NOT say, both worth stating because the first run of this
+experiment claimed more than it had:
+
+* **openvcl with no flags does not even fit this set.** It trips the same
+  overflow assertion (the flags are what make openvcl competitive, not a tuning
+  nicety), so "openvcl renders correctly" always means openvcl *with the image's
+  flags*.
+* This is one scene on one emulator. It exercises `cull_*` and `as_is_c`; the
+  textured variants are only covered by the static checks, and the clip programs
+  are covered separately (two of them run, one is miscompiled - see
+  "And a second one, still open" below).
+
+So for a project on the EE clipper the migration is done. For the VU1 clipper it
+waits on two things: **28 words**, and a correctness bug in `stapip_clip_c`.
+
+**The trap that cost the first attempt, and the fix that closed it:** switching
+the image did not rebuild the microcode. The engine's make keys off `.vclpp`
+timestamps and an image swap touches no source, so three consecutive "bisection"
+probes each booted the *previous* probe's VU objects and produced three identical
+screenshots of a program none of them had built - including a "corrupted terrain"
+that belonged to no configuration at all.
+
+The Runner now stamps the assembler itself (`/tyra/.vcl-stamp`, the md5 of the
+resolved `vcl` and `vclpp` - which for the openvcl form is the wrapper script, so
+a change of `VCL_FLAGS` counts too, `src/runner.cpp`). Swapping the image is
+enough on its own:
+
+```
+[editor] VU assembler changed - rebuilding the microprograms (takes a minute or two)...
+```
+
+Verified both ways: a switch rebuilds all 25 programs with no `--rebuild`, and a
+second build with the same image compiles nothing at all. If that line is missing
+after a swap, do not trust the picture - count the work in the log
+(`grep -cE '(^| )vcl ' `, one line per program) before believing it.
+
+**The stamp had the same hole once**, and it cost an hour: it hashed what
+`command -v vcl` resolves to, which for the openvcl form is the *wrapper script*. Its
+text carries the flags, so a flag change was caught - but a rebuilt `openvcl` behind
+unchanged flags was not, and the previous binary's microcode was relinked while the
+numbers said the new one should fit. It now hashes the wrapper AND the openvcl binary
+it calls.
+
+### What the density costs at runtime: nothing measurable
+
+openvcl needs 5913 cycles over the 25 programs where SCE needs 3982, which sounds
+like it should show up as frames. It does not. The documented perfbench scene (128x128
+terrain, ~98k verts, debug build, `showFps`, vsync off so 50/25 quantisation cannot
+hide anything), ten HUD samples per configuration, read by exact pixel signature:
+
+| | readings | mean |
+|---|---|---|
+| SCE `vcl` | 70x5, 69x2, 68x2, 64x1 | 68.8 |
+| openvcl | 70x6, 69x1, 68x2, 64x1 | 68.9 |
+
+Indistinguishable - and there is a reason rather than luck: **the per-vertex loops are
+the same length**. Summed over the seven programs the scene touches, both assemblers
+emit 554 rows of vertex loop, with openvcl shorter on `cull_d` (-3) and `cull_td`
+(-6). Every extra word it spends is in per-batch setup, which runs once per `xtop`,
+not once per vertex. The static cycle figure counts that setup - and counts stalls the
+hardware absorbs - so it overstates the runtime cost badly.
+
+### A miscompile this uncovered
+
+The first openvcl build that really ran drew **no terrain**: sky, a horizon smear
+and one green quad. Not a crash, not an assertion - 50 FPS of wrong picture. What
+it turned out to be is worth writing down, because the shape is generic and
+nothing in the build would have told us.
+
+**Attributing it needed a new instrument.** Whole-set openvcl builds are all-or-
+nothing, and without the density flags they do not fit, so "which program is
+wrong?" could not be asked. The answer was a `vcl` that dispatches per input file:
+
+```dockerfile
+FROM tyrax-toolchain:openvcl
+ARG PATTERN='*none*'
+ARG FLAGS=''
+RUN printf '#!/bin/sh\ncase "$1" in\n  %s) exec /usr/local/bin/openvcl %s "$@" ;;\n  *) exec /usr/bin/vcl "$@" ;;\nesac\n' \
+        "${PATTERN}" "${FLAGS}" > /usr/local/bin/vcl && chmod 0755 /usr/local/bin/vcl
+```
+
+One program from openvcl and 24 from Sony's vcl fits trivially, so size stops
+interfering and each program can be tested alone. Five probes (`*_cull_*` clean →
+`*_as_is_*` wrong → `*_as_is_t*` clean → `*_as_is_d_*` clean → `*_as_is_c_*`
+**wrong**) put it on **one** microprogram, `stapip_as_is_c`. A sixth, with no
+flags at all, reproduced it - so the defect was in openvcl's base code generation
+and none of the four density flags was implicated.
+
+**The defect: live ranges do not survive the loop back edge.** These programs end
+in `b begin`, so `begin:` is a loop over batches, and the GIF tags loaded above it
+have to stay live through the whole body. openvcl instead reuses those registers
+for per-vertex values:
+
+```
+lq VF01, 19(VI00)              ; gifSetTag, loaded once, above begin:
+...
+sq VF01, 0(VI07)               ; written into the GIF tag block, every batch
+...
+add.xyzw VF01, VF00, VF02      ; and VF01 is the per-vertex colour inside the loop
+```
+
+The first batch is correct; every batch after it writes a *colour* where the GS
+expects a GIFtag, so its geometry never draws. Sony's vcl keeps them apart.
+
+**Nine programs had it, and a static check found them all.** Eyeballing does not
+scale to 25 microprograms, so the condition got a checker
+(`scratchpad/loopcarry.py` in the working notes): per register **component**, flag
+anything written in the preamble, read in the body before the body writes it, and
+written in the body. Field masks are not optional - Sony's `clip_tce` loads
+`VF11.xyz` before the loop and uses `VF11.w` as scratch inside it, which is
+correct and looks like a violation if you track whole registers. It reports **0 of
+25 for Sony's vcl** and **9 of 25 for openvcl**: `as_is_c`/`tc`/`tce`,
+`clip_c`/`tc`/`tce`, `cull_c`/`tc`/`tce` - exactly the variants that the earlier
+register-pressure work had not already moved.
+
+**Fixed in the engine, and it is the same fix three siblings already carried**:
+the tag loads moved inside `begin:`, next to the store that is their only reader
+(`stapip_as_is_c` and the eight others). It costs nothing - the tag block is
+written once per batch either way - it cuts peak register pressure, and it makes
+the source robust under both assemblers rather than relying on one of them being
+clever. After it: 25 of 25 compile, the checker is clean for both assemblers, and
+the render is the pixel-identical one in the table above. (The `cull_*` and `clip_*`
+siblings still carry it. The five `as_is_*` do not, for the reason in the next section.)
+
+**The obvious explanation for it is wrong**, and that mattered for months. "openvcl's
+liveness ignores the back edge" does not survive testing: narrow the register pool with
+`.init_vf vf01-vf03`, keep a value live across `b begin` and make the body need the whole
+pool - with and without an inner loop - and openvcl **refuses cleanly** (`Register
+allocation ran out of registers`) rather than clobbering anything. So the trigger is
+narrower than that. Written up for upstream in
+[upstream-openvcl.md](upstream-openvcl.md).
+
+#### Fixed in the tool after all, and main proved it
+
+The engine-side move above was a workaround, and workarounds get reverted by people who
+do not know they are workarounds. `main` later rewrote all five `as_is_*` programs
+macro-free and put the GIF-tag loads back **above** `begin:` - the exact shape that
+miscompiled. Merging that in was therefore a test of whether the register-allocator work
+(loop live-range extension across the back edge for *both* register files, plus tying
+carried writes to the alias their readers use) had fixed the class or only hidden it.
+
+It fixed it, and the flag that does it is isolated:
+
+| openvcl invocation | loop-carry checker on main's five `as_is_*` |
+|---|---|
+| no flags | **`as_is_c`, `as_is_tc`, `as_is_tce` clobber** VF01 and 3-4 more |
+| `--loop-liveness-always` alone | clean |
+| all ten image flags | clean |
+| all ten **minus** `--loop-liveness-always` | the same three clobber again |
+
+So `--loop-liveness-always` is both necessary and sufficient here, and **upstream's
+default still miscompiles this shape** - worth saying plainly, because the flag is off by
+default and the engine only gets it from the image's `vcl` wrapper. End to end: main's
+sources, openvcl, `vu-lab` forced through the EE clipper (`CLIP_VU1S = {false}`, verified
+in the generated header rather than the intent field) render **0 of 514600 pixels**
+different from Sony's build, with the two assemblers demonstrably emitting different code
+for it (558 words against 562).
+
+What is still not pinned down is the exact trigger inside
+`extendLoopDirectiveRange`. The guard is visible in the source - the extension is
+all-or-nothing and returns early when the set would not fit, which is precisely a silent
+licence to emit wrong code - but four attempts at a minimal reproducer all failed to make
+it fire, and each rules something out:
+
+* a 4-to-12 register pool with the body needing all of it - **refuses cleanly**, so
+  pool pressure alone is the honest failure, not the bug;
+* 42 float aliases against 32 registers - range still extended, no bail;
+* 20 integer aliases against 16 registers - range still extended, no bail;
+* forcing order instead of pressure (read back the quadword the store just wrote, so
+  every temporary starts after the carried value's last read) - range still extended.
+
+`as_is_c` differs from all four in one structural way: it has an **inner** loop
+(`vertexLoop`), so `extendLoopDirectiveRange` runs twice over nested ranges. That is the
+next thing to try, and it is in [backlog.md](backlog.md) rather than blocking anything -
+the flag closes the bug either way, and `scratchpad/loopcarry.py` catches the shape if it
+ever comes back.
+
+### And a second one, still open: `stapip_clip_c`
+
+The same harness found a second miscompile, and this one is **not** the liveness bug
+(the checker is clean on it) and not caused by any of the five flags (it reproduces
+with four of them, and with none of the new ones).
+
+Testing it needed a trick, because a program that does not fit cannot be booted: put
+`stapip_clip_c` on openvcl **together with `cull_d` and `cull_td`, where openvcl is
+smaller than SCE** (-3 and -6). That buys the seven words `clip_c` costs and the
+resident set fits at 2033, so the VU1 clipper can actually run:
+
+| VU1-clipper build, `clipping: "vu1"` | asserts | framebuffer vs legacy |
+|---|---|---|
+| `cull_d` + `cull_td` from openvcl | 0 | **0 of 514600 pixels differ** |
+| the same plus `clip_c` | 0 | **453644 differ** |
+
+### Coverage: what a second scene found
+
+Everything verified in an emulator up to this point ran only `stapip_*` on ONE
+untextured terrain scene. Two real examples, each built with openvcl everywhere except
+the programs under suspicion, changed the picture:
+
+| scene | openvcl everywhere except | result |
+|---|---|---|
+| `blocks-terrain` (blocks pipeline, vu1) | `clip_c` | **pixel-identical** |
+| `raytraced-mirror` (textures, VU0 raytracer, vu1) | `clip_c` | corrupt |
+| `raytraced-mirror` | `clip_c`, `clip_tc` | **clean** |
+
+So `mcpip_as_is`, `mcpip_cull`, `dynpip_*`, `billboard_*`, `vu0_rt_kernel`, every
+`cull_*` and `clip_d`/`clip_td`/`clip_tce` are all correct - and there is a **second**
+miscompiled program, `stapip_clip_tc`, which the first scene could not see because it
+has no textures.
+
+**Both broken programs are the colour-carrying clippers** (`_c` = colour, `_tc` =
+texture + colour), and both fail the same way. In `clip_tc`'s `edgeAdvance` SCE writes
+the previous-vertex state to four distinct registers:
+
+```
+max VF14,VF18,VF18     ; ppos = cpos
+max VF15,VF19,VF19     ; pcol = ccol
+move VF16,VF20         ; pst  = cst
+addx.x VF17,VF00,VF21x ; pd   = cd
+```
+
+openvcl gives `pcol` and `pst` the same one:
+
+```
+move VF22, VF18        ; ppos = cpos
+move VF18, VF20        ; pcol = ccol
+move VF18, VF21        ; pst  = cst   <- clobbers pcol
+```
+
+The `--loop-liveness-always` fix removed this collision from `clip_c` but not from
+`clip_tc`. The guess at the time - that the two-address chain pre-pass decides the
+register before the extended ranges are consulted - was wrong; what it actually is
+[has its own section below](#the-second-defect-a-carried-name-is-two-aliases-and-only-one-of-them-was-extended).
+Note the pattern alone is not proof:
+`clip_td` and `clip_tce` carry the same duplicate destination and render correctly,
+where the second copy overwrites something genuinely dead.
+
+A note on method: **`raytraced-mirror` is not pixel-comparable across runs** (it
+animates, and the two builds settle at different frame rates), so its verdicts here are
+visual - a crate shredded into slivers and a pillar collapsed into a black wedge are
+not a phase difference. `blocks-terrain` is static and compares exactly.
+
+The clip family was then measured the same way, one program at a time:
+
+| from openvcl, VU1 clipper | asserts | framebuffer vs legacy |
+|---|---|---|
+| `clip_d` | 0 | **0 of 514600 differ** |
+| `clip_td` | 0 | **0** |
+| `clip_tc` | 0 | **0** |
+| `clip_tce` | 0 | **0** |
+| `cull_d` + `cull_td` | 0 | **0** |
+| everything except `clip_c` | 0 | **0** |
+| `clip_c` | 0 | **453644** |
+
+**One program.** And it is not the tag-load move that fixed nine others: the source
+as it stood *before* that change is miscompiled too (a different pixel count, both
+wrong), so the engine change is exonerated.
+
+The static routes are exhausted - no instruction is dropped or added (283 in both),
+and generalising the liveness checker to every backward branch drowns in false
+positives, because "set up before the loop, read inside, written inside" is also the
+shape of every induction variable, in both assemblers' output.
+
+**The VU1 packet tap turned the screenshot into a number.** Arm a capture of the same
+flush under each build (`arm-vucap.py`, see `tyra-testing`; the flush index has to be
+named or "the next packet" is a different draw each time) and decode both:
+
+| flush 0, identical scene | Sony `vcl` | openvcl |
+|---|---|---|
+| DMA chain + VU1 memory | — | **byte-identical** |
+| GIF packets staged | 14 | 14 |
+| GS vertices staged | 72 | **81** |
+| triangles staged | 24 | **27** |
+
+So the input to VU1 is provably the same and **openvcl's `clip_c` emits three
+triangles too many** - nine extra GS vertices, i.e. the Sutherland-Hodgman clipper
+keeps three output vertices it should have dropped. Not a transform error: a
+*vertex-count* error.
+
+Two hypotheses were then eliminated, both cleanly:
+
+* **The filled branch delay slot.** openvcl puts `iadd VI08, VI13, VI00` in the delay
+  slot of `ibeq VI03,VI12,triNext`, where SCE keeps a `nop` - so VI08 is clobbered on
+  the taken path too. Harmless: nothing reads VI08 after `triNext`. It is also
+  upstream's own pre-pass, not `--emit-delay-fillers` (it appears with no flags at
+  all).
+* **Flag visibility of 1 cycle** (`--sce-latencies`). SCE emits each `fcand` three rows
+  after the *next* `clipw`, reading the previous one's flags, where openvcl emits it one
+  row after its own - which looks exactly like a latency the flag got wrong. It is not:
+  **`clip_d` has the identical shape and renders pixel-identically.** If flag
+  visibility were the bug, clip_d would be broken too.
+
+The edge loop's output accounting was next, and it produced the real find. In
+`edgeAdvance` openvcl emitted
+
+```
+move VF15, VF17      ; ppos = cpos
+move VF15, VF19      ; pcol = ccol   <- the SAME register
+```
+
+for the source's two distinct names, so `ppos` was destroyed and `pcol` never updated;
+SCE writes VF14 and VF15. **A dead write is never something a source asks for** - a
+check for "written, then overwritten before anything reads it" finds 0 of them in
+openvcl's output after the fix below and 6 benign ones in SCE's.
+
+### The root cause: a back edge only counts if the source said `--loop`
+
+`RegisterAllocator::extendLoopDirectiveLiveRanges` walks every branch, keeps the
+backward ones, and then:
+
+```cpp
+if( !loopTargetHasLoopDirective( target, tokens.end() ) )
+    continue;
+```
+
+**A live range is extended across a back edge only when the loop carries a `--loop`
+directive.** Hand-written VU code - `label:` … `ibne label`, which is what this engine
+and most real VU code looks like - gets no extension at all, so a value written at the
+bottom of a loop and read at the top is not live as far as the allocator knows, and its
+register goes to someone else. That is the whole loop-carried class, including the GIF
+tag clobber that was worked around engine-side earlier.
+
+`extendLoopDirectiveRange` has a second defect behind it: it extends **every** float
+alias appearing anywhere in the loop, and bails out entirely -
+
+```cpp
+if( overlappingAliases.size() > availableFloats )
+    return;                       // and nothing is extended
+```
+
+- when those outnumber the registers. Correctness traded for a compile that succeeds.
+Applied to every back edge, the blunt version runs the allocator out of registers on
+23 of 25 programs.
+
+`--loop-liveness-always` fixes both: it drops the directive requirement, and it extends
+only the aliases that are actually **live-in** (first access inside the loop is a read,
+so the next iteration depends on the previous one). Temporaries written before they are
+read keep their own ranges.
+
+Result: `clip_c`'s staged output goes from **27 triangles / 81 GS vertices to 24 / 72,
+matching SCE exactly** on the captured flush, and the frame moves from 453644 differing
+pixels to 368945 - **improved, not fixed**: the remaining flushes still differ (±6
+triangles), so at least one more defect is in there. Everything else stays put: 25/25
+compile and assemble, 419/419 upstream tests, the resident set still 2040, the EE path
+still pixel-identical, and nine of the ten resident VU1-clipper programs still
+pixel-identical.
+
+### The second defect: a carried name is two aliases, and only one of them was extended
+
+Finding it needed `--show-reg-alloc` to say something it did not say. Upstream's dump
+prints live ranges for anonymous `Alias` objects - no name, no register, and it runs
+*before* allocation, so the one question that matters ("which two values share a
+register?") could not be asked. Three small additions fix that: `Alias` carries the
+source-level name it was created for, `BranchState::updateDependency` records it, and a
+`=== Final assignment ===` block reports name → register after allocation.
+
+With that, `clip_tc`'s edge loop reads:
+
+```
+VF15 <- ppos #112  ranges: [228-286]      <- what edgeCross reads
+VF16 <- pstq #113  ranges: [229-286]
+VF17 <- pcol #114  ranges: [230-286]
+VF22 <- ppos #126  ranges: [281-281]      <- what edgeAdvance writes
+VF18 <- pstq #127  ranges: [282-282]
+VF18 <- pcol #128  ranges: [283-283]
+```
+
+**openvcl spawns a fresh `Alias` for every write, so one source name is several
+aliases** - and the update at the bottom of the loop is a *different* alias from the one
+the readers at the top hold. It gets its own register: `move ppos, cpos` writes VF22
+while `edgeCross` keeps reading VF15. The write goes nowhere anyone looks, so every
+iteration lerps against the same stale vertex. That is the real defect, and it is
+present even where no collision is visible - which is why `clip_c` rendered wrong while
+the dead-write checker called it clean.
+
+The VF18 collision is a *consequence*. Nothing downstream reads those tail aliases, so
+each gets a live range **one line long** - the line of its own write. Two one-line
+ranges do not intersect, so the allocator may legally put two carried names in one
+register, and the second write destroys the first.
+
+One fix covers both, and it reuses machinery openvcl already has. The two-address chain
+exists so `isubiu x, x, 1` writes the register it read; `tieCarriedWritesToLiveInAliases`
+ties every in-loop write of a **carried** name (one whose first access inside the loop is
+a read) to the alias its readers use, and the chain pre-pass then hands the whole chain a
+single register:
+
+```
+VF15 <- ppos #126  ranges: [281-281]      after: the register edgeCross reads
+VF16 <- pstq #127  ranges: [282-282]
+VF17 <- pcol #128  ranges: [283-283]
+```
+
+It rides along with `--loop-liveness-always` (it runs wherever the live-range extension
+runs), and it costs nothing: `clip_c` 258 words and `clip_tc` 270 → 272, unchanged from
+before the fix, 25/25 compile and assemble, upstream's tests still green.
+
+Two static checks came out of this and are worth keeping, because each answers a
+different question about one dump:
+
+* `splitname.py` - **which names got more than one register.** Abutting short ranges are
+  normal (a value recomputed step by step); a carried name split in two is the bug above.
+* `overlap.py` - **which registers hold two names on one line.** The dual question, and
+  the stronger one. Ranges with holes are what allow it: `color2` is `[72-75], [77-206]`,
+  dead on line 76 - the line where a *different* colour is loaded - so any alias covering
+  76 may be handed VF14. Both clippers report 0 after the fix.
+
+### What this bought, and the one thing still wrong
+
+**Check what the project is actually running before believing a green frame.** The
+`vclab` working copy used for the probes above had `"clipping": "precise"` - the EE
+clipper - which generates `constexpr bool CLIP_VU1S[SCENE_COUNT] = {false}` and leaves
+the five `clip_*` programs off VU1 entirely. So its pixel-identical result under the
+whole openvcl set is a real result about the **EE** path and says nothing about the VU1
+clipper. Set `"clipping": "vu1"` in the `.tyra` (two scenes, in this project) and
+re-measure before drawing that conclusion. With it on:
+
+| `vclab`, VU1 clipper | pixels vs legacy |
+|---|---|
+| SCE `vcl` | reference |
+| everything from openvcl | **506784 of 514600 differ** |
+| all but `clip_c` from openvcl | **0** |
+
+So nine of the ten resident programs - `clip_tc` among them - are correct from the fixed
+openvcl, and `clip_c` alone is not. The resident set fits either way: **2040 against
+SCE's 2042**.
+
+The other two scenes agree, and four more probes pin it to that one program:
+
+| VU1 clipper | frame |
+|---|---|
+| `raytraced-mirror`, everything from openvcl | **blank** |
+| `raytraced-mirror`, all but `clip_c` and `clip_tc` from openvcl | matches legacy |
+| `raytraced-mirror`, all but `clip_tc` from openvcl | **blank** |
+| `raytraced-mirror`, **only** `clip_c` from openvcl, 24 programs from SCE | **blank** |
+| `blocks-terrain`, everything from openvcl | **blank** |
+
+`clip_c` alone, with no interaction. Note what the second row rules out: with the two
+clippers held back, the other 23 programs from the *fixed* openvcl render this scene
+correctly, so the carried-write fix broke nothing. Not a micro-memory overflow either:
+the
+mixed set measures exactly 2042 with `draw_finish` at 2042, the assert passes, the game
+logs 5520 frames and binds textures normally. Nothing is drawn anyway, and in this
+pipeline **every** triangle passes through the clip program's emit path, so a defect
+there takes the whole frame - sky included - which is what the picture shows.
+
+A measurement note that cost a wrong conclusion first: **count words with `nm` on the
+built object, not rows in the `.vsm`.** Row counts run 2-6 high per program (they pick up
+what sits outside `CodeStart`/`CodeEnd`), which put SCE's resident set at 2042 when the
+uploader actually sees 2040, and made a mixed build look like a 2-word overflow when it
+fits exactly:
+
+| resident 10-program set | `nm` words |
+|---|---|
+| SCE `vcl` | **2042** - the ceiling exactly, no headroom |
+| patched `openvcl` | **2040** |
+
+Three explanations were checked and eliminated, so the next attempt should not start
+there. **Register allocation is internally consistent**: `overlap.py` reports no
+register holding two names on one line, and no carried name split across registers.
+**The instruction multiset matches SCE** (`instrdiff2.py`, as it did before). And
+**every branch delay slot is legitimate**: `delayslot.py` compares all 20 branches
+against SCE's, and each of the six sites where openvcl fills a slot SCE left empty -
+or filled differently - holds an instruction the source itself placed *before* the
+branch (`srcEnd = srcBase + 6` above `ibeq triOr,vi00,fanStart`, the `emitNxt`/`fanPtr`
+rotations inside `fanEmitLoop`, the src/dst swap above `ibne ...,planeLoop`). Those are
+meant to run on both paths.
+
+### The cause: the CLIP flag is positional, and our own flag shortened its wait
+
+The remaining defect is not in what openvcl computes but in **when it reads a flag**,
+and it was introduced by one of our density flags.
+
+`--sce-latencies` sets flag visibility to 1 - for MAC flags and the CLIP flag alike -
+calibrated from the shortest gaps SCE's own output contains. That minimum was taken over
+two populations that behave differently. MAC flags summarise the last FMAC. The CLIP flag
+register is a **24-bit shift window** that every `CLIP` pushes six new bits into, so
+reading it early does not return a partly-settled answer: it returns a **different
+vertex's** answer, with the mask silently selecting the wrong window position. A
+full-window test (`fcand VI01,0x3FFFF`, "is anything outside") survives that. A
+single-bit positional test - which is exactly what a Sutherland-Hodgman edge loop runs -
+does not.
+
+Over all 25 programs, counting only positional tests (mask below `0x3FFFF`):
+
+| producer → flag read | SCE `vcl` | openvcl |
+|---|---|---|
+| gap 1 | 5 (all full-window) | **72** |
+| gap 2 | 7 | 1 |
+| gap 3 | **36** | 0 |
+| gap 4 | 5 | 0 |
+
+Per program, SCE keeps every positional test at 3 and the edge loop's `fcand VI01,2` at
+4; openvcl kept all of them at 1, in all five `clip_*` programs and both billboards. So
+`clip_d`/`td`/`tc`/`tce` carry the same defect and merely got lucky on this geometry -
+which also retires the earlier "flag visibility of 1 cycle" hypothesis being *eliminated*
+because `clip_d` renders correctly. It was not eliminated; it was under-tested.
+
+The source is unambiguous about the intent - each `fcand` reads the `clipw` directly
+above it:
+
+```
+clipw.xyz   vertex1,    vertex1
+fcand       VI01,       0xF
+```
+
+SCE reaches the same semantics by a scheduling trick that looks alarming and is correct:
+it issues `clipw` #N+1 *before* reading #N's flags, precisely because #N+1's bits are not
+visible yet. `clipflags.py` shows the two window depths side by side, and openvcl's now
+match the source's order.
+
+`g_clipFlagVisibilityLatency` is tracked separately and stays at 4 whatever
+`--sce-latencies` says. That alone left sites at a gap of 2-3, and the reason is worth
+keeping: **the scheduler's constraint was being honoured, in the wrong unit.**
+Instrumenting the check shows it asked and got `delay=3` / `delay=2` at exactly those
+sites - but cycles and emitted rows are not the same measurement, because a wait the
+hardware interlocks is a cycle that costs no word. Four cycles of separation can come
+out as two rows. The CLIP window is counted in *instructions*, so
+`CodeGenerator::padForClipFlagWindow` now enforces it at the emitter: walk back over the
+rows already emitted, count instruction rows to the one holding a CLIP, pad with nops
+until the reader is far enough. A label is a barrier - a reader below one may be entered
+from anywhere, so the distance is unknown and padding it would be guesswork.
+
+Every positional test in all five `clip_*` programs now sits exactly 4 rows behind its
+own CLIP with no other CLIP in between, which is both the source's order and SCE's
+minimum. **And it still does not fix the miscompile.** The honest numbers:
+
+| VU1 packet capture, same draw | triangles staged | GS vertices |
+|---|---|---|
+| SCE `vcl` | **24** | 72 |
+| openvcl, flag read at gap 1 | 28 | 84 |
+| openvcl, CLIP window enforced (gap 4) | 17 | 51 |
+| openvcl, window raised to 8 | 17 | 51 |
+
+The count moves with the timing, which is the mechanism confirmed; raising the window to
+8 changes nothing, so the flag now reads a settled value and **a separate defect
+remains.**
+
+Where that defect is NOT, so the next attempt starts somewhere new. Every `fcand` in
+this program writes the same VI01, so the emission order has to be strictly test,
+consumer, test, consumer - a consumer left behind the next test would read a different
+plane's answer. It is not: `flagchain.py` reports 0 overwrites-before-read for both
+assemblers. And `edgeCross`'s divide is structurally identical - `div` then two rows
+later the `mulq` paired with `waitq`, in both - so the interpolation is not reading `q`
+early, which matters because the clipper is iterative and bad positions from one plane
+would change the next plane's decisions. Also eliminated on the way: `--emit-delay-fillers` retraction is not what
+shortened the gaps (building without it leaves every gap byte-identical), the CLIP window
+*depth* matches the source (each `fcand` reads its own `clipw`, none intervening), and
+`sjudge` - whose `.z` is written once above `begin:` and read by every `clipw.xyz` in the
+loop - holds VF11 alone and is never overwritten inside it.
+
+The cost is **98 instructions** (2140 against the 2042 ceiling), so the VU1-clipper set no
+longer fits. The padding is pure nops for a structural reason: the scheduler still
+measures this wait in cycles, where it is free, so it cannot fill rows it does not know
+about. Teaching it to count this one in rows is how the words come back - SCE pays the
+same waits and fits in 2042. A compiler that miscompiles to save words is not a smaller
+compiler.
+
+To boot a clip program that no longer fits, shrink the *set* rather than the program:
+`StaPipQBufferRenderer::setProgramsCache` uploads ten, and the packet tap names the
+program each mesh runs (`program @174` for all twelve of `vclab`'s, i.e. `programs[1]`),
+so uploading two is enough to judge the clipper. SCE under that harness stages the same
+24/72 as under the full set, which is what makes it a valid harness rather than a
+different experiment.
+
+### Bisecting `clip_c` by stage: what is cleared, and what is left
+
+Static comparison was exhausted, so the next instrument was the program itself. Each
+variant is a source change applied to **both** assemblers, booted under the two-program
+harness, and read through the VU1 packet tap. Because the change is identical on both
+sides, a variant where the two agree clears everything it exercises.
+
+| variant | what it does | SCE | openvcl |
+|---|---|---|---|
+| A | every triangle **skips** the clipping path (`ibeq vi00,vi00,fanStart`) | 23 tris / 69 verts | **23 / 69, identical to the digit** |
+| B | every triangle **enters** the plane loop (branch never taken) | 24 / 72 | 17 / 51 |
+| C | plane loop as a **pure copy** - both edge branches never taken | 23 / 69 | **23 / 69, identical** |
+| D | real tests, but the crossing vertex is stored as `cpos`, not the lerp | 29 / 87 | 21 / 63 |
+| E | `pd` **recomputed** in the loop instead of carried across the back edge | 24 / 72 | 17 / 51 |
+
+Read together:
+
+* **A clears the whole emit side** - the transform, the fan triangulation,
+  `EmitClipVertexC`, the GIF tag block, the vertex counting. Identical output.
+* **C clears the plane loop's bookkeeping** - `curPtr`/`dstPtr`, the `srcEnd = dstPtr`
+  swap, the loop bounds, the five-plane iteration. Identical output.
+* **D says the difference is in the tests, not the interpolation**: neutralising the
+  stored value moves both sides by about the same amount and the gap survives.
+* **E clears the carried `pd`** - taking it off the back edge changes nothing.
+
+So the defect is in the edge test path and nothing else: `pd`/`cd` against the plane, the
+`sjudge` assembly, the `clipw`, the two `fcand`s and the `vertMask` comparison. And
+inside that path the static reading is *identical* between the two assemblers -
+`sjudge` is built the same way, `clipw` takes its `w` from the component that holds it,
+both `fcand` masks reach their own consumer, `planeV`/`planeE`/`cvec` hold their own
+registers with no overlap, and the accumulation of `dot(cpos, planeV)` differs only in
+which register accumulates.
+
+A sixth variant sharpened that further, by accident. **F** encodes `pd`/`cd` into the
+emitted colour so the tap would report the test's input per vertex - three FMACs, in the
+store paths, after the tests and with no `clipw` among them. SCE stayed at 24/72.
+**openvcl moved from 17/51 to 11/33.**
+
+That is the most useful fact in this whole bisection: openvcl's clipper answers
+differently when instructions that cannot affect the tests are added below them, while
+SCE's answer does not move. A result that depends on unrelated scheduling is a value
+being read before it is settled, or read from somewhere nothing wrote. It also means the
+totals are a poor instrument - they move for reasons unrelated to the defect - so the
+next step has to read the decisions themselves.
+
+Variant F could not deliver them as written: `--dump-vucap` prints only the first few
+staged packets, and those belong to an earlier batch, so the instrumented colours never
+appeared. Either widen the decode, or parse `vucap.bin` directly for the packet the clip
+program staged.
+
+### Found: carried INTEGERS were never getting their live ranges extended
+
+The loop-liveness work covered `Alias::FLOAT` only, and the defect that blocked this
+migration from the start was an integer one. An integer read at the top of a loop body and
+written lower down has its live range end at that last use; the register is handed to
+another name for the rest of the loop, and the next iteration reads whatever that name
+left behind. In `stapip_clip_c` the plane loop lost its bookkeeping that way, which is
+why **every triangle went through every clip plane** where SCE discards most of them at
+the first.
+
+The tell was a debug pointer that refused to advance - `iaddiu p, p, 1` at the bottom of
+a loop, both aliases correctly tied to VI01 by the existing two-address chain, and the
+range `[30-178]` stopping well short of the loop end at ~340, after which VI01 belonged to
+`sceFlag`, `fanPtr` and `emitCnt` in turn. The instrument found its own bug, and it was
+the program's bug too.
+
+`extendLoopDirectiveRange` now collects both register files, extends both, and counts the
+overlap guard per file (32 floats, 16 integers). The carried-write tie follows for free,
+since it works from the same live-in set.
+
+| VU1 clipper, same scene | SCE `vcl` | openvcl |
+|---|---|---|
+| staged triangles / GS vertices | 24 / 72 | **24 / 72** |
+| frame | reference | **0 of 514600 pixels differ** |
+| 25 programs compile + assemble | yes | yes |
+| upstream tests | - | 419/419 |
+
+Three things about the CLIP flag window were settled on the way here, and they are worth
+keeping straight because two of them are corrections:
+
+* **It is genuinely required.** Without it the same build stages 27/81. Both fixes are
+  needed; neither alone is enough.
+* **4 is the right figure, and it is upstream's own.** `test_flag_latency.cpp` asserts
+  `clipw followed by fcand has at least 4 cycles between`; 3 fails it. Probing 8 and 16
+  changed nothing, which is what finally cleared the flag window as the *cause* and sent
+  the search back to the register file.
+* **Only positional reads need it.** A full-window mask (`0x3FFFF`) reads the same answer
+  whichever position the bits occupy, and SCE puts those adjacent to their `clipw`.
+  Padding them cost the five cull programs 22 instructions for nothing.
+
+**What is left is size, and only size.** The resident set is **2074 against the 2042
+ceiling** - 32 words, down from 118 when the fix first landed. The padding is nops because the scheduler measures this wait in cycles, where
+an interlocked wait is free, so it has no reason to move work into the gap. Raising the
+scheduler's figure to 8 to make it spread things out was measured and is worse (2224) -
+nothing to fill with, so it just stalls longer. SCE fits while paying the same waits, so
+the words exist; reaching them needs a scheduler that counts this one in emitted rows.
+
+### Closing the size gap: six flag reads become two
+
+A positional flag read has to sit four emitted rows behind its CLIP, and the engine's
+`processing` block had six of them - so six places where those rows had to be paid for in
+nops. They all feed one OR, though, and the CLIP register is a **24-bit window of four
+6-bit entries, newest at bits 0..5**. Four tests can be pushed and read together:
+
+```
+clipw v1, s1, v2, s2   ->  fcand VI01, 0x3CA3CA    v1 0xF<<18 | s1 0xA<<12 |
+                                                   v2 0xF<<6  | s2 0xA
+clipw v3, s3           ->  fcand VI01, 0x3CA       v3 0xF<<6  | s3 0xA
+```
+
+Four fewer `fcand` and four fewer `ior` per program, and two padded sites instead of six.
+
+| resident VU1 set | SCE | openvcl |
+|---|---|---|
+| before batching | 2042 | 2118 |
+| after | **2040** | **2074** |
+
+Both builds verified in PCSX2 after the change: SCE stays pixel-identical to its own
+reference (0 of 514600), and openvcl matches SCE exactly - 24/72 staged, 0 pixels.
+
+One thing that looked obvious and did nothing: moving the polygon-buffer stores up into
+the gap, so the wait would be filled with work instead of nops. Byte-identical output.
+The scheduler is not bound by source order within a block - it already had that freedom
+and did not use it, because it measures this wait in cycles where an interlocked wait is
+free.
+
+And counting what the remaining words actually are reframes the last mile. Across the five
+clip programs openvcl is 43 rows over SCE, split:
+
+| | SCE | openvcl |
+|---|---|---|
+| rows with both slots empty (`nop`/`nop`) | 86 | 104 |
+| rows with exactly one slot used | 891 | 938 |
+
+So **18 rows are padding and 25 are pairing** - instructions openvcl emits alone where SCE
+puts two in a row. That is the same pairing deficit measured at the start of this work
+(995 paired rows against 1031), and it is now the larger half of what stands between this
+assembler and the ceiling.
+
+**But it is not the ready list's choice of primary.** The obvious fix - the list picks a
+primary on its own merits and only then looks for a partner, so prefer a primary that has
+one - was tried twice and measured **exactly zero** both times: first as a tie-break
+(scores are almost never equal, so it never fired), then as a full point of merit against
+an unpairable candidate. Byte-identical output, 2074 either way, tests green throughout.
+
+What that rules out is worth more than the attempt: the scheduler already pairs wherever a
+partner is *available*. The half-empty rows are ones where the partner exists in the block
+but is not ready yet - its dependencies are unmet at that cycle. Closing them means
+choosing an order that makes partners ready, which is a different and much larger change
+than weighting the choice of primary.
+
+And the 18 padding rows are already gone as a cost. With the six tests batched into two,
+the scheduler keeps all three flag reads four rows behind their CLIP **by itself** - the
+emitter's backstop finds nothing to add, and `clip_c` measures the same 266 words with it
+on or off. It stays in as a backstop for programs that are not this engine's, but it is no
+longer paying for anything here. Which means the whole remaining 32 words are pairing.
+
+### And the pairing gap has a name: `move` belongs in the UPPER pipe
+
+Bounding the problem first: a VU row holds one upper and one lower instruction, so the
+fewest rows a given mix can occupy is `max(uppers, lowers)`. Over the five clip programs
+SCE sits 460 rows above its own bound and openvcl 485, so **neither is limited by the mix**
+- dependencies and latencies dominate, and there is no easy win in "pair harder".
+
+What differs is the mix itself:
+
+| five clip programs | SCE | openvcl |
+|---|---|---|
+| upper-pipe instructions | 606 | 591 |
+| lower-pipe instructions | **749** | **767** |
+| `move` (lower pipe) | 3 | **18** |
+| `max r,r,r` (a move promoted to the upper pipe) | **25** | **0** |
+
+The lower pipe is the bottleneck in every one of these programs, and SCE keeps it clear by
+emitting a move as `max dst,src,src` in the *upper* slot - 25 times. openvcl does it never,
+and pays 18 lower-pipe slots for moves that had somewhere else to be. That is where the
+lower count's +18 comes from, and it is the same order as the words still missing.
+
+openvcl already has the machinery (`isVuMoveAsUpperMaxCandidate`, `emitsAsUpperMove`); it
+is gated on MAC WAW being ignorable, because `max r,r,r` writes the MAC flags where `move`
+does not. These programs read the CLIP flags, not MAC, so the gate is not what closes it. The gate
+is open here - `vuIgnoredFlagWawResourcesForRemaining` finds no MAC reader anywhere in
+these programs - and the refusal is two lines further in, in the candidate test itself:
+
+```cpp
+unsigned int fields = token.fields();
+if( fields == 0 || (fields & Token::W) )
+    return false;
+```
+
+**Both halves reject every move this engine writes.** A move covering `w` is refused
+outright, and a bare `move dst, src` carries no suffix at all, so `fields()` is 0 - which
+means *all four*, not none - and that is refused too.
+
+Lifting both, and emitting the mask as `xyzw` when it is 0 (the naive fix produces `max.`
+with nothing after the dot, which `dvp-as` rejects - that is presumably why the refusal was
+there), is measured:
+
+| resident VU1 set | SCE | openvcl |
+|---|---|---|
+| moves in the lower pipe | 3 | 18 → **0** |
+| set | 2040 | 2074 → **2060** |
+
+All ten still assemble. **Eighteen words from the ceiling.**
+
+Upstream pins the exclusion with an explicit test -
+`CHECK(!isVuMoveAsUpperMaxCandidate("move.xyzw vf04, vf05"))` in
+`test_vu_scheduling_rules.cpp` - and breaking that would trade the safety net for the win,
+so this ships as **`--upper-move-with-w`**: off by default, upstream's suite untouched,
+passed by the image's `vcl` wrapper like the other six. What justifies the flag existing is
+SCE's own output, which promotes full-width moves 25 times across these five programs and
+renders pixel-identically doing it.
+
+### And four instructions per clipper that never needed to exist
+
+`sjudge.w` is the guard the `clipw` compares against, and the `move sjudge, cvec` above
+`begin:` already puts `cvec.w` there. Nothing writes `.w` afterwards - every other store
+into `sjudge` is `.x`, `.y` or `.xy` - yet `mul.w sjudge, vf00, cvec[w]` recomputed
+`1 * cvec.w` once per vertex and once per edge. Four dead instructions in each of the five
+clip programs, and both assemblers were faithfully emitting them.
+
+| resident VU1 set | SCE | openvcl |
+|---|---|---|
+| before the flag and the dead code | 2040 | 2074 |
+| `--upper-move-with-w` | 2040 | 2060 |
+| dead `mul.w` removed | **2028** | **2048** |
+
+Verified after both: SCE stays pixel-identical to its own reference (0 of 514600) and
+openvcl matches SCE exactly - 24/72 staged, 0 pixels, ten of ten assembling, upstream's
+tests green with the flag off.
+
+**Six words from the ceiling.** SCE now has 14 words of headroom where it had none, and
+openvcl needs 6 more. What remains is scheduling and nothing else: over the five clip
+programs openvcl makes 121 pairs where SCE makes 146, and emits 99 rows with both slots
+empty where SCE emits 86. The pipe mix is no longer the difference - both use exactly 749
+lower-pipe slots now.
+
+One more source shrink was tried and reverted: collapsing `add.x sjudge, vf00, pd[x]` plus
+half of `sub.xy` into a single `sub.x sjudge, pd, cvec[w]`. It removes an instruction from
+the edge loop, which is a runtime win, but the scheduler absorbed it into a slot that was
+already free and neither assembler's word count moved. Unverified runtime gains do not
+land.
+
+Two more attempts at the six, both measuring nothing, both recorded so they are not
+repeated:
+
+* **A priority term for unblocking the other pipe.** `buildDependencyPriorities` is pure
+  critical-path height, and an instruction whose successor is of the opposite pipe is the
+  one that makes a *pair* possible next cycle - so give it a point of height. Tests green,
+  output byte-identical. Heights here differ by more than one, so a single point flips
+  nothing, exactly as the earlier tie-break flipped nothing.
+* **A flag hurting the two worst programs.** `clip_tce` is +12 over SCE and `cull_tce` +6,
+  so each of the eight flags was removed in turn and both programs remeasured. Every one of
+  them helps or is neutral; nothing to reclaim by dropping any:
+
+| dropped flag | `clip_tce` | `cull_tce` |
+|---|---|---|
+| none | **258** | **174** |
+| `--fmac-interlock` | 362 | 248 |
+| `--schedule-flag-readers` | 266 | 186 |
+| `--branch-bubble-on-dependency` | 264 | 178 |
+| `--emit-delay-fillers` | 262 | 176 |
+| `--branch-interlock` | 262 | 174 |
+| `--sce-latencies` | 260 | 176 |
+| `--upper-move-with-w` | 260 | 174 |
+| `--loop-liveness-always` | 258 | 174 |
+
+(`--loop-liveness-always` is the correctness flag and costs nothing in size, which is worth
+knowing on its own.)
+
+So the six words are a genuine scheduling deficit, not a flag and not dead source.
+
+### The instrument, and what it says
+
+`--show-pair-misses` re-derives the four reasons `chooseReadyPairPartner` can refuse a
+candidate and tallies them wherever it comes back empty. On `stapip_clip_c`, over the 170
+rows that went out with one slot used:
+
+| reason a partner was unavailable | rows |
+|---|---|
+| `notReady` - the partner exists but its dependencies are unmet at this cycle | **132** |
+| `samePipe` - every ready candidate needs the same slot | **71** |
+| no unemitted candidate at all | 19 |
+| `latency` | 2 |
+| `resource` | **0** |
+
+So resource conflicts are not a factor at all and latency barely is. Either the partner is
+blocked, or the whole ready set is one-sided - a primary `lq` with eight ready candidates,
+all of them lower pipe.
+
+That points somewhere new: **a row that is going out half empty is a free choice**, so it
+can be spent on the next row by preferring a candidate that unblocks an instruction of the
+other pipe. Implemented, and it is the first thing in this whole effort to move the clip
+programs to parity:
+
+| | SCE | openvcl before | with the re-pick |
+|---|---|---|---|
+| `clip_c` | 258 | 260 | **258** |
+| `clip_tc` | 270 | 272 | **270** |
+| `cull_c` | 176 | 174 | 178 |
+| `cull_tc` | 182 | 182 | 186 |
+| `cull_tce` | 168 | 174 | 176 |
+| set | 2028 | 2048 | 2052 |
+
+**The clips reach SCE exactly and the culls lose more than the clips win.** Two ways of
+restraining it were measured: requiring the replacement to score no worse by the ordinary
+metric makes it never fire (2048, unchanged - the same reason a tie-break never fires), and
+restricting it to the primary's own pipe changes nothing, because the candidates it picks
+were same-pipe already. The mechanism is right and its scope is wrong - and the answer turned out to be **not to
+pick a scope at all.**
+
+### `--pair-best-of-two`: schedule it both ways and keep the shorter
+
+Every hand-picked scope failed. Requiring the replacement to score no worse never fires.
+Restricting it to the primary's own pipe changes nothing, because the candidates were
+same-pipe already. "Only in loop bodies" needs a signal the scheduler does not have, and
+plumbing one through three layers to encode a guess is the wrong shape of fix.
+
+So the segment is scheduled **twice** - with the re-pick and without - on copies of the
+latency tracker and cycle counter, and whichever came out shorter is re-run for real. Three
+passes over a segment instead of one, in an assembler that finishes all 25 programs in
+seconds.
+
+| resident VU1 set (ceiling **2042**) | SCE | openvcl |
+|---|---|---|
+| `stapip_cull_c` | 176 | **174** |
+| `stapip_cull_d` | 146 | **142** |
+| `stapip_cull_td` | 156 | **148** |
+| `stapip_cull_tc` | 182 | **182** |
+| `stapip_cull_tce` | 168 | 174 |
+| `stapip_clip_c` | 258 | **258** |
+| `stapip_clip_d` | 206 | 210 |
+| `stapip_clip_td` | 220 | 224 |
+| `stapip_clip_tc` | 270 | **270** |
+| `stapip_clip_tce` | 246 | 256 |
+| **total** | **2028** | **2038 — it fits, with four words spare** |
+
+Off by default: it reorders a cyclic prefix that `test_software_pipeline.cpp` pins down.
+Upstream's 419 stay green and the image's `vcl` wrapper passes it, like the other eight.
+
+**Verified with the whole ten-program VU1-clipper set built by openvcl and no harness:**
+
+| scene, `clipping: "vu1"` | result |
+|---|---|
+| `vclab` | **0 of 514600 pixels** differ from Sony's build |
+| `blocks-terrain` | **0** |
+| `raytraced-mirror` | renders correctly (animates, so the verdict is visual) |
+
+The last two were blank frames before this work. openvcl now builds every microprogram this
+engine has, the resident set fits micro memory, and the frames are Sony's frames.
+
+### `--pair-best-of-many`: a table of heuristics instead of two, and words instead of slots
+
+`--pair-best-of-two` established the shape of the fix - do not pick a scope, schedule the
+segment both ways and keep the shorter - and left the obvious question open: why two. A
+third variant costs compile time and **cannot** lengthen the output, because a variant that
+loses is discarded. So the two became a table.
+
+**What to put in the table came from the instrument.** `--show-pair-misses` now also names
+the pipe that went hungry (`primary=` / `starved=`), and aggregated over the ten resident
+programs it says the deficit was never one phenomenon:
+
+| program | openvcl - SCE, before | single-slot rows | `samePipe` | `notReady` |
+|---|---|---|---|---|
+| `stapip_clip_tce` | +10 | 484 | **313** | 114 |
+| `stapip_cull_tce` | +6 | 367 | **267** | 82 |
+| `stapip_clip_c` | 0 | 502 | 201 | **244** |
+
+The two env/matcap programs, which between them carried the whole deficit, are
+`samePipe`-bound: at the cycle the row goes out half empty *every* ready instruction wants
+the slot already taken. No choice of partner fixes that - there is none. `stapip_clip_c`,
+which already matched SCE exactly, is `notReady`-bound instead. One fixed heuristic was
+being asked to serve two different shortages, and that is what a table fixes.
+
+**Five knobs, swept, then trimmed to the winners.** The ready list's score is source order
+plus a stall penalty, minus bonuses for long-latency producers, latency loads, pipe
+alternation and critical-path height. Each became a strategy parameter, plus one that did
+not exist before: fill the row's free slot with the **least** valuable legal partner rather
+than the best one, leaving the valuable one to be a primary on a row of its own. A 26-entry
+sweep over the ten programs found only four points that ever produced a shorter segment; a
+second sweep of the two remaining dimensions found two more. The shipped table is those
+seven, and nothing else:
+
+| # | strategy | segments won | words saved |
+|---|---|---|---|
+| 0 | plain - what openvcl always did | - | - |
+| 1 | the `--pair-best-of-two` re-pick | 7 | 7 |
+| 2 | critical-path height at 1.5x | 5 | 5 |
+| 3 | height at 3x, with the re-pick | 3 | 6 |
+| 4 | stop hoisting divides and rsqrts ahead of everything | 1 | 2 |
+| 5 | cheapest legal partner | 3 | 5 |
+| 6 | cheapest legal partner, with the re-pick | 1 | 1 |
+
+Trimming to the winners is **exact, not an approximation**: the minimum over a subset that
+still contains every segment's argmin is the same minimum. The full 26 and these seven emit
+the same words, in a fifth of the compile time.
+
+**The comparison itself was also wrong.** `--pair-best-of-two` compared
+`std::vector::size()`, which counts a multi-cycle NOP padding slot as one entry - the code
+generator writes `min(emitCycleCount, cycleCount)` words for it, and exactly one for every
+other slot, `waitq`/`waitp` included, because `emitUpperWithWait` folds the wait into the
+same row. The table is compared on emitted words instead.
+
+| resident VU1 set (ceiling **2042**) | SCE | openvcl before | openvcl now |
+|---|---|---|---|
+| `stapip_cull_c` | 176 | **174** | **174** |
+| `stapip_cull_d` | 146 | **142** | **142** |
+| `stapip_cull_td` | 156 | **148** | **148** |
+| `stapip_cull_tc` | 182 | 182 | **180** |
+| `stapip_cull_tce` | 168 | 174 | 172 |
+| `stapip_clip_c` | 258 | 258 | **256** |
+| `stapip_clip_d` | 206 | 210 | 210 |
+| `stapip_clip_td` | 220 | 224 | 222 |
+| `stapip_clip_tc` | 270 | 270 | **268** |
+| `stapip_clip_tce` | 246 | 256 | 254 |
+| **total** | 2028 | 2038 | **2026 - smaller than Sony's vcl** |
+
+Six of the ten now match SCE or beat it, and what is left of the deficit is the two clip
+programs the env macro feeds (`clip_tce` +8, `clip_d` +4, `clip_td` +2, `cull_tce` +4).
+Off by default for the same reason as `--pair-best-of-two`, and it supersedes that flag when
+both are given - its table's first two entries *are* that pair, so the minimum it takes is
+over a superset and can never be worse.
+
+**Verified:** `vclab` with `clipping: "vu1"` built by this openvcl renders **0 of 514600
+pixels** different from Sony's build, with 0 asserts; all 25 microprograms compile and pass
+`dvp-as`; upstream's 419 assertions stay green. Check the build log says the VU assembler
+changed before trusting the picture - the flag string is what the Runner hashes, so a stale
+microcode volume will otherwise hand you the previous build's frame.
+
+The cost is compile time: eight trial schedules per segment instead of three. The ten
+resident programs take roughly a minute each on this machine against a few seconds before,
+which is paid once per microcode rebuild and not per game build.
+
+**Dead ends, every one measured over the ten resident programs. Do not repeat these:**
+
+- **Rewarding a candidate for unblocking an opposite-pipe successor.** This is the direct
+  answer to a `samePipe` shortage and the reason the knob was built at all. At two units of
+  critical-path height and at ten, with and without the re-pick, it **never once produced a
+  shorter segment**. Making other-pipe work ready one cycle sooner does not help when the
+  shortage is longer than one cycle - and in these programs it is a long run of one pipe,
+  not a one-cycle dip. The instrument pointed at a real phenomenon and the obvious remedy
+  for it is still the wrong one; what actually paid on the same programs was hoarding the
+  scarce pipe (strategy 5) rather than trying to manufacture more of it.
+- **Breaking ties toward later source order** instead of earlier - the sign of the score's
+  source-order term. Never wins, alone or combined with any other knob.
+- **The pipe-alternation bonus** at 0, 300 and 900 against its default 100: never wins.
+- **The latency-load bonus** at 0 and 900 against its default 300: never wins.
+- **Critical-path height** at 6, 10, 40, 100, 200 and 400: never wins. Only 30 and 60 do,
+  which is why the table carries exactly those two and no sweep of that axis is left to do.
+
+### Reading the batches instead of the totals
+
+Two things made that possible. `--dump-vucap --full` prints every staged packet and every
+vertex instead of the first four - the packet that differs is rarely the first. And
+`--dump-vucap --peek <qw>[,n]` prints raw data-memory quadwords as floats and words, so an
+instrumented microprogram can report its own intermediate values: **1016..1023 are free**
+in the static pipeline's map, and code above `begin:` runs once per activation while
+`begin:` loops per batch - which is the hook that turns those eight quadwords into a ring
+with one slot per batch.
+
+With `--full`, the divergence stops being a total and becomes two packets:
+
+| staged packet | SCE | openvcl |
+|---|---|---|
+| gif 5 @VU1 72 | nloop=**24** | nloop=**21** |
+| gif 13 @VU1 533 | nloop=**24** | nloop=**6** |
+
+Every other packet matches. And the vertex data says the two fail differently: gif 13's
+first six vertices are identical and then openvcl simply stops (peeking past its nloop
+shows unwritten slots - zero colours), while gif 5 diverges at v3 onto stale memory.
+
+The instrumented runs then answered the two questions that matter:
+
+* **The GIF tag never lies.** Recording `outCount` next to a counter of what the fan
+  emitter actually wrote gives `claimed == written` in both assemblers, every batch. So
+  this is not a patched-NLOOP bug.
+* **The tests are not being fed different numbers, nor answering differently.** Parking
+  `sjudge` as `clipw` sees it, the raw `pd`/`cd`, and both `fcand` results in spare
+  quadwords gives **bit-identical values in both** - `sjudge` = (-4141.83, -4151.66, 0,
+  4096), `pd`/`cd` = (-45.835, -55.6648), both answers 1.
+* **What differs is the polygon.** Per batch openvcl reports 21 where SCE reports 24 -
+  and a fan over an n-vertex polygon emits n-2 triangles, so that is **exactly one
+  polygon vertex fewer**, consistently.
+
+One more measurement is in flight and its instrument is not yet trusted: summing the
+polygon size after every plane of every triangle gives SCE 84 quadwords against openvcl's
+252 and 216, which would mean openvcl's plane loop doing about three times the work while
+emitting fewer vertices. That is either the finding or an artefact of the two extra
+integer aliases the accumulator needs - four of them made **both** assemblers run out of
+integer registers, which is worth knowing on its own about how tight `clip_c` is.
+
+Two more mechanisms are out. **The wrap edge is not it**: re-loading the previous vertex
+through `prevPtr` on every iteration - which makes the first edge's `ppos` explicit
+instead of inherited from the plane prologue - leaves the counts exactly where they were
+(24 against 17). And **the plane loop's head is equivalent**: openvcl initialises
+`curPtr = srcBase` and `dstPtr = dstBase` inside `planeLoop`, on every entry, as SCE does
+(SCE just reuses one register as a copy of `srcEnd` to address `ppos` at `-2`/`-1` before
+it becomes `curPtr`).
+
+Also settled, and it retires a whole line of suspicion: **the density flags are innocent.**
+The two-program harness leaves enough micro memory to build `clip_c` with no flags but
+`--loop-liveness-always`, and it stages the same 17/51. The defect is in openvcl's base
+code generation.
+
+### The sharpest statement so far: openvcl clips triangles that need no clipping
+
+Counting plane-loop completions per batch needs two extra integer aliases, and - unlike
+every richer instrument tried here - it perturbs neither build: SCE still stages 72/24 and
+openvcl still 51/17 with the counter in place. So this one can be believed:
+
+| per batch (7 input triangles, 6 clip planes) | SCE | openvcl |
+|---|---|---|
+| plane-loop completions | **12** | **42** |
+| polygon vertices emitted while clipping | 42 | 126 |
+| of those, vertices kept vs intersections | 34 / 8 | 110 / 16 |
+
+42 is 7 x 6: **every triangle goes through every plane.** SCE's 12 is two triangles' worth
+- it sends the other five straight to the fan, because `ibeq triOr, vi00, fanStart` fires
+for them. The kept-to-crossing ratio is about the same on both sides (81% against 87%), so
+the per-edge decisions are not obviously wrong; there are simply three times as many edges
+to decide, because polygons that should never have entered the plane loop are in it.
+
+A per-triangle read of `triOr` itself is the obvious next step and it is where the
+instruments start lying: adding the two counters per triangle changed openvcl's staged
+output to 39/13, and storing `triOr` before its branch changed SCE's to 48/16. **An
+instrument that moves the thing it measures is not evidence** - which is itself the
+recurring signature here, since openvcl's clip_c answers differently every time unrelated
+instructions are added and SCE's never does.
+
+Worth recording from the perturbed runs anyway, as a lead rather than a result: SCE's
+`triOr` reads 1, 1, 0, 0, 0, 0, 0 across the seven triangles with `outCount` climbing
+3, 9, 12, 15, 18, 21, 24, while openvcl's reads 1, 0, 0, 0, 0, 0, 0 with `outCount` stuck
+at 0 for every triangle - which would mean the name is split across two registers under
+that instrumentation, the accumulating one being invisible from `processing`. In the
+unmodified program it is not split (`VI06` for both aliases), so this says more about how
+tight clip_c's integer file is than about the defect.
+
+An engine-side workaround for this class was tried and **rejected on measurement**:
+carry the previous clip vertex through `prevPtr` (which the program already keeps for the
+wrap-around edge) and re-load it, instead of copying it into registers at `edgeAdvance`.
+It removes the collision by construction and needs no compiler change, but SCE's own
+output grows - `clip_c` 262 → 263 rows, which rounds up to an even upload and pushes the
+resident set 2042 → 2044. Moving the loads onto the crossing path in `edgeCross`, where a
+divide's latency looked like free cover, is worse still (264 / 278). **The tool bug is
+the tool's to fix**; a source change that breaks the assembler we still ship is not a
+fix.
+
+It is a flag, off by default, because it does change one thing: with a cheaper
+unpipelined estimate, the `--enable-known-loop-optimizations` path stops
+software-pipelining the loops its own tests pin down. That path is opt-in and
+**never fires on this engine's programs** (measured: 0 of 25 emit a `MAIN_LOOP`
+label, with or without the flag), so the image's `vcl` wrapper passes
+`--schedule-flag-readers` and upstream's defaults stay exactly as they were.
+
+Also measured and rejected: **one segment per basic block** with a conservative
+mask - a further -3%, but 12 test failures, most of them software-pipelining ones.
+Those cuts are load-bearing for the pipeliner; the mask fix above is the same idea
+done properly.
+
+### Where the remaining 48% sits
+
+`openvcl 5913` against `legacy 3982` is +1931 cycles, and **1251 of those are
+still stall padding**. It is concentrated, not spread:
+
+| program | openvcl | legacy | gap | padding |
+|---|---|---|---|---|
+| `vu0_rt_kernel` | 961 | 483 | **+478** | 418 |
+| `stapip_clip_d` | 336 | 209 | +127 | 85 |
+| `stapip_clip_tce` | 378 | 254 | +124 | 84 |
+| `stapip_clip_td` | 345 | 222 | +123 | 78 |
+| `stapip_clip_c` | 370 | 257 | +113 | 77 |
+
+**The actual pass/fail number is smaller and sharper than the 48%.** What has to
+fit is the *resident* VU1 set that `StaPipQBufferRenderer` uploads: five `cull_*`
+plus five `clip_*` programs, against a ceiling of **2042** instructions
+(`VU1_MICRO_MEM_SIZE` 2048 minus the draw-finish helper parked at the top).
+
+| the resident 10-program set | instructions |
+|---|---|
+| legacy `vcl` | **2035** — seven words of headroom |
+| patched `openvcl` | **3072** |
+
+So the target is not "be as good as Sony", it is **−34% on ten specific
+programs**. The engine's own comment next to that upload is worth reading first:
+the set only fits at all because the five clip programs share one rotating fan
+emitter (inlining three emit copies each measured 2162 against the same ceiling).
+
+**Separately, one program is a quarter of the total cycle gap**, and it is ours: the VU0 raytracer.
+Its 24 basic blocks include three at 36-53% stall cycles with almost no pairing
+(block 20: 102 cycles, 54 of them padding, 2 paired rows) - long serial FMAC
+chains from the branchless nearest-hit mixing, where a 4-cycle latency has nothing
+inside the same block to hide behind.
+
+**That number was cycles, and it read as a second overflow for a while - it is not
+one.** VU0 micro memory holds 512 instructions, and measured as *instructions* the
+kernel is **469 under openvcl against SCE's 483**: it fits, with openvcl's copy the
+smaller of the two. The cycle gap is still real and still worth closing, but nothing
+here fails to load.
+
+So the remaining work is **latency hiding for serial chains**, which means either
+scheduling across basic-block boundaries in openvcl, or exposing more ILP in the
+kernel source (interleaving the independent sphere/slab/triangle math by hand -
+that would help both assemblers).
+
+Dead ends, so nobody repeats them:
+
+- **`--LoopCS` is not the answer.** openvcl's software pipeliner only recognises
+  loops carrying that directive, which this engine never emits - but adding it to
+  a vertex loop changes *nothing* for either tool (`stapip_cull_c`: openvcl 200 →
+  201 cycles, legacy 175 → 175, i.e. Sony's vcl ignores it here too). Sony's
+  advantage is not pipelining, it is plain better scheduling inside the body.
+- `-C` (REDUCE_CODE) and `-f` (ALIGN_CODE) are inert in this version - measured,
+  byte-identical output. `--bthres` is a register-allocation knob, not a
+  scheduling one. There is no flag to flip.
+
+Reproducing the cycle numbers takes one command per program, and openvcl reports
+them itself (no parsing of the emitted `.vsm` required):
+
+```bash
+# in the toolchain image, with an openvcl binary and a vclpp'd program
+openvcl --dump-schedule-info prog.vcl | head -1     # program_cycle_count=...
+openvcl --show-reg-alloc      prog.vcl              # per-alias live ranges
+```
+
+The per-slot lines of `--dump-schedule-info` carry `upper=`/`lower=`/`padding=`,
+which is where the pipe-occupancy and stall figures above come from.
+
+The loop that produced the totals, for whoever iterates on the scheduler next —
+build openvcl from a clone, then run everything inside the toolchain image, which
+owns `vclpp` and the legacy `vcl` (the binary is glibc-compatible with it, both
+being Ubuntu 20.04):
+
+```bash
+# 1. build the candidate, drop the binary somewhere shared
+docker run --rm -v "$CLONE:/p" -v "$OUT:/out" ubuntu:20.04 sh -c '
+  apt-get update >/dev/null && apt-get install -y --no-install-recommends g++ cmake make >/dev/null
+  cp -r /p /b && cmake -S /b -B /b/build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF >/dev/null
+  cmake --build /b/build -j"$(nproc)" >/dev/null && install -m755 /b/openvcl /out/openvcl'
+
+# 2. sweep the engine's 25 programs and total the cycles
+docker run --rm -v "<repo>/vendor/tyra:/e:ro" -v "$OUT:/out" tyrax-toolchain:local sh -c '
+  cd /e/engine; tot=0
+  for f in $(find src -name "*.vclpp"); do
+    vclpp "$f" /tmp/p.vcl >/dev/null 2>&1 || continue
+    c=$(/out/openvcl --dump-schedule-info /tmp/p.vcl 2>/dev/null | grep -oE "program_cycle_count=[0-9]+" | cut -d= -f2)
+    tot=$((tot + ${c:-0}))
+  done; echo "cycles: $tot"'
+```
+
+And always run openvcl's own suite next to it (`cmake -B build && ctest`,
+419 tests, ~8 s) — both experiments above were rejected on its verdict, not on the
+cycle count.
+
+`VCL_IMPL=openvcl` therefore stays what it is: a switch for continuing that work,
+not a supported configuration. The default is `legacy`, and the image's own check
+asserts it.
+
+### A bug this work uncovered in the shipped engine
+
+Chasing the above turned up something worse than a tooling wart, and it had
+nothing to do with openvcl. **`vclpp` expands a macro to nothing if anything -
+including a comment - sits between the `#macro` line and its first instruction.**
+No error, no warning, exit 0, and every caller builds green with the instructions
+simply gone.
+
+Commit `93a7657` (2026-07-14, "Rebrand fork to TyraX") added a note inside
+`PerformClipCheck` in `vcl_sml.i`. From then until 2026-08-04, that macro expanded
+to nothing, so **`mcpip_cull` - the blocks pipeline's cull program, its only
+caller - shipped with no frustum clip check at all** (`clipw` 0, `fcand` 0 in the
+generated `.vcl`). Off-screen blocks were never ADC-masked, so the GS was kicked
+for geometry that should have been culled. Fixed by moving every such note above
+the `#macro` line, and the trap is now recorded in `tyra-engine-dev`'s pitfalls
+with a one-command check.
+
+Same failure mode bit this migration twice more, which is why the check is worth
+running whenever a `.i` macro is touched: first when the `clipw` operand was
+"corrected" to a bracketed field inside a macro body (brackets are vclpp's
+register-array index), then again in the comment that was documenting it.
+
+### Trying it
+
+The image carries **both** assemblers. `openvcl` is always at
+`/usr/local/bin/openvcl` and the legacy one at `/usr/bin/vcl`; the `VCL_IMPL`
+build argument decides which one wears the name `vcl` that `Makefile.base`
+invokes, and the image records its choice in `/usr/local/share/tyrax/vcl-impl`.
+
+```powershell
+docker\build.ps1 -Tag tyrax-toolchain:openvcl -VclImpl openvcl
+```
+
+**Switching implementations requires a rebuild.** The Runner rebuilds `libtyra`
+when the engine *sources* change; changing the image changes neither the sources
+nor their checksums, so the previously compiled microcode would be reused and the
+switch would appear to do nothing. Use *Build > Rebuild* (`--build <dir>
+--rebuild`), which drops `/tyra/engine/obj` and `/tyra/engine/bin`.
+
+### Reproducing the comparison
+
+```bash
+# 1. openvcl + vclpp from source, on the current official toolchain
+docker build -t vclprobe - <<'EOF'
+FROM ps2dev/ps2dev:v2.0.0
+RUN apk add --no-cache build-base cmake git make
+RUN git clone https://github.com/glampert/vclpp.git /t/vclpp && make -C /t/vclpp && cp /t/vclpp/vclpp /usr/bin/
+RUN git clone https://github.com/ps2dev/openvcl.git /t/openvcl && cd /t/openvcl \
+    && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_EXAMPLES=OFF -DBUILD_TESTING=OFF \
+    && cmake --build build -j"$(nproc)"
+EOF
+# 2. run both over vendor/tyra/engine's *.vclpp (cwd must be the engine dir -
+#    its #includes are relative to it) and cmp the .vsm files. The legacy pass
+#    takes ~10 min for the 25 programs; openvcl takes seconds.
+```
+
+## Licensing of the published image
+
+This is not a licensing opinion, it is the inventory — but it decides one thing:
+**publishing this image is redistribution, and the Dockerfile living in this repo
+is not.** [THIRD-PARTY-LICENSES.md](../THIRD-PARTY-LICENSES.md) tracks what the
+*repo* ships and its "Redistributed in this repo?" column is unaffected by
+`docker/` — build instructions carry no obligations. Pushing the image does. What
+it contains:
+
+| in the image | license |
+|---|---|
+| GCC, binutils (`mips64r5900el-ps2-elf-*`) | GPL-3.0-or-later — a public image carries the written-offer/source duty |
+| PS2SDK | Academic Free License v2.0 |
+| ps2link (our patched build) | upstream declares no SPDX license (`Other`) |
+| vclpp | MIT |
+| **`vcl`** | **none — and it is Sony's own tool, see below** |
+| Ubuntu 20.04 base | many, per-package |
+
+`vcl` is the one that matters, and it is worse than "license file missing". The
+binary identifies itself:
+
+```
+$ grep -aoE 'Sony[^"]{0,60}|vcl 1\.4[a-z0-9]*' vcl
+Sony Computer Entertainment America (c) 2001 for %s
+vcl 1.4beta7
+```
+
+It is **VCL 1.4beta7, Sony Computer Entertainment America, © 2001** — a tool from
+the official PS2 SDK ("VU Command Line" is an SCE trademark) that has circulated
+in the homebrew scene ever since. There is no license text because none was ever
+granted: it is proprietary, and every game in this repo is built with it. That is
+a fact about the toolchain, not a decision anyone here made — but publishing an
+image that contains it would be redistributing Sony's SDK tool, which is why:
+
+- the image label says `NOASSERTION`, not `Apache-2.0`;
+- going public was gated on resolving `vcl` — that is, on the `openvcl`
+  migration above. Which is what made that migration the thing that makes a
+  public image clean, not a nice-to-have.
+
+**That gate is now open**, and it is why the published image changed identity.
+The image carrying Sony's `vcl` is no longer published at all: CI pushes only
+`tyrax-toolchain-src`, which is built from the official ps2dev base and contains
+no unlicensed binary. The inherited one stays in the repo as the A/B reference
+and is built locally by whoever needs it — building a Dockerfile that consumes a
+tool you already have is not redistribution. What still keeps the *package*
+private is only the repository's own visibility, which is no longer a licensing
+question.
+
+**Why this lives here and not in its own repo.** Splitting the toolchain into a
+separate repository was considered for exactly this reason and does not help:
+the same bits get redistributed under the same terms whichever repo's CI pushes
+them, and the editor's own Apache-2.0 story was never at risk from a Dockerfile
+sitting next to it. What a split *would* cost is real: `tools/ps2link/tyrax.patch`
+is iterated with the F6 deploy work and the image builds ps2link from it, so a
+split turns one commit into two plus a pin to keep in step — against this repo's
+"things that must move together are edited together" rule. Revisit it if the
+image ever becomes an artifact for people outside TyraX (its own README, issues
+and release notes); if that happens, ps2link should stay behind as a release
+asset of *this* repo rather than follow the compiler image, since it is a
+host-side artifact and not a compile dependency.
+
+## The arm64 question
+
+The old image is `linux/amd64` only, and so is ours — it inherits that layer. This
+is the one thing an Apple Silicon or arm64-CI user pays for the decision above:
+the toolchain runs under emulation there. Both pieces that block a native arm64
+image are the same piece — the i386 `vcl` and the amd64-only base — so arm64
+arrives with the `openvcl` migration, not before.
+
+**It has now landed, and is still not built by default.** The from-source image
+below has nothing x86-only in it and its base carries an arm64 manifest, so
+`platforms: linux/amd64,linux/arm64` works. The workflow publishes amd64 anyway
+and takes arm64 through its manual `platforms` input, for three reasons worth
+writing down rather than re-deciding: nobody here is on arm64, the second arch
+is qemu-emulated on a GitHub runner so it more than doubles the job, and the
+image checks cannot run it — `load: true` refuses a multi-arch result, so the
+arm64 half would be built and never started. An unused, unexercised arch in
+every push is a slower CI and a weaker signal at once.
+
+## Pinning, and why `:latest` was the actual bug
+
+`tools/ps2link/build.*` used `ps2dev/ps2dev:latest` while calling itself
+reproducible. The same commit, the same patch, the same flags:
+
+| when / with what | `ps2link.elf` |
+|---|---|
+| `:latest`, when the local artifact was built | 285 364 B |
+| `:latest`, a few weeks later | 285 620 B |
+| `ps2dev/ps2dev:v2.0.0` (pinned, now) | 284 340 B, every time |
+
+Nothing in this repo changed between the first two rows. Both build scripts and
+`docker/Dockerfile` now pin the same tag, so the image's ps2link and a hand-built
+one are the same ELF.
+
+## A second corpus, and what it said
+
+Everything above was measured on the engine's **25 handwritten** microprograms. When the
+VU authoring layer landed, a project that uses it generates **45 more** into
+`examples/vu-lab/src/gen/`, and running both assemblers over them changed the verdict:
+
+| | Sony `vcl` | openvcl |
+|---|---|---|
+| compile **and** assemble | **45 / 45** | **23 / 45** |
+| smaller code, of those that did | 15 | 5 |
+
+So "at least as good as SCE" held for the handwritten set and **did not hold** for the
+generated one. Every failure was `Register allocation ran out of registers`.
+
+The 22 split in a way that matters. Fourteen fail whatever flags are passed. The other
+eight fail only with `--loop-liveness-always` — and **without** it they compile to silently
+wrong code (`loopcarry.py` reports five clobbered registers in each), so openvcl could not
+build them in any mode: with the flag it refuses, without it it lies. The honest number was
+23, not 31.
+
+**It is not a missing-spilling problem, and it is not a scheduling problem.** Allocation
+runs *before* scheduling in openvcl, so none of the density flags can affect it - verified,
+the failures reproduce with `--loop-liveness-always` alone. On `vu_script0_d`:
+
+| | peak live floats | held constants | loop body |
+|---|---|---|---|
+| SCE | **31** (of 31 available - zero headroom) | 17 | 13 |
+| openvcl | **33** | 17 | 16 |
+
+Both hold the same 17 whole-program constants (`mvp[0..3]`, `lightMatrix[0..2]`,
+`lightDirections[0..2]`, `lightColors[..]`, `gifSetTag`). The gap is entirely loop-body
+temporaries, on a program that batches a whole triangle - `vertex1/2/3`, `normal1/2/3`,
+`outputColor1/2/3` are live together by design. Two registers, on five lines out of 230.
+
+**Two default-off flags closed half of it.** `--trim-uncarried-ranges` rebuilds an alias's
+live range from its own accesses as per-component liveness *with holes*, instead of letting
+the branch-state merge (`Dependency::depend` → `Alias::merge`) stretch the survivor across
+the whole enclosing loop - which had given `outputColor1/2/3` a range of 192 lines for
+values recomputed every iteration. `--coalesce-float-writes` ties a float write to its own
+name's previous alias when that alias is dead from the write on, **with a retry** that
+withdraws the added edges if allocation then fails.
+
+Then **load sinking** closed the rest. `--sink-loads` splices a load token down the
+`std::list<Token>` to just before its first reader; `--sink-loads-across-stores` lets it
+pass a store through a different base register (SCE assumes the same - its
+`vu_script3_d.vsm` puts `lq.xyz VF25,2(VI05)` at row 199, after three stores through VI07);
+`--sink-loads-into-loops` lets it pass one loop header; and `--sink-loads-past-branches`
+lets it land where every path out of its old position arrives. That last one needed
+post-dominance, decided during the sink pass's own forward walk from a program-wide count
+of how many branches name each label, because `VuBasicBlock` is a linear partition with no
+edges and the allocator cannot reach it anyway. It is **not** applied speculatively:
+allocation runs exactly as before and only retries with it on register exhaustion.
+
+The enabling surgery: `Token::setLineNumber` exists now and the allocator's timeline is
+re-derived from list position whenever the pass moves anything. `Line::number()` is
+untouched, so the timeline and the line a diagnostic prints are two different things - and
+must stay that way.
+
+| | start | trim + coalesce | + sinking | 
+|---|---|---|---|
+| generated programs compiling | 23 / 45 | 34 / 45 | **45 / 45** |
+| silent clobbers (`loopcarry.py`) | - | 0 | **0** |
+| resident VU1 set | 2026 | 2010 | **2008** (SCE 2028) |
+| upstream tests | 419 | 419 | **419** |
+| default output | - | byte-identical | byte-identical, MD5-verified |
+
+The 18 words off the resident set were a side effect, not a goal. All of the above was
+re-measured independently of the agents that produced it (`scratchpad/final-verify.sh`,
+written separately so a harness and the claim it verifies do not share a bug).
+
+### The size gap on generated code, and what it actually was
+
+With all 45 compiling, openvcl emitted **9506 words against SCE's 9264** - +2.6%, larger in
+34 programs. Two plausible culprits were measured and both are innocent:
+
+* **The six allocator flags did not cost it.** On the 23 programs that build under every
+  configuration: ten density flags alone 4064 words, all sixteen **4064**. The four sink
+  flags cost +30 and trim+coalesce buys 8 back; they net to zero.
+* **openvcl was not scheduling less densely.** 1.183 real operations per row against SCE's
+  1.181 - parity, and parity *before* any of this work. That is why `--show-pair-misses`,
+  the instrument that found the previous size win, found nothing here.
+
+The real answer came from counting opcodes rather than rows: openvcl was emitting **312
+instructions SCE never emitted** - 93 `loi`, 65 `lq`, 55 `muli`, 45 `mulw`, 44 `addw`, 38
+`addi`. They are dead. TyraX's VU layer writes a whole 4-component constant vector when the
+body reads two components, and an `lq` for every quadword a description names. **SCE's `vcl`
+does dead-code elimination; openvcl did none.**
+
+`--drop-dead-writes` is a field-precise dead-write pass, iterated to a fixed point (deleting
+`add.z k0, vf00, i` is what makes the `loi` above it dead) and deliberately conservative: no
+control flow in the analysis, so a write dead on one path and live on another is never
+touched; declared names, stores, `xgkick`, auto-incrementing loads, branches and delay-slot
+carriers are all excluded; and every FMAC writes MAC, so implicit writes need a global "no
+flag reader anywhere" test before a forward walk. Two extra invariants held across all 70
+programs: the multiset of stores and `xgkick`s is unchanged, and so is the label sequence.
+
+| | before | after |
+|---|---|---|
+| generated corpus | 9506 vs SCE 9264 (+242) | **9308 vs 9264 (+44, 0.47%)** |
+| per program | 4 smaller / 34 larger | **17 smaller / 24 larger / 4 equal** |
+| resident VU1 set | 2008 | **1988** (SCE 2028) |
+
+### The wall: overlapping CLIP chains
+
+After the dead code goes, openvcl emits **fewer real operations than SCE** - 10864 non-`nop`
+slots against 10910 - in **more rows**, 9283 against 9240. None of the remaining 43 rows is
+work. All of it is `nop nop` in front of a CLIP reader: 91 padding words against SCE's 48,
+and +43 is exactly the row gap.
+
+SCE pays the four-row CLIP window once per `_cl` program; openvcl pays it 3 to 11 times,
+because SCE keeps two or three `clip`s in flight and openvcl cannot:
+
+| | SCE | openvcl |
+|---|---|---|
+| a `clip` sharing a row with a CLIP reader | 12 | **0** |
+| `clip`-to-`clip` distance 2 / 3 / 4 rows | 10 / 10 / 13 | **0 / 0 / 0** |
+| `clip`-to-`clip` distance exactly 5 rows | 3 | 37 |
+
+Two rules produce it: `vuTokenPairResourcesAreIndependent` refuses a `clip` and a CLIP reader
+on one row outright, and `emittedRowsSinceClipWrite()` measures against the *nearest
+preceding* `clip` rather than the one whose bits the mask selects. Both are the same
+omission - the CLIP register is a 24-bit shift window of four 6-bit entries and neither the
+scheduler nor the emitter models the shift, only "a `clip` happened N rows ago". Under that
+model a second `clip` in flight is indistinguishable from clobbering the first, so refusing
+it is the only safe answer.
+
+Closing it means threading mask position and push count through the dependency graph, the
+pair test, the latency tracker and `emittedRowsSinceClipWrite`. **Not attempted, on purpose.**
+This is the area with the worst defect record in this whole migration - three separate
+corrections to the positional CLIP window are in the history above - and it is exactly the
+resident clip programs the size gate protects. Forty-three words out of 9264 do not justify
+reopening it without hardware to check against.
+
+> **Half of it came out anyway, and it was never the shift window.** The section above is
+> still the right description of the *remaining* rows, and `vuTokenPairResourcesAreIndependent`
+> is untouched, so the "a `clip` sharing a row with a CLIP reader: SCE 12, openvcl 0" row
+> still holds and is now the binding constraint. But 22 of the 43 words were openvcl
+> disagreeing with **itself** - see the next section. The verdict on the shift-window
+> redesign stands; the number it was weighed against is now 22, not 43.
+
+### 22 of those words were openvcl contradicting itself
+
+Asking where the 43 rows *sit* rather than how many there are turned the whole question
+over. Every one is in a **per-triangle** loop; not one is in the per-edge loop of the
+Sutherland-Hodgman test, and in that loop - the only genuinely hot one - **both assemblers
+pad identically**, 48 rows each on the generated corpus. There is nothing to win where
+winning would matter. Weighted by loop nesting, the 43 static words are worth *negative*
+ROWS: openvcl pays about 4.7 rows per triangle for clip padding and takes back 8-9 in the
+fan emitter it schedules better.
+
+> **Rows, not cycles - and the difference turned out to be the whole story.** That weighting
+> counted emitted instruction rows. It cannot see the FMAC read-after-write interlock, which
+> is a stall the hardware takes and no instruction records - exactly the stall
+> `--fmac-interlock` exists to stop paying for in *words*. Model it and openvcl's stalls are
+> **4.8x SCE's** corpus-wide; measure it on a VU1-bound scene in PCSX2 and openvcl runs
+> **26% slower** than Sony's `vcl`. See "Measured on the console, not in a model" below.
+> Everything in this section about *size* stands. Every claim in it about *cycles* was a row
+> count wearing the word "cycles", including in the two sections that follow.
+
+What the same measurement did find is a contradiction inside openvcl.
+`CodeGenerator::clipReadIsPositional` exempts **full-window** masks - `0x3FFFF`, `0xFFFFFF`,
+the ones asking "is anything outside", which get the same answer from any window position -
+while `VuLatencyTracker` held *every* clip reader four cycles behind its `clip` under a bare
+`if( readsClip )`. The scheduler was the conservative one, so the emitter's exemption could
+never pay: the reader had already been pushed away before the emitter looked. SCE agrees
+with our emitter, not our scheduler - in `mcpip_cull_vu1` it puts
+`clipw.xyz VF14xyz,VF14w | fcand VI01,262143` in one row.
+
+| flag | effect |
+|---|---|
+| `--exempt-full-clip-masks` | the mask test lifted into `VuSchedulingRules` so the scheduler asks it too, instead of padding every reader regardless of mask |
+| `--clip-exemption-best-of` | schedule the whole program both ways and keep the fewer words, ties to "off" |
+
+The second exists because the first is not free. Freeing a reader reshuffles the list
+schedule downstream, and there `stapip_cull_d` and `stapip_cull_td` each came out a row
+worse while `stapip_cull_tce` came out a row better - two words on the resident set, 1988 →
+1990. **Scheduling noise, not the exemption**, which is why best-of removes it rather than
+any change to the rule.
+
+Best-of is deliberately **per program, not per segment**, and that is the load-bearing
+decision: freeing a reader can never lengthen the segment it sits in, so a per-segment
+best-of would take the exemption nearly everywhere and score itself a guaranteed win while
+the rows it costs land in a *later* segment. Only a whole-program word count sees that, and
+a whole-program count is what the size gate measures anyway.
+
+| | SCE | 17 flags | + exemption | **+ best-of** |
+|---|---|---|---|---|
+| generated 45 | 9264 | 9308 (+44) | 9286 (+22) | **9286 (+22)** |
+| engine 25 | 3982 | 3992 | 3982 | **3976 (6 under SCE)** |
+| resident 10 | 2028 | 1988 | 1990 | **1986** |
+
+The safety property is measured, not argued, over all 234 clip readers in the 70 programs:
+**no positional reader moves at all** - not one ends up closer to its `clip` than the stock
+scheduler put it - while 29 of the 78 full-window readers move adjacent to theirs. Loop-
+weighted **in rows**, the resident set is 48 rows *better* than the 17-flag build rather than
+48 worse, `mcpip_cull_vu1`'s row gap to SCE goes from +21.8% to +7.7% per block, and all 70
+programs together come to -816 rows. Those numbers were written as "cycles"; they are rows,
+and rows are the smaller half of the cost - see below.
+
+The cost is compile time: 26 of the 70 programs hold a full-window reader and are scheduled
+twice, the other 44 are skipped by a token-list predicate because with no such reader the
+second schedule is provably the first. **+7%, about 8.5 s on a full microcode rebuild.**
+
+Two things settled on the way and worth not re-deriving. A variant giving full-window
+readers a 1-cycle floor instead of no constraint emits **identical** output, so none of this
+is about same-cycle issue. And a comment in the patch claimed SCE never puts a positional
+read closer than three rows to its `clip`: **false**, 89 of them are closer, including four
+`fcand VI01,63` at 1, 0, 3 and 2 rows in `stapip_billboard_c_vu1`. SCE can do that because
+it pairs a reader with the `clip` several rows back rather than the nearest one - it models
+the shift window. The comment is corrected; nothing changed behaviour on the strength of it.
+
+Still open and deliberately not taken: `stapip_billboard_c/t_vu1` is +11.7% per batch in rows.
+That was read as "the CLIP latency is the only lever left", since its readers are positional
+(mask 63) and nobody can prove a hardware latency below 4. **Wrong conclusion from the right
+number:** once the FMAC interlock is modelled, CLIP is about 10% of billboard's cycle gap.
+For `billboard_c`'s `centerLoop` the +39 cycles per iteration decompose as +9 rows, **+21
+FMAC stall** and +10 `waitq` - and of the +9 rows, only 4 are clip-window empties.
+
+### The twentieth flag: allocate twice, keep the smaller
+
+The four `--sink-loads*` flags exist because without them **11 of the 45 generated programs
+fail register allocation**. But where the unsunk arm *does* allocate, it is smaller - the
+sinking that buys a register costs rows elsewhere. `--sink-loads-best-of` runs allocation and
+emission both ways per program and keeps the fewer words, falling back to the sunk arm
+wherever the unsunk one cannot allocate.
+
+| | SCE | 19 flags | **20 flags** |
+|---|---:|---:|---:|
+| generated 45 | 9264 | 9286 (+22) | **9254 (-10)** |
+| engine 25 | 3982 | 3976 | **3928 (-54)** |
+| resident 10 | 2028 | 1986 | **1978** |
+
+That is the flag that flipped the last corpus. Of the 70: 18 take the unsunk arm, 41 keep the
+sunk one (35 exact ties plus 6 where unsunk is bigger), 11 fall back because unsunk cannot
+allocate. `dynpip_d_vu1`, the worst word loser in the corpus, goes 180 → 156.
+
+Three decisions make "run allocation twice" safe, and they are the answer to *what stops a
+half-applied first pass from poisoning the second*:
+
+* **The sunk arm runs first and to completion**, through untouched code. So a program the flag
+  does not improve is emitted in exactly the order it would be with the flag off - gate 7
+  (flag off ⇒ byte-identical) holds by construction rather than by luck.
+* **The second arm re-runs the tokenizer** off the source lines instead of restoring a copy of
+  the token list. A copy would have to be taken before the first allocation and held across
+  the first emission, which perturbs the first arm's own heap - and parts of the allocator
+  iterate `std::set<Alias*>`, i.e. in address order.
+* **Fresh tokenizer, allocator and generator per arm**, with errors suppressed on the second,
+  so a failed allocation is a *decision* and cannot trip the global error flag `main()` exits
+  on. Ties keep the sunk arm.
+
+The determinism that buys is measured, not assumed: every one of the 70 emitted programs is
+byte-identical to one of the two standalone arms, **none matching neither**.
+
+Cost: no predicate can skip the second arm, because you cannot know whether a program
+allocates without trying. So it is roughly double - **+96% serial, +64% in the engine's real
+parallel build** (26/29 s → 43/47 s), once per engine rebuild.
+
+It also moves the FMAC stall ratio the right way, and not far: 4.21x → **3.88x** of SCE on the
+resident set. Worth recording as evidence that fewer sunk loads mean fewer anti-dependences -
+which is the same mechanism the section below is about - and as evidence of how much is left.
+
+## Measured on the console, not in a model
+
+Everything above is static analysis. The engine's own perf A/B harness had **never been run
+for openvcl against Sony's `vcl`**, which is what `docker/Dockerfile` and its `VCL_IMPL` knob
+exist for: the same base, the same GCC 11.3, the same PS2SDK, the same engine, the same
+scene, and only the assembler different.
+
+Two scenes, PCSX2, frame counts taken from the engine's own `VRAMSTAT f=` counter over a
+40-second window (a frame count is exact; reading an FPS HUD out of a screenshot is not):
+
+| scene | Sony `vcl` | openvcl | |
+|---|---:|---:|---|
+| `vu-lab`, precise clipper, 32x32 terrain | 86.96 FPS | 86.97 FPS | **not VU1-bound - blind to the difference** |
+| `raytraced-mirror`, VU1 clipper, 32x32 | **52.52 / 52.56** | **52.43 / 52.43** (21 flags) | **-0.2%: parity** |
+| fresh fpp project, VU1 clipper, 128x128 terrain (~98k verts), 19 flags | 104.96 / 104.96 | 77.97 / 74.99 | -26 to -29% |
+| the same scene, 20 flags (`--sink-loads-best-of`) | 104.96 | 77.98 / 74.98 | unchanged |
+| the same scene, 21 flags (`--split-dead-float-ranges`) | **105.34 / 105.43** | **80.68 / 75.08** | **-20 to -29%** |
+
+**Two things that table is easy to misread.** First, the regression is not a property of the
+assembler in general - it is specific to *geometry-heavy content through the VU1 clipper*. On
+`raytraced-mirror`, which uses the same VU1 clipper on a light scene, openvcl and Sony are
+within 0.2% of each other. That narrows the remaining problem from "FMAC stalls everywhere"
+to "FMAC stalls in the five clip programs, at scale", which is a much smaller target.
+
+Second, **this machine's noise floor is a few percent and it is not uniform across arms.**
+Sony returns 105.34 and 105.43 on consecutive runs; the 21-flag arm returned 80.68 and 75.08
+on consecutive runs of the same binary. Anything under ~5% needs arms measured *alternately*,
+not in blocks, and two runs per arm is not enough for it. The -20%-to-26% band is safe because
+it is five to seven times that; a 1% claim is not, and one made here earlier did not survive
+looking at the spread.
+
+The frame counter is logged every 120 frames, so "frames seen in a fixed 40 s window"
+quantises **both** endpoints - +/-240 frames, which is +/-6 FPS at 50 FPS and enough to
+manufacture a dead heat. `scratchpad/fpsmeas.ps1` measures the other way round: poll often,
+take the wall time at which a given frame number first appears, and divide an exact frame
+delta by the measured interval. The numbers above are from that.
+
+Sony's arm returned exactly 4200 frames on both runs. The heavy scene is the instrument; the
+light one is worth recording only because it shows how easy it is to measure nothing - an
+identical 3480 frames on both arms says the frame rate was decided somewhere other than VU1.
+
+**The third row is the load-bearing one.** `--sink-loads-best-of` took openvcl from +22 words
+over SCE on the generated corpus to -10 under it, and from 1986 to 1978 on the resident set -
+and returned frame counts of 3120 and 3000, the same two numbers the 19-flag build returned.
+Not one frame. Size and speed here are decoupled, which is exactly what the diagnosis below
+predicts: the cost is stalls, and a stall is not a word.
+
+**So openvcl is smaller and slower.** Smaller on all three corpora now - 1978 words against
+SCE's 2028 on the resident set, 3928 against 3982 over the engine's 25, 9254 against 9264
+over the generated 45 - and about a quarter of the frame rate given away on geometry-heavy
+content. Both halves are true, and the size half is the one the migration needed: the
+micro-memory ceiling is a hard failure, a frame rate is a cost. But the docs said "smaller
+and faster", and that was a row count talking.
+
+### It was a miscompile of ours, not the price of the assembler
+
+**openvcl deleted four of the seven `clipw` in every clip program, and had been doing so since
+`--drop-dead-writes` landed.** Source has 7, SCE emits 7, the shipped build emitted 3 - in all
+five `stapip_clip_*`, verifiable with `grep -c clipw` on any dump in this repo's history.
+
+`implicitWriteIsObservable()` treats an implicit write as unobservable when a forward walk meets
+another writer of that resource before a reader. That is right for MAC. **It is wrong for CLIP,
+which is a 24-bit shift register of the last four 6-bit judgements** - a later `clipw` does not
+overwrite the earlier one, it shifts it up one entry, where `fcand VI01,0x3CA3CA` (which names
+all four entries positionally) still reads it. So every `clipw` followed by another `clipw`
+before the next `fcand` was deleted: exactly 4 of 7 per clip program, plus the `fcset 0` in 20
+more programs.
+
+The consequence is that `ibeq triOr, vi00, fanStart` - *"this triangle is entirely inside, skip
+clipping"* - reads stale bits from the previous triangle and essentially never fires. Every
+triangle goes through all six planes. **And the picture is pixel-identical either way**, because
+Sutherland-Hodgman on a fully-inside polygon is a no-op, which is why every pixel comparison and
+every GIF-packet comparison in this migration passed. A silent ~5x cost on clip-routed geometry.
+
+It also answers a measurement that sat unexplained in this file since the `clip_c` hunt: **42
+plane tests against SCE's 12**, i.e. 7x6, every triangle through every plane. That was this bug,
+seen from the other end.
+
+The fix is **unconditional, inside `--drop-dead-writes`** rather than behind a flag of its own -
+a known miscompile left off by default is a trap for anyone applying this patch without our
+exact flag list. A CLIP push no longer kills an earlier CLIP write (only the
+fourth subsequent push retires it, while `FCSET` still kills at once), and CLIP writers are
+chained in program order in `addPreciseImplicitFlagDependencies()` - needed because once the
+four `clipw` came back, nothing ordered two writers of one flag and the scheduler transposed
+them, putting the `0xF`/`0xA` masks on the wrong judgements.
+
+**Measured on the console, alternated, control and fix built from the same binary differing by
+one flag** - so the A/B has exactly one variable:
+
+| | FRAME | SCENE (EE) | rest | frame counter |
+|---|---:|---:|---:|---:|
+| shipped (control) | 12.76 / 12.77 ms | 7.70 | 5.06 / 5.07 | ~78 FPS |
+| **+ fix** | **10.03 / 9.83** | 7.70 | **2.33 / 2.13** | **99.14 / 99.92** |
+| Sony `vcl` | 9.90 / 9.96 | 7.70 | 2.20 / 2.25 | 100.75 / 100.06 |
+
+**Parity.** Two independent instruments agree: the VU1 drain goes from 5.06 ms to 2.1-2.3
+against Sony's 2.2-2.25, and the frame counter puts openvcl within 0.9% of Sony where it was 21%
+behind. Words move +18 / +22 / +14 (resident 1986, engine 3890, generated 9204), still 42 / 92 /
+60 under SCE and 56 under the hardware ceiling - all three re-measured here from `nm` on the
+real engine build, with `clipw` back to 7 in all five programs.
+
+**Three things this says about everything above it.** The model could not have found it: the fix
+makes modelled corpus cycles *worse* (21133 → 21199, +0.31%), because the model counts a block
+once and this is a branch that makes a block run six times less often. The correctness checks
+could not have found it: they compare pixels and GIF packets, and this bug changes neither. And
+the target was wrong: `cull_d vertexLoop` was named here as the immovable block to attack, but
+`cull_d` is the lit-model path and the benchmark scene has no lit models - it runs exactly two
+programs, `stapip_cull_c` and `stapip_clip_c`, out of seventy.
+
+### Differential testing against Sony's `vcl`, and three more bugs
+
+Four bugs had been found by four different instruments, each after the previous instrument had
+said the compiler was clean. Seventy hand-written programs is too small a sample to close that,
+so the next round built the test that had been missing: **randomised differential testing
+against Sony's `vcl` as the oracle**, comparing properties that must hold regardless of
+scheduling.
+
+The strongest of them is a **value oracle** - for every `sq`/`isw`/`xgkick`, the expression DAG
+that produced the stored value, normalised over register naming so two assemblers that allocate
+differently produce an identical tree. Then a second round made it **path-sensitive** with
+bounded loop unrolling, which is what finally brought the **real 70** into scope: the previous
+version had 1 of them, because every other program has loops.
+
+| corpus | openvcl | SCE (control) |
+|---|---|---|
+| the real 70, path-sensitive, 1019 traces | **0 divergent** | 2 divergent |
+| 919 generated straight-line programs | 0 | 0 |
+| 1362 checked for flag ordering | 0 CLIP, 0 ACC, 0 SWAP, 0 CHAIN | — |
+
+**The shipped microcode is value-for-value identical to its source on every one of the 70,
+along every trace, including across the batch loop's back edge.** That had never been
+established; it had been inferred from pixels and packet dumps, which is exactly what the four
+bugs walked past. SCE's own 2 findings are at the first and second vertex of a triangle, never
+the kicking third, so the GS never consults those ADC bits.
+
+**Building the oracle cost twenty-two corrections, every one of them the instrument's fault
+with SCE as the witness** - nine on the straight-line version, thirteen on the path-sensitive
+one. Rows of two `nop`s not counted (10 of 40 of Sony's programs "divergent"). The upper pipe's
+write visible to the lower in the same row (111 of 202). `move` lowered to `max d,s,s` not
+folded (120 of 202). Register arrays read as field selectors. Offsets and immediates that are
+sums (`sq vertex1, 956+0(vi00)` taken as offset 0 stored nine quadwords on top of each other).
+SCE's stall annotation charged to the wrong side of its row. The branch delay slot not executed
+at all. **Without SCE as the control, this work would have produced an instrument that declares
+Sony's compiler broken.**
+
+It also found a real defect **in the reference**: Sony's `vcl` reorders CLIP readers around a
+*second* `fcset`, so a `fcor` reads the literal instead of the vertex. openvcl is correct there.
+Not live for us - every engine source has exactly one `fcset`, at the top.
+
+And it found three more in openvcl, all fixed, **all with zero bytes moved in the shipped 70**:
+
+* **A branch delay slot filled from the NOT-TAKEN block.** `writesAreDeadFromTarget` decided
+  "is this register dead along the taken path?" by walking the token list *linearly* from the
+  target to the end - so a backward branch below the target re-enters rows the walk never
+  visits. A conditional instruction then executed unconditionally. Replaced by backward liveness
+  over the token list's own CFG, ANDed with the old walk so the answer can only get more
+  conservative. Fires on stock upstream with no flags.
+* **A loop-carried name whose first in-loop access is a PARTIAL write** lost the fields that
+  write did not cover, because live-in was classified per alias by first touch. The first
+  attempt at this fed the corrected set into the *range extension* as well and **31 of the 70
+  failed to allocate**; the shipped version feeds only the tie, which merges ranges rather than
+  lengthening them, and computes it per field.
+* **The CLIP window was padded against the file layout, not the path** - a reader four rows
+  below its push is one row below it along a taken branch. The obvious rule (three rows over the
+  CFG) closes 108 of 131 cases and **breaks an upstream test**, because openvcl's own ps2gl
+  steady state deliberately puts a full-window `fcand` directly under its `clipw`, sized against
+  SCE. So the shipped pass only closes the gap between the two measures instead of imposing a
+  floor: it pads where the CFG distance is shorter than what the emitter's backward walk
+  answered, which is exactly the readers a label above them made unknowable.
+
+**One limitation is worth more than the fixes.** The value oracle replays the *source's* branch
+decisions onto the emitted program, so a wrongly-unconditional delay-slot write whose only
+reader is a branch condition **normalises away**. That is structurally why four rounds of value
+oracles never found the delay-slot bug, and it is still true.
+
+### Branch conditions, the last blindness — and two more bugs behind it
+
+The value oracle replays the **source's** branch decisions onto the emitted program. So a value
+that is *stored* gets compared, and a value whose only reader is a **branch condition** was never
+compared at all. That is structurally why four rounds of value oracles walked past the delay-slot
+bug, and closing it found two more.
+
+`pd-cond.py` records, at every conditional branch on the trace, the expression DAG of the value
+the branch tests — read from the **pre-row** snapshot, which is the point: a delay-slot write
+cannot corrupt the branch that owns the slot, only the next one down, and that is the one now
+compared. Telling a real disagreement from two correct programs computing a condition differently
+rests on one thing: **the condition is a value, not a register.** The DAG is interned, so a
+counter openvcl keeps in VI08 and SCE keeps in VI11 is the *same node* — register allocation is
+invisible by construction rather than normalised away.
+
+| corpus | openvcl | SCE |
+|---|---|---|
+| the 70, unroll 2 and 3 | **0 findings**, 381/381 branch sites, 29 888 conditions | 0 |
+| 400 control-flow | **0**, 1975/1975 sites | 0 |
+| 960 condition-stress | 31 at margin 0 | 0 |
+
+Detector power, measured by mutation rather than asserted: **153 of 155 mutants caught, 106 of
+them invisible to the previous oracle.** The two missed both write a value nothing reads.
+
+**Two bugs, both fixed, both zero-cost on the 70:**
+
+* **A loop-carried integer counter that never advances**, and it fires on **stock upstream with
+  no flags** — all 23 flag ablations reproduce it. Not the loop-liveness family: `Dependency::depend`
+  merges two aliases at an SSA join and hands the absorbed one to `releaseAlias`, which **cleared**
+  every `sameNamePredecessor` edge pointing at it as a dangling-pointer guard. But a merge is a
+  *rename* — `propagate()` has just rewritten every dependency onto the survivor, so the
+  two-address chain must be rewritten too. Clearing it cut the chain that exists precisely so
+  `iaddi k0,k0,-1` writes the register it read; the emitted loop recomputed `initial−1` every
+  iteration. Fixed by splicing rather than cutting, with a cycle defence for the case where a
+  later definition folds onto an earlier one.
+* **A clip judgement clobbered before the branch reads it.** VI01 is the only legal destination of
+  `fcand`/`fcor`/`fceq`, so a judgement must be read back out of it.
+  `collectLiteralRegisterUsage` recorded a physical register's usage as a **set of points**, one
+  per line, not a live range — and `addRange` merges points one line apart, so `fcor VI01` /
+  `ibne VI01` on adjacent rows looked contiguous. `--branch-interlock` then opens the bubble the
+  hardware needs between them, the point spelling says VI01 is free in that row, and
+  `--sink-loads` drops a *dead* `ilw` into the gap. The branch tests the load. Fixed by giving
+  each physical integer register a definition-to-use span.
+
+**And the fix is not a ban on VI01**, which is the measurable form of that requirement: VI01 is
+still an ordinary destination **192 times in 66 of the 70** programs, identical to baseline. The
+suite's `cond_clipflag_live` control exists to catch a fix that became a blanket ban.
+
+Over 1430 programs, 22 of 31 condition divergences closed and none introduced. **The 70 did not
+move: zero bytes, zero programs.**
+
+Two instruments were built and **discarded** in this round, which is the discipline rather than a
+setback: one syntactic screen fired 105 times on SCE against 66 on openvcl, and another returned
+zero on a corpus *containing the very finding it was written for* — it failed its own positive
+control and was thrown away rather than reported as agreement. A third had a recursion that blew
+Python's stack at ~1000 nodes and survived the 70 by luck; a detector that raises reads as
+"nothing here".
+
+### Six blind spots, two more bugs, and a refusal to declare it clean
+
+Every named blind spot was closed with an instrument that had to prove a **positive control**
+first. Two of the six yielded a bug; a third yielded one during triage; three yielded nothing but
+now carry a detector that demonstrably could have found something.
+
+**Bug 10 - pre-decrement addressing has never worked, in any version.** `src/Token.cpp` parses
+`(--base)` and then sets `Argument::POSTINC`. `Argument::PREDEC` is therefore never set on any
+argument, the emitter's `--` branch is dead code, and every `lqd`/`sqd` comes out as
+`lqd VF01,(VI02++)` - which **`dvp-as` rejects**. No source using pre-decrement addressing could
+be assembled at all. Upstream's, unmodified by the fork, and loud rather than silent - but total.
+The census that found it is worth keeping: `(base++)` has 363 sites in the generated corpora and
+**none in the 70**; `(--base)` has **zero sites anywhere** - 70 real, 1360 generated, 3780
+narrowed, every upstream example. That is why nobody had noticed.
+
+**Bug 11 - "last reader" is a position in a linear token list, and programs are not linear.**
+`ignoredFlagWawMaskForIndex` treats a flag resource as dead once the writer's index passes
+`lastClipReader`. Two `clipw` in a loop's *last* block sit past the `fceq` at the loop *head*,
+read as dead, lose the shift-register writer chain - and `--fmac-interlock` then issues the ready
+one first, transposing them. Since `fceq VI01,0x3CA3CA` has non-zero mask bits in all four 6-bit
+generations, that changes what the branch tests. Fixed by extending each resource's liveness
+across back edges to a fixpoint, and by giving the emission-time helper the program start so it
+can follow its own back edge. **109 of the 1360 generated stress programs carry that shape; 0 of
+the 70 do.**
+
+The flag ablation that isolated it is a method worth copying: comparing *emitted text* across
+flag sets is unsound, because register allocation moves with the flags. It was ablated by
+**oracle verdict** instead.
+
+**What the other four spots gave:**
+
+* **The "unpairable" programs were never unjudged.** 239 programs that SCE declines - it reorders
+  whole blocks - are all fully judged by the same oracle run against their *own source*, which
+  needs no reference. 400/400, 480/480, 479/480 in scope. The gap was in the cross-check only.
+* **Register-pool exhaustion**: nothing found, and the census is the finding. Both synthetic
+  corpora salvaged **zero** programs - every one fitted on rung 0 or on no rung, so the retry
+  ladders ran 3811 times and their *output* stayed unexamined. Narrowing the real 70's register
+  pools is what finally reached it: **100 programs where a rung fired and allocation then
+  succeeded**, all in scope, 0 divergent. openvcl and SCE agree exactly on which programs fit.
+* **Infeasible paths** explain **46 of the 66** residual divergences: the path policies force both
+  edges of every branch, including ones the source's own constant folding proves cannot be taken.
+  Now labelled rather than silent.
+* **The interlock error bar contained nothing.** Marking the ambiguous Q/P *value* instead of
+  rejecting the whole program takes one corpus from 305 in scope / 175 skipped to **480 / 0**,
+  with the same 22 findings as at margin 0. Only **4 of 37 762** conditions are genuinely
+  unjudgeable. The 175-program gap was an artefact of rejecting a program for one ambiguous read.
+
+Both fixes are **zero-cost on the 70: zero bytes, zero programs**, words unchanged at
+1998 / 3908 / 9242. On the generated corpora the CLIP fix does move bytes (11 of 400, 19 of 480,
+22 of 480) and closes four divergent programs.
+
+**And the round declined to declare the compiler clean**, which is the part I asked for and the
+part worth recording. Its own reasoning: the tenth and eleventh bugs were in the "still
+unexamined" list that morning. What is left is now *counted and labelled* rather than silent - 20
+reachable residuals, all of them `undef(Q)` in the ruled-out FDIV completion bucket; 46 findings
+on provably unreachable paths that nobody has read; one program openvcl takes twenty minutes to
+compile that was excluded from every run without anyone asking why; and `--fmac-interlock`
+itself, which triggered bug 11 and is the only flag whose removal cleared it, with nothing
+systematically comparing its output against the same programs with it off.
+
+### Reading the residual instead of measuring it again
+
+The previous round's own instruction for this one was "read them one at a time rather than build
+another instrument", and that is what produced the twelfth bug. Twenty programs were read, not
+counted.
+
+**Bug 12 - FDIV and EFU latency is measured down the file, and a branch does not go down the
+file.** All twenty reachable residuals were the same shape and it is not a modelling artefact.
+`Q` has no hardware interlock: `div` writes it seven cycles after issue (thirteen for `rsqrt`), a
+read before then returns the previous quotient, and `waitq` is the instruction that would stall.
+openvcl schedules basic blocks in file order carrying one `VuLatencyTracker` and one running
+cycle count from block to block, and there is no predecessor reasoning anywhere in the compiler
+(`grep -i predecessor src/` finds only the register allocator's alias chain). So the distance
+from a `div` to a `mulq` at a LABEL is counted down the file - and a forward branch that jumps
+over the rows in between delivers the consumer early. In the twenty programs the gap comes out
+at 3 to 6 cycles where 7 are needed, and one `rsqrt` case at 9 where 13 are.
+
+The reproducer is twenty lines and the reference settles it: on the same source **Sony's `vcl`
+places the `mulq` at exactly cycle 7** on the taken edge, openvcl at cycle 6. The fix gives each
+block the skew between its fall-through entry cycle and the shortest path that reaches it, and
+pushes the outstanding Q/P ready cycles back by it. A backward edge can never win that maximum,
+so one pass in file order is exact.
+
+Zero cost on the 70 - **zero bytes moved**, words still 1998 / 3908 / 9242 from `nm`, `clipw` 7
+per clip program and `addaw` 3 per env-mapped one. On the generated corpora it moves 63 of 400,
+73 of 480 and 71 of 480 programs. The oracle's residual over the three corpora goes from **23 / 22 / 21**
+divergent programs to **1 / 2 / 2**, against Sony's **2 / 3 / 1** on the same runs - at or below
+the reference on all three. The five that remain are all still FDIV/EFU: two read `undef(P)` after
+an `esum`, three read the wrong quotient in shapes the entry skew does not reach, and in four of
+the five the consumer is PAIRED with another instruction rather than issued alone, which is the
+next thing to read.
+
+**Two instruments were killed by their own positive control before any of that.** A "stale Q
+read" detector on the emitted program alone reported seven violations in Sony's output; the first
+was that it counted `div q,...` - which names Q in position 0 and reads nothing from it - as a
+consumer. With that fixed it still reported seven, and the second reason is the one worth
+keeping: **the newest ISSUED division is not the one that feeds a consumer.** SCE deliberately
+issues a second `div` while the first is in flight and puts the first one's consumer between the
+two completions, so "gap since the last issue" is the wrong question. The value-DAG oracle
+already asks the right one. The detector was thrown away; no new instrument was needed.
+
+**The "unreachable" label was wrong for a quarter of what it covered.** `pd-cond.py` stops at the
+first policy that diverges and tags the finding with that trace's `infeasible` flag - which is
+sticky for the WHOLE trace, set as soon as any forced edge contradicts the source's own constant
+folding no matter where the divergence sits. Re-running every policy with each impossible edge
+*pinned* to the outcome the fold demands - so no trace is forced anywhere - **12 of the 46 turn
+out to diverge on a path that runs**, and two programs that were not divergent at all appear.
+Positive control: on Sony's output over the same 398 programs the same pass reports **1**, the
+known CLIP-window floor case.
+
+**The twenty-minute program is `--loop-liveness-always`, and it is ours.** `pd720006` was
+excluded from every differential run since it appeared, and nobody had asked why. Bisecting the
+flag list cumulatively answers it in one run: stock openvcl compiles it in **under a second**
+(17 418 bytes), and so does every prefix of the flag list up to and including
+`--branch-bubble-on-dependency`. Adding `--loop-liveness-always` - the seventh - does not finish
+in 90 seconds, and the flag on its own, with nothing else, does not finish in 120. A run with
+the full flag list was still going after 66 minutes when it was stopped; it has never been seen
+to finish. It is the only program of the
+first hundred in that corpus that does it, and the shape matches what the fork's README already
+suspects about `extendLoopDirectiveRange`: 19 labels and 19 branches with the loops interleaved
+rather than nested (`Lconly9:` sits *above* `Lconly8:`, `Lloop19` above `Lsc18`).
+
+That flag ships. A generated VU program with this control-flow shape would hang a project build
+rather than fail it, which is worse than a compile error. It is a TyraX-fork defect, not
+upstream's - upstream has no such flag. **Fixed in the round below.**
+
+**`--fmac-interlock` is not the villain.** Judged by oracle verdict rather than emitted text - the
+only sound comparison across flag sets - the three corpora give 23/22/21 divergent programs with
+the flag and 26/22/22 without it, overlapping on 22/21/19. The flag *exposed* bug 11; it does not
+cause a class of divergence of its own, and the 70 are clean under both settings.
+
+### The hang, and the last five residuals
+
+Two things came out of this round, and the first is the only defect in this compiler that could
+ever have hurt a user directly.
+
+**Bug 13 - the same-name chain became a ring, and one walk of it had no cap.** Sampling the
+stack of the shipped binary while it sat on `pd720006` answers the question the previous round
+left open - an unbounded loop or an exponential one - in four samples: the program counter never
+leaves a three-instruction span of `RegisterAllocator::processAliases`, and the disassembly there
+is `cmp / mov 0x10(%rax),%rax / test / jne`, a linked-list walk. It is an **infinite loop**.
+Printing the list from the debugger names it: `k3`, aliases 35 → 49 → 36 → **35**.
+
+`--loop-liveness-always` extends live ranges once per BACK EDGE, and two back edges need not
+nest. Each call picks the first alias of a name in *its own* range as the one the readers at the
+top hold, and ties every in-loop write of that name to it; with the ranges interleaved, loop A
+ties X to Y and loop B ties Y back to X. The fork already had a cycle-safe setter,
+`trySetSameNamePredecessor`, and this one call site was not using it. Refusing the closing edge
+costs nothing at all - an edge that would close a ring runs between two aliases *already on one
+chain*, so they reach one root and the pre-pass hands them one register either way. The cycle
+test itself became Floyd rather than a fixed depth of 16, because a fixed depth answers "no
+cycle" for any ring that closes further up and the walks it guards then never end.
+
+`pd720006` now compiles in **0.55 s** with the full flag list and **0.068 s** with the flag alone,
+against 66 minutes and never-seen-to-finish. Worth recording: the unbounded walk that hung is
+**upstream's code, verbatim** (`a5867c3`, same file, same lines) - but upstream cannot build a
+ring to walk, because nothing there sets a predecessor except the parser's two-address pairing.
+It is a latent hazard there and a live defect here, so it is written up in the fork, not in
+`docs/upstream-openvcl.md`.
+
+**Bug 14 - a cycle that becomes no instruction word was being spent twice.** With the hang out of
+the way the five remaining residuals could be read, and the first one read - `pd710355`, a
+straight-line `rsqrt` → `mulq` at 9 cycles of the 13 that RSQRT needs - named its own cause under
+a flag ablation: all 21 flags give the reader 3 words below the division and no `waitq`, dropping
+`--fmac-interlock` alone gives 9 words and a `waitq`, and no other flag of the 21 changes it.
+
+Under `--fmac-interlock` a wait on the FMAC pipeline is kept in the cycle model and emitted as
+nothing, because the hardware stalls by itself. The FDIV and EFU pipelines have no interlock:
+their results land a fixed number of cycles after issue, and the only thing that carries a
+program from one of those cycles to the next is an instruction word. Counting a suppressed stall
+against `qReadyCycle` spends it twice - once as the FMAC wait it was, again as part of a
+division's latency. The instrumented compiler says exactly that: `rsqrt` issued at model cycle
+56, ready at 70, `mulq` chosen at 70 - a gap of 14 cycles across **3 emitted words**. A hand count
+of the dependence chain in those rows gives 9 cycles, the oracle's hardware model gives 9, and
+Sony's `vcl` puts a `waitq` there. The fix pushes the outstanding FDIV/EFU results back by every
+cycle that produced no word, in both the scheduler's model and the emitter's - two calls to a
+`delayPipelinedResultsBy` that already existed for the block-entry skew.
+
+**The residual is now zero.** Over the three generated corpora the value/condition oracle goes
+from **1 / 2 / 2** divergent programs to **0 / 0 / 0**, and the stronger pass - every path policy
+re-run with each impossible edge *pinned* rather than forced, which is what re-labelled 12
+findings last round - goes from **1 / 1 / 2** to **0 / 0 / 0**. The 70 stay clean. Those 12
+re-labelled findings are settled by the same run: nine of the ten on `pbz` were subsumed by bug
+12, and every survivor was one of the five named residuals.
+
+**The positive control is what makes that mean anything.** On the same run, the same instrument
+reports **2 divergent programs in Sony's own output** and 0 in this one. An oracle that had
+simply gone blind would say zero for both.
+
+The cost is +2 words on the engine's 25 (3908 → 3910) and 0 on the generated 45, from **10 extra
+`waitq`** across the 70 - a `waitq` whose Q has already landed costs one word and no cycles. The
+resident ten fall 2 (1998 → 1996). `clipw` stays 7 per clip program and `addaw` 3 per env-mapped
+one. This is the first change in this effort that moves a byte of the 70, and it is a
+correctness fix in ten places where the engine's own microprograms were reading `Q` on a gap the
+hardware is not guaranteed to open.
+
+**And the paragraph that said the loop-carried direction "comes out right by accident" was
+wrong.** The fork's own known-limits list recorded that a division BELOW its consumer, reaching
+it through a back edge, is not modelled - but claimed it was harmless, because the tracker sees a
+division from the block above the loop and over-waits. Building the shape rather than reasoning
+about it takes ten minutes and settles it: put enough work between that division and the loop for
+`qReadyCycle` to elapse, and the shipped build issues the consumer on the **first row of the
+body** with no `waitq`, four words from the `rsqrt` two rows below it that feeds it on the next
+iteration. Both value oracles flag it; it is `test/regress/src/q_backedge_stale.vcl`. Bug 14's
+push happens to cover that reproducer, and *happens to* is exactly the complaint - nothing in the
+compiler reasons about a back edge, so the next shape of it is unguarded. A predecessor-aware
+Q/P model is the real answer and is open.
+
+### The scene that used to be sensitive has gone blind, and the phase timers have not
+
+Bug 14 is the first change in this effort to move a byte of the seventy, so for the first time
+the question "does this cost frames" had to be answered rather than reasoned about. The answer
+is no - and getting it took throwing away the first instrument.
+
+**The terrain FPS scene reports nothing now.** The table above records it as *sensitive*: Sony
+100.4, pre-fix 78.3, post-fix 99.5, a 27% spread the scene could see. Re-run today, on the
+frame counter rather than the HUD, all three arms land inside a point of each other - and that
+includes the **pre-CLIP-fix build carried as a known-bad control**:
+
+| arm | FPS, software renderer | FPS, hardware renderer |
+|---|---:|---:|
+| pre-CLIP-fix (known bad) | 68.20 | 69.69 |
+| previous build, 1998 words | 68.06 | - |
+| bug 13+14, 1996 words | 68.74 | - |
+
+A build known to be 27% slower reading *faster* than the one under test is not a null result, it
+is a dead instrument. Swapping PCSX2 from the software rasterizer to the hardware one changed
+nothing either, so the GS is not what pinned it. Whatever now dominates that frame, it is not
+VU1. **The scene is the same scene** - 128x128 terrain in the manifest - which is the point
+worth keeping: a perf scene's sensitivity is a property of the whole system on the day you
+measure, not of the scene file, and it expires quietly.
+
+**The engine's own COP0 phase timers still separate.** Alternated ABC/CBA so host drift cannot
+line up with one arm, wiping the engine build outputs between arms, 147-188 measurement windows
+each:
+
+| arm | FRAME r1 | FRAME r2 | SCENE |
+|---|---:|---:|---:|
+| pre-CLIP-fix (known bad) | 13.282 ms | 13.251 ms | 7.690 ms |
+| previous build, 1998 words | 10.382 ms | 10.426 ms | 7.770 ms |
+| **bug 13+14, 1996 words** | **10.288 ms** | **10.327 ms** | 7.770 ms |
+
+The control separates by **+28%**, which is the 27% the old FPS table saw, so the instrument
+registers a change of the size in question. Against that, the new build is **0.09 ms faster**
+than the old one with a 0.04 ms spread inside each arm - no regression, and consistent with the
+resident set having *shrunk* by two words. Ten `waitq` that the hardware needed cost nothing
+measurable.
+
+**And the picture is unchanged.** Same scene, same camera, screenshots before and after diffed
+pixel by pixel: 537 differing pixels, every one of them inside x 254-278, y 70-92 - the digits
+of the on-screen FPS counter. The rendered scene is identical.
+
+**Two traps this measurement paid for.** `fpsmeas.ps1` launches PCSX2 itself with `-batch -elf`,
+and that instance gets no host-filesystem redirect: `log.txt` stays empty, no `VRAMSTAT` line
+ever appears, and the script returns **0 frames / 0 FPS** - which looks like a catastrophic
+regression and is nothing at all. The game has to be started the way the editor starts it. And
+switching `TYRAX_IMAGE` leaves objects from the previous SDK inside a `libtyra.a` whose mtime is
+today, because the engine lives in an external volume and `ar` replaces only changed members;
+the link then fails on `undefined reference to SifInitRpc`, which reads exactly like the new
+compiler broke something. Wipe `/tyra/engine/{obj,bin}` - never the sources, which are a
+read-only bind mount - and it goes away.
+
+### main rewrote the corpus, so every number above is a measurement of a program that no longer exists
+
+`origin/main` landed **#218 - "VU1 clipping: 2040/2042 slots down to 1676, and a framework that
+keeps it that way"** while this branch was working on the assembler. It is not a change this
+branch can absorb quietly, because it moved the thing being measured:
+
+* **The two heaviest clip programs are no longer written in macros.** `stapip_clip_c` and
+  `stapip_clip_tc` are expanded assembly with literal addresses now; the other three still use
+  the macro layer, which is intact. The `.vclpp` files are **emitted by a generator**
+  (`--vu-emit`, `vugen/`, `Desc::…`) and checked by `--vu-check`, so a hand edit in them is a
+  change in the wrong place. Every hand-written comment this branch had added to those five files
+  was resolved *in main's favour* during the merge for exactly that reason - the knowledge lives
+  in this file, not in a generated artifact.
+* **The resident set is 8 physical images, not 10.** One clip image is shared per ABI-compatible
+  pair, so `Clip_D` and `Clip_TCE` are reference `.vclpp` carrying a "NOT LINKED, and not meant
+  to be" header. **`<scratch>/resident-check.sh` is therefore wrong** - it sums ten names, two of
+  which are no longer linked.
+* Plus: inactive Sutherland-Hodgman planes are skipped, the matcap basis is packed on the EE, and
+  there is opt-in VU1 telemetry.
+
+**Every number in main's PR was measured with Sony's `vcl`.** So the first question this branch
+owes is what openvcl does to the new programs. Both arms, same merge commit, engine build outputs
+wiped between them, words from `nm`:
+
+| | Sony | openvcl | delta |
+|---|---:|---:|---:|
+| resident, 8 images (ceiling 2042) | 1678 | **1652** | −26 |
+| all 25 VU programs | 4066 | **4002** | −64 |
+
+That corroborates main's 1676 to within two words on a set whose exact membership we had to infer,
+and openvcl stays under Sony on both totals. **The old gate - `1996 / 3910 / 9242` and the
+70-program md5 `e78d466912af036dfea8d0a9f3b8385c` - is retired.** It described a corpus that no
+longer exists. The regression suite is unaffected: it tests the compiler against hand-written
+sources, not the engine.
+
+**Five programs are now LARGER under openvcl, and that is new.** Before the rewrite openvcl was
+smaller almost everywhere; now `mcpip_cull_vu1` is **+12**, `stapip_cull_tce_vu1` and
+`stapip_billboard_t_vu1` +4 each, `stapip_billboard_c_vu1` and `mcpip_as_is_vu1` +2. None of them
+is resident-critical and the totals still favour openvcl, but a program that got 12% bigger under
+one assembler and not the other is a lead, not a rounding error, and nothing here has read it yet.
+
+**The GIF-tag shape came back, and it no longer miscompiles.** This branch had moved the GIF-tag
+loads *inside* the batch loop in three programs, because a register loaded above `begin:` has to
+stay live across the whole body and openvcl reused those four registers for per-vertex values -
+so every batch after the first stored garbage tags and its geometry never reached the GS. Main's
+rewritten `clip_c` loads them at the top again. Verified rather than assumed: the merged engine
+built with the current openvcl **boots in PCSX2, renders the scene with clean geometry, and logs
+zero asserts**. Whatever closed that hole - the fourteen scheduler and allocator fixes since, or
+the rewrite's own lower pressure - the shape is no longer fatal. It is worth stating plainly that
+this was checked on one scene, and that the mechanism which made it fatal is register pressure,
+which is a property of each program rather than of the compiler.
+
+### Reading the five programs that got bigger
+
+The merge above left a lead: five programs are larger under openvcl on the rewritten corpus,
+where before the rewrite it was smaller almost everywhere. They were read rather than filed.
+
+First, the difference is the **assembler and nothing else**. Each program's `.vcl` - the
+intermediate the engine build hands to the assembler - was pulled out of the build and assembled
+by both, standalone, words from `nm` on the object:
+
+| program | openvcl | Sony | Δ words | `nop`/`nop` rows, openvcl | Sony | Δ rows |
+|---|---:|---:|---:|---:|---:|---:|
+| `mcpip_cull_vu1` | 112 | 100 | **+12** | 9 | 3 | +6 |
+| `stapip_cull_tce_vu1` | 154 | 150 | +4 | 10 | 6 | +4 |
+| `stapip_billboard_t_vu1` | 110 | 106 | +4 | 9 | 3 | +6 |
+| `stapip_billboard_c_vu1` | 96 | 94 | +2 | 5 | 4 | +1 |
+| `mcpip_as_is_vu1` | 50 | 48 | +2 | 3 | 3 | 0 |
+
+**Most of it is bug 9's fix, doing exactly what it was written to do.** The Minecraft cull program
+is three copies of
+
+```
+clipw.xyz  vertex1, vertex1
+fcand      VI01,    0x3FFFF
+```
+
+with the `fcset` that clears the CLIP register **outside the loop**, at the top. Sony issues that
+`fcand` **one row after** the `clipw`; openvcl pads to four. `0x3FFFF` covers the three newest
+6-bit entries, so if the newest judgement has not landed the read returns the previous three -
+which, with no per-triangle clear, means it misses this vertex and includes one from the previous
+triangle. That is precisely the defect written up as §9: `padForClipFlagWindow` used to exempt
+full-window masks on the reasoning that "is anything outside" is position-independent, and that
+reasoning is wrong for a mask covering a *window* rather than the whole register. Removing the
+exemption is what costs these words.
+
+So this is not a regression to chase. Whether Sony is right here is decidable only by what the
+CLIP flag's visibility is in *instructions*, and this effort's calibration says more than one -
+the same calibration that made §4 and §9 findings rather than opinions. Between a compiler that
+pays four words and one that may read the wrong window, the four words are the answer.
+
+**What would recover them honestly** is already named in §4 and still not done: model *which
+generation* each mask bit selects, instead of padding against the nearest push. SCE pairs a reader
+with a `clip` several rows back rather than the closest one; openvcl has no notion of that, so it
+must assume the newest. That is a real optimisation with a correctness argument, and it is
+different in kind from switching the exemption back on.
+
+**The rest is pairing density, not padding.** `mcpip_as_is_vu1` contains no `fcand` at all and is
+still +2, and `mcpip_cull_vu1`'s twelve words are six padding rows plus six rows that exist
+because instructions did not pair as tightly. That half is the ordinary density gap this file has
+chased before (`--pair-best-of-many`, the ready-list work) and is worth another look on programs
+that are now *expanded assembly* rather than macro output - a shape the pairing heuristics have
+never been tuned against.
+
+**A correction, and the rule it repeats.** The first count of this said Sony emitted **zero**
+padding rows against openvcl's eight. It emits three: `vcl` writes `NOP` in upper case and the
+pattern was lower case. The numbers above are case-insensitive on both sides. This is the third
+time in this effort that a grep finding nothing turned out to be evidence about the grep, and the
+second time it nearly became a published number.
+
+### Both "loud divergences from Sony" were malformed test programs
+
+Two items had been carried on the open list for two rounds: openvcl **rejects `p` as an alias
+name**, and openvcl **rejects a `.init_vf` placed after the code it initialises**, where Sony's
+`vcl` accepts both. Neither survives contact.
+
+**`p`, `q` and `i` are rejected by *both* assemblers, and Sony says so in as many words:**
+`USER: can't use p as a name for one of the VU User floating point`. They are the EFU result, the
+divider result and the immediate register; refusing them as user names is correct in both, and
+there is no divergence to report.
+
+**`.init_vf` after the code compiles in both.** With a valid program it compiles under `vcl` and
+under `openvcl`, before the code or after it, and so does `.init_vf_all`. It is now
+`init_after_code` in the suite as a VALUE case, so the claim cannot be re-derived.
+
+The reason both were on the list is worth more than the items were. `.init_vf` takes a **VF
+register or range** (`vf:noalias:range` in the operand table) - `.init_vf vf01-vf04` - and *not*
+alias names. A test written as `.init_vf a, b` is rejected for its syntax, and the rejection
+message names the argument, which reads exactly like the feature being refused. The second trap
+was mine, on the next attempt: a program whose `mul.xyz` writes three components and whose `sq`
+reads four earns `Read-attempt from uninitialized float register`, which also reads like the
+directive being refused. **Both times the control case failed alongside the subject** - which is
+the only reason the instrument was blamed instead of the compiler, and is the whole argument for
+never running a probe without one.
+
+### The error paths, which had never been swept, and the first bug's class is empty
+
+Defect §1 was not "a rejected operand". It was **a rejected operand, a printed diagnostic, and
+the program emitted anyway** - without the `clipw`, keeping the `fcand` that reads its flags. That
+is a class, and only the one incident had ever been looked at. It has now been swept two ways.
+
+**Structurally: all 71 diagnostic sites in the compiler proper hand failure off with a hard
+`return false` / `return` / `exit`.** Not one reports and carries on, and not one relies on a weak
+hand-off - a flag assignment or a `break` that a caller might ignore. The classifier separates
+strong hand-offs from weak ones precisely because a `something = false;` after a diagnostic *looks*
+like failure and need not be, and it found zero of those.
+
+**And the classifier was controlled before its output was believed**, on a file containing a
+stopping site, a plainly continuing one, and the case that matters most - a site that reports, sets
+`m_warned = true` and continues. It labels all three correctly. Without that control this is just a
+grep, and a grep finding nothing has already been evidence about the grep twice in this file.
+
+**Empirically:** malformed sources - a reserved pipeline register used as a user name, an invalid
+CLIP operand - exit non-zero with the diagnostic visible and **zero rows of output**, under no
+flags, under the single flag that arms the retry ladder, and under all twenty-one. `main()`'s
+`Error::HasErrors()` backstop is the last line of that defence, and `ResetErrorCount()` - the one
+thing that could quietly discard the evidence - is defined and **never called**.
+
+**One latent hazard was found and hardened.** Errors are *deliberately* suppressed inside the
+speculative retry arms, because running out of registers there is a decision rather than a
+diagnosis. Two of the three arms save the previous state and restore it; the third,
+`tryUnsunkArm`, drove suppression to `false` unconditionally. It is harmless today for a reason
+worth naming: `generateCode()` is a different parser state from `allocateRegisters()`, so this arm
+cannot run inside theirs - **the same "latent, not reachable" shape as the unbounded alias walk
+that hung the compiler in §13, which was upstream's code that upstream could not reach.** That
+one became live the moment a fork built a ring to walk. This is now save-and-restore, with the
+reasoning in the comment rather than in a commit message.
+
+Verified: the 70 microprograms of the *old* corpus compile byte-identically before and after
+(md5 `e78d466912af036dfea8d0a9f3b8385c`) - the right check here, since the question is whether the
+compiler changed, not whether the engine did - and the suite is 47 pass / 0 fail / 4 xfail.
+
+### The guard's twin is dead weight, and the argument is structural
+
+The last named lead: `extendMultiQStageRange` carries **a second copy of the over-counted guard**
+that cost `extendLoopDirectiveRange` a loop-carried range. Same shape - it counts every float
+alias *overlapping* the loop against the allocatable pool, and extends only the Q-stage aliases,
+so the body's temporaries can push the count over and skip an extension they were never part of.
+Two rounds had named it and left it, for want of a reproducer.
+
+A reproducer was built: a `--LoopCS` loop with two `div`/`mulq` stages, a carried float read at
+the top and written at the bottom, twelve short-lived float temporaries, and the float pool
+narrowed to eight with `.init_vf vf01-vf08` so the count actually goes over. Plus its control -
+the same loop with two temporaries, where it does not. The guard only ever fires with
+`--loop-liveness-always` **off**, so both are judged in that configuration.
+
+**The guard fires, the output changes, and the output is still correct.** 32 rows against 30 with
+the flag on for the pressure case, byte-identical for the control - and the path-sensitive value
+oracle reports **0 divergent over 6 traces** on both arms. A row count is not a verdict; the
+oracle is, and it says nothing was lost.
+
+The reason is not luck. `extendLoopDirectiveLiveRanges` runs **the line before**
+`extendMultiQStageLiveRanges`, and round §16's fix left it extending every *read-first* alias
+**unconditionally**. Read-first is exactly the property that makes a name live across the back
+edge. So by the time the multi-Q guard bails, every alias whose lost range could be dangerous has
+already been extended; what the multi-Q pass adds on top is coverage for Q-stage aliases that are
+written before they are read - temporaries, whose own ranges already cover them, which is the
+argument the sibling's own comment makes. **The guard cannot lose a range that matters.** It is
+dead weight, not a defect.
+
+Both shapes are in the suite as `qstage_bail` / `qstage_bail_ok`, judged with the flag removed via
+the `no:--loop-liveness-always` form - 49 pass / 0 fail / 4 xfail. They assert an invariant rather
+than a fix, which is the one legitimate reason for a case that passes on every build: if the
+sibling's unconditional extension is ever narrowed again, this pair is what notices.
+
+### The ps2gl fixtures are still unjudged, and now there is a reason instead of an omission
+
+Twelve of openvcl's own `test/fixtures` plus three `examples/` are real third-party VU code -
+ps2gl's transform and lighting kernels, 7173 lines - and they use exactly the constructs every bug
+in this effort lived in: `--LoopCS` on four loops, three to six `div`, one to four `clipw`,
+`fcand`. Until now the only thing ever asked of them was whether they *allocate*. They were put
+through the oracles.
+
+**Sony's output cannot serve as the reference here.** Of the 14 that compile, the path-sensitive
+oracle skips **12** on `vcl`'s output, all for the same reason: it renames and inverts the loop
+branches (`ibne xform_loop_lid` in the source becomes
+`ibeq EXPL__p_src_general_vcl_xform_loop_lid__EPI1`), and the trace enumerator cannot follow that.
+Only the two trivial examples are in scope, and both are clean. So for the twelve interesting
+programs **there is no cross-assembler control at all** - which is worth knowing before anyone
+quotes a number from this corpus.
+
+**On openvcl's output, 5 of the 12 are judged and all 5 report divergent - and the same 5 report
+divergent with no flags at all.** That is the check that decides who is wrong. With the density
+flags off openvcl does close to nothing, so a divergence there is far more likely to be the
+instrument than the compiler.
+
+Reading one confirms it. For `indexed` the oracle reports 66 differing observables, and the
+difference in the first is the **address**:
+
+```
+source-only    sq(addr(iadd(in((BASE)), xtop(0)), 0), xyz, [...])
+emitted-only   sq(addr(xtop(0), 172),                xyz, [...])
+```
+
+The compiler resolved that base register to a constant and folded it into the offset - which the
+oracle does itself, through `split_off`, whenever it can see the assignment. Here it cannot: the
+`iaddiu … , vi00, (…)` that defines it sits in a block the trace never enters, so the register
+reads as a **live-in** (`in((BASE))`) and stays symbolic. One unmatched address means no store
+pairs with its counterpart, and every observable in the program reports as source-only or
+emitted-only at once. The value trees underneath are the same shape.
+
+**Which direction the error goes matters, and it goes the safe way.** An unmatched store is
+*reported*, never silently accepted, so this gap can only produce false positives. It cannot have
+hidden anything in the clean results this file already records.
+
+**Positive control, same instrument, same day:** the engine's own 70 microprograms -
+**70 in scope, 1019 traces, 0 divergent, 0 skipped.** The oracle is healthy; the gap belongs to
+this corpus and to the way these programs build their addresses.
+
+So the fixtures stay unjudged, and what would change that is now specific rather than vague: seed
+the model with the constants assigned in blocks the trace does not enter, so a register that is a
+program constant stops reading as an input. Also worth recording for whoever does it: those 14
+fixtures take **over ten minutes** to compile under the twenty-one flags, which is how the
+`--loop-liveness-always` non-termination was found in the first place.
+
+### What actually blinds the oracle on ps2gl: it throws the operators away
+
+The section above named a cause and it was **wrong**. It said the base register reads as a live-in
+because the `iaddiu` defining it sits in a block the trace never enters. Two things killed that:
+
+* **The pinning instrument refutes it.** `pg-feasible.py` re-runs every path policy with each
+  impossible edge pinned to the outcome the source's own constant folding demands. All five
+  programs **diverge on a feasible path** - `fall`, `take` and a random policy alike. Nothing is
+  being blamed on a path that cannot run.
+* **The oracle already canonicalises commutativity**, so the second suspect - `ADD(ADD(a,b),c)`
+  against `ADD(c,ADD(a,b))` - was never a candidate either. `ADD`, `MUL`, `MAX`, `MINI` and
+  `iadd` are all ordered canonically; `SUB` deliberately is not.
+
+The real cause is one line at the top of the instrument. `TOKEN` does not match `*`, `/`, or a
+standalone `-`, so those characters **never become tokens**, and `imm_at` simply **sums the
+numbers that are left**. That is exactly right for what the engine's own sources write -
+`iaddiu staticStqData, vi00, 4 + 36`, where dropping the `+` and adding 4 and 36 is the answer -
+and it cannot read what ps2gl's C macros generate:
+
+```
+iaddiu next_color_acc, buffer_top, (((0 + 1) + 4) + ((1024 - (0 + (...))) * 3 / 17))
+```
+
+Sum the surviving numbers there and you get a value with no relation to the one the assembler
+computed. Every address built on that register is then wrong in the source model while the emitted
+program carries the folded literal, no store pairs with its counterpart, and all 66 observables of
+`indexed` report as unmatched at once. Which is also why the five diverge **with no flags at all** -
+the give-away that this is the instrument and not the compiler.
+
+**Two real defects in the instrument were found on the way and are fixed:**
+
+* The `(`-group scan stopped at the **first** `)`, so it could not find the end of a nested group
+  and mis-parsed the remainder of the line. It is balanced now.
+* A parenthesis was **always** read as a memory base, and the base's name was the first token
+  inside it - so `((0) + 1)` produced a base register literally named `0`. Only
+  identifier-shaped tokens can name a register now.
+
+**And the arithmetic semantics for whoever finishes this are measured, not assumed.** A four-line
+program through both assemblers: `7 / 2` = 3, `-7 / 2` = **-3**, `(1024 - 1075) * 3 / 17` = **-9**,
+`5 * 3` = 15, identical in `vcl` and `openvcl`. That is C truncation toward zero, not floor
+division - Python's `//` would answer -4 and -10. An evaluator was written and then **deleted**
+rather than left in place: with the operators dropped before it, it could never receive an
+expression, and a half-wired evaluator in a load-bearing instrument is worse than a documented
+limit. The limit is now a comment at the site.
+
+**Controls, both green after the changes:** the engine's 70 microprograms stay
+**70 in scope, 1019 traces, 0 divergent, 0 skipped**, and the regression suite stays
+**49 pass / 0 fail / 4 xfail**.
+
+So the twelve ps2gl programs remain unread, and what it takes is now a two-part change with no
+unknowns left in it: make `*`, `/` and a standalone sign into tokens, and turn `imm_at` /
+`address` from summing tokens into evaluating an expression with truncating division.
+
+### The immediates are read now, and where the oracle still complains the compiler is right
+
+The two-part change the section above described as having "no unknowns left" was made: `*`, `/` and
+a standalone sign became tokens, and `imm_at` / `address` stopped summing tokens and started
+evaluating an expression with **truncating** division - the semantics measured off both assemblers
+(`7/2` = 3, `-7/2` = -3, `(1024-1075)*3/17` = -9). Thirteen unit cases cover it, including the two
+that matter for compatibility: `956+0` arrives as `956` then `+0` because the signed-number
+alternative wins when there is no space, and `956 + 0` arrives as three tokens; both must mean 956,
+and the summing code this replaces was built for the first form only.
+
+**It works, and the controls say it is safe.** The engine's 70 microprograms stay
+**70 in scope, 1019 traces, 0 divergent, 0 skipped** - before and after a change to the tokenizer
+every other part of the instrument depends on - and the suite stays **49 pass / 0 fail / 4 xfail**.
+On `indexed` the differing observables fall **66 → 54** and, the point of the exercise, the
+addresses now agree: `addr(xtop(0),172)` on both sides where the source model used to carry an
+unresolved base.
+
+**The residual difference was then read by hand, and it exonerates the compiler.** The oracle's
+first complaint is a product: the source model multiplies by the quadword at 60 and the emitted
+model by the one at 59. In the source those are three consecutive loads -
+
+```
+lq.xyz material_amb,  (…59…)(vi00)
+lq.xyz material_diff, (…60…)(vi00)
+lq.xyz material_spec, (…61…)(vi00)
+```
+
+and in the emitted program they are `lq.xyz VF05, 59(VI00)`, `VF06, 60`, `VF07, 61`, in that order.
+The accumulation is then `mula.xyz ACC, VF16, VF06` and `madd.xyz VF12, VF10, VF05` - **VF06 is
+`material_diff` and VF05 is `material_amb`, exactly as the source pairs them** in
+`mula.xyz acc, local_diff18, material_diff` / `madd.xyz vert_color, light_amb, material_amb`.
+No swap, no reassociation. What differs is the shape of the nested `MUL` in the model, not the
+program.
+
+So the score is: one real gap in the instrument found and closed, the compiler hand-verified
+correct at the first point the instrument disputes, and the twelve ps2gl programs still not
+mechanically judged - now for a third reason rather than the first two, both of which turned out to
+be wrong. **That is three diagnoses in a row corrected by looking at the data instead of the
+model**, and it is the argument for keeping the "read one" rule that produced bugs 10 through 14:
+the ps2gl corpus has cost four hypotheses and yielded no compiler defect, while every round that
+read a program found one.
+
+### The CLIP-generation idea cannot pay, and the census is what settles it
+
+Section 4 has carried a proposal for many rounds, quoted as the honest way to recover the padding
+words: *model which generation each mask bit selects, instead of padding against the nearest push.*
+SCE demonstrably pairs a reader with a `clip` several rows back, and openvcl does not. It sounded
+like money on the table. **It is not, and one census shows why.**
+
+Every `fcand`/`fcor`/`fceq` in the emitted 70, bucketed by mask and by distance in rows to the
+nearest preceding push, both assemblers:
+
+| mask | generations | openvcl | Sony |
+|---|---|---|---|
+| `0x2` | 0 | min 4, all 21 at 4 | **min 4, all 21 at 4** |
+| `0x8` | 0 | min 6, all 21 at 6 | **min 6, all 21 at 6** |
+| `0xF` | 0 | min 4, all 48 at 4 | min 1; **37 of 48 at 3** |
+| `0xA` | 0 | min 4, all 48 at 4 | **min 0**, spread 0-21 |
+| `0x3F` | 0 | min 4, all 8 at 4 | min 1, spread 1-4 |
+| `0x3CA` | 0,1 | min 4 | min 17, spread 17-43 |
+| `0x3FFFF` | 0,1,2 | min 4 | **min 0**, spread 0-63 |
+| `0x3CA3CA` | 0,1,2,3 | min 4 | **min 0** |
+
+**Every mask class in the corpus touches generation 0** - the newest judgement. A reader whose mask
+includes generation 0 depends on the push immediately before it, so the full window distance is
+required and there is nothing for a generation-aware model to relax. The proposal only pays for a
+mask that *skips* the newest generation, and the corpus contains none: not in the engine's 70, not
+in the two synthetic corpora, not in ps2gl. **That item can come off the list.**
+
+Two more things fall out of the same table, both worth keeping:
+
+* **openvcl is never closer than Sony in any class, and identical in two.** On `0x2` and `0x8` the
+  two agree site for site, all 21 each. Everywhere else openvcl is further away. Whatever the right
+  latency is, this compiler is not the one taking the risk.
+* **Sony places readers at gap 0 - in the same row as the push - for `0xA`, `0x3FFFF` and
+  `0x3CA3CA`.** A reader in the pushing row cannot see the pushed judgement, so those sites
+  deliberately read the window as it was *before*. That is the strongest evidence yet for what
+  section 4 observed, and it also means the reference cannot arbitrate a latency: its own spread
+  for one mask runs from 0 to 63 rows.
+
+**The one remaining lever is the window number itself, and it is bounded.** openvcl pads to 4 rows
+(upstream's `CLIP_LATENCY`); Sony's modal floor for a positional mask is 3. Of openvcl's **201**
+readers sitting at exactly gap 4 across the 70, **97** have `nop`/`nop` inside that gap - so
+dropping the window from 4 to 3 would recover **at most 97 words**, which on a 1652-word resident
+set is not small. It is also not takeable: nothing here can distinguish a hardware requirement of 4
+from one of 3, the reference is internally inconsistent about it, and §9's fix - the reason the
+padding exists - was **inferred from a detector rather than observed on screen**. Settling it needs
+hardware, which is what `docs/ps2link-setup.md` is for and what has not run yet.
+
+The census lives on as `test/regress/lib/clipgap-census.py`. Its own first run reported mask `0` for
+every reader in the corpus, because the alternation `([0-9]+|0x…)` matched the leading `0` of
+`0x3FFFF` - a bug that would have made the table say the exact opposite of the truth, caught by
+looking at the emitted text before believing the output.
+
+### Better than Sony everywhere except two one-cycle questions, and both need hardware
+
+"Smaller in total" was already true - resident **1652 against 1678**, all 25 programs **4002
+against 4066**, and 20 of the 25 at or below Sony individually. This is about the five that are
+not, and it ends with the gap fully attributed and the scheduling side of it exhausted.
+
+**`mcpip_as_is_vu1` is the clean signal: +2 words, and no `fcand` anywhere in it, so no CLIP
+padding is involved.** Pairing is not the cause either - both assemblers emit exactly **15 paired
+rows, 5 upper-only and 3 empty**. openvcl emits **two more lower-pipe instructions**, and they are
+two `waitq` that Sony does not need. Sony spreads its three divisions so that every consumer has
+work between it and its producer:
+
+| | division at | consumer at | gap | `waitq` |
+|---|---:|---:|---:|---|
+| openvcl | 28 | 36 | 8 | no |
+| openvcl | 37 | 42 | 5 | **yes** |
+| openvcl | 43 | 45 | 2 | **yes** |
+| Sony | 30 | 35 | 5 | no |
+| Sony | 36 | 39 | 3 | no |
+| Sony | 36 | 42 | 6 | no |
+
+**Sony reads `Q` five and three rows after its `div`, with one annotated stall in between - six
+cycles - where the model here requires seven and pays a word for the difference.** That is the same
+one-notch conservatism the CLIP census found: a window of 4 rows against the reference's modal 3.
+Two latencies, one cycle each, and this compiler is the careful side of both.
+
+**The scheduling explanation was tested and refuted.** `readHazardDelay` already includes the Q gap
+and `readyCandidateScore` weights it at a thousand per cycle, so a Q consumer is deferred while
+anything else is ready - those two `waitq` are emitted because nothing else *was* ready. The
+remaining idea was to issue the division earlier so the work after it covers the latency, and
+`longLatencyProducerBonus` is exactly that knob. It existed at 500 and 0 only - "hoist divides ahead
+of everything" and "do not". A bonus of **1500, alone and with `priorityWeight` 30, was added to the
+best-of list, built and measured**: the 70 came out **byte-identical** and none of the five moved a
+word. Adding options to a best-of search is monotone, so nothing was risked - and an option that
+never wins is pure compile time, so both were removed and the negative result was written into the
+comment beside the strategies that do win.
+
+**Where that leaves it.** The five programs are larger for two reasons and no others: a CLIP window
+of 4 rows where the reference's floor is 3, and an FDIV requirement of 7 words where the reference
+reads at 6 cycles. Both were introduced by fixes (§9 and §14) that the oracle demanded and that no
+screen ever contradicted - and §9's was explicitly recorded as inferred from a detector rather than
+observed. Neither can be relaxed by better scheduling, and neither can be settled by the reference,
+which is internally inconsistent on both. What settles them is a console: **97 words** on the CLIP
+side and a handful on the FDIV side are waiting behind `docs/ps2link-setup.md`, which is built and
+has not run.
+
+### The console answered both latency questions, and one of them says we were right
+
+Every round before this one ended the same way: two one-cycle disagreements with Sony, neither
+decidable without hardware. A PS2 became available at `192.168.100.150`, and both are now measured
+rather than argued. The instrument is a standalone PS2 ELF driving six hand-written VU1
+microprograms (`<scratch>/hwlat/`), the raw output is `<scratch>/hwrun/hwlat-out.txt`, and it printed
+**LADDER COMPLETE** with controls passing on all six.
+
+**The CLIP flag becomes visible at exactly 4 rows. openvcl's constant is the hardware figure, and
+the 97 words do not exist.** The ladder is `fcset 0` → `clipw A` → 6 `nop` → `clipw B` → N `nop` →
+reader → store, for N = −1…7, in three arms:
+
+| arm | reader | N ≤ 3 | N ≥ 4 |
+|---|---|---|---|
+| A inside, B outside | `fcand VI01,0x3F` | 0 | 1 |
+| A outside, B inside | `fcand VI01,0x3F` | **1** | **0** |
+| A inside, B outside | raw `fcget VI01` | 0x00000000 | 0x00000001 |
+
+The two polarities give **opposite** values at every rung and both flip at N = 4, so a stuck-at
+answer cannot pass; N = −1 - the reader one row *above* the push - reads the previous judgement in
+all three arms. **At gap 3 the hardware returns the previous generation.** A 3-row window would not
+be a risk, it would be a miscompile - which retires the last "inferred, not observed" caveat on §9's
+fix: that padding is correctness, not caution.
+
+Sony's modal floor of 3 is **not** refuted by this. A stalling row buys cycles that a row count
+cannot see, and SCE annotates its stalls. What is settled is openvcl's side: it pads with
+`nop`/`nop`, and for nop padding 4 is the floor.
+
+**Q and P are readable at exactly the ISA table's `latency` field - openvcl asks one row too many.**
+
+| producer | consumer | hardware minimum | table `latency` | openvcl demands |
+|---|---|---:|---:|---:|
+| `div` | `mulq` | **7** | 7 | 8 |
+| `rsqrt` | `mulq` | **13** | 13 | 14 |
+| `esum` | `mfp` | **12** | 12 | 13 |
+
+Three independent numbers, each equal to the table's own field, each with the value-swapped control
+flipping at the same rung. The `div` arms are the clearest: one goes `3e800000 → 3f000000` at N = 7
+and the other `3f000000 → 3e800000` at N = 7.
+
+**And correcting it is not worth taking.** The change was made and measured, not assumed: words on
+the 70 go **1996 / 3910 / 9242 → 1998 / 3918 / 9240**, i.e. **+6 net worse**, with the suite at
+49 / 0 / 4 on both - so the relaxation is *correct* and unprofitable. The reason is exact: the
+`waitq` count over the 70 is **69 before and 69 after**, and only **1 of those 69** sits at distance
+exactly 7, the only distance a one-row relaxation could free. Everything that moves is the scheduler
+re-ordering because a Q gap is weighted at a thousand per cycle - the same shape as the
+`longLatencyProducerBonus` negative result above. The patch is kept at
+`<scratch>/px-qlatency-measured-but-not-taken.patch` rather than applied.
+
+**So the five programs stay larger than Sony's, and the reason has changed character.** On the CLIP
+side openvcl is not being cautious, it is being *right*: the hardware needs the fourth row. On the Q
+side it is one row conservative and buying that row back costs six words elsewhere. Neither is a
+defect, and neither is a scheduling failure.
+
+**Two corrections that came out of the same work.** `<scratch>/pb70src` is **stale**: it holds
+`stapip_cull_tce_vu1` at 164 words where a real build gives 154, because PR #218 packed the matcap
+basis after that snapshot was taken. It remains valid as a *stability* anchor - identical inputs
+must give md5 `e78d466912af036dfea8d0a9f3b8385c`, re-verified here - but absolute sizes have to come
+from a real engine build (`pj-words.sh`), which is where the post-merge 1652 / 4002 figures come
+from. And the first attempt at rebuilding the compiler was a glibc build on a musl image, the libc
+trap `Dockerfile.fromsource` warns about; the harness reported `assembled=0 failed=70` rather than a
+pass, and the control that caught it was rebuilding the *unmodified* fork and getting a
+byte-identical binary to the shipped one.
+
+**What the console did not get to do.** `blocks-terrain` and `showcase` were built with openvcl and
+both render correctly at 50 FPS with zero asserts - the block pipeline's geometry, culling and
+per-face shading coherent across a 13-frame sheet - but **in PCSX2, not on hardware**. After the
+ladder finished, `ps2client reset` stopped reviving ps2link: ping answers, tcp/18193 does not listen,
+twice with the same signature. Per `docs/ps2link-setup.md` that class is marked fixed in r2/r6, so
+either the flashed card predates r6 or this is new; the banner could not be captured to tell. **It
+needs the console's physical Reset button**, and the scene runs on hardware are owed after that.
+
+### Four facts carried out of the retired clipping plan
+
+`docs/vu1-clipping-plan.md` was deleted as an obsolete design document, which it was —
+the work it planned has landed. Four things in it were not obsolete, three of them
+measurements that cannot be re-derived without redoing the benchmark, so they are
+recorded here rather than left in `git log --diff-filter=D -- docs/vu1-clipping-plan.md`.
+
+**The EE clipper's cost, measured on a real PS2** (2026-07-11; fresh `fpp` project,
+128x128 terrain at detail 128, ~98k verts, sky dome, FPP camera auto-spinning; COP0
+timers around `clipper.clip()`, 4 runs of ~2400 frames):
+
+| mode | vsync | frame avg | `clipper.clip` EE | packages clip+cull |
+|---|---|---|---|---|
+| precise | on | 40.0 ms (25 FPS) | 8.6-9.8 ms (max 11.6) | 181 + 175 |
+| fast | on | 40.0 ms (25 FPS) | 0.4 ms (sky dome only) | 6 + 841 |
+| precise | off | 33.8 ms (~30 FPS) | 9.4 ms | ~356 |
+| fast | off | 27.2 ms (~37 FPS) | 0.4 ms | 847 |
+
+The frame was **100% EE-bound** (endFrame 0.5 ms with vsync off, GS and VU1 idle), and
+the clipper cost **~1.3 us / ~380 cycles per vertex** of a frustum-crossing package with
+~52% of surviving packages crossing. And the line that matters most for anything measured
+here: **PCSX2 undercounts the clip cost by 15-20% — confirm on hardware.**
+
+**PCSX2 masks two whole classes of defect.** The HW renderer hides GS raster-window wrap
+and the ADC-bit corruption whose signature is *stray smeared triangles at screen edges* —
+judge those on the software renderer or on a console. That warning was in the retired
+document before this migration started, and §17 is what it costs to walk past it. Note
+what the software renderer does **not** buy: a VU1 *timing* hazard is invisible under
+every renderer, because PCSX2's VU does not model the hazard at all.
+
+**Prior art on register pressure, which this effort re-earned.** Three guard-band attempts
+in the *cull* programs — an I-register scale, a STATUS-flag `w` test, and a DIV/Q constant —
+**all** corrupted ADC bits under the assembler's register allocation. The document's advice
+was to budget for fights with the register allocator, and defects 2, 3, 11, 13 and 16 of
+this migration are all that same minefield.
+
+**And one build trap:** `vclpp` chokes on CRLF, which is why `.gitattributes` enforces LF
+under `vendor/tyra`.
+
+### What the image actually depends on, and the backup forks
+
+Two questions worth answering in writing, because neither is visible from the Dockerfile
+alone: what has to exist for this image to be rebuildable, and what happens when one of
+those things does not.
+
+**Our own build pulls four things.** `docker/Dockerfile.fromsource` is five stages over a
+**digest-pinned** base (`ps2dev/ps2dev@sha256:8e6dc456…`; only the ps2link stage uses the
+`v2.0.0` tag). Into that base it copies artifacts built in separate stages:
+
+| stage | fetches | produces |
+|---|---|---|
+| `vu-tools` | `ps2dev/openvcl` @ `a5867c3d` + **our patch**, `glampert/vclpp` @ `00e44ecf` | `openvcl`, `vclpp`, `bin2s` |
+| `audsrv-build` | `ps2dev/ps2sdk` @ `e78a9cb2`, with `ee/rpc/audsrv` **replaced by ours** | `libaudsrv.a`, `audsrv.h` |
+| `ps2link-build` | in-tree sources | the ps2link package |
+
+The final stage writes `/usr/local/bin/vcl` as a **shell wrapper** that calls `openvcl` with
+the twenty density flags baked in, so the engine's Makefiles keep calling `vcl` and never
+learn anything changed, plus a `vcl-impl` marker the Runner reads. There is deliberately no
+`VCL_IMPL` switch: this image has no Sony binary to fall back to.
+
+**The base image is a pull, not a build — and behind it is a four-level tree.** Today
+`ps2dev/ps2dev` comes from Docker Hub, so none of the following is fetched at our build
+time. It all matters the moment anyone wants to *rebuild* that base, which is the only way
+to stop depending on someone else's published image:
+
+```
+ps2dev/ps2dev          ps2toolchain · ps2sdk · ps2sdk-ports · ps2-packer · ps2client
+  └ ps2toolchain       -dvp · -iop · -ee
+      ├ dvp            binutils-gdb · masp · openvcl
+      ├ iop            gnu.googlesource.com/{binutils-gdb, gcc}   <- NOT GitHub
+      └ ee             binutils-gdb · gcc · newlib · pthread-embedded
+```
+
+**Every GitHub repo in that tree is now forked** under `doctorspider42`, as a backup and as
+the raw material if we ever build our own base image. Nothing is wired to them: the
+Dockerfiles still point at `ps2dev/*`, deliberately, so this changes no build today.
+
+**What a fork does and does not buy.** Every fetch above is pinned by commit or digest, and
+a git hash is content-addressed, so **integrity was never the exposure** — you cannot be
+handed different bytes. The exposure is **availability**, and a fork covers only part of it:
+GitHub reparents forks when an upstream repo is deleted, so deletion is survivable; a
+takedown can purge forks with it, and a GitHub outage or an offline build takes forks along
+with originals. Two gaps stay open after this:
+
+* **The IOP toolchain is not on GitHub.** `ps2toolchain-iop` fetches binutils and gcc from
+  `gnu.googlesource.com`, which `gh repo fork` cannot touch. Backing those up means a
+  `git clone --mirror` pushed into a repo of ours — real work, since gcc's history is
+  gigabytes.
+* **Nothing here is offline.** For that, the bytes have to live somewhere we control that is
+  not a git host: the cheapest version is committing the base sources as a checksummed
+  tarball next to the Dockerfile — measured at **340 KB gzipped for all of openvcl**, which
+  is less than our own patch (344 KB) and a tenth of the ps2link package we already carry.
+
+### The regression suite
+
+The nine reproducers lived in a scratch directory and were checked by hand. They are now
+`test/regress/` in the fork, with `docker/openvcl-regress.sh` here to run them against whatever
+assembler an image carries - because a bump to `docker/openvcl-tyrax.patch` is a one-line diff
+no reviewer can read.
+
+31 reproducers, four kinds of assertion, and the kinds are the point: **each of the four shipped
+bugs needed a different one to be visible at all.** `COUNT` (an instruction the source contains
+must still be emitted) is the crudest and would have caught the two most expensive on the day
+they landed. `ORDER` replays the CLIP shift register and the ACC chains. `VALUE` compares stored
+expressions. `PATH` does the same path-sensitively - a separate kind because the straight-line
+oracle *cannot* see a loop-carried defect, and three cases passed under it on a build that had
+the bug.
+
+It discriminates: **26 pass / 0 fail on the current compiler, 12 fail on the pre-fix build.**
+
+Two traps found while building it, both instances of the same failure this whole section is
+about. The first run reported 8 regressions and every one was false - it used a toolchain image
+two fixes stale, which is the mixed-image trap documented above. And the python-based checks
+**silently passed when python was absent**, because a checker that prints nothing matches
+nothing; `run.sh` now refuses to start rather than report a pass with nothing run.
+
+### The fourth: a full-window clip test that reads before the newest judgement lands
+
+The detector's remaining 23 findings were a different mechanism from the flush bug, and they
+were live. In **14 programs** a `fcand VI01,0x3FFFF` issues **one row after** its `clipw` - CLIP
+needs four - so the landed window is `{v2, v1, v3 of the PREVIOUS triangle}` instead of
+`{v3, v2, v1}`. SCE does this zero times.
+
+**The per-site answer is three-way, not two-way**, which is why it was worth asking rather than
+assuming. Every site is Tyra's per-triangle frustum cull: `clipw` → `fcand 0x3FFFF` → `iaddiu` →
+`isw` of the vertex's **ADC bit**. Three vertices per iteration, three such triples. And these
+pipelines set `PRIM_TRIANGLE` - an independent triangle **list** - so the GS kicks only on the
+*third* vertex of each group:
+
+* **18 of 23 are inert.** They compute the ADC bit of vertex 1 or 2 - a wrong value in a field
+  the GS never consults. Not conservative; simply not read.
+* **3 of 23 are wrong on screen**, all at the kicking vertex with a one-row gap and nothing in
+  between: `eng_stapip_cull_tce_vu1` (**resident**), `gen_vu_script3_d`, `gen_vu_script3_tce`.
+  Triangle T is drawn iff `!(v1 out || v2 out || v3 of T-1 out)`. That is **not conservative in
+  either direction** - a triangle whose third vertex is outside is drawn unclipped when the
+  previous triangle's third was inside (the smeared-triangle failure the retired `vu1-clipping-plan.md` (in git history)
+  names), and a fully-inside triangle is dropped when the previous one's third was outside. Along
+  a frustum silhouette both happen.
+* **2 of 23 are load-bearing and survive by luck.** Their gap is two rows and the row between is
+  `mulq | waitq` on a `div` issued above the `clipw`; DIV latency is 7, so the stall carries the
+  reader past its push. Correct, and nothing in openvcl was aiming for it - reschedule and it
+  stops being true.
+
+**Why upstream's own test suite cannot catch it.** Without `--exempt-full-clip-masks` the latency
+tracker holds the reader on its own - and that is exactly the configuration upstream's
+`test_flag_latency` "clipw followed by fcand" case runs in. The test passes because it exercises
+the path on which the emitter half of the bug is inactive.
+
+The fix is unconditional in both halves: `padForClipFlagWindow` pads *every* CLIP reader, and the
+latency tracker makes every reader wait, with the mask now choosing only *how long* rather than
+*whether*. `--exempt-full-clip-masks` and `--clip-exemption-best-of` become **inert** as a result
+(verified byte-identical with and without them) and are kept rather than deleted, since the two
+latencies are separately calibrated and not required to stay equal.
+
+| | resident 10 | engine 25 | generated 45 |
+|---|---:|---:|---:|
+| SCE | 2028 | 3982 | 9264 |
+| before | 1992 | 3900 | 9216 |
+| **after** | **1998** | **3908** | **9242** |
+
+40 words, still under SCE on all three and 44 under the ceiling. The detector's `LAND` count goes
+**23 → 0** with SCE still clean, and the independent `p6-window.py` goes 16 → 2 (both residuals
+are sites where openvcl is *stricter* than SCE, i.e. conservative).
+
+`1998 / 3908 / 9242` was the standing gate for every round after this one and held
+byte-for-byte through eleven more fixes. Bug 14 above is the one that moved it, to
+**1996 / 3910 / 9242** — ten `waitq` that the engine's own microprograms needed and did not
+have. That is the number to check against now.
+
+**Not demonstrated on screen, and that is worth stating plainly.** The three wrong sites need a
+scene where those particular programs' kicking vertex judges a triangle on the frustum silhouette;
+`examples/reflections` renders byte-identically before and after, so the visual consequence here
+is inferred from the mechanism and the detector rather than observed. PCSX2's hardware renderer
+masks this class outright (recorded in the retired `vu1-clipping-plan.md`, still in git history), so any attempt needs the software
+renderer - which is what the screenshots above use - and a scene built for it.
+
+### A third one, and this time the detector came first
+
+Two bugs of the same family had been found by accident - one while chasing frames, one while
+auditing after the fact - and a third was known, named in both reports, and left twice as
+"latent". That word had already been wrong twice, and both times it meant *our instrument could
+not see it*. So this round the order was inverted: **build the detector, run it against SCE as a
+control, and only then touch the compiler.**
+
+`p8-flagorder.py` replays the source to give every flag reader the writer identities it must
+observe, replays the emitted `.vsm` the same way, and names which writer the reader should have
+seen and which it got. Three things make it trustworthy where the earlier instruments were not:
+
+* **The ISA table is parsed out of `VuInstructionInfo.cpp` at run time rather than retyped**, and
+  its self-test asserts `add.xy acc` → `ADDA`, an ACC *writer* - the exact dest-operand rule
+  whose absence hid the env-map miscompile from the previous audit.
+* It has fixtures that must FIRE (reader hoisted above its writer, two readers swapped) as well
+  as fixtures that must stay clean (a writer issued early but not yet landed - SCE does that
+  constantly).
+* **SCE is the control, and SCE corrected the instrument twice.** The ACC model had to become
+  per-field, because SCE interleaves `add.xy acc … madd.x` with `add.z acc … madd.z` and a
+  whole-register chain model called that a reorder - 57 false failures. And SCE's own
+  `STALL_LATENCY ?N` annotations are cycles during which a flag is still landing; ignoring them
+  invented divergences that were not there.
+
+That census is itself a result: **ACC has 1247 readers across 66 programs, CLIP 234 across 49,
+MAC 0 and STATUS 0.** "MAC is unreachable in this corpus" had been an inference from a quick grep
+for three mnemonics; it is now a measurement. The same sweep confirms the CLIP latency of 4
+against SCE's output - 2 / 3 / 4 / 5 give 129 / 106 / **2** / 44 findings - a constant that until
+now rested on an assertion in an upstream test.
+
+| | reader hoisted | readers swapped | ACC chain | not yet landed |
+|---|---:|---:|---:|---:|
+| SCE (control) | 0 | 0 | 0 | 2 |
+| openvcl, before | 0 | 0 | **7** | 23 |
+| openvcl, after | 0 | 0 | **0** | 23 |
+
+**And the bug was live.** `addPreciseImplicitFlagDependencies()` flushed its pending-writer list
+at a reader, so the *second* reader of a chain got no edge to the writers the first one consumed.
+In `stapip_clip_tce` and `vu_script2_tce` the env-map seeds sit at rows 52 / 101 / 137 and their
+`maddx.z` readers at 62 / **90** / **131** - two of the three above their own seed. Row 90 reads
+the `ACC.z` left by the *scale* chain instead. One of every three per-triangle `stq.z` values in
+those programs was that.
+
+The fix is deleting the flush, exactly as the accumulating-status pass already does. **Zero
+words** - 1992 / 3900 / 9216 unchanged - three programs reordered, all prior invariants intact
+(`clipw` 7 per clip program, `addaw` 3 per env-mapped program), and the `examples/reflections`
+frame is byte-identical to the previous build. Its reproducer fires on **stock upstream openvcl
+with no flags**, which makes it item 8 in `docs/upstream-openvcl.md`; the fix there is one
+deleted statement.
+
+**Still open, measured, not fixed.** The 23 "not yet landed" findings are real and are a
+different mechanism: in 13 programs a `fcand VI01,0x3FFFF` issues **one row after** its `clipw`,
+so the newest judgement has not landed and the reader judges the *previous vertex*. SCE never
+does this. The obvious escape - a hardware interlock stall filling the gap - was checked on
+`cull_tce` and does not apply: the stall lands *before* the `clipw` and moves both. The cause is
+upstream's `padForClipFlagWindow`, which has always exempted full-window masks; turning our own
+`--exempt-full-clip-masks` off only takes 23 to 19. The reasoning in `vuClipReadIsFullWindow` -
+"0x3FFFF asks *is anything outside*, so which entry it sits in does not matter" - covers *which
+position* a judgement occupies but not *whether the newest one has arrived*, and 0x3FFFF is three
+entries wide. Same shape as the two before it: safe by an argument about one property, wrong
+about another.
+
+### A second live miscompile, and this one was visible: environment mapping did not render
+
+The CLIP bug cost frames and changed no pixel. The ACC bug **deleted environment mapping
+outright**, and it shipped for just as long.
+
+The engine's env-map block builds its S/T coordinates by accumulating:
+
+```
+add.xy  acc, vf00, envConsts[w]     ; the seed - deleted by the shipped build
+add.z   acc, vf00, envConsts[z]
+madd.x  stq1, envConsts, tyraEnvDotR[x]
+madd.y  stq1, envConsts, tyraEnvDotU[x]
+```
+
+`implicitWriteIsObservable()` saw "another ACC writer" below the `.xy` seed and deleted it,
+**without checking that the later write does not cover the earlier one's fields**. ACC is
+per-field; the resource was one bit. So the env-map coordinates were accumulated onto whatever
+the *previous vertex* had left in `ACC.xy`. Sony's `vcl` emits `addaw.xy` three times per
+program; the shipped build emitted **zero**, across the 8 `*_tce*` programs - 24 instructions.
+
+**On screen that is not subtle.** Same engine, same scene, only the assembler different: before
+the fix the reflective spheres in `examples/reflections` are flat tinted blobs with no reflection
+at all; after it they show the reflected horizon and the reflected geometry. Screenshots are
+44 691 and 69 486 bytes - the PNG entropy alone tells you the picture gained detail.
+
+**Why every check in this migration passed it.** The pixel comparisons and GIF-packet
+comparisons were run on terrain and clipper scenes, which never touch the `*_tce*` programs. The
+one property that would have caught it - "openvcl emits the same instruction multiset as SCE" -
+was measured per block on `cull_c`, not corpus-wide by opcode.
+
+**And the audit that looked for exactly this missed it.** The previous pass concluded ACC was
+"not reachable in this corpus - zero adjacent ACC-writer pairs with non-covering masks". Its
+scanner required an accumulator *mnemonic* (`adda|mula|madda|…`), but VCL lets the *destination
+operand* select the accumulator form, so `add.xy acc, …` was invisible to it. A corrected scanner
+finds 24 uncovered writers in 8 programs on the shipped build and 0 on the fixed one. Same shape
+as every other miss in this file: an instrument that answered a narrower question than the one
+being asked, and returned a reassuring zero.
+
+Two more fixes ship alongside it, both byte-identical on all 70:
+
+* **The status register is now an accumulating resource.** `FSAND`/`FSEQ`/`FSOR` read it, every
+  MAC writer and `DIV`/`SQRT`/`RSQRT` write it, and `FSSET` is declared **read-and-write** - that
+  one declaration makes it a hard barrier under the RAW/WAR tests that already exist, with no
+  test needing to learn what a "clear" is. The class emits **no writer-to-writer edge**, so the
+  WAW-between-every-pair-of-FMACs catastrophe that made a naive fix worse than the bug never
+  arises. The sticky half needs no last-writer; the non-sticky half is pinned only when the
+  reader's own immediate names a non-sticky bit. Measured cost on a synthetic corpus that uses
+  `fs*`: zero rows when nothing reads status, one row when something does.
+* **Declared live-out resources** (`out_hw_clip`/`out_hw_status`) now reach
+  `vuIgnoredFlagWawResourcesForRemaining()`, which had been deciding "dead" from in-program
+  readers alone while the dead-write pass honoured the declarations. One question, one answer,
+  one place.
+
+| | resident 10 | engine 25 | generated 45 |
+|---|---:|---:|---:|
+| SCE | 2028 | 3982 | 9264 |
+| before these three | 1968 | 3868 | 9190 |
+| **after** | **1992** | **3900** | **9216** |
+
+Still under SCE on all three, 50 words under the 2042 ceiling. All re-measured from `nm` on the
+real engine build, with `addaw` back to 3 per env-mapped program.
+
+### Does the parity generalise? Two scenes say yes, and three say nothing at all
+
+The parity result above came from one scene. That scene runs **two programs out of seventy**, so
+generalising from it would have been exactly the mistake this file has already made twice. A
+second scene was measured, and - the part worth copying - **every scene was measured with a
+sensitivity control**: the pre-fix build as a third arm, purely to answer *can this scene detect
+the difference at all*.
+
+| scene | Sony | pre-fix | post-fix | verdict |
+|---|---:|---:|---:|---|
+| fresh fpp, 128x128 terrain, VU1 clipper | 100.4 | 78.3 | **99.5** | sensitive; **parity** |
+| `procedural`, 25 objects / 22 models / 1.1 MB of geometry | 87.84 | 75.21 | **87.38** | sensitive; **parity** |
+| `day-night`, models + lights, 32x32 terrain | 99.0 | 98.83 | 99.66 | **blind** - the fix is worth +0.8% here against +27% on the terrain scene |
+| `raytraced-mirror`, VU1 clipper, light | 52.5 | - | 52.4 | blind |
+| `vu-lab`, precise clipper | 86.96 | - | 86.97 | blind - never uploads the clip programs at all |
+
+**Three of the five scenes cannot see a 27% difference.** A "parity" reading from any of them is
+not a result, it is a measurement of nothing - and `day-night` in particular *looks* like a
+perfect confirmation (99.78/98.28 against 99.14/99.52) while its own control shows it registers
+0.8% of a change worth 27% elsewhere. Take a sensitivity control on every perf scene here, or the
+number will eventually agree with whatever you hoped.
+
+What the two sensitive scenes do establish: the deficit was **-21% and -14.4%** on different
+geometry mixes, and after the clip-window fix both are within 1% of Sony's `vcl`. The second
+scene is model-heavy rather than terrain-heavy, so it exercises paths the first never touches.
+
+**Still not isolated on hardware:** `cull_d`/`cull_td` specifically - the lit-model class, whose
+per-iteration gap to SCE is 43% (169/173 cycles against 118/123) and which every arm of every
+exchange rate produced an identical schedule for. `procedural` covers the lit path in a mix; a
+scene that is *only* lit high-poly models would size that family on its own, and nothing here
+does that yet.
+
+### The same mistake, looked for everywhere else
+
+The bug is a category, not an instance: **a resource the compiler treats as "a later write kills
+an earlier one" when the hardware does not work that way.** Every resource the dead-write walk
+and the dependency builders reason about was audited against that question. Two more were wrong.
+
+**The R register - two bugs, fixed, and one of them fires on pristine upstream with no flags.**
+`src/VuInstructionInfo.cpp` declared `RNEXT` as a pure *read* and `RXOR` as a pure *write*. Both
+are read-modify-write: `RNEXT` advances the LFSR and then copies it out, `RXOR` folds a source
+field into the current R. Three reproducers, all confirmed:
+
+* `rget` scheduled *above* `rnext`, reading the un-advanced LFSR - **on stock upstream openvcl
+  at commit `a5867c3` with zero flags**, because neither instruction is a writer in the table so
+  the graph has no edge between them at all;
+* an `rnext` whose destination VF is dead **deleted** under `--drop-dead-writes`, silently
+  dropping an LFSR step (its `implicitWrites` is `NONE`, so the observability walk is never even
+  consulted);
+* `rinit R,seed` and the first `rxor` both deleted, leaving one `rxor` folding into whatever R
+  held on entry - the CLIP mistake exactly, a later write that *consumes* the earlier one.
+
+Declaring both as `reads=R, writes=R` fixes all three and needs no change to the walk, which
+checks `implicitReads` before `implicitWrites`. Zero cost here: no `r*` instruction appears in
+the 70, so all 70 stay byte-identical.
+
+**The status register - not modelled at all.** `FSAND`/`FSEQ`/`FSOR`/`FSSET` carry
+`reads=NONE, writes=NONE` and no FMAC declares a status write, so on stock upstream an `fsand`
+schedules *before* the `mul.x` whose flags it exists to read, and under `--drop-dead-writes` that
+`mul.x` is deleted outright. Worse, `isVuMacReader()` **does** list `fsand`/`fseq`/`fsor` and
+`declaredHardwareResource()` maps `out_hw_status` onto MAC - so the compiler answers "is this a
+MAC reader?" two different ways in two places, and the latency tracker uses the one that says no.
+
+**Deliberately not fixed**, and the reason is the interesting part: the sticky bits
+(`ZS/SS/US/OS/IS/DS`) **accumulate** until `fsset` clears them, so there is no kill at all. Giving
+status a resource bit and marking every FMAC a writer would put a WAW edge between *every pair of
+FMACs* under the current pairwise builder and wreck every schedule. It needs an
+**accumulating-resource** class - writes commute, so no WAW, only RAW/WAR against readers and
+`fsset`. Latent here (zero `fs*` in the 70) and worth its own change.
+
+**ACC - true per field, false at the granularity the model uses.** `madda`/`msuba` correctly
+declare read-and-write, so accumulation is modelled, but ACC is per-field and the resource is one
+bit: `mula.x` followed by `mula.yzw` has the first deleted, because the walk sees "another ACC
+writer" and the second does not cover the first's fields. Not reachable here - a scan of all 70
+sources finds **zero** adjacent ACC-writer pairs with non-covering masks - and the fix is a field
+mask alongside the resource bit.
+
+**MAC, Q, P, I - sound**, with reasons rather than assumptions. MAC genuinely does kill whole
+(fields outside the destination mask are cleared, not preserved) and it is the one verdict resting
+on a manual rather than a measurement - moot here, since there are **zero** MAC-flag readers in
+all 70, which is exactly why `--drop-dead-writes` pays so well. Q and P look like they should have
+a pipeline hazard and do not: `VuLatencyTracker` holds every reader until the *last* writer's ready
+cycle, so a reader can never see a superseded result, and the walk returns "observable" at any
+branch or label, which keeps the guarantee block-local where the tracker is. `I` has `loi` as its
+only writer and nothing reads-and-writes it; 623 of them survive in the emitted corpus.
+
+One residual inconsistency, latent and worth fixing when someone is next in there:
+`vuIgnoredFlagWawResourcesForRemaining()` decides CLIP/MAC are dead purely from in-program
+readers, ignoring the `out_hw_clip`/`out_hw_status` declarations that `declaredHardwareResource()`
+does honour. With `out_hw_clip` declared, the scheduler may permute the `clipw` the dead-write
+pass correctly kept. Nothing in the 70 declares it.
+
+### The frame time is entirely VU1, and the EE never notices - measured
+
+Twenty-two flags were tuned against a static cycle model before anyone asked the console
+*where the frame time goes*. That measurement should have come first, and it settles what the
+model could not.
+
+The benchmark scene's own COP0 phase timers, logged rather than read off the HUD (the scene's
+`terrain_game.cpp` is taken over for this; nothing in the engine changed), alternated A/B with
+only the assembler different:
+
+| | FRAME | SCENE - EE time inside `renderScene` | rest |
+|---|---:|---:|---:|
+| Sony, run 1 | 9.90 ms | **7.70** | 2.20 |
+| openvcl, run 1 | 12.68 ms | **7.70** | 4.98 |
+| Sony, run 2 | 9.96 ms | **7.70** | 2.25 |
+| openvcl, run 2 | 12.55 ms | **7.70** | 4.85 |
+
+**EE time is identical to the hundredth of a millisecond, on both arms, in all four runs.** The
+EE issues the same work and finishes it in the same time; the whole +2.7 ms lands after it, as
+the frame waiting for VU1 to drain. The GIF packet VU1 stages was verified byte-identical to
+Sony's earlier, so the GS is doing the same work - what is longer is VU1 execution and nothing
+else.
+
+That closes the "maybe it is DMA shape, GS kicks or microprogram upload" question: it is not.
+And it puts a size on the target. 2.7 ms at 294.912 MHz is about **800 000 extra VU1 cycles per
+frame**, on a scene of ~98k vertices of overwhelmingly *unclipped* terrain - which runs the
+**cull** programs' per-triangle block far more than anything else. The measured per-iteration
+gaps there are +29 (`cull_c processing`, 166 against 137) to +51 (`cull_d vertexLoop`, 169
+against 118) cycles, and multiplied by this scene's triangle count they land in the same range.
+
+**Which explains every flag result in this file at once.** `--pair-best-of-cycles` at rate 2 is
+-5.91% of *corpus* modelled cycles and bought +0.4% frames; rate 4 is -2.76% and bought -0.5%.
+Both moved corpus-wide averages while leaving the cull per-triangle block untouched - and that
+block is the frame. The corpus average was never the right weight, and
+`cull_d`/`cull_td vertexLoop` being **immovable** (every arm of every exchange rate produces an
+identical schedule for it) is not a footnote, it is the whole remaining problem.
+
+**The rule that follows, for anyone continuing this:** a change that moves the cull programs'
+per-triangle block is worth more than any corpus-wide percentage, *even if the corpus total
+gets worse*. Modelled corpus cycles have now failed as a predictor of frames four times, in
+direction three of them.
+
+### Where the cycles actually go
+
+Modelled with an FMAC read-after-write pass added to openvcl's own `--cost` analyzer (scratch
+build, never shipped) and applied identically to both assemblers' `.vsm`. Calibrated against
+**SCE's own `STALL_LATENCY ?n` annotations**: 2640 modelled against 2585 annotated over the
+70 programs, +2.1%; on the resident 10, 382 against 378, +1.1%.
+
+| | SCE | openvcl |
+|---|---:|---:|
+| cycles, all 70 | 16030 | **26090 (+62.8%)** |
+| FMAC stall cycles, all 70 | 2614 | **12452 (4.8x)** |
+| rows, all 70 | - | +0.2% |
+| resident 10 | 2433 | **3656 (+50%)** on 38 FEWER words |
+
+The cause is not the scheduler's ready-list ranking. SCE interleaves three independent copies
+of a serial chain so each step sits three rows from its producer; openvcl runs them one at a
+time and stalls at every step (`vu_script3_c`: SCE 22 stall cycles, openvcl 347). Instrumenting
+the ready list: of **2011 stalling scheduling steps in `billboard_c`, only 168 (8.4%) had a
+zero-delay alternative available.** The list is genuinely dry, because **register allocation
+runs before scheduling** and its anti-dependences merge the independent chains into one. No
+amount of re-ranking reaches that; the ordering of the two passes is the problem.
+
+### And the root cause is narrower than that, which is what made it fixable
+
+"Allocation runs before scheduling" is true and would be a rewrite. The actual defect is one
+line. `BranchState::writeFloat` decides whether a write can reuse an alias with
+`depend = ((state.fields() & ~argument.fields()) != 0)`, and `state.fields()` is every field
+the name has **ever** been written, not the fields still **live**. So a name written `.z` and
+later `.x` stays **one `Alias` for the whole program**, and three independent per-vertex
+chains get welded onto one register before the scheduler ever runs. The scheduler keys
+hazards on the allocated register, so it sees one serial graph and there is nothing to
+interleave. On `vu_script3_c` SCE splits the same source name into VF22/VF27/VF26 and runs
+the three copies three rows apart: **22 stall cycles against openvcl's 347**, on 256 words
+against 258 - SCE spends registers to buy the interleave.
+
+`--split-dead-float-ranges` renames such a name per independent value before allocation
+(`vuS1` → `vuS1~1`, `~2`), and the rest of the compiler simply sees more names. Safety is by
+construction rather than by analysis: every access must sit in **one straight-line region**
+(no label, branch or directive inside, so a linear scan is exact and the value can neither
+enter nor leave), the region's first access must be a write, and a split point must be a
+write whose mask covers **every still-live field** and that does not read the name.
+`in_vf`/`out_vf` names are never renamed.
+
+Two things were needed to make it pay, and both were found by measuring rather than reasoning:
+
+* **First-fit is the wrong placement once ranges are split** - disjoint webs land back on the
+  same register and nothing changes. `preferSpreadRegister` takes the acceptable register
+  whose nearest occupied neighbour is furthest, in both the main loop and the two-address
+  chain pre-pass that places almost everything. **FLOAT only:** spreading the 16-wide integer
+  file caused most of the allocation failures, and restricting it is better on all three
+  corpora *and* on cycles.
+* **The split has to be retryable.** Three programs run out of registers with it
+  (`vu0_rt_kernel`, `vu_script2_d_cl`, `vu_script2_td_cl`), so allocation retries without it
+  and they compile exactly as before - the flag can only ever add programs that build.
+  (Suppression had to be made nestable for that, or the outer retry un-suppresses the inner
+  `--sink-loads-past-branches` one.) That retry is now a four-rung **ladder** - see below.
+
+| | SCE | 20 flags | **21 flags** |
+|---|---:|---:|---:|
+| modelled cycles, all 70 | 16030 | 25657 (+60.1%) | **21344 (+33.2%)** |
+| modelled FMAC stalls | 2614 | 12068 | **8002** |
+| resident 10, cycles | 2433 | 3545 (+45.7%) | **3010 (+23.7%)** |
+| resident 10, words | 2028 | 1978 | **1968** |
+| engine 25, words | 3982 | 3928 | **3868** |
+| generated 45, words | 9264 | 9254 | **9190** |
+
+**43% of the modelled cycle gap, and every corpus got smaller rather than paying for it.**
+On the console that is 3120 → 3360 frames, 77.98 → 83.98 FPS, the gap to Sony from -26% to
+-20%. The frame gap closes by less than the modelled one, which is what you expect when VU1
+is one stage of several.
+
+### The software pipeliner is the wrong tool, and that is now measured
+
+SCE interleaves three copies of a serial chain so each step sits three rows from its producer.
+That is what a software pipeliner does, upstream openvcl ships one, it is **on by default**
+(`--enable-generic-software-pipelining`), and nobody had ever checked whether it runs here. It
+was the largest unexplored door in this migration. It is now closed, with numbers.
+
+**It fires on none of the 70 programs.** Instrumented directly: 362 loop-opportunity records
+over 206 distinct loops in 61 programs, and **zero plans built**. So
+`--disable-generic-software-pipelining` is a no-op on this corpus. (The older "0 of 25 emit a
+`MAIN_LOOP` label" observation has a second, independent cause: those labels come only from
+`applyVuGenericKernelRewritePlans`, which sits behind the env var
+`OPENVCL_USE_GENERIC_KERNEL_REWRITE` *and* an eligibility test - unreachable twice over.)
+
+**The universal blocker is `not_simple_counted_loop`, on 206 of 206 loops**, and the reason is
+almost funny: `simpleCountedLoop` requires `hasLoopDirective`, which means the author wrote
+`--LoopCS` at the loop label. That directive appears in every ps2gl-derived upstream test
+fixture and in **zero of the 70 sources** this engine and editor generate. Its two immediates
+are stored and never read - it is a boolean marker, and nothing about trip count is derived
+from it.
+
+Lift that gate (measured behind a throwaway flag) and the hot loops still decline, for reasons
+that are properties of the loops rather than conservatism:
+
+| loop | remaining blockers |
+|---|---|
+| `cull_{c,tc,tce}` `vertexLoop` | `multiple_q_producers` (3 divides/iteration); multi-Q path adds `cyclic_prefix_side_effect`, `cyclic_prefix_or_main_label` |
+| `clip_*` `triLoop` | the same two lists (2 divides/iteration) |
+| `fanEmitLoop` | `requires_register_rotation`, three `multi_instruction_prefetch*`, `prefetch_clobbers_suffix` |
+| `planeLoop`, `edgeLoop` | the `multi_instruction_prefetch*` family |
+
+The multi-Q rewrite **clones the loop prefix**, and these prefixes contain `isw`/`sq` stores
+and real internal branch targets (`multiColor:`, `processing:`). Cloning them is wrong, not
+merely unproven.
+
+**And the decisive number: the resource this pipeliner exists to hide has no stalls here.**
+Measured independently by me over the engine's 25, both assemblers:
+
+| | FMAC RAW | FDIV issue | `waitq` |
+|---|---:|---:|---:|
+| SCE | 826 | 21 | 64 |
+| openvcl | **3616** | **0** | 179 |
+
+195 FDIV operations across the corpus and **zero** FDIV issue stalls. openvcl's `static_cycles`
+is already 181 *below* SCE's. The entire gap is FMAC **result** latency, which Q rotation
+cannot touch - and that also retires a planned line of work: the `waitq`/FDIV bucket was
+described in this file's own follow-up notes as the second-largest term, and it is 115 cycles
+against FMAC's 2790. A rounding error.
+
+Where the pipeliner does fire once the gate is lifted, it hurts every time: 16 programs get a
+plan, all 16 regress (+38 resident words, +314 engine, +208 generated, +5.9% cycles) and one
+stops building. Not shipped, and the probe is deliberately not carried in
+`docker/openvcl-tyrax.patch` - every line there is a line maintained against upstream, and the
+finding above is the durable part.
+
+**What this says about the remaining gap:** what SCE does on these blocks is FMAC-distance
+scheduling *within* one iteration, not cross-iteration Q rotation, and upstream ships no
+machinery for that. `--pair-best-of-cycles` is the only lever measured to move it.
+
+### Two families, two different causes - the allocation story is only half of it
+
+Everything above about welded chains is true of the `vu_script*` family. **It is falsified for
+the clip and cull programs**, and by the cleanest evidence available: in `stapip_cull_c`'s
+`processing` block openvcl and SCE emit the *same instruction multiset* - upper 117, lower 43,
+both sides. SCE places them in 130 rows and stalls 7 cycles; openvcl in 125 rows and stalls 41.
+The upper pipe alone bounds the block at 117 rows. **Same instructions, same pipes, fewer rows,
+three times the stalls: the entire gap is scheduling order.**
+
+That has its own one-line cause. Under `--fmac-interlock`,
+`VuSchedulerAnalysis::pairingHazardDelay` asks `manualReadHazardDelay`, which returns 0 for
+every VF operand still in flight - correctly, because the hardware interlocks and no `nop` is
+emitted. But `chooseReadyPairPartner` filters candidates on that same number, so it is **blind
+to FMAC read-after-write hazards**: a lower-pipe token four rows behind its producer looks
+free, gets paired onto a row that was ready now, and drags the primary into the stall with it.
+The comment next to it states the reasoning that fails - *"refusing to pair over it only costs
+instruction words"*. Refusing costs words; accepting costs cycles. It is why openvcl emits
+`sq X` on the row after `ftoi4 X, X` (19 stall cycles in one store tail) where SCE drains its
+stores four rows later for nothing.
+
+Measured per loop iteration, rows/cycles, which is what says where to look:
+
+| program | loop | SCE | openvcl |
+|---|---|---:|---:|
+| `cull_c` | `processing` (per triangle) | 130/137 | 125/**166** |
+| `cull_tce` | `processing` | 118/145 | 107/**223** |
+| `clip_d`/`td` | `triLoop` | 70/73 | 73/**131** |
+| `clip_*` | `planeLoop` (6x per crossing tri) | 8/23 | 8/**23** |
+| `clip_*` | `edgeLoop` (3-9x per plane) | 22/45 | 21/**48** |
+| `clip_*` | `fanEmitLoop` (3x per emitted tri) | 22/34 | 20/**47** |
+
+**The plane loop is at exact parity and the edge loop is three cycles behind.** The deficit is
+in the once-per-triangle transform block and in the fan emitter - not, as the console result
+first suggested, spread through the clipper's inner loops.
+
+`--pair-best-of-cycles` (the twenty-second flag) mirrors every entry of `--pair-best-of-many`'s
+strategy table with the partner filter asking the *cycle* question instead of the word
+question, and lets a segment take the cycle winner only when `cyclesSaved >= extraWords x 2`.
+That exchange rate is measured against the 2042-word ceiling the resident ten share, not
+chosen:
+
+| rate | resident words | resident cycles |
+|---|---:|---:|
+| off | 1968 | 3010 |
+| 4 | 1984 | 2956 |
+| **2** | **2016** | **2847** |
+| 1 | 2086 | **over the ceiling** |
+| SCE | 2028 | 2433 |
+
+**It is shipped and deliberately NOT in `VCL_FLAGS`.** Turned on it is worth -5.9% modelled
+cycles corpus-wide (gap to SCE +31.8% → +24.0%) and closes 90% of the gap on `cull_tc`'s
+once-per-triangle block, the dominant textured path. It costs 48 of the resident set's 74 spare
+words and puts the *generated* corpus 128 words **over** Sony, reversing the size claim this
+file makes three sections up. Calibrating against `--split-dead-float-ranges` (-16.8% modelled
+bought +7.7% frames), -5.9% predicts roughly +2.5-3% frames - below what this harness can
+confirm. Trading a published size result and two thirds of the micro-memory headroom for an
+unconfirmable few percent is not a trade to make silently; enabling it is one word appended to
+`ARG VCL_FLAGS` in both Dockerfiles when someone decides it is worth it.
+
+**The whole exchange-rate curve, and why none of it is enabled.** Words from `nm`, cycles
+modelled; two independent sweeps agreed to the word, and I re-measured the two shipped points
+myself on the real engine build (resident 1984, engine 3896 at rate 4).
+
+| point | resident | engine 25 | generated 45 | cycles, all 70 | |
+|---|---:|---:|---:|---:|---|
+| **off (shipped)** | **1968** | **3868** | **9190** | **21133** | |
+| per-segment free-only | 1968 | 3868 | 9190 | 21085 | -0.23%, zero words |
+| per-program no-growth | 1968 | 3868 | 9190 | 21003 | -0.62%, zero words, **5.6x compile time** |
+| rate 4 | 1984 | 3896 | 9248 | 20550 | -2.76%, and 16 under SCE's generated 9264 |
+| rate 2 | 2016 | 3964 | 9392 | 19884 | -5.91%, but **128 words OVER Sony** |
+| rate 1 | 2086 | 4072 | 9648 | 19261 | -8.86%, **44 over the hardware ceiling** |
+
+Rate 4 looked like the answer and the argument for it was good: it spends its words almost
+entirely in the clipper's per-edge and per-emitted-vertex loops - the deepest code in the
+corpus - and puts `edgeLoop` at **exact SCE cycle parity (45) in all five resident clip
+programs**. The model counts each block once, so trip-weighted that should be worth more than
+2.76%.
+
+**Measured on the console it is worth about half a percent, negative.** Alternated A/B against
+the flag-off build (ABAB, not blocks - blocks are what let drift masquerade as an arm
+difference once already): rate 4 at 84.01 / 84.61 FPS against 84.46 / 85.05, the same sign in
+both pairs. So the flag stays out of `VCL_FLAGS`, the constant stays at 4 for whoever enables
+it, and the honest summary is that **modelled cycles and frames have now disagreed in DIRECTION
+three times on this scene**. In this whole migration exactly one change turned modelled cycles
+into measurable frames: `--split-dead-float-ranges`, -16.8% modelled to +7.7% measured. Nothing
+smaller has survived contact with the console.
+
+A correction the agent that built this raised against its own brief, worth keeping so nobody
+re-runs it: **no exchange rate above 1, and no depth-graded budget, moves any of the three
+blocks named as the scoreboard** (`cull_d`/`cull_td vertexLoop`, `cull_tce processing`,
+`clip_d`/`td triLoop`). `cull_d`/`cull_td vertexLoop` is **immovable** - every arm produces an
+identical schedule, so the lever does not reach it at all. And the depth-graded budget loses to
+a plain rate at every matched budget for a structural reason: the model counts each block once,
+so grading toward the deep loops trades total modelled cycles for trip-weighted ones and then
+reports the loss.
+
+**Four doors this closed, all measured.** The ready-list *strategy* space is exhausted: 128
+strategy points (priority weight 6-400 x unblocking x cheap-partner x no-long-latency x
+stall-aware) with cycle-first selection at zero word cost buy 10 cycles on the resident ten,
+and the wide table matches the 7-arm one at every budget - the lever is the partner filter, not
+the rank function. Load sinking is not the cause (removing all four `--sink-loads*` makes the
+resident set *worse*, 3035 against 3010). `--fmac-interlock` is not the cause: with it off,
+openvcl pays 604 extra rows to remove 903 stalls, a 1:1.5 exchange, where SCE's own output
+trades 58 rows for 620 stalls, 1:10.7 - openvcl cannot buy SCE's schedule with rows. And
+blanket stall-aware pairing is not shippable at all: -290 cycles for +780 words puts the
+resident set over the hardware ceiling.
+
+### The ladder, and three corrections to the paragraph that used to be here
+
+This section previously said seven programs fell back, worth about 1200 modelled cycles, and
+that a ladder splitting the *widest-separated webs first* should reach them. All three claims
+were wrong, and the measurements that replaced them are worth more than the fix:
+
+* **Three programs fall back, not seven** - `vu0_rt_kernel`, `vu_script2_d_cl`,
+  `vu_script2_td_cl`, counted by grepping `Retrying allocation without` out of
+  `--show-reg-alloc` over all 70. The seven was a different set: programs whose *cycles* the
+  split does not move, six of which rename fine and simply schedule the same.
+  `vu_script3_td_cl` was named as untouched and is not - it renames 405 occurrences. Its
+  quoted "58 → 327" was SCE against the **20-flag** build, not against the tip.
+  Reachable cycles were **≤625, not ~1200**.
+* **The split is not what runs out of registers.** Peak simultaneously-live FLOAT aliases is
+  *identical* with the split and without it in all three - and that is forced, not lucky:
+  splitting a name partitions its live range, so it adds names but never adds values live at
+  a line. Two of the three failed eight and nine registers below the ceiling, and the alias
+  that actually fails is never a split web (`k0`, a constant; `bT`/`bHb`, ray hit state that
+  is never split). What runs out is `preferSpreadRegister` handing each of the first 31
+  values a fresh untouched register.
+* **So the ladder is about the spread's SCOPE, not the split's extent.** Rungs: spread every
+  float alias, then spread only the aliases the split created, then no spread, then no split.
+  A distance cap was the obvious alternative and is measured as a disaster - at N=4 the whole
+  corpus costs **+3491 cycles** and every corpus grows, because an empty register is exactly
+  what the interleave needs.
+
+| program | 20 flags | 21 flags | **ladder** | SCE |
+|---|---:|---:|---:|---:|
+| `vu0_rt_kernel` | 1278 / 747 | 1278 / 747 | **1066 / 540** | 867 / 337 |
+| `vu_script2_d_cl` | 380 / 155 | 380 / 155 | **377 / 151** | 281 / 63 |
+| `vu_script2_td_cl` | 405 / 165 | 405 / 165 | **409 / 171** | 290 / 60 |
+| all 70 | 25657 / 12068 | 21344 / 8002 | **21133 / 7797** | 16030 / 2614 |
+
+cycles / FMAC-stall cycles, modelled. 67 of the 70 outputs are byte-identical to the tip;
+the engine corpus goes 3872 → 3868 and the generated 9194 → 9190.
+
+**On the console the ladder does nothing measurable, and that is the honest verdict rather
+than a disappointing one.** On the VU1-bound scene it reads 82.36 / 82.21 against the tip's
+80.68 / 75.08 - the tip's own two runs differ by more than the arms do. On `raytraced-mirror`
+it reads 51.86 / 51.90 against 52.43 / 52.43, which looks like a 1% regression until you note
+those were measured in blocks rather than alternately, on a machine that has just shown a 7%
+spread between consecutive runs of one binary. Both readings are inside the noise. It ships
+for the four words and for the corrected diagnosis above, not for frames - and the modelled
+-211 cycles is 1.0% of the total, which is below what this harness can see anyway.
+
+**And that route is now closed.** A per-program best-of between the two placement modes is
+worth six more cycles, and `vu0_rt_kernel`'s peak pressure is 31 of 31 - six whole-program
+constants plus twelve long-lived ray/hit values at one line - so no placement policy reaches
+the 199 cycles it still owes SCE. What is left there is reducing pressure, not choosing
+registers better.
+
+Dead ends worth not repeating:
+
+* **Copy coalescing "on `move`" is the wrong target.** The 45 programs contain **57**
+  `move` instructions and **3673** two-address self-updates (`op d, d, s`).
+* **Coalescing without the retry is a regression**: 26/45 on the generated set but it broke
+  `vu0_rt_kernel`, which compiles fine without it. The chain pre-pass treats coalescing as a
+  *requirement* - one register free over the union of all members - so a long chain placed
+  early starves a later one.
+* **Trimming without hole punching** (clip to `[first,last]`) was worth 30 alone / 33
+  combined against 31 / 34 with holes.
+* **A better colouring order cannot fix the remaining 11.** Each exceeds 31 live *ranges*
+  at its peak (32, 33×5, 34×4, 37). The allocator is no longer the bottleneck there.
+
+What those 11 needed was **load sinking**, which SCE does and openvcl could not, because
+it allocates before it schedules. In SCE's `vu_script3_d.vsm` the loads land at rows
+50, 76, 126 and 195 - the one at 126 reusing the register `vertex1` had just vacated - so
+SCE never holds all six vertex and normal registers at once. Pulling each single-`lq`-defined
+range forward to its first read (`scratchpad/ra-sinkpeak.py`) brings **8 of the 11** under
+31; three would still be over, by 1, 3 and 4. The obstacle is that `Token::m_line` is a
+`const Line&` with a cached number and the allocator uses that number as its timeline, so
+moving a token breaks the ordering everything depends on.
+
+## Building it from source instead
+
+[`docker/Dockerfile.fromsource`](../docker/Dockerfile.fromsource) assembles the
+same toolchain from the official `ps2dev/ps2dev` base instead of inheriting the
+2022 `h4570/tyra` layers. `docker\build.ps1 -FromSource` / `docker/build.sh
+--from-source` builds it; the editor picks between the two per machine in
+*Edit > Preferences > Build toolchain*.
+
+The base is **pinned by digest**, not by tag, the same way the inherited one is.
+Not because it is old - it is three months old against the inherited image's four
+years (Alpine 3.23, GCC 15.2, binutils 2.45, newlib 4.6.0), and it is multi-arch
+including **arm64**, which the inherited image cannot be while it carries
+`qemu-i386` to run Sony's `vcl`. The pin is because `ps2dev/build-all.sh` clones
+its sub-projects at their tips, so a tag can move under us; a digest cannot.
+Rebuilding that toolchain ourselves would buy only the pinning we get from the
+digest, and cost an hour per CI run plus ownership of GCC and binutils bugs on
+MIPS R5900.
+
+**What it removes:** the last binary with no source in the loop. What is left is
+GCC and binutils (GPL-3.0-or-later, so a public push carries their source-offer
+duty), PS2SDK and openvcl (AFL-2.0), vclpp (MIT) and ps2link.
+
+**`vclpp` was never a blocker**, contrary to the assumption that it was a second
+`vcl`. h4570's own Dockerfile builds it from
+[glampert/vclpp](https://github.com/glampert/vclpp) (MIT, one `.cpp`), and today's
+HEAD emits `.vsm` byte-identical to the 2022 binary on all 70 programs - it only
+stops writing trailing whitespace.
+
+### What the base actually cost
+
+Seven obstacles, and they are three different kinds of thing:
+
+**The base is incomplete for compiling** (three). `libstdc++` for the two VU
+tools, and `gmp`/`mpfr4`/`mpc1` - GCC's OWN runtime deps, without which `cc1plus`
+cannot start - plus `make` and `rsync`. Each surfaces as a hundred lines of
+"symbol not found" or "Error loading shared library", which reads like a broken
+image rather than a missing package.
+
+**Upstream removed a tool** (one). `bin2s` turns an IRX into an assembly blob with
+`<name>_irx` / `size_<name>_irx` symbols, and `Makefile.base` embeds ten modules
+that way. ps2sdk deleted it in `8dafdfde` ("Remove bin2s and bin2o in favor of
+bin2c"), which is in v2.0.0. `bin2c` is not a drop-in - it emits a C array, so
+switching means changing every extern declaration and call site in the engine,
+which is an upstream Tyra change. The tool is rebuilt from the commit before its
+removal instead; still AFL-2.0 ps2sdk source, just no longer shipped.
+
+**Our own assumptions** (one). The Runner installed the container-side C++
+compiler with `apt-get`, which Alpine does not have - and the failure surfaced as
+"A VU source failed to build", sending the reader into their own C++. It asks the
+image now.
+
+**Real engine bugs the old image was hiding** (three), and these are the argument
+for doing this at all:
+
+* `renderer_3d_pipeline.hpp` used `std::function` without including
+  `<functional>`. GCC 11 reached it transitively; GCC 15 does not.
+* `FileUtils::fromCwd` concatenated the working directory with a file name and
+  relied on `getcwd()` returning a trailing separator. The stock image's ps2sdk
+  returns `host:/dir/bin/`, a current one returns `host:/dir/bin` - so every path
+  became `.../binlivepad.bin`, and PCSX2 refused it with *"Denying access to path
+  outside of ELF directory"*, which points at the emulator's sandbox rather than
+  at a missing slash. The game could open no file at all, including its own log.
+  `getCwd()` also ignored `getcwd()`'s return value, handing callers stack
+  garbage on failure.
+* `RendererCoreTexture::unregisterAllocation` searched for a texture id and, if
+  it was not registered, erased at an **uninitialised** index - a corrupted
+  vector or a crash from a caller that merely asked twice. GCC 11 did not see
+  it; GCC 15 does, and `-Werror` turns that into a build failure. It now erases
+  inside the loop and warns instead.
+
+### audsrv: the one dependency that had to be ported, not copied
+
+The image cannot just carry the committed `vendor/tyra/audsrv/bin/libaudsrv.a`.
+It is built by the stock image's GCC 11.3 and carries that compiler's LTO
+bytecode, which GCC 15.2 refuses outright - and one committed artifact cannot
+serve two toolchains. Nor can the fork simply be dropped: the engine calls
+`AUDSRV_ADPCM_CH_CORE`, `_CH_VOICE`, `_CHANNELS` and `_FORCE`, none of which
+exist in a stock audsrv, so without it the engine does not **compile** - never
+mind losing positional audio and the second SPU2 reverb unit (`docs/reverb.md`).
+
+So the EE half is compiled inside the image, from the same sources, by the
+compiler that will link it. What made that a port rather than a copy is a
+rename: upstream moved ten EE-side SIF RPC entry points to `sce`-prefixed names,
+and the two SDKs export **disjoint** sets - measured, not assumed.
+
+| | `SifCallRpc` | `sceSifCallRpc` |
+|---|---|---|
+| `h4570/tyra`'s ps2sdk (2022) | in `libkernel.a` | absent |
+| a current ps2dev ps2sdk | absent | in `libkernel.a` |
+
+`vendor/tyra/audsrv/ee/src/sif-compat.h` aliases the ten, gated on
+`TYRAX_PS2SDK_SCE_SIF`. The switch has to come from **outside** the compile and
+that is not laziness: the module is always built against the pinned old ps2sdk
+source tree, so every header the preprocessor can see is the old one whichever
+image is building - only the link target differs. (`__has_include(<sifrpc-common.h>)`
+was tried and is exactly that trap: the file is present in a current image and
+still invisible to this compile, so it silently chose the old names and the game
+failed to link.) `Dockerfile.fromsource` sets the variable because it is the one
+place that knows which ps2sdk the result will be linked against; the inherited
+image sets nothing and gets the old names, unchanged.
+
+Only the EE half is rebuilt. `audsrv.irx` is an IOP module the engine **embeds
+as data** (`bin2s` → a blob in `libtyra`), so no EE compiler links it and the
+committed one is toolchain-agnostic - which also sidesteps the IOP compiler
+having been renamed (`mipsel-ps2-irx-gcc` here, `mipsel-none-elf-gcc` on a
+current base). That last prebuilt artifact is the open item in `docs/backlog.md`.
+
+The Runner's overlay is now skipped by asking the image whether it already
+carries the fork (`grep AUDSRV_ADPCM_CH_CORE` in its `audsrv.h`) rather than by
+probing whether the committed library links - otherwise it would put the other
+toolchain's artifacts straight back over the ones the image built.
+
+### Verified
+
+| | inherited (`h4570/tyra`, GCC 11.3) | from source (`ps2dev`, GCC 15.2) |
+|---|---|---|
+| engine programs | 25/25 | **25/25** |
+| generated programs | 45/45 | **45/45** |
+| resident VU1 set | 1968 words | **1968** (SCE 2028, ceiling 2042) |
+| engine corpus, all 25 | 3868 words | **3868** (SCE 3982 - openvcl is 114 under) |
+| generated corpus, all 45 | 9190 words | **9190** (SCE 9264 - 74 under; it was +22 at 19 flags) |
+| frame rate, VU1-bound scene | - | **-20% against Sony's `vcl`** (see "Measured on the console") |
+
+Smaller than Sony's `vcl` on **all three** corpora as of the twentieth flag, and 20% slower
+as of the twenty-first. The `microcode, all 70 | byte-identical to the inherited build` row above was
+established at 19 flags and has not been re-checked at 20 - byte-identity of the *microcode*
+across images is a property of the image swap, and the flag changes both images equally.
+| microcode, all 70 | - | **byte-identical to the inherited build** |
+| `examples/vu-lab` | builds, runs | **builds, runs, 0 assertions** |
+| VU1 packet on the sampled flush | - | **identical to both the inherited build and Sony's** |
+| audsrv | committed `bin/`, overlaid at container start | **EE half compiled in the image, `sce`-prefixed, fork intact** |
+
+The audsrv row is checked, not assumed. `audsrv_init()` sits under a
+`TYRA_ASSERT` and is one of the calls the compat header rewrites, so a game that
+reaches its render loop has already completed the EE→IOP RPC handshake with the
+fork's own IRX - a mismatch halts on-screen instead. `vu-lab` boots to the scene
+with 0 assertions, and the log shows the Runner reporting *"Image already carries
+the TyraX audsrv - skipping the overlay."* Both spellings were verified in both
+directions: without the define the build emits `SifCallRpc`/`SifSetDma` and links
+on the old SDK, with it `sceSifCallRpc`/`sceSifSetDma` and links on the current
+one. `SifAllocIopHeap`/`FreeIopHeap`/`InitIopHeap` kept their names upstream and
+resolve from `libkernel.a` either way, which is why the header lists ten and not
+thirteen.
+
+### Round fifteen: the regions no instrument had ever looked at
+
+Fourteen rounds of differential testing had swept the same ground with better and
+better instruments, and rounds eleven through fourteen each found their bug on the
+previous round's "still unexamined" list. This round was that list and nothing else:
+seven regions where the corpora contain none of the construct, so a clean oracle
+report over them says nothing at all. The work was building the shapes, not
+re-running the sweeps. **Two more defects, both upstream's, both silent, and both
+free on everything this project compiles.**
+
+**`.syntax old` decides whether a name is a field by its spelling.** An entire
+parsing mode nothing in this effort had ever compiled. In old syntax a component
+selection is written onto the end of the name — `vf01x`, `gif_tagx` — and openvcl
+strips an alias's trailing `xyzw` *before* asking whether the argument can carry a
+field at all, then rejects the whole argument when it turns out it cannot. An
+integer alias whose name ends in x, y, z or w therefore does not compile; the list
+of spellings that survive is five hardcoded English trigrams (`dex`, `tex`, `lex`,
+`rex`, `sex`), which is exactly why ps2gl's `next_index` works and `next_matrix` is
+"Invalid argument". Sony's `vcl` compiles both, identically. The silent half is
+worse: where the argument *can* take a field, the trigram list makes `vertex` a
+whole quadword to openvcl and `verte` field `x` to Sony's `vcl` — the same source,
+two different programs, no diagnostic from either. Fixed by asking the modifier
+first and then stripping unconditionally. Written up as item 12 of
+[upstream-openvcl.md](upstream-openvcl.md).
+
+**A loop-carried live range is abandoned for the whole loop when the count is over.**
+`extendLoopDirectiveRange` refuses to extend anything when the aliases *overlapping*
+a loop outnumber the register file — and the set it counts is not the set it
+extends. What gets extended is the carried names; what gets counted also includes
+every short-lived temporary in the body, which is never extended and costs nothing.
+So the guard fires because of the temporaries and then drops the extension for the
+carried name, whose register goes to a temporary and whose value is gone by the
+second iteration. Round fourteen had named this early return and left it open for
+want of a reproducer. It has one now: a `--LoopCS` loop with thirty-four float
+temporaries and one carried name diverges from its own source under two independent
+oracles, the same loop with two temporaries does not, and removing the guard makes
+the first one clean *and it still allocates*. Item 13 of the same page.
+
+**Why fourteen rounds walked past it, and who it reaches anyway.** Without a
+`--LoopCS` directive on the branch target, openvcl does not treat a back edge as a
+loop at all, so the function containing the guard is never entered. An instrumented
+build says it plainly: across the 70 real microprograms and all 1360 generated stress
+programs, the guard fired **zero** times in the default configuration and **387**
+times on the 70 with `--loop-liveness-always`, where it is disabled by its own
+condition. It needs the directive *and* the default configuration together, and no
+corpus in this project has either.
+
+openvcl's own does. All twelve ps2gl fixtures in `test/fixtures/` carry `--LoopCS`,
+and on a plain checkout with no flags **ten of the twelve take the guard**, eighteen
+sites between them — `indexed.vcl`, the smallest, twice: 37 float aliases against 31
+and then 24 integer aliases against 15. This is not a synthetic-only shape; it is
+live on the corpus upstream ships as its own, in the configuration a plain `make`
+produces. (A first pass at this claim said no fixture used the directive. It was a
+case-sensitive `grep` for `--loop` against a directive spelled `--LoopCS`, corrected
+here because the wrong version of that sentence is what would have made this defect
+look academic.)
+
+**What the two fixes cost: nothing, and that is checkable rather than argued.**
+`.syntax new` never reaches the parsing change, and `--loop-liveness-always` already
+skipped the guard, so both are no-ops on everything TyraX compiles. Measured that
+way: the 70 keep **1996 / 3910 / 9242** words, seven `clipw` per clip program and
+three `addaw` per env-mapped one, per-program word counts identical, and the
+microcode md5 stays `e78d466912af036dfea8d0a9f3b8385c`. All three generated stress
+corpora recompile **byte-identical** — 0 of 400, 0 of 480 and 0 of 480 programs moved
+— and so do openvcl's own twelve ps2gl fixtures. In the default configuration, which
+is where both defects live, eight of those twelve fixtures change and all twelve
+still allocate; over `test/regress/src` compiled with no flags the set of programs the
+value oracles call divergent goes from ten to nine, with nothing new joining it.
+
+The regenerated `docker/openvcl-tyrax.patch` was applied to a pristine checkout of
+the pinned commit `a5867c3` and rebuilt: the resulting binary is byte-identical to
+the one every measurement above was taken with. That check is the one this file has
+argued for repeatedly — a bump to that patch is a diff no reviewer can read, and the
+binary a reader can build from it has to be the binary that was tested.
+
+The suite goes from 45 cases to **50**: three reproducers and two controls, and
+`docker/openvcl-regress.sh` reads **46 pass / 0 fail / 4 xfail** on the new build
+against **43 / 3 / 4** on the shipped one, the three failures being exactly the
+three reproducers. It also grew a mechanism it did not have — a case may now name
+one flag to *drop*, because a defect that lives in a flag's off path cannot be
+asserted by a suite that only ever compiles one configuration, and the loop case is
+the first of those.
+
+**Five regions came back clean, and each one needed an argument rather than a sweep.**
+
+*Latency across a forward branch for anything that is not Q or P.* Bug 12 fixed the
+block-entry skew for the FDIV and EFU pipelines only. The integer file and the
+MAC/STATUS flags have the same exposure in principle, and neither is reachable:
+
+- The only VI producer with a modelled ready cycle is `ilw`/`ilwr` — everything else
+  that writes an integer register has latency 1 and records nothing at all. The
+  shortest taken-edge distance from a producer in the predecessor block to the first
+  row of the target is two rows, the branch and its delay slot, which is the three
+  cycles `--sce-latencies` calibrates an integer load to. An `ilw` cannot be closer:
+  not in the branch row (both are LOWER-pipe) and not in the delay slot, because
+  `canMoveIntoBranchDelaySlot` refuses any candidate with `latency() > 1`. Sony's
+  `vcl` *does* put an `ilw` in a delay slot on the same source — and pads its branch
+  target with three NOP rows when it does.
+- The MAC and STATUS flags need one cycle (`--sce-latencies`, calibrated), and two
+  consecutive rows already provide one. Sony's own output says one is the real
+  figure and not a modelling choice: over one generated corpus it places a MAC reader
+  in the row immediately below its producing FMAC 266 times and a status reader 127
+  times.
+
+A new path-aware instrument, `pi-pathgap.py`, checks this rather than trusting it: it
+rebuilds the control-flow graph over the emitted rows the way the emitter's own CLIP
+pass does — a branch fans out from its delay slot, never from the branch row — and
+reports, per dependency class, the fewest rows any path executes between a producer
+and its consumer. Run against Sony's `vcl` first, as every instrument here must be:
+on the 70 and on all three stress corpora, openvcl's minimum is at or above Sony's
+minimum in every class. The one place it goes below is `int-load` feeding a *branch*,
+which is `--branch-interlock` doing exactly what it was measured to do.
+
+The instrument deliberately does not judge CLIP. A CLIP reader is not paired with the
+nearest push — SCE keeps two and three clips in flight on purpose — so a
+nearest-producer distance would report Sony's own correct output as a violation. That
+question belongs to `p8-flagorder.py`, and the emitter answers it in
+`padClipFlagWindowAcrossPaths`, which is already path-aware.
+
+*MAC and STATUS provenance, judged against the source instead of against Sony.* The
+suite carries this as XFAIL on the grounds that no valid cross-assembler comparison
+exists. That is an argument against a differential test and not against a self-oracle,
+so the self-oracle was built — it turned out to exist already, behind `PB_MAC=1` and
+`PB_STATUS=1` in `pd-cond.py`, switched on by nothing in fourteen rounds — and run.
+**It fails its positive control.** On the same sources, Sony's `vcl` diverges from its
+own source on 195 of 343, 275 of 390 and 262 of 388 programs, five to six times
+openvcl's 40 / 59 / 58. An oracle that calls the reference implementation wrong on
+two-thirds of a corpus is measuring its own model. The reason generalises from the
+differential case to the self case: the MAC register holds exactly one value at a
+time, so *any* inserted or deleted FMAC changes what an `fmand` observes, and both
+assemblers insert and delete them. A usable oracle would have to prove either that the
+reader's result is dead or that the substituted flags are equal, and neither follows
+from the source. The XFAIL stands, now with a number behind it — and openvcl scores
+strictly better than Sony on the model that is too strict for both.
+
+*More than one `fcset`.* The reference is known-wrong here (the suite's `fcset_hoist`
+XFAILs record Sony reordering CLIP readers around a second `fcset` where openvcl is
+right), so this had to be reasoned from the hardware. `fcset` writes the whole
+24-bit CLIP register from an immediate, which makes it a barrier in both directions,
+and openvcl's ISA table declares it a CLIP *writer*: two `fcset`s are ordered against
+each other and against every `clipw` by WAW, a reader below one is ordered by RAW, and
+a reader above one by WAR. Shapes with two and three `fcset`s, each window holding its
+own push and reader, pass `p8-flagorder`, `pa-dag`, `pb-dag` and `pd-cond`. Note the
+asymmetry with `FSSET`, which is declared read-*and*-write precisely to make it a
+barrier: the status bits are sticky, so a contributor moved past a clear survives it,
+while a `clipw` moved past an `fcset` is simply overwritten.
+
+*`ilwr` / `iswr`.* Compiled for the first time in this effort. Both forms parse, emit
+and assemble; the address register is read and the destination written as the table
+says; and the load lands in the calibrated three cycles before its consumer. Sony's
+`vcl` declines to emit them at all on the same source — it constant-folds the base into
+an `ilw`/`isw` with an offset — so there is no differential verdict to have, only the
+self-oracle, which is clean.
+
+*Non-contiguous `.init_vf` / `.init_vi`.* Two blocks of each, split and separated by
+other directives, accumulate correctly and compile identically to Sony's `vcl`. One
+thing does not: a `.init_vf` placed *after* the code it applies to is accepted by
+Sony's `vcl` and rejected by openvcl with a diagnostic that names the directive as a
+read — `Read-attempt from uninitialized float register (.init_vf >>> vf03-vf08 <<<)`.
+That is a loud failure on a shape no source in this project uses, so it is recorded
+here and not fixed.
+
+**What was not examined, and what would have to be true for a bug to hide anyway.**
+
+- `extendMultiQStageLiveRanges` has a second copy of the abandoned-extension guard,
+  over the same over-counted set, for multi-`Q` staging. No reproducer was attempted.
+- Two loud divergences from Sony's `vcl` were found and left alone, because a
+  compiler that stops is not the failure mode this effort is about: openvcl rejects
+  `p` as an alias name (Sony's `vcl` accepts it — VCL's reserved names have bitten
+  this project before), and it rejects a `.init_vf` placed after the code it applies
+  to. Both produce an error rather than a program.
+- The three corpora were **not** re-judged against Sony's `vcl` after the fixes,
+  because their output is byte-identical to the build that already was. That is a
+  stronger statement than a re-run, not a weaker one — but it is only true because
+  the byte comparison was made, and a future change that moves a single program owes
+  the oracle sweep.
+- The path-aware instrument counts **rows**, and a row is at least a cycle. A gap at
+  or above the threshold is therefore proof; a gap below it is a question, because a
+  row that stalls the hardware buys cycles a row count cannot see. Nothing here is
+  asserted against a constant for that reason — the verdict is always openvcl against
+  Sony on the same source.
+- For the forward-branch argument to be wrong, either `canMoveIntoBranchDelaySlot`
+  would have to start admitting a producer with a latency, or the one-cycle MAC figure
+  would have to be wrong in a direction Sony's own 266 adjacent readers do not show.
+- For `.syntax old` to hide another defect it would have to be in a construct none of
+  the seventeen hand-built old-syntax programs used — and they are narrow: aliases,
+  broadcasts, destination masks and the integer forms, all against Sony's `vcl` on the
+  same source. The mode is now exercised by three regression cases where it was
+  exercised by none, which is a floor and not a sweep.
+
+### Round sixteen: a live miscompile on hardware, and the value oracles could not see it
+
+The scene `blocks-terrain` renders correctly on a real PS2 built with Sony's `vcl` and
+**corrupt** built with openvcl - triangles that occlude the screen, changing as the camera
+moves - same engine sources, same console, `TYRAX_IMAGE` the only difference. Confirmed by a
+human at the television. This is the defect, the mechanism and the fix.
+
+**Every value oracle passes the corpus that ships, and that is the first finding.** The
+25 programs a real engine build hands the assembler were pulled out and judged, both arms,
+against their own `.o.vcl` sources: `pb-dag` (path-sensitive values) **0 divergent over 277
+traces**, `pd-cond` (branch conditions) **0 divergent, 2631 conditions, 119 of 119 branch
+sites reached**, `pt-clipgap` clean with every CLIP reader at or above the hardware's 4-row
+floor, and a store-vs-`xgkick` order check clean on all 25. So the defect changes **when a
+value is readable, not what anything computes**, and no oracle in this file asks that
+question about integer registers.
+
+**The mechanism: a branch condition is a distance along a path, and openvcl measured a
+file.** The emitter's baseline is one bubble row in front of every conditional branch.
+`--branch-bubble-on-dependency` narrows that to branches whose condition is actually
+produced nearby, and asks with `scheduledSlotsFeedBranch()`, which looks at the one or two
+**schedule slots above the branch**. A branch in the middle of a block has no other
+predecessor and the answer is right. A branch that is the **first row of a labelled block**
+has another one: the **delay slot of every jump to that label** - and a delay slot is
+exactly where `--emit-delay-fillers` puts an integer op.
+
+main's #218 walks the frustum planes with a per-package object-space mask in an integer
+register, which is a shape no corpus here had before:
+
+```
+planeLoop:
+    ibltz   buffer, planeActive        <- first row of the block
+...
+planeAdvance:
+    ibne    planePtr, vertMask, planeLoop
+    iadd    buffer, buffer, buffer     <- delay slot: shifts the mask
+```
+
+The file shows the shift five rows above the label; the hardware executes it **one row
+before the branch**. So every iteration after the first tested the **previous** plane's bit,
+the clipper applied the wrong subset of the six planes, and geometry that should have been
+clipped reached the GS. Which planes are wrong depends on where the object sits in the
+frustum, which is why it moves with the camera. **PCSX2 cannot see it** - its VU has no such
+hazard, the branch reads the value written the row before - and the retired `vu1-clipping-plan.md`
+predicted that this class would be masked there. This is the first demonstration.
+
+**Sony is the control, and it settles the threshold without a new hardware ladder.** A new
+path-aware instrument (`<scratch>/qz-brgap.py`, and `test/regress/lib/pz-brgap.py` in the
+fork) rebuilds the CFG over emitted rows the way `insertOneCrossPathClipPad` does - a branch
+fans out from its delay slot, never from the branch row - and reports, per conditional
+branch, the fewest rows any path executes between a writer of its condition and the branch.
+Loads and CLIP/MAC/STATUS readers are exempt, because `--branch-interlock` is the deliberate
+decision to let the hardware wait for those and Sony emits that shape on purpose with
+`STALL_LATENCY ?3` beside it. On the 25 shipping programs:
+
+| | sites | minimum | at 0 |
+|---|---:|---:|---:|
+| Sony `vcl` | 122 | **1** | 0 |
+| openvcl, shipped | 83 | **0** | **5** |
+| openvcl, fixed | 83 | **1** | 0 |
+
+All five zeros are the same site in the five `stapip_clip_*` programs: `ibltz buffer` at the
+`planeLoop` head with `iadd buffer,buffer,buffer` in the back-edge delay slot. **Sony emits
+the identical delay-slot fill and then pads the loop head with two rows**, which is what
+makes this a bug rather than a disagreement about latency - and no constant had to be
+invented, because openvcl already believes one row is owed whenever it can see the
+dependency. The first version of that instrument reported **zero sites for the entire Sony
+arm**: it split rows on runs of whitespace, and `vcl` pads between a mnemonic and its
+operands. Fourth time in this effort that a search finding nothing was evidence about the
+search.
+
+**The fix** is `padBranchConditionAcrossPaths()`, a post-pass beside the CLIP one and on the
+same graph, extracted into a shared `buildEmittedRowGraph()` so there is one copy of the
+delay-slot fan-out rule. For a conditional branch that opens a labelled block, if any path
+predecessor writes one of its condition registers, one `nop`/`nop` goes in **below the
+label** - so the fall-through and every taken edge pass through it, which padding above the
+label cannot do. It runs after the clip pass: inserting rows can only lengthen a CLIP
+push-to-reader distance, never shorten one.
+
+**Cost, from `nm`, on the corpus that ships:** `stapip_clip_c` +2 and `stapip_clip_td` +2,
+everything else unmoved. Five rows are inserted and three of them are absorbed by the
+`.align 4` padding already before `_CodeEnd`. Resident 8 images **1652 to 1656** against
+Sony's 1678 and a ceiling of 2042; all 25 programs **4002 to 4006** against Sony's 4066.
+`pb-dag`, `pd-cond` and `pt-clipgap` are unchanged on the fixed output.
+
+**And it moves nothing else.** Over the 25, exactly **five programs move and each gains
+exactly one row** - the five `stapip_clip_*` - and the other twenty are byte-identical.
+openvcl's own twelve ps2gl fixtures are byte-identical too, in the default configuration
+(where the pass returns immediately, because `--branch-bubble-on-dependency` is off and the
+unconditional bubble is already in front of every branch) **and** under the full TyraX flag
+list: 0 of 12 moved in both.
+
+**The suite grows a kind, because it had to.** Four kinds compare what a program computes and
+all four pass the buggy build on this corpus, so a fifth question was needed rather than a
+fifth case: **BRGAP**, `pz-brgap.py`, derived from the ISA table's own operand patterns
+rather than a second list of opcodes. Two cases: `branch_backedge_cond` reduces the plane
+walk to nine instructions and **fails on `tyrax-ab:pw`, passes on the fix**; its control
+`branch_backedge_cond_ok` is the same loop with the head branch testing a register the loop
+never writes, asserted as `MAXCOUNT nop:25` - so an emitter that padded every loop head would
+pass the reproducer and fail the control. `docker/openvcl-regress.sh` reads **50 pass / 1
+fail / 4 xfail** on the shipped build, the single failure being the reproducer, and **51 / 0
+/ 4** on the fixed one.
+
+**Verified the way this file requires.** Rebuilding the *unmodified* fork through the same
+container path gives a binary byte-identical to the one `tyrax-ab:pw` carries, so the build
+path is not a variable. The regenerated `docker/openvcl-tyrax.patch` applied to a pristine
+checkout of the pinned `a5867c3` and rebuilt gives md5 `8a5b026beac2ad23516d92d6ed18dede` -
+the same binary every number above was measured with. And the microcode actually deployed to
+the console was read back out of the engine volume to confirm it carries the pad below
+`planeLoop:` before the run was believed.
+
+## Still open
+
+- **The GHCR package is private** until the repo is, so nobody outside can pull
+  the image yet; the workflow pushes it regardless (`GITHUB_TOKEN` can). This is
+  now the *only* thing between the from-source image and being the default for
+  every generated project — everything technical is done and measured.
+- **`docker/Dockerfile` has no CI coverage** now that it is the unpublished
+  reference. Breaking it would be found by the next person doing an A/B, which
+  is exactly the moment you do not want to be debugging a Dockerfile. Cheap
+  insurance if it ever bites: a build-and-check-only job for it, on
+  `pull_request` alone.
+- **`vendor/tyra`'s audsrv overlay is still applied at container start** on the
+  *inherited* image, by the Runner rather than baked in, because `vendor/` is
+  fetched by `deps.*` and is not in that image's build context. The from-source
+  image bakes it (its `.dockerignore` lets exactly those paths through) and the
+  Runner detects that and skips. Baking it into the inherited image too would
+  remove one first-build step; the stamping logic in `src/runner.cpp` explains
+  why it is cheap as it stands.

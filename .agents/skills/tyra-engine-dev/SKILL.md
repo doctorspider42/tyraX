@@ -1566,6 +1566,16 @@ banner both, so a previously built ELF still reports.
   rebuild the three artifacts in `bin/` that `src/runner.cpp` overlays into the
   build container. Change the sources and you must re-run that script and commit
   `bin/` in the same commit - nothing in the game build compiles audsrv.
+  **Except on the from-source image**, which compiles the EE half itself
+  (`docker/Dockerfile.fromsource`) because the committed `libaudsrv.a` carries
+  GCC 11.3 LTO bytecode a newer GCC refuses, and skips the Runner's overlay -
+  so a source change reaches THAT image only after the image is rebuilt. The
+  crossing is `ee/src/sif-compat.h`: upstream renamed ten EE-side SIF RPC entry
+  points to `sce`-prefixed ones and the two SDKs export disjoint sets, so the
+  header aliases them under `TYRAX_PS2SDK_SCE_SIF`, which only the image can set
+  (the compile always sees the old pinned headers - `__has_include` cannot tell
+  them apart). It is included FIRST, before any ps2sdk header, because the
+  aliases must rewrite the declarations too. See the fork's README, change 3.
   `./build.sh --check` diffs a fresh build against the committed artifacts;
   `audsrv.irx` is byte-identical while `libaudsrv.a` never is (ar stamps its
   members, gcc's LTO section names carry a random per-compilation id), so the

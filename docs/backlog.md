@@ -13,6 +13,39 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+### Publish the from-source toolchain image, then make it the default
+
+The image that assembles VU1 microcode with `openvcl` instead of Sony's
+unlicensed `vcl` is built and measured (`docs/toolchain-image.md`), and projects
+can already select it with `TYRAX_IMAGE`. What is left before it can be the
+default: publish it, with the LGPL source offer for the vendored audsrv and the
+GPL offer for GCC/binutils in place and the image labels pointing at something
+that is not a 404. Then flip the default for NEW projects only, so an existing
+project stays on its own `.env`, and flip the rest once a couple of real projects
+have shipped a cycle on it.
+
+### Judge openvcl against the ps2gl fixtures
+
+Twelve of upstream's own `test/fixtures` are real third-party VU code and no
+oracle has read them yet. The immediates are handled now (operators are tokens,
+division truncates toward zero as both assemblers do — measured); what remains is
+nested-`MUL` modelling in `pb-dag.py`. At the first point the oracle disputes, the
+compiler was verified correct by hand, so this is about the instrument's reach and
+not a suspected defect. Positive control as always: the same pass over Sony's
+output for the same sources.
+
+### Send the openvcl defect reports upstream
+
+`docs/upstream-openvcl.md` carries the defects this work found, each with a
+mechanism and a reproducer, several firing on the stock commit with no flags.
+Nothing has been submitted and no pull request is open.
+
+### Regenerate the 70-program assembler snapshot
+
+The corpus used as a stability anchor predates the clip-path rewrite, so it is
+valid for "identical inputs must give the same md5" and wrong for absolute sizes.
+Regenerate it from a real engine build, in its own commit, and re-anchor the md5.
+
 ## Small
 
 ### Ignore baked models in nested asset folders

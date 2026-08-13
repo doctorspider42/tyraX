@@ -1389,15 +1389,35 @@ QSL3@:
 ;//     that are stored in the w component of XYZ2 will set the ADC
 ;//     bit, which tells the GS not to perform a drawing kick on this
 ;//     triangle.
+;//
+;// TyraX WARNING, learned the hard way: a comment as the FIRST line of a
+;// #macro body makes vclpp expand the whole macro to NOTHING - no error, no
+;// warning, the caller just gets no instructions. That is why every note below
+;// sits ABOVE the #macro line. It was not always so: between 2026-07-14
+;// (93a7657, "Rebrand fork to TyraX") and this commit, the note that now
+;// follows lived inside the body, so THIS MACRO EXPANDED TO NOTHING and
+;// mcpip_cull - its only caller - shipped with no frustum clip check at all.
+;// Measured with `vclpp mcpip_cull_vu1.vclpp -` : clipw 0, fcand 0.
+;//
+;//
+;// TyraX note: this macro is intentionally UPSTREAM-ORIGINAL.
+;// Three attempts at a guard band here (I-register scale, STATUS-flag
+;// w test, DIV/Q-built constant) all corrupted the ADC bits under VCL
+;// scheduling and rendered flickering garbage when geometry crossed the
+;// frustum sides. Until that is debugged on real VU1 tooling, precise
+;// clipping (the editor default) routes edge-crossing geometry through
+;// the EE clipper instead - correct, just slower on pathological scenes.
+;//
+;// TyraX note 2, on the SPELLING of the operands below. CLIPw.xyz is
+;// "vf_dest_xyz, vf_src_w", so the second operand's w field is implied. Sony's
+;// vcl infers it; openvcl used to reject it and - worse - then emitted the
+;// program WITHOUT the clipw while keeping the fcand that reads its flags: a
+;// frustum test against flags nobody set, with no error. openvcl is patched to
+;// accept the implied w instead (docker/openvcl-tyrax.patch), so the operand
+;// stays bare below. Writing the field out in a macro body would not work
+;// anyway - vclpp reads brackets as its register-array index.
 ;//---------------------------------------------------------
 #macro PerformClipCheck: t_vertex, t_destAddress, t_destAddressOffset
-   ; TyraX note: this macro is intentionally UPSTREAM-ORIGINAL.
-   ; Three attempts at a guard band here (I-register scale, STATUS-flag
-   ; w test, DIV/Q-built constant) all corrupted the ADC bits under VCL
-   ; scheduling and rendered flickering garbage when geometry crossed the
-   ; frustum sides. Until that is debugged on real VU1 tooling, precise
-   ; clipping (the editor default) routes edge-crossing geometry through
-   ; the EE clipper instead - correct, just slower on pathological scenes.
    clipw.xyz	t_vertex,   t_vertex
    fcand       VI01,       0x3FFFF
    iaddiu      adcBit,     VI01, 0x7FFF

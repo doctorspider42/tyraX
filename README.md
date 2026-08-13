@@ -323,6 +323,14 @@ did not change is not rewritten, so a build with nothing to do finishes in secon
 **Build > Rebuild** drops the container, the objects and the compiled engine when
 an incremental build cannot see what went wrong; *Clean* also wipes `bin\`.
 
+That image is also **built from this repo** (`docker/`), which is what makes a
+publishable toolchain possible at all: Sony's VU1 assembler is unlicensed, so the
+from-source image assembles the microcode with [openvcl](https://github.com/ps2dev/openvcl)
+instead. Point a project at another image with `TYRAX_IMAGE` in its `.env`. What can
+move in that image and what cannot is measured, not guessed, in
+[docs/toolchain-image.md](docs/toolchain-image.md) — including the seventeen
+miscompiles that migration found.
+
 ## Run on a real PS2
 
 With a console on the LAN running the **TyraX ps2link**, **Build > Build && Run on
