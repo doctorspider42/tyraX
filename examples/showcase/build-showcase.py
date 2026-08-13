@@ -233,13 +233,13 @@ def village_objects():
         model("v-ridge-tower", "ridge-watchtower",
               "res/models/modular-village/village-watchtower.obj",
               (-18, 0.15, -8), rot=(0, 15, 0), scale=(1.7, 1.7, 1.7),
-              layer="ridge"),
+              layer="ridge", extra={"meshLod": 10}),
         light("v-ridge-lamp", "ridge-watchtower-lamp", (-16.8, 3.0, -5.8),
               (1, 0.55, 0.2), 8, 0.8, layer="ridge", flicker=0.25),
         model("v-market-tavern", "market-tavern",
               "res/models/modular-village/village-tavern.obj",
               (18, 0.15, 10), rot=(0, 215, 0), scale=(1.55, 1.55, 1.55),
-              layer="market"),
+              layer="market", extra={"meshLod": 10}),
         light("v-market-lamp", "market-tavern-lamp", (16.5, 2.8, 11.7),
               (1, 0.55, 0.2), 8, 0.8, layer="market", flicker=0.25),
     ]
@@ -253,7 +253,8 @@ def village_objects():
         out.append(model(f"v-cottage-{i}", f"village-cottage-{i+1}",
                          "res/models/modular-village/village-cottage.obj",
                          (x, 0.12, z), rot=(0, yaw, 0),
-                         scale=(scale, scale, scale), layer=layer_name))
+                         scale=(scale, scale, scale), layer=layer_name,
+                         extra={"meshLod": 10}))
     out += [
         model("v-wagon", "market-wagon", "res/models/medieval/Prop_Wagon.obj",
               (8, 0.3, 3), rot=(0, 72, 0), scale=(1.4, 1.4, 1.4), layer="market"),

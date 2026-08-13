@@ -78,12 +78,17 @@ license notes.
 Source textures were downsampled to 128 or 256 pixels and material paths were
 made project-relative. The village kit uses its original flat-colour materials;
 its modules are assembled into complete cottage, tavern and watchtower meshes
-so each building remains a single model submission. Blender's collapse
+so each building remains a single model submission. The wall-module pivot sits
+half a cell behind its rendered face; rotated end-wall rows therefore include
+the corner modules and an extra outward cell of offset, keeping the stone lower
+story closed instead of leaving detached foundation panels. Blender's collapse
 decimator reduced the five heaviest static meshes and all three skinned
 creatures while preserving their UVs, materials, armatures and animation
 actions. The final animated meshes are 634, 746 and 719 triangles.
 Already-low-poly assets were left untouched. The
-showcase keeps the PS2's memory and fill-rate limits visible instead of hiding
+village buildings use a 10-unit per-object mesh-LOD threshold, keeping their
+full silhouettes nearby and switching to baked 50%/25% tiers at gameplay
+distance. The showcase keeps the PS2's memory and fill-rate limits visible instead of hiding
 them behind an emulator: layers stream by district or feature wing, far props
 are culled, skeletal updates have an LOD radius, particle pools are bounded,
 and the FPS/free-memory overlays are enabled in the debug profile.
