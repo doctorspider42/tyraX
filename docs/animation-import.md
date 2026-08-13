@@ -59,7 +59,9 @@ Two more switches, both on by default:
 
 - **Retarget root motion** scales the hip travel by the two rigs' hip heights and
   re-anchors it on your model's rest hip, so a clip authored on a taller
-  character does not make yours skate.
+  character does not make yours skate. Units convert through model space, so a
+  rig that keeps its bones in centimeters under a scaled armature node (Mixamo)
+  retargets onto a meters-authored one without the hips flying off.
 - **Ignore scale** drops the source's scale tracks — export noise in most rigs
   and a rig-breaker in a few.
 

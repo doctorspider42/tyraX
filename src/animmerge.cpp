@@ -79,6 +79,31 @@ M4 localOf(const SkelNode& n) {
     return trs(n.t, n.r, n.s);
 }
 
+// Mean scale of the node's PARENT chain at bind - the factor between the
+// node's local units and model space. A Mixamo rig keeps its bones in
+// centimeters under a 0.01-scaled armature node, so a root-motion delta read
+// from its channels is 100x the model-space meters; this is the number that
+// converts. 1.0 on an unscaled rig, exactly.
+float parentGlobalScale(const Skel& s, int node) {
+    if (node < 0 || node >= (int)s.nodes.size()) return 1.0f;
+    std::vector<int> chain;
+    for (int i = s.nodes[(size_t)node].parent;
+         i >= 0 && i < (int)s.nodes.size(); i = s.nodes[(size_t)i].parent) {
+        chain.push_back(i);
+        if (s.nodes[(size_t)i].parent == i) break;
+    }
+    M4 acc;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+        acc = mul(acc, localOf(s.nodes[(size_t)*it]));
+    float mean = 0.0f;
+    for (int c = 0; c < 3; ++c)
+        mean += std::sqrt(acc.m[c * 4 + 0] * acc.m[c * 4 + 0] +
+                          acc.m[c * 4 + 1] * acc.m[c * 4 + 1] +
+                          acc.m[c * 4 + 2] * acc.m[c * 4 + 2]);
+    mean /= 3.0f;
+    return mean > 1e-9f ? mean : 1.0f;
+}
+
 // A node's rest position in model space - what the hip-height ratio measures.
 void restGlobalTranslation(const Skel& s, int node, float out[3]) {
     out[0] = out[1] = out[2] = 0.0f;
@@ -877,12 +902,23 @@ bool merge(Skel& target, const Skel& donor, const ImportSpec& spec,
                 if (std::fabs(donorRest[1]) > 1e-3f &&
                     std::fabs(targetRest[1]) > 1e-3f)
                     ratio = std::clamp(targetRest[1] / donorRest[1], 0.05f, 20.0f);
+                // The delta is read in the DONOR's local units and written in
+                // the TARGET's - and those are different spaces the moment a
+                // rig keeps its bones under a scaled armature node (Mixamo:
+                // centimeters under a 0.01 parent). Convert through model
+                // space, or a 10 cm hip sway lands as 10 meters (the exact
+                // reported blow-up on Superhero_Female x Female.fbx). Both
+                // factors are exactly 1.0 on unscaled rigs, so a same-unit
+                // pair merges bit-identically to before.
+                const float unit = parentGlobalScale(donor, ch.node) /
+                                   parentGlobalScale(target, targetNode);
                 const float* dLocal = donor.nodes[(size_t)ch.node].t;
                 const float* tLocal = target.nodes[(size_t)targetNode].t;
                 for (size_t k = 0; k + 3 <= out.values.size(); k += 3)
                     for (int c = 0; c < 3; ++c)
                         out.values[k + (size_t)c] =
-                            tLocal[c] + (out.values[k + (size_t)c] - dLocal[c]) * ratio;
+                            tLocal[c] + (out.values[k + (size_t)c] - dLocal[c]) *
+                                            ratio * unit;
                 report.rootMotionScale = ratio;
                 ++report.rootTracksRetargeted;
             }
@@ -1274,11 +1310,14 @@ void posedPreview(const Skel& target, const Skel& donor,
             if (std::fabs(donorRest[1]) > 1e-3f &&
                 std::fabs(targetRest[1]) > 1e-3f)
                 ratio = std::clamp(targetRest[1] / donorRest[1], 0.05f, 20.0f);
+            // Same unit conversion as merge() - see the comment there.
+            const float unit = parentGlobalScale(donor, ch.node) /
+                               parentGlobalScale(target, tn);
             const float* dl = donor.nodes[(size_t)ch.node].t;
             const SkelNode& tb = target.nodes[(size_t)tn];
             for (int c = 0; c < 3; ++c)
                 locals[(size_t)tn].m[12 + c] =
-                    tb.t[c] + (tv[c] - dl[c]) * ratio;
+                    tb.t[c] + (tv[c] - dl[c]) * ratio * unit;
         }
     }
     std::vector<M4> tg;
@@ -1380,18 +1419,40 @@ std::vector<std::pair<std::string, std::string>> parseAiBoneMap(
     const json::Value* pairs = root.find("pairs");
     if (!pairs || pairs->type != json::Value::Type::Array) return out;
 
+    // Lenient lookup: models strip namespaces ("mixamorig:") and drift on
+    // case, and a strict comparison threw EVERY pair away on a real rig
+    // ("AI proposed nothing usable"). Exact name first, then the normalized
+    // form - mapped back to the REAL names, which is what the pair stores.
+    MergeOptions norm;  // defaults: strip namespace + lowercase
+    std::map<std::string, std::string> donorByNorm, targetByNorm;
     std::set<std::string> donorNames, targetBones, usedD, usedT;
     std::vector<char> tIsBone, tIsRoot;
     boneSets(target, tIsBone, tIsRoot);
-    for (const SkelNode& nd : donor.nodes) donorNames.insert(nd.name);
+    for (const SkelNode& nd : donor.nodes) {
+        donorNames.insert(nd.name);
+        donorByNorm.emplace(normalize(nd.name, norm), nd.name);
+    }
     for (size_t i = 0; i < target.nodes.size(); ++i)
-        if (tIsBone[i]) targetBones.insert(target.nodes[i].name);
+        if (tIsBone[i]) {
+            targetBones.insert(target.nodes[i].name);
+            targetByNorm.emplace(normalize(target.nodes[i].name, norm),
+                                 target.nodes[i].name);
+        }
+    auto realName = [&](const std::string& given,
+                        const std::set<std::string>& exact,
+                        const std::map<std::string, std::string>& byNorm) {
+        if (exact.count(given)) return given;
+        const auto it = byNorm.find(normalize(given, norm));
+        return it != byNorm.end() ? it->second : std::string();
+    };
     for (const json::Value& pr : pairs->arr) {
         const json::Value* sV = pr.find("s");
         const json::Value* tV = pr.find("t");
         if (!sV || !tV) continue;
-        const std::string sN = sV->stringOr(""), tN = tV->stringOr("");
-        if (!donorNames.count(sN) || !targetBones.count(tN)) continue;
+        const std::string sN = realName(sV->stringOr(""), donorNames, donorByNorm);
+        const std::string tN =
+            realName(tV->stringOr(""), targetBones, targetByNorm);
+        if (sN.empty() || tN.empty()) continue;
         if (usedD.count(sN) || usedT.count(tN)) continue;
         usedD.insert(sN);
         usedT.insert(tN);
