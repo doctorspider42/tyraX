@@ -3192,6 +3192,9 @@ bool App::drawAnimBoneMapWindow() {
     ImGui::InvisibleButton("##bonehit", ImVec2(cSize.x > 1 ? cSize.x : 1,
                                                cSize.y > 1 ? cSize.y : 1));
     const bool canvasHover = ImGui::IsItemHovered();
+    // The canvas owns the wheel while hovered - without this the same wheel
+    // that zooms the skeletons also scrolled the window around them.
+    ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
     const ImVec2 mouse = ImGui::GetIO().MousePos;
 
     // View input first, so this frame already draws the moved view: wheel
