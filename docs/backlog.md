@@ -29,10 +29,27 @@ mechanism is in
 [ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
 Three things are still owed, in order of value:
 
-1. **Reproduce it.** Attempted 2026-08-13 and **not achieved** — so the guard
-   is verified only as "does not break RPC" (PCSX2, frame 2640, BIND and CALL
-   across fio/audsrv/libmc), never as "catches the real fault". What the attempt
-   established, so the next one starts further along:
+1. **Reproduce it.** Attempted 2026-08-13 and **not achieved**, with a measured
+   negative result rather than a shrug — so the guard is verified only as "does
+   not break RPC" (PCSX2, frame 2640, BIND and CALL across fio/audsrv/libmc),
+   never as "catches the real fault".
+
+   **The negative result.** `examples/showcase` (streamed music, so the song
+   streamer thread is live), hostile fixture, guard **not installed** — proved
+   by `engine.o` referencing only `report()` and by `install()` having exactly
+   one call site — ran **120 min / ~79 500 frames** under continuous `--pad`
+   load with the world verifiably changing, and did not fault once. That is
+   **44x** the frames of the natural failure at ~1 800 and, at ~2.7x the RPC
+   density, roughly **1.8x the RPC count** of the natural run that survived
+   122 640 frames. The console was left healthy.
+
+   **Arm B was deliberately NOT run.** If surviving without the guard is the
+   norm in this fixture then surviving with it proves nothing, and presenting
+   two survivals side by side would look like a confirmed fix. The switch script
+   and both ELF hashes are kept (`7767d8bc…` arm A, `ee632e44…` arm B, one call
+   apart) so the comparison is one command away the moment something reproduces.
+
+   What the attempt established, so the next one starts further along:
 
    - **The A/B rig works and is cheap to rebuild.** Two ELFs from one generated
      tree, differing in a single call: arm A's `engine.o` references only
