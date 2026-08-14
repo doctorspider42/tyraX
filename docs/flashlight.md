@@ -10,10 +10,19 @@ worth knowing before you tune anything.
 
 ## The two halves
 
-**The cone** is a real light. The engine's spot light (`setSpotLight`) is
-evaluated **per vertex on VU1** — a cone term and a distance falloff added on
-top of the baked vertex colours, with no N·L term (the colour pipelines carry no
-normals). It lights props, models and the walls of a room.
+**The cone** is a fill. The engine's spot light (`setSpotLight`) is evaluated
+**per vertex on VU1** — a cone term and a distance falloff added on top of the
+baked vertex colours, with no N·L term (the colour pipelines carry no normals).
+It is what lights the small things the pool cannot reach: props, trees, the
+avatar.
+
+It is deliberately dimmer than the pool (0.7 of the torch's colour) and given a
+much **softer edge**, because on a coarse mesh that edge *is* the artifact. The
+term is evaluated per vertex, so a crisp cone edge crossing a triangle metres
+wide shows up as that triangle, and a model with few of them reads as a bag of
+bright shards. A wide gentle ramp spreads the same change over enough geometry
+that the interpolation stops being visible; the price is a fuzzier beam edge,
+which is what a torch beam has anyway.
 
 It is only ever as fine as the mesh it lands on, which is why **the terrain does
 not take it at all**. A terrain cell is never smaller than one world unit, so on
@@ -206,6 +215,29 @@ The viewport previews the **cone**, per pixel, with the exact formula VU1 runs.
 It does not draw the pool. So the editor is a good guide to reach, angle and
 colour, and the console is where you judge the gobo — the two are answering
 different questions rather than disagreeing.
+
+## What is still on the model, and what to do about it
+
+A model with few triangles, lit by the cone, shows them: the shading changes
+across a triangle and the triangle is metres wide, so you see its edges. The
+soft cone above takes most of the sting out of it, and there is no version of a
+per-vertex term that fixes the rest — it is the term's own resolution.
+
+Three things that actually help, in the order they are worth trying:
+
+1. **Build big architecture out of boxes**, or make sure a big model is its own
+   static batch. Then it is a receiver like a wall: the pool lands on its face
+   per pixel and it takes no cone at all.
+2. **Keep the torch modest and the scene dark.** The banding is a *contrast*
+   artifact: it is invisible on a surface that is only gently lit, and glaring
+   on one the torch has saturated.
+3. **Tessellate what you shine at.** A wall of two triangles cannot be lit
+   per-vertex; the same wall as a 4x4 grid can.
+
+Games of this era leaned on the same three, plus one thing this engine does not
+have: their environments were *lightmapped*, so the torch was a projected
+texture on top of a surface whose lighting was already baked per pixel, and
+almost nothing depended on per-vertex dynamic light.
 
 ## See also
 

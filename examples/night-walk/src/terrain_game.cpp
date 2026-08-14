@@ -2674,9 +2674,21 @@ void TerrainGame::loop() {
   if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
   if (g_flashEnabled && g_flashOn) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
+    // The cone is a FILL now, not the light (docs/flashlight.md): the ground
+    // and every big flat surface take the projected pool instead, and what is
+    // left for this term is the small stuff - props, trees, the avatar - where
+    // the pool cannot go. So it is deliberately dimmer and MUCH softer-edged
+    // than the light it used to be.
+    //
+    // Softness is the edge's crispness, and on a coarse mesh it IS the artifact:
+    // the cone term is evaluated per vertex, so a hard edge crossing a triangle
+    // metres wide shows up as that triangle, and a model with few of them reads
+    // as a bag of bright shards. A wide, gentle ramp spreads the same change
+    // over enough geometry that the interpolation stops being visible. It costs
+    // a fuzzier beam edge, which is what a torch beam has anyway.
     engine->renderer.core.setSpotLight(
-        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
-        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+        Color(FLASHLIGHT_R * 0.7F, FLASHLIGHT_G * 0.7F, FLASHLIGHT_B * 0.7F),
+        cameraPosition, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
   } else {
     engine->renderer.core.disableSpotLight();
   }
