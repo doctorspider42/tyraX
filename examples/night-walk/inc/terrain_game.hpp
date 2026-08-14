@@ -1268,7 +1268,7 @@ class TerrainGame : public Tyra::Game {
   // projected pool is doing that job on them (big flat boxes the cone would
   // simply flood). Rebuilt each frame by updateFlashSpotOff.
   std::vector<int> flashSpotOffList;
-  void updateFlashSpotOff();
+  void updateFlashSpotOff(int alsoObj);
   void setFlashSpotOff(int obj, bool lit);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn

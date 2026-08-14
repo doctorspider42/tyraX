@@ -8200,8 +8200,10 @@ void TerrainGame::setupLightPools() {
     // The flashlight's second patch - same everything, its own buffers, for the
     // wall the beam is touching while it also lights the floor.
     if (b.objIndex < 0) {
-      b.wVerts.assign(b.verts.size(), Vec4(0.0F, 0.0F, 0.0F, 1.0F));
-      b.wSts.assign(b.sts.size(), Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+      // Sized per frame from the geometry the beam lands on; reserved once
+      // so the per-frame clear/push never reallocates in the steady state.
+      b.wVerts.reserve(4096);
+      b.wSts.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
@@ -8210,6 +8212,9 @@ void TerrainGame::setupLightPools() {
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;
       b.wInfo->spotLit = false;
+      // Unfogged, the additive rule (the env pass does the same): GS fog would
+      // ADD the fog colour through this blend and brighten fogged pixels.
+      b.wInfo->fogDisabled = true;
       b.wInfo->fullClipChecks = true;
       b.wColorBag = std::make_unique<StaPipColorBag>();
       b.wColorBag->single = &b.wColor;
@@ -8302,9 +8307,6 @@ void TerrainGame::updateAndRenderLightPools() {
       projCollectBoxes(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
                        cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
                        FLASHLIGHT_RANGE * 0.5F + 2.0F);
-      // Every big flat box in that reach comes off the per-vertex cone now,
-      // aimed at or not.
-      updateFlashSpotOff();
       float wallT = 0.0F, wallSign = 0.0F;
       int wallAxis = -1;
       ProjBox wallBox;
@@ -8314,13 +8316,27 @@ void TerrainGame::updateAndRenderLightPools() {
         // The face's outward normal, in world. A face pointing mostly UP is a
         // floor, and the ground path below already lands the pool on it through
         // projSurfaceAt; anything steeper than about 45 degrees is a wall and
-        // belongs here, where the patch can lie in its actual plane.
+        // belongs here, on the object's own triangles.
         const float* fa = wallAxis == 0 ? wallBox.ax
                                         : (wallAxis == 1 ? wallBox.ay
                                                          : wallBox.az);
         const float ny = fa[1] * wallSign;
         onWall = ny < 0.7F;
       }
+      // Every big flat box in reach comes off the per-vertex cone (aimed at or
+      // not), and so does the object the beam is ON when its hit face is
+      // wall-sized - for a model that is what stops the cone re-drawing its
+      // Gouraud diagonal across the very pool that replaces it. Small things
+      // keep the cone: the pool lights what the beam faces, and a crate lit
+      // all over reads better than one bright patch with black sides.
+      int alsoStrip = -1;
+      if (onWall) {
+        const int ia = (wallAxis + 1) % 3, ib = (wallAxis + 2) % 3;
+        if (sqrtf(wallBox.h[ia] * wallBox.h[ia] +
+                  wallBox.h[ib] * wallBox.h[ib]) > 1.4F)
+          alsoStrip = wallBox.obj;
+      }
+      updateFlashSpotOff(alsoStrip);
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
@@ -8436,101 +8452,75 @@ void TerrainGame::updateAndRenderLightPools() {
                     cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
       };
 
-      // --- the beam landed on a WALL ------------------------------------
-      // Same gobo, same projection - goboST and zBias do not care what the
-      // surface is, because they are functions of the world position alone.
-      // Only the PATCH has to change: it lies in the face's plane instead of on
-      // the ground, and it is clipped to that face, so the light stops at the
-      // wall's edge the way light does.
+      // --- the beam landed on SOLID GEOMETRY --------------------------------
+      // The era's own trick, done the era's own way: the receiving geometry is
+      // rendered a SECOND time, additively, with the gobo's projective STQ per
+      // vertex - so the light lands on the object's REAL triangles, per pixel,
+      // whatever their count or orientation. The same pattern as the reflective
+      // env pass and the emissive atlas pass: one more very simple GS pass over
+      // geometry that is already there. (The SH2 PC port's lead programmer
+      // describes the original doing exactly this class of thing - the GS
+      // grinding many trivial passes - and its flashlight being per-vertex
+      // otherwise. Ours is per-PIXEL here, because the STQ rides the same
+      // perspective division their environment light could not afford.)
+      //
+      // The oriented-box hit only decides WHICH object the beam is on and how
+      // far the light travelled; it no longer shapes anything. Its predecessor
+      // - a planar patch laid on the box FACE and clipped to it - drew light
+      // where a model's box face is only air: on a gabled shed the face plane
+      // extends over the gable triangle, and the patch showed as a glowing
+      // translucent rectangle floating in the sky beside the roof (reported
+      // from the console, screenshot and all).
       do {
         if (!onWall) break;
+        const int oi = wallBox.obj;
+        if (oi < 0 || oi >= (int)objectGeometry.size()) break;
+        // A statically batched receiver owns no solo geometry - bake it on
+        // first use, exactly like the projected shadows' silhouette pass (and
+        // with the same DIRTY caveat; see renderProjShadows). The batch keeps
+        // drawing the BASE pass; only this additive layer uses the solo bake.
+        const bool batched =
+            oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+        if (batched) {
+          if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
+            rebuildObjectGeometry(oi);
+        } else if (runtimeObjects[oi].dirty) {
+          rebuildObjectGeometry(oi);
+        }
+        ObjectGeometry& g = objectGeometry[oi];
+        // Nothing to re-render: animated models (their bags are skinned
+        // buffers) and physics bodies (LOCAL verts under a live matrix - an EE
+        // transform here would not be bit-identical to VU1's, and this pass
+        // depends on EQUAL depth). Both are small and keep the cone instead.
+        if (g.parts.empty() || g.matrixMode) break;
+        // Copied and re-projected EVERY frame, into the pool's own buffers -
+        // never a second bag over the part's arrays, the DMA may still be
+        // reading them. And NO z bias, on purpose: these are the same
+        // world-space floats through the same identity model matrix, so they
+        // rasterize to the same depth and the GS's GEQUAL z test passes on
+        // equality. Biasing them toward the camera would let this layer paint
+        // light over whatever stands just in front of the wall.
+        b.wVerts.clear();
+        b.wSts.clear();
+        for (GeoPart& part : g.parts) {
+          if (!part.bag) continue;
+          for (const Vec4& pv : part.vertices) {
+            if (b.wVerts.size() >= 3999) break;  // fill-rate backstop
+            b.wVerts.push_back(pv);
+            b.wSts.push_back(goboST(pv.x, pv.y, pv.z));
+          }
+        }
+        b.wVerts.resize(b.wVerts.size() / 3 * 3);  // never a torn triangle
+        b.wSts.resize(b.wVerts.size());
+        if (b.wVerts.empty()) break;
+        // How square-on the beam meets the hit face - a grazing beam smears
+        // the same cone across more wall, exactly as it does across ground.
         const float* fa = wallAxis == 0
                               ? wallBox.ax
                               : (wallAxis == 1 ? wallBox.ay : wallBox.az);
-        // The two axes that span the face, and the one it is perpendicular to.
-        const int ia = (wallAxis + 1) % 3, ib = (wallAxis + 2) % 3;
-        const float* pa = ia == 0 ? wallBox.ax
-                                  : (ia == 1 ? wallBox.ay : wallBox.az);
-        const float* pb = ib == 0 ? wallBox.ax
-                                  : (ib == 1 ? wallBox.ay : wallBox.az);
-        // The hit, in the box's frame.
-        const float hx = cameraPosition.x + dx * wallT - wallBox.o[0];
-        const float hy = cameraPosition.y + dy * wallT - wallBox.o[1];
-        const float hz = cameraPosition.z + dz * wallT - wallBox.o[2];
-        const float ca = hx * pa[0] + hy * pa[1] + hz * pa[2];
-        const float cb = hx * pb[0] + hy * pb[1] + hz * pb[2];
-        // How square-on the beam meets it. A grazing beam smears the same cone
-        // across the wall, exactly as it does across the ground.
         float cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
         if (cosI < 0.0F) cosI = -cosI;
         if (cosI < 0.25F) cosI = 0.25F;
-        const float stretch = 1.0F / cosI;
-        // The beam's direction WITHIN the face, so the ellipse is stretched the
-        // way the beam actually runs across the wall rather than uniformly.
-        float ba = dx * pa[0] + dy * pa[1] + dz * pa[2];
-        float bb = dx * pb[0] + dy * pb[1] + dz * pb[2];
-        const float bl = sqrtf(ba * ba + bb * bb);
-        if (bl > 1e-4F) ba /= bl, bb /= bl;
-        const float rBase = wallT * tanA * 1.3F + 0.35F;
-        const float ea = rBase * (1.0F + (stretch - 1.0F) * (ba < 0 ? -ba : ba));
-        const float eb = rBase * (1.0F + (stretch - 1.0F) * (bb < 0 ? -bb : bb));
-        // Clipped to the face: a pool that ran past the wall's edge would hang
-        // in the air beside it.
-        float a0 = ca - ea, a1 = ca + ea, b0 = cb - eb, b1 = cb + eb;
-        if (a0 < -wallBox.h[ia]) a0 = -wallBox.h[ia];
-        if (a1 > wallBox.h[ia]) a1 = wallBox.h[ia];
-        if (b0 < -wallBox.h[ib]) b0 = -wallBox.h[ib];
-        if (b1 > wallBox.h[ib]) b1 = wallBox.h[ib];
-        if (a1 - a0 < 0.05F || b1 - b0 < 0.05F) break;
-        // How BIG is this face, in metres? That is the test, and getting there
-        // took two wrong ones. A box face is two triangles whatever its size,
-        // so the cone is evaluated at four corners and Gouraud-interpolated
-        // between them - and both of its terms vary over metres, so on a wall
-        // the interpolation shows as a hard diagonal of light with one triangle
-        // bright and the other not. "Does the cone's footprint cover the face"
-        // does NOT save it: measured on this example's 9x4.4 turned wall at 14
-        // units, the footprint is twice the face and the diagonal is still
-        // there, because covering a face is not lighting it evenly.
-        //
-        // So: a face more than a couple of metres across takes the pool alone.
-        // Below that the cone is fine and worth keeping - the pool lands on ONE
-        // face, and a crate lit all over reads better than a crate with one
-        // bright patch and four black sides.
-        // (The cone is switched off for every big flat box in reach, not just
-        // this one - see updateFlashSpotOff, called right after the boxes are
-        // collected. Doing it for the hit alone left a wall beside the beam
-        // lighting up as a few bright triangles, and then losing them the
-        // instant the beam arrived.)
-        // Off the face toward the camera, then the usual view-ray bias.
-        const float lift = 0.04F * wallSign;
-        const float fo = wallBox.h[wallAxis] * wallSign + lift;
-        constexpr int kCells = 4;
-        b.wBag->count = (u32)(kCells * kCells * 6);
-        int wv = 0;
-        for (int iy = 0; iy < kCells; ++iy) {
-          for (int ix = 0; ix < kCells; ++ix) {
-            const float av[2] = {a0 + (a1 - a0) * ix / kCells,
-                                 a0 + (a1 - a0) * (ix + 1) / kCells};
-            const float bv[2] = {b0 + (b1 - b0) * iy / kCells,
-                                 b0 + (b1 - b0) * (iy + 1) / kCells};
-            const int ca4[4] = {0, 1, 1, 0}, cb4[4] = {0, 0, 1, 1};
-            Vec4 pv[4], ps[4];
-            for (int k2 = 0; k2 < 4; ++k2) {
-              const float la = av[ca4[k2]], lb = bv[cb4[k2]];
-              const float wx = wallBox.o[0] + fa[0] * fo + pa[0] * la + pb[0] * lb;
-              const float wy = wallBox.o[1] + fa[1] * fo + pa[1] * la + pb[1] * lb;
-              const float wz = wallBox.o[2] + fa[2] * fo + pa[2] * la + pb[2] * lb;
-              ps[k2] = goboST(wx, wy, wz);
-              pv[k2] = zBias(wx, wy, wz);
-            }
-            constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
-            for (int k2 = 0; k2 < 6; ++k2) {
-              b.wVerts[wv + k2] = pv[kTri[k2]];
-              b.wSts[wv + k2] = ps[kTri[k2]];
-            }
-            wv += 6;
-          }
-        }
         b.wColor.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
         float wf = 1.0F - wallT / FLASHLIGHT_RANGE;
         wf = wf > 1.0F ? 1.0F : (wf < 0.0F ? 0.0F : wf);
@@ -8541,6 +8531,9 @@ void TerrainGame::updateAndRenderLightPools() {
         float wfix = 14746.0F / wmaxC * wf;
         if (wfix > 255.0F) wfix = 255.0F;
         if (wfix < 1.0F) break;
+        b.wBag->vertices = b.wVerts.data();
+        b.wBag->count = (u32)b.wVerts.size();
+        b.wTexBag->coordinates = b.wSts.data();
         b.wInfo->additiveBlendFix = (u8)wfix;
         b.wBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(b.wBag.get());
@@ -9143,10 +9136,12 @@ bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
  * nothing about how its surface is tessellated, and a baked scatter chunk has an
  * enormous one - a whole grouping cell of trees - so a size test would strip the
  * cone from the entire forest. */
-void TerrainGame::updateFlashSpotOff() {
+void TerrainGame::updateFlashSpotOff(int alsoObj) {
   static std::vector<int> want;
   want.clear();
+  if (alsoObj >= 0) want.push_back(alsoObj);
   for (const ProjBox& b : g_projBoxes) {
+    if (b.obj == alsoObj) continue;
     if (b.type != 0) continue;  // box primitives only
     float h0 = b.h[0], h1 = b.h[1], h2 = b.h[2];
     if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }

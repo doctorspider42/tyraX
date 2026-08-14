@@ -58,6 +58,13 @@ struct Result {
     int size = 0;
     int litTexels = 0;    // texels covered by a UV island
     float meanLight = 0;  // average gathered light, for the report line
+    // The model's OWN material names, in submesh order. applyToObject writes
+    // one .mtl entry per name, because a material override binds by usemtl
+    // NAME: an override library that does not carry the model's names replaces
+    // nothing, the parts silently lose their textures, and a prelit object
+    // with no texture renders as a pure white block (found in PCSX2, not in
+    // review).
+    std::vector<std::string> materials;
 };
 
 // Bakes ONE placed object. `scene` must already be built and solved for this

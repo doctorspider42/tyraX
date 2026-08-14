@@ -44,14 +44,13 @@ point of the example.
   small enough for it to look like light.
 
   Three stone walls stand by the spawn - one of them turned 34 degrees to the
-  world, which is the interesting one: shine the torch at it and the pool
-  appears ON the wall, in its plane, clipped to its edges. An axis-aligned box
-  test would have put that light where the wall is not.
-
-  The walls never take the per-vertex cone at all, aimed at or not, so what you
-  see on them is the gobo and the moon and nothing else - sweep the beam from
-  the grass up a wall and the light crosses the join without blinking. The tree
-  trunks in front of them are small enough to keep the cone, and do.
+  world - and whatever solid thing the beam meets is rendered a SECOND time,
+  additively, with the gobo projected onto its real triangles. Shine at a wall,
+  a shed, the gable of its roof: the light follows the actual surface, per
+  pixel. The walls never take the per-vertex cone at all, and neither does the
+  object the beam is on - sweep the beam from the grass up a wall and the light
+  crosses the join without blinking. The tree trunks in front of them are small
+  enough to keep the cone, and do.
 
   The torch's colour is deliberately about 0.6, not white. The per-vertex cone
   has no N·L, so a white one adds the same amount to every face of a tree

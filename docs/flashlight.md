@@ -114,25 +114,35 @@ result was a band a few degrees wide where the pool vanished completely and came
 back beyond it. A fade that is not monotonic in the thing the player is moving
 is worse than the artifact it hides.
 
-**It lands on walls too.** Shine the beam at a wall and the pool appears *on the
-wall*, in its plane, clipped to its edges. Nothing about the projection changes
-for this — `goboST` is a function of the world position alone, so it does not
-care what the surface is — only the patch has to lie somewhere else.
+**It lands on solid geometry the era's own way.** Shine the beam at a wall, a
+shed, anything solid, and the object the beam meets is rendered a **second
+time**, additively, with the gobo's projective STQ per vertex — so the light
+lands on its *real triangles*, per pixel, whatever their count or orientation.
+This is the same pattern as the reflective env pass and the emissive atlas
+pass — one more very simple GS pass over geometry that is already there — and
+it is, as far as the surviving accounts go, how the PS2 survival-horror games
+did their torch: the GS grinding many trivial passes. Nothing about the
+projection changes for it — `goboST` is a function of the world position alone.
 
-The beam is intersected against the solid boxes in reach and the nearest face it
-enters wins, with faces pointing mostly up left to the ground path. Two things
-worth knowing about that test:
+Three things worth knowing about how the receiver is found and drawn:
 
-- It is an **oriented** box, not an axis-aligned one. Everything else in the
-  generated game that asks "what is under here" ignores rotation, because it is
-  asking about a footprint and a footprint has no facing. A wall's facing is the
-  whole question here: on an AABB, a wall turned thirty degrees to the world
-  would take its light on a face that is not where the wall is. So the ray goes
-  into the box's own frame (the same rotated basis an [Area](areas.md) uses), and
-  the patch is built there.
-- The pool is **clipped to the face**, so the light stops at the wall's edge, as
-  light does. It does not wrap round a corner onto the next wall: one patch, one
-  surface, the nearest one the beam meets.
+- The beam is intersected against **oriented** boxes, not axis-aligned ones
+  (the same rotated basis an [Area](areas.md) uses). A wall turned thirty
+  degrees to the world takes its light where the wall actually is. The hit only
+  decides *which* object and *how far* — the light's shape comes from the
+  object's own triangles. (An earlier version drew a planar patch on the box
+  *face*, and a model's box face is often air: a gabled roof put a glowing
+  rectangle in the sky beside the gable.)
+- The second pass draws at **equal depth** with no bias — same world-space
+  floats, same identity matrix — so it never paints over anything standing in
+  front of the receiver, and never z-fights it.
+- Animated models and physics bodies are not re-rendered (skinned buffers and
+  local-space vertices respectively); they are small, and the cone covers them.
+
+One era artifact comes with the era's method: the pass has no shadows of its
+own, so a beam on a hut's outer wall also lights the *inner* face of that wall
+for someone standing inside. Silent Hill spent its shadow volumes on exactly
+this; here it is simply the deal.
 
 **Both patches are live at once.** A beam sweeping off the floor and up a wall
 lights the two together for as long as it straddles the join, so the flashlight
@@ -142,8 +152,8 @@ matters. One patch that had to belong to one surface or the other made that
 moment a blink — the floor pool vanished and a wall pool appeared in the same
 frame.
 
-**And a big flat box never takes the per-vertex cone**, whether or not you are
-pointing at it. The spot is evaluated at a box face's four corners and
+**And a big flat box never takes the per-vertex cone** — nor does whatever
+object the beam is currently on, once its hit face is wall-sized. The spot is evaluated at a box face's four corners and
 Gouraud-interpolated between them, and both of its terms vary over metres — so on
 anything wall-sized it draws a hard diagonal of light across the face, one
 triangle bright and the other not. A wall does not want that term at any time:
