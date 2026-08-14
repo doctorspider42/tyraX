@@ -23,6 +23,7 @@
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
+#include "litbake.hpp"
 #include "procbake.hpp"
 #include "matbake.hpp"
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
@@ -1862,6 +1863,12 @@ private:
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
     gibake::Baker giBaker_;
+    // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
+    // object's texture, from the button in Properties. Async because the bounce
+    // solve is the expensive half; the result is applied on the UI thread, so
+    // the object edit goes through commitChange like every other edit.
+    litbake::Baker litBaker_;
+    litbake::Params litBakeParams_;
     // The probe grid currently uploaded to the viewport: reloaded when the
     // scene changes, the model is edited (which can stale the bake) or a bake
     // finishes.

@@ -1231,7 +1231,9 @@ void App::drawGiBakeSection() {
         "lights are unchanged.\n"
         "Textured surfaces and imported models take their light from the "
         "probe grid, not the lightmap - a flat additive term over a texture "
-        "would blow out its dark texels.\n"
+        "would blow out its dark texels. For a per-PIXEL answer on one of "
+        "those, bake the light into its texture instead (Properties > Bake "
+        "lighting into texture, docs/prelit-models.md).\n"
         "The editor preview evaluates the probe grid per pixel, so the "
         "console's per-texel contact shadows are sharper than what you see "
         "here.");

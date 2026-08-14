@@ -261,6 +261,90 @@ bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,
     return true;
 }
 
+void Baker::start(const Project& p, int sceneIndex, int objectIndex,
+                  const Params& prm) {
+    cancel();
+    cancel_ = false;
+    running_ = true;
+    progress_ = 0.0f;
+    scene_ = sceneIndex;
+    object_ = objectIndex;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        status_ = "building the scene...";
+        error_.clear();
+        have_ = false;
+    }
+    // The Project is COPIED into the worker: the editor keeps editing while
+    // this runs, and a bake reading a model the user is mid-edit on would be
+    // reading a moving target.
+    worker_ = std::thread(&Baker::run, this, p, sceneIndex, objectIndex, prm);
+}
+
+void Baker::cancel() {
+    cancel_ = true;
+    if (worker_.joinable()) worker_.join();
+    running_ = false;
+}
+
+std::string Baker::status() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return status_;
+}
+
+std::string Baker::error() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return error_;
+}
+
+bool Baker::take(Result& out) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!have_) return false;
+    out = std::move(result_);
+    have_ = false;
+    return true;
+}
+
+void Baker::run(Project p, int sceneIndex, int objectIndex, Params prm) {
+    std::string err;
+    if (sceneIndex >= 0 && sceneIndex < (int)p.scenes.size()) {
+        SceneData& sc = p.scenes[sceneIndex];
+        gibake::Settings st = gibake::settingsOf(p.settings);
+        st.enabled = true;  // the gather works whether or not GI ships
+        gibake::Scene scene = gibake::build(p, sc, st);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            status_ = "solving bounces...";
+        }
+        // The solve owns most of the wall clock, so it owns most of the bar.
+        gibake::solve(scene, st, &cancel_,
+                      [this](float f) { progress_ = f * 0.8f; });
+        if (!cancel_) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                status_ = "gathering light per texel...";
+            }
+            progress_ = 0.85f;
+            Result r;
+            if (litbake::bakeObject(p, sc, objectIndex, scene, prm, r, err)) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                result_ = std::move(r);
+                have_ = true;
+                status_ = "done";
+            }
+        }
+    } else {
+        err = "no such scene";
+    }
+    if (!err.empty()) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        error_ = err;
+        status_ = err;
+    }
+    progress_ = 1.0f;
+    running_ = false;
+}
+
 std::string applyToObject(Project& p, SceneData& sc, int objectIndex,
                           const Result& r) {
     if (objectIndex < 0 || objectIndex >= (int)sc.objects.size())

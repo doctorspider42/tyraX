@@ -1,7 +1,7 @@
 {
   "name": "night-walk",
-  "formatVersion": 24,
-  "editorVersion": "1.32.0",
+  "formatVersion": 25,
+  "editorVersion": "1.33.0",
   "template": "fpp",
   "projectId": "e6b0bf4e49f40133",
   "settings": {

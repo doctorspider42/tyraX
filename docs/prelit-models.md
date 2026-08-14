@@ -1,7 +1,8 @@
 # Pre-lit models (light baked into the texture)
 
-*Bake it with `tyrax-editor --bake-object-light <projectDir> <objectName>
-[size] [rays]`.*
+*Select the model, then **Properties > Lighting > Bake lighting into texture**
+(the two fields beside it are the output size and the rays per texel). Headless:
+`tyrax-editor --bake-object-light <projectDir> <objectName> [size] [rays]`.*
 
 A textured surface cannot take this engine's
 [lightmap](global-illumination.md), and that is not a limitation waiting to be
@@ -39,6 +40,12 @@ pixel, and adding them again would light the surface twice.
 [projected pool](flashlight.md), its cone, and live point lights are all added
 at run time. That is the whole arrangement: the static half per pixel in the
 map, the moving half added over it.
+
+The button runs on a worker thread - the scene build and the bounce solve are
+the expensive half - and shows a progress bar with what it is doing. The result
+is applied on the UI thread when it lands, so it goes through the editor's
+commit/undo path like any other object edit, and the panel then says **"Pre-lit:
+its texture carries its light"** for as long as that stays true.
 
 ## What it costs
 

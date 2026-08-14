@@ -858,6 +858,66 @@ void App::drawPropertiesWindow() {
                 "moves. The bake already excludes anything it can prove moves\n"
                 "(physics, pickable, usable, save-state, streamed, or moved by\n"
                 "a flow graph) - this is for the rest.");
+
+        // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
+        // primitive already has the per-texel lightmap route, which costs no
+        // extra texture at all.
+        if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
+            const int myIndex = selectedObject_;
+            const bool mine = litBaker_.objectIndex() == myIndex &&
+                              litBaker_.sceneIndex() == project_.activeScene;
+            if (litBaker_.running() && mine) {
+                ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+                ImGui::TextUnformatted(litBaker_.status().c_str());
+                if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
+            } else {
+                if (ImGui::Button("Bake lighting into texture")) {
+                    saveProject();  // the bake reads the model off disk
+                    litBaker_.start(project_, project_.activeScene, myIndex,
+                                    litBakeParams_);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
+                               512, "%d px");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
+                               512, "%d rays");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes the scene's light INTO this object's texture and\n"
+                    "gives it its own material - the only way a TEXTURED\n"
+                    "surface gets per-pixel static light on this hardware (the\n"
+                    "lightmap is additive and the GS cannot multiply a texture\n"
+                    "by a second one in a later pass).\n"
+                    "Its vertex light then goes neutral; the flashlight and\n"
+                    "live point lights still land on top.\n"
+                    "Costs one texture per object, and goes STALE if you move\n"
+                    "the object or change the scene's lighting - re-bake it.");
+            if (o.prelit)
+                ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
+                                   "Pre-lit: its texture carries its light");
+            if (!litBaker_.error().empty() && mine)
+                ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                                   litBaker_.error().c_str());
+            // Applied HERE, on the UI thread, so it goes through the editor's
+            // own commit path like every other object edit.
+            litbake::Result done;
+            if (mine && !litBaker_.running() && litBaker_.take(done)) {
+                const std::string e = litbake::applyToObject(
+                    project_, project_.active(), myIndex, done);
+                if (e.empty()) {
+                    statusMessage_ = "Pre-lit " + o.name + ": " +
+                                     std::to_string(done.size) + "px, " +
+                                     std::to_string(done.litTexels) + " texels";
+                    committed = true;
+                } else {
+                    statusMessage_ = "Pre-light failed: " + e;
+                }
+            }
+        }
     }
 
     if (isArea) {

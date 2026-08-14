@@ -1,7 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "gibake.hpp"
@@ -73,5 +76,43 @@ bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,
 // Returns "" on success or the reason it failed.
 std::string applyToObject(Project& p, SceneData& sc, int objectIndex,
                           const Result& r);
+
+// Asynchronous baker for the editor - the gibake::Baker pattern (worker thread,
+// polled from the UI). The scene build and the bounce solve are what make this
+// worth a thread: the gather itself is seconds, the solve is the rest.
+//
+// It deliberately does NOT touch the Project. The worker takes a copy, and the
+// finished Result is handed back through take() for the UI thread to apply,
+// because applying it edits the object and that has to go through the editor's
+// own commit/undo path like every other edit.
+class Baker {
+public:
+    ~Baker() { cancel(); }
+    void start(const Project& p, int sceneIndex, int objectIndex,
+               const Params& prm);
+    void cancel();
+    bool running() const { return running_.load(); }
+    float progress() const { return progress_.load(); }
+    std::string status() const;
+    // Which object the run in flight (or the finished one) belongs to.
+    int sceneIndex() const { return scene_.load(); }
+    int objectIndex() const { return object_.load(); }
+    // Moves a finished result out - true once per successful run.
+    bool take(Result& out);
+    std::string error() const;
+
+private:
+    void run(Project p, int sceneIndex, int objectIndex, Params prm);
+
+    std::thread worker_;
+    std::atomic<bool> cancel_{false};
+    std::atomic<bool> running_{false};
+    std::atomic<float> progress_{0.0f};
+    std::atomic<int> scene_{-1}, object_{-1};
+    mutable std::mutex mutex_;
+    std::string status_, error_;
+    Result result_;
+    bool have_ = false;
+};
 
 }  // namespace litbake
