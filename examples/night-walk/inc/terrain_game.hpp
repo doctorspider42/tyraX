@@ -1236,6 +1236,17 @@ class TerrainGame : public Tyra::Game {
   // heightfield alone ends up underneath it (see projCollectReceivers).
   void projCollectReceivers(float cx, float cz, float reach, float yMax);
   float projSurfaceAt(float x, float z);
+  // ...and the same objects as full boxes, walls included, for the flashlight's
+  // pool: shine a beam at a wall and the light belongs ON the wall, which the
+  // receiver list cannot say (it drops anything taller than the caster) and the
+  // marched column cannot either (it would put the light on the wall's top).
+  // projWallHit returns the nearest face the beam enters through: t along the
+  // ray, which axis the face is perpendicular to, which side of the box, and
+  // the box itself so the patch can be clipped to that face.
+  void projCollectBoxes(float cx, float cz, float reach);
+  bool projWallHit(const Tyra::Vec4& from, float dx, float dy, float dz,
+                   float maxT, float& outT, int& outAxis, float& outSign,
+                   struct ProjBox& outBox);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.

@@ -43,6 +43,11 @@ point of the example.
   wedge that moves in cell-sized steps. Props and trees still get it — they are
   small enough for it to look like light.
 
+  Three stone walls stand by the spawn - one of them turned 34 degrees to the
+  world, which is the interesting one: shine the torch at it and the pool
+  appears ON the wall, in its plane, clipped to its edges. An axis-aligned box
+  test would have put that light where the wall is not.
+
   The torch's colour is deliberately about 0.6, not white. The per-vertex cone
   has no N·L, so a white one adds the same amount to every face of a tree
   whichever way it points and flattens it into a cutout; at 0.6 the baked

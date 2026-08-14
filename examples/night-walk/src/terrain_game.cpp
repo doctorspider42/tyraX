@@ -8054,6 +8054,16 @@ void TerrainGame::setupLightBeams() {
   }
 }
 
+// An ORIENTED box the flashlight's beam can land on - see projCollectBoxes,
+// which fills these, and projWallHit, which intersects them. Declared up here
+// because updateAndRenderLightPools is the consumer and it comes first.
+struct ProjBox {
+  float o[3];                 // centre, world
+  float ax[3], ay[3], az[3];  // rotated unit axes
+  float h[3];                 // half extents along them
+};
+std::vector<ProjBox> g_projBoxes;
+
 // Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
 // terrain patch per dynamic light, textured with the corona sprite (shape
 // in RGB - additive bags ignore texture alpha), tinted by the light color.
@@ -8211,6 +8221,29 @@ void TerrainGame::updateAndRenderLightPools() {
       projCollectReceivers(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
                            cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
                            FLASHLIGHT_RANGE * 0.5F + 2.0F, cameraPosition.y);
+      // A WALL first, because a beam meets one before it meets the ground
+      // behind it. Exact slab intersection against the solid boxes in reach -
+      // vertical faces only; a box's TOP is a floor and the ground path below
+      // already finds it through projSurfaceAt.
+      projCollectBoxes(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                       cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+                       FLASHLIGHT_RANGE * 0.5F + 2.0F);
+      float wallT = 0.0F, wallSign = 0.0F;
+      int wallAxis = -1;
+      ProjBox wallBox;
+      bool onWall = false;
+      if (projWallHit(cameraPosition, dx, dy, dz, FLASHLIGHT_RANGE, wallT,
+                      wallAxis, wallSign, wallBox)) {
+        // The face's outward normal, in world. A face pointing mostly UP is a
+        // floor, and the ground path below already lands the pool on it through
+        // projSurfaceAt; anything steeper than about 45 degrees is a wall and
+        // belongs here, where the patch can lie in its actual plane.
+        const float* fa = wallAxis == 0 ? wallBox.ax
+                                        : (wallAxis == 1 ? wallBox.ay
+                                                         : wallBox.az);
+        const float ny = fa[1] * wallSign;
+        onWall = ny < 0.7F;
+      }
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
@@ -8233,9 +8266,11 @@ void TerrainGame::updateAndRenderLightPools() {
         }
         prev = t;
       }
-      if (hit < 0.0F) continue;
-      const float gx = cameraPosition.x + dx * hit;
-      const float gz = cameraPosition.z + dz * hit;
+      if (hit < 0.0F && !onWall) continue;
+      // A wall in front of the ground wins: the beam stops there.
+      if (onWall && hit >= 0.0F && hit < wallT) onWall = false;
+      const float gx = cameraPosition.x + dx * (hit > 0.0F ? hit : 0.0F);
+      const float gz = cameraPosition.z + dz * (hit > 0.0F ? hit : 0.0F);
       // What the patch lies on is decided ONCE, at the landing point, never per
       // vertex: projSurfaceAt answers "the top of any receiver over this point",
       // so a prop standing inside the patch would otherwise punch a cliff into
@@ -8316,6 +8351,97 @@ void TerrainGame::updateAndRenderLightPools() {
                     cameraPosition.y + (y - cameraPosition.y) * k,
                     cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
       };
+
+      // --- the beam landed on a WALL ------------------------------------
+      // Same gobo, same projection - goboST and zBias do not care what the
+      // surface is, because they are functions of the world position alone.
+      // Only the PATCH has to change: it lies in the face's plane instead of on
+      // the ground, and it is clipped to that face, so the light stops at the
+      // wall's edge the way light does.
+      if (onWall) {
+        const float* fa = wallAxis == 0
+                              ? wallBox.ax
+                              : (wallAxis == 1 ? wallBox.ay : wallBox.az);
+        // The two axes that span the face, and the one it is perpendicular to.
+        const int ia = (wallAxis + 1) % 3, ib = (wallAxis + 2) % 3;
+        const float* pa = ia == 0 ? wallBox.ax
+                                  : (ia == 1 ? wallBox.ay : wallBox.az);
+        const float* pb = ib == 0 ? wallBox.ax
+                                  : (ib == 1 ? wallBox.ay : wallBox.az);
+        // The hit, in the box's frame.
+        const float hx = cameraPosition.x + dx * wallT - wallBox.o[0];
+        const float hy = cameraPosition.y + dy * wallT - wallBox.o[1];
+        const float hz = cameraPosition.z + dz * wallT - wallBox.o[2];
+        const float ca = hx * pa[0] + hy * pa[1] + hz * pa[2];
+        const float cb = hx * pb[0] + hy * pb[1] + hz * pb[2];
+        // How square-on the beam meets it. A grazing beam smears the same cone
+        // across the wall, exactly as it does across the ground.
+        float cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
+        if (cosI < 0.0F) cosI = -cosI;
+        if (cosI < 0.25F) cosI = 0.25F;
+        const float stretch = 1.0F / cosI;
+        // The beam's direction WITHIN the face, so the ellipse is stretched the
+        // way the beam actually runs across the wall rather than uniformly.
+        float ba = dx * pa[0] + dy * pa[1] + dz * pa[2];
+        float bb = dx * pb[0] + dy * pb[1] + dz * pb[2];
+        const float bl = sqrtf(ba * ba + bb * bb);
+        if (bl > 1e-4F) ba /= bl, bb /= bl;
+        const float rBase = wallT * tanA * 1.3F + 0.35F;
+        const float ea = rBase * (1.0F + (stretch - 1.0F) * (ba < 0 ? -ba : ba));
+        const float eb = rBase * (1.0F + (stretch - 1.0F) * (bb < 0 ? -bb : bb));
+        // Clipped to the face: a pool that ran past the wall's edge would hang
+        // in the air beside it.
+        float a0 = ca - ea, a1 = ca + ea, b0 = cb - eb, b1 = cb + eb;
+        if (a0 < -wallBox.h[ia]) a0 = -wallBox.h[ia];
+        if (a1 > wallBox.h[ia]) a1 = wallBox.h[ia];
+        if (b0 < -wallBox.h[ib]) b0 = -wallBox.h[ib];
+        if (b1 > wallBox.h[ib]) b1 = wallBox.h[ib];
+        if (a1 - a0 < 0.05F || b1 - b0 < 0.05F) continue;
+        // Off the face toward the camera, then the usual view-ray bias.
+        const float lift = 0.04F * wallSign;
+        const float fo = wallBox.h[wallAxis] * wallSign + lift;
+        constexpr int kCells = 4;
+        b.bag->count = (u32)(kCells * kCells * 6);
+        int wv = 0;
+        for (int iy = 0; iy < kCells; ++iy) {
+          for (int ix = 0; ix < kCells; ++ix) {
+            const float av[2] = {a0 + (a1 - a0) * ix / kCells,
+                                 a0 + (a1 - a0) * (ix + 1) / kCells};
+            const float bv[2] = {b0 + (b1 - b0) * iy / kCells,
+                                 b0 + (b1 - b0) * (iy + 1) / kCells};
+            const int ca4[4] = {0, 1, 1, 0}, cb4[4] = {0, 0, 1, 1};
+            Vec4 pv[4], ps[4];
+            for (int k2 = 0; k2 < 4; ++k2) {
+              const float la = av[ca4[k2]], lb = bv[cb4[k2]];
+              const float wx = wallBox.o[0] + fa[0] * fo + pa[0] * la + pb[0] * lb;
+              const float wy = wallBox.o[1] + fa[1] * fo + pa[1] * la + pb[1] * lb;
+              const float wz = wallBox.o[2] + fa[2] * fo + pa[2] * la + pb[2] * lb;
+              ps[k2] = goboST(wx, wy, wz);
+              pv[k2] = zBias(wx, wy, wz);
+            }
+            constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
+            for (int k2 = 0; k2 < 6; ++k2) {
+              b.verts[wv + k2] = pv[kTri[k2]];
+              b.sts[wv + k2] = ps[kTri[k2]];
+            }
+            wv += 6;
+          }
+        }
+        b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
+        float wf = 1.0F - wallT / FLASHLIGHT_RANGE;
+        wf = wf > 1.0F ? 1.0F : (wf < 0.0F ? 0.0F : wf);
+        wf *= 0.55F + 0.45F * cosI;
+        float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+        if (FLASHLIGHT_B > wmaxC) wmaxC = FLASHLIGHT_B;
+        if (wmaxC < 1.0F) wmaxC = 1.0F;
+        float wfix = 14746.0F / wmaxC * wf;
+        if (wfix > 255.0F) wfix = 255.0F;
+        if (wfix < 1.0F) continue;
+        b.info->additiveBlendFix = (u8)wfix;
+        b.bag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(b.bag.get());
+        continue;
+      }
 
       // The lit footprint is an ELLIPSE: a beam meeting the floor at a grazing
       // angle reaches far further than it is wide. So the patch is laid out
@@ -8753,6 +8879,126 @@ void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
     g_projRecv.push_back(r);
     if (g_projRecv.size() >= 24) break;  // a patch never needs more
   }
+}
+
+/** Solid boxes the flashlight's beam can land on, WALLS included.
+ *
+ * projCollectReceivers answers "what could this stand on", so it drops anything
+ * whose top is above the caster - which is every wall in the level. A beam does
+ * not care: shine it at a wall and the light belongs on the wall. This collects
+ * the same objects, with no height test, and projWallHit intersects them
+ * exactly rather than marching the column the ground path uses (a column would
+ * put the light on top of the wall).
+ *
+ * ORIENTED boxes, not axis-aligned ones. Everything else in this file that asks
+ * "what is under here" works on the AABB with rotation ignored, because it is
+ * asking about a FOOTPRINT and a footprint has no facing. A wall's facing is the
+ * entire question here: on an AABB, a wall turned 30 degrees to the world would
+ * take its light on a face that is not where the wall is. So the ray goes into
+ * the box's own frame (areaBasis - the same rotated basis an Area uses), the
+ * slab test happens there, and the patch is built there too. */
+
+void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
+  g_projBoxes.clear();
+  for (const RuntimeObject& o : runtimeObjects) {
+    if (!o.active || !o.visible) continue;
+    if (o.data.collision == 2) continue;  // no collision = nothing to light
+    const int t = o.data.type;
+    // The same marker/volume skip list projCollectReceivers uses.
+    if (t == 4 || t == 6 || t == 7 || t == 8 || t == 9 || t == 11 || t == 13 ||
+        t == 14 || t == 17)
+      continue;
+    const GameModel* gm = nullptr;
+    if (t == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* am = nullptr;
+    if (t == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      am = gameAnimModels[o.data.animModel].src.get();
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    V3 lc = {0.0F, 0.0F, 0.0F};
+    const float* mn = gm ? gm->mn : (am ? am->min : nullptr);
+    const float* mx = gm ? gm->mx : (am ? am->max : nullptr);
+    if (mn && mx) {
+      lc = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+            0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+            0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    const AreaBasis ab = areaBasis(o.data);
+    ProjBox r;
+    for (int a = 0; a < 3; ++a) {
+      r.ax[a] = ab.ax[a], r.ay[a] = ab.ay[a], r.az[a] = ab.az[a];
+    }
+    // The mesh AABB's own centre offset is a LOCAL offset, so it rotates with
+    // the object - which is the whole point of doing this in the box's frame.
+    r.o[0] = o.data.position[0] + ab.ax[0] * lc.x + ab.ay[0] * lc.y +
+             ab.az[0] * lc.z;
+    r.o[1] = o.data.position[1] + ab.ax[1] * lc.x + ab.ay[1] * lc.y +
+             ab.az[1] * lc.z;
+    r.o[2] = o.data.position[2] + ab.ax[2] * lc.x + ab.ay[2] * lc.y +
+             ab.az[2] * lc.z;
+    r.h[0] = ex, r.h[1] = ey, r.h[2] = ez;
+    // Reach test on the bounding SPHERE - cheap, and rotation cannot fool it.
+    const float rad = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (r.o[0] + rad < cx - reach || r.o[0] - rad > cx + reach) continue;
+    if (r.o[2] + rad < cz - reach || r.o[2] - rad > cz + reach) continue;
+    g_projBoxes.push_back(r);
+    if (g_projBoxes.size() >= 24) break;
+  }
+}
+
+bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
+                              float maxT, float& outT, int& outAxis,
+                              float& outSign, ProjBox& outBox) {
+  bool found = false;
+  for (const ProjBox& b : g_projBoxes) {
+    // The ray, in the box's own frame: project the offset and the direction
+    // onto its three axes. From here it is the ordinary slab test, and the slab
+    // that ADMITTED the ray last is the face it enters through - which is the
+    // plane the light lands on.
+    const float ox = from.x - b.o[0], oy = from.y - b.o[1],
+                oz = from.z - b.o[2];
+    const float lo3[3] = {ox * b.ax[0] + oy * b.ax[1] + oz * b.ax[2],
+                          ox * b.ay[0] + oy * b.ay[1] + oz * b.ay[2],
+                          ox * b.az[0] + oy * b.az[1] + oz * b.az[2]};
+    const float ld[3] = {dx * b.ax[0] + dy * b.ax[1] + dz * b.ax[2],
+                         dx * b.ay[0] + dy * b.ay[1] + dz * b.ay[2],
+                         dx * b.az[0] + dy * b.az[1] + dz * b.az[2]};
+    float t0 = 0.0F, t1 = maxT;
+    int axis = -1;
+    float sign = 0.0F;
+    bool ok = true;
+    for (int a = 0; a < 3 && ok; ++a) {
+      if (ld[a] > -1e-6F && ld[a] < 1e-6F) {
+        if (lo3[a] < -b.h[a] || lo3[a] > b.h[a]) ok = false;
+        continue;
+      }
+      const float inv = 1.0F / ld[a];
+      float tn = (-b.h[a] - lo3[a]) * inv;
+      float tf = (b.h[a] - lo3[a]) * inv;
+      float s = -1.0F;
+      if (tn > tf) {
+        const float tmp = tn;
+        tn = tf, tf = tmp;
+        s = 1.0F;
+      }
+      if (tn > t0) t0 = tn, axis = a, sign = s;
+      if (tf < t1) t1 = tf;
+      if (t0 > t1) ok = false;
+    }
+    if (!ok || axis < 0 || t0 <= 0.05F) continue;
+    if (found && t0 >= outT) continue;
+    found = true;
+    outT = t0;
+    outAxis = axis;
+    outSign = sign;
+    outBox = b;
+  }
+  return found;
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {

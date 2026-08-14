@@ -67,9 +67,10 @@ light, however finely you cut it.
   stretches as you lower the torch, and a circle when you point it straight down.
 - **Follows the relief.** On terrain, each patch vertex sits on the ground under
   it, so a pool crossing a ridge bends over it.
-- **Lands on what you built.** Placed floors, platforms and props are receivers
-  too, so a torch works in a room made of geometry — including in a scene with
-  [no terrain at all](terrain.md), which had no pool before.
+- **Lands on what you built.** Placed floors, platforms, walls and props take the
+  pool as well as the terrain, so a torch works in a room made of geometry —
+  including in a scene with [no terrain at all](terrain.md), which had no pool
+  before.
 - **Fades honestly.** It dims with distance, and it dims at grazing angles: the
   same cone spread over four times the ground really is four times weaker per
   square metre.
@@ -103,11 +104,33 @@ result was a band a few degrees wide where the pool vanished completely and came
 back beyond it. A fade that is not monotonic in the thing the player is moving
 is worse than the artifact it hides.
 
-Two limits it keeps on purpose:
+**It lands on walls too.** Shine the beam at a wall and the pool appears *on the
+wall*, in its plane, clipped to its edges. Nothing about the projection changes
+for this — `goboST` is a function of the world position alone, so it does not
+care what the surface is — only the patch has to lie somewhere else.
 
-- **It is a floor effect.** A beam aimed at a wall taller than the player lights
-  that wall through the per-vertex cone only — there is no patch on a vertical
-  surface. Aim at a crate lower than your eye and the pool does land on its top.
+The beam is intersected against the solid boxes in reach and the nearest face it
+enters wins, with faces pointing mostly up left to the ground path. Two things
+worth knowing about that test:
+
+- It is an **oriented** box, not an axis-aligned one. Everything else in the
+  generated game that asks "what is under here" ignores rotation, because it is
+  asking about a footprint and a footprint has no facing. A wall's facing is the
+  whole question here: on an AABB, a wall turned thirty degrees to the world
+  would take its light on a face that is not where the wall is. So the ray goes
+  into the box's own frame (the same rotated basis an [Area](areas.md) uses), and
+  the patch is built there.
+- The pool is **clipped to the face**, so the light stops at the wall's edge, as
+  light does. It does not wrap round a corner onto the next wall: one patch, one
+  surface, the nearest one the beam meets.
+
+One limit it keeps on purpose:
+
+- **A large flat face is still washed by the cone.** The per-vertex spot lights
+  a box face from its four corners, so at close range the whole face comes up
+  evenly and the projected pool reads as a hotspot on top of it rather than as
+  the only light there. Keep the torch colour modest (see below) and the pool
+  does the talking.
 - **It is one patch of 3x3 cells** (54 vertices). With the mapping exact per
   pixel the grid no longer draws the light at all — it only decides which ground
   the pool *covers* and how closely it follows the relief — so it is deliberately
