@@ -24,8 +24,9 @@ deaths, and which checkpoint you are on.
    crystals collected after B are lost.
 5. At the east end, the blue **save shrine** opens the real 3-slot card menu on
    USE — the one place in this level that writes to a memory card.
-6. The orange **pedestal** next to it is USE → *Commit Checkpoint* to slot 1:
-   it takes the RAM checkpoint you have been building and writes it to the card.
+6. The orange **pedestal** next to it is USE → *Commit Checkpoint* to the next
+   free slot: it takes the RAM checkpoint you have been building and writes it
+   to the card.
    This project has **background writing** on, so the game does not stop for it
    — you get a spinner in the bottom-right corner and keep walking.
 
@@ -56,7 +57,7 @@ spinner in the corner is the whole interruption.
 | `flag-a`, `flag-b` | `Near Object` (radius 3) → `Do Once` → `Sequence`: *Set Save Text* `checkpoint`, then **Save Checkpoint**. The Sequence is there because the order matters — the text has to be written *before* the snapshot, or the checkpoint records the previous flag's name. |
 | `hazard` | `Near Object` (radius 4) → `Cooldown` 2 s → `Sequence`: *Set Int* `deaths` **+1**, then `Branch` on **Has Checkpoint** → **Load Checkpoint** / `Restart Scene`. The Branch is what makes the very first death (before any flag) restart the scene instead of doing nothing. |
 | `coin-1..4` | `Near Object` (radius 1.5) → `Branch` on **Is Visible** → *Add To Save Value* `coins` +1 and *hide self*. Testing its own visibility is what makes a crystal re-collectable: a checkpoint load turns it visible again, and the same graph then works a second time. A `Do Once` here would have collected it once and never again. |
-| `commit-pedestal` | `On Used` → `Sequence`: **Commit Checkpoint** set to *Next free slot*, then a *Display Text* confirming which checkpoint went to the card. Using it repeatedly fills slot 1, then 2, then 3, and then starts cycling — so the pedestal builds a trail rather than overwriting one save. |
+| `commit-pedestal` | `On Used` → `Sequence`: **Commit Checkpoint** set to *Next free slot*, then a *Display Text* that names the checkpoint (`Get Save Text`) behind the fixed prefix `Written to slot 1: ` — that prefix is a literal typed into the node, not the slot the commit resolved, so it keeps reading *slot 1* while the writes walk on. Using it repeatedly fills slot 1, then 2, then 3, and then starts cycling — so the pedestal builds a trail rather than overwriting one save. |
 | `hud` | `On Start` → three *Display Text* nodes fed by `Get Save Value`, `Get Int` → *Number To Text*, and `Get Save Text`. |
 
 `Near Object` fires on the frame you come **inside** the radius, not every frame

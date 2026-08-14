@@ -35,8 +35,9 @@ are rewritten on every build (see `refreshGenerated` in `src/project.cpp`);
   ruins and cavern crystals.
 - **Particle effects** — fire and smoke at the campfire, camera-following
   rain, sparks and ground fog in the ruins, fog and fireflies in the cavern.
-- **Fog** — GS distance fog tuned to the terrain scale, with a denser blue
-  override in the cavern.
+- **Fog** — one warm GS distance fog tuned to the terrain scale, global to the
+  whole project: both scenes carry a denser blue block, but neither ticks the
+  fog override, so both fall through to the global values.
 - **Post-processing & grading** — bloom + film grain, and two colour-grading
   presets (`Golden Hour` outdoors, `Nightfall` switched on in the cavern).
 - **Extras** — a pause menu (Start), a HUD crosshair, a first-person player
@@ -60,8 +61,11 @@ are rewritten on every build (see `refreshGenerated` in `src/project.cpp`);
 Tuned to hold 50 FPS on real PS2 hardware, where GS fill-rate and EE geometry
 cost dominate (PCSX2's software renderer hides both). The levers: terrain
 **chunk streaming** (`terrainViewDistance`), a lean skeletal model + anim/mesh
-**LOD**, per-object **draw distance**, modest particle pools, and post-FX
-(bloom/grain) off by default. The on-screen **FPS + free-RAM overlay** is on
+**LOD**, per-object **draw distance**, modest particle pools, and post-FX kept
+cheap — bloom 0.16 / grain 0.09 globally, which the cavern's post-FX override
+(the only override it enables) lifts to 0.5 / 0.25, and both are switchable
+in-game from the options menu (`gfx-bloom` / `gfx-grain`, On by default). The
+on-screen **FPS + free-RAM overlay** is on
 (`buildProfile: debug`); combined with the Select options menu it lets you
 measure each effect's cost on hardware. For the clean look, set `buildProfile`
 to `release` and turn `showFps`/`showMemory` off in Preferences.

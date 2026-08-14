@@ -14,9 +14,9 @@ namespace {
 
 typedef unsigned long long llu64;
 constexpr u32 LL_MAGIC = 0x4C4C5854;  // "TXLL"
-constexpr u32 LL_VERSION = 2;
+constexpr u32 LL_VERSION = 3;
 constexpr int LL_HEADER = 24;
-constexpr int LL_STRIDE = 64;  // one record (id + template + 12 floats)
+constexpr int LL_STRIDE = 80;  // id + template + 12 floats + 3 speeds + pad
 // Largest authored object table across scenes - table bounds.
 constexpr int LL_MAX_OBJECTS = 28;
 // Live-spawned clones tracked at once; matches the game's
@@ -67,14 +67,24 @@ class LiveLink : public Script {
       const unsigned char* r = buf + LL_HEADER + i * LL_STRIDE;
       llu64 id;
       s32 tmpl;
-      float v[12];
+      float v[15];
       memcpy(&id, r + 0, 8);
       memcpy(&tmpl, r + 8, 4);
-      memcpy(v, r + 16, 48);
+      memcpy(v, r + 16, 60);
 
       const int idx = findAuthored(id);
       if (idx >= 0) {
         if (idx < LL_MAX_OBJECTS) present[idx] = true;
+        // A Player record also carries the resolved walk/run/
+        // sprint speeds - stream them into the walker (the whole
+        // reason a speed edit needs no rebuild). Zeros mean the
+        // editor left them out.
+        for (int pi = 0; pi < 2; ++pi)
+          if (idx == (pi == 0 ? PLAYER_INDEXES[ctx.scene]
+                              : PLAYER2_INDEXES[ctx.scene]) &&
+              ctx.playerSpeeds[pi] && v[12] > 0.0F)
+            for (int c = 0; c < 3; ++c)
+              ctx.playerSpeeds[pi][c] = v[12 + c];
         if (idx >= ctx.objectCount) continue;
         RuntimeObject& o = ctx.objects[idx];
         bool changed = patch(o, v);
@@ -188,7 +198,7 @@ class LiveLink : public Script {
     return -1;
   }
 
-  int cooldown_ = 1;
+  int cooldown_ = 5;  // poll phase - see docs/devkit.md
   u32 lastSeq_ = 0;
   unsigned int gen_ = 0xFFFFFFFFU;  // forces the first rebuild
   int n_ = 0;

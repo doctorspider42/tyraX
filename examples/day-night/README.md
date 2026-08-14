@@ -10,8 +10,8 @@ whether that hour stands still.
 the east, noon under blue with short shadows, dusk under a red sky lit from the
 west, and night in cold moonlight under stars.](../../docs/img/day-night-example.png)
 
-Press **Triangle** to step to the next moment: dawn → noon → dusk → night →
-**live** → dawn.
+The project boots into **live**. Press **Triangle** to step to the next moment:
+live → dawn → noon → dusk → night → live.
 
 The fifth scene, `live`, is the other half of the
 [hybrid](../../docs/day-night-cycle.md): same geometry again, but the **game
@@ -125,5 +125,6 @@ byte writes a frame rather than any geometry work.
   is what the grade is for, and the clearest way to see it.
 - **Bake global illumination** (*Ambience Editor > Global illumination*). It is
   off here, and each hour caches separately because the light direction is part
-  of the bake signature — four scenes means four bakes, exactly the trade-off
+  of the bake signature — five scenes means four bakes here, `live` and `noon`
+  sharing hour 12, exactly the trade-off
   the "moving cycle" memo in the docs works through.

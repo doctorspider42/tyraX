@@ -13,9 +13,12 @@ Open `credits.tyra` in the editor and Build & Run (`F5`), or build headless:
 1. The game boots on the **CREDITS DEMO** title screen. Pick **CREDITS**.
    - The end roll scrolls up: a heading, a logo image, four **role / name**
      rows, a wrapped SPECIAL THANKS paragraph, then a page break and THE END.
-   - `PRESS (X) TO SKIP` sits at the bottom — the glyph is baked from the
-     *confirm* binding. Press Cross and the roll ends **back on the title
-     screen**, its finish action; sitting through it lands in the same place.
+   - `PRESS (X) TO SKIP` sits at the bottom — the hint reads
+     `PRESS {{cross}} TO SKIP`, a raw button token, so the glyph is baked into
+     the sprite and does **not** follow a rebind; `{{confirm}}` is the form
+     that would. The skip itself still listens on the *confirm* action. Press
+     Cross and the roll ends **back on the title screen**, its finish action;
+     sitting through it lands in the same place.
 2. Pick **START** to play (an empty checkerboard — this demo is about the
    credits, not the level), then press **L1** anywhere.
    - The **dedication** plays as three **cards**, one screenful each, cross-fading:

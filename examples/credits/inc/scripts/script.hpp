@@ -250,6 +250,11 @@ struct ScriptContext {
   // timer runs out (a mode the TV can't display would otherwise strand the
   // player on a black screen). widescreen: -1 = leave, 0/1 = 4:3 / 16:9.
   // The game applies and resets all three.
+  // Frame extrapolation (docs/frame-extrapolation.md), written by the Set
+  // Frame Extrapolation flow node: -1 = leave alone, 0 = off, 1 = on (still
+  // subject to the per-frame gate), 2 = on and IGNORE the gate. The game
+  // latches it and clears it back to -1.
+  int frameExtrapolation = -1;
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
@@ -328,6 +333,10 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+  // Each points at that player's live walk/run/sprint triple (PlayerCtl::
+  // speeds), so Live Link can stream a speed edit into a running debug build.
+  // Null when the game has no walker. Set by the game.
+  float* playerSpeeds[2] = {nullptr, nullptr};
 
   // Prefabs (docs/prefabs.md) and runtime procedural volumes
   // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static

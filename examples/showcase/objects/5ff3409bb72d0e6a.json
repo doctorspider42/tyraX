@@ -1,1 +1,1 @@
-{ "id": "5ff3409bb72d0e6a", "name": "point-light-7", "type": "point-light", "position": [3, 4.6273, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.3, 0.8, 1], "physics": false, "layer": "crystals", "light": { "brightness": 1.5, "radius": 11 } }
+{ "id": "5ff3409bb72d0e6a", "name": "point-light-7", "type": "point-light", "position": [3, 4.6273, 2], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.3, 0.8, 1], "physics": false, "layer": "crystals", "light": { "brightness": 1.5, "radius": 11, "dynamic": false, "flicker": 0, "beam": 0 } }

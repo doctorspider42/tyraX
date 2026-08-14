@@ -47,7 +47,7 @@ struct SceneObjectData {
   float emitWeight;  // custom: air drag ~ 1/weight
   float emitLife;    // custom: particle lifetime, seconds
   float emitGrow;    // custom: size multiplier at end of life
-  float emitOpacity; // custom: base alpha 0..1
+  float emitOpacity; // fog/custom: base alpha 0..1
   int emitDieGround; // custom: 1 = particle dies on the terrain
   int snd;        // sound emitters: index into SND_PATHS, -1 = none
   int sndAuto;    // sound emitters: 1 = plays while in range
@@ -491,6 +491,8 @@ inline const char* SND_PATHS[1] = {""};
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0, 0, 0, 0, 0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0, 0, 0, 0, 0};
 constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.14F, 0.14F, 0.14F, 0.14F, 0.14F};
+constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {0.14F, 0.14F, 0.14F, 0.14F, 0.14F};
+constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {0.252F, 0.252F, 0.252F, 0.252F, 0.252F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F, 1.8F, 1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F, 4.5F, 4.5F};
@@ -507,6 +509,7 @@ constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false, false
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
@@ -515,6 +518,8 @@ constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false, false, false, false, f
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1, -1, -1, -1, -1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0, 0, 0, 0, 0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F, 0.1F, 0.1F};
+constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F, 0.1F, 0.1F};
+constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F, 0.18F, 0.18F, 0.18F, 0.18F};
 constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
 constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F, 1.8F, 1.8F};
 constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F, 4.5F, 4.5F};
@@ -531,6 +536,7 @@ constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false, fals
 constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
 constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
@@ -629,7 +635,7 @@ constexpr StarData STARS[520] = {
     {0.760168F,-0.310958F,0.570482F,0.0102684F,120,131,155,1},{-0.520195F,-0.43907F,0.73254F,0.00513334F,76,51,28,2},{0.0658157F,-0.468422F,0.88105F,0.00890076F,123,127,139,1},{-0.407622F,0.824619F,-0.392234F,0.00446001F,59,48,39,2},
     {0.591604F,0.566539F,0.573619F,0.00408444F,36,39,46,2},{0.0762795F,0.607686F,-0.790506F,0.00408839F,36,39,46,2},{0.696056F,-0.443916F,0.564309F,0.00448571F,46,50,59,2},{0.395722F,-0.392202F,0.830411F,0.00408708F,36,39,46,2},
     {-0.297438F,-0.462001F,0.835515F,0.00417053F,49,39,30,2},{-0.798413F,0.191604F,-0.57081F,0.00409256F,46,36,28,2},{-0.521092F,-0.394729F,0.756738F,0.0191401F,217,220,236,0},{-0.598446F,0.39214F,-0.698633F,0.0135074F,189,132,83,0},
-    {0.62776F,0.773536F,0.0869443F,0.00791842F,102,109,125,1},{0.961005F,-0.126113F,0.246101F,0.00408444F,46,32,20,2},{-0.189391F,0.106659F,0.976092F,0.00408649F,36,39,46,2},{0.450572F,-0.426908F,0.78405F,0.00442979F,45,49,58,2},
+    {0.62776F,0.773536F,0.0869443F,0.00791842F,102,109,125,1},{0.961005F,-0.126113F,0.246101F,0.00408444F,46,32,20,2},{-0.189391F,0.106659F,0.976092F,0.00408649F,36,39,46,2},{0.450573F,-0.426908F,0.78405F,0.00442979F,45,49,58,2},
     {0.465477F,0.384985F,-0.796943F,0.00408444F,46,41,36,2},{0.465816F,-0.68288F,0.562753F,0.00537118F,71,74,82,2},{0.904636F,-0.327265F,-0.273005F,0.00408444F,46,33,23,2},{0.565148F,-0.737435F,-0.369862F,0.00408444F,36,39,46,2},
     {0.0770315F,-0.606381F,0.791435F,0.00432087F,42,46,54,2},{0.794786F,-0.347761F,0.497371F,0.00424451F,52,46,41,2},{0.405957F,-0.910049F,0.0837307F,0.00410975F,47,46,44,2},{0.559736F,-0.385846F,0.733361F,0.00418144F,44,45,50,2},
     {-0.319508F,0.444864F,-0.836667F,0.00865242F,102,113,135,1},{-0.439051F,-0.604096F,0.665058F,0.00408558F,39,41,46,2},{0.70428F,0.455518F,-0.544511F,0.00411194F,40,42,47,2},{0.645139F,0.384368F,-0.660346F,0.00409481F,37,40,46,2},
@@ -864,6 +870,8 @@ inline int everyFrames(float seconds) {
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_RUN_SPEED PLAYER_RUN_SPEEDS[g_activeScene]
+#define PLAYER_SPRINT_SPEED PLAYER_SPRINT_SPEEDS[g_activeScene]
 #define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
@@ -880,6 +888,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_SPRINT_CLIP PLAYER_SPRINT_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
 // Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
@@ -888,6 +897,8 @@ inline int everyFrames(float seconds) {
 #define PP_INDEX(pi) PP_TBL(pi, INDEXES)
 #define PP_MODE(pi) PP_TBL(pi, MODES)
 #define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_RUN_SPEED(pi) PP_TBL(pi, RUN_SPEEDS)
+#define PP_SPRINT_SPEED(pi) PP_TBL(pi, SPRINT_SPEEDS)
 #define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
 #define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
 #define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
@@ -904,6 +915,7 @@ inline int everyFrames(float seconds) {
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_SPRINT_CLIP(pi) PP_TBL(pi, SPRINT_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 // Directional locomotion (face-camera / strafe mode).
 #define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)

@@ -619,6 +619,22 @@ class TerrainGame : public Tyra::Game {
                           const Tyra::SkelModel* anim, float* cOff, float* ext);
   static bool physObstacle(const SceneObjectData& d);
   void renderScene();
+  // Frame extrapolation (docs/frame-extrapolation.md): present one synthesised
+  // frame after each rendered one, warped from the camera's own motion. The
+  // camera of the PREVIOUS rendered frame is what that motion is measured
+  // against. Inert unless FRAME_EXTRAPOLATION.
+  void presentExtrapolatedFrame();
+  // The adaptive gate (docs/frame-extrapolation.md): synthesising is only free
+  // while the frame's work already overruns a field.
+  bool extrapolationWorthIt();
+  bool extrapolating = false;
+  int extrapolationRun = 0;
+  int extrapolationMode = 1;  // 0 off, 1 gated, 2 forced (flow node)
+  unsigned int extrapolationMark = 0;
+  float extrapolationFrac = 0.5F;  // where the synthesised frame lands
+  bool extrapolationSeeded = false;
+  Tyra::WarpCamera warpPrev;
+  bool warpPrevValid = false;
   // Mirror objects (type 15): re-submit each listed target's live bags
   // under a reflection matrix about the glass plane, then blend the quad
   // over the copies. mirrorMat holds the reflection for the mirror being
@@ -796,6 +812,12 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    int sprintClip = -1;  // -1 = the run clip covers sprinting
+    // walk / run / sprint, seeded from the scene tables at load. A variable
+    // rather than the constants so Live Link can stream a speed edit into a
+    // running debug build (docs/player-speeds.md); a release build just
+    // reads what the load wrote.
+    float speeds[3] = {0.1F, 0.1F, 0.18F};
     // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
     // the walk clip covers that direction.
     int backClip = -1, strafeLClip = -1, strafeRClip = -1;
@@ -850,7 +872,7 @@ class TerrainGame : public Tyra::Game {
   // (strafe) locomotion - the movement direction relative to the avatar's
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded, float moveLocal);
+                       bool grounded, float moveLocal, bool sprinting);
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a

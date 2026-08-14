@@ -1,1 +1,1 @@
-{"id": "r00000000000016", "name": "zone-hall", "type": "area", "position": [0, 3, 31], "rotation": [0, 0, 0], "scale": [40, 12, 26], "color": [0.3, 0.5, 1.0], "physics": false, "reverb": {"preset": 5, "amount": 0.9, "delay": 64, "feedback": 64, "priority": 0}}
+{ "id": "r00000000000016", "name": "zone-hall", "type": "area", "position": [0, 3, 31], "rotation": [0, 0, 0], "scale": [40, 12, 26], "color": [0.3, 0.5, 1], "physics": false, "reverb": { "preset": 5, "amount": 0.9, "delay": 64, "feedback": 64, "priority": 0 } }

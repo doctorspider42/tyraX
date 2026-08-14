@@ -3,15 +3,19 @@ bin/*.elf
 bin/*.elf.sym
 *.history
 .vscode/
-# The baked-asset mirror is a build artifact and stays out of git - EXCEPT
-# the global-illumination cache (docs/global-illumination.md), which is NOT
-# produced by a build. Without it a fresh clone would build this example with
-# GI silently switched off, which is the one thing it exists to show. The
-# bake's signature hashes file CONTENT rather than mtimes, so a checkout does
-# not stale it.
-.res-baked/*
-!.res-baked/gi/
+# The texture-quantized mirror of res/, rebuilt by every build - EXCEPT the
+# global-illumination cache, which no build can produce (docs/global-illumination.md:
+# "codegen, texbake and the viewport only ever READ it"). A bake takes minutes
+# and its signature hashes file CONTENT, not mtime, precisely so a clone keeps
+# it - so the project has to ship it. The pattern is split because git cannot
+# re-include a path inside an excluded DIRECTORY.
+/.res-baked/*
+!/.res-baked/gi/
 docker-compose.yml
+# Pre-migration snapshots of the project's own model files, written by a format
+# migration (docs/format-versioning.md). Local safety copies, not source: the
+# history that matters is already in git.
+_backup/
 # Devkit runtime files (docs/devkit.md): the editor <-> game channels, a
 # crash report and the game's log. Written next to the ELF while you work,
 # never shipped. bin/.gitignore already ignores the whole directory - this

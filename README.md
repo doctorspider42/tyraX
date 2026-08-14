@@ -281,7 +281,7 @@ wait for their polish pass.
 | [endless-runner](examples/endless-runner) | An endless track that never repeats — variant groups, per-chunk odds, ever-rising speed |
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
-| [vu-lab](examples/vu-lab) | Five props on five VU1 paths — capture a draw off the console, replay it on the host |
+| [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
 
 ## CLI
 

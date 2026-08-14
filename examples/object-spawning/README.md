@@ -41,6 +41,7 @@ spawning past the cap simply fails until a slot frees — no allocation at
 runtime. A clone inherits its template's streaming layer, so unloading that
 layer despawns it too.
 
-See [docs/object-scripts.md](../../docs/object-scripts.md) for the flow
-graph, and [docs/animated-models.md](../../docs/animated-models.md) for the
-skeletal model.
+See [docs/animated-models.md](../../docs/animated-models.md) for the skeletal
+model. The spawn nodes themselves are documented where they live: hover
+**Spawn Object** / **Despawn Object** in the flow-graph palette for the pin
+tips.
