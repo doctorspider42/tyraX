@@ -8109,6 +8109,15 @@ void TerrainGame::setupLightPools() {
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
     b.info->dynLightPick = false;  // it IS the light - never re-lit
+    // ...and that has to include the camera spot, which dynLightPick = false
+    // FALLS BACK TO. Without this the flashlight's own pool is itself lit by
+    // the flashlight: VU1 adds the per-vertex cone on top of the projected
+    // texture, on a patch whose vertices are metres apart, and the result is a
+    // Gouraud wedge drawn across the very pool that exists to replace it. It
+    // reads as hard diagonal seams along the patch's triangulation, and it
+    // survived a fix for the ST mapping, one for the near plane and one for
+    // the depth test - because it was none of those.
+    b.info->spotLit = false;
     b.info->fullClipChecks = true;  // big near-camera quads: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
@@ -8130,6 +8139,14 @@ void TerrainGame::setupLightPools() {
         }
         if (flashPoolTex) b.texBag->texture = flashPoolTex;
       }
+      // GS CLAMP, and only on this one texture: the pool's STs come out of a
+      // projection, so the patch's outer ring genuinely lands outside 0..1 and
+      // the default REPEAT would draw the beam a second time beside itself.
+      // Clamping per PIXEL is what lets updateAndRenderLightPools hand the GS
+      // the projection's numerator and denominator instead of a finished u,v
+      // it would have had to clamp per vertex.
+      if (b.texBag->texture)
+        b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
     }
     b.texBag->coordinates = b.sts.data();
     b.bag = std::make_unique<StaPipBag>();
@@ -8246,37 +8263,36 @@ void TerrainGame::updateAndRenderLightPools() {
       const float uy = rz * dx - rx * dz;
       const float uz = rx * dy - ry * dx;
 
-      // Where this point sits in the beam's own frustum. 0.43 puts the cone
-      // edge at r = 0.86 in the gobo's radius convention (menubake::kGoboEdge),
-      // which is where its profile has already reached black - so the clamp
-      // below can never smear a lit texel outward into a hard rectangle.
-      // Clamp HERE, on the EE: nothing in the 3D pipeline emits GS_REG_CLAMP,
-      // so a texture's own wrap setting is silently ignored (same note as the
-      // projected shadows' receiver patch).
+      // Where this point sits in the beam's own frustum - as the projection's
+      // NUMERATOR AND DENOMINATOR, not as a finished u,v.
+      //
+      // This is the difference between a projected texture and a decal with the
+      // right picture on it. VU1 emits ST scaled by the vertex's own 1/w
+      // (PerformTexturePerspectiveCorrection: mulq stq, stq, q) and the GS
+      // divides S/Q per PIXEL, so whatever pair goes in here is interpolated
+      // exactly across the triangle in world space. u = S/Q with
+      //   S = 0.5 * fwd + k * (e . right)      k = 0.43 / tan(halfAngle)
+      //   Q = fwd                              fwd = e . forward
+      // and BOTH are affine in the world position, so the per-pixel quotient is
+      // the true projective mapping - not the linear approximation of it that
+      // finished u,v give. Finished u,v are exact at the vertices and wrong
+      // between them, which is what made the pool read as a fan of triangles
+      // however finely the patch was cut (reported from the console; 0.43 puts
+      // the cone edge at r = 0.86, the gobo's own black margin).
+      //
+      // No EE clamp any more either: the gobo texture is set to GS CLAMP in
+      // setupLightPools, so a sample outside the frustum takes the black border
+      // per pixel instead of repeating the pool. That is what the EE clamp was
+      // standing in for, and it could only ever move whole vertices.
+      const float kProj = 0.43F / tanA;
       auto goboST = [&](float x, float y, float z) {
         const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
                     ez = z - cameraPosition.z;
-        const float fwd = ex * dx + ey * dy + ez * dz;
-        if (fwd < 0.05F) return Vec4(1.0F, 1.0F, 1.0F, 0.0F);  // at the lens
-        const float inv = 0.43F / (fwd * tanA);
-        float du = (ex * rx + ey * ry + ez * rz) * inv;
-        float dv = -(ex * ux + ey * uy + ez * uz) * inv;
-        // Clamp RADIALLY, never per component. Nothing in the 3D pipeline
-        // emits GS_REG_CLAMP - a texture's own wrap setting is silently
-        // ignored, so an ST outside 0..1 would REPEAT the gobo and draw a
-        // second pool - but clamping u and v separately turns a point that is
-        // out past the corner into one that is out along an AXIS, which bends
-        // the beam's own direction and lands as straight bright wedges around
-        // the patch (measured in PCSX2: they read as facets of the ground).
-        // Pushing the offset back along its own direction keeps the direction
-        // and puts the sample on the gobo's black margin, where it belongs.
-        const float d2 = du * du + dv * dv;
-        constexpr float kEdge = 0.47F;  // inside the texture, outside the beam
-        if (d2 > kEdge * kEdge) {
-          const float k = kEdge / sqrtf(d2);
-          du *= k, dv *= k;
-        }
-        return Vec4(0.5F + du, 0.5F + dv, 1.0F, 0.0F);
+        float fwd = ex * dx + ey * dy + ez * dz;
+        if (fwd < 0.05F) fwd = 0.05F;  // at or behind the lens
+        return Vec4(0.5F * fwd + kProj * (ex * rx + ey * ry + ez * rz),
+                    0.5F * fwd - kProj * (ex * ux + ey * uy + ez * uz), fwd,
+                    0.0F);
       };
       // The patch is depth-TESTED and never writes z, so it has to win that
       // test against the surface it lies 4.5 cm above - which on one enormous
@@ -8285,7 +8301,17 @@ void TerrainGame::updateAndRenderLightPools() {
       // and costs nothing visually: the displacement is along the view ray, so
       // the vertex projects to the same pixel (the projected shadows' zBias).
       auto zBias = [&](float x, float y, float z) {
-        constexpr float k = 0.996F;
+        // 0.975, not the projected shadows' 0.996. The margin has to cover more
+        // than fixed-point z here: this patch is 4x4 cells over ground whose
+        // own cells are the same size, so wherever a terrain CREASE falls
+        // between two patch vertices the ground pokes through the chord between
+        // them and the pool loses the test in a wedge bounded by the terrain's
+        // own triangulation. That is what the dark triangles in the pool were.
+        // Costs nothing visually - the displacement is along the view ray, so
+        // every vertex still projects to exactly the same pixel - and the only
+        // thing it can now draw over is a surface within 2.5% of the lit
+        // ground's depth, i.e. one practically touching it.
+        constexpr float k = 0.975F;
         return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
                     cameraPosition.y + (y - cameraPosition.y) * k,
                     cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
@@ -8313,19 +8339,67 @@ void TerrainGame::updateAndRenderLightPools() {
       // The stretch belongs BEYOND the landing point, not around it.
       const float shift = (along - across) * 0.55F;
       const float px0 = gx + ax * shift, pz0 = gz + az * shift;
+      // ...and the NEAR edge may not reach behind the lens. Measuring
+      // horizontal distance along the beam's ground run as t, a patch point has
+      //   fwd = t * |d.xz| + height-above-ground * -d.y
+      // so fwd crosses zero at a t that is perfectly reachable whenever the
+      // player looks steeply down - and the projection's denominator going to
+      // zero across a straight line ON THE GROUND is exactly what a hard dark
+      // wedge cutting into the pool is. (Reported as "the pool is triangular";
+      // it survived the switch to per-pixel mapping, because the geometry was
+      // the half at fault.) Solve for fwd = 0.3 and put the near edge there.
+      const float dxz = sqrtf(dx * dx + dz * dz);
+      const float tLand = hit * dxz;  // the landing point, in the same t
+      float aNear = -along;
+      if (dxz > 1e-4F) {
+        const float tMin =
+            (0.3F - (cameraPosition.y - baseY) * -dy) / dxz - (tLand + shift);
+        if (tMin > aNear) aNear = tMin > along ? along * 0.05F : tMin;
+      }
 
-      constexpr int kCells = 4;  // 96 vertices = one VU1 package
-      // The STs are exact at the vertices and LINEAR between them, so the
-      // patch's own grid is visible wherever the projection curves fastest -
-      // which is the hot core, dead centre. Clustering the cells toward the
-      // middle puts the vertices where that error is, for no extra geometry;
-      // uniform cells drew a faint diagonal straight through the hotspot.
+      // 96 vertices = one VU1 package. The cells are UNIFORM again: they were
+      // clustered toward the middle while the STs were finished u,v, to put
+      // vertices where the linear approximation hurt most - and with the
+      // mapping exact per pixel there is no approximation left to hide. All
+      // this grid decides now is which ground the pool COVERS.
+      // THREE cells, not the four the buffers are sized for (setupLightPools
+      // allocates the point lights' 4x4 = 96 vertices for every pool). Two
+      // reasons, and the second is the one that matters:
+      //
+      // With the mapping exact per pixel, this grid no longer draws the light
+      // at all - it only decides which GROUND the pool covers and how closely
+      // it follows the relief - so cells are nearly free to give up.
+      //
+      // And the patch sits right under the camera, so most of its triangles
+      // cross a frustum plane and the EE clipper REPLACES each with up to two:
+      // a 96-vertex bag can leave as a much bigger one, and a bag that outgrows
+      // a single VU1 package drops the overflow (the same multi-package drop
+      // renderProjShadows records for its 5x5 patch). A dropped triangle is a
+      // hard-edged dark wedge in the middle of the pool - which is exactly what
+      // survived every earlier fix. 54 vertices leaves the clipper room.
+      constexpr int kCells = 3;
+      b.bag->count = (u32)(kCells * kCells * 6);
+      // How far the patch floats above the ground it samples. A patch cell is
+      // metres across and the terrain under it is NOT flat between its corners,
+      // so the chord the patch draws dips below every crease it spans - and
+      // there the pool loses the depth test and you see plain ground in the
+      // middle of the light, as a hard-edged wedge along the patch's own
+      // triangulation. The view-ray bias below cannot cover that: it is a
+      // fraction of the distance, while this error is a property of the RELIEF.
+      // So the lift grows with the patch instead of being a constant 4.5 cm,
+      // which is free - this is additive light, not a shadow, and half a metre
+      // of float is invisible on a soft blob.
+      float lift = 0.10F + 0.07F * across;
+      if (lift > 0.8F) lift = 0.8F;
       float aOff[kCells + 1], cOff[kCells + 1];
       for (int i = 0; i <= kCells; ++i) {
-        const float s = (float)i / kCells * 2.0F - 1.0F;  // -1 .. 1
-        const float w = (s < 0.0F ? -1.0F : 1.0F) * powf(s < 0.0F ? -s : s, 1.3F);
-        aOff[i] = w * along;
-        cOff[i] = w * across;
+        const float s = (float)i / kCells;                // 0 .. 1
+        // 1.4x of margin on the FAR side: coverage is cheap now (the gobo is
+        // black out there, so the extra ground costs fill and nothing else)
+        // and running out of patch before the beam runs out of light cuts the
+        // pool off with a straight edge across the ground.
+        aOff[i] = aNear + (along * 1.4F - aNear) * s;     // asymmetric
+        cOff[i] = (s * 2.0F - 1.0F) * across;
       }
       int v = 0;
       for (int iz = 0; iz < kCells; ++iz) {
@@ -8342,7 +8416,7 @@ void TerrainGame::updateAndRenderLightPools() {
           Vec4 pv[4], ps[4];
           for (int k2 = 0; k2 < 4; ++k2) {
             const float py =
-                (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + 0.045F;
+                (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + lift;
             // The ST comes from the TRUE surface point: the depth bias must
             // move the patch in z only, never slide the beam across it.
             ps[k2] = goboST(qx[k2], py, qz[k2]);
@@ -8448,6 +8522,8 @@ void TerrainGame::setupBlobShadows() {
     b.info->dynLightPick = false;  // as for the projected patches: a dark
                                    // blob under a dynamic light was picked up
                                    // by that light and drawn BRIGHT
+    b.info->spotLit = false;  // ...and the flashlight is the light that would
+                              // most obviously do it - you are standing there
     b.info->fullClipChecks = true;  // near-camera quad: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
@@ -8545,6 +8621,10 @@ void TerrainGame::setupProjShadows() {
                                    // its black straight back to the light's
                                    // color - a bright quad where the shadow
                                    // should be (same rule as the pools)
+    b.info->spotLit = false;  // including the flashlight, which dynLightPick =
+                              // false falls back to: shine a torch at your own
+                              // shadow and the per-vertex cone was lifting it
+                              // out of the ground in cell-sized steps
     b.info->fullClipChecks = true;  // big near-camera triangles: crossing
                                     // ones must CLIP, not drop whole (a
                                     // dropped 3-unit ground quad is a hole)

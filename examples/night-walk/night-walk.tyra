@@ -93,7 +93,7 @@
   "giProbeSpacing": 3,
   "giProbeHeight": 2,
   "giProbeLevels": 4,
-  "terrainMaterial": "",
+  "terrainMaterial": "res/materials/ground.mtl",
   "bloom": 0,
   "bloomThreshold": 0,
   "bloomSpread": 0,

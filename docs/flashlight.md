@@ -37,11 +37,27 @@ Two consequences worth knowing:
   clips — see the gobo section.
 
 **The pool** is the picture. Where the beam lands, the game drops one additive
-patch and takes its texture coordinates from the **beam's own frustum** — the
-same projective mapping a [projected shadow](ambient-occlusion.md) uses to
-sample its silhouette. So the shape of the light is a *texture*, per pixel, and
-the ground's tessellation has no say in it. This is the half you are looking at
-when you shine a torch at the floor.
+patch and takes its texture coordinates from the **beam's own frustum**. So the
+shape of the light is a *texture*, per pixel, and the ground's tessellation has
+no say in it. This is the half you are looking at when you shine a torch at the
+floor.
+
+It is a real projection, not a decal with the right picture on it. The patch
+does not carry finished `u,v` — it carries the projection's **numerator and
+denominator**, because VU1 emits texture coordinates scaled by each vertex's
+`1/w` and the GS divides `S/Q` per pixel:
+
+```
+S = 0.5 * fwd + k * (e · right)     k   = 0.43 / tan(halfAngle)
+T = 0.5 * fwd - k * (e · up)        fwd = e · forward   (e = point - lens)
+Q = fwd
+```
+
+Both `S` and `Q` are affine in the world position, so interpolating them across
+a triangle is exact and `S/Q` per pixel is the true projective mapping. Finished
+`u,v` would be exact at the vertices and wrong between them — which reads, on a
+patch of a few dozen triangles, as a *fan of triangles* rather than a pool of
+light, however finely you cut it.
 
 ## What the pool does
 
@@ -58,15 +74,28 @@ when you shine a torch at the floor.
   same cone spread over four times the ground really is four times weaker per
   square metre.
 
+**The pool is never lit by anything, including the torch that owns it.** It *is*
+the light. That sounds obvious and was the single most expensive bug on the way
+here: opting a bag out of the scene's dynamic lights leaves it taking the
+*global* flashlight, so VU1 was drawing the per-vertex cone straight across the
+projected pool, on a patch whose vertices are metres apart. It looks like hard
+diagonal seams following the patch's triangulation, and it survived a fix for
+the texture mapping, one for the near plane and one for the depth test — because
+it was none of those. Overlays that ARE light or shadow (the pools, the blob
+shadows, the projected shadows) set `spotLit = false` for this reason.
+
 Two limits it keeps on purpose:
 
 - **It is a floor effect.** A beam aimed at a wall taller than the player lights
   that wall through the per-vertex cone only — there is no patch on a vertical
   surface. Aim at a crate lower than your eye and the pool does land on its top.
-- **It is one patch of 4x4 cells** (96 vertices — one VU1 package). The
-  projective mapping is exact at the vertices and linear between them, so a very
-  long stretched pool is slightly approximate in the middle. It is the same
-  budget the projected shadows work to.
+- **It is one patch of 3x3 cells** (54 vertices). With the mapping exact per
+  pixel the grid no longer draws the light at all — it only decides which ground
+  the pool *covers* and how closely it follows the relief — so it is deliberately
+  coarse. It also sits right under the camera, where most of its triangles cross
+  a frustum plane and the EE clipper replaces each with up to two: a bag that
+  outgrows one VU1 package drops the overflow, and a dropped triangle is a hole
+  in the middle of the light.
 
 ## The gobo
 
@@ -89,8 +118,10 @@ To use your own, set *Properties > Flashlight > Pool texture* to a PNG in
 
 - The pool is an **additive** bag (`Cs*FIX + Cd`), so the shape lives in **RGB**
   and alpha is ignored. A white image draws a bright rectangle.
-- Keep the outer border **black**. The projected coordinates are clamped, so a
-  lit edge texel smears outward into a hard rectangle.
+- Keep the outer border **black**. The texture is bound with GS **CLAMP** (the
+  pool's STs genuinely leave 0..1 — the default REPEAT would draw the beam a
+  second time beside itself), so everything outside the frustum samples that
+  border.
 - The image is a real gobo: a cross, a cracked lens or a grille shape maps
   through the beam and lands on the ground as that shape.
 - Power-of-two sides, like every PS2 texture.

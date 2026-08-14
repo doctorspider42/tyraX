@@ -1,6 +1,6 @@
 # night-walk example
 
-A 2048×2048 map at night with a torch and 1100 scattered spruces, holding **50
+A 2048×2048 map at night with a torch and 800 scattered spruces, holding **50
 FPS** — the two features that make that possible are
 [terrain distance detail](../../docs/terrain-lod.md) and the
 [flashlight's projected pool](../../docs/flashlight.md).
@@ -48,11 +48,11 @@ point of the example.
   whichever way it points and flattens it into a cutout; at 0.6 the baked
   moonlight still shows through and the tiers keep their shape.
 
-- **1100 spruces and rocks, from a graph.** One
+- **800 spruces and rocks, from a graph.** One
   [procedural volume](../../docs/procedural-generation.md) scatters them over
   420×420 units around the spawn, filtered by slope and by a noise mask so there
   are clearings, then bakes them into 34 merged chunk meshes with a 210-unit
-  draw distance. ~22k triangles total, none of them authored by hand.
+  draw distance. ~29k triangles total, none of them authored by hand.
 
 - **Fog doing its job.** Fog end (185) sits well inside the view distance (320),
   so the streaming ring's edge is never the thing you notice.
