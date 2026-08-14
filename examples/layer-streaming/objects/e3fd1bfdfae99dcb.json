@@ -1,1 +1,1 @@
-{ "id": "e3fd1bfdfae99dcb", "name": "a-light", "type": "point-light", "position": [0, 2.6, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.6], "physics": false, "layer": "building-a", "light": { "brightness": 1.2, "radius": 11 } }
+{ "id": "e3fd1bfdfae99dcb", "name": "a-light", "type": "point-light", "position": [0, 2.6, -14], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 0.85, 0.6], "physics": false, "layer": "building-a", "light": { "brightness": 1.2, "radius": 11, "dynamic": false, "flicker": 0, "beam": 0 } }

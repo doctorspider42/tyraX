@@ -17,10 +17,10 @@ Two signs on identical pedestals, with **identical `Kd`** (`0.1 0.9 1.0`):
 
 | Side | Material | `Ke` |
 | --- | --- | --- |
-| Left, `s1-sign-MATTE` | `sign-matte.mtl` | *none* |
-| Right, `s1-sign-GLOW` | `sign-glow.mtl` | `0.1 0.9 1.0` |
+| Right, `s1-sign-MATTE` | `sign-matte.mtl` | *none* |
+| Left, `s1-sign-GLOW` | `sign-glow.mtl` | `0.1 0.9 1.0` |
 
-The left one is a barely visible dark silhouette; the right one is full cyan.
+The right one is a barely visible dark silhouette; the left one is full cyan.
 Same color, same scene, one line of `.mtl`. Neither lights its pedestal —
 that's station 3's job, kept separate on purpose.
 
@@ -51,7 +51,7 @@ The pool on the ground has a quadratic falloff measured from the **plane's
 surface**, not its center — which is why the whole plate lights evenly instead
 of blooming from a point.
 
-`s3-shadow-wall` is the shadow demo — a slab between the pit and the far right
+`s3-shadow-wall` is the shadow demo — a slab between the pit and the far left
 pillar. The light doesn't pass through it: the pillar behind is dark on the
 side facing the pit, and the ground carries the wall's shadow. Untick the
 wall's *Cast shadow* in Properties and the shadow disappears (the flag is
@@ -140,7 +140,7 @@ dominated by ordinary geometry, not the glow.
 
 ## Things to try
 
-- Open `sign-matte.mtl` in the Material Editor and drag **Glow** up: the left
+- Open `sign-matte.mtl` in the Material Editor and drag **Glow** up: the matte
   sign lights up in the viewport as you drag, and the panel tells you what the
   project's bloom is set to.
 - Give `concrete.mtl` a tiny glow (0.15, no light) — the whole alley turns

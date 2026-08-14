@@ -15,6 +15,21 @@ git log -p --follow -- PROGRESS.md
 
 ## Small
 
+### Ship the baked HUD sprites of the nine repaired examples
+
+Nine example projects (`custom-nodes`, `cutscene-demo`, `large-terrain`,
+`layer-streaming`, `mirror-room`, `nav-ai`, `object-spawning`,
+`physics-playground`, `script-demo`) carried a `res/.gitignore` of `*` and so
+tracked no assets at all. The rule is fixed and their authored assets are in,
+but their baked `res/hud/*.png` and `res/fonts/atlas-default.png` are still
+untracked, because the four font-derived ones (`icons.png`, `use-text.png`,
+`pick-text.png`, the atlas) bake from a **system** font and a Windows box
+produces Consolas where the committed copies in the other examples are DejaVu —
+committing them here would disagree with the `font_data.gen.hpp` metrics beside
+them. Add them from a Linux `--refresh-gen`, where the bake matches the rest of
+the tree, and confirm with `git status` on a fresh clone that a built example
+leaves nothing untracked.
+
 ### Ignore baked models in nested asset folders
 
 The generated `res/.gitignore` covers `/models/*.tmdl`, `*.tskl` and

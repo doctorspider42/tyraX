@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.32.0 (the flashlight stops being drawn by the terrain's vertex grid, and
+// 1.33.0 (the flashlight stops being drawn by the terrain's vertex grid, and
 // the ground gets distance detail): two halves of one report - a torch on a big
 // map looked bad, and the proposed cure was a finer heightmap near the player.
 // The second half is built here as its own feature, because it is a good answer
@@ -64,7 +64,9 @@
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
 //
-// 1.33.0 (per-pixel static light on a TEXTURED model): the answer to "Silent
+// 1.34.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
+// renumbered on the merge below - main took 1.32.0 with #230 while this branch
+// was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
 // Hill had textured models and it looked fine", which is a fair objection to
 // everything the flashlight work had said up to then. The engine's lightmap
 // route is per texel and refuses textured surfaces, and that refusal is
@@ -810,7 +812,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 33
+#define TYRAX_VERSION_MINOR 34
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -997,7 +999,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // walker. All three are additive AND are written only when non-zero, so a
 // project that never opens the new fields resaves byte for byte - checked, not
 // assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
-// and endless-runner produced no runSpeed/sprintSpeed key anywhere.
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere. (That
+// weapons-arena was never a project - PR #203 committed three ignored build
+// artifacts under the name and nothing else; the directory has since been
+// removed. The other four still make the point.)
 //
 // No migration step, and the reason is the "0 = inherit" default rather than
 // mere additivity: 0 resolves to the numbers the walkers used to compute

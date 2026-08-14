@@ -1,8 +1,9 @@
 # reverb-rooms example
 
-Four rooms, four different acoustics, one sound. This is the demo for
-[reverb](../../docs/reverb.md): the PlayStation 2's **hardware reverb**,
-authored by drawing a box.
+Five reverb zones — cave mouth, hall, pipe corridor, chamber, and a closet that
+switches reverb off again — against the bare outdoors, and one sound. This is
+the demo for [reverb](../../docs/reverb.md): the PlayStation 2's **hardware
+reverb**, authored by drawing a box.
 
 Open `reverb-rooms.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor --build <this folder> --run`.

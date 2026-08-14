@@ -76,7 +76,7 @@ are what you actually stand on.
 
 ## Things worth trying
 
-- Raise **Emit depth** on the Blocks Fill node from 2 to 4: the cliff faces
+- Raise **Emit depth** on the Blocks Fill node from 3 to 5: the cliff faces
   fill in, and the instance count climbs.
 - Set **Relief** to 0 for a flat slab, or **Feature size** to 12 for badlands.
 - Switch the volume to **Baked** in the Procedural window and press *Bake now*:

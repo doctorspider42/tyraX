@@ -181,6 +181,24 @@ progress bar, cancel), or headlessly:
 tyrax-editor --bake-gi <projectDir>
 ```
 
+**A stale cache is silent, so check the generated side, not the screen.** The
+fallback is the whole point of the design - the scene keeps rendering, just with
+the pre-GI lighting - which means a project can ship for months with its bounce
+light switched off and look merely a bit flat. It happened to both example
+projects here: `examples/gi-showcase` and `examples/global-illumination` were
+committed with `giEnabled: true`, a checked-in `scene0.gi`, and codegen quietly
+emitting no GI at all. Two greps answer it with no Docker and no emulator:
+
+```bash
+grep SCENE_AO_ATLAS_GIS <projectDir>/inc/ao_data.gen.hpp   # {1} = the scene ships GI
+grep 'SCENE_PROBE_GRIDS\[\]' <projectDir>/inc/probe_data.gen.hpp   # {nullptr} = no probes
+```
+
+`{0}` and `{nullptr}` after a `--refresh-gen` mean the signature did not match -
+re-bake. Worth doing after any merge that touched the scene, and worth reading
+before believing a screenshot: the difference between "GI is subtle here" and
+"GI is off" is not reliably visible by eye.
+
 ---
 
 ## Quality knobs

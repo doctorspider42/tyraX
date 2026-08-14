@@ -9,8 +9,8 @@ every 14 seconds (and back after 7), and only the dynamic surfaces follow.
 
 | What | Material | Mode |
 | --- | --- | --- |
-| Avenue, **left** pedestals | `chrome.mtl` | **Static sphere map** — `sunset-sky.png` (indigo→violet→blazing horizon streak); never changes |
-| Avenue, **right** pedestals | `chrome-dyn.mtl` | **Dynamic `@sky`** — the game re-renders the scene's sky dome into a 128×128 VRAM texture every frame |
+| Avenue, **right** pedestals | `chrome.mtl` | **Static sphere map** — `sunset-sky.png` (indigo→violet→blazing horizon streak); never changes |
+| Avenue, **left** pedestals | `chrome-dyn.mtl` | **Dynamic `@sky`** — the game re-renders the scene's sky dome into a 128×128 VRAM texture every frame |
 | The tall **mirror monolith** | `chrome-dyn.mtl` | Dynamic, on a big flat slab |
 | Three big spheres at the end | `paint-red/blue/black.mtl` | Dynamic at lower strength over colored bases — the "car paint" look |
 | Red box at the spawn | *(none)* | Matte control — no reflection pass |
@@ -39,8 +39,8 @@ section picks a sphere-map PNG or `<dynamic - live sky>` plus a strength.
 The `.mtl` files store the standard `refl` statement:
 
 ```
-refl -type sphere -mm 0 0.9 sunset-sky.png   # static
-refl -type sphere -mm 0 0.9 @sky             # dynamic
+refl -type sphere -mm 0 0.9 sunset-sky.png     # static
+refl -type sphere -mm 0 0.9 -rounded @sky      # dynamic
 ```
 
 Full guide: [docs/reflective-materials.md](../../docs/reflective-materials.md).

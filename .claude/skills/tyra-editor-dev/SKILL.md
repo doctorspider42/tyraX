@@ -236,12 +236,24 @@ and decides per file:
   `inc/controls.hpp`, `inc/scripts/script.hpp`. Regenerated only while the marker
   line is intact; the user deletes the line to take over.
 - **Written if missing** (no marker — the formats have no room for a comment
-  line): `.vscode/extensions.json`, `THIRD-PARTY-NOTICES.txt`. Created once and
+  line): `.vscode/extensions.json`, `THIRD-PARTY-NOTICES.txt`, `run.ps1`,
+  `run.sh`, `windows-pcsx2.ps1`, `.gitignore`, `bin/.gitignore`,
+  `obj/.gitignore`, `.gitattributes`, `COLLABORATION.md`. Created once and
   then never touched, so an existing project picks the file up on its next build
   while anything the user added to it survives. This is the right category for
   content that is static, user-extendable, and wrong to clobber — the notices
   file is the attribution a shipped game carries (see LICENSE-EXCEPTION.md), and
   authors are expected to append their own credits to it.
+
+  **A file emitted by `templates::generate()` and listed in NEITHER category
+  reaches only `project::create`, i.e. only projects made after it existed.**
+  That is how the launcher pair rotted: `run.sh` was added long after most
+  projects were scaffolded, and **21 of this repo's own 34 example projects had
+  no `run.sh` at all** — a Linux user opening one found a PowerShell launcher
+  and nothing else, while `ai-support/` documented the file as always present.
+  A file that every project should have belongs in this list even when it is
+  "only" created once; write-once is what makes it reach the projects that
+  already exist.
 
 **"Rewritten" means "rewritten when the bytes differ".** `writeFile` compares
 the content first and skips an identical write, which is not a micro-optimization
@@ -262,9 +274,32 @@ the rule to `TPL_RES_GITIGNORE` only covers projects created *afterwards*; every
 existing project keeps its old file and starts tracking the derived bytes. The
 end of `refreshGenerated` has the append-if-missing block that fixes that
 (`/models/*.tmdl`, `/credits/pages/`, `/save/` all arrived this way) — add a
-paragraph there in the same commit. Note the distinction it encodes: `res/save/`
+paragraph there in the same commit. The project's own top-level `.gitignore` has
+the same block for the same reason (`_backup/`, which `--migrate` writes). Note
+the distinction it encodes: `res/save/`
 is ignored because it is rebaked every build, while `res/hud/save-busy.png` is
 written *only when missing* and therefore stays tracked and user-replaceable.
+
+**One thing under `.res-baked/` is NOT an artifact: `gi/`.** Every other path
+there is rebuilt by a build, but the global-illumination cache is produced only
+by an explicit, minutes-long bake — "codegen, texbake and the viewport only ever
+READ it" (docs/global-illumination.md) — so a project that does not ship it
+loses its bounce light the moment somebody clones it, silently falling back to
+the pre-GI lighting. `TPL_GITIGNORE` therefore spells the folder as
+`/.res-baked/*` + `!/.res-baked/gi/` rather than `.res-baked/`: git cannot
+re-include a path inside an excluded *directory*, so the plain form makes the
+negation impossible and the two GI examples had to be force-added by hand.
+
+**A `res/.gitignore` of `*` + `!.gitignore` swallows the whole project.** That
+was the `--new` scaffold's rule for a while, and it is invisible locally — the
+assets are on disk, the editor is happy, and only a fresh clone shows "material
+file missing" on every object. **Nine of this repo's 34 examples were shipping
+with zero tracked assets** because of it, and `examples/mirror-room` had actually
+LOST an authored model that way: `res/models/wobbler.glb` was referenced by an
+object and by the README, ignored by git, and simply absent from the repository
+(the anim bake reported `cannot open file` on every refresh). After changing
+anything about `res/.gitignore`, verify with `git ls-files examples/<name>/res`,
+not with `ls`.
 
 **"Always overwritten" is a hand-written LIST inside `refreshGenerated`, not a
 rule about the suffix.** A new generated file added to `templates::generate()`

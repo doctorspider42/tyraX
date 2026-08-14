@@ -22,6 +22,11 @@ constexpr float TERRAIN_VIEW_DISTANCE = 88.0F;
 
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.5F;
+// The full-stick tier and the sprint tier, already resolved (0 = inherit is
+// applied by the editor, docs/player-speeds.md): with no run speed set these
+// are WALK_SPEED and WALK_SPEED x the sprint multiplier.
+constexpr float RUN_SPEED = 0.5F;
+constexpr float SPRINT_SPEED = 0.9F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -53,9 +58,32 @@ constexpr bool P2_JOIN_ON_START = true;
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = true;
+
+// Experimental (Preferences > Display > Frame delivery,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = false;
+
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = 0.0F;
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = false;
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = true;
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
