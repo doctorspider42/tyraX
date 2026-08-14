@@ -1,5 +1,7 @@
 # Frame pacing
 
+![Video signal and frame delivery settings](img/project-preferences-display.png)
+
 Frame pacing is how a generated game pays for a frame that misses its vsync
 deadline: with double buffering it waits out a whole second field and the frame
 rate halves, and with triple buffering (*Project > Preferences > Display > Triple
@@ -119,7 +121,7 @@ The one combination that puts it within reach at full 512x448 is the
 [neural upscaler](neural-upscaler.md): BLSS sizes the z buffer from the *raster*
 rather than the display buffer, which at 2x2 gives back 172 032 words — more
 than enough to pay for the third display buffer. That has not been measured on
-hardware yet (see [backlog](backlog.md)), and it comes with two corrections the
+hardware yet, and it comes with two corrections the
 first version of this page did not have:
 
 - **The upscaler's own low-res colour target is not in `getHeapWords()` when

@@ -12,10 +12,11 @@ re-read that dependency's license file — upstreams do relicense (miniaudio mov
 from MIT to MIT-0, MakeHuman's assets moved from AGPL to CC0), and a bump is the
 only moment anyone would notice.
 
-Attribution and links for the wider project live in the **Credits** section of
-[`README.md`](README.md); this file is the legal text those credits point at.
-TyraX's own license — Apache-2.0, the same terms as the engine — is in
-[`LICENSE`](LICENSE), with the summary notice in [`NOTICE`](NOTICE).
+General project acknowledgements live in the **Credits** section of
+[`README.md`](README.md). Attribution for redistributed assets lives here,
+beside the dependency notices. TyraX's own license — Apache-2.0, the same terms
+as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
+[`NOTICE`](NOTICE).
 
 ## Summary
 
@@ -357,10 +358,20 @@ not the same: a permissive code license on a project says nothing about the
 license on the models, textures or sounds it ships, and asset collections are
 routinely *mixed* — most files under one license, a long tail under another.
 
-The policy for adding assets is in the "Dependency policy" section of
-[`README.md`](README.md); the short version is that an asset pack has to be
-verified file-by-file, not project-by-project, before anything from it is
-committed here. TyraX ships exactly one such file:
+The policy: an asset pack is verified file-by-file, not project-by-project,
+before anything from it is committed here, and anything that cannot be
+redistributed must be an optional download whose absence disables one feature.
+The third-party assets currently shipped with TyraX are listed below.
+
+### `cat Rigged` — Creative Commons Attribution 4.0
+
+`examples/gi-showcase/res/models/cat.glb` and
+`examples/two-players/res/models/cat.glb` are copies of
+[`cat Rigged`](https://sketchfab.com/3d-models/cat-rigged-eccebebd5a60484eaa49036f8a4b6ed7)
+by [Vr-cvantorium](https://sketchfab.com/Vr-cvantorium).
+
+The model is licensed under the
+[Creative Commons Attribution 4.0 International license](https://creativecommons.org/licenses/by/4.0/).
 
 ### NASA lunar colour map — public domain
 

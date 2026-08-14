@@ -1,1 +1,1 @@
-{"id": "r00000000000019", "name": "zone-closet", "type": "area", "position": [-28.5, 3, 10.5], "rotation": [0, 0, 0], "scale": [5, 12, 5], "color": [1.0, 0.3, 0.3], "physics": false, "reverb": {"preset": 0, "amount": 0.0, "delay": 64, "feedback": 64, "priority": 1}}
+{ "id": "r00000000000019", "name": "zone-closet", "type": "area", "position": [-28.5, 3, 10.5], "rotation": [0, 0, 0], "scale": [5, 12, 5], "color": [1, 0.3, 0.3], "physics": false, "reverb": { "preset": 0, "amount": 0, "delay": 64, "feedback": 64, "priority": 1 } }

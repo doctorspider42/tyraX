@@ -1,15 +1,17 @@
 # Baked global illumination + light probes
 
+![Global illumination controls and bake status](img/ambience-editor.png)
+
 Static geometry gets a baked multi-bounce lightmap. Everything that moves gets
 its light from a probe grid. The PlayStation 2 pays **nothing** at run time for
 either: the ray tracing happens on your desktop and ships as one texture and one
 table.
 
-Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab -
-the same window the sky, the sun and the AO are authored in - press **Bake this
-scene**, and
-build. Two example projects: [global-illumination](../examples/global-illumination)
-is the one-room proof (a red wall and a green wall, and nothing else coloured),
+Turn it on in *Tools > Ambience Editor*, on its **Global illumination** tab —
+the same window the sky, the sun and the AO are authored in — press **Bake this
+scene**, and build. Two example projects:
+[global-illumination](../examples/global-illumination) is the one-room proof (a
+red wall and a green wall, and nothing else coloured);
 [gi-showcase](../examples/gi-showcase) is the guided walk with one station per
 thing GI changes.
 
@@ -19,9 +21,8 @@ thing GI changes.
 
 Before GI, a surface's light was `brightness * (ambient + diffuse * N·L)` plus
 whatever analytic point lights and emissive materials reached it. The sun was
-never shadowed, the sky was a backdrop, and light never bounced.
-
-With GI, one hemisphere gather answers all of it at once:
+never shadowed, the sky was a backdrop, and light never bounced. With GI, one
+hemisphere gather answers all of it at once:
 
 | Source | Before | With GI |
 | --- | --- | --- |
@@ -32,11 +33,11 @@ With GI, one hemisphere gather answers all of it at once:
 | **Bounce** | none | 2 passes by default — a red wall tints the floor beside it |
 
 Visibility comes from a **triangle BVH over the whole scene**, not from analytic
-boxes. So a cylinder casts a round shadow and an imported model casts its own
+boxes — so a cylinder casts a round shadow and an imported model casts its own
 silhouette instead of its bounding box.
 
 At the shipped defaults an open horizontal surface receives about **0.53** from
-the sky, against the flat `ambient` **0.55** it replaces — so switching GI on
+the sky, against the flat `ambient` **0.55** it replaces — switching GI on
 re-lights a scene without re-exposing it.
 
 ---
@@ -44,19 +45,18 @@ re-lights a scene without re-exposing it.
 ## Why it fits in 1.33 MB of VRAM
 
 GS VRAM is ~1.33 MB usable with no LRU — an all-or-nothing flush when the next
-texture does not fit ([gs-vram.md](gs-vram.md)). The scene lightmap atlas is
-256² RGBA32 = **256 KB**, already ~19% of the budget for one scene, and a 512²
-atlas would be 1 MB and leave the scene no texture budget at all.
+texture doesn't fit ([gs-vram.md](gs-vram.md)). The scene lightmap atlas is
+256² RGBA32 = **256 KB**, already ~19% of the budget for one scene; a 512²
+atlas would be 1 MB and leave the scene no texture budget at all. So the atlas
+**cannot grow**, and every design decision follows from that:
 
-So the atlas **cannot grow**, and every design decision follows from that:
-
-- GI does not add a channel or a pass. It **replaces what the RGB channel
-  means**. That channel used to be "baked emissive light"; with GI on it is
-  "incoming light, all sources, all bounces". Emissive materials become one
-  source among several instead of a special case.
+- GI doesn't add a channel or a pass. It **replaces what the RGB channel
+  means**: "baked emissive light" becomes "incoming light, all sources, all
+  bounces", and emissive materials become one source among several instead of
+  a special case.
 - Occlusion stays in **A**, and is not made redundant: it still darkens the
   *dynamic* direct light (the flashlight, live point lights), which is not in
-  the bake and never can be. It is also finer than the probe grid, so it keeps
+  the bake and never can be — and it is finer than the probe grid, so it keeps
   the contact detail probes cannot resolve.
 - If a scene needs more lightmap resolution, the lever is the importance-weighted
   region sizing that already exists ([ambient-occlusion.md](ambient-occlusion.md)),
@@ -78,29 +78,29 @@ lands twice.
 
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
-ground goes down the lightmap route, and `setGiProbes` covers everything else.
-Putting the ground on the probe route instead is not a small preview
-inaccuracy - it paints the whole terrain one flat colour AND drops the ground's
+ground goes down the lightmap route; `setGiProbes` covers everything else.
+Putting the ground on the probe route instead isn't a small preview
+inaccuracy — it paints the whole terrain one flat colour AND drops the ground's
 own tint, because the terrain carries that tint in its vertex colour and the
 probe answer replaces the vertex shade wholesale (PROGRESS 134).
 
 In every GI case the ambient + directional term, the baked point lights and the
-emissive pools are **skipped**, because the baked answer already contains them.
+emissive pools are **skipped** — the baked answer already contains them.
 
 **A textured surface never takes a lightmap.** A flat additive term over a
-texture blows out its dark texels — the pre-existing rule for this atlas. Probes
-are what makes obeying it cost nothing.
+texture blows out its dark texels — the pre-existing rule for this atlas.
+Probes are what makes obeying it cost nothing.
 
 **Neither does anything that can move.** A lightmap glues the light to the
 surface: tip a lightmapped cylinder over at runtime and it carries a contact
 shadow that matches nothing. The bake excludes everything it can *prove* moves
 through `project::objectRuntimeMovable` — the same predicate static batching and
 the live catch areas use (physics, pickable, usable, save-state, streamed,
-owning a flow graph, or named by one) — and those objects take the probe path,
-where the light is re-read from the grid every time the geometry is rebuilt, so
-they relight as they move. *Properties > Baked lighting* is the manual override
-for the channels no build-time scan can see: Live Link, a Raycast latch, a
-custom node's object output.
+owning a flow graph, or named by one). Those objects take the probe path, where
+the light is re-read from the grid every time the geometry is rebuilt, so they
+relight as they move. *Properties > Baked lighting* is the manual override for
+the channels no build-time scan can see: Live Link, a Raycast latch, a custom
+node's object output.
 
 ---
 
@@ -124,9 +124,9 @@ environment of radiance *L* gives `shade = L` for every normal, and a bright
 upper hemisphere gives 1 looking up and 0 looking down.
 
 The lookup is a **weighted** trilinear over the 8 surrounding probes. A probe
-that sits inside solid geometry is marked dead at bake time (most of its rays
-hit a back face right next to the origin) and weighs **zero**, so a wall's black
-interior never bleeds into the room next to it.
+inside solid geometry is marked dead at bake time (most of its rays hit a back
+face right next to the origin) and weighs **zero**, so a wall's black interior
+never bleeds into the room next to it.
 
 **The sun and the point lights are added analytically, not sampled.** A ray that
 escapes comes back with the sky *dome's* colour, which carries no sun disc, and
@@ -138,26 +138,25 @@ the sphere is `max(0, n·s) ≈ 1/4 + 1/2 (n·s)`, and the reconstruction above 
 true `1.0·E` and lifts the back hemisphere by `0.25·E` — the inherent L1 trade,
 and the reason a probe-lit character looks soft rather than hard-edged.
 
-Skipping this is not subtle and does not look like a bug: probes deliver only
-the *bounce* of the sunlight around them, and characters read about 30% darker
-than the lightmapped ground they stand on.
+Skipping this isn't subtle and doesn't look like a bug: probes deliver only the
+*bounce* of the sunlight around them, and characters read about 30% darker than
+the lightmapped ground they stand on.
 
 Animated meshes have exactly one VU1 light slot, so their per-frame sample is
-split: **L0 goes into the ambient term**, and **L1 is reconstructed along the sun
-direction** into that slot. A character walking from sunlight into a doorway
-darkens *and* keeps directional shading, instead of going flat.
+split: **L0 goes into the ambient term**, and **L1 is reconstructed along the
+sun direction** into that slot. A character walking from sunlight into a
+doorway darkens *and* keeps directional shading, instead of going flat.
 
-Grid extent follows the terrain; level 0 sits half a step above the lowest ground
-in the grid, so a probe never starts buried in a hill.
+Grid extent follows the terrain; level 0 sits half a step above the lowest
+ground in the grid, so a probe never starts buried in a hill.
 
 ---
 
 ## The bake is explicit, and cached
 
-**Bake time is a feature. Press-a-button-and-watch is fine; part-of-the-build is
-not.** A build that silently re-bakes lighting is a build nobody runs.
-
-So the bake writes `.res-baked/gi/scene<N>.gi` and **codegen, texbake and the
+**Bake time is a feature. Press-a-button-and-watch is fine; part-of-the-build
+is not** — a build that silently re-bakes lighting is a build nobody runs. So
+the bake writes `.res-baked/gi/scene<N>.gi` and **codegen, texbake and the
 viewport only ever READ it**:
 
 - fresh cache → the scene ships GI;
@@ -165,22 +164,40 @@ viewport only ever READ it**:
   bake, *together*, and the Bake window says so per scene.
 
 The signature hashes the scene (transforms, types, colours, materials, the
-heightmap), the resolved lighting/sky/AO settings, the GI quality knobs, and the
-**content** of every file the bake reads. "Resolved" is what makes a
+heightmap), the resolved lighting/sky/AO settings, the GI quality knobs, and
+the **content** of every file the bake reads. "Resolved" is what makes a
 [day/night cycle](day-night-cycle.md) work here: the cycle rewrites `lightDir`
 and the sky colours before the bake sees them, so **each authored hour caches
 separately** and moving the time-of-day slider correctly reads as stale rather
-than silently shipping noon's bounce light at dusk. Content, not mtime: a bake takes
-minutes and a `touch` (or a checkout, or a copy) must not throw it away — and the
-example project ships its cache, which a fresh `git clone` would otherwise
-invalidate the instant it landed on disk.
+than silently shipping noon's bounce light at dusk. Content, not mtime: a bake
+takes minutes and a `touch` (or a checkout, or a copy) must not throw it away —
+and the example project ships its cache, which a fresh `git clone` would
+otherwise invalidate the instant it landed on disk.
 
-Run it from *Tools > Ambience Editor > Global illumination* (worker thread, progress bar,
-cancel), or headlessly:
+Run it from *Tools > Ambience Editor > Global illumination* (worker thread,
+progress bar, cancel), or headlessly:
 
 ```bash
 tyrax-editor --bake-gi <projectDir>
 ```
+
+**A stale cache is silent, so check the generated side, not the screen.** The
+fallback is the whole point of the design - the scene keeps rendering, just with
+the pre-GI lighting - which means a project can ship for months with its bounce
+light switched off and look merely a bit flat. It happened to both example
+projects here: `examples/gi-showcase` and `examples/global-illumination` were
+committed with `giEnabled: true`, a checked-in `scene0.gi`, and codegen quietly
+emitting no GI at all. Two greps answer it with no Docker and no emulator:
+
+```bash
+grep SCENE_AO_ATLAS_GIS <projectDir>/inc/ao_data.gen.hpp   # {1} = the scene ships GI
+grep 'SCENE_PROBE_GRIDS\[\]' <projectDir>/inc/probe_data.gen.hpp   # {nullptr} = no probes
+```
+
+`{0}` and `{nullptr}` after a `--refresh-gen` mean the signature did not match -
+re-bake. Worth doing after any merge that touched the scene, and worth reading
+before believing a screenshot: the difference between "GI is subtle here" and
+"GI is off" is not reliably visible by eye.
 
 ---
 
@@ -206,12 +223,12 @@ at those defaults.
 
 ## Determinism
 
-Inherited from [matbake](material-baking.md), and load-bearing: the sample spiral
-is rotated by a hash of a per-element seed (the texel's atlas coordinate, the
-triangle's index, the probe's index) — never by shared RNG state. Threads
-partition by element range. **The same inputs give bit-identical bytes at any
-core count**, which is the only thing that makes an A/B comparison possible at
-all.
+Inherited from [matbake](material-baking.md), and load-bearing: the sample
+spiral is rotated by a hash of a per-element seed (the texel's atlas
+coordinate, the triangle's index, the probe's index) — never by shared RNG
+state. Threads partition by element range. **The same inputs give bit-identical
+bytes at any core count**, which is the only thing that makes an A/B comparison
+possible at all.
 
 ---
 
@@ -219,18 +236,19 @@ all.
 
 Said out loud in the Bake window too, not just here:
 
-- **Nothing is real time.** Moving a crate does not move its light until the next
-  bake.
+- **Nothing is real time.** Moving a crate does not move its light until the
+  next bake.
 - **GI does not buy more dynamic lights.** VU1 still lights each mesh with one
   slot. The flashlight and live point lights are unchanged, and the baked
   occlusion still darkens them.
-- **Textured surfaces and imported models are probe-lit, not lightmapped** — see
-  the routing table. Imported models have no lightmap UVs; running `uvunwrap` at
-  bake time to give them a real chart is the road not taken, because probes are
-  much cheaper and cover the moving ones anyway.
+- **Textured surfaces and imported models are probe-lit, not lightmapped** —
+  see the routing table. Imported models have no lightmap UVs; running
+  `uvunwrap` at bake time to give them a real chart is the road not taken,
+  because probes are much cheaper and cover the moving ones anyway.
 - **The editor preview is probe-resolution.** It evaluates the same grid per
-  fragment, so the colour and direction are exact — but the console's per-texel
-  contact shadows on static geometry are sharper than what the viewport shows.
+  fragment, so the colour and direction are exact — but the console's
+  per-texel contact shadows on static geometry are sharper than what the
+  viewport shows.
 
 ---
 
@@ -238,25 +256,25 @@ Said out loud in the Bake window too, not just here:
 
 - **A lightmap texel's alpha must never be 0** (`aobake::kMinLightmapAlpha`).
   StaPip's alpha test discards alpha-0 texels and both passes sample the *same*
-  texture, so a zero-occlusion texel takes the additive light pass down with it —
-  and it looks exactly like "the lightmap is too low resolution". Dump the alpha
-  channel before touching resolution, ever.
+  texture, so a zero-occlusion texel takes the additive light pass down with
+  it — and it looks exactly like "the lightmap is too low resolution". Dump the
+  alpha channel before touching resolution, ever.
 - **Keep the atlases RGBA32.** The engine's PNG path scales alpha by integer
   division into a CLUT; a palettized lightmap loses the gradient.
-- **Under GI a region is kept even when its answer is black.** A dark corner is a
-  *result*, not an absence — drop it and the corner falls back to the vertex path
-  and comes out brighter than the lit wall beside it.
+- **Under GI a region is kept even when its answer is black.** A dark corner is
+  a *result*, not an absence — drop it and the corner falls back to the vertex
+  path and comes out brighter than the lit wall beside it.
 - **Chunk/part passes sharing one vertex buffer must share one `bboxVersion`.**
   The engine's package-bbox cache is keyed by the vertex pointer, so differing
   stamps make each pass recompute the boxes the previous one just built, every
   frame.
 - **Every formula is a triplet**: host bake, generated game, viewport GLSL. GI
-  adds several (the probe lookup, the L1 evaluation, the sky radiance). Write the
-  twin comment at the same time as the formula, not after.
+  adds several (the probe lookup, the L1 evaluation, the sky radiance). Write
+  the twin comment at the same time as the formula, not after.
 - **The `gi` flags travel with the pixels.** A cache whose pixels say "all the
   light is here" while the flag says otherwise renders the scene at double
-  brightness. (This was a real bug during development — the flags were not
-  serialized, and the first PS2 boot came out looking correct-but-flat.)
+  brightness. (A real bug during development — the flags were not serialized,
+  and the first PS2 boot came out looking correct-but-flat.)
 - **"Cast shadow" off does NOT remove an emissive surface from the bake.** That
   switch means "light passes through me" and is honoured for everything else,
   but an emitter *is* the light — there is no way to have one without the
@@ -274,9 +292,9 @@ Said out loud in the Bake window too, not just here:
   bag must match: 128 for a textured part, 255 for an untextured one
   (`GeoPart::litScale`). The animated-model precedent is always textured, so
   copying its 128 makes every untextured object exactly half as bright as the
-  same object baked - which reads as "the probe sample is too dark" and sends
+  same object baked — which reads as "the probe sample is too dark" and sends
   you looking in the wrong place entirely.
-- **`StaPipVU1Cull_D` - the untextured lit program - never reads the colour
+- **`StaPipVU1Cull_D` — the untextured lit program — never reads the colour
   bag.** Its whole output is `CalculateTyraDirectionalLights`, so
   `colorBag->single` cannot tint anything: the albedo has to be folded into the
   light colours before they reach the bag, exactly as the animated path does.
@@ -284,8 +302,8 @@ Said out loud in the Bake window too, not just here:
   not supported with lighting" guard is not a safety net in a shipped build.)
 - **A station outside the terrain is not a subtle mistake.** The walker clamps
   the player to the terrain bounds, so every spawn past the edge lands in the
-  same place — which reads as "the camera is broken" rather than "you walked off
-  the map". Cost three rebuilds while authoring `examples/gi-showcase`.
+  same place — which reads as "the camera is broken" rather than "you walked
+  off the map". Cost three rebuilds while authoring `examples/gi-showcase`.
 
 ---
 

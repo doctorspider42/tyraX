@@ -2,11 +2,10 @@
 
 A 14-second in-engine cutscene ("The Reveal") that exercises the full range of
 the **Cutscene Director** (*Tools > Cutscene Director*): five camera entities,
-hard cuts *and* a smooth blend between cameras, a dolly and a crane (two
-cameras moving on their own tracks), per-shot FOV and handheld shake, object
-tracks animating position/rotation and scale/colour and visibility, Cinema
-2.39:1 widescreen bars that slide in/out, and a fade-in/out — all running on
-the PS2.
+hard cuts *and* a smooth blend, a dolly and a crane (two cameras moving on
+their own tracks), per-shot FOV and handheld shake, object tracks animating
+position/rotation, scale/colour and visibility, Cinema 2.39:1 widescreen bars
+that slide in/out, and a fade-in/out — all running on the PS2.
 
 ![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Cinema 2.39:1 bars, fades, skippable) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
 
@@ -16,9 +15,9 @@ headless: `tyrax-editor.exe --build <this folder> --run`.
 ## What to do
 
 The cutscene plays automatically on boot (**On Start**). When it ends the
-camera is handed back to you; walk to the gold **pedestal** and press the
-USE button to replay it (**On Used → Play Sequence**). It is **skippable**
-— press START while it plays to end it early.
+camera is handed back to you; walk to the gold **pedestal** and press the USE
+button to replay it (**On Used → Play Sequence**). It is **skippable** — press
+START while it plays to end it early.
 
 The shot list (one sequence, "The Reveal"):
 
@@ -32,8 +31,9 @@ The shot list (one sequence, "The Reveal"):
    across the plaza. Meanwhile the **obelisk** swells and heats from gold to
    molten orange (a scale + colour track) and the hero keeps spinning.
 4. **10.0 s** — cut to `cam-hero`, a low angle looking up as the hero
-   **ascends** spinning and the `sparks` emitter on the obelisk switches on
-   (a visibility track). This shot **blends** (Smooth easing) into the finale…
+   **ascends** spinning. The `sparks` emitter on the obelisk has already
+   switched on half a second earlier: its visibility key sits at 9.5 s, still
+   inside the dolly shot. This shot **blends** (Smooth easing) into the finale…
 5. **13.0 s** — `cam-crane`, itself craning up and back on its own object
    track, pulls away for the climax as the picture fades to black; the bars
    slide out and the game camera returns to the player.
@@ -58,6 +58,6 @@ The shot list (one sequence, "The Reveal"):
 - **Trigger** — the pedestal's flow graph fires **Play Sequence** from both
   **On Start** and **On Used** (the pedestal is marked *Usable*).
 
-Everything compiles into `src/scripts/sequences.gen.cpp` (keyframe tables +
-the director script + the bars/fade compositor) on every build — open the
-file to see what the editor generates from the timeline.
+Everything compiles into `src/gen/sequences.gen.cpp` (keyframe tables +
+the director script + the bars/fade compositor) on every build — open the file
+to see what the editor generates from the timeline.

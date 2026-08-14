@@ -28,7 +28,10 @@ int main(int argc, char** argv) {
   // "log.txt" (next to the ELF) instead of the EE console, which does not
   // reach PCSX2's emulog. The TyraX Debug window tails that file. Must
   // be set before the Engine is constructed (its init logging is the first to
-  // hit the file). No cost in a release (NDEBUG) build - the macros compile out.
+  // hit the file). NOTE: this used to claim "no cost in a release (NDEBUG)
+  // build - the macros compile out", and that is FALSE - a game build never
+  // defines NDEBUG (release only drops -g and KEEPSYM), so every TYRA_LOG
+  // ships. Measured 2026-08-13; see docs/devkit.md.
   // Under ps2link the EE console is BETTER than the file: ps2link forwards
   // printf over the network and the editor shows it live in the Output panel.
   Tyra::Info::writeLogsToFile = !ps2link;
@@ -59,7 +62,7 @@ int main(int argc, char** argv) {
     options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Display > Widescreen).
   options.widescreen = false;
-  // Framebuffer colour depth (Preferences > Build > Colour depth) and the
+  // Framebuffer colour depth (Preferences > Display > Colour depth) and the
   // GS's ordered dithering. 16bpp halves what the two frame buffers cost in
   // GS memory and hands it to the texture heap; the dither is what keeps the
   // 5-bit channels from banding. See docs/gs-vram.md.
@@ -81,7 +84,7 @@ int main(int argc, char** argv) {
   // usbd + ps2kbd + ps2mouse drivers; controls.hpp maps the keys onto a
   // virtual pad every frame. Works in PCSX2 (the editor sets USB1=hidkbd,
   // USB2=hidmouse in PCSX2.ini) and with real USB devices on a console.
-  options.loadUsbKbdMouse = true;
+  options.loadUsbKbdMouse = false;
   // Preferences > Build > Keyboard & mouse > Also over ps2link (on by
   // default): the engine reuses the USB stack of the TyraX ps2link
   // (tools/ps2link), which bakes usbd+ps2kbd+ps2mouse into its own boot - it

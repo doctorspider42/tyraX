@@ -3,7 +3,14 @@ bin/*.elf
 bin/*.elf.sym
 *.history
 .vscode/
-.res-baked/
+# The texture-quantized mirror of res/, rebuilt by every build - EXCEPT the
+# global-illumination cache, which no build can produce (docs/global-illumination.md:
+# "codegen, texbake and the viewport only ever READ it"). A bake takes minutes
+# and its signature hashes file CONTENT, not mtime, precisely so a clone keeps
+# it - so the project has to ship it. The pattern is split because git cannot
+# re-include a path inside an excluded DIRECTORY.
+/.res-baked/*
+!/.res-baked/gi/
 docker-compose.yml
 # Pre-migration snapshots of the project's own model files, written by a format
 # migration (docs/format-versioning.md). Local safety copies, not source: the

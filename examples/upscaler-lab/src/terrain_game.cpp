@@ -2992,6 +2992,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.playerSpeeds[0] = players[0].speeds;
+  scriptCtx.playerSpeeds[1] = players[1].speeds;
   scriptCtx.spawnPrefab = &spawnPrefabThunk;
   scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
   scriptCtx.generateVolume = &generateVolumeThunk;
@@ -5284,6 +5286,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
       P.runClip =
           PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.sprintClip = PP_SPRINT_CLIP(pi)[0]
+                         ? resolveClipIndex(P.objIndex, PP_SPRINT_CLIP(pi))
+                         : -1;
+      P.speeds[0] = PP_WALK_SPEED(pi);
+      P.speeds[1] = PP_RUN_SPEED(pi);
+      P.speeds[2] = PP_SPRINT_SPEED(pi);
       P.jumpClip =
           PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       P.backClip =
@@ -9427,17 +9435,28 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  // Sprint (Tools > Input Map "sprint" action + Preferences > Input > Sprint
-  // speed): scales the walk speed while the action is held. SPRINT_MULT 1 or
-  // an unbound/absent sprint action = no sprinting, no cost. The avatar's
-  // locomotion clip is chosen from speedFrac against the UNSPRINTED speed
-  // further down, so sprinting is what pushes it over the run threshold.
+  // The three speed tiers (docs/player-speeds.md). The stick's DEFLECTION
+  // ramps the speed from walk to run, so easing the stick walks and pushing it
+  // all the way runs; a digital source (d-pad, keyboard) always reads full
+  // deflection and therefore always runs. Holding the "sprint" action pins the
+  // top speed FLAT instead of ramping - a deliberate go-fast modifier.
+  //
+  // Both tiers are RESOLVED at build time (project::playerRunSpeed /
+  // playerSprintSpeed), so a project that set neither has RUN == WALK - the
+  // ramp is then a no-op - and SPRINT == walk x SPRINT_MULT, which is the
+  // expression this used to compute here. That is what makes an existing
+  // project move exactly as it did.
+  //
+  // forward/strafe are each -1..1 and already carry the stick's magnitude into
+  // the position delta below, so the ramp must scale the SPEED only; the clamp
+  // matters because a d-pad diagonal reads sqrt(2).
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
+  const bool sprinting =
+      IA_ROLE_SPRINT >= 0 && inputPressed(pad, IA_ROLE_SPRINT);
   const float moveSpeed =
-      PP_WALK_SPEED(pi) *
-      ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-        inputPressed(pad, IA_ROLE_SPRINT))
-           ? SPRINT_MULT
-           : 1.0F);
+      sprinting ? P.speeds[2]
+                : P.speeds[0] + (P.speeds[1] - P.speeds[0]) * stickMag;
 
   if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -9610,9 +9629,14 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[1] = P.y;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
-      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      // Locomotion clips are measured against the RUN speed - the top of the
+      // stick ramp - so PP_RUN_THRESHOLD keeps meaning "fraction of full-stick
+      // speed" whether or not a run speed was set (with none, RUN == WALK and
+      // this is the expression it always was). Sprinting exceeds the run
+      // speed, so it still pushes the fraction past the threshold.
+      const float step = P.speeds[1] * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
-                      moveLocal);
+                      moveLocal, sprinting);
     }
     return;
   }
@@ -9733,12 +9757,13 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
                                   float speedFrac, bool grounded,
-                                  float moveLocal) {
+                                  float moveLocal, bool sprinting) {
   if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
   const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
+  bool onSprintClip = false;
   if (!grounded && P.jumpClip >= 0)
     want = P.jumpClip;
   else if (speedFrac < 0.12F)
@@ -9755,19 +9780,29 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
       dir = P.backClip;
     else if (a > 1.0471976F)  // 60..120 deg
       dir = moveLocal < 0.0F ? P.strafeRClip : P.strafeLClip;
+    // Above the run threshold the sprint clip REPLACES the run clip while the
+    // sprint action is held - the tier is a button, not a speed band, so it is
+    // read from the button. A project with no sprint clip keeps using the run
+    // clip for both, exactly as before.
     if (dir >= 0)
       want = dir;
-    else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    else if (speedFrac < PP_RUN_THRESHOLD(pi))
       want = P.walkClip;
-    else
+    else if (sprinting && P.sprintClip >= 0) {
+      want = P.sprintClip;
+      onSprintClip = true;
+    } else if (P.runClip >= 0)
       want = P.runClip;
+    else
+      want = P.walkClip;
   }
   if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == P.idleClip || body.animClip == P.walkClip ||
-      body.animClip == P.runClip || body.animClip == P.jumpClip ||
+      body.animClip == P.runClip || body.animClip == P.sprintClip ||
+      body.animClip == P.jumpClip ||
       body.animClip == P.backClip || body.animClip == P.strafeLClip ||
       body.animClip == P.strafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
@@ -9781,9 +9816,18 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
   // Match playback to foot speed on the moving clips (min 0.6x so a slow creep
   // still animates), otherwise the authored speed.
   const float base = body.data.animSpeed;
-  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F)
-    body.animSpeed = base * (speedFrac < 0.6F ? 0.6F : speedFrac);
-  else
+  if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F) {
+    // speedFrac is measured against the RUN speed, so a sprint clip - authored
+    // at sprint pace - would be driven at sprint/run times its authored rate
+    // and visibly gallop. Normalise it against the tier the clip belongs to,
+    // so a sprint clip plays 1x while actually sprinting.
+    float frac = speedFrac;
+    if (onSprintClip && P.speeds[1] > 1e-6F) {
+      const float ratio = P.speeds[2] / P.speeds[1];
+      if (ratio > 1e-6F) frac /= ratio;
+    }
+    body.animSpeed = base * (frac < 0.6F ? 0.6F : frac);
+  } else
     body.animSpeed = base;
 }
 
@@ -15318,12 +15362,17 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
-  // Sprint: same rule as the Player-entity walker (Tools > Input Map).
+  // Speed tiers: the same rule as the Player-entity walker - the stick's
+  // deflection ramps WALK -> RUN, and holding sprint pins the top flat
+  // (docs/player-speeds.md). RUN_SPEED and SPRINT_SPEED are resolved at build
+  // time, so with no run speed set RUN_SPEED == WALK_SPEED (a flat ramp) and
+  // SPRINT_SPEED == WALK_SPEED x SPRINT_MULT, which is what this computed.
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
   const float moveSpeed =
-      WALK_SPEED * ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-                     inputPressed(engine->pad, IA_ROLE_SPRINT))
-                        ? SPRINT_MULT
-                        : 1.0F);
+      (IA_ROLE_SPRINT >= 0 && inputPressed(engine->pad, IA_ROLE_SPRINT))
+          ? SPRINT_SPEED
+          : WALK_SPEED + (RUN_SPEED - WALK_SPEED) * stickMag;
   float nextX = playerX + (fx * forward - fz * strafe) * moveSpeed * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * moveSpeed * g_frameScale;
 

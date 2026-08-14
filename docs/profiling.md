@@ -1,5 +1,7 @@
 # Profiling the generated game (EE frame time)
 
+![Frame profiler toggle in a debug build](img/project-preferences-build.png)
+
 The PS2 games this editor generates are almost always **EE-bound**: a frame
 that misses the vsync budget (20 ms PAL / 16.7 ms NTSC) drops straight to the
 next divisor (50 → 25 FPS), and it is nearly always the EE, not the GS, that

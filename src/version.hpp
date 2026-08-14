@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.24.4 (--vu-check says when its two halves are not from one commit): every
+// comparison it makes diffs a program GENERATED from the descriptions compiled
+// into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
+// comparable at one revision - and the documented attribution trick of pointing
+// it at another commit's engine swaps exactly ONE of them. Against a stale exe
+// that MANUFACTURES failures rather than attributing them: measured, a pre-#218
+// editor on post-#218 engine sources reports 7 DIFFERENT programs plus the
+// matcap identity-at-zero, every one of which passes when each half runs against
+// its own peer. It now prints `note: FOREIGN engine` when the engine is not the
+// one beside the executable, `note: ... is NEWER than this executable` when a
+// framework source outran the build, and a paragraph under FAIL naming the skew.
+// PATCH: no capability appears, a failure becomes readable.
+//
 // 1.24.3 (the shipped default net is refitted, and CI stops asserting a
 // property of one machine): the net embedded in the editor was fitted before
 // examples/upscaler-lab was rebuilt on CC0 assets - and upscaler-lab is one of
@@ -722,10 +735,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-
-#define TYRAX_VERSION_MINOR 25
+#define TYRAX_VERSION_MINOR 33
 #define TYRAX_VERSION_PATCH 0
-
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -906,17 +917,64 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // unchanged, and no migration step is needed for the renumber either - a file
 // claiming 8 now means "the neural upscaler", which an animation-only project
 // simply does not use.)
-// v18 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
+// v18 (Player speed tiers, docs/player-speeds.md): SceneObject::playerRunSpeed
+// and playerSprintSpeed, plus ProjectSettings::runSpeed for the fallback
+// walker. All three are additive AND are written only when non-zero, so a
+// project that never opens the new fields resaves byte for byte - checked, not
+// assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere. (That
+// weapons-arena was never a project - PR #203 committed three ignored build
+// artifacts under the name and nothing else; the directory has since been
+// removed. The other four still make the point.)
+//
+// No migration step, and the reason is the "0 = inherit" default rather than
+// mere additivity: 0 resolves to the numbers the walkers used to compute
+// inline (run = walk, sprint = walk x sprintMultiplier), so an old project is
+// not merely readable, it MOVES identically. Verified on the generated side -
+// examples/script-demo regenerated RUN_SPEED == WALK_SPEED == 0.4 and
+// SPRINT_SPEED == 0.72 == 0.4 x 1.8.
+// v19 (animation import, docs/animation-import.md): Project::animImports and
+// its "animImports" manifest section - clips borrowed from another model file.
+// A whole new section rather than a field, so a project that has imported
+// nothing emits no key at all and resaves byte for byte; every retarget flag
+// inside a row is likewise written only when it differs from its default.
+//
+// No migration step: nothing existing is renamed, moved or reinterpreted, and
+// the feature is inert without a row. The one thing that DID change shape for
+// every model is host-side only - SkelNode::name, which writeTskl does not
+// serialize - so no .tskl version moved either and an unimported model bakes
+// the same bytes it did before.
+// v20 (sprint clip + live speeds, docs/player-speeds.md): SceneObject::
+// playerSprintClip - the third-person avatar clip for the sprint tier, stored
+// in the thirdPerson object and written only when set, so an untouched project
+// resaves byte for byte. No migration step: "" means "the run clip covers
+// sprinting", which is what every project did. The same commit moves the
+// walkers onto PlayerCtl::speeds and streams speed edits over Live Link
+// record v3 - channel-internal, not project format.
+// v21 (bone mapping, docs/animation-import.md): AnimImport::boneMap - the
+// hand-made donor->target bone pairs from the Map bones editor, an array of
+// {s, t} objects written only when non-empty. Additive with a safe default
+// (empty = pure name matching, the previous behaviour), so no migration step.
+// v22 (the full retargeter, docs/animation-import.md): AnimImport::facing
+// (world yaw of the source, -1 = auto from the rigs' feet) and ::mirror
+// (left<->right flipped import). Written only when set and true respectively,
+// so untouched projects resave byte for byte; no migration step. The
+// retarget path itself is chosen automatically and stores nothing.
+// v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
+// degrees of torso pitch applied by the retargeter. Written only when
+// non-zero; no migration step.
+// v24 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
 // frame buffers' pixel format (PSMCT32 or the half-size PSMCT16) and
 // ProjectSettings::dither drives the GS's ordered dither. Both are written
 // only when set away from their defaults, and those defaults are exactly what
 // every older project already did, so no migration step. (The two optional
 // render targets that landed with them are NOT in the format at all - they
 // are derived at build time from what the project ships, not stored.
-// Authored as v9 on this branch and renumbered on the way in, the same rule
-// every note above applied to itself: main's neural-upscaler batch took 8
-// through 17 while this branch was open, and the claim that arrives second
+// Authored as v9 on this branch, renumbered to v18 at the first merge and to
+// v24 at this one, the same rule every note above applied to itself: main's
+// neural-upscaler batch took 8 through 17 and its speed/animation-import batch
+// 18 through 23 while this branch was open, and the claim that arrives second
 // renumbers.)
-inline constexpr int kFormatVersion = 18;
+inline constexpr int kFormatVersion = 24;
 
 }  // namespace version

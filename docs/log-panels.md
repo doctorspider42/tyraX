@@ -1,5 +1,7 @@
 # The log panels — errors, warnings, verbose
 
+![Output and Debug panels under the viewport](img/editor-overview.png)
+
 The editor shows two logs, and they are the same problem:
 
 - **Output** — everything the *Runner* does: the docker container, the asset

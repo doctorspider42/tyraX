@@ -15,11 +15,13 @@ Two features meeting: [prefabs](../../docs/prefabs.md) and
 [runtime procedural generation](../../docs/procedural-runtime.md).
 
 Each room is a **prefab**: 20 wall/floor/ceiling slabs around a doorway or a
-hatch. One of the four also contains a slowly turning cube. A **runtime
-Procedural volume** does the rest, and it is three nodes long:
+hatch. Four of them are in the pool the map draws from — one of those also
+contains a slowly turning cube — next to an empty fifth prefab, literally named
+`prefab`, that nothing references. A **runtime Procedural volume** does the
+rest, and it is three nodes long:
 
 ```
-Scatter on Grid (spacing 14, Levels 3)  ─  Pick Prefab (4 rooms, weighted)  ─  Output
+Scatter on Grid (spacing 14, Levels 3)  ─  Pick Prefab (4 rooms in the pool, weighted)  ─  Output
 ```
 
 `Scatter on Grid` with *Levels* is a full 3D lattice, so 27 cells fall out of
@@ -39,7 +41,7 @@ A PS2 static submit costs ~1 ms of fixed EE time whatever it contains, so 540
 slabs as 540 objects would be half a second per frame. Instead:
 
 - every member that is **plain static geometry** merges into the volume's chunk
-  grid — not into the *instance*, into the **volume**, which is why 27 rooms
+  grid — not into the *instance*, into the **volume** — which is why 27 rooms
   cost the grid's handful of bags rather than 27;
 - the turning cube **cannot** merge (it carries a flow graph, so something has
   to be able to address it) and takes a clone-pool slot and a submit of its own.
@@ -52,18 +54,18 @@ even though they are four draw calls.
 
 ## The files
 
-- `build-scene.py` — authors the four prefabs, the volume and the shuffle button
-  into the `.tyra`. 20 slabs × 4 variants is not something anyone should read as
-  JSON; this script is its readable form. Re-run it after `tyrax-editor --new`
-  to rebuild the example from scratch.
+- `build-scene.py` — authors the four prefabs, the volume and the shuffle
+  button into the `.tyra`. 20 slabs × 4 variants is not something anyone should
+  read as JSON; this script is its readable form. Re-run it after
+  `tyrax-editor --new` to rebuild the example from scratch.
 
 ## Things worth trying
 
 - Open *Tools > Prefabs*, select **room-red** and read the cost line: 20 merged
-  into 1 draw call, 1 spawned object. Then look at the member table — the
-  `-core` row says *own object* and the rest say *merged*.
+  into 1 draw call, 1 spawned object. In the member table the `-core` row says
+  *own object* and the rest say *merged*.
 - Change the weights in the volume's *Pick Prefab* pool and press TRIANGLE.
-- Set *Levels* to 5 on the `Scatter on Grid` node: 75 rooms, still the same
+- Set *Levels* to 5 on the `Scatter on Grid` node: 45 rooms, still the same
   handful of draw calls.
 - Drop a room prefab into a scene by hand: *Prefabs > Insert into scene*, then
   click the ground. It stamps ordinary objects you can edit individually.

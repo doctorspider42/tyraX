@@ -1,10 +1,10 @@
 # Static models: the .tmdl pipeline and mesh LOD
 
+![Browsing model assets before placing them](img/asset-browser.png)
+
 You author static geometry as `.obj` and nothing about that changes. What
 changed is what the **game** reads: the build compiles every `.obj` a scene
 uses into a binary `.tmdl` next to it, and that is what ships on the disc.
-This page explains why, what it means for your files, and how to use the
-distance LOD levels the format carries.
 
 (Animated `.glb`/`.fbx` models have had their own binary format, `.tskl`, all
 along - see [animated-models.md](animated-models.md).)
@@ -17,7 +17,7 @@ Selecting a static model shows three numbers in *Properties*:
 4281 triangles, 12843 vertices (3351 unique positions)
 ```
 
-They are not the same measurement, and the gap is the interesting part:
+The gap between them is the interesting part:
 
 - **unique positions** is the `v` count - what the modelling tool told you;
 - **vertices** is what actually reaches VU1: three per triangle, with a corner
@@ -26,9 +26,9 @@ They are not the same measurement, and the gap is the interesting part:
   chunk is - it is the VU1 buffer's capacity for that vertex layout, e.g. 108),
   and the number a frame's vertex budget is spent in.
 
-A model whose vertex count is far above `3 x positions` is paying for split
-corners - hard edges and material boundaries everywhere. The cottage above is
-1.28x, which is ordinary; a smooth-shaded sphere would be near 1.0x.
+A vertex count far above `3 x positions` is paying for split corners - hard
+edges and material boundaries everywhere. The cottage above is 1.28x, which is
+ordinary; a smooth-shaded sphere would be near 1.0x.
 
 Animated `.glb` models report their own vertex count in the same place.
 
@@ -41,10 +41,9 @@ parsing per number, a normal computed per face, a material lookup per
 [streaming layers](streaming-layers.md), where a layer's assets load one per
 frame, a third of a second lands inside one frame as a visible hitch.
 
-Everything that parse worked out is decided at build time, so the build now
-does it once. Reading the same model as `.tmdl` takes **39 ms**, and the
-whole load (textures included) went from 306 ms to 59 ms. The PS2 side is a
-sequential read plus a memory copy per material.
+The build now does all of that once. Reading the same model as `.tmdl` takes
+**39 ms**, and the whole load (textures included) went from 306 ms to 59 ms.
+The PS2 side is a sequential read plus a memory copy per material.
 
 The `.tmdl` carries the triangulated mesh, flat face normals, the resolved
 material assignment (including a per-object `.mtl` override), texture-atlas
@@ -66,10 +65,10 @@ open them, and the LOD levels below.
   a scene object is compiled.
 - **An `.obj` carries no unit**, so the importer asks for one (the **Model
   size** dialog, and the **Size...** button next to the model in the Assets
-  list afterwards). What it records is how many meters one unit of the file
-  measures; combined with the project's world scale that is the scale objects
-  made from the model are inserted at. The file itself is never rewritten -
-  see docs/world-scale.md.
+  list afterwards). It records how many meters one unit of the file measures;
+  combined with the project's world scale that is the scale objects made from
+  the model are inserted at. The file itself is never rewritten - see
+  docs/world-scale.md.
 - A model that cannot be parsed is reported in the build log
   (`[model bake] ...`) and simply renders nothing, exactly like a missing
   animated model. The Asset Browser flags the same problem earlier.

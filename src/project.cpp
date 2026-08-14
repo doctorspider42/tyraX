@@ -755,8 +755,18 @@ std::string objectJson(const SceneObject& o) {
         const char* modeName = o.playerMode == 1   ? "noclip"
                                : o.playerMode == 2 ? "thirdperson"
                                                    : "walk";
+        // The two extra speed tiers are written only when SET (0 = inherit),
+        // so a project that never touched them resaves byte for byte.
+        const std::string speedTiers =
+            (o.playerRunSpeed > 0.0f
+                 ? ", \"runSpeed\": " + fmtFloat(o.playerRunSpeed)
+                 : std::string()) +
+            (o.playerSprintSpeed > 0.0f
+                 ? ", \"sprintSpeed\": " + fmtFloat(o.playerSprintSpeed)
+                 : std::string());
         json += ", \"player\": { \"mode\": \"" + std::string(modeName) +
                 "\", \"walkSpeed\": " + fmtFloat(o.playerWalkSpeed) +
+                speedTiers +
                 ", \"lookSpeed\": " + fmtFloat(o.playerLookSpeed) +
                 ", \"eyeHeight\": " + fmtFloat(o.playerEyeHeight) +
                 ", \"jumpSpeed\": " + fmtFloat(o.playerJumpSpeed) +
@@ -765,6 +775,12 @@ std::string objectJson(const SceneObject& o) {
                 ", \"thirdPerson\": { \"idleClip\": \"" + jsonEscape(o.playerIdleClip) +
                 "\", \"walkClip\": \"" + jsonEscape(o.playerWalkClip) +
                 "\", \"runClip\": \"" + jsonEscape(o.playerRunClip) +
+                // Written only when set, so a project that never picked a
+                // sprint clip resaves byte for byte.
+                (o.playerSprintClip.empty()
+                     ? std::string()
+                     : "\", \"sprintClip\": \"" +
+                           jsonEscape(o.playerSprintClip)) +
                 "\", \"jumpClip\": \"" + jsonEscape(o.playerJumpClip) +
                 "\", \"backClip\": \"" + jsonEscape(o.playerBackClip) +
                 "\", \"strafeLeftClip\": \"" + jsonEscape(o.playerStrafeLeftClip) +
@@ -1283,6 +1299,33 @@ void sortDayKeys(DayCycle& c) {
                      [](const DayKey& a, const DayKey& b) { return a.hour < b.hour; });
 }
 
+// --- Player speed tiers (docs/player-speeds.md) ----------------------------
+// The whole "0 = inherit" chain lives here and nowhere else: the Properties
+// readout, codegen's PLAYER_RUN_SPEEDS / PLAYER_SPRINT_SPEEDS tables and the
+// fallback walker's terrain_config constants all resolve through these four,
+// so the number the panel prints is by construction the number that ships.
+float playerRunSpeed(const SceneObject& o) {
+    return o.playerRunSpeed > 0.0f ? o.playerRunSpeed : o.playerWalkSpeed;
+}
+
+float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st) {
+    if (o.playerSprintSpeed > 0.0f) return o.playerSprintSpeed;
+    // The multiplier applies to the RUN speed, which IS the walk speed unless
+    // one was set - so a project that never set a run speed sprints at exactly
+    // the walk x multiplier its old build did.
+    const float mult = st.sprintMultiplier > 1.0f ? st.sprintMultiplier : 1.0f;
+    return playerRunSpeed(o) * mult;
+}
+
+float settingsRunSpeed(const ProjectSettings& st) {
+    return st.runSpeed > 0.0f ? st.runSpeed : st.walkSpeed;
+}
+
+float settingsSprintSpeed(const ProjectSettings& st) {
+    const float mult = st.sprintMultiplier > 1.0f ? st.sprintMultiplier : 1.0f;
+    return settingsRunSpeed(st) * mult;
+}
+
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
     ProjectSettings r = p.settings;
     const ProjectSettings& o = s.settings;
@@ -1560,6 +1603,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"zenithSize\": " << fmtFloat(p.settings.zenithSize) << ",\n"
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
+         // Written only when set (0 = the walk speed is the top speed), so a
+         // project that never used the ramp resaves unchanged.
+         << (p.settings.runSpeed > 0.0f
+                 ? "    \"runSpeed\": " + fmtFloat(p.settings.runSpeed) + ",\n"
+                 : std::string())
          << "    \"lookSpeed\": " << fmtFloat(p.settings.lookSpeed) << ",\n"
          << "    \"sprintMultiplier\": " << fmtFloat(p.settings.sprintMultiplier)
          << ",\n"
@@ -2433,6 +2481,91 @@ static void writeAnimEditsSection(std::ostream& json, const Project& p) {
     json << "\n  ]";
 }
 
+// Clips borrowed from other model files (docs/animation-import.md). Same
+// conditional shape as the section above: a project that never imported
+// anything emits nothing at all. Every retarget flag is written only when it
+// differs from its default, so a row created with the defaults - which is
+// almost every row - stays two keys long.
+static void writeAnimImportsSection(std::ostream& json, const Project& p) {
+    if (p.animImports.empty()) return;
+    json << "\"animImports\": [";
+    for (size_t i = 0; i < p.animImports.size(); ++i) {
+        const AnimImport& a = p.animImports[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"model\": \""
+             << jsonEscape(a.model) << "\", \"source\": \""
+             << jsonEscape(a.source) << "\"";
+        // Absent = every clip in the donor, which is what a one-clip Mixamo
+        // file wants and what the panel offers by default.
+        if (!a.clips.empty()) {
+            json << ", \"clips\": [";
+            for (size_t k = 0; k < a.clips.size(); ++k)
+                json << (k ? ", " : "") << "\"" << jsonEscape(a.clips[k]) << "\"";
+            json << "]";
+        }
+        if (!a.prefix.empty())
+            json << ", \"prefix\": \"" << jsonEscape(a.prefix) << "\"";
+        if (!a.boneMap.empty()) {
+            json << ", \"boneMap\": [";
+            for (size_t k = 0; k < a.boneMap.size(); ++k)
+                json << (k ? ", " : "") << "{ \"s\": \""
+                     << jsonEscape(a.boneMap[k].first) << "\", \"t\": \""
+                     << jsonEscape(a.boneMap[k].second) << "\" }";
+            json << "]";
+        }
+        if (a.facing >= 0) json << ", \"facing\": " << a.facing;
+        if (a.mirror) json << ", \"mirror\": true";
+        if (a.lean != 0.0f) json << ", \"lean\": " << fmtFloat(a.lean);
+        if (a.translation != 0) json << ", \"translation\": " << a.translation;
+        if (!a.ignoreScale) json << ", \"ignoreScale\": false";
+        if (!a.retargetRoot) json << ", \"retargetRoot\": false";
+        if (!a.stripNamespace) json << ", \"stripNamespace\": false";
+        if (!a.caseInsensitive) json << ", \"caseInsensitive\": false";
+        if (!a.skeletonTracksOnly) json << ", \"skeletonTracksOnly\": false";
+        json << " }";
+    }
+    json << "\n  ]";
+}
+
+static void readAnimImportsSection(const json::Value& root, Project& out) {
+    out.animImports.clear();
+    const auto* arr = root.find("animImports");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        AnimImport a;
+        if (const auto* v = e.find("model")) a.model = v->stringOr("");
+        if (const auto* v = e.find("source")) a.source = v->stringOr("");
+        // A row naming neither end can do nothing but produce a warning per
+        // build, so it is dropped on load like an unknown screen-effect key.
+        if (a.model.empty() || a.source.empty()) continue;
+        if (const auto* v = e.find("clips"); v && v->type == json::Value::Type::Array)
+            for (const json::Value& c : v->arr) a.clips.push_back(c.stringOr(""));
+        if (const auto* v = e.find("prefix")) a.prefix = v->stringOr("");
+        if (const auto* v = e.find("boneMap");
+            v && v->type == json::Value::Type::Array)
+            for (const json::Value& m : v->arr) {
+                const auto* from = m.find("s");
+                const auto* to = m.find("t");
+                if (from && to)
+                    a.boneMap.emplace_back(from->stringOr(""), to->stringOr(""));
+            }
+        if (const auto* v = e.find("facing")) a.facing = (int)v->numberOr(-1);
+        if (const auto* v = e.find("mirror")) a.mirror = v->boolOr(false);
+        if (const auto* v = e.find("lean")) a.lean = (float)v->numberOr(0.0);
+        if (const auto* v = e.find("translation"))
+            a.translation = (int)v->numberOr(0);
+        if (a.translation < 0 || a.translation > 2) a.translation = 0;
+        if (const auto* v = e.find("ignoreScale")) a.ignoreScale = v->boolOr(true);
+        if (const auto* v = e.find("retargetRoot")) a.retargetRoot = v->boolOr(true);
+        if (const auto* v = e.find("stripNamespace"))
+            a.stripNamespace = v->boolOr(true);
+        if (const auto* v = e.find("caseInsensitive"))
+            a.caseInsensitive = v->boolOr(true);
+        if (const auto* v = e.find("skeletonTracksOnly"))
+            a.skeletonTracksOnly = v->boolOr(true);
+        out.animImports.push_back(std::move(a));
+    }
+}
+
 // The project's own VU programs (docs/vu-authoring.md). Conditional: a project
 // that never opened Tools > VU Programs emits nothing.
 static void writeVuStages(std::ostream& json, const std::vector<VuStage>& st) {
@@ -2956,6 +3089,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Sequences: writeSequencesSection(ss, p); break;
         case Section::Menus: writeMenusSection(ss, p); break;
         case Section::AnimEdits: writeAnimEditsSection(ss, p); break;
+        case Section::AnimImports: writeAnimImportsSection(ss, p); break;
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
@@ -2983,6 +3117,7 @@ const char* sectionName(Section s) {
         case Section::Sequences: return "sequences";
         case Section::Menus: return "menus";
         case Section::AnimEdits: return "animEdits";
+        case Section::AnimImports: return "animImports";
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
@@ -4490,6 +4625,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 if (const auto* v = tp->find("idleClip")) o.playerIdleClip = v->stringOr("");
                 if (const auto* v = tp->find("walkClip")) o.playerWalkClip = v->stringOr("");
                 if (const auto* v = tp->find("runClip")) o.playerRunClip = v->stringOr("");
+                if (const auto* v = tp->find("sprintClip"))
+                    o.playerSprintClip = v->stringOr("");
                 if (const auto* v = tp->find("jumpClip")) o.playerJumpClip = v->stringOr("");
                 if (const auto* v = tp->find("backClip")) o.playerBackClip = v->stringOr("");
                 if (const auto* v = tp->find("strafeLeftClip"))
@@ -4524,6 +4661,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             }
             if (const auto* v = pl->find("walkSpeed"))
                 o.playerWalkSpeed = (float)v->numberOr(0.1);
+            // Absent = 0 = inherit, which is what a project written before
+            // these existed means and what it must keep meaning.
+            if (const auto* v = pl->find("runSpeed"))
+                o.playerRunSpeed = (float)v->numberOr(0.0);
+            if (const auto* v = pl->find("sprintSpeed"))
+                o.playerSprintSpeed = (float)v->numberOr(0.0);
             if (const auto* v = pl->find("lookSpeed"))
                 o.playerLookSpeed = (float)v->numberOr(1.0);
             if (const auto* v = pl->find("eyeHeight"))
@@ -4987,6 +5130,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
+        if (const auto* v = s->find("runSpeed")) st.runSpeed = (float)v->numberOr(0.0);
         if (const auto* v = s->find("lookSpeed")) st.lookSpeed = (float)v->numberOr(1.0);
         // Sprint: projects that predate it read 1.8 like a fresh one (the
         // sprint action ensureInputActions seeds is what actually enables it).
@@ -6203,6 +6347,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Sequences: readSequencesSection(root, p); break;
         case Section::Menus: readMenusSection(root, p); break;
         case Section::AnimEdits: readAnimEditsSection(root, p); break;
+        case Section::AnimImports: readAnimImportsSection(root, p); break;
         case Section::ModelUnits: readModelUnitsSection(root, p); break;
         // A section blob is total, so a peer that never had the Input Map
         // would wipe it - re-seed the built-ins after applying (idempotent).
@@ -6381,6 +6526,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readSequencesSection(root, out);
 
     readAnimEditsSection(root, out);
+    readAnimImportsSection(root, out);
 
     readPrefabsSection(root, out);
     readVuSection(root, out);
@@ -6742,11 +6888,16 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.materialPath);
     // Player entity tunables (markers in the world, but baked per scene).
     fnvMix(h, (uint64_t)o.playerMode);
-    fnvMixF(h, o.playerWalkSpeed), fnvMixF(h, o.playerLookSpeed);
+    // The three speed tiers are deliberately NOT in this hash: the walker
+    // reads them from PlayerCtl::speeds, which Live Link streams into
+    // (record v3), so a speed edit updates the running game instead of
+    // flipping the chip amber. Look speed stays baked.
+    fnvMixF(h, o.playerLookSpeed);
     fnvMixF(h, o.playerEyeHeight), fnvMixF(h, o.playerJumpSpeed);
     fnvMix(h, o.playerCanJump ? 1 : 0);
     fnvMixS(h, o.playerIdleClip), fnvMixS(h, o.playerWalkClip);
     fnvMixS(h, o.playerRunClip), fnvMixS(h, o.playerJumpClip);
+    fnvMixS(h, o.playerSprintClip);
     fnvMixS(h, o.playerBackClip), fnvMixS(h, o.playerStrafeLeftClip);
     fnvMixS(h, o.playerStrafeRightClip);
     fnvMix(h, o.playerFaceCamera ? 1 : 0);
@@ -7268,7 +7419,27 @@ std::string refreshGenerated(const Project& p) {
                 }
                 write = false;
             }
-        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt") {
+        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt" ||
+                   // The launcher scripts and the repo hygiene files. Same
+                   // write-once rule as the notices, and for the same reason:
+                   // they have no ownership marker, so an existing one is the
+                   // user's. What makes them belong HERE rather than only in
+                   // project::create is that a project scaffolded before one of
+                   // them existed never gets it otherwise - measured on this
+                   // repo's own examples/, where 21 of 34 projects had no
+                   // run.sh at all and a Linux user opening one found only a
+                   // PowerShell launcher. run.ps1/windows-pcsx2.ps1 are listed
+                   // beside it because the pair rule is the whole point: a
+                   // platform's launcher must never be the one that goes
+                   // missing.
+                   f.relativePath == "run.ps1" ||
+                   f.relativePath == "run.sh" ||
+                   f.relativePath == "windows-pcsx2.ps1" ||
+                   f.relativePath == ".gitattributes" ||
+                   f.relativePath == "COLLABORATION.md" ||
+                   f.relativePath == ".gitignore" ||
+                   f.relativePath == "bin\\.gitignore" ||
+                   f.relativePath == "obj\\.gitignore") {
             // Static content: write it once so existing projects pick it up on
             // the next build, but never clobber what the user may have added
             // (neither file has room for the ownership-marker line the ownable
@@ -7282,6 +7453,34 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Migration: the project's own .gitignore is write-once (above), so a
+    // project made before format migrations existed never learned to ignore
+    // `_backup/` - and `--migrate` writes exactly that directory, a full copy
+    // of the .tyra, objects/, heights, splat and node files. Without the rule
+    // the first migration of an older project offers all of it for commit.
+    // Same append-if-missing shape as res/.gitignore below.
+    {
+        const fs::path ignore = fs::path(p.dir) / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            std::string text = content.str();
+            if (text.find("_backup/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Pre-migration snapshots of the project's own model "
+                    "files, written by a format\n# migration "
+                    "(docs/format-versioning.md). Local safety copies, not "
+                    "source: the\n# history that matters is already in git.\n"
+                    "_backup/\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
         }
     }
 

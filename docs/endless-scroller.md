@@ -1,5 +1,7 @@
 # Endless scroller
 
+![A scroller and its repeated belt preview](img/endless-scroller-editor.png)
+
 A **Scroller** is a conveyor belt for scene geometry. You author a chunk of a
 level once — a tunnel ring, a strip of road, a clump of trees — tell the
 scroller how long that chunk is, and the game tiles copies of it along the belt

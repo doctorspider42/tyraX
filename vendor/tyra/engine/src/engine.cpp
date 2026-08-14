@@ -11,6 +11,7 @@
 */
 
 #include "engine.hpp"
+#include "debug/sifrpc_guard.hpp"
 #include <kernel.h>
 
 namespace Tyra {
@@ -37,6 +38,8 @@ void Engine::realLoop() {
   if (kbdMouse.isEnabled()) kbdMouse.update();
   game->loop();
   info.update();
+  // One compare per frame unless the guard has actually dropped something.
+  SifRpcGuard::report();
 }
 
 void Engine::initAll(const EngineOptions& options) {
@@ -54,6 +57,13 @@ void Engine::initAll(const EngineOptions& options) {
   // 0x10 here starved it forever - the first network deploy worked, but Stop
   // and every redeploy hung because the console never processed the reset.
   ChangeThreadPriority(GetThreadId(), 0x40);
+
+  // Before ANY file access: the guard replaces ps2sdk's SIF_CMD_RPC_END
+  // handler, which crashes the EE on a duplicate completion instead of
+  // ignoring it (inc/debug/sifrpc_guard.hpp). It goes here rather than in
+  // IrxLoader because IrxLoader's ctor is what calls SifInitRpc(), and that
+  // is what installs the handler this replaces.
+  SifRpcGuard::install();
 
   srand(time(nullptr));
   // No keyboard/mouse under ps2link by default: USB drivers cannot be added

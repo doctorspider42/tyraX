@@ -1,7 +1,7 @@
 {
   "name": "upscaler-lab",
-  "formatVersion": 12,
-  "editorVersion": "1.12.1",
+  "formatVersion": 23,
+  "editorVersion": "1.31.1",
   "template": "fpp",
   "projectId": "33ce13428982d3c6",
   "settings": {

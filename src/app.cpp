@@ -2508,6 +2508,21 @@ void App::drawViewportWindow() {
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
                                animedit::projectTimeScale(project_.settings));
+        // Clips borrowed from other model files, grouped per target model - the
+        // preview merges them exactly as bakeAnimAssets does, so an imported
+        // clip is visible in the editor and not only on the console. Built only
+        // when the project has any, and setAnimImports compares before it
+        // drops the bake cache, so this costs a project without imports one
+        // empty map per frame.
+        if (!project_.animImports.empty()) {
+            std::map<std::string, std::vector<animmerge::ImportSpec>> imports;
+            for (const AnimImport& a : project_.animImports)
+                if (!imports.count(a.model))
+                    imports[a.model] = animedit::importsFor(project_, a.model);
+            viewport_.setAnimImports(std::move(imports));
+        } else {
+            viewport_.setAnimImports({});
+        }
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
         const std::vector<SceneObject>& posedObjects = cutscenePosedObjects();
@@ -6785,8 +6800,6 @@ void App::drawModelImportModal() {
     ImGui::TextDisabled("%s", modelImportName_.c_str());
     ImGui::Spacing();
     ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
-    ImGui::TextDisabled(
-        "The editor stays responsive while the importer works in the background.");
     ImGui::EndPopup();
 }
 
@@ -7188,8 +7201,42 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     if (it != glbInfoCache_.end()) return it->second;
 
     GlbInfo info;
-    glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    const auto imports = animedit::importsFor(project_, relPath);
+    if (!imports.empty()) {
+        // Clips borrowed from other files count as this model's clips
+        // everywhere the editor asks "what can this model play". Everything
+        // this summary holds lives on the SKELETON, so it is read off the
+        // cache-assisted merge - never the morph-frame bake, whose skinning
+        // pass is what made Add clips and a prefix commit stall the editor.
+        glbparser::Skel skel;
+        if (animmerge::mergedSkel(full.string(), imports, skel, info.error,
+                                  &skelCache_)) {
+            info.ok = true;
+            for (const auto& c : skel.clips) info.clips.push_back(c.name);
+            info.vertexCount = skel.totalVertexCount();
+            // Nominal frames at the preview rate - display only.
+            float dur = 0.0f;
+            for (const auto& c : skel.clips) dur += c.duration;
+            info.frameCount = (int)(dur * 12.0f) + (int)skel.clips.size();
+            for (int c = 0; c < 3; ++c) {
+                info.min[c] = skel.min[c];
+                info.max[c] = skel.max[c];
+            }
+            info.warnings = skel.warnings;
+            for (const glbparser::SkelPart& p : skel.parts) {
+                GlbInfo::Material mat;
+                mat.name = p.material.empty() ? "material" : p.material;
+                mat.color[0] = p.baseColor[0];
+                mat.color[1] = p.baseColor[1];
+                mat.color[2] = p.baseColor[2];
+                mat.textured = p.image >= 0;
+                info.materials.push_back(std::move(mat));
+            }
+        }
+        return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
+    }
+    glbparser::Baked baked;
     if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
@@ -14413,6 +14460,19 @@ void App::drawPreferencesWindow() {
                          0.05f, 0.2f, 50.0f, "%.2f");
         walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
                       prefSettings_.unitsPerMeter);
+        // The same walk -> run stick ramp a Player object has
+        // (docs/player-speeds.md), for the fallback walker a scene with no
+        // Player object gets. Sprint stays the multiplier below, because
+        // there is no object here to state an absolute speed on.
+        speedTierDrag("Run speed", prefSettings_.runSpeed,
+                      project::settingsRunSpeed(prefSettings_),
+                      prefSettings_.unitsPerMeter, "same as walk", nullptr);
+        prefHelp(
+            "Speed at FULL stick; the deflection ramps Walk -> Run, so easing\n"
+            "the stick walks. Left unset the walk speed is the only speed,\n"
+            "which is how this walker always behaved.\n\n"
+            "This is the project-wide fallback: a scene with a Player object\n"
+            "takes all three tiers from that object instead.");
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
         ImGui::SeparatorText("Camera");

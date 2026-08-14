@@ -1,6 +1,8 @@
 # GS VRAM residency
 
-Developer note, not a user guide. Covers how the engine fork
+![Display settings warn when the selected buffers do not fit in VRAM](img/project-preferences-display.png)
+
+A developer note (not a user guide) on how the engine fork
 (`vendor/tyra/engine/.../renderer/core/gs/renderer_core_gs_vram.*` and
 `.../texture/renderer_core_texture.*`) hands out the PlayStation 2's 4 MB of
 graphics memory, what the numbers actually are, and what happens when a scene
@@ -60,7 +62,7 @@ A **CLUT** is addressed by CBP in blocks, not pages: a 16-entry palette is one
 block (64 words, 256 B) and a 256-entry one is four (256 words, 1 KB).
 
 Palettizing is the single biggest lever after the colour depth:
-*Preferences > Build > Textures* at 4-bit turns a 256×256 into ~1/8 of the
+*Preferences > Rendering > Textures* at 4-bit turns a 256×256 into ~1/8 of the
 pixels plus a 64-byte CLUT (8 192 words instead of 65 536). It is why the
 `showcase` example, which draws a whole village, never comes close to filling
 VRAM.
@@ -77,7 +79,7 @@ VRAM.
 
 ## Colour depth
 
-*Preferences > Build > Colour depth* picks the frame buffers' pixel format
+*Preferences > Display > Colour depth* picks the frame buffers' pixel format
 (`ProjectSettings::colorDepth`, `EngineOptions::colorDepth`):
 
 - **32-bit** (`PSMCT32`) — the stock 8-8-8-8 buffer.
@@ -94,7 +96,7 @@ with a real quality cost, not a free saving.
 
 The cost of 16-bit colour is 32 levels per channel instead of 256, i.e.
 banding in anything smooth — skies, fog, the post-fx blur. **GS ordered
-dithering** (the `DTHE` + `DIMX` registers, *Preferences > Build > Dithering*,
+dithering** (the `DTHE` + `DIMX` registers, *Preferences > Display > Dithering*,
 on by default) trades that banding for fine noise a TV blurs away. The
 hardware only dithers 16-bit destinations, so the switch does nothing at
 32-bit. Measured on a `showcase` sky band (500×120 px of the captured frame):
@@ -148,10 +150,6 @@ address that belongs to something else.
 
 The **projected shadow map** was already lazy in the same spirit — the game
 calls `shadowMap.allocate()` only when a scene has "Cast shadow" objects.
-Palettizing is the single biggest lever: *Preferences > Rendering > Textures*
-at 4-bit turns a 256×256 into ~1/8 of the pixels plus a small CLUT. It is why
-the `showcase` example, which draws a whole village, never comes close to
-filling VRAM.
 
 ## An allocation is whole BLOCKS, not pixels
 
@@ -196,9 +194,9 @@ font grows 10 240 → 15 872 words, and almost everything else shrinks.
 
 - **The permanent region**, at the bottom, filled by `allocateBuffer()` during
   renderer init — both frame buffers, the z buffer, the post-fx scratch
-  buffers, the noise texture, the env-map and camera-feed render targets. It is
-  a plain bump region and is never released. `free()` does not know those
-  addresses, so nothing — including a buggy caller — can reclaim them.
+  buffers, the noise texture, the env-map and camera-feed render targets. A
+  plain bump region, never released; `free()` does not know those addresses,
+  so nothing — including a buggy caller — can reclaim them.
 - **The texture heap** above it, managed by a **coalescing free list**.
   `allocate()` takes a best-fit block; `free()` returns it in **any order** and
   merges it with its neighbours.
@@ -246,9 +244,9 @@ a stack pop. Freeing the *newest* allocation is correct; freeing anything else
 rewinds the bump pointer **underneath still-live textures**, and the next
 allocation is handed memory that other textures are rendering from.
 
-That is not theoretical — streaming layers hit it on every unload. A fixture
-with six textured boxes, three of them in a layer that unloads at t=6 s and
-loads again at t=10 s, showed on the old allocator:
+Streaming layers hit it on every unload. A fixture with six textured boxes,
+three of them in a layer that unloads at t=6 s and loads again at t=10 s,
+showed on the old allocator:
 
 ```
 free 821248, free 839680, free 858112   (newest live allocation: 931840)
@@ -264,24 +262,23 @@ reload is identical to the picture before the unload.
 ## Eviction policy
 
 When an incoming texture does not fit, upstream deallocated **every** resident
-texture and started over, so one over-budget texture cost a full re-upload of
+texture and started over — one over-budget texture cost a full re-upload of
 the entire working set on the following frames.
 
 `RendererCoreTexture::makeRoomFor()` instead evicts one allocation at a time
-until the newcomer fits, choosing the victim in two tiers
-(`pickVictim()`):
+until the newcomer fits, choosing the victim in two tiers (`pickVictim()`):
 
 1. **Stale entries** — not bound in this frame *or* the one before it. Coldest
    first (lowest bind sequence), ties broken by the larger allocation. These
    are textures that went off-screen or belong to a layer that was streamed
-   out, and they are always the cheapest thing to give up.
-2. **Everything is in the live working set** — i.e. what the scene draws
-   genuinely does not fit. Here LRU is the *worst* policy: a scene re-binds its
-   textures in the same order every frame, so the coldest entry is precisely
-   the one that will be requested first next frame, and the whole set cycles.
-   The victim is the **most recently bound** allocation instead
-   (scan-resistant MRU): the head of the scan stays resident and only the
-   overflow tail keeps re-uploading.
+   out — always the cheapest thing to give up.
+2. **Everything is in the live working set** — what the scene draws genuinely
+   does not fit. Here LRU is the *worst* policy: a scene re-binds its textures
+   in the same order every frame, so the coldest entry is precisely the one
+   that will be requested first next frame, and the whole set cycles. The
+   victim is the **most recently bound** allocation instead (scan-resistant
+   MRU): the head of the scan stays resident and only the overflow tail keeps
+   re-uploading.
 
 The two-frame window in tier 1 is deliberate. "Not bound yet in this frame" is
 not evidence of coldness — the tail of last frame's scan simply has not come
@@ -362,11 +359,10 @@ bump allocator; the heap was ~0.87 MB free on `showcase` at the time (it is
 
 The showcase numbers are byte-identical before and after — a realistic project
 never evicts anything, so this work changes nothing for it. The interesting
-column is the middle one: a scene that is *slightly* over budget used to pay as
-if it were massively over budget, and now pays roughly what it overspends. A
-scene that is genuinely 2.4× over budget still thrashes, because no policy can
-invent VRAM — the answer there is palettized textures, an atlas, or smaller
-source images.
+column is the middle one: a scene *slightly* over budget used to pay as if it
+were massively over budget, and now pays roughly what it overspends. A scene
+genuinely 2.4× over budget still thrashes, because no policy can invent VRAM —
+the answer there is palettized textures, an atlas, or smaller source images.
 
 Frame cost on the just-over-budget fixture (vsync off, so the 50 Hz cap does
 not hide it): 5.51 → 5.33 ms of EE time per frame, and PCSX2's GS thread load
