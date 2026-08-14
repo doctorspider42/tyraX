@@ -1178,6 +1178,18 @@ class TerrainGame : public Tyra::Game {
     int objIndex = -1;
     std::vector<Tyra::Vec4> verts, sts;
     Tyra::Color color;
+    // The flashlight's SECOND patch, for the wall its beam is touching. Both
+    // are drawn every frame and the depth buffer decides where each shows,
+    // because a beam sweeping from the floor up a wall really does light both
+    // at once - one patch had to teleport from one to the other, and that read
+    // as the light blinking off and on again. Its own buffers, never a second
+    // pass over the first: the DMA may still be reading them.
+    std::vector<Tyra::Vec4> wVerts, wSts;
+    Tyra::Color wColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> wInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
+    std::unique_ptr<Tyra::StaPipBag> wBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1252,11 +1264,12 @@ class TerrainGame : public Tyra::Game {
   bool projWallHit(const Tyra::Vec4& from, float dx, float dy, float dz,
                    float maxT, float& outT, int& outAxis, float& outSign,
                    struct ProjBox& outBox);
-  // The object whose own per-vertex flashlight cone is switched OFF because the
-  // projected pool is doing that job on it (a big flat face the cone would
-  // simply flood). -1 = none; see setFlashSpotOff.
-  int flashSpotOffObj = -1;
-  void setFlashSpotOff(int obj);
+  // The objects whose own per-vertex flashlight cone is switched OFF because the
+  // projected pool is doing that job on them (big flat boxes the cone would
+  // simply flood). Rebuilt each frame by updateFlashSpotOff.
+  std::vector<int> flashSpotOffList;
+  void updateFlashSpotOff();
+  void setFlashSpotOff(int obj, bool lit);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.

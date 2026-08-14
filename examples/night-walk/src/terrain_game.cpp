@@ -5158,8 +5158,8 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
-  // The flashlight's receiver is an index into the table that just went away.
-  flashSpotOffObj = -1;
+  // The flashlight's receivers are indices into the table that just went away.
+  flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.
   for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
     runtimeObjects[i].active = false;
@@ -8064,6 +8064,7 @@ struct ProjBox {
   float ax[3], ay[3], az[3];  // rotated unit axes
   float h[3];                 // half extents along them
   int obj;                    // index into runtimeObjects
+  int type;                   // SceneObjectData::type
 };
 std::vector<ProjBox> g_projBoxes;
 
@@ -8168,6 +8169,42 @@ void TerrainGame::setupLightPools() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // The flashlight's second patch - same everything, its own buffers, for the
+    // wall the beam is touching while it also lights the floor.
+    if (b.objIndex < 0) {
+      b.wVerts.assign(b.verts.size(), Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+      b.wSts.assign(b.sts.size(), Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+      b.wColor = b.color;
+      b.wInfo = std::make_unique<StaPipInfoBag>();
+      b.wInfo->model = &b.mat;
+      b.wInfo->shadingType = TyraShadingFlat;
+      b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      b.wInfo->zTestType = PipelineZTest_TestOnly;
+      b.wInfo->dynLightPick = false;
+      b.wInfo->spotLit = false;
+      b.wInfo->fullClipChecks = true;
+      b.wColorBag = std::make_unique<StaPipColorBag>();
+      b.wColorBag->single = &b.wColor;
+      b.wTexBag = std::make_unique<StaPipTextureBag>();
+      b.wTexBag->texture = b.texBag->texture;
+      b.wTexBag->coordinates = b.wSts.data();
+      b.wBag = std::make_unique<StaPipBag>();
+      b.wBag->info = b.wInfo.get();
+      b.wBag->color = b.wColorBag.get();
+      b.wBag->texture = b.wTexBag.get();
+      b.wBag->vertices = b.wVerts.data();
+      b.wBag->count = (u32)b.wVerts.size();
+    }
+  }
+  // REBIND after the vector has stopped growing - the bags hold pointers INTO
+  // the elements (setupLightBeams pays for this lesson in full).
+  for (LightPool& b : lightPools) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
+    if (b.wInfo) {
+      b.wInfo->model = &b.mat;
+      b.wColorBag->single = &b.wColor;
+    }
   }
 }
 
@@ -8208,10 +8245,13 @@ void TerrainGame::updateAndRenderLightPools() {
       // uses to sample a silhouette - and the gobo texture decides what a torch
       // looks like. Nothing below depends on how finely the ground is
       // tessellated, which is the whole point.
-      // Cleared up front, so every early exit below leaves the previous
-      // receiver's own cone switched back on; the wall branch re-arms it.
-      setFlashSpotOff(-1);
-      if (!g_flashEnabled || !g_flashOn) continue;
+      if (!g_flashEnabled || !g_flashOn) {
+        // Torch off: every wall gets its own cone back (there is none to give,
+        // but the flag must not outlive the light that set it).
+        for (int prev : flashSpotOffList) setFlashSpotOff(prev, true);
+        flashSpotOffList.clear();
+        continue;
+      }
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
       float dz = cameraLookAt.z - cameraPosition.z;
@@ -8234,6 +8274,9 @@ void TerrainGame::updateAndRenderLightPools() {
       projCollectBoxes(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
                        cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
                        FLASHLIGHT_RANGE * 0.5F + 2.0F);
+      // Every big flat box in that reach comes off the per-vertex cone now,
+      // aimed at or not.
+      updateFlashSpotOff();
       float wallT = 0.0F, wallSign = 0.0F;
       int wallAxis = -1;
       ProjBox wallBox;
@@ -8273,8 +8316,16 @@ void TerrainGame::updateAndRenderLightPools() {
         prev = t;
       }
       if (hit < 0.0F && !onWall) continue;
-      // A wall in front of the ground wins: the beam stops there.
-      if (onWall && hit >= 0.0F && hit < wallT) onWall = false;
+      // BOTH patches are drawn when both surfaces are there - no "the wall
+      // wins" any more. A beam sweeping off the floor and up a wall lights the
+      // two at once for as long as it straddles the join, and having one patch
+      // that had to belong to one surface or the other made that moment a
+      // blink: the floor pool vanished, the wall's lit triangles vanished, and
+      // a pool appeared on the wall, all in one frame. Each patch now covers
+      // its own surface and the DEPTH BUFFER decides where each one shows -
+      // the floor patch beyond a wall is behind it and simply loses the test.
+      // Their fades do the rest: a floor hit thirty units away, which is what
+      // "aimed at the wall" means for the ground ray, is already dim.
       const float gx = cameraPosition.x + dx * (hit > 0.0F ? hit : 0.0F);
       const float gz = cameraPosition.z + dz * (hit > 0.0F ? hit : 0.0F);
       // What the patch lies on is decided ONCE, at the landing point, never per
@@ -8284,7 +8335,6 @@ void TerrainGame::updateAndRenderLightPools() {
       // pays for that lesson in full). Terrain relief IS followed - it is
       // smooth, and following it is what keeps the pool on the ground.
       const float baseY = projSurfaceAt(gx, gz);
-      if (baseY <= TERRAIN_VOID_Y * 0.5F) continue;  // no floor there at all
       const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
 
       const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
@@ -8364,7 +8414,8 @@ void TerrainGame::updateAndRenderLightPools() {
       // Only the PATCH has to change: it lies in the face's plane instead of on
       // the ground, and it is clipped to that face, so the light stops at the
       // wall's edge the way light does.
-      if (onWall) {
+      do {
+        if (!onWall) break;
         const float* fa = wallAxis == 0
                               ? wallBox.ax
                               : (wallAxis == 1 ? wallBox.ay : wallBox.az);
@@ -8402,7 +8453,7 @@ void TerrainGame::updateAndRenderLightPools() {
         if (a1 > wallBox.h[ia]) a1 = wallBox.h[ia];
         if (b0 < -wallBox.h[ib]) b0 = -wallBox.h[ib];
         if (b1 > wallBox.h[ib]) b1 = wallBox.h[ib];
-        if (a1 - a0 < 0.05F || b1 - b0 < 0.05F) continue;
+        if (a1 - a0 < 0.05F || b1 - b0 < 0.05F) break;
         // How BIG is this face, in metres? That is the test, and getting there
         // took two wrong ones. A box face is two triangles whatever its size,
         // so the cone is evaluated at four corners and Gouraud-interpolated
@@ -8417,14 +8468,16 @@ void TerrainGame::updateAndRenderLightPools() {
         // Below that the cone is fine and worth keeping - the pool lands on ONE
         // face, and a crate lit all over reads better than a crate with one
         // bright patch and four black sides.
-        const float faceDiag = sqrtf(wallBox.h[ia] * wallBox.h[ia] +
-                                     wallBox.h[ib] * wallBox.h[ib]);
-        if (faceDiag > 1.4F) setFlashSpotOff(wallBox.obj);
+        // (The cone is switched off for every big flat box in reach, not just
+        // this one - see updateFlashSpotOff, called right after the boxes are
+        // collected. Doing it for the hit alone left a wall beside the beam
+        // lighting up as a few bright triangles, and then losing them the
+        // instant the beam arrived.)
         // Off the face toward the camera, then the usual view-ray bias.
         const float lift = 0.04F * wallSign;
         const float fo = wallBox.h[wallAxis] * wallSign + lift;
         constexpr int kCells = 4;
-        b.bag->count = (u32)(kCells * kCells * 6);
+        b.wBag->count = (u32)(kCells * kCells * 6);
         int wv = 0;
         for (int iy = 0; iy < kCells; ++iy) {
           for (int ix = 0; ix < kCells; ++ix) {
@@ -8444,13 +8497,13 @@ void TerrainGame::updateAndRenderLightPools() {
             }
             constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
             for (int k2 = 0; k2 < 6; ++k2) {
-              b.verts[wv + k2] = pv[kTri[k2]];
-              b.sts[wv + k2] = ps[kTri[k2]];
+              b.wVerts[wv + k2] = pv[kTri[k2]];
+              b.wSts[wv + k2] = ps[kTri[k2]];
             }
             wv += 6;
           }
         }
-        b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
+        b.wColor.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
         float wf = 1.0F - wallT / FLASHLIGHT_RANGE;
         wf = wf > 1.0F ? 1.0F : (wf < 0.0F ? 0.0F : wf);
         wf *= 0.55F + 0.45F * cosI;
@@ -8459,13 +8512,16 @@ void TerrainGame::updateAndRenderLightPools() {
         if (wmaxC < 1.0F) wmaxC = 1.0F;
         float wfix = 14746.0F / wmaxC * wf;
         if (wfix > 255.0F) wfix = 255.0F;
-        if (wfix < 1.0F) continue;
-        b.info->additiveBlendFix = (u8)wfix;
-        b.bag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(b.bag.get());
-        continue;
-      }
+        if (wfix < 1.0F) break;
+        b.wInfo->additiveBlendFix = (u8)wfix;
+        b.wBag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(b.wBag.get());
+      } while (0);
 
+      // --- and the FLOOR patch, whether or not there was a wall -------------
+      // Nothing to stand on where the beam lands (no terrain, no receiver) is
+      // the one case with no floor pool at all.
+      if (hit < 0.0F || baseY <= TERRAIN_VOID_Y * 0.5F) continue;
       // The lit footprint is an ELLIPSE: a beam meeting the floor at a grazing
       // angle reaches far further than it is wide. So the patch is laid out
       // along the beam's ground run rather than axis-aligned - a round one
@@ -8967,6 +9023,7 @@ void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
              ab.az[2] * lc.z;
     r.h[0] = ex, r.h[1] = ey, r.h[2] = ez;
     r.obj = oi;
+    r.type = t;
     // Reach test on the bounding SPHERE - cheap, and rotation cannot fool it.
     const float rad = sqrtf(ex * ex + ey * ey + ez * ez);
     if (r.o[0] + rad < cx - reach || r.o[0] - rad > cx + reach) continue;
@@ -9041,7 +9098,45 @@ bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
  * the objects: 20 ms of cone on a wall you have just swept onto, which is not
  * a thing anyone can see. Only the receiver's OWN spot is dropped, so the
  * torch keeps lighting everything else in the beam. */
-void TerrainGame::setFlashSpotOff(int obj) {
+/** Every big flat BOX in the beam's reach gives up the per-vertex cone, not
+ * merely the one the beam happens to be touching.
+ *
+ * Doing it for the hit alone left the other half of the report standing: a wall
+ * off to the side, inside the cone but not aimed at, still lit up as "a few
+ * bright triangles" - and then those triangles vanished the instant the beam
+ * came onto it and the pool took over. Two pops for the price of one.
+ *
+ * A wall never wants that term, whether or not the beam is centred on it. So the
+ * rule is a property of the OBJECT, not of the aim: a box primitive whose
+ * largest face is more than about 1.4 units across is lit by the pool when the
+ * pool is there and by the moon when it is not.
+ *
+ * BOXES ONLY, and that restriction is load-bearing: a model's bounding box says
+ * nothing about how its surface is tessellated, and a baked scatter chunk has an
+ * enormous one - a whole grouping cell of trees - so a size test would strip the
+ * cone from the entire forest. */
+void TerrainGame::updateFlashSpotOff() {
+  static std::vector<int> want;
+  want.clear();
+  for (const ProjBox& b : g_projBoxes) {
+    if (b.type != 0) continue;  // box primitives only
+    float h0 = b.h[0], h1 = b.h[1], h2 = b.h[2];
+    if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
+    if (h1 < h2) { const float t = h1; h1 = h2, h2 = t; }
+    if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
+    if (sqrtf(h0 * h0 + h1 * h1) > 1.4F) want.push_back(b.obj);
+  }
+  for (int prev : flashSpotOffList) {
+    bool still = false;
+    for (int w : want)
+      if (w == prev) { still = true; break; }
+    if (!still) setFlashSpotOff(prev, true);
+  }
+  flashSpotOffList.assign(want.begin(), want.end());
+  for (int w : want) setFlashSpotOff(w, false);
+}
+
+void TerrainGame::setFlashSpotOff(int obj, bool spot) {
   // A STATICALLY BATCHED receiver does not draw from its own bags at all - its
   // geometry lives in a merged bag that other objects share - so flagging its
   // parts reaches nothing. (Measured the hard way: the flag was provably set,
@@ -9082,17 +9177,13 @@ void TerrainGame::setFlashSpotOff(int obj) {
       }
     }
   };
-  if (obj != flashSpotOffObj) {
-    apply(flashSpotOffObj, true);  // the previous receiver gets its cone back
-    flashSpotOffObj = obj;
-  }
-  // Re-applied EVERY frame, not once on the transition: rebuildObjectGeometry
-  // makes a fresh info bag whenever a part's bag has gone (a demotion out of a
-  // static batch, a Live Link edit, a script that moves vertices), and that bag
-  // arrives with the cone switched back on. A flag set once would then be
-  // silently lost for as long as the beam stayed on that wall - which is
-  // exactly when it matters.
-  apply(obj, false);
+  // Applied EVERY frame by the caller, not once on a transition:
+  // rebuildObjectGeometry makes a fresh info bag whenever a part's bag has gone
+  // (a demotion out of a static batch, a Live Link edit, a script that moves
+  // vertices), and that bag arrives with the cone switched back on. A flag set
+  // once would then be silently lost for as long as the beam stayed on that
+  // wall - which is exactly when it matters.
+  apply(obj, spot);
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {

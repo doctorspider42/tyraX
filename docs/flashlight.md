@@ -125,28 +125,35 @@ worth knowing about that test:
   light does. It does not wrap round a corner onto the next wall: one patch, one
   surface, the nearest one the beam meets.
 
-**A wall the pool lands on gives up its own cone**, the same way the terrain
-does. The per-vertex spot is evaluated at a box face's four corners and
-Gouraud-interpolated between them, and both of its terms vary over metres — so
-on anything wall-sized it draws a hard diagonal of light across the face, one
-triangle bright and the other not. Once the pool is there, per pixel, that
-diagonal is all the cone contributes, so it steps aside and the pool is the only
-light on that surface.
+**Both patches are live at once.** A beam sweeping off the floor and up a wall
+lights the two together for as long as it straddles the join, so the flashlight
+carries a floor patch and a wall patch and draws both; the depth buffer decides
+where each one shows, and their own falloffs retire the one that no longer
+matters. One patch that had to belong to one surface or the other made that
+moment a blink — the floor pool vanished and a wall pool appeared in the same
+frame.
 
-The threshold is the face's own size: more than about 1.4 units across the
-diagonal and it takes the pool alone. Smaller than that and it keeps the cone,
-deliberately — the pool lands on ONE face, and a crate lit all over reads better
-than a crate with one bright patch and four black sides.
+**And a big flat box never takes the per-vertex cone**, whether or not you are
+pointing at it. The spot is evaluated at a box face's four corners and
+Gouraud-interpolated between them, and both of its terms vary over metres — so on
+anything wall-sized it draws a hard diagonal of light across the face, one
+triangle bright and the other not. A wall does not want that term at any time:
+it is lit by the pool when the pool is there, and by the moon when it is not.
 
-Two things that follow, both worth knowing:
+The rule is a property of the object, not of the aim:
 
-- Only the **receiver's** cone is dropped. Everything else in the beam — trees,
-  props, the player's own avatar — is lit exactly as before.
+- **Box primitives only.** A model's bounding box says nothing about how its
+  surface is tessellated, and a baked scatter chunk has an enormous one — a
+  whole grouping cell of trees — so a size test applied to models would strip
+  the cone from a whole forest.
+- **Larger than about 1.4 units** across its biggest face. Below that the cone
+  is kept, deliberately: the pool lands on ONE face, and a crate lit all over
+  reads better than a crate with one bright patch and four black sides.
 - A **statically batched** wall is drawn from a merged bag it may share with
   other objects, so the switch can only be thrown when that batch holds nothing
-  but the receiver (the usual case for a big lone wall: batches group by cell
-  and material). A wall grouped with company keeps its cone, because one torch
-  must not darken everything batched with what it points at.
+  but that wall (the usual case for a big lone one: batches group by cell and
+  material). A wall grouped with company keeps its cone, because one torch must
+  not darken everything batched beside it.
 - **It is one patch of 3x3 cells** (54 vertices). With the mapping exact per
   pixel the grid no longer draws the light at all — it only decides which ground
   the pool *covers* and how closely it follows the relief — so it is deliberately
