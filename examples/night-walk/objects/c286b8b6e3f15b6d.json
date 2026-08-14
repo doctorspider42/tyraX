@@ -1,1 +1,0 @@
-{ "id": "c286b8b6e3f15b6d", "name": "pines#pine-xm3zm3", "type": "model", "position": [-375, 0, -375], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "drawDistance": 210, "castShadow": false, "model": "res/models/procgen-5c17a90e-pine-xm3zm3.obj", "meshLod": 70, "procSource": "5c17a90e63b84d21" }

@@ -252,7 +252,7 @@ wait for their polish pass.
 | [showcase](examples/showcase) | The kitchen sink: two scenes joined by a portal, and half the manual — streaming, animation, particles, menus, post-FX — making cameos |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
-| [night-walk](examples/night-walk) | The same 2048×2048 at night with a torch and 1500 pines — 35 FPS without distance detail, 50 with |
+| [night-walk](examples/night-walk) | The same 2048×2048 at night with a torch and 1100 spruces — 25 FPS without distance detail, 50 with |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
 | [physics-playground](examples/physics-playground) | 28 hyperactive bodies rain onto a terraced slope. Doubles as the physics benchmark |

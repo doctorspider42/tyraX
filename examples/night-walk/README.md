@@ -1,6 +1,6 @@
 # night-walk example
 
-A 2048×2048 map at night with a torch and 1500 scattered pines, holding **50
+A 2048×2048 map at night with a torch and 1100 scattered spruces, holding **50
 FPS** — the two features that make that possible are
 [terrain distance detail](../../docs/terrain-lod.md) and the
 [flashlight's projected pool](../../docs/flashlight.md).
@@ -25,8 +25,11 @@ point of the example.
 
   | Detail distance | Frame rate |
   |---|---|
-  | 0 (off — every tile full detail) | **35.0 fps** |
+  | 0 (off — every tile full detail) | **25.0 fps** |
   | 55 | **50.0 fps** (the PAL cap) |
+
+  Exactly half, because that is what missing a 20 ms field costs on a PAL
+  console: the frame is shown one field late, every time.
 
   Set it to 0 in *Project > Preferences > World* and rebuild to see that for
   yourself.
@@ -40,11 +43,16 @@ point of the example.
   wedge that moves in cell-sized steps. Props and trees still get it — they are
   small enough for it to look like light.
 
-- **1500 pines and rocks, from a graph.** One
+  The torch's colour is deliberately about 0.6, not white. The per-vertex cone
+  has no N·L, so a white one adds the same amount to every face of a tree
+  whichever way it points and flattens it into a cutout; at 0.6 the baked
+  moonlight still shows through and the tiers keep their shape.
+
+- **1100 spruces and rocks, from a graph.** One
   [procedural volume](../../docs/procedural-generation.md) scatters them over
-  900×900 units, filtered by slope and by a noise mask so there are clearings,
-  then bakes them into 73 merged chunk meshes with a 210-unit draw distance.
-  ~27k triangles total, none of them authored by hand.
+  420×420 units around the spawn, filtered by slope and by a noise mask so there
+  are clearings, then bakes them into 34 merged chunk meshes with a 210-unit
+  draw distance. ~22k triangles total, none of them authored by hand.
 
 - **Fog doing its job.** Fog end (185) sits well inside the view distance (320),
   so the streaming ring's edge is never the thing you notice.
@@ -60,6 +68,9 @@ point of the example.
 
 ## Assets
 
-`pine.obj`, `rock.obj` and `props.mtl` are the untextured low-poly props from
-the [procedural](../procedural) example. The heightmap is generated value noise
-with a flat clearing at the spawn.
+`pine.obj` is a generated 32-triangle spruce: a square trunk and four stacked
+hexagonal tiers. Tiers rather than one cone because the props' shading is baked
+per vertex, so a stepped silhouette is what gives it any shape at all under a
+torch that has no N·L term. `rock.obj` and `props.mtl` come from the
+[procedural](../procedural) example. The heightmap is generated value noise with
+a flat clearing at the spawn.

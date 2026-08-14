@@ -11507,7 +11507,25 @@ void TerrainGame::updateAndRenderLightPools() {
       float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
       fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
       fade *= 0.45F + 0.55F * sinE;
-      const float fix = 118.0F * fade;
+      // The pool's gain is AIMED, not fixed: the additive blend computes
+      // Cs*FIX/128 + Cd, so the peak this patch can add is
+      // maxChannel/128 * FIX/128, and a peak at or over 1.0 clips - at which
+      // point the outline of the clipped region is the patch's own
+      // piecewise-linear ST field, i.e. straight segments and corners where
+      // its cells meet. That was reported as "the torch texture is ragged".
+      // So solve for a peak of 0.8 instead, from whatever colour the project
+      // authored: a dim torch keeps its pool bright, a white one no longer
+      // burns the middle out, and BOTH read brighter than a clipped one
+      // because the falloff around the core survives.
+      //
+      // The colour still drives the per-vertex cone on props at full strength,
+      // which is the other half of the same trap: that term has no N.L, so a
+      // bright torch flattens everything it touches into one colour.
+      float maxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+      if (FLASHLIGHT_B > maxC) maxC = FLASHLIGHT_B;
+      if (maxC < 1.0F) maxC = 1.0F;
+      float fix = 13107.0F / maxC * fade;  // 0.8 * 128 * 128
+      if (fix > 255.0F) fix = 255.0F;
       if (fix < 1.0F) continue;
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;

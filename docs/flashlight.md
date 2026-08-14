@@ -13,12 +13,28 @@ worth knowing before you tune anything.
 **The cone** is a real light. The engine's spot light (`setSpotLight`) is
 evaluated **per vertex on VU1** — a cone term and a distance falloff added on
 top of the baked vertex colours, with no N·L term (the colour pipelines carry no
-normals). It lights everything: props, models, the ground, the walls of a room.
+normals). It lights props, models and the walls of a room.
 
-It is also only ever as fine as the mesh it lands on. A terrain cell is never
-smaller than one world unit, so on the ground the cone is a Gouraud diamond
-across a handful of vertices, and a footprint smaller than one cell — which is
-what you get looking at your own feet — lights nothing at all.
+It is only ever as fine as the mesh it lands on, which is why **the terrain does
+not take it at all**. A terrain cell is never smaller than one world unit, so on
+the ground that term is not a cone: it is a Gouraud diamond that moves in
+cell-sized steps, and a footprint smaller than one cell — looking at your own
+feet — lit nothing whatsoever. The ground's light comes from the pool below
+instead. Running both is the worst of the two, a soft ellipse sitting inside a
+blocky wedge, so a project with a flashlight sets `spotLit = false` on its
+terrain bags and one without is untouched.
+
+Two consequences worth knowing:
+
+- **A bright torch flattens what it touches.** With no N·L, every vertex inside
+  the cone gets the same addition whichever way its face points, so a light
+  colour near white saturates a prop into one flat silhouette. Keeping the
+  colour around 0.6 leaves the baked moonlight shading showing through, and the
+  prop keeps its shape. This is a real limit of the colour pipelines, not a
+  tuning accident.
+- **The pool's brightness is aimed, not authored.** Its additive gain is solved
+  for a peak of 0.8 from whatever colour the project set, so the middle never
+  clips — see the gobo section.
 
 **The pool** is the picture. Where the beam lands, the game drops one additive
 patch and takes its texture coordinates from the **beam's own frustum** — the
@@ -61,6 +77,13 @@ throws, and two low-frequency lobes so the circle is not perfectly round. It
 costs about 6% of the console's ~1.08 MB texture heap ([GS VRAM](gs-vram.md)),
 and a project with no flashlight never loads it.
 
+The pool's gain is solved so its peak lands at 0.8, not at 1.0. That matters
+more than it sounds: the blend is `Cs*FIX/128 + Cd`, and a peak at or over 1.0
+clips — at which point the outline of the clipped region is the patch's own
+piecewise-linear texture mapping, i.e. straight segments and corners where its
+cells meet. A clipped pool looks *ragged*, and dimmer, because the falloff
+around its core is the part that got eaten.
+
 To use your own, set *Properties > Flashlight > Pool texture* to a PNG in
 `res/hud/`. Rules:
 
@@ -78,7 +101,7 @@ To use your own, set *Properties > Flashlight > Pool texture* to a PNG in
 |---|---|
 | The lit circle is too small / too wide | *Cone half-angle* — it sizes both halves |
 | The pool dies too close | *Reach* — the fade is measured against it |
-| The pool is too bright / washed out | The gobo's own levels, or *Light colour* |
+| Props look like flat white cutouts | *Light colour* — the cone has no N·L, so a near-white torch saturates them |
 | Nothing lights at all | *Enabled* is the master; a `Set Flashlight` node may have turned it off |
 
 ## What the editor shows
