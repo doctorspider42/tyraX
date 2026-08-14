@@ -48,6 +48,10 @@ point of the example.
   appears ON the wall, in its plane, clipped to its edges. An axis-aligned box
   test would have put that light where the wall is not.
 
+  The wall also gives up its own per-vertex cone while the pool is on it, so
+  what you see there is the gobo and the moon - nothing else. The tree trunks in
+  front of it are small enough to keep the cone, and do.
+
   The torch's colour is deliberately about 0.6, not white. The per-vertex cone
   has no N·L, so a white one adds the same amount to every face of a tree
   whichever way it points and flattens it into a cutout; at 0.6 the baked

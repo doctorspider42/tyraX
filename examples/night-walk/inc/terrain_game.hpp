@@ -462,6 +462,11 @@ class TerrainGame : public Tyra::Game {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  // The same settings with the camera spot switched off, for a batch that holds
+  // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
+  // one bag for many objects, so this is only ever swapped in for a batch of
+  // ONE - otherwise a torch on one wall would darken its neighbours.
+  std::unique_ptr<Tyra::StaPipInfoBag> batchNoSpotInfoBag;
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
@@ -1247,6 +1252,11 @@ class TerrainGame : public Tyra::Game {
   bool projWallHit(const Tyra::Vec4& from, float dx, float dy, float dz,
                    float maxT, float& outT, int& outAxis, float& outSign,
                    struct ProjBox& outBox);
+  // The object whose own per-vertex flashlight cone is switched OFF because the
+  // projected pool is doing that job on it (a big flat face the cone would
+  // simply flood). -1 = none; see setFlashSpotOff.
+  int flashSpotOffObj = -1;
+  void setFlashSpotOff(int obj);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.

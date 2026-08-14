@@ -31,7 +31,8 @@ Two consequences worth knowing:
   colour near white saturates a prop into one flat silhouette. Keeping the
   colour around 0.6 leaves the baked moonlight shading showing through, and the
   prop keeps its shape. This is a real limit of the colour pipelines, not a
-  tuning accident.
+  tuning accident — it is also why the terrain and any wall the pool lands on
+  take no cone at all.
 - **The pool's brightness is aimed, not authored.** Its additive gain is solved
   for a peak of 0.8 from whatever colour the project set, so the middle never
   clips — see the gobo section.
@@ -124,13 +125,28 @@ worth knowing about that test:
   light does. It does not wrap round a corner onto the next wall: one patch, one
   surface, the nearest one the beam meets.
 
-One limit it keeps on purpose:
+**A wall the pool lands on gives up its own cone**, the same way the terrain
+does. The per-vertex spot is evaluated at a box face's four corners and
+Gouraud-interpolated between them, and both of its terms vary over metres — so
+on anything wall-sized it draws a hard diagonal of light across the face, one
+triangle bright and the other not. Once the pool is there, per pixel, that
+diagonal is all the cone contributes, so it steps aside and the pool is the only
+light on that surface.
 
-- **A large flat face is still washed by the cone.** The per-vertex spot lights
-  a box face from its four corners, so at close range the whole face comes up
-  evenly and the projected pool reads as a hotspot on top of it rather than as
-  the only light there. Keep the torch colour modest (see below) and the pool
-  does the talking.
+The threshold is the face's own size: more than about 1.4 units across the
+diagonal and it takes the pool alone. Smaller than that and it keeps the cone,
+deliberately — the pool lands on ONE face, and a crate lit all over reads better
+than a crate with one bright patch and four black sides.
+
+Two things that follow, both worth knowing:
+
+- Only the **receiver's** cone is dropped. Everything else in the beam — trees,
+  props, the player's own avatar — is lit exactly as before.
+- A **statically batched** wall is drawn from a merged bag it may share with
+  other objects, so the switch can only be thrown when that batch holds nothing
+  but the receiver (the usual case for a big lone wall: batches group by cell
+  and material). A wall grouped with company keeps its cone, because one torch
+  must not darken everything batched with what it points at.
 - **It is one patch of 3x3 cells** (54 vertices). With the mapping exact per
   pixel the grid no longer draws the light at all — it only decides which ground
   the pool *covers* and how closely it follows the relief — so it is deliberately

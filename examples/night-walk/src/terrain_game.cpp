@@ -5158,6 +5158,8 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The flashlight's receiver is an index into the table that just went away.
+  flashSpotOffObj = -1;
   // Pool slots start empty - data arrives from a template at spawn time.
   for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
     runtimeObjects[i].active = false;
@@ -8061,6 +8063,7 @@ struct ProjBox {
   float o[3];                 // centre, world
   float ax[3], ay[3], az[3];  // rotated unit axes
   float h[3];                 // half extents along them
+  int obj;                    // index into runtimeObjects
 };
 std::vector<ProjBox> g_projBoxes;
 
@@ -8205,6 +8208,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // uses to sample a silhouette - and the gobo texture decides what a torch
       // looks like. Nothing below depends on how finely the ground is
       // tessellated, which is the whole point.
+      // Cleared up front, so every early exit below leaves the previous
+      // receiver's own cone switched back on; the wall branch re-arms it.
+      setFlashSpotOff(-1);
       if (!g_flashEnabled || !g_flashOn) continue;
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
@@ -8397,6 +8403,23 @@ void TerrainGame::updateAndRenderLightPools() {
         if (b0 < -wallBox.h[ib]) b0 = -wallBox.h[ib];
         if (b1 > wallBox.h[ib]) b1 = wallBox.h[ib];
         if (a1 - a0 < 0.05F || b1 - b0 < 0.05F) continue;
+        // How BIG is this face, in metres? That is the test, and getting there
+        // took two wrong ones. A box face is two triangles whatever its size,
+        // so the cone is evaluated at four corners and Gouraud-interpolated
+        // between them - and both of its terms vary over metres, so on a wall
+        // the interpolation shows as a hard diagonal of light with one triangle
+        // bright and the other not. "Does the cone's footprint cover the face"
+        // does NOT save it: measured on this example's 9x4.4 turned wall at 14
+        // units, the footprint is twice the face and the diagonal is still
+        // there, because covering a face is not lighting it evenly.
+        //
+        // So: a face more than a couple of metres across takes the pool alone.
+        // Below that the cone is fine and worth keeping - the pool lands on ONE
+        // face, and a crate lit all over reads better than a crate with one
+        // bright patch and four black sides.
+        const float faceDiag = sqrtf(wallBox.h[ia] * wallBox.h[ia] +
+                                     wallBox.h[ib] * wallBox.h[ib]);
+        if (faceDiag > 1.4F) setFlashSpotOff(wallBox.obj);
         // Off the face toward the camera, then the usual view-ray bias.
         const float lift = 0.04F * wallSign;
         const float fo = wallBox.h[wallAxis] * wallSign + lift;
@@ -8900,7 +8923,8 @@ void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
 
 void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
   g_projBoxes.clear();
-  for (const RuntimeObject& o : runtimeObjects) {
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
     if (!o.active || !o.visible) continue;
     if (o.data.collision == 2) continue;  // no collision = nothing to light
     const int t = o.data.type;
@@ -8942,6 +8966,7 @@ void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
     r.o[2] = o.data.position[2] + ab.ax[2] * lc.x + ab.ay[2] * lc.y +
              ab.az[2] * lc.z;
     r.h[0] = ex, r.h[1] = ey, r.h[2] = ez;
+    r.obj = oi;
     // Reach test on the bounding SPHERE - cheap, and rotation cannot fool it.
     const float rad = sqrtf(ex * ex + ey * ey + ez * ez);
     if (r.o[0] + rad < cx - reach || r.o[0] - rad > cx + reach) continue;
@@ -8999,6 +9024,75 @@ bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
     outBox = b;
   }
   return found;
+}
+
+/** Takes one object off the camera spot, and puts the previous one back.
+ *
+ * The per-vertex cone lights a box face from its four corners with no N.L, so a
+ * big flat receiver comes up EVENLY - and once the projected pool lands on that
+ * same face, the pool reads as a hotspot on an already-lit wall instead of as
+ * the only light on it. The wall is the one surface where the pool can do the
+ * whole job, so the cone gets out of its way, exactly as the terrain's does.
+ *
+ * The flag lives in the object's own info bags rather than at the submission
+ * sites - there are eleven of those (portals, mirrors, the through-views, the
+ * main pass) and a flag applied per site would be forgotten at one of them.
+ * It therefore takes effect on the NEXT frame, since the pool is drawn after
+ * the objects: 20 ms of cone on a wall you have just swept onto, which is not
+ * a thing anyone can see. Only the receiver's OWN spot is dropped, so the
+ * torch keeps lighting everything else in the beam. */
+void TerrainGame::setFlashSpotOff(int obj) {
+  // A STATICALLY BATCHED receiver does not draw from its own bags at all - its
+  // geometry lives in a merged bag that other objects share - so flagging its
+  // parts reaches nothing. (Measured the hard way: the flag was provably set,
+  // `Static batching: 3 objects in 3 batches` in the log, and the wall kept its
+  // cone.) A batch that holds ONLY this object can take the flag as a whole,
+  // which is the common case for a wall: batches group by cell and material, so
+  // a big lone wall tends to be its own. A batch with company keeps the cone -
+  // one torch must not darken every object grouped with what it points at.
+  auto loneBatch = [&](int i) -> StaticBatch* {
+    if (i < 0 || i >= (int)objectBatchOf.size()) return nullptr;
+    const int bi = objectBatchOf[i];
+    if (bi < 0 || bi >= (int)staticBatches.size()) return nullptr;
+    StaticBatch* sb = &staticBatches[bi];
+    return sb->members.size() == 1 && sb->bag ? sb : nullptr;
+  };
+  auto apply = [&](int i, bool lit) {
+    if (i < 0 || i >= (int)objectGeometry.size()) return;
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.infoBag) part.infoBag->spotLit = lit;
+    if (objectGeometry[i].animInfoBag)
+      objectGeometry[i].animInfoBag->spotLit = lit;
+    if (StaticBatch* sb = loneBatch(i)) {
+      if (lit) {
+        if (batchInfoBag) sb->bag->info = batchInfoBag.get();
+      } else {
+        if (!batchNoSpotInfoBag) {
+          // The same settings rebuildStaticBatch gives batchInfoBag, and one
+          // more: no camera spot.
+          batchNoSpotInfoBag = std::make_unique<StaPipInfoBag>();
+          batchNoSpotInfoBag->model = &model;
+          batchNoSpotInfoBag->shadingType = TyraShadingFlat;
+          batchNoSpotInfoBag->frustumCulling =
+              PipelineInfoBagFrustumCulling_Precise;
+          batchNoSpotInfoBag->fullClipChecks = true;
+          batchNoSpotInfoBag->spotLit = false;
+        }
+        sb->bag->info = batchNoSpotInfoBag.get();
+      }
+    }
+  };
+  if (obj != flashSpotOffObj) {
+    apply(flashSpotOffObj, true);  // the previous receiver gets its cone back
+    flashSpotOffObj = obj;
+  }
+  // Re-applied EVERY frame, not once on the transition: rebuildObjectGeometry
+  // makes a fresh info bag whenever a part's bag has gone (a demotion out of a
+  // static batch, a Live Link edit, a script that moves vertices), and that bag
+  // arrives with the cone switched back on. A flag set once would then be
+  // silently lost for as long as the beam stayed on that wall - which is
+  // exactly when it matters.
+  apply(obj, false);
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {
