@@ -36,6 +36,40 @@ extern "C" s32 tyraxVblankHandler(s32 cause) {
   return 0;
 }
 
+// Modified by TyraX: the GS's standard 4x4 ordered-dither matrix, packed for
+// the DIMX register BY HAND because ps2sdk's GS_SET_DIMX cannot express it.
+//
+// DIMX holds sixteen entries at bits 0, 4, 8 ... 60, and each is a 3-BIT
+// SIGNED value - range -4..+3, confirmed against PCSX2's own register
+// definition (`s32 DM00 : 3` plus a 1-bit pad, GS/GSRegs.h). ps2sdk masks
+// every entry with 0x03:
+//
+//   #define GS_SET_DIMX(D00, ...) (u64)((D00)&0x00000003) << 0 | ...
+//
+// Two bits. So the negative half of the matrix - which is encoded 4..7 in
+// 3-bit two's complement - silently collapses onto 0..3, the offsets stop
+// averaging to zero, and the dither biases the whole image upward instead of
+// cancelling. The macro is only usable for a matrix that happens to be
+// entirely non-negative, which the standard one is not:
+//
+//     -4  +2  -3  +3        4 2 5 3
+//      0  -2  +1  -1   =>   0 6 1 7   (as 3-bit two's complement)
+//     -3  +3  -4  +2        5 3 4 2
+//     +1  -1   0  -2        1 7 0 6
+//
+// Reported upstream; drop this and call GS_SET_DIMX once ps2sdk masks with
+// 0x07 (`git log common/include/gs_gp.h` shows the same class of fix landing
+// before - "Fix MIPTBP addresses bitmask"). Until then, do NOT "simplify"
+// this back to the macro.
+static u64 tyraxDitherMatrix() {
+  static const int kDimx[16] = {4, 2, 5, 3, 0, 6, 1, 7,
+                                5, 3, 4, 2, 1, 7, 0, 6};
+  u64 reg = 0;
+  for (int i = 0; i < 16; i++)
+    reg |= static_cast<u64>(kDimx[i] & 0x07) << (i * 4);
+  return reg;
+}
+
 RendererCoreGS::RendererCoreGS() {
   context = 0;
   currentField = 0;
@@ -103,7 +137,12 @@ void RendererCoreGS::allocateVramBuffers() {
   frameBuffers[0].width = static_cast<unsigned int>(settings->getWidth());
   frameBuffers[0].height = settings->getRenderHeightUI();
   frameBuffers[0].mask = 0;
-  frameBuffers[0].psm = GS_PSM_32;
+  // Modified by TyraX: PSMCT32 or PSMCT16 per the project's colour depth.
+  // At 16bpp the pair of frame buffers halves - 458 KB -> 229 KB at
+  // 512x448 - and the whole saving lands in the texture heap. The z buffer
+  // below is deliberately NOT halved with it: a 16-bit z at this near/far
+  // ratio z-fights badly, and it is a separate decision.
+  frameBuffers[0].psm = settings->getFrameBufferPsm();
   frameBuffers[0].address = vram.allocateBuffer(
       frameBuffers[0].width, frameBuffers[0].height, frameBuffers[0].psm);
 
@@ -207,7 +246,8 @@ void RendererCoreGS::allocateVramBuffers() {
                        settings->getRasterScaleY();
       const int lowBufW = -64 & (lowW + 63);  // as RendererCoreBlss sizes it
       blssWords = static_cast<int>(
-          vram.getSizeInMB(lowBufW, lowH, GS_PSM_32, GRAPH_ALIGN_PAGE) *
+          vram.getSizeInMB(lowBufW, lowH, settings->getFrameBufferPsm(),
+                          GRAPH_ALIGN_PAGE) *
               kWordsPerMB +
           0.5F);
     }
@@ -561,7 +601,10 @@ void RendererCoreGS::enableZTests() {
 }
 
 void RendererCoreGS::initDrawingEnvironment() {
-  packet2_t* packet2 = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  // Modified by TyraX: 40 qwords - draw_setup_environment's register block
+  // plus the CLAMP re-assert, the DIMX/DTHE dither pair, the XYOFFSET and
+  // the finish. An undersized packet2 here overruns its own buffer.
+  packet2_t* packet2 = packet2_create(40, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   packet2_update(packet2, draw_setup_environment(packet2->base, 0, frameBuffers,
                                                  &zBuffer));
   // Modified by TyraX: draw_setup_environment() ends with "Setup whole texture
@@ -578,6 +621,21 @@ void RendererCoreGS::initDrawingEnvironment() {
     q++;
     PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
                 GS_REG_CLAMP_1);
+    q++;
+    packet2_update(packet2, q);
+  }
+  // Modified by TyraX: GS ordered dithering. The GS only dithers when it
+  // writes a 16-bit destination, so this is inert at PSMCT32 and is what
+  // makes PSMCT16 usable: 5 bits per channel band visibly in skies, fog and
+  // the post-fx blur, and the 4x4 offset matrix trades that banding for
+  // noise the TV's own filtering then blurs away.
+  {
+    qword_t* q = packet2->next;
+    PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    q++;
+    PACK_GIFTAG(q, tyraxDitherMatrix(), GS_REG_DIMX);
+    q++;
+    PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
     q++;
     packet2_update(packet2, q);
   }
@@ -644,9 +702,12 @@ qword_t* RendererCoreGS::emitRasterRestore(qword_t* q, bool texFlush) {
     PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
     q++;
   }
+  // Modified by TyraX: the frame format, not a constant - both raster targets
+  // this can restore (a display buffer, or BLSS' low-res target) are allocated
+  // in it, and it is PSMCT16 in a 16bpp project (docs/gs-vram.md).
   PACK_GIFTAG(q,
-              GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6, GS_PSM_32,
-                           0),
+              GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6,
+                           settings->getFrameBufferPsm(), 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q,

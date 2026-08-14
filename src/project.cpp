@@ -138,6 +138,11 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // still allocates after gs.init (post fx, env map + z, camera feed + z,
     // the projected-shadow slots) plus a texture floor. Keep these two equal to
     // kThirdBufferReserveWords / kThirdBufferMinTextureWords in the engine.
+    // (Deliberately NOT discounted when a project reserves neither the env
+    // map nor the camera feed - 128 KB of that reserve is then unused, so
+    // this refuses a third buffer that would in fact fit. Erring toward two
+    // buffers is the safe direction, and the engine's own constants would
+    // have to move with it.)
     const int kNeed = 98304 + 65536;
     auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
 
@@ -151,7 +156,12 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     const DisplayModeInfo& d = displayModeInfo(modeKey);
     const int w = d.bufW;
     const int h = d.halfHeight ? d.logicalH / 2 : d.logicalH;
-    const int bufferWords = pageUp(w * h);  // PSMCT32: one word per pixel
+    // A display buffer is one word per pixel at PSMCT32 and half that at
+    // PSMCT16 (docs/gs-vram.md) - which is what most often decides this
+    // question, since 16-bit colour makes a third buffer cost what two used
+    // to. Keep in step with RendererCoreGS::allocateVramBuffers.
+    const bool halfDepth = s.colorDepth == "16bit";
+    const int bufferWords = pageUp(halfDepth ? (w * h + 1) / 2 : w * h);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
     // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
@@ -179,7 +189,8 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     int lowWords = 0;
     if (u.any) {
         const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
-        lowWords = pageUp(lowBufW * (h / sy));
+        const int lowPixels = lowBufW * (h / sy);
+        lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
     }
 
     TripleBufferFit f;
@@ -1514,6 +1525,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                        }() +
                        "],\n")
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
+         // Written only when set away from the default, so an existing
+         // project's manifest does not gain two keys just by being resaved.
+         << (p.settings.colorDepth == "16bit"
+                 ? "    \"colorDepth\": \"16bit\",\n"
+                 : "")
+         << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << (p.settings.frameExtrapolationPlane != 0.0f
@@ -4994,6 +5011,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("palFullHeight"))
             st.palFullHeight = v->boolOr(false);
+        // Framebuffer colour depth + GS dithering (docs/gs-vram.md). Absent
+        // in every project written before they existed, and the defaults are
+        // exactly what those projects already did.
+        if (const auto* v = s->find("colorDepth"))
+            st.colorDepth = v->stringOr("32bit") == "16bit" ? "16bit" : "32bit";
+        if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolation"))

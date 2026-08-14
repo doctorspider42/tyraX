@@ -34,6 +34,17 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
   sync = t_sync;
   path1 = t_path1;
 
+  // Modified by TyraX: opt-out (see the header). A project with no reflective
+  // material - or, for the camera-feed instance, no texture feed - reserves
+  // nothing here, which is 128 KB of the texture heap per disabled instance.
+  // init() re-runs after a display-mode VRAM reset, and `enabled` is a member
+  // precisely so that re-run cannot silently turn the target back on.
+  allocated = false;
+  if (!enabled) {
+    TYRA_LOG("Env map target disabled - no VRAM reserved");
+    return;
+  }
+
   // The target sits right above the frame/z/post-fx buffers, below every
   // texture: allocateBuffer() puts it in the permanent region under the
   // texture heap's floor, which texture eviction cannot reach. The dedicated
@@ -67,10 +78,13 @@ void RendererCoreEnvMap::init(RendererSettings* t_settings,
     endPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   }
 
+  allocated = true;
   TYRA_LOG("Dynamic env map initialized (VRAM at ", (int)vramAddress, ")");
 }
 
 void RendererCoreEnvMap::begin(const Color& clearColor) {
+  if (!allocated) return;  // TyraX: target opted out - nothing to render into
+
   // Drain in-flight PATH1 3D work - the raster redirect below is global GS
   // state. Before any 3D pipeline is up there is nothing to drain (and the
   // FINISH handshake would spin forever).
@@ -135,6 +149,8 @@ void RendererCoreEnvMap::begin(const Color& clearColor) {
 }
 
 void RendererCoreEnvMap::end() {
+  if (!allocated) return;  // TyraX: begin() drew nothing - restore nothing
+
   // Drain the env pass itself, then restore the frame drawing environment.
   if (path1->isVU1Configured()) sync->align3D();
 

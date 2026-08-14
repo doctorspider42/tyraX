@@ -735,7 +735,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 32
+#define TYRAX_VERSION_MINOR 33
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -963,6 +963,18 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
 // degrees of torso pitch applied by the retargeter. Written only when
 // non-zero; no migration step.
-inline constexpr int kFormatVersion = 23;
+// v24 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
+// frame buffers' pixel format (PSMCT32 or the half-size PSMCT16) and
+// ProjectSettings::dither drives the GS's ordered dither. Both are written
+// only when set away from their defaults, and those defaults are exactly what
+// every older project already did, so no migration step. (The two optional
+// render targets that landed with them are NOT in the format at all - they
+// are derived at build time from what the project ships, not stored.
+// Authored as v9 on this branch, renumbered to v18 at the first merge and to
+// v24 at this one, the same rule every note above applied to itself: main's
+// neural-upscaler batch took 8 through 17 and its speed/animation-import batch
+// 18 through 23 while this branch was open, and the claim that arrives second
+// renumbers.)
+inline constexpr int kFormatVersion = 24;
 
 }  // namespace version

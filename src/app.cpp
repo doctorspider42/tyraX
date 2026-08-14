@@ -13894,6 +13894,35 @@ void App::drawPreferencesWindow() {
         "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
         "the picture also fills more of the screen. HUD sprites stretch\n"
         "with the screen. Runtime switch: the Set Widescreen flow node.");
+    // Colour depth. The GS is 4 MB and the frame buffers are most of it, so
+    // this is the biggest single lever on how much VRAM textures get - and
+    // on whether the third display buffer below fits at all.
+    {
+        int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
+        const char* depthNames[] = {"32-bit colour", "16-bit colour (2x VRAM)"};
+        if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
+            prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
+        prefHelp(
+            "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
+            "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
+            "GS memory and hands all of it to textures, which roughly\n"
+            "DOUBLES the texture budget - the single biggest saving available\n"
+            "on a 4 MB GS, what makes the taller HD scan modes practical, and\n"
+            "what most often decides whether triple buffering fits.\n"
+            "The cost is 32 levels per channel instead of 256, so smooth\n"
+            "gradients - skies, fog, bloom - band unless Dithering is on.\n"
+            "The z buffer stays 32-bit either way. See docs/gs-vram.md.");
+        ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
+        ImGui::Indent(scaled(16));
+        ImGui::Checkbox("Dithering", &prefSettings_.dither);
+        prefHelp(
+            "The GS's ordered 4x4 dither, which trades the banding of a\n"
+            "16-bit buffer for fine noise that a TV blurs away. The hardware\n"
+            "only dithers 16-bit destinations, so this does nothing at 32-bit\n"
+            "colour. Leave it on unless you want the flat bands on purpose.");
+        ImGui::Unindent(scaled(16));
+        ImGui::EndDisabled();
+    }
 
     // WHEN a finished frame reaches the TV, as opposed to what is in it. Both
     // of these used to sit under "Build", which is where nobody deciding how

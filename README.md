@@ -192,7 +192,12 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 **Performance**
 
 - Static batching, [texture atlasing](docs/texture-atlasing.md),
-  mesh LOD, draw distances and [GS VRAM residency](docs/gs-vram.md).
+  mesh LOD and draw distances.
+- **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
+  (with the GS's ordered dithering to keep skies from banding), which roughly
+  doubles the texture budget; a texture is charged the GS blocks it really
+  spans instead of a flat pad; and the env-map and camera-feed render targets
+  are reserved only for the projects that read them.
 - The in-game [frame profiler](docs/profiling.md).
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —

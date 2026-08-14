@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <set>
 #include <sstream>
@@ -465,6 +466,18 @@ int main(int argc, char** argv) {
     options.displayMode = Tyra::DisplayMode::Pal576i;
   // 16:9 anamorphic output (Preferences > Display > Widescreen).
   options.widescreen = {{WIDESCREEN}};
+  // Framebuffer colour depth (Preferences > Display > Colour depth) and the
+  // GS's ordered dithering. 16bpp halves what the two frame buffers cost in
+  // GS memory and hands it to the texture heap; the dither is what keeps the
+  // 5-bit channels from banding. See docs/gs-vram.md.
+  options.colorDepth = Tyra::ColorDepth::{{COLOR_DEPTH}};
+  options.dither = {{DITHER}};
+  // Optional GS render targets, 128 KB each, reserved only when this project
+  // has something that reads them: a reflective "@sky" material for the env
+  // map, a feed camera for the camera feed. Computed at build time - see
+  // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
+  options.envMapTarget = {{ENV_MAP_TARGET}};
+  options.camFeedTarget = {{CAM_FEED_TARGET}};
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling
   // the EE on vsync, so a frame that overruns its field is shown one field
@@ -6404,7 +6417,7 @@ void TerrainGame::buildScene() {
     // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
     // predicate that bakes the two PNGs (templates::projectUsesDayCycle), so a
     // cycle-less project pays no VRAM for a sky it does not draw. Together they
-    // are 64x64 + 128x128 = ~8.7% of the ~1.08 MB texture heap (docs/gs-vram.md).
+    // are 64x64 + 128x128 = ~7.3% of the ~1.08 MB texture heap (docs/gs-vram.md).
     if (DAYCYCLE_USED) {
       sunDiscTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/sun-disc.png"));
@@ -6554,11 +6567,16 @@ void TerrainGame::loadModelAsset(int i) {
     }
     if (mat.reflTextureName == "@sky") {
       // Dynamic env map: the engine-owned VRAM target, re-rendered from the
-      // sky dome every frame (renderScene).
+      // sky dome every frame (renderScene). Null when this build reserved no
+      // env-map target (nothing looked like it used one at build time) - the
+      // material then simply draws without its reflection pass rather than
+      // sampling VRAM that belongs to somebody else.
       part.reflTexture = engine->renderer.core.envMap.getTexture();
-      part.reflStrength = mat.reflStrength;
-      part.reflDynamic = true;
-      ++g_dynamicEnvUsers;
+      if (part.reflTexture) {
+        part.reflStrength = mat.reflStrength;
+        part.reflDynamic = true;
+        ++g_dynamicEnvUsers;
+      }
     } else if (!mat.reflTextureName.empty()) {
       const std::string path = dir + mat.reflTextureName;
       part.reflTexture = acquireTexture(path);
@@ -6612,11 +6630,13 @@ void TerrainGame::loadMaterialAsset(int i) {
     for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
   }
   if (mat.reflTextureName == "@sky") {
-    // Dynamic env map (see loadModelAsset).
+    // Dynamic env map (see loadModelAsset), null when unreserved.
     gmat.reflTexture = engine->renderer.core.envMap.getTexture();
-    gmat.reflStrength = mat.reflStrength;
-    gmat.reflDynamic = true;
-    ++g_dynamicEnvUsers;
+    if (gmat.reflTexture) {
+      gmat.reflStrength = mat.reflStrength;
+      gmat.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    }
   } else if (!mat.reflTextureName.empty()) {
     gmat.reflTexPath = dir + mat.reflTextureName;
     gmat.reflTexture = acquireTexture(gmat.reflTexPath);
@@ -24478,6 +24498,56 @@ static std::string screenFxSource(const Project& p) {
     return out.str();
 }
 
+// --- Which optional GS render targets this project actually needs ---------
+//
+// Each of the two is a 128x128 target plus its own z buffer - 128 KB apiece,
+// a quarter of the ~1.08 MB texture heap between them - and the engine used
+// to reserve both for every project. They are opt-in now (EngineOptions::
+// envMapTarget / camFeedTarget), which moves the question here.
+//
+// Under-detection costs a missing reflection, not corruption: a disabled
+// target hands out no texture and the generated code below null-checks it.
+
+// The dynamic env map is read by exactly one thing: a material whose `refl`
+// is the "@sky" token (docs/reflective-materials.md). That token is written
+// by the Material Editor into the .mtl / .tmdl files the game LOADS AT RUN
+// TIME, so the honest question is not what the project model says but what
+// the project ships - which is why this looks at the files. A hand-edited
+// .mtl counts exactly like an editor-written one, and so does a material
+// that only a spawn-pool prefab ever uses.
+static bool projectNeedsEnvMap(const Project& p) {
+    if (p.dir.empty()) return true;  // nothing to inspect - keep the target
+    namespace fs = std::filesystem;
+    const fs::path res = fs::path(p.dir) / "res";
+    std::error_code ec;
+    if (!fs::exists(res, ec)) return false;
+    for (fs::recursive_directory_iterator it(res, ec), end; it != end;
+         it.increment(ec)) {
+        if (ec) break;
+        if (!it->is_regular_file(ec)) continue;
+        const std::string ext = it->path().extension().string();
+        if (ext != ".mtl" && ext != ".tmdl" && ext != ".tskl") continue;
+        std::ifstream f(it->path(), std::ios::binary);
+        if (!f) continue;
+        // The token is short and the files are small; a plain scan of the
+        // whole file also catches it inside .tmdl's length-prefixed strings.
+        const std::string body((std::istreambuf_iterator<char>(f)),
+                               std::istreambuf_iterator<char>());
+        if (body.find("@sky") != std::string::npos) return true;
+    }
+    return false;
+}
+
+// The camera feed is read only where a feed CAMERA exists: the object-feed
+// table is built from one per scene, and a feed of kind 0 points at it (a
+// kind-1 feed is a raytraced mirror, whose image is its own texture).
+static bool projectNeedsCamFeed(const Project& p) {
+    for (const auto& scene : p.scenes)
+        for (const auto& o : scene.objects)
+            if (o.type == PrimitiveType::Camera && o.camFeed) return true;
+    return false;
+}
+
 // ---------------------------------------------------------- BLSS upscaler ---
 // The neural upscaler (docs/neural-upscaler.md) is baked at build time, so
 // every piece of it is a pure function of the Project - which is what lets
@@ -25260,6 +25330,13 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{PAL_FULL_HEIGHT}}",
                    st.palFullHeight ? "true" : "false");
     s = replaceAll(s, "{{WIDESCREEN}}", st.widescreen ? "true" : "false");
+    s = replaceAll(s, "{{COLOR_DEPTH}}",
+                   st.colorDepth == "16bit" ? "Bits16" : "Bits32");
+    s = replaceAll(s, "{{DITHER}}", st.dither ? "true" : "false");
+    s = replaceAll(s, "{{ENV_MAP_TARGET}}",
+                   projectNeedsEnvMap(p) ? "true" : "false");
+    s = replaceAll(s, "{{CAM_FEED_TARGET}}",
+                   projectNeedsCamFeed(p) ? "true" : "false");
     s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
                    st.tripleBuffering ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
