@@ -11472,6 +11472,10 @@ void TerrainGame::updateAndRenderLightPools() {
         ax /= al, az /= al;
       }
       const float cx2 = -az, cz2 = ax;  // across the beam
+      // Horizontal distance from the player to where the beam lands: the axis
+      // every extent below is measured along.
+      const float dxz = sqrtf(dx * dx + dz * dz);
+      const float tLand = hit * dxz;
       float across = hit * tanA * 1.3F + 0.35F;
       if (across > 7.0F) across = 7.0F;
       float sinE = -dy;  // sine of the incidence angle with a level floor
@@ -11484,28 +11488,28 @@ void TerrainGame::updateAndRenderLightPools() {
       if (along > across * 4.5F) along = across * 4.5F;
       across *= 1.12F;  // a little margin so the gobo reaches black inside it
       along *= 1.12F;
-      // How much of the beam's REAL footprint this patch can cover. The lower
-      // edge of the cone meets the ground at a horizontal distance that runs
-      // away as the beam flattens - well past anything one patch is going to
-      // draw - and a patch that stops while the beam is still lit cuts the pool
-      // off along a straight line across the ground. Reported as "when I shine
-      // it further away it clips off sharply".
+      // REACH far enough that the beam's own falloff is what ends the pool, not
+      // the patch's edge. The lower edge of the cone meets the ground at a
+      // horizontal distance that runs away as the beam flattens; the beam's
+      // range bounds it, because past that there is no light to draw anyway.
       //
-      // Fading in proportion is both the fix and the honest answer: a beam too
-      // shallow for its own pool is spreading that light over ground it barely
-      // reaches, and should be going out anyway. It now dies over a few degrees
-      // of pitch instead of being cropped square.
+      // An earlier version FADED the pool by how much of that it managed to
+      // cover, and that was wrong in a way worth recording: the required
+      // distance explodes as the elevation approaches the cone's half-angle,
+      // while the patch itself grows with the landing distance - so the fade
+      // was not monotonic in pitch. It left a band a few degrees wide where the
+      // pool vanished completely and came back beyond it, reported from the
+      // console as a dead spot. A fade that is not monotonic in the thing the
+      // player is moving is worse than the artifact it hides.
       {
         const float elev = asinf(sinE > 1.0F ? 1.0F : sinE);
         float lower = elev - FLASHLIGHT_ANGLE * 3.14159265F / 180.0F;
         if (lower < 0.03F) lower = 0.03F;
-        const float need =
-            (cameraPosition.y - baseY) / tanf(lower);  // horizontal, from here
-        const float have = along * 1.4F + across;      // what the patch covers
-        if (need > have && need > 0.01F) {
-          const float cov = have / need;
-          angleFade *= cov * cov;  // squared: the last of it goes quickly
-        }
+        float need = (cameraPosition.y - baseY) / tanf(lower);  // horizontal
+        if (need > FLASHLIGHT_RANGE) need = FLASHLIGHT_RANGE;
+        const float want = (need - tLand) / 1.4F;  // the far edge is along*1.4
+        if (want > along) along = want;
+        if (along > across * 8.0F) along = across * 8.0F;  // fill-rate backstop
       }
       // The stretch belongs BEYOND the landing point, not around it.
       const float shift = (along - across) * 0.55F;
@@ -11519,8 +11523,6 @@ void TerrainGame::updateAndRenderLightPools() {
       // wedge cutting into the pool is. (Reported as "the pool is triangular";
       // it survived the switch to per-pixel mapping, because the geometry was
       // the half at fault.) Solve for fwd = 0.3 and put the near edge there.
-      const float dxz = sqrtf(dx * dx + dz * dz);
-      const float tLand = hit * dxz;  // the landing point, in the same t
       float aNear = -along;
       if (dxz > 1e-4F) {
         const float tMin =

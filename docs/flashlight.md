@@ -84,15 +84,24 @@ the texture mapping, one for the near plane and one for the depth test — becau
 it was none of those. Overlays that ARE light or shadow (the pools, the blob
 shadows, the projected shadows) set `spotLit = false` for this reason.
 
-**It fades out rather than ending.** One patch can only cover so much ground,
-and the footprint of a beam runs away as it flattens — the lower edge of the
-cone meets a level floor further and further off until it never does. A patch
-that stops while the beam is still lit cuts the pool along a straight line
-across the ground, which is the one artifact that reads as *wrong* rather than
-as *cheap*. So the pool dims in proportion to how much of its own footprint it
-manages to cover, and a beam too shallow for its own pool goes out over a few
-degrees of pitch. That is also roughly true of the light: the same cone spread
-over four times the ground is four times weaker per square metre.
+**The patch reaches as far as the beam does.** The footprint of a beam runs away
+as it flattens — the lower edge of the cone meets a level floor further and
+further off until it never does — and a patch that stops while the beam is still
+lit cuts the pool along a straight line across the ground, which is the one
+artifact that reads as *wrong* rather than as *cheap*. So the patch is stretched
+to cover that distance, bounded by the light's own reach (past which there is
+nothing to draw) and by a fill-rate backstop.
+
+The brightness then falls off with reach and with the grazing angle — the same
+cone spread over four times the ground really is four times weaker per square
+metre — and **both of those are monotonic in where you point**, which matters
+more than it sounds. An earlier version faded the pool by how much of its
+footprint it managed to cover instead, and that quantity is *not* monotonic: the
+distance needed explodes as the beam's elevation approaches the cone's
+half-angle, while the patch itself keeps growing with the landing distance. The
+result was a band a few degrees wide where the pool vanished completely and came
+back beyond it. A fade that is not monotonic in the thing the player is moving
+is worse than the artifact it hides.
 
 Two limits it keeps on purpose:
 
