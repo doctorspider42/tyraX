@@ -7396,7 +7396,27 @@ std::string refreshGenerated(const Project& p) {
                 }
                 write = false;
             }
-        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt") {
+        } else if (f.relativePath == "THIRD-PARTY-NOTICES.txt" ||
+                   // The launcher scripts and the repo hygiene files. Same
+                   // write-once rule as the notices, and for the same reason:
+                   // they have no ownership marker, so an existing one is the
+                   // user's. What makes them belong HERE rather than only in
+                   // project::create is that a project scaffolded before one of
+                   // them existed never gets it otherwise - measured on this
+                   // repo's own examples/, where 21 of 34 projects had no
+                   // run.sh at all and a Linux user opening one found only a
+                   // PowerShell launcher. run.ps1/windows-pcsx2.ps1 are listed
+                   // beside it because the pair rule is the whole point: a
+                   // platform's launcher must never be the one that goes
+                   // missing.
+                   f.relativePath == "run.ps1" ||
+                   f.relativePath == "run.sh" ||
+                   f.relativePath == "windows-pcsx2.ps1" ||
+                   f.relativePath == ".gitattributes" ||
+                   f.relativePath == "COLLABORATION.md" ||
+                   f.relativePath == ".gitignore" ||
+                   f.relativePath == "bin\\.gitignore" ||
+                   f.relativePath == "obj\\.gitignore") {
             // Static content: write it once so existing projects pick it up on
             // the next build, but never clobber what the user may have added
             // (neither file has room for the ownership-marker line the ownable
@@ -7410,6 +7430,34 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Migration: the project's own .gitignore is write-once (above), so a
+    // project made before format migrations existed never learned to ignore
+    // `_backup/` - and `--migrate` writes exactly that directory, a full copy
+    // of the .tyra, objects/, heights, splat and node files. Without the rule
+    // the first migration of an older project offers all of it for commit.
+    // Same append-if-missing shape as res/.gitignore below.
+    {
+        const fs::path ignore = fs::path(p.dir) / ".gitignore";
+        std::error_code ec;
+        if (fs::exists(ignore, ec)) {
+            std::ifstream in(ignore, std::ios::binary);
+            std::stringstream content;
+            content << in.rdbuf();
+            in.close();
+            std::string text = content.str();
+            if (text.find("_backup/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Pre-migration snapshots of the project's own model "
+                    "files, written by a format\n# migration "
+                    "(docs/format-versioning.md). Local safety copies, not "
+                    "source: the\n# history that matters is already in git.\n"
+                    "_backup/\n";
+                if (auto err = writeFile(ignore, text); !err.empty()) return err;
+            }
         }
     }
 

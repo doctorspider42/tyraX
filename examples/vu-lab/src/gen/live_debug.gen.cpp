@@ -165,7 +165,9 @@ void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
-int pollCooldown = 1;
+int pollCooldown = 21;  // poll phase - see docs/devkit.md
+// The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
+// it is the editor's liveness signal, and delaying it delays "the game is up".
 int flushCooldown = 1;
 bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump

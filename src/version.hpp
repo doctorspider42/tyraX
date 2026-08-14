@@ -735,8 +735,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 31
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 32
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -922,7 +922,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // walker. All three are additive AND are written only when non-zero, so a
 // project that never opens the new fields resaves byte for byte - checked, not
 // assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
-// and endless-runner produced no runSpeed/sprintSpeed key anywhere.
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere. (That
+// weapons-arena was never a project - PR #203 committed three ignored build
+// artifacts under the name and nothing else; the directory has since been
+// removed. The other four still make the point.)
 //
 // No migration step, and the reason is the "0 = inherit" default rather than
 // mere additivity: 0 resolves to the numbers the walkers used to compute

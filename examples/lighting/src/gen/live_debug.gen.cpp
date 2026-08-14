@@ -55,7 +55,9 @@ const int OBJ_RING = 32;    // samples kept per watched object
 // moved since this build, so node keys would point at the wrong nodes.
 const unsigned int HASH_LO = 2801346194U, HASH_HI = 3214417743U;
 
-unsigned int hits[NODES] = {};
+// A project with no flow graph instruments no node, and a zero-length array is
+// not a C++ array - the runtime is still built for everything else it carries.
+unsigned int hits[NODES > 0 ? NODES : 1] = {};
 unsigned short evKey[EVENTS] = {};
 unsigned int evFrame[EVENTS] = {};
 int evCount = 0;  // valid ring entries
@@ -163,7 +165,9 @@ void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
-int pollCooldown = 1;
+int pollCooldown = 21;  // poll phase - see docs/devkit.md
+// The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
+// it is the editor's liveness signal, and delaying it delays "the game is up".
 int flushCooldown = 1;
 bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
@@ -373,8 +377,18 @@ void flush(ScriptContext& ctx) {
   unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
   unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
   unsigned short resident = 0, peak = 0;
+  // Tenths of a frame per second, in the four spare bytes at the end of the
+  // stats block: the whole-number field above cannot say 19.6, and it cannot
+  // say whether the game PRESENTS more often than it renders. Additive, so an
+  // editor that predates them reads the same block it always did and a game
+  // that predates them leaves the zeros memset put there.
+  unsigned short fpsX10 = 0, fpsShownX10 = 0;
   if (ctx.engine) {
-    fps = ctx.engine->info.getFps();
+    const float renderedFps = ctx.engine->info.getFps();
+    const float shownFps = ctx.engine->info.getPresentedFps();
+    fps = (unsigned int)(renderedFps + 0.5F);
+    fpsX10 = (unsigned short)(renderedFps * 10.0F + 0.5F);
+    fpsShownX10 = (unsigned short)(shownFps * 10.0F + 0.5F);
     Tyra::RendererCore& rc = ctx.engine->renderer.core;
     const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
     binds = vs.binds;
@@ -411,6 +425,8 @@ void flush(ScriptContext& ctx) {
   put32(st + 48, ramFrame);
   put32(st + 52, binds);
   put32(st + 56, hits);
+  put16(st + 60, fpsX10);
+  put16(st + 62, fpsShownX10);
   p += 64;
   put16(p, (unsigned short)flushMapCount);
   p += 2;
