@@ -52,7 +52,7 @@ point of the example.
   [procedural volume](../../docs/procedural-generation.md) scatters them over
   420×420 units around the spawn, filtered by slope and by a noise mask so there
   are clearings, then bakes them into 34 merged chunk meshes with a 210-unit
-  draw distance. ~29k triangles total, none of them authored by hand.
+  draw distance. ~19k triangles total, none of them authored by hand.
 
 - **Fog doing its job.** Fog end (185) sits well inside the view distance (320),
   so the streaming ring's edge is never the thing you notice.

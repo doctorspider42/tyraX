@@ -8334,8 +8334,37 @@ void TerrainGame::updateAndRenderLightPools() {
       if (across > 7.0F) across = 7.0F;
       float sinE = -dy;  // sine of the incidence angle with a level floor
       if (sinE < 0.22F) sinE = 0.22F;
+      // Grazing beams spread the same cone over several times the ground, so
+      // they really are weaker per square metre. Applied per vertex, with the
+      // reach falloff.
+      float angleFade = 0.55F + 0.45F * sinE;
       float along = across / sinE;
       if (along > across * 4.5F) along = across * 4.5F;
+      across *= 1.12F;  // a little margin so the gobo reaches black inside it
+      along *= 1.12F;
+      // How much of the beam's REAL footprint this patch can cover. The lower
+      // edge of the cone meets the ground at a horizontal distance that runs
+      // away as the beam flattens - well past anything one patch is going to
+      // draw - and a patch that stops while the beam is still lit cuts the pool
+      // off along a straight line across the ground. Reported as "when I shine
+      // it further away it clips off sharply".
+      //
+      // Fading in proportion is both the fix and the honest answer: a beam too
+      // shallow for its own pool is spreading that light over ground it barely
+      // reaches, and should be going out anyway. It now dies over a few degrees
+      // of pitch instead of being cropped square.
+      {
+        const float elev = asinf(sinE > 1.0F ? 1.0F : sinE);
+        float lower = elev - FLASHLIGHT_ANGLE * 3.14159265F / 180.0F;
+        if (lower < 0.03F) lower = 0.03F;
+        const float need =
+            (cameraPosition.y - baseY) / tanf(lower);  // horizontal, from here
+        const float have = along * 1.4F + across;      // what the patch covers
+        if (need > have && need > 0.01F) {
+          const float cov = have / need;
+          angleFade *= cov * cov;  // squared: the last of it goes quickly
+        }
+      }
       // The stretch belongs BEYOND the landing point, not around it.
       const float shift = (along - across) * 0.55F;
       const float px0 = gx + ax * shift, pz0 = gz + az * shift;
@@ -8376,8 +8405,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // a single VU1 package drops the overflow (the same multi-package drop
       // renderProjShadows records for its 5x5 patch). A dropped triangle is a
       // hard-edged dark wedge in the middle of the pool - which is exactly what
-      // survived every earlier fix. 54 vertices leaves the clipper room.
-      constexpr int kCells = 3;
+      // survived every earlier fix. Four leaves the rim a cell to fade in
+      // without the fade eating the pool.
+      constexpr int kCells = 4;
       b.bag->count = (u32)(kCells * kCells * 6);
       // How far the patch floats above the ground it samples. A patch cell is
       // metres across and the terrain under it is NOT flat between its corners,
@@ -8430,15 +8460,6 @@ void TerrainGame::updateAndRenderLightPools() {
           v += 6;
         }
       }
-      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-      // Fade with reach so the pool dies together with the per-vertex cone
-      // instead of ending on a hard edge, and dim it at grazing angles: the
-      // same cone spread over four times the ground really is four times
-      // weaker per texel, and that is most of the difference between a torch
-      // and a decal that follows you around.
-      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
-      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
-      fade *= 0.45F + 0.55F * sinE;
       // The pool's gain is AIMED, not fixed: the additive blend computes
       // Cs*FIX/128 + Cd, so the peak this patch can add is
       // maxChannel/128 * FIX/128, and a peak at or over 1.0 clips - at which
@@ -8453,10 +8474,16 @@ void TerrainGame::updateAndRenderLightPools() {
       // The colour still drives the per-vertex cone on props at full strength,
       // which is the other half of the same trap: that term has no N.L, so a
       // bright torch flattens everything it touches into one colour.
+      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
+      // The falloffs, all three: with reach, with the grazing angle, and with
+      // how much of its own footprint this patch manages to cover.
+      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
+      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
+      fade *= angleFade;
       float maxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
       if (FLASHLIGHT_B > maxC) maxC = FLASHLIGHT_B;
       if (maxC < 1.0F) maxC = 1.0F;
-      float fix = 13107.0F / maxC * fade;  // 0.8 * 128 * 128
+      float fix = 14746.0F / maxC * fade;  // 0.9 * 128 * 128
       if (fix > 255.0F) fix = 255.0F;
       if (fix < 1.0F) continue;
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;

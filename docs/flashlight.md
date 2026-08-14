@@ -84,6 +84,16 @@ the texture mapping, one for the near plane and one for the depth test — becau
 it was none of those. Overlays that ARE light or shadow (the pools, the blob
 shadows, the projected shadows) set `spotLit = false` for this reason.
 
+**It fades out rather than ending.** One patch can only cover so much ground,
+and the footprint of a beam runs away as it flattens — the lower edge of the
+cone meets a level floor further and further off until it never does. A patch
+that stops while the beam is still lit cuts the pool along a straight line
+across the ground, which is the one artifact that reads as *wrong* rather than
+as *cheap*. So the pool dims in proportion to how much of its own footprint it
+manages to cover, and a beam too shallow for its own pool goes out over a few
+degrees of pitch. That is also roughly true of the light: the same cone spread
+over four times the ground is four times weaker per square metre.
+
 Two limits it keeps on purpose:
 
 - **It is a floor effect.** A beam aimed at a wall taller than the player lights

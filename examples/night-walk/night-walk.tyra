@@ -72,8 +72,8 @@
    0.78,
    0.52
   ],
-  "ambient": 0.1,
-  "diffuse": 0.16,
+  "ambient": 0.16,
+  "diffuse": 0.3,
   "lightColor": [
    0.55,
    0.66,
@@ -419,8 +419,8 @@
     0.78,
     0.52
    ],
-   "ambient": 0.08,
-   "diffuse": 0.24,
+   "ambient": 0.16,
+   "diffuse": 0.3,
    "lightColor": [
     0.55,
     0.66,
