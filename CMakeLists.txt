@@ -249,6 +249,7 @@ add_executable(tyrax-editor
     src/vucap.cpp
     src/bvh.cpp
     src/gibake.cpp
+    src/litbake.cpp
     src/vuir.cpp
     src/vuasm.cpp
     src/vusim.cpp

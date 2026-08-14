@@ -733,6 +733,7 @@ std::string objectJson(const SceneObject& o) {
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
         (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
+        (o.prelit ? std::string(", \"prelit\": true") : "") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
@@ -4596,6 +4597,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.bakedLighting = v->boolOr(true);
         if (const auto* v = jo.find("dynamicLighting"))
             o.dynamicLighting = v->boolOr(false);
+        if (const auto* v = jo.find("prelit")) o.prelit = v->boolOr(false);
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
@@ -6850,6 +6852,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.castShadow ? 1 : 0);
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
+    fnvMix(h, o.prelit ? 1 : 0);
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
     // transform + colour, so an edit of them cannot show without a rebuild -

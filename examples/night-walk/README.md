@@ -64,6 +64,14 @@ point of the example.
   are clearings, then bakes them into 34 merged chunk meshes with a 210-unit
   draw distance. ~19k triangles total, none of them authored by hand.
 
+- **Two sheds, one of them pre-lit.** They are the same textured model in the
+  same light. The left one had the scene's light
+  [baked into its texture](../../docs/prelit-models.md)
+  (--bake-object-light night-walk shed-lit), so its planks read per pixel and
+  the torch's pool lands on them; the right one takes the ordinary per-vertex
+  route and the cone floods it to white at close range. That is the whole
+  argument for pre-lighting a textured model, in one screenshot.
+
 - **Fog doing its job.** Fog end (185) sits well inside the view distance (320),
   so the streaming ring's edge is never the thing you notice.
 

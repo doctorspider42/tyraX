@@ -3,8 +3,10 @@
 
 namespace Night_walk {
 
-constexpr int MODEL_COUNT = 34;
+constexpr int MODEL_COUNT = 36;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "models/shed__ovrf284.tmdl",
+    "models/shed.tmdl",
     "models/procgen-5c17a90e-pine-xm3zm2.tmdl",
     "models/procgen-5c17a90e-pine-xm2zm2.tmdl",
     "models/procgen-5c17a90e-pine-xm2zm1.tmdl",
@@ -43,6 +45,8 @@ inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
 inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "materials/shed-lit-lit.mtl",
+    "",
     "",
     "",
     "",
@@ -83,6 +87,8 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 // resolves its asset pool against, because a graph names assets the
 // way the editor does and the console only has baked .tmdl names.
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
+    "res/models/shed.obj",
+    "res/models/shed.obj",
     "res/models/procgen-5c17a90e-pine-xm3zm2.obj",
     "res/models/procgen-5c17a90e-pine-xm2zm2.obj",
     "res/models/procgen-5c17a90e-pine-xm2zm1.obj",
@@ -118,7 +124,7 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/procgen-5c17a90e-rock-x1z0.obj",
     "res/models/procgen-5c17a90e-rock-x1z1.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {

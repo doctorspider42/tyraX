@@ -368,6 +368,20 @@ struct SceneObject {
     // For things that TUMBLE it is worth all of that; for things that merely
     // slide, leaving bakedLighting off is cheaper and looks better.
     bool dynamicLighting = false;
+    // The object's TEXTURE already contains its lighting (docs/prelit-models.md
+    // - litbake bakes the scene's gathered light into a per-object map_Kd and
+    // sets this). Its vertex colours then go NEUTRAL: no ambient, no N.L, no
+    // baked point lights, no emissive pools, because every one of those is
+    // already in the albedo and adding them again lights the surface twice.
+    //
+    // This is the only route to per-PIXEL static light on a textured surface -
+    // the lightmap atlas is additive and cannot multiply a texture (see the
+    // module header) - and it is what the survival-horror games of the era did.
+    // It costs the object its own texture, so it is a per-object decision.
+    //
+    // The DYNAMIC light still lands on top: the flashlight's projected pool,
+    // its cone, and the live point lights are all added at run time.
+    bool prelit = false;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -911,7 +925,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
-           a.dynamicLighting == b.dynamicLighting &&
+           a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&

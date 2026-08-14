@@ -24,6 +24,7 @@
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
+#include "litbake.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
 #include "uiscript.hpp"
@@ -725,6 +726,82 @@ static int refreshGenFromCli(int argc, char** argv) {
         return 1;
     }
     std::printf("refreshed generated files: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// Bakes the scene's light INTO one object's texture (docs/prelit-models.md):
+// the only way a TEXTURED surface gets per-pixel static light on this hardware,
+// because the lightmap atlas is additive and the GS cannot multiply a texture
+// by a second one in a later pass. Writes res/materials/<name>-lit.png + .mtl,
+// points the object at it and marks it prelit, then refreshes the generated
+// files. Headless twin of the Properties button.
+static int bakeObjectLightFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-object-light <projectDir> "
+                     "<objectName> [size] [rays]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    litbake::Params prm;
+    if (argc > 4) prm.size = std::atoi(argv[4]);
+    if (argc > 5) prm.rays = std::atoi(argv[5]);
+    const std::string want = argv[3];
+    int found = 0;
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        SceneData& sc = p.scenes[si];
+        // The gather needs the solved scene: build the triangle set and run the
+        // bounce passes ONCE per scene, however many objects are baked from it.
+        gibake::Settings st = gibake::settingsOf(p.settings);
+        st.enabled = true;
+        gibake::Scene scene = gibake::build(p, sc, st);
+        bool solved = false;
+        for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
+            if (sc.objects[oi].name != want) continue;
+            if (!solved) {
+                const std::atomic<bool> never{false};
+                gibake::solve(scene, st, &never, nullptr);
+                solved = true;
+            }
+            litbake::Result r;
+            std::string err;
+            const auto t0 = std::chrono::steady_clock::now();
+            if (!litbake::bakeObject(p, sc, oi, scene, prm, r, err)) {
+                std::fprintf(stderr, "error: %s\n", err.c_str());
+                return 1;
+            }
+            if (std::string e = litbake::applyToObject(p, sc, oi, r); !e.empty()) {
+                std::fprintf(stderr, "error: %s\n", e.c_str());
+                return 1;
+            }
+            const double secs =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count();
+            std::printf(
+                "pre-lit %s in scene '%s': %dx%d, %d texels, mean light %.3f, "
+                "%.1fs\n",
+                want.c_str(), sc.name.c_str(), r.size, r.size, r.litTexels,
+                r.meanLight, secs);
+            ++found;
+        }
+    }
+    if (!found) {
+        std::fprintf(stderr, "error: no object named '%s'\n", want.c_str());
+        return 1;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("pre-lit %d object(s)\n", found);
     return 0;
 }
 
@@ -3165,6 +3242,8 @@ int main(int argc, char** argv) {
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-object-light") == 0)
+        return bakeObjectLightFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)

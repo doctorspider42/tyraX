@@ -64,6 +64,33 @@
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
 //
+// 1.33.0 (per-pixel static light on a TEXTURED model): the answer to "Silent
+// Hill had textured models and it looked fine", which is a fair objection to
+// everything the flashlight work had said up to then. The engine's lightmap
+// route is per texel and refuses textured surfaces, and that refusal is
+// hardware: the GS blend unit computes (A - B) * C + D with C always an ALPHA,
+// so "texture times lightmap" cannot be expressed in a second pass at all, and
+// the additive atlas this engine does have blows out a texture's dark texels.
+//
+// Which leaves the era's own answer: bake the light INTO the albedo and ship a
+// unique pre-lit texture for that surface. Both halves of the machine were
+// already here - gibake computes the light over a triangle BVH of the whole
+// scene, matbake showed how to rasterize a model's UV space - and what was
+// missing was the join. src/litbake.cpp walks the object's UV islands, turns
+// each texel into a WORLD position and normal through the object's transform,
+// asks gibake what arrives there, multiplies it into the albedo and writes the
+// object its own material. SceneObject::prelit (format v25) then switches that
+// object's vertex colours to neutral, because every term they used to carry is
+// in the texture now and adding it again lights the surface twice.
+//
+// The dynamic half still lands on top, which is the whole arrangement: static
+// light per pixel in the map, the flashlight's projected pool and cone added
+// over it at run time.
+//
+// MINOR: a capability appears (--bake-object-light, and a route to per-pixel
+// static light that textured geometry never had). No default moves - prelit is
+// false everywhere until a bake sets it.
+//
 // 1.24.4 (--vu-check says when its two halves are not from one commit): every
 // comparison it makes diffs a program GENERATED from the descriptions compiled
 // into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
@@ -783,7 +810,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 32
+#define TYRAX_VERSION_MINOR 33
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1017,6 +1044,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // terrainViewDistance beside it in that flat settings block, so an untouched
 // project does gain the key on its next save - which is precisely what this
 // number exists to make safe.
-inline constexpr int kFormatVersion = 24;
+// v25 (pre-lit models, docs/prelit-models.md): SceneObject::prelit - the
+// object's texture already carries its light, so its vertex colours go
+// neutral. Written only when true, so a project that has never baked one
+// resaves byte for byte; it defaults to false, which is what every existing
+// object is. No migration step.
+inline constexpr int kFormatVersion = 25;
 
 }  // namespace version

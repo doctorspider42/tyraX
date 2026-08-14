@@ -415,6 +415,15 @@ std::vector<Vec4>* g_litNormals = nullptr;
  * puts the whole thing back. */
 bool g_giLightmap = false;
 
+/** ...and this one: the surface's light is already IN ITS TEXTURE
+ * (docs/prelit-models.md - litbake multiplied the scene's gathered light into
+ * this object's own map_Kd on the host). Its vertex colour is therefore
+ * NEUTRAL: not black like the lightmap route, which has a pass coming to put
+ * the light back, but plain white, because the texture is the finished
+ * article. The dynamic light - the flashlight's pool, its cone, the live point
+ * lights - still lands on top at run time. */
+bool g_prelitTex = false;
+
 /** Point lights (SceneObject type 9) of the active scene, collected once per
  * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
  * object meshes; scanning the whole SCENE_OBJECTS table there thrashes the
@@ -962,6 +971,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
     // mistake the lightmap/probe routes are arranged to avoid.
     g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
                                         : Vec4(n.x, n.y, n.z, 0.0F));
+    shade = {1.0F, 1.0F, 1.0F};
+    giHere = true;
+  } else if (g_prelitTex) {
+    // The texture IS the lit surface (docs/prelit-models.md). NEUTRAL, not
+    // black: the lightmap route below goes black because a pass is coming to
+    // put the light back, and here nothing is coming - the modulate has to
+    // leave the texture exactly as it was baked.
     shade = {1.0F, 1.0F, 1.0F};
     giHere = true;
   } else if (g_giLightmap) {
@@ -10760,6 +10776,17 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   // probe path. Never both (docs/global-illumination.md).
   g_giLightmap = SCENE_AO_ATLAS_GI && g_emisAtlas;
   g_giProbeShade = !g_giLightmap && SCENE_PROBES != nullptr;
+  // ...unless the object's TEXTURE already carries its light
+  // (docs/prelit-models.md). Then nothing may be baked into its vertices at
+  // all: every term below - ambient, N.L, the baked point lights, the emissive
+  // pools - is already in the albedo, per pixel, and adding it again lights the
+  // surface twice. This is the only per-pixel static light a TEXTURED surface
+  // can have on this hardware, so the flag has to beat both routes above.
+  g_prelitTex = o.data.prelit != 0;
+  if (g_prelitTex) {
+    g_giLightmap = false;
+    g_giProbeShade = false;
+  }
   // Dynamic lighting wins over both: VU1 lights this object from a bag the
   // frame loop refills, so nothing may be baked into its vertices at all.
   // Needs a probe grid to read - without one there is nothing to be dynamic
