@@ -14,6 +14,7 @@
 #include "gibake.hpp"    // the baked global-illumination cache
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
 #include "menulayout.hpp"  // per-menu texture list + its `quant`
+#include "modelao.hpp"   // automatic per-asset model AO, multiplied into the PNG
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "stochtile.hpp"
@@ -345,6 +346,21 @@ std::string bake(const Project& p,
     // plan - members skip their individual bake (the composited pages are
     // written after the loop) and their .mtl consumers are rewritten.
     const texatlas::Plan atlasPlan = texatlas::plan(p);
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"): make sure
+    // every eligible model asset has a fresh AO map, then multiply it into the
+    // texture as it is mirrored. Baking here rather than relying on the editor
+    // is what makes a headless `--build` correct with no editor running; the
+    // cache means a build that changed nothing pays a hash, not a raytrace.
+    const modelao::Params aoParams = modelao::paramsOf(p.settings);
+    std::map<std::string, std::string> aoMaps;
+    if (aoParams.enabled || !p.modelAoMode.empty()) {
+        const modelao::Plan aoPlan = modelao::plan(p, aoParams);
+        aoMaps = modelao::ensureAll(p, aoParams, aoPlan, log);
+        for (const modelao::Skipped& s : aoPlan.skipped)
+            if (s.reason == "shared texture" || s.reason == "pre-lit")
+                log("[editor] model AO: " + s.textureRel + " skipped (" +
+                    s.reason + ")");
+    }
     int quantized = 0, copied = 0;
     for (const auto& e : fs::recursive_directory_iterator(res, ec)) {
         if (!e.is_regular_file()) continue;
@@ -426,6 +442,44 @@ std::string bake(const Project& p,
         }
         const int colors = quantizable ? colorsOf(q) : 0;
 
+        // Model AO: multiply the asset's own occlusion into this texture's RGB
+        // (alpha untouched - the GS cutout rule). It happens BEFORE the resize
+        // and the quantization below, so a palette is computed from the pixels
+        // the console will actually display. res/ is never written.
+        if (auto aoIt = aoMaps.find(relRes); aoIt != aoMaps.end()) {
+            int sw = 0, sh = 0, comp = 0;
+            unsigned char* px =
+                stbi_load(e.path().string().c_str(), &sw, &sh, &comp, 4);
+            if (px) {
+                std::vector<unsigned char> buf(px, px + (size_t)sw * sh * 4);
+                stbi_image_free(px);
+                if (modelao::applyMapFile(aoIt->second, buf.data(), sw, sh,
+                                          aoParams.strength)) {
+                    const int tw = nearestValidDim(sw), th = nearestValidDim(sh);
+                    std::vector<unsigned char> resized;
+                    const unsigned char* pixels = buf.data();
+                    if (tw != sw || th != sh) {
+                        resized = pngquant::resizeRGBA(buf.data(), sw, sh, tw, th);
+                        pixels = resized.data();
+                    }
+                    std::string err;
+                    const bool ok =
+                        colors > 0
+                            ? pngquant::quantizeRGBA(dst.string(), pixels, tw, th,
+                                                     colors, err)
+                            : pngquant::writePngRGBA(dst.string(), pixels, tw, th,
+                                                     err);
+                    if (ok) {
+                        log("[editor] model AO: multiplied into " + relRes);
+                        ++quantized;
+                        continue;
+                    }
+                    log("[editor] model AO: " + relRes + ": " + err +
+                        " - shipped without it");
+                }
+            }
+        }
+
         // Scene textures must be PS2-valid (power-of-two, max 512 per axis -
         // the engine asserts otherwise). An oversized/odd import (a "1k"
         // download, say) is resized INTO THE BAKE like HUD sprites are; the
@@ -495,9 +549,12 @@ std::string bake(const Project& p,
         // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too, and
         // gi/ holds the global-illumination bake cache - written by an
         // explicit bake, never by a build, so a build must not sweep it away.
+        // modelao/ is the model-AO cache: content-hashed maps with no res/
+        // source, kept across builds precisely so a build that changed nothing
+        // does not re-raytrace them.
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
-            top0 == "gi")
+            top0 == "gi" || top0 == "modelao")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
@@ -556,10 +613,27 @@ std::string bake(const Project& p,
                     log("[editor] texture atlas: cannot decode " + en.resRel);
                     continue;
                 }
+                // An atlas member is composited from its res/ source, so it
+                // never passes the mirror loop's AO branch above - the multiply
+                // has to happen here too or atlasing silently deletes the
+                // model's self-occlusion.
+                std::vector<unsigned char> aoBuf;
+                if (auto aoIt = aoMaps.find(en.resRel); aoIt != aoMaps.end()) {
+                    aoBuf.assign(px, px + (size_t)sw * sh * 4);
+                    if (modelao::applyMapFile(aoIt->second, aoBuf.data(), sw, sh,
+                                              aoParams.strength)) {
+                        log("[editor] model AO: multiplied into " + en.resRel +
+                            " (atlas page)");
+                        stbi_image_free(px);
+                        px = nullptr;
+                    } else {
+                        aoBuf.clear();
+                    }
+                }
                 std::vector<unsigned char> buf;
-                const unsigned char* pix = px;
+                const unsigned char* pix = aoBuf.empty() ? px : aoBuf.data();
                 if (sw != en.w || sh != en.h) {
-                    buf = pngquant::resizeRGBA(px, sw, sh, en.w, en.h);
+                    buf = pngquant::resizeRGBA(pix, sw, sh, en.w, en.h);
                     pix = buf.data();
                 }
                 for (int y = 0; y < en.h; ++y)

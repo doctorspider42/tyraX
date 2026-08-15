@@ -37,6 +37,8 @@ class PipelineInfoBag {
     fogDisabled = false;
     additiveBlendFix = 0;
     dynLightPick = true;
+    spotLit = true;
+    dateLit = false;
     blssProxy = true;
   }
   ~PipelineInfoBag() {}
@@ -94,6 +96,34 @@ class PipelineInfoBag {
    * instead. Also for bags a nearby light must never tint (the sky dome).
    */
   bool dynLightPick;
+
+  /**
+   * Modified by TyraX: opt-out from the camera SPOT light (the flashlight)
+   * as well - the global one dynLightPick = false falls back to.
+   *
+   * The spot is a per-VERTEX term, so on a mesh whose vertices are metres
+   * apart it is not a cone but a Gouraud diamond across whole cells. The
+   * terrain is exactly that mesh (a cell is never finer than one world unit),
+   * and the game already draws the beam's real shape there per pixel - the
+   * projected pool under it (docs/flashlight.md). Both at once is the worst of
+   * the two: a soft ellipse sitting inside a blocky wedge that moves in
+   * cell-sized steps. So the terrain takes the light from the pool alone and
+   * sets this false; everything small enough to be lit properly keeps it.
+   *
+   * Nothing else in the frame changes - the scene's own point lights never
+   * reached such a bag anyway (that is what dynLightPick = false means).
+   */
+  bool spotLit;
+
+  /**
+   * Modified by TyraX: gate this bag on the destination-alpha shadow mask
+   * (RendererCoreAlphaMask): TEST.DATE = 1, DATM = 0, so the GS draws its
+   * pixels only where the framebuffer alpha's MSB is 0 - i.e. where the
+   * flashlight's shadow volumes did NOT mark shadow. The mask gates LIGHT;
+   * nothing ever paints darkness. Meaningless (and off) outside the frames
+   * that build the mask.
+   */
+  bool dateLit;
 
   /**
    * Modified by TyraX: opt-out from the BLSS neural upscaler's per-tile

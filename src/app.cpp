@@ -894,6 +894,8 @@ void App::drawUI() {
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    modelAoPoll();
+    litBakerPoll();
     blssPoll();
     drawBlssWindow();
     drawLoadingScreenWindow();
@@ -1634,6 +1636,14 @@ void App::drawMenuBar() {
                 showAmbienceEditor_ = true;
                 showGiBake_ = true;
             }
+            if (ImGui::MenuItem("Baked Lighting...")) {
+                showAmbienceEditor_ = true;
+                showBakedLighting_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Light baked on the host and shipped as pixels: automatic\n"
+                    "model AO multiplied into each model's own texture.");
             ImGui::EndMenu();
         }
 
@@ -5096,6 +5106,13 @@ void App::closeProject() {
     // keys into the sequence first - so a close never silently eats a take.
     if (phoneCam_.listening()) stopPhoneCam();
     if (giBaker_.running()) giBaker_.cancel();
+    // The model-AO baker is the same shape: a worker holding a COPY of the
+    // project, writing into ITS cache directory. Its results must not land in
+    // whichever project opens next, so the intent is reset with it.
+    modelAoBaker_.cancel();
+    modelAoIntent_ = 0;
+    modelAoSeen_ = modelAoBaker_.version();
+    viewport_.setModelAoMaps({}, 0.0f);
     // A build has no UI left once the toolbar goes away (Stop lives there), so
     // it would run to completion with no way to cancel it.
     if (runner_.busy()) runner_.cancel();
@@ -10061,6 +10078,8 @@ void App::drawAmbienceWindow() {
     // standalone window open.
     const bool wantGi = showGiBake_;
     showGiBake_ = false;
+    const bool wantBaked = showBakedLighting_;
+    showBakedLighting_ = false;
     bool changed = false;
     // Belt and braces: the presets and the day/night cycle both hand their
     // edits back through the `changed` out-param, which any new control in
@@ -10080,6 +10099,13 @@ void App::drawAmbienceWindow() {
         if (ImGui::BeginTabItem("Global illumination", nullptr,
                                 wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
             drawGiBakeSection();
+            ImGui::EndTabItem();
+        }
+        // The light that is computed on the host and ships as PIXELS rather
+        // than as a scene table - model AO today, and whatever else joins it.
+        if (ImGui::BeginTabItem("Baked lighting", nullptr,
+                                wantBaked ? ImGuiTabItemFlags_SetSelected : 0)) {
+            drawBakedLightingSection();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -14228,6 +14254,36 @@ void App::drawPreferencesWindow() {
         "whole map resident. Meant for FPP - orbit showcases see the whole\n"
         "map at once and should leave it 0.");
 
+    ImGui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
+                     0.0f, 2000.0f,
+                     prefSettings_.terrainLodDistance > 0.0f
+                         ? "%.0f units"
+                         : "off (full detail everywhere)");
+    if (prefSettings_.terrainLodDistance < 0.0f)
+        prefSettings_.terrainLodDistance = 0.0f;
+    prefHelp(
+        "Beyond this range the ground is built from every 2nd heightmap\n"
+        "sample, and beyond 2.2x it from every 4th - a quarter and a\n"
+        "sixteenth of the triangles. Edges are stitched to the neighbouring\n"
+        "tile, so no crack shows, and collision is unaffected. This is what\n"
+        "makes a large map affordable to DRAW; the view distance above is\n"
+        "what makes it fit in memory. 0 = full detail everywhere.");
+    if (prefSettings_.terrainLodDistance > 0.0f) {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        // What one full-detail tile costs, so the bands mean something in
+        // triangles rather than in units.
+        const float span = 16.0f * (float)sc.terrain.width /
+                           (float)(cellsX > 0 ? cellsX : 1);
+        ImGui::TextDisabled(
+            "Full detail to %.0f units, 1/4 of the triangles beyond it, 1/16 "
+            "beyond %.0f (tile = %.0f units).",
+            prefSettings_.terrainLodDistance,
+            prefSettings_.terrainLodDistance * 2.2f, span);
+    }
+
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
     // 32 B untextured / 48 B textured, chunks of 16x16 cells.
@@ -14439,6 +14495,18 @@ void App::drawPreferencesWindow() {
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
             "grounds them visually for one quad each. Project-wide.");
+    ImGui::Checkbox("Flashlight shadow volumes",
+                    &prefSettings_.flashShadowVolumes);
+    prefHelp(
+        "How the player's torch throws shadows (docs/flashlight.md).\n"
+        "OFF - silhouette slots: mesh-accurate shadow shapes rendered from\n"
+        "the torch, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four at once, and light still leaks through everything else.\n"
+        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
+        "every solid in the beam occludes, exactly per pixel against the\n"
+        "real depth buffer, self-shadowing included. Costs the volume fill\n"
+        "each frame, and the shadow shapes come from the objects' BOXES\n"
+        "rather than their meshes.");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
@@ -14647,6 +14715,24 @@ void App::drawPreferencesWindow() {
         "and docs/keyboard-mouse.md.");
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Bakes before a build");
+    ImGui::BeginDisabled(!prefSettings_.giEnabled);
+    ImGui::Checkbox("Re-bake stale global illumination", &prefSettings_.giAutoBake);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Before every build, re-bake every scene whose GI cache no longer\n"
+        "matches it. Only STALE scenes - a build with everything fresh costs\n"
+        "nothing; a changed big scene can cost minutes. Off = bake by hand from\n"
+        "the Global illumination tab or --bake-gi, and a stale scene ships the\n"
+        "pre-GI lighting. Needs GI enabled.");
+    ImGui::Checkbox("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
+    prefHelp(
+        "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
+        "texture no longer matches the scene (moved, or the light changed).\n"
+        "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
+        "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
+        "Procedural volumes and model AO are always baked.");
 
     ImGui::SeparatorText("Debug overlays");
     ImGui::BeginDisabled(profile == 0);

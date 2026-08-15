@@ -195,6 +195,23 @@ Bake load(const Project& p, int sceneIndex);
 Bake bakeScene(const Project& p, int sceneIndex,
                const std::atomic<bool>* cancel, const ProgressFn& progress);
 
+// The managed bake, synchronous: every scene whose cache is absent or STALE is
+// re-baked and written, the fresh ones are left alone and said so. Nothing
+// else - a scene whose cache still matches costs one signature pass. Two
+// callers, one loop: the pre-build step of `--build` and of
+// App::projectForBuild when ProjectSettings::giAutoBake is on (the litbake
+// bakeStale arrangement). It does not touch the Project - the cache lives on
+// disk - so the caller only has to re-read it (the viewport, refreshGenerated).
+// `log` receives one line per scene (`baked GI ...` / `fresh ...` / `error
+// ...`) plus a summary; may be null. Refuses to do anything while giEnabled is
+// off, which is what "GI never bakes silently" means: only a project that
+// asked for both switches gets it.
+struct StaleReport {
+    int baked = 0, kept = 0, failed = 0;
+};
+StaleReport bakeStale(const Project& p,
+                      const std::function<void(const std::string&)>& log);
+
 // Progressive asynchronous baker over a set of scenes - the matbake::Baker
 // pattern (worker thread, polled from the UI). start() on a running bake
 // cancels it first.

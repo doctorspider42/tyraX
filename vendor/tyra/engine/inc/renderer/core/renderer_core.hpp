@@ -24,6 +24,7 @@
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
 #include "./shadowmap/renderer_core_shadow_map.hpp"
+#include "./alphamask/renderer_core_alpha_mask.hpp"
 #include "./splitview/renderer_core_splitview.hpp"
 #include "./warp/renderer_core_warp.hpp"
 #include "./blss/renderer_core_blss.hpp"
@@ -133,6 +134,10 @@ class RendererCore : public RendererCore2dBounds {
   /** Dynamic spot light - the flashlight (TyraX fork). */
   RendererCoreSpotLight spot;
 
+  /** Destination-alpha shadow mask - the flashlight's shadow volumes
+   * (TyraX fork, docs/flashlight.md "The shadow"). */
+  RendererCoreAlphaMask alphaMask;
+
   /**
    * Scene dynamic lights (TyraX fork). The color VU1 programs evaluate ONE
    * light per mesh, so the StaPip picks the strongest contributor per bag
@@ -204,6 +209,17 @@ class RendererCore : public RendererCore2dBounds {
    */
   int addDynPointLight(const Color& color, const Vec4& position,
                        const float& range);
+
+  /**
+   * Register a scene dynamic SPOT light for this frame (TyraX fork): the
+   * same registry slot as a point light, with the cone constants filled the
+   * way setSpotLight fills the camera torch. Direction need not be
+   * normalized. Silently ignored past DYN_LIGHTS_MAX.
+   */
+  int addDynSpotLight(const Color& color, const Vec4& position,
+                      const Vec4& direction, const float& range,
+                      const float& cutoffDegrees,
+                      const float& softness = 3.0F);
 
   /**
    * Pick the strongest dynamic light (flashlight or scene light) for a

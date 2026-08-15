@@ -66,6 +66,7 @@ void RendererCore::init(const RendererOptions& options) {
   // calls shadowMap.allocate() (init() also re-places the buffers after a
   // display-mode VRAM reset if they were on).
   shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);
   // Camera-feed render target (TyraX fork, "texture feeds"): a second
   // instance of the same redirect bracket, another 128 KB, and equally
   // opt-in. Clamp: feeds sample through plain surface UVs and the default
@@ -106,7 +107,8 @@ void RendererCore::rebuildPermanentBuffers() {
   gs.reallocateBuffers();
   postFx.init(&settings, &gs);
   envMap.init(&settings, &gs, &sync, &path1);
-  shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+  shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
   camFeed.init(&settings, &gs, &sync, &path1);
   // Null when this project reserved no camera-feed target (TyraX fork).
   if (camFeed.getTexture())
@@ -141,7 +143,8 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
-    shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+    shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
     camFeed.init(&settings, &gs, &sync, &path1);
     // Same for the BLSS low-res target: vram.reset() forgot it, and its size
     // follows the new framebuffer geometry (re-places only if configured).
@@ -222,6 +225,34 @@ int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
   l.color = color;
   l.range = range;
   return static_cast<int>(dynLightCount++);
+}
+
+int RendererCore::addDynSpotLight(const Color& color,
+                                  const Vec4& position,
+                                  const Vec4& direction, const float& range,
+                                  const float& cutoffDegrees,
+                                  const float& softness) {
+  // Modified by TyraX: a scene spot light is the point-light registry entry
+  // with the cone constants filled - the VU1 slot has carried them since the
+  // camera torch, so no program changes.
+  const int slot = addDynPointLight(color, position, range);
+  if (slot < 0) return slot;
+  auto& l = dynLights[slot];
+  l.point = false;
+  l.direction = direction;
+  const float len = sqrtf(direction.x * direction.x +
+                          direction.y * direction.y +
+                          direction.z * direction.z);
+  if (len > 1e-5F) {
+    l.direction.x /= len;
+    l.direction.y /= len;
+    l.direction.z /= len;
+  }
+  l.direction.w = 0.0F;
+  const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
+  l.cosCutoff = cosf(halfAngle);
+  l.softness = softness < 1.0F ? 1.0F : softness;
+  return slot;
 }
 
 const RendererCoreSpotLight* RendererCore::pickDynLight(

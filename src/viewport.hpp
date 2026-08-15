@@ -523,6 +523,20 @@ public:
     void updateTexturePixels(const std::string& relPath, int w, int h,
                              const unsigned char* rgba);
 
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"): project-
+    // relative texture path -> the baked AO map that gets multiplied into it
+    // as it is uploaded, plus the strength that multiply uses. The multiply
+    // itself is modelao's, which is also what texbake calls for the shipped
+    // PNG - so the preview and the console cannot disagree about it.
+    // Changing the table (or the strength) invalidates every disk-derived
+    // cache, exactly like an asset changing on disk - and it must, because a
+    // cached ModelDraw/MaterialDraw part holds the GL texture NAME. Dropping
+    // one texture on its own leaves those parts pointing at a deleted name,
+    // which OpenGL is free to hand to the next glGenTextures: measured as an
+    // altar rendering flat white with a stray decal from another image on it.
+    void setModelAoMaps(std::map<std::string, std::string> maps,
+                        float strength);
+
     // Drops every disk-derived cache (models, materials, GL textures). Call
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
@@ -783,6 +797,8 @@ private:
     int uLit_ = -1;
     int uLightCount_ = -1;
     int uLightPos_ = -1;
+    int uLightDir_ = -1;   // spot dir + style channel (see the shader)
+    int uLightOcc_ = -1;   // per-light shadow-caster AO slots, game rules
     int uLightCol_ = -1;
     // GS hardware fog preview
     int uFogOn_ = -1, uFogColor_ = -1, uFogStart_ = -1, uFogEnd_ = -1;
@@ -860,6 +876,7 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    Mesh wireCone_;    // unit spot cone: apex origin, base ring at y = -1
     Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
     Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
@@ -990,6 +1007,9 @@ private:
     // fully opaque), filled as they load - the cutout/blend decision, so a
     // draw site never has to re-read the file.
     std::map<std::string, bool> texAlpha_;
+    // Model AO maps by texture path + the apply strength (see setModelAoMaps).
+    std::map<std::string, std::string> modelAoMaps_;
+    float modelAoStrength_ = 0.0f;
     uint32_t glTexture(const std::string& relPath);
     bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();

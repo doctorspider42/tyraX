@@ -104,6 +104,12 @@ bool projectUsesFlare(const Project& p);
 // Gates the res/hud/flare-corona.png bake and BEAMS_USED in scene_data.hpp.
 bool projectUsesBeams(const Project& p);
 
+// True when any scene can show the camera flashlight (a Player object with it
+// enabled, or a Set Flashlight node that could switch one on at runtime).
+// Gates the res/hud/flashlight-gobo.png bake and FLASHLIGHT_USED in
+// scene_data.hpp - keep them equal, like projectUsesFlare and FLARE_USED.
+bool projectUsesFlashlight(const Project& p);
+
 // The enabled day/night cycle a scene resolves to through its ambience preset,
 // or null (docs/day-night-cycle.md). The single answer codegen, the sky-disc
 // bake and the editor all ask - never walk the presets by hand.

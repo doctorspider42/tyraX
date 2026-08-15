@@ -16,6 +16,336 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.42.0 (the editor stops flattering you about lights): three preview
+// gaps, all reported with a screenshot. The bulb gizmo is a small constant
+// MARKER now instead of a unit-sized glow that hid the very point it marks;
+// a spot light draws its actual CONE (apex at the light, opening down the
+// aimed -Y for the reach) instead of a radius sphere that said nothing
+// about direction; and the viewport lights shade the GAME's way - spots
+// use the cone term with no N.L (exactly the VU1 slot's trade), and a
+// dynamic light darkens only through its nearest FOUR Cast-shadow
+// (projected) objects, hard-edged and quantized to the coarseness of the
+// 64x64 silhouette the console samples. The editor used to raytrace
+// nothing for scene lights and everything for emissives, which is how "it
+// looks amazing in the editor, then surprise" happened. And Live Link
+// learns lights: protocol v4 streams a DYNAMIC light's pose, color,
+// brightness, radius, flicker and spot angle (the record's player-speeds
+// slot, reused - types never collide - plus the tail pad), so aiming a
+// lamp is a live drag instead of an amber chip. Baked lights still
+// rebuild (vertex colors own them), as do the dynamic flag, the beam and
+// the spot style (setup-time bags/textures).
+//
+// 1.41.0 (a scene light can be the flashlight's kind of light): dynamic
+// point lights gain a SPOT style (format v29: "spot" + "spotAngle" in the
+// light object, written only when on - old files resave byte for byte).
+// The cone points down the object's local -Y (unrotated = straight down, a
+// street lamp; the rotation gizmo aims it), lights nearby meshes per vertex
+// through the same engine slot the camera torch uses (new
+// RendererCore::addDynSpotLight - the registry entry always carried the
+// cone constants, nothing changed on VU1), and its footprint on the ground
+// is the flashlight's projection on a scene light: the pool patch takes
+// the gobo's projective STQ from the LIGHT's frustum instead of the round
+// corona, so a lamp's pool is per-pixel however coarse the ground is.
+// night-walk's street lamp now actually lights its street (with a 0.12
+// flicker and a corona). Spot pools march the cone axis to the ground and
+// size the patch from the cone's footprint at the landing.
+//
+// 1.40.0 (a caster's shadow follows its shape, not its bounding box): a
+// model now casts from up to three TIGHT sub-boxes fitted to its triangles
+// - median split on the longest axis, twice, then leaves greedily merge
+// back wherever the split bought nothing (a solid crate collapses to one
+// box; an L-shape stays a pole and an arm). Built lazily per model asset,
+// local space, shared by instances (g_shadowSubBoxes). This retires the
+// volume pick's thin-skip: a tight thin box (a sign, a pole) casts its
+// honest stripe now - the street lamp's shadow is its POLE again, not the
+// pole-plus-arm slab of air that blotted out a facade. Each sub-box gets
+// its own mask bracket because set/clear is only sound inside one CONVEX
+// volume - the GS cannot count like a stencil, which is also why true
+// mesh-shaped volumes (SH2's bed slats) need the era's full arrangement
+// (count in a spare color channel with add/sub blending + a resolve pass)
+// and are left as the named next step.
+//
+// 1.39.3 (thin things are transparent to the torch, in all three systems):
+// stand exactly on the street lamp's axis and the light died completely -
+// half a step sideways brought it back (reported, with the exact spot). The
+// lamp is a thin POLE, but its AABB - pole plus arm - is a big slab of
+// mostly air, and two systems still trusted that box: the volume pick cut a
+// shadow from it (on-axis, a slab three units from the lens blots out the
+// whole facade), and projWallHit called it "the wall the beam hits", which
+// then stuffed it into a guaranteed receiver slot. The 0.25 thin rule the
+// receiver scan already had now applies to all three: thin boxes cast no
+// volume, projWallHit sees through them to the surface behind, and the
+// guaranteed hit-slot inserts at its SORTED position (the interleaved walk
+// merges the receiver and caster lists by distance - an unsorted insert
+// drew a nearer light after farther volumes).
+//
+// 1.39.2 (nothing can shadow itself, and the toggle stops strobing the old
+// look): two more reports from the same yard. The shed went black in the
+// beam ("swallows the light like a black hole") because a model's AABB
+// stands proud of its real walls - the roof overhang - so the shed's own
+// volume's near cap floated in front of the wall the beam lit; no cap
+// geometry fixes that (the radial push is tangent to a big face up close),
+// so the ORDER does: casters and receivers walk together sorted by distance
+// and each receiver's light draws BEFORE its own volume enters the mask
+// (RendererCoreAlphaMask::beginKeep - one bracket per caster, only the
+// first clears). A volume only shadows what is behind its caster, so
+// nearest-first is the dependency order and self-shadowing is structurally
+// impossible; the truck still carves the facade behind it. And spamming the
+// torch toggle strobed the OLD per-vertex look for one frame per enable:
+// the receivers' cone-off flags are computed in the light-pool pass, AFTER
+// the scene has drawn, so the enable frame hit every big receiver with the
+// full blocky cone once. The engine spot now arms one frame after the
+// toggle - the projected pool lights the same frame, only the cheap cone
+// waits, and on the props that keep it one frame is invisible. Verified in
+// PCSX2: 12 toggles x 70 snapshots, four tight byte-size clusters, zero
+// outliers - and the shed takes the full gobo in volumes mode.
+//
+// 1.39.1 (the volumes learn who actually casts, and the mask stops leaking
+// onto the screen; renumbered from 1.38.1 when the lighting redesign took
+// its slot): three reports from the reworked backlot. Volume slots
+// go NEAREST-FIRST (they went in object-table order, and the scene's three
+// merged facades - each huge enough to intersect the cone whenever the beam
+// faced them - ate all of them, so the dumpster and the truck never cast:
+// "no dynamic shadows at all"); a THIN receiver (the street lamp) no longer
+// claims a light slot nor gives up its cone, and the box the beam actually
+// HITS is guaranteed one (standing by the lamp used to unlight the facade
+// behind it); and the destination-alpha mask is REPAINTED to neutral 0x80
+// after the last DATE pass - the SDTV flicker filter blends its two read
+// circuits by per-pixel framebuffer alpha, so a mask left in the channel
+// was shown by the CRTC as translucent wedges (the "broken triangles" at
+// torch toggles, caught by frame-stepping PCSX2). The repaint runs from its
+// OWN packet2: sharing begin()'s buffer let a FINISH-parity slip rebuild a
+// packet the GIF was still fetching, which killed the light entirely.
+//
+// 1.39.0 (the lighting redesign: baked light gets one home, and a textured
+// model finally occludes itself; authored as 1.38.0 - the examples split
+// took that number first, and the claim that arrives second renumbers).
+// Lighting had accumulated four separate
+// places - AO in the ambience presets, model AO by hand in the Material
+// Editor, GI in its own tab, and a per-object pre-lit button in Properties -
+// and the automatic half of that did the least for the thing a real game is
+// mostly made of, TEXTURED MODELS. The engine's lightmap route refuses them
+// (it is additive, and an additive term over a texture blows out its dark
+// texels) and GI reaches them only as flat per-vertex probe light, so an
+// imported model has never had any self-occlusion at all.
+//
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v28 -
+// authored as v26; this branch's base took v26 and then v27 while the
+// redesign was in flight, and the claim that arrives second renumbers): the
+// Material Editor's matbake AO, run per model ASSET without anybody asking,
+// and multiplied into the texture that model ships anyway. Two properties are
+// what make it affordable, and both fall out of WHAT is being baked rather
+// than out of any cleverness: a model's own surface occlusion is
+// TRANSFORM-INVARIANT, so every instance of the asset shares one map wherever
+// it stands; and the pixels ride in an existing texture, so it costs ZERO
+// extra GS VRAM - against one unique texture per object for the pre-lit route
+// next to it. src/modelao.cpp owns the bake, the content-hash cache in
+// .res-baked/modelao/ (the gibake rule: never mtimes, and never the texture's
+// PIXELS - AO is a function of geometry and UVs, so repainting must not throw
+// a bake away), and - the part that matters most - the MULTIPLY. That one
+// function is called by texbake for the shipped PNG and by the viewport for
+// the uploaded pixels, so what the editor shows and what the console draws
+// cannot drift.
+//
+// WHAT IT REFUSES TO DO IS THE DESIGN. A texture referenced by more than one
+// model asset is skipped and SAID SO, because two UV layouts over one image
+// make a single multiply wrong for both; so is a pre-lit material, whose
+// gather already contains occlusion and would be darkened twice. Both show up
+// as a named row in the panel and a line in the build log - an AO map that
+// silently is not there is indistinguishable from a broken feature. And
+// litbake now multiplies the same map into the albedo it reads, so an object
+// does not lose its self-AO the moment it goes pre-lit.
+//
+// PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
+// same format v28): 1.35.0 gave a textured model per-pixel static light through
+// one button per object, and left everything around that button to memory - no
+// record of which objects were supposed to ship pre-lit, no way to know that a
+// texture had stopped agreeing with the scene, no bulk operation, no way back.
+// Three SceneObject fields close that: prelitWanted (the author's statement),
+// prelitSig (what the last bake SAW) and prelitSource (the material to revert
+// to, recorded on the FIRST bake only, an asset path that joins
+// retargetAssetPath). All three are written only when they say something, so an
+// object that never met the baker resaves byte for byte.
+//
+// THE SIGNATURE IS THE FEATURE, and the load-bearing decision in it is what it
+// deliberately does NOT see. It mixes gibake's own scene signature, the
+// object's transform, the model and its .mtl libraries by content, the bake
+// parameters and - when Model AO resolves on for the asset - that map's
+// signature, since it is multiplied into the albedo. But the scene half hashes
+// the scene AS AUTHORED, with every pre-lit override normalized back to its
+// source material: gibake::signature hashes each object's materialPath and that
+// file's bytes, so without the normalization applying a bake would change the
+// scene signature and make the object it just baked read STALE on the next
+// frame, together with every other pre-lit object beside it. The price is that
+// bounce light off a neighbour's new pre-lit texture stales nothing, a
+// second-order term nobody would want a re-bake storm for.
+//
+// The batch baker builds and solves the gibake scene ONCE per scene and bakes N
+// objects from it (that solve is nearly all of the wall clock), reports "2/7:
+// crate-3", cancels, and lands as one undo step through App::litBakerPoll -
+// polled from drawUI, so a batch started from the tab arrives whether or not
+// the tab, the selection or Properties is still showing it. --bake-prelit is
+// its headless twin: it re-bakes every stale wanted object and says `fresh` for
+// the rest, so running it twice is the check that the tracking is honest. The
+// three of them - the tab's button, the verb and the OPT-IN pre-build pass
+// (ProjectSettings::prelitAutoBake, Preferences > Build) - are one loop,
+// litbake::bakeStale, so a build cannot bake something the tab would have
+// called fresh. Off by default: the gibake rule that an expensive bake is
+// pressed, not implied, still stands, and only STALE objects are ever touched.
+// GI gets the SAME opt-in (ProjectSettings::giAutoBake, gibake::bakeStale -
+// stale scene caches re-baked before the pre-lit pass), because the silent
+// alternative had already bitten twice: a stale cache drops a whole scene to
+// the pre-GI lighting without a word. And gibake now reads a pre-lit object's
+// SOURCE material (albedoMaterial) in both build() and signature(): a -lit
+// texture is albedo x light, reading it as albedo doubled the light in the
+// bounce, and every pre-lit bake used to stale the GI cache by repointing the
+// object's materialPath.
+//
+// ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
+// Tools > Baked Lighting..., which is where the scene's light was already
+// authored - Model AO (per ASSET, free) and the pre-lit table (per SCENE, one
+// texture each, with the VRAM line stating what that costs) as two sections of
+// it. The Material Editor's manual bake is untouched and gains one line
+// pointing at the automatic path.
+//
+// MINOR: capabilities appear (a textured model can occlude itself, for free;
+// pre-lit objects gain staleness, batch baking and a Revert; --bake-model-ao
+// and --bake-prelit are new headless verbs). No existing project's look moves -
+// modelAo is false in the struct, which is what every file saved before it
+// loads as, and true only for projects created from here on; the three pre-lit
+// fields are pure bookkeeping and reach no codegen at all.
+//
+// 1.34.0 (the flashlight stops being drawn by the terrain's vertex grid, and
+// the ground gets distance detail): two halves of one report - a torch on a big
+// map looked bad, and the proposed cure was a finer heightmap near the player.
+// The second half is built here as its own feature, because it is a good answer
+// to a big map and NOT the answer to the torch.
+//
+// WHY NOT: a terrain cell can never be finer than one world unit
+// (sceneGridDims caps cells at the map's own width in units), and the VU1 spot
+// is per vertex with no N.L, so the cone on the ground is a Gouraud diamond
+// whatever the detail cap says. A footprint two units across gets two vertices.
+// Aiming at your own feet had lit nothing at all, which is why the ground POOL
+// existed in the first place - a flat round patch under the beam's terrain hit,
+// textured with the lens-flare corona, radius capped at 8 units.
+//
+// THE FIX IS PROJECTION, and every part of it was already in the tree: the
+// receiver patch now takes its STs from the beam's own frustum, exactly the way
+// renderProjShadows samples a silhouette through a light view-proj, so the
+// light's SHAPE is a texture and the ground's tessellation stops being able to
+// decide it. With that, three long-standing approximations go: the patch is
+// laid out along the beam's ground run instead of axis-aligned (a grazing beam
+// really does reach four times further than it is wide), the radius cap is gone,
+// and it lands on placed geometry as well as terrain via projCollectReceivers -
+// so a torch works in a room built out of floors, where a scene with no terrain
+// at all used to have no pool by construction. The image itself is a baked
+// 128x128 gobo (menubake::bakeFlashGoboRGBA - hotspot, penumbra, reflector ring,
+// two low-frequency lobes so the circle is not perfect) instead of the corona
+// sprite, gated by FLASHLIGHT_USED so a project without a flashlight pays no GS
+// VRAM, and the authored Pool texture override keeps working - as a real gobo
+// now, which is what its own documentation always claimed it was.
+//
+// DISTANCE DETAIL (docs/terrain-lod.md, ProjectSettings::terrainLodDistance,
+// format v25): beyond the set range a terrain tile is built from every 2nd
+// heightmap sample and beyond 2.2x it from every 4th - a quarter and a
+// sixteenth of the triangles. The load-bearing decision is that the stride is a
+// PURE function of the snapped view focus, so a tile can work out what its
+// neighbours are doing without asking whether they are resident, and the finer
+// side of a shared edge interpolates its vertices onto the coarser side's
+// segment. That is what makes cracks impossible rather than merely rare, and it
+// adds no geometry - skirts, the usual cure, add a quarter as much again to the
+// tiles that can least afford it. The shade is interpolated with the height,
+// or the closed hole leaves a colour seam in its place. Collision is untouched:
+// every height query reads TERRAIN_HEIGHTS, never the mesh.
+//
+// MINOR: capabilities appear (a setting that did not exist, and a flashlight
+// that can light a floor). The gobo is not a default change - it replaces a
+// sprite that was never the right one - but the LOD key IS written into every
+// project's settings block on its next save, hence the format bump.
+//
+// 1.38.0 (one example was proving two features, so now there are two): the
+// night-walk example is split. deep-forest takes the scale story - the same
+// 2048x2048 map in daylight with 2800 scattered spruces, held at 50 FPS by
+// terrain detail distance + mesh LOD + chunk draw distance (2800 is measured:
+// 3777 instances died in the chunk build's loading peak, 3100 ran at
+// 30.7/32 MB, 2800 ships with headroom at 28.1). night-walk keeps the torch
+// and becomes a dark kenney-kit backlot (CC0 Retro Urban Kit) built to be
+// read by torchlight: brick facades, a dumpster and a truck for casters, the
+// pre-lit shed pair, the west facade turned 24 degrees for the oriented-box
+// receivers. The facades are kit tiles MERGED into one .obj each, because
+// the torch lights the nearest three solids in its cone - a wall of twelve
+// tile objects would light in patches. No engine or format change.
+//
+// 1.37.0 (the torch's shadows learn self-shadowing, and the technique becomes
+// a choice): ProjectSettings::flashShadowVolumes (format v27) picks how the
+// flashlight occludes. OFF keeps the silhouette slots below; ON is the
+// survival-horror era's own arrangement, built on its own hardware trick:
+// every occluder box in the beam is extruded away from the torch into a
+// closed volume, the volume's camera-front faces SET the framebuffer's
+// DESTINATION-ALPHA MSB where they beat the scene's depth and its back faces
+// CLEAR it where they do - plain TestOnly z is the entire algorithm - and
+// every torch light pass then draws with the GS's destination-alpha test
+// (TEST.DATE), i.e. only where the mask says lit. The mask gates LIGHT;
+// nothing ever paints darkness. Occlusion is exact per pixel against the
+// real z buffer, for EVERY solid in the beam, self-shadowing included, with
+// no caster flag and no four-slot budget; the price is the volume fill and
+// box-shaped rather than mesh-shaped silhouettes. Engine: a new
+// RendererCoreAlphaMask bracket (FBMSK to alpha-only + full-raster alpha
+// clear with z writes masked) and PipelineInfoBag::dateLit riding the same
+// in-band TEST qword every mesh already emits. Both re-render passes also
+// gained a per-triangle FACING cull (orientation from the object's centre -
+// an .obj's winding is nobody's promise), which is what stopped a box's far
+// side sampling a lit texel and a wall's inner face taking the silhouette.
+// MINOR: a capability and a setting appear; the default reproduces 1.36.0.
+//
+// 1.36.0 (the torch throws shadows, and its light stops picking favourites):
+// the flashlight becomes a candidate light in the projected-shadow system - a
+// caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
+// shadow-map slot, the ground patch samples it as always, and the wall behind
+// the caster is re-rendered with the silhouette through the light's view-proj,
+// per pixel: the Silent Hill composition, on the machinery that was already
+// there. Three findings paid for it: the torch needed a laxer elevation bar
+// than fixed lights (it is carried level with everything, and its shadow's
+// whole point is the WALL - the ground patch is simply skipped when the ray is
+// too flat); it needed a LINE-OF-SIGHT check, because a light that walks
+// around routinely stands on the wrong side of a wall from a caster, and the
+// silhouette painted straight through; and the light pass had to stop lighting
+// only the object the beam HITS - the wall behind a caster stayed dark (a
+// shadow with nothing to be carved from), and a shed with the beam at its feet
+// took no projected light at all and fell back to the per-vertex cone's hard
+// triangles. Receivers are now the nearest three solids whose oriented boxes
+// the CONE touches, drawn from one bag. MINOR: capabilities appear; no default
+// moves; the format is untouched by it.
+//
+// 1.35.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
+// renumbered on the merge below - main took 1.32.0 with #230 while this branch
+// was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
+// Hill had textured models and it looked fine", which is a fair objection to
+// everything the flashlight work had said up to then. The engine's lightmap
+// route is per texel and refuses textured surfaces, and that refusal is
+// hardware: the GS blend unit computes (A - B) * C + D with C always an ALPHA,
+// so "texture times lightmap" cannot be expressed in a second pass at all, and
+// the additive atlas this engine does have blows out a texture's dark texels.
+//
+// Which leaves the era's own answer: bake the light INTO the albedo and ship a
+// unique pre-lit texture for that surface. Both halves of the machine were
+// already here - gibake computes the light over a triangle BVH of the whole
+// scene, matbake showed how to rasterize a model's UV space - and what was
+// missing was the join. src/litbake.cpp walks the object's UV islands, turns
+// each texel into a WORLD position and normal through the object's transform,
+// asks gibake what arrives there, multiplies it into the albedo and writes the
+// object its own material. SceneObject::prelit (format v26) then switches that
+// object's vertex colours to neutral, because every term they used to carry is
+// in the texture now and adding it again lights the surface twice.
+//
+// The dynamic half still lands on top, which is the whole arrangement: static
+// light per pixel in the map, the flashlight's projected pool and cone added
+// over it at run time.
+//
+// MINOR: a capability appears (--bake-object-light, and a route to per-pixel
+// static light that textured geometry never had). No default moves - prelit is
+// false everywhere until a bake sets it.
+//
 // 1.24.4 (--vu-check says when its two halves are not from one commit): every
 // comparison it makes diffs a program GENERATED from the descriptions compiled
 // into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
@@ -735,8 +1065,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 33
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 42
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -975,6 +1305,47 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // neural-upscaler batch took 8 through 17 and its speed/animation-import batch
 // 18 through 23 while this branch was open, and the claim that arrives second
 // renumbers.)
-inline constexpr int kFormatVersion = 24;
+// v25 (terrain distance detail, docs/terrain-lod.md):
+// ProjectSettings::terrainLodDistance - beyond it the ground is built from
+// every 2nd heightmap sample, beyond 2.2x it from every 4th. It defaults to 0,
+// which builds every tile at full detail, i.e. exactly what every project did
+// before the key existed, so an older file opens and RUNS unchanged and no
+// migration step is needed. It is written unconditionally, like the
+// terrainViewDistance beside it in that flat settings block, so an untouched
+// project does gain the key on its next save - which is precisely what this
+// number exists to make safe. (Authored as v24; main's VRAM options took that
+// number first, and the claim that arrives second renumbers.)
+// v26 (pre-lit models, docs/prelit-models.md): SceneObject::prelit - the
+// object's texture already carries its light, so its vertex colours go
+// neutral. Written only when true, so a project that has never baked one
+// resaves byte for byte; it defaults to false, which is what every existing
+// object is. No migration step. (Authored as v25, renumbered with v25 above.)
+// v27 (flashlight shadow volumes, docs/flashlight.md "The shadow"):
+// ProjectSettings::flashShadowVolumes - written only when true, so an
+// untouched project resaves byte for byte; false (the default) is the
+// silhouette-slot behaviour every earlier file had. No migration step.
+// v28 (the lighting redesign - automatic model AO + pre-lit management;
+// authored as v26, renumbered twice as this branch's base took v26 and then
+// v27 while the redesign was in flight - the arrive-second rule):
+// ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
+// project-wide bake knobs - plus the "modelAoMode" section, the per-asset
+// force-on/force-off override keyed by a model's asset path; and the three
+// pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
+// statement that the object ships pre-lit), prelitSig (a hex-string hash of
+// what the last bake saw) and prelitSource (the materialPath to revert to,
+// recorded on the first bake only); plus ProjectSettings::prelitAutoBake and
+// giAutoBake, the opt-in "re-bake what went stale before every build"
+// switches for pre-lit objects and for the GI caches. Every one
+// of them is written ONLY when it
+// differs from its default and the modelAoMode section is omitted entirely
+// while empty, so a project that never touches either feature resaves byte for
+// byte; the struct defaults reproduce what an older file did (no model AO at
+// all), while project::create turns modelAo on for new projects. Purely
+// additive - no migration step.
+// v29 (spot-style dynamic lights, docs/flashlight.md "A scene light with the
+// same trick"): "spot" + "spotAngle" on a light object's light block -
+// written only when the style is on, so an untouched project resaves byte
+// for byte; off (the default) is the point light every earlier file had.
+inline constexpr int kFormatVersion = 29;
 
 }  // namespace version
