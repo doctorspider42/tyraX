@@ -33,7 +33,7 @@ scene, and nothing in `aobake` needs to know why.
 
 | What | Where it is computed | How it ships |
 |---|---|---|
-| Terrain lightmap | Host, at build (`aobake::terrainAOMap`: an 8-direction horizon scan over the heightmap + the occluder contact term, per texel) | `.res-baked/aomap/scene<N>.png` (≤256×256), drawn as one extra alpha-blended terrain pass per chunk |
+| Terrain lightmap | Host, at build (`aobake::terrainAOMap`: a 16-direction horizon scan over the heightmap + the occluder contact term, per texel) | `.res-baked/aomap/scene<N>.png` (≤256×256), drawn as one extra alpha-blended terrain pass per chunk |
 | Primitive lightmap atlas | Host, at build (`aobake::bakeSceneAoAtlas`: per-scene shelf-packed regions mirroring the builders' UV layouts - box 6 faces, sphere 1, cylinder 3, cone 2, plane 2) | `.res-baked/aoatlas/scene<N>.png` (≤256×256) + the matching UV rects in `inc/ao_data.gen.hpp`; each covered object draws one extra blended pass |
 | Occluder shapes | Host (`aobake::collectOccluders`: every solid `Cast shadow` object reduced to an oriented box / sphere; model AABBs from a fast `v`-line scan) | `inc/ao_data.gen.hpp` occluder tables - also consumed per vertex on the EE by the fallback below |
 
@@ -67,6 +67,36 @@ the density globally until the image is full. Faces that receive nothing shrink
 to a floor size instead of eating the budget. The atlas *dimension* still comes
 from the unweighted area, so this never changes VRAM — it only moves texels to
 where the gradient is. See docs/emissive-materials.md for the numbers.
+
+## What the terrain scan measures
+
+The ground shadows itself with a **horizon scan**: from each texel, walk 16
+azimuths out to 3× the AO radius and find how high the land rises along each.
+Two things about it are worth knowing, because both were wrong until they were
+measured against synthetic ground.
+
+**A bare slope is not occluded, whatever its angle.** The scan asks how high
+the horizon stands above the surface's own **tangent plane**, not above the
+horizontal. Without that term a hillside darkens simply for being a hillside —
+every uphill sample is higher than the one before it — and it was measured at
+16% on a bare 30° slope and 30% on a 60° one, with no occluder anywhere.
+Ambient occlusion is occlusion: a tilted bare plane still sees a whole
+hemisphere, just a different one. What still darkens is what should — the foot
+of a step reads the same before and after.
+
+**16 azimuths, not 8.** A lone spire is only found by a ray that happens to
+point at it, so too few directions turn its occlusion field into a star instead
+of a disc. Sampled around a ring centred on such a spire — where symmetry says
+the answer must be constant — 8 azimuths read a standard deviation of 91% of
+the mean, and 16 read 30%. A per-texel azimuth ROTATION was tried on top and
+removed: the scan is one sample per texel with nothing downstream to average
+it, so a rotation only decorrelates the error between neighbours instead of
+reducing it (13/27/23% with, 13/26/30% without — see the note in `aobake.cpp`).
+
+Neither of these changes any example in this repo, because **no example
+sculpts its terrain** — every shipped heightmap is flat, which is exactly why
+the slope bug survived as long as it did. They show up the moment somebody uses
+the Terrain Editor.
 
 ## Who casts, who receives
 
@@ -125,7 +155,12 @@ Volume* node rebuilt mid-game — is shaded correctly with nothing shipped.
   [docs/reflective-materials.md](reflective-materials.md) for the mechanism
   and the measured cost.
 - **Build time**: a few hundred ms per scene, re-run on every build
-  (deterministic, no caching needed).
+  (deterministic, no caching needed) — and it no longer scales with the number
+  of objects. The per-texel occluder loop reads a uniform grid instead of the
+  whole scene, which is exact (identical pixels, verified byte for byte on
+  every example) and is the difference between **61 ms and 32 s** on a scene
+  with 1100 casters. The generated game learned the same lesson earlier;
+  `aoCollectLocal` is its version.
 - **Runtime blocks**: nothing per frame and nothing in VRAM — 26 bit tests per
   block, once, inside a generation pass that was already building that block's
   vertices. The chunk changes from flat to Gouraud shading, which the GS

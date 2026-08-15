@@ -14,9 +14,12 @@
 // vertex colors the directional light already bakes into:
 //
 //  - terrainAO(): heightmap self-occlusion (ravines, foot of hills), a u8 grid
-//    per terrain vertex. Codegen ships it as TERRAIN_AO_TABLES; the viewport
-//    multiplies the same grid into its terrain chunk colors - both consume
-//    identical data, no twin formula to drift.
+//    per terrain vertex. This is the EDITOR VIEWPORT's copy - it multiplies the
+//    grid into its terrain chunk colors - while the console reads the per-texel
+//    terrainAOMap below. A preview and its subject, so the term that decides
+//    the answer (tangentSin, the horizon measured above the surface's own
+//    tangent plane rather than above the horizontal) is shared; the azimuth
+//    COUNT is not, because one is a per-cell grid and the other a 256^2 image.
 //  - collectOccluders(): solid scene objects reduced to analytic occluders
 //    (oriented boxes / spheres). The RESPONSE to these is computed per vertex
 //    on the EE at scene load (templates.cpp aoOccludersAt/aoGroundAt) and per

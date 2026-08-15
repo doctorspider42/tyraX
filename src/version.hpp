@@ -735,7 +735,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 34
+#define TYRAX_VERSION_MINOR 35
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

@@ -99,6 +99,27 @@ Terrain UVs grow with world position and can outrun the GS fixed-point range.
 Fold each chunk by whole texture repeats during generation, preserving the
 picture under REPEAT while bounding coordinates by chunk size.
 
+### Ship one example with sculpted terrain
+
+Every heightmap in `examples/` is flat — checked, all of them, relief 0.00 —
+so the terrain horizon scan has never been exercised by anything committed.
+That is how a bare 30° slope came to darken itself by 16% for several releases
+without anyone seeing it, and why the fix for it changes not one pixel of any
+example. An example that actually sculpts a valley would put the Terrain Editor,
+the AO scan and the walker's slope handling under the same regression pressure
+as everything else here.
+
+### Give scene occluders more than one box each
+
+An occluder is a single oriented box or sphere per object
+(`aobake::collectOccluders`), so a chair, an L-shaped wall and a doorway arch
+are all one rectangle to the bake. Splitting a model's triangles into 2–4 boxes
+is what would lift that ceiling; the two cheaper ideas next to it — combining
+occlusion as `1 - Π(1 - occ)` instead of a clamped sum, and taking the analytic
+solid angle instead of the `0.35 + 0.65·N·L` heuristic — are one deliberate
+look change across all three twins (host, EE, viewport shader) and want their
+own branch and an A/B.
+
 ## Medium
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
