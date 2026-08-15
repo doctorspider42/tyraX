@@ -49,6 +49,12 @@ Live:
 - a Player object's **walk / run / sprint speeds** (the resolved values, so the
   sprint multiplier's effect streams too) — tuning movement feel is exactly the
   edit-run loop a rebuild would ruin ([player-speeds.md](player-speeds.md));
+- a **dynamic light's** pose, color, **brightness, radius, flicker and spot
+  cone angle** — the game reads them from object data every frame, so aiming
+  a spot lamp streams like dragging a crate. (Baked lights still rebuild:
+  their light lives in vertex colors. So do a dynamic light's *Dynamic* flag,
+  its *Beam* and the *Spot* style itself — those pick bags and textures at
+  scene setup.);
 - **adding objects** — a new object is instantiated through the game's runtime
   spawn pool by cloning an authored object with the same "recipe" (same type,
   model, material, detail, layer, physics…), then patched to its own
@@ -75,8 +81,9 @@ Needs a build — the chip flips to amber instead of applying something wrong:
   **projecting decals** (baked host projection), **mirrors** (baked reflection
   table), **portals** (baked PORTALS link table), or objects carrying a
   **flow graph / attached scripts** (compiled per authored object);
-- editing an existing point light / projecting decal (their transforms are
-  baked at build);
+- editing an existing **baked** point light / projecting decal (their
+  transforms are baked at build) — a **dynamic** light's edits stream, see
+  above;
 - streaming-layer definitions, scene add/remove.
 
 Other non-live properties (sky, terrain sculpting, HUD…) don't endanger the

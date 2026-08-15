@@ -149,6 +149,8 @@ TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
+TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
+TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
@@ -335,11 +337,44 @@ mtime before trusting a run from there.
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
   against the same project with `"giEnabled": false` in its `.tyra`. Two
-  traps worth knowing: the bake is NEVER part of a build (a build only READS
-  the cache), so a change to the scene silently falls it back to the pre-GI
-  lighting until you re-bake; and it prints per scene how long it took plus
+  traps worth knowing: the bake is NOT part of a build by default (a build only
+  READS the cache), so a change to the scene silently falls it back to the
+  pre-GI lighting until you re-bake - `"giAutoBake": true` in the settings
+  makes `--build` (and the GUI build) re-bake exactly the STALE scenes first,
+  printing `gi: baked GI ...` / `gi: fresh ...` per scene, and the check is a
+  second build that says `fresh` for all of them; and it prints per scene how long it took plus
   the atlas/terrain/probe dimensions, which is the fastest sanity check that
   it saw any geometry at all (`atlas 0` means no eligible receivers).
+- `--bake-model-ao` bakes every eligible `.obj` model's OWN ambient occlusion
+  (docs/ambient-occlusion.md, "Model AO") into `.res-baked/modelao/` and prints
+  one line per (model, texture) pair - `baked` / `fresh` / `skipped ... :
+  reason`. It exists because the shipping path for that feature is `texbake`,
+  which runs only inside a real Docker build, so **`--bake-model-ao
+  <dir> --texbake` is how the whole chain is checkable with no container**:
+  the second flag runs the texture bake too, i.e. the actual multiply into
+  `.res-baked`, which logs `model AO: multiplied into <texture>`. The honest
+  check afterwards is a pixel one - decode `res/models/x.png` and
+  `.res-baked/models/x.png` and compare their RGB means (baked must be darker)
+  and their alpha channels (must be IDENTICAL - the GS cutout rule). Re-run to
+  confirm idempotence (`fresh`, byte-identical map). The verb refuses when the
+  project has the feature off, so a fixture needs `"modelAo": true` in its
+  `.tyra` settings (new projects get it; older ones do not).
+- `--bake-prelit <dir> [scene]` re-bakes every object marked to ship pre-lit
+  (`prelitWanted`) whose baked texture no longer matches the scene
+  (docs/prelit-models.md, "Managing pre-lit objects"), then saves and
+  regenerates. It prints `baked` or `fresh` per object plus a summary and exits
+  non-zero on a bake failure. **Two runs are the test**: the second must report
+  everything `fresh` and bake nothing, which is the only check that the
+  signature is stable rather than merely present. To see a stale one, move the
+  object (edit its `objects/<id>.json` position) and run again - it re-bakes,
+  and the reported `mean light` moves with it. The object's stamp lands in
+  `objects/<id>.json` as `prelitSig` (hex string), `prelitWanted` and - only
+  when the object had a material override before its first bake -
+  `prelitSource`. It refuses a project needing a format migration, like every
+  headless verb that writes the project. With `"prelitAutoBake": true` in the
+  project's settings, `--build` (and the GUI's build) runs the SAME loop first
+  and prints `pre-lit: ...` lines - the check is a build log that says
+  `0 baked, N already fresh` on the second build.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:

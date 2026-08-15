@@ -858,6 +858,76 @@ void App::drawPropertiesWindow() {
                 "moves. The bake already excludes anything it can prove moves\n"
                 "(physics, pickable, usable, save-state, streamed, or moved by\n"
                 "a flow graph) - this is for the rest.");
+
+        // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
+        // primitive already has the per-texel lightmap route, which costs no
+        // extra texture at all.
+        if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
+            const int myIndex = selectedObject_;
+            const bool mine = litBaker_.objectIndex() == myIndex &&
+                              litBaker_.sceneIndex() == project_.activeScene;
+            if (litBaker_.running() && mine) {
+                ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+                ImGui::TextUnformatted(litBaker_.status().c_str());
+                if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
+            } else {
+                if (ImGui::Button("Bake lighting into texture")) {
+                    saveProject();  // the bake reads the model off disk
+                    litBaker_.start(project_, project_.activeScene, myIndex,
+                                    litBakeParams_);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
+                               512, "%d px");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
+                               512, "%d rays");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes the scene's light INTO this object's texture and\n"
+                    "gives it its own material - the only way a TEXTURED\n"
+                    "surface gets per-pixel static light on this hardware (the\n"
+                    "lightmap is additive and the GS cannot multiply a texture\n"
+                    "by a second one in a later pass).\n"
+                    "Its vertex light then goes neutral; the flashlight and\n"
+                    "live point lights still land on top.\n"
+                    "Costs one texture per object, and goes STALE if you move\n"
+                    "the object or change the scene's lighting - re-bake it.");
+            // Fresh or stale, from the signature - the same answer the Baked
+            // lighting tab gives, out of the same cached table (asking
+            // litbake::signature per frame would content-hash every file the
+            // GI bake reads).
+            if (o.prelit) {
+                const PrelitStatus* st = prelitStatusFor(myIndex);
+                if (st && st->fresh)
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                                       "Pre-lit: its texture carries its light");
+                else
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Pre-lit, but STALE: the scene or this object has "
+                        "moved since the bake");
+                if (ImGui::Button("Revert to source material"))
+                    revertPrelit(myIndex);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Puts back the material this object had before its\n"
+                        "first bake and stops shipping it pre-lit. The baked\n"
+                        "-lit.png/.mtl are left on disk (the Asset Browser\n"
+                        "lists them as unused).");
+            }
+            ImGui::TextDisabled(
+                "Every pre-lit object in this scene: Tools > Baked Lighting");
+            if (!litBaker_.error().empty() && mine)
+                ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                                   litBaker_.error().c_str());
+            // The result is applied by App::litBakerPoll, not here: a bake
+            // that finishes has to land whether or not this object is still
+            // the selected one.
+        }
     }
 
     if (isArea) {
@@ -1570,6 +1640,22 @@ void App::drawPropertiesWindow() {
                 "object and be switched by the Set Light flow node.\n"
                 "The engine lights each mesh with its strongest dynamic\n"
                 "light (one slot per mesh; max 8 per scene).");
+        if (o.lightDynamic) {
+            committed |= ImGui::Checkbox("Spot (cone)", &o.lightSpot);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The light becomes a cone down the object's local -Y\n"
+                    "(unrotated = straight down; rotate the object to aim).\n"
+                    "Nearby meshes take the cone per vertex, and on the\n"
+                    "ground its footprint is PROJECTED per pixel with the\n"
+                    "flashlight's gobo - a street lamp that really lights\n"
+                    "the street (docs/flashlight.md).");
+            if (o.lightSpot) {
+                ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
+                                 5.0f, 60.0f, "%.0f deg");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+        }
         if (o.lightDynamic) {
             ImGui::DragFloat("Flicker", &o.lightFlicker, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();

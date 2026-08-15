@@ -687,6 +687,17 @@ std::string objectJson(const SceneObject& o) {
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
         (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
+        (o.prelit ? std::string(", \"prelit\": true") : "") +
+        // Pre-lit bookkeeping, each written only when it says something (an
+        // object that never met the baker resaves byte for byte). prelitSig is
+        // a hex STRING - 64 bits do not survive a JSON number. prelitSource is
+        // omitted at "" because "" is also what a missing key reads as, and
+        // that IS the value it would have carried: the model's own mtllib.
+        (o.prelitWanted ? std::string(", \"prelitWanted\": true") : "") +
+        (o.prelitSig ? ", \"prelitSig\": \"" + hex64(o.prelitSig) + "\"" : "") +
+        (o.prelitSource.empty()
+             ? ""
+             : ", \"prelitSource\": \"" + jsonEscape(o.prelitSource) + "\"") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
@@ -804,6 +815,9 @@ std::string objectJson(const SceneObject& o) {
                 ", \"radius\": " + fmtFloat(o.lightRadius) +
                 ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
                 ", \"flicker\": " + fmtFloat(o.lightFlicker) +
+                (o.lightSpot ? ", \"spot\": true, \"spotAngle\": " +
+                                   fmtFloat(o.lightSpotAngle)
+                             : std::string()) +
                 ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
@@ -1519,6 +1533,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"terrainDetail\": " << p.settings.terrainDetail << ",\n"
          << "    \"terrainViewDistance\": " << fmtFloat(p.settings.terrainViewDistance)
          << ",\n"
+         << "    \"terrainLodDistance\": "
+         << fmtFloat(p.settings.terrainLodDistance) << ",\n"
+         << (p.settings.flashShadowVolumes
+                 ? "    \"flashShadowVolumes\": true,\n"
+                 : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -1568,6 +1587,24 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"giProbeHeight\": " << fmtFloat(p.settings.giProbeHeight)
          << ",\n"
          << "    \"giProbeLevels\": " << p.settings.giProbeLevels << ",\n"
+         // Automatic model AO (docs/ambient-occlusion.md). Emitted only when it
+         // is not the struct default, so every project saved before this
+         // existed resaves byte for byte.
+         << (p.settings.modelAo ? "    \"modelAo\": true,\n" : "")
+         << (p.settings.modelAoStrength != 0.7f
+                 ? "    \"modelAoStrength\": " +
+                       fmtFloat(p.settings.modelAoStrength) + ",\n"
+                 : "")
+         << (p.settings.modelAoRays != 64
+                 ? "    \"modelAoRays\": " +
+                       std::to_string(p.settings.modelAoRays) + ",\n"
+                 : "")
+         << (p.settings.modelAoDist != 0.0f
+                 ? "    \"modelAoDist\": " + fmtFloat(p.settings.modelAoDist) +
+                       ",\n"
+                 : "")
+         << (p.settings.prelitAutoBake ? "    \"prelitAutoBake\": true,\n" : "")
+         << (p.settings.giAutoBake ? "    \"giAutoBake\": true,\n" : "")
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -1798,6 +1835,23 @@ static void writeModelLodsSection(std::ostream& json, const Project& p) {
         for (size_t i = 0; i < tiers.size(); ++i)
             json << (i ? ", " : "") << "\"" << jsonEscape(tiers[i]) << "\"";
         json << "]";
+        first = false;
+    }
+    json << " }";
+}
+
+// Conditional too: no per-asset automatic-AO override = no key at all, so an
+// untouched project resaves byte for byte (docs/ambient-occlusion.md).
+static void writeModelAoSection(std::ostream& json, const Project& p) {
+    bool any = false;
+    for (const auto& [asset, mode] : p.modelAoMode) any |= mode != 0;
+    if (!any) return;
+    json << "\"modelAoMode\": {";
+    bool first = true;
+    for (const auto& [asset, mode] : p.modelAoMode) {
+        if (mode == 0) continue;  // "follow the project default" IS no entry
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset)
+             << "\": " << mode;
         first = false;
     }
     json << " }";
@@ -2987,6 +3041,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::Audio: writeAudioSection(ss, p); break;
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
         case Section::ModelLods: writeModelLodsSection(ss, p); break;
+        case Section::ModelAo: writeModelAoSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -3015,6 +3070,7 @@ const char* sectionName(Section s) {
         case Section::Audio: return "audio";
         case Section::TexQuality: return "texQuality";
         case Section::ModelLods: return "modelLods";
+        case Section::ModelAo: return "modelAo";
         case Section::SaveData: return "saveData";
         case Section::Gradings: return "gradings";
         case Section::Ambience: return "ambience";
@@ -3674,6 +3730,10 @@ std::string create(Project& out, const std::string& name, const std::string& par
     amb.name = "Default";
     amb.aoEnabled = true;
     out.ambiencePresets.push_back(amb);
+    // ...and automatic model AO, for the same reason and by the same rule: the
+    // struct default is what an older file loads as, so the new answer belongs
+    // here (docs/ambient-occlusion.md, "Model AO").
+    out.settings.modelAo = true;
     out.defaultAmbience = 0;
 
     // Seed the built-in window layouts (Default/Director/Material Designer).
@@ -4514,6 +4574,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.bakedLighting = v->boolOr(true);
         if (const auto* v = jo.find("dynamicLighting"))
             o.dynamicLighting = v->boolOr(false);
+        if (const auto* v = jo.find("prelit")) o.prelit = v->boolOr(false);
+        if (const auto* v = jo.find("prelitWanted"))
+            o.prelitWanted = v->boolOr(false);
+        if (const auto* v = jo.find("prelitSig"))
+            o.prelitSig = parseHex64(v->stringOr(""));
+        if (const auto* v = jo.find("prelitSource"))
+            o.prelitSource = v->stringOr("");
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
@@ -4678,6 +4745,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightFlicker = (float)v->numberOr(0.0);
             if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
             if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
+            if (const auto* v = lt->find("spot"))
+                o.lightSpot = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = lt->find("spotAngle"))
+                o.lightSpotAngle = (float)v->numberOr(25.0);
+            if (o.lightSpotAngle < 5.0f) o.lightSpotAngle = 5.0f;
+            if (o.lightSpotAngle > 60.0f) o.lightSpotAngle = 60.0f;
             if (const auto* v = lt->find("beam"))
                 o.lightBeam = (int)v->numberOr(0.0);
             if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
@@ -5019,6 +5092,12 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.terrainViewDistance = (float)v->numberOr(0.0);
             if (st.terrainViewDistance < 0.0f) st.terrainViewDistance = 0.0f;
         }
+        if (const auto* v = s->find("terrainLodDistance")) {
+            st.terrainLodDistance = (float)v->numberOr(0.0);
+            if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
+        }
+        if (const auto* v = s->find("flashShadowVolumes"))
+            st.flashShadowVolumes = v->boolOr(false);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -5100,6 +5179,23 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.giProbeLevels = (int)v->numberOr(4);
         if (st.giProbeLevels < 1) st.giProbeLevels = 1;
         if (st.giProbeLevels > 16) st.giProbeLevels = 16;
+        // Automatic model AO. The struct defaults are what a file written
+        // before this key existed loads as, which is the whole compatibility
+        // story - see ProjectSettings::modelAo.
+        if (const auto* v = s->find("modelAo")) st.modelAo = v->boolOr(false);
+        if (const auto* v = s->find("modelAoStrength"))
+            st.modelAoStrength = clamp01((float)v->numberOr(0.7));
+        if (const auto* v = s->find("modelAoRays"))
+            st.modelAoRays = (int)v->numberOr(64);
+        if (st.modelAoRays < 8) st.modelAoRays = 8;
+        if (st.modelAoRays > 512) st.modelAoRays = 512;
+        if (const auto* v = s->find("modelAoDist"))
+            st.modelAoDist = (float)v->numberOr(0.0);
+        if (st.modelAoDist < 0.0f) st.modelAoDist = 0.0f;
+        if (const auto* v = s->find("prelitAutoBake"))
+            st.prelitAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("giAutoBake"))
+            st.giAutoBake = v->boolOr(false);
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
@@ -5456,6 +5552,17 @@ static void readModelLodsSection(const json::Value& root, Project& out) {
                 if (!path.empty()) tiers.push_back(path);
             }
             if (!tiers.empty()) out.modelLods[asset] = tiers;
+        }
+    }
+}
+
+static void readModelAoSection(const json::Value& root, Project& out) {
+    out.modelAoMode.clear();
+    if (const auto* ma = root.find("modelAoMode");
+        ma && ma->type == json::Value::Type::Object) {
+        for (const auto& [asset, v] : ma->obj) {
+            const int mode = (int)v.numberOr(0);
+            if (mode == 1 || mode == 2) out.modelAoMode[asset] = mode;
         }
     }
 }
@@ -6212,6 +6319,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::Audio: readAudioSection(root, p); break;
         case Section::TexQuality: readTexQualitySection(root, p); break;
         case Section::ModelLods: readModelLodsSection(root, p); break;
+        case Section::ModelAo: readModelAoSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -6373,6 +6481,7 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readTexQualitySection(root, out);
     readModelLodsSection(root, out);
+    readModelAoSection(root, out);
     readModelUnitsSection(root, out);
 
     readSaveDataSection(root, out);
@@ -6675,6 +6784,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.castShadow ? 1 : 0);
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
+    fnvMix(h, o.prelit ? 1 : 0);
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
     // transform + colour, so an edit of them cannot show without a rebuild -
@@ -6790,11 +6900,20 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
     }
     if (o.type == PrimitiveType::PointLight) {
-        fnvMix3(h, o.position), fnvMix3(h, o.color);
-        fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
-        // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
-        // the flag or the flicker needs a rebuild like any baked change.
-        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
+        // A BAKED light's pose/color/falloff is baked into vertex colors, so
+        // any edit needs a rebuild. A DYNAMIC light reads its object data
+        // every frame - since livelink v4 its transform, color, brightness,
+        // radius, flicker and spot angle STREAM instead, so they stay out of
+        // the recipe. What still rebuilds: the dynamic flag itself, the beam
+        // (its bags exist per light from scene setup) and the spot STYLE
+        // (the pool's texture - gobo vs corona - is chosen at setup).
+        if (!o.lightDynamic) {
+            fnvMix3(h, o.position), fnvMix3(h, o.color);
+            fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+            fnvMixF(h, o.lightFlicker);
+        }
+        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f);
+        fnvMixF(h, o.lightSpot ? 1.0f : 0.0f);
         fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were
@@ -7615,6 +7734,24 @@ std::string refreshGenerated(const Project& p) {
             f.write(reinterpret_cast<const char*>(png.data()),
                     (std::streamsize)png.size());
         }
+    }
+
+    // The camera flashlight's gobo (docs/flashlight.md): the pool patch under
+    // the beam takes its STs from the light's own frustum, so this image IS the
+    // shape of the light. Gated exactly like the sprites above -
+    // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
+    // with no flashlight pays no GS VRAM for it. Written through writeFile so
+    // an unchanged bake keeps its mtime and the build stays incremental.
+    if (templates::projectUsesFlashlight(p)) {
+        std::vector<unsigned char> png;
+        if (!menubake::bakeFlashGoboPNG(png))
+            return "Flashlight gobo bake failed";
+        if (auto err = writeFile(
+                fs::path(p.dir) / "res" / "hud" / "flashlight-gobo.png",
+                std::string(reinterpret_cast<const char*>(png.data()),
+                            png.size()));
+            !err.empty())
+            return err;
     }
 
     // Game menu panels: derived from project data (labels, colors), so

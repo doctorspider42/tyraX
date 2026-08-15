@@ -368,6 +368,44 @@ struct SceneObject {
     // For things that TUMBLE it is worth all of that; for things that merely
     // slide, leaving bakedLighting off is cheaper and looks better.
     bool dynamicLighting = false;
+    // The object's TEXTURE already contains its lighting (docs/prelit-models.md
+    // - litbake bakes the scene's gathered light into a per-object map_Kd and
+    // sets this). Its vertex colours then go NEUTRAL: no ambient, no N.L, no
+    // baked point lights, no emissive pools, because every one of those is
+    // already in the albedo and adding them again lights the surface twice.
+    //
+    // This is the only route to per-PIXEL static light on a textured surface -
+    // the lightmap atlas is additive and cannot multiply a texture (see the
+    // module header) - and it is what the survival-horror games of the era did.
+    // It costs the object its own texture, so it is a per-object decision.
+    //
+    // The DYNAMIC light still lands on top: the flashlight's projected pool,
+    // its cone, and the live point lights are all added at run time.
+    bool prelit = false;
+    // --- pre-lit BOOKKEEPING (docs/prelit-models.md, "Managing pre-lit
+    // objects"). None of this reaches the game: it is what turns a one-shot
+    // button into a managed mechanism - the author's intent, what the last bake
+    // saw, and the way back.
+    //
+    // The author's statement "this object should ship pre-lit". Set by a
+    // successful bake, cleared by Revert. It is what "Bake pending" and
+    // --bake-prelit iterate: `prelit` says the texture carries light TODAY,
+    // this says it is supposed to.
+    bool prelitWanted = false;
+    // litbake::signature at the last bake - the scene's light, this object's
+    // transform, the model, the source material and the bake parameters, in one
+    // number. Fresh = it still equals the signature computed now; 0 = never
+    // baked. Serialized as a hex STRING (the ProcGraph::bakedHash precedent):
+    // a JSON number loses 64-bit precision above 2^53, which would make a
+    // freshly baked object read as stale the moment it was re-loaded.
+    uint64_t prelitSig = 0;
+    // The materialPath this object had BEFORE its first bake, so Revert can put
+    // it back. "" is a legitimate value (the model's own mtllib) and is exactly
+    // what an un-overridden model reverts to, which is why the writer may omit
+    // it at "" without losing anything. Filled on the FIRST bake only - a
+    // re-bake must never overwrite it with the -lit path it just assigned.
+    // An ASSET PATH, so it joins App::retargetAssetPath.
+    std::string prelitSource;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -550,6 +588,15 @@ struct SceneObject {
     // by the Set Light flow node. Max 8 dynamic lights per scene.
     bool lightDynamic = false;
     float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Spot style (dynamic lights only): the light becomes a CONE down the
+    // object's local -Y - unrotated it points straight down, a ceiling lamp
+    // or a street light; rotate the object to aim it. The cone lights
+    // nearby meshes per vertex through the same engine slot the flashlight
+    // uses, and its footprint on the ground is drawn like the flashlight's
+    // pool: the gobo texture projected per pixel from the light's own
+    // frustum (docs/flashlight.md, "A scene light with the same trick").
+    bool lightSpot = false;
+    float lightSpotAngle = 25.0f;  // cone half-angle, degrees
     // Visible beam drawn at the light source (additive, follows the light's
     // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
     // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
@@ -911,7 +958,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
-           a.dynamicLighting == b.dynamicLighting &&
+           a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
+           a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
+           a.prelitSource == b.prelitSource &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -960,6 +1009,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
            a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightSpot == b.lightSpot && a.lightSpotAngle == b.lightSpotAngle &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
@@ -1292,6 +1342,27 @@ struct ProjectSettings {
     // like the layer streaming). 0 = whole map resident. Large maps at high
     // detail NEED this - the full mesh would not fit in the PS2's 32 MB.
     float terrainViewDistance = 0.0f;  // world units, 0 = off
+    // Distance detail (docs/terrain-lod.md): beyond this range the game builds
+    // terrain chunks from every 2nd heightmap sample, and beyond 2.2x it from
+    // every 4th - a quarter and a sixteenth of the triangles, stitched to their
+    // neighbours so no crack shows. It is the OTHER half of the answer to a big
+    // map: the view distance decides how much terrain exists at all, this
+    // decides what the part you can see costs. 0 = every chunk at full detail,
+    // which is what every project did before the setting existed.
+    // Gameplay is unaffected - collision and every height query read the
+    // heightmap, never the mesh.
+    float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
+    // false = silhouette slots: the caster's mesh silhouette from the torch,
+    // sampled on a ground patch and painted on the wall behind - mesh-accurate
+    // SHAPES, but light still leaks through unflagged casters and the four
+    // shadow-map slots are the ceiling. true = SHADOW VOLUMES: extruded
+    // occluder boxes stencil-counted in the framebuffer's destination alpha
+    // (the survival-horror era's own arrangement), and every torch light pass
+    // draws only where the mask says lit - occlusion exact per pixel against
+    // the real z buffer, for EVERY solid in the beam, no caster flag needed.
+    // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
+    bool flashShadowVolumes = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -1407,6 +1478,41 @@ struct ProjectSettings {
     float giProbeSpacing = 3.0f; // world units between probes, horizontally
     float giProbeHeight = 2.0f;  // ...and between vertical levels
     int giProbeLevels = 4;       // vertical levels above the lowest ground
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). Project-wide
+    // for the same reason the GI knobs above are: these are bake quality, not
+    // part of the ambience-preset mood overlay. Nothing here reaches the game -
+    // the occlusion is multiplied into the model's own texture at build
+    // (modelao + texbake), so it costs no extra GS VRAM at all.
+    //
+    // FALSE in the struct, TRUE in project::create (the aoEnabled precedent):
+    // a project saved before this existed must keep its look, a new one should
+    // have it out of the box.
+    bool modelAo = false;
+    // ao' = 1 - strength * (1 - ao). An apply-time remap, so changing it
+    // re-multiplies rather than re-baking.
+    float modelAoStrength = 0.7f;
+    int modelAoRays = 64;      // hemisphere rays per texel
+    float modelAoDist = 0.0f;  // occlusion reach in world units; 0 = auto
+                               // (25% of the model's bounding-box diagonal)
+    // Pre-lit objects (docs/prelit-models.md, "Managing pre-lit objects"):
+    // re-bake every prelitWanted object whose texture went STALE right before
+    // a build, the way stale procedural volumes are baked. Off by default and
+    // deliberately so - the gibake rule is that a bake taking seconds is
+    // pressed, not implied; this is the opt-in for a project whose author
+    // would rather never see a stale texture ship. Only stale objects are
+    // touched, so a build with everything fresh costs nothing.
+    bool prelitAutoBake = false;
+    // The same opt-in for global illumination (docs/global-illumination.md,
+    // "The bake is explicit, and cached"): re-bake every scene whose GI cache
+    // is absent or STALE right before a build. Off by default for the same
+    // reason - and because a GI bake is minutes on a big scene - but the
+    // silent alternative is worse than it looks: a stale cache drops the whole
+    // scene back to the pre-GI lighting without a word, and both GI examples
+    // shipped that way for a while before anyone noticed. Only stale scenes are
+    // touched (content-hashed cache), so a build with everything fresh costs one
+    // signature pass. Requires giEnabled; does nothing otherwise.
+    bool giAutoBake = false;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -1586,6 +1692,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.unitsPerMeter == b.unitsPerMeter &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
+           a.terrainLodDistance == b.terrainLodDistance &&
+           a.flashShadowVolumes == b.flashShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&
@@ -1611,6 +1719,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.giProbeSpacing == b.giProbeSpacing &&
            a.giProbeHeight == b.giProbeHeight &&
            a.giProbeLevels == b.giProbeLevels &&
+           a.modelAo == b.modelAo &&
+           a.modelAoStrength == b.modelAoStrength &&
+           a.modelAoRays == b.modelAoRays && a.modelAoDist == b.modelAoDist &&
+           a.prelitAutoBake == b.prelitAutoBake &&
+           a.giAutoBake == b.giAutoBake &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
@@ -2941,6 +3054,14 @@ struct Project {
     // Only used when a mesh LOD distance is in play (Preferences > Rendering
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
+    // Per-asset override of ProjectSettings::modelAo, keyed by the model's
+    // asset path ("res/models/shed.obj"): 1 = always bake its self-AO into its
+    // texture, 2 = never. Absent (or 0) follows the project default, which is
+    // why an untouched project writes no key at all. See modelao.hpp.
+    // Deliberately NOT part of rebuildAssetUsage - it is a SETTING keyed by an
+    // asset, not a reference to one, and counting it as a use would make every
+    // imported model read as used.
+    std::map<std::string, int> modelAoMode;
     // Real-world size of an imported model, keyed by its asset path:
     // how many METERS one unit of the file measures. An entry exists only
     // for models whose real size is known - written when a model is imported
@@ -3370,6 +3491,7 @@ enum class Section {
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)
+    ModelAo,         // "modelAoMode" (per-model automatic-AO overrides)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
@@ -3397,7 +3519,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 21,
+static_assert(kSectionCount == 22,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

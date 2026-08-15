@@ -1873,6 +1873,14 @@ void App::matEdBakeSection(const std::string& entryName,
             "Writes ao/curvature/thickness/bent/normal/position PNGs next\n"
             "to the .mtl - mask sources for wear & dirt, or exports for\n"
             "external tools.");
+    // This block is the HAND bake, per material, once. The same occlusion is
+    // also available for every model asset without asking - said here because
+    // this is where someone about to do it by hand is standing.
+    ImGui::TextDisabled("Scene-wide automatic AO: Tools > Baked Lighting");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Bakes every .obj model's own AO into its texture at build,\n"
+            "cached per asset. docs/ambient-occlusion.md");
 }
 
 // --- Smart masks (docs/material-baking.md) -----------------------------------

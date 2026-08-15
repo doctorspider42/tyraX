@@ -190,6 +190,26 @@ void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba);
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
 std::string flareFileName(int kind);
 
+// --- Flashlight gobo (docs/flashlight.md) ------------------------------------
+// The camera flashlight's ground pool is a PROJECTED texture: the patch under
+// the beam takes its STs from the light's own frustum, so this image IS the
+// shape of the light and the terrain's vertex grid stops deciding it. Shape in
+// RGB - the pool is an additive bag (Cs*FIX + Cd), which never reads texture
+// alpha, same rule as the corona (kind 2 above).
+//
+// 128x128 rather than the flares' 64: this one is stretched over several world
+// units directly under the player's eye, and it is the thing being looked AT.
+// Costs ~6% of the ~1.08 MB texture heap (docs/gs-vram.md), so refreshGenerated
+// bakes it - and scene_data.hpp's FLASHLIGHT_USED gates the load - only for
+// projects that can actually show a flashlight (templates::projectUsesFlashlight).
+//
+// The profile fades to black well before the border (kGoboEdge below), because
+// the projected STs are clamped on the EE and a lit edge texel would smear
+// outward into a hard rectangle.
+constexpr int kFlashGoboSize = 128;
+void bakeFlashGoboRGBA(std::vector<unsigned char>& rgba);
+bool bakeFlashGoboPNG(std::vector<unsigned char>& png);
+
 // --- Sun and moon discs (docs/day-night-cycle.md) ----------------------------
 // The two sky bodies a day/night cycle draws, baked to res/hud/ by
 // refreshGenerated exactly like the flare sprites above and gated the same way

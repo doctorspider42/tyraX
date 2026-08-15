@@ -370,10 +370,16 @@ void StaPipQBufferRenderer::sendObjectData(
 
     packet2_utils_gs_add_lod(objectDataPacket, lod);
 
+    // Modified by TyraX: the destination-alpha gate (PipelineInfoBag::
+    // dateLit) rides the same in-band TEST qword every mesh already emits -
+    // DATE = 1 draws this bag's pixels only where the framebuffer alpha's
+    // MSB is 0, which is how the flashlight's shadow volumes mask its light.
+    const int date = bag->info->dateLit ? 1 : 0;
     if (bag->info->zTestType == PipelineZTest_AllPass) {
-      packet2_add_2x_s64(objectDataPacket,
-                         GS_SET_TEST(0, 0, 0, 0, 0, 0, 0, ZTEST_METHOD_ALLPASS),
-                         GS_REG_TEST);
+      packet2_add_2x_s64(
+          objectDataPacket,
+          GS_SET_TEST(0, 0, 0, 0, date, 0, 0, ZTEST_METHOD_ALLPASS),
+          GS_REG_TEST);
     } else if (bag->info->zTestType == PipelineZTest_TestOnly) {
       // Depth-tested, no z write: alpha test fails every pixel and AFAIL
       // keeps the z buffer (GS FB_ONLY - color still written). The ZBUF
@@ -381,7 +387,7 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_add_2x_s64(
           objectDataPacket,
           GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_ALLFAIL, 0x00,
-                      ATEST_KEEP_ZBUFFER, DRAW_DISABLE, DRAW_DISABLE,
+                      ATEST_KEEP_ZBUFFER, date, DRAW_DISABLE,
                       DRAW_ENABLE, rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     } else {
@@ -397,7 +403,7 @@ void StaPipQBufferRenderer::sendObjectData(
       packet2_add_2x_s64(
           objectDataPacket,
           GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00, ATEST_KEEP_ALL,
-                      DRAW_DISABLE, DRAW_DISABLE, DRAW_ENABLE,
+                      date, DRAW_DISABLE, DRAW_ENABLE,
                       rendererCore->gs.zBuffer.method),
           GS_REG_TEST);
     }

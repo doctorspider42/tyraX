@@ -80,12 +80,12 @@ where the gradient is. See docs/emissive-materials.md for the numbers.
 - **Spawned clones and physics bodies** receive through a per-vertex
   fallback (`aoShadeMul` at geometry rebuild — they re-shade when they move
   or wake), not the atlas.
-- **Imported models neither receive nor self-occlude** for now: per-vertex
+- **Imported models do not RECEIVE** the scene's contact shadows: per-vertex
   occlusion on authored low-poly meshes reads as triangulated shading. The
-  whole self-AO pipeline (`aobake::modelAO`, the `.aov` sidecar, the
-  `LeanObjLoader` reader) stays in the tree, disabled, for a future
-  per-model lightmap-unwrap approach. Animated models relight dynamically
-  and are unaffected, like with baked point lights.
+  per-vertex pipeline (`aobake::modelAO`, the `.aov` sidecar, the
+  `LeanObjLoader` reader) stays in the tree, disabled. They **do self-occlude**
+  — see [Model AO](#model-ao) below, which is per texel and free. Animated
+  models relight dynamically and are unaffected, like with baked point lights.
 
 ## Static by design
 
@@ -113,3 +113,93 @@ anything the bake reads) need a rebuild — the LIVE chip flips amber.
   and the measured cost.
 - **Build time**: a few hundred ms per scene, re-run on every build
   (deterministic, no caching needed).
+
+## Model AO
+
+*Tools > Baked Lighting > Model AO. Headless:
+`tyrax-editor --bake-model-ao <projectDir> [--texbake]`.*
+
+Everything above is about the **scene**: how objects darken each other and the
+ground. Model AO is the other half — a model darkening **itself**, in the
+crease where its own two surfaces meet, under its own eave, inside its own
+doorway. In a real game most objects are textured `.obj` models, and until this
+existed they had no automatic occlusion at all: the lightmap atlas refuses a
+textured surface (it is additive, and an additive term over a texture blows out
+its dark texels) and baked GI reaches them only as flat per-vertex probe light.
+
+It is the [Material Editor's map bake](material-baking.md) — the same
+`matbake` raytracer, the same UV-space rasterization — run **per model asset**,
+automatically, and multiplied into the texture that model already ships.
+
+**Why that is affordable comes entirely from what is being baked:**
+
+- A model's own surface occlusion is **transform-invariant**. It does not
+  change when you move, rotate or scale the object, so every instance of the
+  asset shares one map. Twenty crates cost one bake.
+- The pixels ride in an **existing** texture, so it costs **zero extra GS
+  VRAM** ([gs-vram.md](gs-vram.md)). That is the difference between this and
+  [pre-lit models](prelit-models.md), which buy per-pixel *scene* light at one
+  unique texture per object.
+
+### The knobs
+
+| Control | What it does |
+|---|---|
+| **Bake model AO into textures** | The project default. New projects have it on; a project saved before it existed keeps its look until you tick it. |
+| **Strength** | `ao' = 1 − strength × (1 − ao)`. An *apply-time* remap — moving it re-multiplies, it never re-bakes. |
+| **Rays per texel** | Hemisphere rays. More = less noise, linearly more bake time. |
+| **Distance** | How far the occlusion reaches, in world units. 0 = a quarter of the model's own bounding-box diagonal, which darkens where surfaces *meet* rather than shading the whole prop. |
+| **Per-asset column** | *Default* / *On* / *Off*, keyed by the model's asset path (`Project::modelAoMode`). |
+
+These are project-wide bake quality, deliberately **not** part of the ambience
+preset overlay — a preset changes what the light looks like, this does not.
+
+### What it refuses to bake, and why
+
+The panel names every one of these on its own row, and so does the build log.
+An AO map that silently is not there is indistinguishable from a broken
+feature.
+
+| Skipped | Why |
+|---|---|
+| animated `.glb`/`.fbx` | They relight dynamically, and their textures go down the `animBakedTextureRel` path. |
+| an untextured material | It already has the scene lightmap route, which costs no texture at all. |
+| **a texture used by more than one model asset** | Two UV layouts over one image: a single multiply would be wrong for both. This is what makes a procedurally-scattered project (whose chunks all share the source asset's texture) skip cleanly. |
+| **a pre-lit material** (`res/materials/*-lit.png`) | Its gather already contains occlusion; multiplying AO in again would darken the same shadow twice. |
+
+### The cache
+
+`.res-baked/modelao/<pair>-<signature>.png`, one grayscale map per (model,
+texture) pair, never shipped. The signature is a **content** hash — the `.obj`
+bytes, every `.mtl` it resolves, the texture's *dimensions*, the ray/distance
+knobs and the module version — following the same rule
+[GI](global-illumination.md) uses: never mtimes, because a checkout or a copy
+is not an edit.
+
+Deliberately **not** in it: the texture's **pixels**. AO is a function of
+geometry and UVs alone, so repainting a texture does not throw the bake away.
+Nor is *Strength*, which is applied at multiply time.
+
+### Where the multiply happens
+
+In exactly one function (`modelao::applyToRgba`), called from three places, so
+they cannot drift:
+
+1. **`texbake`**, at build — into the mirrored PNG's RGB, before the PS2-valid
+   resize and the palette quantization, so the CLUT is computed from the pixels
+   the console will display. Atlas members get it as they are composited into
+   their page. **Sources in `res/` are never written.** A headless `--build`
+   is therefore correct with no editor running.
+2. **The editor viewport**, as a texture is uploaded — so the preview shows
+   what the console will.
+3. **[litbake](prelit-models.md)**, into the albedo it reads — otherwise an
+   object would lose its self-AO the moment it went pre-lit.
+
+**Alpha is never touched.** StaPip's GS alpha test discards `alpha == 0`
+texels, so writing occlusion into alpha would delete a pass — the same rule the
+lightmap alpha floor above exists for.
+
+The editor bakes missing maps on a worker thread whenever the settings or the
+per-asset overrides change; a build bakes whatever is still missing itself.
+Bake time is seconds at these resolutions (the map is 64–256 px square,
+derived from the texture it multiplies into).
