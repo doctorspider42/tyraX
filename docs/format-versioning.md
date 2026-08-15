@@ -17,8 +17,10 @@ irreversible is about to happen.
 A project saved before versioning existed has no `formatVersion` field and
 reads as **v0**, which this editor no longer opens — see the floor below.
 
-The editor reads **`version::kMinFormatVersion` … `kFormatVersion`**, currently
-v1 … v24.
+The editor reads **`version::kMinFormatVersion` … `kFormatVersion`**. Both live
+in `src/version.hpp`; the range is deliberately not restated here, for the same
+reason the per-version history is not (below) — a number copied into prose is a
+number that goes stale. The refusal messages quote the live values.
 
 ## What happens when you open a project
 

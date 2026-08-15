@@ -8722,7 +8722,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
 // skipped while the channel is still busy, so the sample loops seamlessly.
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
-// "on the player" wherever they are (dialogs, narration). Hide Object mutes.
+// "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
@@ -14631,7 +14631,7 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // the planar speed as a fraction of full walk speed. The mapping is trivial -
 // idle / walk / run by speed, jump while airborne - and the avatar's playback
 // speed tracks the real speed so the feet don't slide. The escape hatch: if a
-// non-locomotion clip is currently playing (a script/flow "Play Animation"
+// non-locomotion clip is currently playing (a script or an Animation node
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
@@ -23939,7 +23939,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "                  // 5 custom (physics below)\n"
            "  int emitCount;  // emitters: particle pool size (density)\n"
            "  float emitSize; // emitters: base particle size\n"
-           "  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)\n"
+           "  int emitEnabled; // emitters: 0 = off (Set Object Visible enables)\n"
            "  int emitFollow;  // emitters: 1 = position is an offset from the player\n"
            "  float emitSpeed;   // custom: emission speed along rotated +Y, units/s\n"
            "  float emitSpread;  // custom: cone half-angle, degrees\n"
@@ -35670,7 +35670,7 @@ static std::string liveLinkScript(const Project& p) {
            "the editor:\n"
            "    // hide them (geometry stays baked until a rebuild; collision "
            "remains -\n"
-           "    // an approximation, exactly like the Hide Object flow node).\n"
+           "    // an approximation, exactly like Set Object Visible (hide)).\n"
            "    const int authored =\n"
            "        SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS\n"
            "            ? SCENE_OBJECT_COUNTS[ctx.scene]\n"

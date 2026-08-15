@@ -8179,7 +8179,7 @@ void App::drawLayersSection() {
         ImGui::SetTooltip(
             "Streaming layers (per scene). Assign objects to a layer in\n"
             "Properties; the game can then drop the whole layer from memory\n"
-            "and stream it back with the Load / Unload Layer flow nodes -\n"
+            "and stream it back with the Set Layer Loaded flow node -\n"
             "GTA3-style interior streaming. The eye hides the layer in the\n"
             "editor only; \"start\" = in memory when the scene starts.\n"
             "Deleting a layer keeps its objects (they become unassigned).");
