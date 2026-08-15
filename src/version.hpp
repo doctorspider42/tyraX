@@ -16,8 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.38.0 (the lighting redesign: baked light gets one home, and a textured
-// model finally occludes itself). Lighting had accumulated four separate
+// 1.39.1 (the volumes learn who actually casts, and the mask stops leaking
+// onto the screen; renumbered from 1.38.1 when the lighting redesign took
+// its slot): three reports from the reworked backlot. Volume slots
+// go NEAREST-FIRST (they went in object-table order, and the scene's three
+// merged facades - each huge enough to intersect the cone whenever the beam
+// faced them - ate all of them, so the dumpster and the truck never cast:
+// "no dynamic shadows at all"); a THIN receiver (the street lamp) no longer
+// claims a light slot nor gives up its cone, and the box the beam actually
+// HITS is guaranteed one (standing by the lamp used to unlight the facade
+// behind it); and the destination-alpha mask is REPAINTED to neutral 0x80
+// after the last DATE pass - the SDTV flicker filter blends its two read
+// circuits by per-pixel framebuffer alpha, so a mask left in the channel
+// was shown by the CRTC as translucent wedges (the "broken triangles" at
+// torch toggles, caught by frame-stepping PCSX2). The repaint runs from its
+// OWN packet2: sharing begin()'s buffer let a FINISH-parity slip rebuild a
+// packet the GIF was still fetching, which killed the light entirely.
+//
+// 1.39.0 (the lighting redesign: baked light gets one home, and a textured
+// model finally occludes itself; authored as 1.38.0 - the examples split
+// took that number first, and the claim that arrives second renumbers).
+// Lighting had accumulated four separate
 // places - AO in the ambience presets, model AO by hand in the Material
 // Editor, GI in its own tab, and a per-object pre-lit button in Properties -
 // and the automatic half of that did the least for the thing a real game is
@@ -159,22 +178,6 @@
 // that can light a floor). The gobo is not a default change - it replaces a
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
-//
-// 1.38.1 (the volumes learn who actually casts, and the mask stops leaking
-// onto the screen): three reports from the reworked backlot. Volume slots
-// go NEAREST-FIRST (they went in object-table order, and the scene's three
-// merged facades - each huge enough to intersect the cone whenever the beam
-// faced them - ate all of them, so the dumpster and the truck never cast:
-// "no dynamic shadows at all"); a THIN receiver (the street lamp) no longer
-// claims a light slot nor gives up its cone, and the box the beam actually
-// HITS is guaranteed one (standing by the lamp used to unlight the facade
-// behind it); and the destination-alpha mask is REPAINTED to neutral 0x80
-// after the last DATE pass - the SDTV flicker filter blends its two read
-// circuits by per-pixel framebuffer alpha, so a mask left in the channel
-// was shown by the CRTC as translucent wedges (the "broken triangles" at
-// torch toggles, caught by frame-stepping PCSX2). The repaint runs from its
-// OWN packet2: sharing begin()'s buffer let a FINISH-parity slip rebuild a
-// packet the GIF was still fetching, which killed the light entirely.
 //
 // 1.38.0 (one example was proving two features, so now there are two): the
 // night-walk example is split. deep-forest takes the scale story - the same
@@ -978,7 +981,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 38
+#define TYRAX_VERSION_MINOR 39
 #define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x

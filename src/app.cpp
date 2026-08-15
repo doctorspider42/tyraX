@@ -2139,6 +2139,53 @@ void App::drawToolbar() {
         }
     }
 
+    // Build status, last on the bar. It lived in the Project panel, which is
+    // the least likely place for it to be seen - that panel is routinely docked
+    // behind another tab, while this bar carries every other build control and
+    // is always on screen. Hidden while idle and after a clean build, like the
+    // SESSION chip: a permanent "ready" chip is one more thing to read and says
+    // nothing. Clicking brings the Output panel forward, which is where both
+    // the progress and the failure are. The hit box carries a REAL label rather
+    // than a "##" id (the chat window's "Copy message" precedent): an
+    // InvisibleButton draws nothing either way, and a label-less widget is one
+    // --ui-script can never target.
+    {
+        const bool failed = runner_.state() == Runner::State::Failed;
+        if (busy || failed) {
+            const char* label = busy ? "BUILDING" : "BUILD FAILED";
+            const ImU32 c = busy ? colInfo : colStop;
+            ImGui::SameLine(0.0f, gapGroup);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float r = h * 0.18f;
+            const float textW = ImGui::CalcTextSize(label).x;
+            const float chipW = r * 2.0f + 4.0f + textW;
+            if (ImGui::InvisibleButton("Build status", ImVec2(chipW, h)))
+                pendingFocusWindow_ = "Output";
+            chipHover(dl, p, chipW);
+            const ImVec2 mid(p.x + r, p.y + h * 0.5f);
+            if (busy) {
+                // A drawn arc rather than the "|/-\" it replaces: a spinning
+                // ASCII character is indistinguishable from a stuck one at this
+                // size, and the rest of the bar is vector glyphs anyway.
+                const float t = (float)ImGui::GetTime() * 5.0f;
+                dl->PathArcTo(mid, r, t, t + 4.2f, 20);
+                dl->PathStroke(c, 0, ImMax(1.5f, h * 0.07f));
+            } else {
+                dl->AddCircleFilled(mid, h * 0.14f, c);
+            }
+            dl->AddText(ImVec2(p.x + r * 2.0f + 4.0f,
+                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                        c, label);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    busy ? "Building - Stop cancels it (or Build > Cancel "
+                           "Build).\nClick for the Output panel."
+                         : "The last build failed. Click for the Output "
+                           "panel - the first error is in there.");
+        }
+    }
+
     // The Play caret's dropdown (anchored just under the caret): which machine
     // to run on, then the run variants for it. Debug needs the debug build
     // profile - Live Link, the Debugger and Live Logic only exist there - so
@@ -4271,18 +4318,10 @@ void App::drawProjectWindow() {
     drawSoundsSection();
     drawScriptsSection();
 
-    // Building lives in the top-level Build menu (F5 / F6 / Ctrl+Shift+B);
-    // the panel only mirrors the runner state so a build's progress is
-    // visible without the Output window.
-    if (runner_.busy()) {
-        ImGui::Separator();
-        ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Cancel")) runner_.cancel();
-    } else if (runner_.state() == Runner::State::Failed) {
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
-    }
+    // Build state is NOT mirrored here any more - it is the toolbar's BUILDING /
+    // BUILD FAILED chip (drawToolbar), which is on screen whether or not this
+    // panel is the front tab of its dock node. Cancelling is the toolbar's Stop
+    // button and Build > Cancel Build.
 
     ImGui::End();
 }
