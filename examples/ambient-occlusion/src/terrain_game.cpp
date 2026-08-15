@@ -415,6 +415,15 @@ std::vector<Vec4>* g_litNormals = nullptr;
  * puts the whole thing back. */
 bool g_giLightmap = false;
 
+/** ...and this one: the surface's light is already IN ITS TEXTURE
+ * (docs/prelit-models.md - litbake multiplied the scene's gathered light into
+ * this object's own map_Kd on the host). Its vertex colour is therefore
+ * NEUTRAL: not black like the lightmap route, which has a pass coming to put
+ * the light back, but plain white, because the texture is the finished
+ * article. The dynamic light - the flashlight's pool, its cone, the live point
+ * lights - still lands on top at run time. */
+bool g_prelitTex = false;
+
 /** Point lights (SceneObject type 9) of the active scene, collected once per
  * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
  * object meshes; scanning the whole SCENE_OBJECTS table there thrashes the
@@ -514,10 +523,22 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
       float v = c * 128.0F * k;
       return v > 255.0F ? 255.0F : v;
     };
-    core.addDynPointLight(
-        Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
-        Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
-        d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+    if (d.lightSpot) {
+      // The cone points down the object's local -Y: unrotated, a lamp
+      // shines straight down; the rotation gizmo aims it.
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      core.addDynSpotLight(
+          Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+          Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+          Tyra::Vec4(sd.x, sd.y, sd.z, 0.0F),
+          d.lightRadius > 0.01F ? d.lightRadius : 0.01F, d.lightSpotAngle,
+          1.6F);
+    } else {
+      core.addDynPointLight(
+          Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+          Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+          d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+    }
   }
 }
 
@@ -962,6 +983,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
     // mistake the lightmap/probe routes are arranged to avoid.
     g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
                                         : Vec4(n.x, n.y, n.z, 0.0F));
+    shade = {1.0F, 1.0F, 1.0F};
+    giHere = true;
+  } else if (g_prelitTex) {
+    // The texture IS the lit surface (docs/prelit-models.md). NEUTRAL, not
+    // black: the lightmap route below goes black because a pass is coming to
+    // put the light back, and here nothing is coming - the modulate has to
+    // leave the texture exactly as it was baked.
     shade = {1.0F, 1.0F, 1.0F};
     giHere = true;
   } else if (g_giLightmap) {
@@ -2672,14 +2700,37 @@ void TerrainGame::loop() {
     gameMenuStackDepth = 0;
   }
   if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // The cone waits ONE frame after the toggle. The receivers' spot-off flags
+  // (updateFlashSpotOff) are computed in the light-pool pass, AFTER the
+  // scene's objects have drawn - so on the enable frame every big receiver
+  // still had its cone armed and took the full per-vertex term once: the OLD
+  // blocky-triangle look, strobing when the toggle is spammed (reported).
+  // The projected pool needs no warm-up and lights the same frame; only the
+  // cheap cone is deferred, and on the props that keep it one frame is
+  // invisible.
+  static bool flashSpotArmed = false;
+  const bool flashOnNow = g_flashEnabled && g_flashOn;
+  if (flashOnNow && flashSpotArmed) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
+    // The cone is a FILL now, not the light (docs/flashlight.md): the ground
+    // and every big flat surface take the projected pool instead, and what is
+    // left for this term is the small stuff - props, trees, the avatar - where
+    // the pool cannot go. So it is deliberately dimmer and MUCH softer-edged
+    // than the light it used to be.
+    //
+    // Softness is the edge's crispness, and on a coarse mesh it IS the artifact:
+    // the cone term is evaluated per vertex, so a hard edge crossing a triangle
+    // metres wide shows up as that triangle, and a model with few of them reads
+    // as a bag of bright shards. A wide, gentle ramp spreads the same change
+    // over enough geometry that the interpolation stops being visible. It costs
+    // a fuzzier beam edge, which is what a torch beam has anyway.
     engine->renderer.core.setSpotLight(
-        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
-        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+        Color(FLASHLIGHT_R * 0.7F, FLASHLIGHT_G * 0.7F, FLASHLIGHT_B * 0.7F),
+        cameraPosition, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  flashSpotArmed = flashOnNow;
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
@@ -2987,6 +3038,15 @@ void TerrainGame::buildScene() {
   // it globally) and the scene lights paint their ground pools as smooth
   // additive patches instead (updateAndRenderLightPools).
   infoBag->dynLightPick = false;
+  // ...and out of the camera SPOT too, when the project has a flashlight
+  // (docs/flashlight.md). That light is per VERTEX, and a terrain cell is
+  // never finer than one world unit, so on the ground the cone is not a cone -
+  // it is a Gouraud diamond that moves in cell-sized steps. The beam's real
+  // shape is drawn there per pixel by its projected pool, and running both
+  // gives the worst of the two: a soft ellipse sitting inside a blocky wedge.
+  // The pool is only built for a project that HAS a flashlight, so the flag
+  // follows the same predicate - nothing changes for a project without one.
+  infoBag->spotLit = !FLASHLIGHT_USED;
   // Always classify per package against the frustum: packages fully outside
   // are skipped, packages touching a plane get per-triangle clipping
   // (CLIP_PRECISE, Project > Preferences) or per-triangle culling (fast -
@@ -3005,6 +3065,8 @@ void TerrainGame::buildScene() {
   layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   layerInfoBag->fullClipChecks = CLIP_PRECISE;
   layerInfoBag->blendingEnabled = true;
+  // A painted layer is the same ground, so it answers the spot the same way.
+  layerInfoBag->spotLit = !FLASHLIGHT_USED;
   // Scene-lightmap ADD pass (docs/emissive-materials.md): same shape, but the
   // additive equation Cv = Cs*FIX/128 + Cd at full strength, and unfogged -
   // GS fog would add the fog color through an additive blend and brighten
@@ -3311,6 +3373,13 @@ void TerrainGame::buildScene() {
     if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
+    // The camera flashlight's gobo (docs/flashlight.md): the pool patch takes
+    // its STs from the light's own frustum, so this 128x128 IS the shape of the
+    // beam. FLASHLIGHT_USED matches the refreshGenerated predicate that bakes
+    // it, so a project with no flashlight pays no VRAM for it.
+    if (FLASHLIGHT_USED)
+      flashGoboTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flashlight-gobo.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
@@ -5147,6 +5216,8 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The flashlight's receivers are indices into the table that just went away.
+  flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.
   for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
     runtimeObjects[i].active = false;
@@ -8043,26 +8114,196 @@ void TerrainGame::setupLightBeams() {
   }
 }
 
+// An ORIENTED box the flashlight's beam can land on - see projCollectBoxes,
+// which fills these, and projWallHit, which intersects them. Declared up here
+// because updateAndRenderLightPools is the consumer and it comes first.
+struct ProjBox {
+  float o[3];                 // centre, world
+  float ax[3], ay[3], az[3];  // rotated unit axes
+  float h[3];                 // half extents along them
+  int obj;                    // index into runtimeObjects
+  int type;                   // SceneObjectData::type
+};
+std::vector<ProjBox> g_projBoxes;
+
+// The shadow volumes are cut from BOXES, and one AABB around a sparse model
+// lies about its shape: a lamp post's box (pole plus arm) is a slab of
+// mostly air, and its "shadow" blotted out whole walls. So a model's volume
+// is cut from up to three TIGHT sub-boxes instead: split the triangles at
+// the median of the box's longest axis, twice, then greedily merge leaves
+// back wherever the split bought nothing - a solid crate merges back to one
+// box, an L-shape stays a pole and an arm. Each sub-box is convex, which is
+// the one thing the 1-bit destination-alpha trick genuinely requires (the
+// GS cannot COUNT like a stencil, so a non-convex volume's set/clear order
+// lies; a true mesh volume is off the table for exactly that reason).
+struct ShadowSubBox {
+  float mn[3], mx[3];
+};
+// Lazily built per MODEL asset (local space, shared by every instance),
+// keyed by gameModels index; cleared whenever the model table changes size.
+static std::vector<std::vector<ShadowSubBox>> g_shadowSubBoxes;
+
+static void buildShadowSubBoxes(
+    const std::vector<const std::vector<float>*>& parts,
+    std::vector<ShadowSubBox>& out) {
+  struct Tri {
+    float cen[3];
+    float mn[3], mx[3];
+  };
+  std::vector<Tri> tris;
+  for (const std::vector<float>* pv : parts) {
+    const std::vector<float>& v = *pv;
+    const size_t n = v.size() / 8;
+    for (size_t i = 0; i + 3 <= n; i += 3) {
+      Tri t;
+      for (int a = 0; a < 3; ++a) {
+        const float p0 = v[(i + 0) * 8 + a];
+        const float p1 = v[(i + 1) * 8 + a];
+        const float p2 = v[(i + 2) * 8 + a];
+        t.cen[a] = (p0 + p1 + p2) / 3.0F;
+        t.mn[a] = p0 < p1 ? (p0 < p2 ? p0 : p2) : (p1 < p2 ? p1 : p2);
+        t.mx[a] = p0 > p1 ? (p0 > p2 ? p0 : p2) : (p1 > p2 ? p1 : p2);
+      }
+      tris.push_back(t);
+    }
+  }
+  auto boxOf = [&](const std::vector<int>& idx, ShadowSubBox& b) {
+    b.mn[0] = b.mn[1] = b.mn[2] = 1e30F;
+    b.mx[0] = b.mx[1] = b.mx[2] = -1e30F;
+    for (int i : idx)
+      for (int a = 0; a < 3; ++a) {
+        if (tris[i].mn[a] < b.mn[a]) b.mn[a] = tris[i].mn[a];
+        if (tris[i].mx[a] > b.mx[a]) b.mx[a] = tris[i].mx[a];
+      }
+  };
+  // A padded volume, so flat boxes still compare meaningfully.
+  auto volOf = [](const ShadowSubBox& b) {
+    return (b.mx[0] - b.mn[0] + 0.05F) * (b.mx[1] - b.mn[1] + 0.05F) *
+           (b.mx[2] - b.mn[2] + 0.05F);
+  };
+  out.clear();
+  if (tris.empty()) return;
+  std::vector<int> all(tris.size());
+  for (size_t i = 0; i < tris.size(); ++i) all[i] = (int)i;
+  // Median split on the longest axis, applied twice -> up to four leaves.
+  // Iterative on purpose (no std::function in the game TU).
+  auto halve = [&](const std::vector<int>& idx, std::vector<int>& lo,
+                   std::vector<int>& hi) {
+    ShadowSubBox b;
+    boxOf(idx, b);
+    int ax = 0;
+    float best = b.mx[0] - b.mn[0];
+    for (int a = 1; a < 3; ++a)
+      if (b.mx[a] - b.mn[a] > best) best = b.mx[a] - b.mn[a], ax = a;
+    std::vector<int> srt = idx;
+    std::sort(srt.begin(), srt.end(), [&](int l, int r) {
+      return tris[l].cen[ax] < tris[r].cen[ax];
+    });
+    lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
+    hi.assign(srt.begin() + srt.size() / 2, srt.end());
+  };
+  std::vector<std::vector<int>> leaves;
+  if (all.size() < 8) {
+    leaves.push_back(all);
+  } else {
+    std::vector<int> lo, hi;
+    halve(all, lo, hi);
+    std::vector<std::vector<int>> level = {lo, hi};
+    for (std::vector<int>& half : level) {
+      if (half.size() < 8) {
+        leaves.push_back(half);
+        continue;
+      }
+      std::vector<int> l2, h2;
+      halve(half, l2, h2);
+      leaves.push_back(l2);
+      leaves.push_back(h2);
+    }
+  }
+  std::vector<ShadowSubBox> boxes;
+  for (std::vector<int>& lf : leaves) {
+    if (lf.empty()) continue;
+    ShadowSubBox b;
+    boxOf(lf, b);
+    boxes.push_back(b);
+  }
+  // Greedy merge: whenever a union costs little more than its parts, the
+  // split bought nothing - a solid model collapses back to one box.
+  auto tryMerge = [&](float slack) {
+    for (bool again = true; again;) {
+      again = false;
+      for (size_t i = 0; i < boxes.size() && !again; ++i)
+        for (size_t j = i + 1; j < boxes.size() && !again; ++j) {
+          ShadowSubBox u;
+          for (int a = 0; a < 3; ++a) {
+            u.mn[a] = boxes[i].mn[a] < boxes[j].mn[a] ? boxes[i].mn[a]
+                                                      : boxes[j].mn[a];
+            u.mx[a] = boxes[i].mx[a] > boxes[j].mx[a] ? boxes[i].mx[a]
+                                                      : boxes[j].mx[a];
+          }
+          if (volOf(u) <= (volOf(boxes[i]) + volOf(boxes[j])) * slack) {
+            boxes[i] = u;
+            boxes.erase(boxes.begin() + j);
+            again = true;
+          }
+        }
+    }
+  };
+  tryMerge(1.4F);
+  // Cap at three: force-merge the cheapest pairs beyond that.
+  while (boxes.size() > 3) {
+    size_t bi = 0, bj = 1;
+    float bestCost = 1e30F;
+    for (size_t i = 0; i < boxes.size(); ++i)
+      for (size_t j = i + 1; j < boxes.size(); ++j) {
+        ShadowSubBox u;
+        for (int a = 0; a < 3; ++a) {
+          u.mn[a] = boxes[i].mn[a] < boxes[j].mn[a] ? boxes[i].mn[a]
+                                                    : boxes[j].mn[a];
+          u.mx[a] = boxes[i].mx[a] > boxes[j].mx[a] ? boxes[i].mx[a]
+                                                    : boxes[j].mx[a];
+        }
+        const float c = volOf(u);
+        if (c < bestCost) bestCost = c, bi = i, bj = j;
+      }
+    ShadowSubBox u;
+    for (int a = 0; a < 3; ++a) {
+      u.mn[a] = boxes[bi].mn[a] < boxes[bj].mn[a] ? boxes[bi].mn[a]
+                                                  : boxes[bj].mn[a];
+      u.mx[a] = boxes[bi].mx[a] > boxes[bj].mx[a] ? boxes[bi].mx[a]
+                                                  : boxes[bj].mx[a];
+    }
+    boxes[bi] = u;
+    boxes.erase(boxes.begin() + bj);
+  }
+  out = boxes;
+}
+
 // Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
 // terrain patch per dynamic light, textured with the corona sprite (shape
 // in RGB - additive bags ignore texture alpha), tinted by the light color.
 void TerrainGame::setupLightPools() {
   lightPools.clear();
-  if (!beamCoronaTex) return;
-  // A pool is a patch dropped ON the ground: with no terrain (docs/terrain.md)
-  // there is nothing to drop it onto, so the scene simply has none - the beams,
-  // the coronas and the per-vertex light are unaffected.
-  if (!TERRAIN_ENABLED) return;
+  if (!beamCoronaTex && !flashGoboTex) return;
+  // A scene light's pool is a patch dropped ON THE GROUND: with no terrain
+  // (docs/terrain.md) there is nothing to drop it onto, so those simply do not
+  // exist - the beams, the coronas and the per-vertex light are unaffected.
+  // The FLASHLIGHT's pool is projected onto whatever its beam lands on,
+  // receivers included (docs/flashlight.md), so that one exists either way -
+  // which is what makes a torch work in a room built out of placed floors.
+  const bool groundPools = TERRAIN_ENABLED;
   constexpr int kCells = 4;
   // One pool per dynamic point light, plus a last one (objIndex -1) that
-  // follows the camera flashlight's terrain hit.
+  // follows the camera flashlight's beam.
   int poolCount = 1;
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
-      ++poolCount;
+  if (groundPools)
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+      if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
+        ++poolCount;
   lightPools.reserve(poolCount);
   for (int i = 0; i <= SCENE_OBJECT_COUNT; ++i) {
     if (i < SCENE_OBJECT_COUNT) {
+      if (!groundPools) continue;
       const SceneObjectData& d = SCENE_OBJECTS[i];
       if (d.type != 9 || !d.lightDynamic) continue;
     }
@@ -8093,22 +8334,59 @@ void TerrainGame::setupLightPools() {
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
     b.info->dynLightPick = false;  // it IS the light - never re-lit
+    // ...and that has to include the camera spot, which dynLightPick = false
+    // FALLS BACK TO. Without this the flashlight's own pool is itself lit by
+    // the flashlight: VU1 adds the per-vertex cone on top of the projected
+    // texture, on a patch whose vertices are metres apart, and the result is a
+    // Gouraud wedge drawn across the very pool that exists to replace it. It
+    // reads as hard diagonal seams along the patch's triangulation, and it
+    // survived a fix for the ST mapping, one for the near plane and one for
+    // the depth test - because it was none of those.
+    b.info->spotLit = false;
     b.info->fullClipChecks = true;  // big near-camera quads: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = beamCoronaTex;
-    // The flashlight's pool can carry an authored sprite instead - that
-    // texture IS the beam's shape (gobo, cross, cracked lens). Additive,
-    // so the shape lives in RGB; alpha is ignored.
-    if (b.objIndex < 0 && FLASHLIGHT_TEX[0] != '\0') {
-      const std::string want(FLASHLIGHT_TEX);
-      if (!flashPoolTex || flashPoolTexPath != want) {
-        flashPoolTex =
-            engine->renderer.getTextureRepository().add(FileUtils::fromCwd(want));
-        flashPoolTexPath = want;
+    // A SPOT light's pool is the flashlight's trick on a scene light: the
+    // gobo projected from the light's own frustum, per pixel. The corona
+    // stays the fallback when the gobo failed to load.
+    if (b.objIndex >= 0 && b.objIndex < SCENE_OBJECT_COUNT &&
+        SCENE_OBJECTS[b.objIndex].lightSpot && flashGoboTex)
+      b.texBag->texture = flashGoboTex;
+    // The flashlight's pool is PROJECTED, so its texture IS the beam's shape
+    // (gobo, cross, cracked lens): the baked gobo by default, or an authored
+    // sprite when the Player object names one. Additive, so the shape lives in
+    // RGB; alpha is ignored. The corona stays as the last resort - a project
+    // whose gobo failed to load draws a soft blob rather than nothing.
+    if (b.objIndex < 0) {
+      if (flashGoboTex) b.texBag->texture = flashGoboTex;
+      if (FLASHLIGHT_TEX[0] != '\0') {
+        const std::string want(FLASHLIGHT_TEX);
+        if (!flashPoolTex || flashPoolTexPath != want) {
+          flashPoolTex = engine->renderer.getTextureRepository().add(
+              FileUtils::fromCwd(want));
+          flashPoolTexPath = want;
+        }
+        if (flashPoolTex) b.texBag->texture = flashPoolTex;
       }
-      if (flashPoolTex) b.texBag->texture = flashPoolTex;
+      // The reach falloff lives in per-vertex GOURAUD colors (see the struct
+      // note) - one flat color per patch cannot dim the far end of a pool
+      // that stretches forty units down a grazing beam.
+      b.colors.assign(b.verts.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
+      b.colorBag->many = b.colors.data();
+      b.colorBag->single = nullptr;
+      b.info->shadingType = TyraShadingGouraud;
+      b.wColors.reserve(4096);
+      b.wInfo->shadingType = TyraShadingGouraud;
+      // GS CLAMP, and only on this one texture: the pool's STs come out of a
+      // projection, so the patch's outer ring genuinely lands outside 0..1 and
+      // the default REPEAT would draw the beam a second time beside itself.
+      // Clamping per PIXEL is what lets updateAndRenderLightPools hand the GS
+      // the projection's numerator and denominator instead of a finished u,v
+      // it would have had to clamp per vertex.
+      if (b.texBag->texture)
+        b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
     }
     b.texBag->coordinates = b.sts.data();
     b.bag = std::make_unique<StaPipBag>();
@@ -8117,6 +8395,90 @@ void TerrainGame::setupLightPools() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // The flashlight's second patch - same everything, its own buffers, for the
+    // wall the beam is touching while it also lights the floor.
+    if (b.objIndex < 0) {
+      // Sized per frame from the geometry the beam lands on; reserved once
+      // so the per-frame clear/push never reallocates in the steady state.
+      b.wVerts.reserve(4096);
+      b.wSts.reserve(4096);
+      b.wColor = b.color;
+      b.wInfo = std::make_unique<StaPipInfoBag>();
+      b.wInfo->model = &b.mat;
+      b.wInfo->shadingType = TyraShadingFlat;
+      b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      b.wInfo->zTestType = PipelineZTest_TestOnly;
+      b.wInfo->dynLightPick = false;
+      b.wInfo->spotLit = false;
+      // Unfogged, the additive rule (the env pass does the same): GS fog would
+      // ADD the fog colour through this blend and brighten fogged pixels.
+      b.wInfo->fogDisabled = true;
+      b.wInfo->fullClipChecks = true;
+      b.wColorBag = std::make_unique<StaPipColorBag>();
+      b.wColorBag->single = &b.wColor;
+      b.wTexBag = std::make_unique<StaPipTextureBag>();
+      b.wTexBag->texture = b.texBag->texture;
+      b.wTexBag->coordinates = b.wSts.data();
+      b.wBag = std::make_unique<StaPipBag>();
+      b.wBag->info = b.wInfo.get();
+      b.wBag->color = b.wColorBag.get();
+      b.wBag->texture = b.wTexBag.get();
+      b.wBag->vertices = b.wVerts.data();
+      b.wBag->count = (u32)b.wVerts.size();
+      if (FLASH_SHADOW_VOLUMES) {
+        // Untextured, unfogged, TestOnly against the real scene z: the test
+        // IS the algorithm. The vertex alpha is the whole payload - 128 sets
+        // the mask bit, 0 clears it - and the bracket's FBMSK keeps the
+        // colors out of the frame.
+        b.volFront.reserve(512);
+        b.volBack.reserve(512);
+        b.volSetColor = Color(0.0F, 0.0F, 0.0F, 128.0F);
+        b.volClrColor = Color(0.0F, 0.0F, 0.0F, 0.0F);
+        b.volInfo = std::make_unique<StaPipInfoBag>();
+        b.volInfo->model = &b.mat;
+        b.volInfo->shadingType = TyraShadingFlat;
+        b.volInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        b.volInfo->zTestType = PipelineZTest_TestOnly;
+        b.volInfo->dynLightPick = false;
+        b.volInfo->spotLit = false;
+        b.volInfo->fogDisabled = true;
+        b.volInfo->fullClipChecks = true;
+        b.volSetBagC = std::make_unique<StaPipColorBag>();
+        b.volSetBagC->single = &b.volSetColor;
+        b.volClrBagC = std::make_unique<StaPipColorBag>();
+        b.volClrBagC->single = &b.volClrColor;
+        b.volSetBag = std::make_unique<StaPipBag>();
+        b.volSetBag->info = b.volInfo.get();
+        b.volSetBag->color = b.volSetBagC.get();
+        b.volSetBag->vertices = b.volFront.data();
+        b.volSetBag->count = 0;
+        b.volClrBag = std::make_unique<StaPipBag>();
+        b.volClrBag->info = b.volInfo.get();
+        b.volClrBag->color = b.volClrBagC.get();
+        b.volClrBag->vertices = b.volBack.data();
+        b.volClrBag->count = 0;
+      }
+    }
+  }
+  // REBIND after the vector has stopped growing - the bags hold pointers INTO
+  // the elements (setupLightBeams pays for this lesson in full).
+  for (LightPool& b : lightPools) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
+    if (b.wInfo) {
+      b.wInfo->model = &b.mat;
+      // The torch's bags carry per-vertex colors; wColorBag->many is
+      // re-pointed with the verts each frame.
+    }
+    if (b.objIndex < 0 && b.colorBag) {
+      b.colorBag->many = b.colors.data();
+      b.colorBag->single = nullptr;
+    }
+    if (b.volInfo) {
+      b.volInfo->model = &b.mat;
+      b.volSetBagC->single = &b.volSetColor;
+      b.volClrBagC->single = &b.volClrColor;
+    }
   }
 }
 
@@ -8148,30 +8510,582 @@ void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
   for (LightPool& b : lightPools) {
     if (b.objIndex < 0) {
-      // The camera flashlight. Per-vertex lighting cannot draw a spot
-      // smaller than the mesh tessellation, so aiming at your own feet
-      // (a footprint well under one terrain cell) lit nothing at all.
-      // Follow the view ray to the terrain and put a pool there instead.
-      if (!g_flashEnabled || !g_flashOn) continue;
+      // The camera flashlight (docs/flashlight.md). Per-vertex lighting cannot
+      // draw a spot smaller than the mesh tessellation, and a terrain cell is
+      // never finer than one world unit, so the cone the VU1 spot paints on the
+      // ground is a Gouraud diamond and aiming at your own feet lit nothing at
+      // all. So the beam's shape is PROJECTED here instead: the patch takes its
+      // STs from the light's own frustum - the same trick renderProjShadows
+      // uses to sample a silhouette - and the gobo texture decides what a torch
+      // looks like. Nothing below depends on how finely the ground is
+      // tessellated, which is the whole point.
+      if (!g_flashEnabled || !g_flashOn) {
+        // Torch off: every wall gets its own cone back (there is none to give,
+        // but the flag must not outlive the light that set it).
+        for (int prev : flashSpotOffList) setFlashSpotOff(prev, true);
+        flashSpotOffList.clear();
+        flashSpotExtra.clear();
+        continue;
+      }
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
       float dz = cameraLookAt.z - cameraPosition.z;
       const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
       if (dl < 0.0001F) continue;
       dx /= dl, dy /= dl, dz /= dl;
+      // What the beam can land on, collected ONCE for the whole march (the
+      // point-light dcache lesson - never scan the object table per step).
+      // yMax is the EYE: a wall taller than the player is not a floor, and
+      // admitting one as a receiver would put a bright ellipse on top of it.
+      // Excluded, the beam runs past it to the ground behind, where the patch's
+      // z test hides it - exactly what the old terrain-only march did.
+      projCollectReceivers(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                           cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+                           FLASHLIGHT_RANGE * 0.5F + 2.0F, cameraPosition.y);
+      // A WALL first, because a beam meets one before it meets the ground
+      // behind it. Exact slab intersection against the solid boxes in reach -
+      // vertical faces only; a box's TOP is a floor and the ground path below
+      // already finds it through projSurfaceAt.
+      projCollectBoxes(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                       cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+                       FLASHLIGHT_RANGE * 0.5F + 2.0F);
+      float wallT = 0.0F, wallSign = 0.0F;
+      int wallAxis = -1;
+      ProjBox wallBox;
+      bool onWall = false;
+      if (projWallHit(cameraPosition, dx, dy, dz, FLASHLIGHT_RANGE, wallT,
+                      wallAxis, wallSign, wallBox)) {
+        // The face's outward normal, in world. A face pointing mostly UP is a
+        // floor, and the ground path below already lands the pool on it through
+        // projSurfaceAt; anything steeper than about 45 degrees is a wall and
+        // belongs here, on the object's own triangles.
+        const float* fa = wallAxis == 0 ? wallBox.ax
+                                        : (wallAxis == 1 ? wallBox.ay
+                                                         : wallBox.az);
+        const float ny = fa[1] * wallSign;
+        onWall = ny < 0.7F;
+      }
+      // The light's RECEIVERS: every solid whose box the beam cone touches,
+      // nearest first, up to three. Not merely the object the beam HITS -
+      // shine at the ground right under a shed and the shed is in the cone
+      // with nothing hit at all, and it used to keep its per-vertex cone,
+      // which lit it as the old hard triangles (reported from the console).
+      // Every receiver is drawn by the projected pass below and gives up its
+      // cone (size-gated: a crate lit all over still reads better than one
+      // patch with black sides). A grouping-cell-sized box (a baked scatter
+      // chunk that happens to be solid) is not a wall and stays out.
+      const float tanARecv = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      int recvObj[3] = {-1, -1, -1};
+      float recvT[3] = {0.0F, 0.0F, 0.0F};
+      int recvN = 0;
+      flashSpotExtra.clear();
+      for (const ProjBox& pb : g_projBoxes) {
+        const float ex2 = pb.o[0] - cameraPosition.x,
+                    ey2 = pb.o[1] - cameraPosition.y,
+                    ez2 = pb.o[2] - cameraPosition.z;
+        const float t = ex2 * dx + ey2 * dy + ez2 * dz;
+        const float br =
+            sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] + pb.h[2] * pb.h[2]);
+        if (br > 20.0F) continue;  // grouping-cell sized: not a wall
+        // A THIN thing - a lamp post, a sign, a fence rail - claims no slot
+        // and keeps its per-vertex cone: the projected pass on a sliver buys
+        // nothing visible, and the slot it stole was the facade's (reported
+        // from the yard: stand by the street lamp and the building behind
+        // stops taking the torch).
+        float hthin = pb.h[0] < pb.h[1] ? pb.h[0] : pb.h[1];
+        if (pb.h[2] < hthin) hthin = pb.h[2];
+        if (hthin < 0.25F) continue;
+        if (t < -br || t > FLASHLIGHT_RANGE) continue;
+        const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
+                    pz2 = ez2 - dz * t;
+        const float perp = sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2);
+        if (perp > (t > 0.0F ? t : 0.0F) * tanARecv * 1.3F + br) continue;
+        // insertion sort by t, keep the nearest three
+        int at = recvN < 3 ? recvN : 3;
+        for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+          if (t < recvT[k2]) { at = k2; break; }
+        if (at >= 3) continue;
+        for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+          recvObj[k2] = recvObj[k2 - 1];
+          recvT[k2] = recvT[k2 - 1];
+        }
+        recvObj[at] = pb.obj;
+        recvT[at] = t;
+        if (recvN < 3) ++recvN;
+        // The size gate for the cone strip, on the two largest extents.
+        float h0 = pb.h[0], h1 = pb.h[1], h2 = pb.h[2];
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (h1 < h2) { const float tmp = h1; h1 = h2, h2 = tmp; }
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (sqrtf(h0 * h0 + h1 * h1) > 1.4F)
+          flashSpotExtra.push_back(pb.obj);
+      }
+      if (onWall) {
+        bool haveHit = false;
+        for (int k2 = 0; k2 < recvN; ++k2)
+          if (recvObj[k2] == wallBox.obj) haveHit = true;
+        if (!haveHit) {
+          // Insert at the SORTED position (evicting the farthest): the
+          // interleaved walk below merges recvT with the caster distances
+          // and both lists must stay ascending - a slot stuffed at the end
+          // with a nearer t drew its light after farther volumes.
+          int at = recvN < 3 ? recvN : 3;
+          for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+            if (wallT < recvT[k2]) { at = k2; break; }
+          if (at >= 3) at = 2;
+          for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+            recvObj[k2] = recvObj[k2 - 1];
+            recvT[k2] = recvT[k2 - 1];
+          }
+          recvObj[at] = wallBox.obj;
+          recvT[at] = wallT;
+          if (recvN < 3) ++recvN;
+        }
+      }
+      updateFlashSpotOff();
+      // --- the beam's projection, needed by everything below ----------------
+      // (goboST/zBias used to live next to the floor patch; the light passes
+      // now interleave with the shadow volumes, so the projection must exist
+      // before either.)
+      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      // Beam basis. cross(dir, worldUp) degenerates when you look straight
+      // down - which is precisely the case this pool exists for - so world Z
+      // stands in there.
+      float rx, ry, rz;
+      if (dy > 0.995F || dy < -0.995F) {
+        rx = dy, ry = -dx, rz = 0.0F;
+      } else {
+        rx = -dz, ry = 0.0F, rz = dx;
+      }
+      const float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+      if (rl < 0.0001F) continue;  // nothing drew yet, nothing to repaint
+      rx /= rl, ry /= rl, rz /= rl;
+      const float ux = ry * dz - rz * dy;  // up = right x forward
+      const float uy = rz * dx - rx * dz;
+      const float uz = rx * dy - ry * dx;
+
+      // Where a world point sits in the beam's own frustum - as the
+      // projection's NUMERATOR AND DENOMINATOR, not as a finished u,v.
+      //
+      // This is the difference between a projected texture and a decal with
+      // the right picture on it. VU1 emits ST scaled by the vertex's own 1/w
+      // (PerformTexturePerspectiveCorrection: mulq stq, stq, q) and the GS
+      // divides S/Q per PIXEL, so whatever pair goes in here is interpolated
+      // exactly across the triangle in world space. u = S/Q with
+      //   S = 0.5 * fwd + k * (e . right)      k = 0.43 / tan(halfAngle)
+      //   Q = fwd                              fwd = e . forward
+      // and BOTH are affine in the world position, so the per-pixel quotient
+      // is the true projective mapping - not the linear approximation of it
+      // that finished u,v give (which read as a fan of triangles, reported
+      // from the console; 0.43 puts the cone edge at r = 0.86, the gobo's
+      // own black margin). No EE clamp: the gobo is GS CLAMP, so a sample
+      // outside the frustum takes the black border per pixel.
+      const float kProj = 0.43F / tanA;
+      auto goboST = [&](float x, float y, float z) {
+        const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
+                    ez = z - cameraPosition.z;
+        float fwd = ex * dx + ey * dy + ez * dz;
+        if (fwd < 0.05F) fwd = 0.05F;  // at or behind the lens
+        return Vec4(0.5F * fwd + kProj * (ex * rx + ey * ry + ez * rz),
+                    0.5F * fwd - kProj * (ex * ux + ey * uy + ez * uz), fwd,
+                    0.0F);
+      };
+      // The floor patch is depth-TESTED and never writes z, so it has to win
+      // that test against the surface it lies 4.5 cm above - which on one
+      // enormous floor triangle is not a margin the GS can always resolve.
+      // Pulling each vertex a fixed FRACTION of its eye distance closer wins
+      // at every range and costs nothing visually: the displacement is along
+      // the view ray, so the vertex projects to the same pixel. 0.975, not
+      // the projected shadows' 0.996: the margin must also cover a terrain
+      // CREASE falling between two patch vertices (the dark triangles in the
+      // pool were exactly that chord losing to the ground's own
+      // triangulation).
+      auto zBias = [&](float x, float y, float z) {
+        constexpr float k = 0.975F;
+        return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
+                    cameraPosition.y + (y - cameraPosition.y) * k,
+                    cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
+      };
+
+      // --- the beam ON solid geometry: fill, per receiver -------------------
+      // The era's own trick, done the era's own way: every receiver the cone
+      // touches is rendered a SECOND time, additively, with the gobo's
+      // projective STQ per vertex - light on REAL triangles, per pixel,
+      // whatever their count or orientation. Receivers by CONE rather than by
+      // hit (three console reports paid for that). The fill is sliced PER
+      // RECEIVER now, because the walk below renders each receiver's light at
+      // its own place in the caster order.
+      int wSliceStart[3] = {0, 0, 0};
+      int wSliceCount[3] = {0, 0, 0};
+      b.wVerts.clear();
+      b.wSts.clear();
+      b.wColors.clear();
+      {
+        for (int ri = 0; ri < recvN; ++ri) {
+          wSliceStart[ri] = (int)b.wVerts.size();
+          const int oi = recvObj[ri];
+          if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
+          // A statically batched receiver owns no solo geometry - bake it on
+          // first use, like the projected shadows' silhouette pass (and with
+          // the same DIRTY caveat). The batch keeps drawing the BASE pass;
+          // only this additive layer uses the solo bake.
+          const bool batched =
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+          if (batched) {
+            if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
+              rebuildObjectGeometry(oi);
+          } else if (runtimeObjects[oi].dirty) {
+            rebuildObjectGeometry(oi);
+          }
+          ObjectGeometry& g = objectGeometry[oi];
+          // Nothing to re-render: animated models (skinned buffers) and
+          // physics bodies (LOCAL verts under a live matrix - an EE transform
+          // would not be bit-identical to VU1's, and this pass depends on
+          // EQUAL depth). Both are small and keep the cone instead.
+          if (g.parts.empty() || g.matrixMode) continue;
+          // Two things per TRIANGLE, both cheap and both reported from the
+          // console. A FACING cull: the STQ is a function of position alone,
+          // so a face pointing away from the torch sampled a lit texel - a
+          // box's far side and a roof's underside glowed. Orientation comes
+          // from the object's centre (an .obj's winding is nobody's promise).
+          // And the REACH falloff per vertex: the projection converges to the
+          // gobo's hot centre along the beam at ANY range.
+          const float* oc = runtimeObjects[oi].data.position;
+          for (GeoPart& part : g.parts) {
+            if (!part.bag) continue;
+            const size_t nvt = part.vertices.size() / 3 * 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+              if (b.wVerts.size() >= 3997) break;  // fill-rate backstop
+              const Vec4& a3 = part.vertices[vi];
+              const Vec4& b3 = part.vertices[vi + 1];
+              const Vec4& c3 = part.vertices[vi + 2];
+              float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
+                          (b3.z - a3.z) * (c3.y - a3.y);
+              float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
+                          (b3.x - a3.x) * (c3.z - a3.z);
+              float nz2 = (b3.x - a3.x) * (c3.y - a3.y) -
+                          (b3.y - a3.y) * (c3.x - a3.x);
+              const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+              const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+              const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+              if (nx2 * (cx3 - oc[0]) + ny2 * (cy3 - oc[1]) +
+                      nz2 * (cz3 - oc[2]) <
+                  0.0F)
+                nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+              if (nx2 * (cameraPosition.x - cx3) +
+                      ny2 * (cameraPosition.y - cy3) +
+                      nz2 * (cameraPosition.z - cz3) <=
+                  0.0F)
+                continue;  // faces away from the torch
+              const Vec4 tri3[3] = {a3, b3, c3};
+              for (int k3 = 0; k3 < 3; ++k3) {
+                b.wVerts.push_back(tri3[k3]);
+                const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
+                b.wSts.push_back(st3);
+                float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
+                if (reach < 0.0F) reach = 0.0F;
+                if (reach > 1.0F) reach = 1.0F;
+                b.wColors.push_back(Color(FLASHLIGHT_R * reach,
+                                          FLASHLIGHT_G * reach,
+                                          FLASHLIGHT_B * reach, 128.0F));
+              }
+            }
+          }
+          wSliceCount[ri] = (int)b.wVerts.size() - wSliceStart[ri];
+        }
+      }
+      // Grazing dim from the hit face when the beam actually meets one square
+      // enough to know; reach lives in the vertex colors.
+      float cosI = 1.0F;
+      if (onWall) {
+        const float* fa = wallAxis == 0
+                              ? wallBox.ax
+                              : (wallAxis == 1 ? wallBox.ay : wallBox.az);
+        cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
+        if (cosI < 0.0F) cosI = -cosI;
+        if (cosI < 0.25F) cosI = 0.25F;
+      }
+      const float wf = 0.55F + 0.45F * cosI;
+      float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+      if (FLASHLIGHT_B > wmaxC) wmaxC = FLASHLIGHT_B;
+      if (wmaxC < 1.0F) wmaxC = 1.0F;
+      float wfix = 14746.0F / wmaxC * wf;
+      if (wfix > 255.0F) wfix = 255.0F;
+      const bool wLightOn = wfix >= 1.0F && !b.wVerts.empty();
+
+      // --- SHADOW VOLUMES x LIGHT PASSES, interleaved by distance -----------
+      // The survival-horror arrangement, on its own hardware trick: each
+      // occluder box in the beam is extruded away from the torch into a
+      // closed volume, its camera-front faces SET the framebuffer alpha's MSB
+      // where they are closer than the scene, its back faces CLEAR it - plain
+      // TestOnly z does all the reasoning - and the light passes draw with
+      // DATE, only where the bit says lit.
+      //
+      // The ORDER is the load-bearing part: casters and receivers walk
+      // together, sorted by distance from the torch, and each receiver's
+      // light draws BEFORE its own volume enters the mask. A volume can only
+      // shadow things BEHIND its caster (it extrudes away from the light), so
+      // nearer-first is exactly the dependency order - and an object can
+      // never shadow ITSELF. The shed taught why that matters: a model's
+      // AABB stands proud of its actual walls (the roof overhang), so its
+      // volume's near cap floated IN FRONT of the very wall the beam lit and
+      // the whole shed went black ("swallows the light like a black hole",
+      // reported). No cap geometry can fix that - the interleave makes it
+      // structurally impossible.
+      bool volMask = false;
+      auto& rc = engine->renderer.core;
+      auto renderSlice = [&](int ri) {
+        if (!wLightOn || wSliceCount[ri] <= 0) return;
+        b.wInfo->dateLit = volMask;
+        b.wBag->vertices = b.wVerts.data() + wSliceStart[ri];
+        b.wBag->count = (u32)wSliceCount[ri];
+        b.wTexBag->coordinates = b.wSts.data() + wSliceStart[ri];
+        b.wColorBag->many = b.wColors.data() + wSliceStart[ri];
+        b.wColorBag->single = nullptr;
+        b.wInfo->additiveBlendFix = (u8)wfix;
+        b.wBag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(b.wBag.get());
+      };
+      // Occluder candidates, NEAREST first - never object-table order (the
+      // scene's merged facades used to eat every slot and the props between
+      // the torch and them never cast; reported as "no dynamic shadows").
+      const ProjBox* volPick[4] = {nullptr, nullptr, nullptr, nullptr};
+      float volPickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      int volCount = 0;
+      if (FLASH_SHADOW_VOLUMES) {
+        for (const ProjBox& pb : g_projBoxes) {
+          const float ex2 = pb.o[0] - cameraPosition.x,
+                      ey2 = pb.o[1] - cameraPosition.y,
+                      ez2 = pb.o[2] - cameraPosition.z;
+          const float t = ex2 * dx + ey2 * dy + ez2 * dz;
+          const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
+                                 pb.h[2] * pb.h[2]);
+          if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
+          if (t < 0.3F || t > FLASHLIGHT_RANGE) continue;
+          const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
+                      pz2 = ez2 - dz * t;
+          if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) >
+              t * tanARecv * 1.3F + br)
+            continue;
+          int at = volCount < 4 ? volCount : 4;
+          for (int k2 = 0; k2 < volCount && k2 < 4; ++k2)
+            if (t < volPickT[k2]) { at = k2; break; }
+          if (at >= 4) continue;
+          for (int k2 = (volCount < 4 ? volCount : 3); k2 > at; --k2) {
+            volPick[k2] = volPick[k2 - 1];
+            volPickT[k2] = volPickT[k2 - 1];
+          }
+          volPick[at] = &pb;
+          volPickT[at] = t;
+          if (volCount < 4) ++volCount;
+        }
+      }
+      {
+        int li = 0, vj = 0;
+        while (li < recvN || vj < volCount) {
+          // Tie goes to the LIGHT: when the receiver and the caster are the
+          // same object (same box, same t) its light must precede its volume.
+          if (li < recvN && (vj >= volCount || recvT[li] <= volPickT[vj])) {
+            renderSlice(li);
+            ++li;
+            continue;
+          }
+          const ProjBox& castPb = *volPick[vj];
+          ++vj;
+          // A model caster casts from its TIGHT sub-boxes, not its one AABB
+          // (see buildShadowSubBoxes): the lamp's box is a slab of mostly
+          // air, and standing on its axis that slab's shadow blotted out
+          // the whole facade ("no light until half a step sideways",
+          // reported). Sub-boxes give the pole its honest thin stripe back.
+          ProjBox subBox[3];
+          int subN = 0;
+          const SceneObjectData& cdd = runtimeObjects[castPb.obj].data;
+          if (cdd.type == 5 && cdd.model >= 0 &&
+              cdd.model < (int)gameModels.size()) {
+            if (g_shadowSubBoxes.size() != gameModels.size())
+              g_shadowSubBoxes.assign(gameModels.size(),
+                                      std::vector<ShadowSubBox>());
+            std::vector<ShadowSubBox>& sbs = g_shadowSubBoxes[cdd.model];
+            if (sbs.empty()) {
+              std::vector<const std::vector<float>*> pv;
+              for (const GameModelPart& gp : gameModels[cdd.model].parts)
+                pv.push_back(&gp.verts);
+              buildShadowSubBoxes(pv, sbs);
+            }
+            for (const ShadowSubBox& box : sbs) {
+              if (subN >= 3) break;
+              ProjBox r = castPb;  // the basis and the object ride along
+              float lc2[3], hh2[3];
+              for (int a = 0; a < 3; ++a) {
+                lc2[a] = 0.5F * (box.mn[a] + box.mx[a]) * cdd.scale[a];
+                hh2[a] = 0.5F * (box.mx[a] - box.mn[a]) * cdd.scale[a];
+                if (hh2[a] < 0.0F) hh2[a] = -hh2[a];
+              }
+              r.o[0] = cdd.position[0] + castPb.ax[0] * lc2[0] +
+                       castPb.ay[0] * lc2[1] + castPb.az[0] * lc2[2];
+              r.o[1] = cdd.position[1] + castPb.ax[1] * lc2[0] +
+                       castPb.ay[1] * lc2[1] + castPb.az[1] * lc2[2];
+              r.o[2] = cdd.position[2] + castPb.ax[2] * lc2[0] +
+                       castPb.ay[2] * lc2[1] + castPb.az[2] * lc2[2];
+              r.h[0] = hh2[0], r.h[1] = hh2[1], r.h[2] = hh2[2];
+              subBox[subN++] = r;
+            }
+          }
+          if (subN == 0) subBox[subN++] = castPb;
+          for (int si = 0; si < subN; ++si) {
+          const ProjBox& pb = subBox[si];
+          b.volFront.clear();
+          b.volBack.clear();
+          // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the
+          // light: with the interleave the push no longer guards the
+          // caster's own face (its light drew already) - it only breaks the
+          // depth TIE against the next surface a cap might touch.
+          Vec4 nearP[8], farP[8];
+          for (int ci = 0; ci < 8; ++ci) {
+            const float sx = (ci & 1) ? 1.0F : -1.0F;
+            const float sy = (ci & 2) ? 1.0F : -1.0F;
+            const float sz = (ci & 4) ? 1.0F : -1.0F;
+            const float wx = pb.o[0] + pb.ax[0] * pb.h[0] * sx +
+                             pb.ay[0] * pb.h[1] * sy + pb.az[0] * pb.h[2] * sz;
+            const float wy = pb.o[1] + pb.ax[1] * pb.h[0] * sx +
+                             pb.ay[1] * pb.h[1] * sy + pb.az[1] * pb.h[2] * sz;
+            const float wz = pb.o[2] + pb.ax[2] * pb.h[0] * sx +
+                             pb.ay[2] * pb.h[1] * sy + pb.az[2] * pb.h[2] * sz;
+            float ddx2 = wx - cameraPosition.x, ddy2 = wy - cameraPosition.y,
+                  ddz2 = wz - cameraPosition.z;
+            const float dl2 = sqrtf(ddx2 * ddx2 + ddy2 * ddy2 + ddz2 * ddz2);
+            const float inv = dl2 > 0.05F ? 1.0F / dl2 : 20.0F;
+            ddx2 *= inv, ddy2 *= inv, ddz2 *= inv;
+            nearP[ci] = Vec4(wx + ddx2 * 0.05F, wy + ddy2 * 0.05F,
+                             wz + ddz2 * 0.05F, 1.0F);
+            farP[ci] = Vec4(cameraPosition.x + ddx2 * FLASHLIGHT_RANGE,
+                            cameraPosition.y + ddy2 * FLASHLIGHT_RANGE,
+                            cameraPosition.z + ddz2 * FLASHLIGHT_RANGE, 1.0F);
+          }
+          float volC[3] = {0.0F, 0.0F, 0.0F};
+          for (int ci = 0; ci < 8; ++ci) {
+            volC[0] += (nearP[ci].x + farP[ci].x) / 16.0F;
+            volC[1] += (nearP[ci].y + farP[ci].y) / 16.0F;
+            volC[2] += (nearP[ci].z + farP[ci].z) / 16.0F;
+          }
+          auto pushTri = [&](const Vec4& a3, const Vec4& b3, const Vec4& c3) {
+            const float ux2 = b3.x - a3.x, uy2 = b3.y - a3.y,
+                        uz2 = b3.z - a3.z;
+            const float vx2 = c3.x - a3.x, vy2 = c3.y - a3.y,
+                        vz2 = c3.z - a3.z;
+            float nx2 = uy2 * vz2 - uz2 * vy2, ny2 = uz2 * vx2 - ux2 * vz2,
+                  nz2 = ux2 * vy2 - uy2 * vx2;
+            const float cx3 = (a3.x + b3.x + c3.x) / 3.0F,
+                        cy3 = (a3.y + b3.y + c3.y) / 3.0F,
+                        cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+            // Winding is whatever the tables gave; orient the normal OUTWARD
+            // via the volume centroid, then classify against the camera. The
+            // GS has no face culling, so only the classification matters.
+            if (nx2 * (cx3 - volC[0]) + ny2 * (cy3 - volC[1]) +
+                    nz2 * (cz3 - volC[2]) <
+                0.0F)
+              nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+            const bool front = nx2 * (cameraPosition.x - cx3) +
+                                   ny2 * (cameraPosition.y - cy3) +
+                                   nz2 * (cameraPosition.z - cz3) >
+                               0.0F;
+            std::vector<Vec4>& dst = front ? b.volFront : b.volBack;
+            if (dst.size() > 4000) return;
+            dst.push_back(a3);
+            dst.push_back(b3);
+            dst.push_back(c3);
+          };
+          // 6 faces: corner indices + outward axis; lit = faces the light.
+          static const int kFace[6][4] = {{0, 2, 6, 4}, {1, 3, 7, 5},
+                                          {0, 1, 5, 4}, {2, 3, 7, 6},
+                                          {0, 1, 3, 2}, {4, 5, 7, 6}};
+          static const int kFaceAxis[6] = {0, 0, 1, 1, 2, 2};
+          static const float kFaceSign[6] = {-1, 1, -1, 1, -1, 1};
+          bool lit[6];
+          for (int f = 0; f < 6; ++f) {
+            const int a4 = kFaceAxis[f];
+            const float* ax2 = a4 == 0 ? pb.ax : (a4 == 1 ? pb.ay : pb.az);
+            float fc[3];
+            for (int c4 = 0; c4 < 3; ++c4)
+              fc[c4] = pb.o[c4] + ax2[c4] * pb.h[a4] * kFaceSign[f];
+            lit[f] = (fc[0] - cameraPosition.x) * ax2[0] * kFaceSign[f] +
+                         (fc[1] - cameraPosition.y) * ax2[1] * kFaceSign[f] +
+                         (fc[2] - cameraPosition.z) * ax2[2] * kFaceSign[f] <
+                     0.0F;
+            if (lit[f]) {
+              const int* q4 = kFace[f];
+              // near cap (the occluder's lit side) and its far projection
+              pushTri(nearP[q4[0]], nearP[q4[1]], nearP[q4[2]]);
+              pushTri(nearP[q4[0]], nearP[q4[2]], nearP[q4[3]]);
+              pushTri(farP[q4[0]], farP[q4[1]], farP[q4[2]]);
+              pushTri(farP[q4[0]], farP[q4[2]], farP[q4[3]]);
+            }
+          }
+          // Silhouette edges (adjacent faces disagree about the light): the
+          // extruded side quads that close the volume.
+          static const int kEdge[12][4] = {
+              {0, 1, 2, 4}, {2, 3, 3, 4}, {4, 5, 2, 5}, {6, 7, 3, 5},
+              {0, 2, 0, 4}, {1, 3, 1, 4}, {4, 6, 0, 5}, {5, 7, 1, 5},
+              {0, 4, 0, 2}, {1, 5, 1, 2}, {2, 6, 0, 3}, {3, 7, 1, 3}};
+          for (int e = 0; e < 12; ++e) {
+            if (lit[kEdge[e][2]] == lit[kEdge[e][3]]) continue;
+            const int p0 = kEdge[e][0], p1 = kEdge[e][1];
+            pushTri(nearP[p0], nearP[p1], farP[p1]);
+            pushTri(nearP[p0], farP[p1], farP[p0]);
+          }
+          if (b.volFront.empty() && b.volBack.empty()) continue;
+          // One bracket per sub-box; only the FIRST clears the mask channel.
+          // (Set-then-clear is only sound inside ONE convex volume, so each
+          // sub-box gets its own bracket; where two sub-boxes of one model
+          // overlap - the pole/arm joint - the artifact is a sliver.)
+          if (!volMask) {
+            rc.alphaMask.begin();
+            volMask = true;
+          } else {
+            rc.alphaMask.beginKeep();
+          }
+          if (!b.volFront.empty()) {
+            b.volSetBag->vertices = b.volFront.data();
+            b.volSetBag->count = (u32)b.volFront.size();
+            b.volSetBag->bboxVersion = ++g_bboxStamp;
+            stapip.core.render(b.volSetBag.get());
+          }
+          if (!b.volBack.empty()) {
+            b.volClrBag->vertices = b.volBack.data();
+            b.volClrBag->count = (u32)b.volBack.size();
+            b.volClrBag->bboxVersion = ++g_bboxStamp;
+            stapip.core.render(b.volClrBag.get());
+          }
+          rc.alphaMask.end();
+          }
+        }
+      }
+      // The floor pool draws through the mask - or plainly, without one.
+      // Set EVERY frame: the flag would outlive the mask otherwise.
+      b.info->dateLit = volMask;
+      // The mask lives in the framebuffer's ALPHA, and on the SDTV
+      // interlaced modes that channel is live display state (the flicker
+      // filter blends its two read circuits by per-pixel alpha) - leave it
+      // and the CRTC shows the volume shapes as translucent wedges over the
+      // picture. So once the last DATE-gated pass of this torch has drawn,
+      // the alpha byte goes back to the scene's neutral 0x80. Every exit
+      // from the branch below this point runs it.
+      auto finishVolMask = [&] {
+        if (volMask) engine->renderer.core.alphaMask.repaintAlpha();
+      };
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
       for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
         if (cameraPosition.y + dy * t <=
-            terrainHeightAt(cameraPosition.x + dx * t,
-                            cameraPosition.z + dz * t)) {
+            projSurfaceAt(cameraPosition.x + dx * t,
+                          cameraPosition.z + dz * t)) {
           float lo = prev, hi2 = t;
           for (int k2 = 0; k2 < 6; ++k2) {
             const float mid = (lo + hi2) * 0.5F;
             if (cameraPosition.y + dy * mid <=
-                terrainHeightAt(cameraPosition.x + dx * mid,
-                                cameraPosition.z + dz * mid))
+                projSurfaceAt(cameraPosition.x + dx * mid,
+                              cameraPosition.z + dz * mid))
               hi2 = mid;
             else
               lo = mid;
@@ -8181,28 +9095,225 @@ void TerrainGame::updateAndRenderLightPools() {
         }
         prev = t;
       }
-      if (hit < 0.0F) continue;
+      if (hit < 0.0F) {
+        // Nothing on the ground to light; the receivers already got theirs.
+        finishVolMask();
+        continue;
+      }
       const float gx = cameraPosition.x + dx * hit;
       const float gz = cameraPosition.z + dz * hit;
-      // Cone footprint at that distance, widened a little for the soft
-      // edge and floored so a straight-down look still gets a visible
-      // puddle. Grazing angles stretch the real footprint - the round
-      // patch is the PS2-era approximation, not a projection.
-      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
-      float r = hit * tanA * 1.7F;
-      if (r < 0.7F) r = 0.7F;
-      if (r > 8.0F) r = 8.0F;
-      buildPoolPatch(b, gx, gz, r, 0.045F);
-      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-      // Fade out over the last third of the reach so the pool dies with
-      // the per-vertex beam instead of ending on a hard circle.
-      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
-      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
-      const float fix = 110.0F * fade;
-      if (fix < 1.0F) continue;
+      // What the patch lies on is decided ONCE, at the landing point, never
+      // per vertex: projSurfaceAt answers "the top of any receiver over this
+      // point", so a prop standing inside the patch would otherwise punch a
+      // cliff into it and the quad between would rasterize as a wall
+      // (renderProjShadows pays for that lesson in full). Terrain relief IS
+      // followed - it is smooth, and following it keeps the pool grounded.
+      const float baseY = projSurfaceAt(gx, gz);
+      const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
+
+      // --- and the FLOOR patch, whether or not there was a wall -------------
+      // Nothing to stand on where the beam lands (no terrain, no receiver) is
+      // the one case with no floor pool at all.
+      if (hit < 0.0F || baseY <= TERRAIN_VOID_Y * 0.5F) {
+        finishVolMask();
+        continue;
+      }
+      // The lit footprint is an ELLIPSE: a beam meeting the floor at a grazing
+      // angle reaches far further than it is wide. So the patch is laid out
+      // along the beam's ground run rather than axis-aligned - a round one
+      // either clips the pool or spends fill rate on corners the gobo leaves
+      // black. Only COVERAGE is decided here; the shape is the texture's.
+      float ax = dx, az = dz;
+      const float al = sqrtf(ax * ax + az * az);
+      if (al < 0.0001F) {
+        ax = 1.0F, az = 0.0F;
+      } else {
+        ax /= al, az /= al;
+      }
+      const float cx2 = -az, cz2 = ax;  // across the beam
+      // Horizontal distance from the player to where the beam lands: the axis
+      // every extent below is measured along.
+      const float dxz = sqrtf(dx * dx + dz * dz);
+      const float tLand = hit * dxz;
+      float across = hit * tanA * 1.3F + 0.35F;
+      if (across > 7.0F) across = 7.0F;
+      float sinE = -dy;  // sine of the incidence angle with a level floor
+      if (sinE < 0.22F) sinE = 0.22F;
+      // Grazing beams spread the same cone over several times the ground, so
+      // they really are weaker per square metre. Applied per vertex, with the
+      // reach falloff.
+      float angleFade = 0.55F + 0.45F * sinE;
+      float along = across / sinE;
+      if (along > across * 4.5F) along = across * 4.5F;
+      across *= 1.12F;  // a little margin so the gobo reaches black inside it
+      along *= 1.12F;
+      // REACH far enough that the beam's own falloff is what ends the pool, not
+      // the patch's edge. The lower edge of the cone meets the ground at a
+      // horizontal distance that runs away as the beam flattens; the beam's
+      // range bounds it, because past that there is no light to draw anyway.
+      //
+      // An earlier version FADED the pool by how much of that it managed to
+      // cover, and that was wrong in a way worth recording: the required
+      // distance explodes as the elevation approaches the cone's half-angle,
+      // while the patch itself grows with the landing distance - so the fade
+      // was not monotonic in pitch. It left a band a few degrees wide where the
+      // pool vanished completely and came back beyond it, reported from the
+      // console as a dead spot. A fade that is not monotonic in the thing the
+      // player is moving is worse than the artifact it hides.
+      {
+        const float elev = asinf(sinE > 1.0F ? 1.0F : sinE);
+        float lower = elev - FLASHLIGHT_ANGLE * 3.14159265F / 180.0F;
+        if (lower < 0.03F) lower = 0.03F;
+        float need = (cameraPosition.y - baseY) / tanf(lower);  // horizontal
+        if (need > FLASHLIGHT_RANGE) need = FLASHLIGHT_RANGE;
+        const float want = (need - tLand) / 1.4F;  // the far edge is along*1.4
+        if (want > along) along = want;
+        if (along > across * 8.0F) along = across * 8.0F;  // fill-rate backstop
+      }
+      // The stretch belongs BEYOND the landing point, not around it.
+      const float shift = (along - across) * 0.55F;
+      const float px0 = gx + ax * shift, pz0 = gz + az * shift;
+      // ...and the NEAR edge may not reach behind the lens. Measuring
+      // horizontal distance along the beam's ground run as t, a patch point has
+      //   fwd = t * |d.xz| + height-above-ground * -d.y
+      // so fwd crosses zero at a t that is perfectly reachable whenever the
+      // player looks steeply down - and the projection's denominator going to
+      // zero across a straight line ON THE GROUND is exactly what a hard dark
+      // wedge cutting into the pool is. (Reported as "the pool is triangular";
+      // it survived the switch to per-pixel mapping, because the geometry was
+      // the half at fault.) Solve for fwd = 0.3 and put the near edge there.
+      float aNear = -along;
+      if (dxz > 1e-4F) {
+        const float tMin =
+            (0.3F - (cameraPosition.y - baseY) * -dy) / dxz - (tLand + shift);
+        if (tMin > aNear) aNear = tMin > along ? along * 0.05F : tMin;
+      }
+
+      // 96 vertices = one VU1 package. The cells are UNIFORM again: they were
+      // clustered toward the middle while the STs were finished u,v, to put
+      // vertices where the linear approximation hurt most - and with the
+      // mapping exact per pixel there is no approximation left to hide. All
+      // this grid decides now is which ground the pool COVERS.
+      // THREE cells, not the four the buffers are sized for (setupLightPools
+      // allocates the point lights' 4x4 = 96 vertices for every pool). Two
+      // reasons, and the second is the one that matters:
+      //
+      // With the mapping exact per pixel, this grid no longer draws the light
+      // at all - it only decides which GROUND the pool covers and how closely
+      // it follows the relief - so cells are nearly free to give up.
+      //
+      // And the patch sits right under the camera, so most of its triangles
+      // cross a frustum plane and the EE clipper REPLACES each with up to two:
+      // a 96-vertex bag can leave as a much bigger one, and a bag that outgrows
+      // a single VU1 package drops the overflow (the same multi-package drop
+      // renderProjShadows records for its 5x5 patch). A dropped triangle is a
+      // hard-edged dark wedge in the middle of the pool - which is exactly what
+      // survived every earlier fix. Four leaves the rim a cell to fade in
+      // without the fade eating the pool.
+      //
+      // The 16 cells are SHAPED to the pool rather than fixed square: 4x4 on
+      // a steep beam, 2 across x 8 along once the pool stretches - the chord
+      // length ALONG the beam is what fights the relief, and eight segments
+      // halve it at the same one-package vertex budget.
+      const int cellsA = along > across * 3.0F ? 8 : 4;
+      const int cellsC = 16 / cellsA;
+      b.bag->count = (u32)(cellsA * cellsC * 6);
+      // How far the patch floats above the ground it samples. A patch cell is
+      // metres across and the terrain under it is NOT flat between its corners,
+      // so the chord the patch draws dips below every crease it spans - and
+      // there the pool loses the depth test and you see plain ground in the
+      // middle of the light, as a hard-edged wedge along the patch's own
+      // triangulation. The view-ray bias below cannot cover that: it is a
+      // fraction of the distance, while this error is a property of the RELIEF.
+      // So the lift grows with the patch instead of being a constant 4.5 cm,
+      // which is free - this is additive light, not a shadow, and half a metre
+      // of float is invisible on a soft blob.
+      // ...and the lift grows with the LENGTH too: a grazing beam stretches
+      // the pool over tens of units of rolling ground, and a hill's crest
+      // cuts through a chord that a knee-high lift covers on a short patch.
+      // Seen as bright trapezoids marching into the distance - the pieces of
+      // the pool that survived the z test between the crests that ate it.
+      float lift = 0.10F + 0.07F * across + 0.02F * along;
+      if (lift > 1.2F) lift = 1.2F;
+      float aOff[9], cOff[9];
+      for (int i = 0; i <= cellsA; ++i) {
+        const float s = (float)i / cellsA;                // 0 .. 1
+        // 1.4x of margin on the FAR side: coverage is cheap now (the gobo is
+        // black out there, so the extra ground costs fill and nothing else)
+        // and running out of patch before the beam runs out of light cuts the
+        // pool off with a straight edge across the ground.
+        aOff[i] = aNear + (along * 1.4F - aNear) * s;     // asymmetric
+      }
+      for (int i = 0; i <= cellsC; ++i)
+        cOff[i] = ((float)i / cellsC * 2.0F - 1.0F) * across;
+      int v = 0;
+      for (int iz = 0; iz < cellsA; ++iz) {
+        for (int ix = 0; ix < cellsC; ++ix) {
+          const float a0 = aOff[iz], a1 = aOff[iz + 1];
+          const float c0 = cOff[ix], c1 = cOff[ix + 1];
+          // Corner order matches buildPoolPatch's winding (along first, then
+          // across): the beam basis is right-handed the other way round, and
+          // reversing it here keeps every pool submitting the same way.
+          const float qx[4] = {px0 + ax * a0 + cx2 * c0, px0 + ax * a1 + cx2 * c0,
+                               px0 + ax * a1 + cx2 * c1, px0 + ax * a0 + cx2 * c1};
+          const float qz[4] = {pz0 + az * a0 + cz2 * c0, pz0 + az * a1 + cz2 * c0,
+                               pz0 + az * a1 + cz2 * c1, pz0 + az * a0 + cz2 * c1};
+          Vec4 pv[4], ps[4];
+          Color pcv[4];
+          for (int k2 = 0; k2 < 4; ++k2) {
+            const float py =
+                (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + lift;
+            // The ST comes from the TRUE surface point: the depth bias must
+            // move the patch in z only, never slide the beam across it.
+            ps[k2] = goboST(qx[k2], py, qz[k2]);
+            pv[k2] = zBias(qx[k2], py, qz[k2]);
+            // Reach falloff per VERTEX (ps.z is the projection's own fwd):
+            // the far stretches of a grazing pool dim the way the beam does.
+            float reach = 1.0F - ps[k2].z / FLASHLIGHT_RANGE;
+            if (reach < 0.0F) reach = 0.0F;
+            if (reach > 1.0F) reach = 1.0F;
+            pcv[k2] = Color(FLASHLIGHT_R * reach, FLASHLIGHT_G * reach,
+                            FLASHLIGHT_B * reach, 128.0F);
+          }
+          constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
+          for (int k2 = 0; k2 < 6; ++k2) {
+            b.verts[v + k2] = pv[kTri[k2]];
+            b.sts[v + k2] = ps[kTri[k2]];
+            b.colors[v + k2] = pcv[kTri[k2]];
+          }
+          v += 6;
+        }
+      }
+      // The pool's gain is AIMED, not fixed: the additive blend computes
+      // Cs*FIX/128 + Cd, so the peak this patch can add is
+      // maxChannel/128 * FIX/128, and a peak at or over 1.0 clips - at which
+      // point the outline of the clipped region is the patch's own
+      // piecewise-linear ST field, i.e. straight segments and corners where
+      // its cells meet. That was reported as "the torch texture is ragged".
+      // So solve for a peak of 0.8 instead, from whatever colour the project
+      // authored: a dim torch keeps its pool bright, a white one no longer
+      // burns the middle out, and BOTH read brighter than a clipped one
+      // because the falloff around the core survives.
+      //
+      // The colour still drives the per-vertex cone on props at full strength,
+      // which is the other half of the same trap: that term has no N.L, so a
+      // bright torch flattens everything it touches into one colour.
+      // Reach lives in the vertex colors now; the flat factor keeps only the
+      // grazing dim and the aimed ceiling.
+      const float fade = angleFade;
+      float maxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+      if (FLASHLIGHT_B > maxC) maxC = FLASHLIGHT_B;
+      if (maxC < 1.0F) maxC = 1.0F;
+      float fix = 14746.0F / maxC * fade;  // 0.9 * 128 * 128
+      if (fix > 255.0F) fix = 255.0F;
+      if (fix < 1.0F) {
+        finishVolMask();
+        continue;
+      }
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
       stapip.core.render(b.bag.get());
+      finishVolMask();
       continue;
     }
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
@@ -8217,8 +9328,55 @@ void TerrainGame::updateAndRenderLightPools() {
       }
     const float k = d.lightBright * level;
     if (k <= 0.01F) continue;
-    buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
-                   0.04F);  // under the shadows' 0.05/0.06
+    if (d.lightSpot && b.texBag->texture == flashGoboTex) {
+      // The flashlight's projection, from a SCENE light: march the cone's
+      // axis to the ground, drop the patch on the landing, and hand every
+      // vertex the projective STQ of the light's own frustum - the GS
+      // divides S/Q per pixel, so the footprint is the gobo however coarse
+      // the ground is (docs/flashlight.md; same formulas, light for camera).
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      const float lx = d.position[0], ly = d.position[1], lz = d.position[2];
+      float hit = -1.0F;
+      for (float t = 0.3F; t <= d.lightRadius; t += 0.3F) {
+        if (ly + sd.y * t <=
+            projSurfaceAt(lx + sd.x * t, lz + sd.z * t)) {
+          hit = t;
+          break;
+        }
+      }
+      if (hit < 0.0F) continue;
+      const float tanS = tanf(d.lightSpotAngle * 3.14159265F / 180.0F);
+      float rr = tanS * hit * 1.5F + 0.4F;
+      if (rr > d.lightRadius) rr = d.lightRadius;
+      buildPoolPatch(b, lx + sd.x * hit, lz + sd.z * hit, rr, 0.04F);
+      // Beam basis (the torch's degenerate-case trick, sd for the camera).
+      float srx, sry, srz;
+      if (sd.y > 0.995F || sd.y < -0.995F) {
+        srx = sd.y, sry = -sd.x, srz = 0.0F;
+      } else {
+        srx = -sd.z, sry = 0.0F, srz = sd.x;
+      }
+      const float srl = sqrtf(srx * srx + sry * sry + srz * srz);
+      if (srl < 0.0001F) continue;
+      srx /= srl, sry /= srl, srz /= srl;
+      const float sux = sry * sd.z - srz * sd.y;
+      const float suy = srz * sd.x - srx * sd.z;
+      const float suz = srx * sd.y - sry * sd.x;
+      const float kP = 0.43F / tanS;
+      for (size_t vi = 0; vi < b.verts.size(); ++vi) {
+        const float ex = b.verts[vi].x - lx, ey = b.verts[vi].y - ly,
+                    ez = b.verts[vi].z - lz;
+        float fwd = ex * sd.x + ey * sd.y + ez * sd.z;
+        if (fwd < 0.05F) fwd = 0.05F;
+        b.sts[vi] =
+            Vec4(0.5F * fwd + kP * (ex * srx + ey * sry + ez * srz),
+                 0.5F * fwd - kP * (ex * sux + ey * suy + ez * suz), fwd,
+                 0.0F);
+      }
+    } else {
+      buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
+                     0.04F);  // under the shadows' 0.05/0.06
+    }
     b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
                 128.0F);
     float fix = 96.0F * (k > 1.4F ? 1.4F : k);
@@ -8263,6 +9421,8 @@ void TerrainGame::setupBlobShadows() {
     b.info->dynLightPick = false;  // as for the projected patches: a dark
                                    // blob under a dynamic light was picked up
                                    // by that light and drawn BRIGHT
+    b.info->spotLit = false;  // ...and the flashlight is the light that would
+                              // most obviously do it - you are standing there
     b.info->fullClipChecks = true;  // near-camera quad: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
@@ -8360,6 +9520,10 @@ void TerrainGame::setupProjShadows() {
                                    // its black straight back to the light's
                                    // color - a bright quad where the shadow
                                    // should be (same rule as the pools)
+    b.info->spotLit = false;  // including the flashlight, which dynLightPick =
+                              // false falls back to: shine a torch at your own
+                              // shadow and the per-vertex cone was lifting it
+                              // out of the ground in cell-sized steps
     b.info->fullClipChecks = true;  // big near-camera triangles: crossing
                                     // ones must CLIP, not drop whole (a
                                     // dropped 3-unit ground quad is a hole)
@@ -8374,6 +9538,36 @@ void TerrainGame::setupProjShadows() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // GS CLAMP on the slot texture, for the WALL copy below: its STs are the
+    // silhouette projection evaluated per PIXEL (STQ), so there is no vertex
+    // to clamp on the EE the way the flat patch does - and REPEAT would tile
+    // the silhouette across the wall. The silhouette keeps a ~22% transparent
+    // border by construction (the fov sizing), so the clamped edge is empty.
+    b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
+    // The wall copy: same darkness, same slot texture, its own buffers. The
+    // STs are filled per frame from the light view-proj of the frame.
+    b.wallVerts.reserve(4096);
+    b.wallSts.reserve(4096);
+    b.wallColor = Color(0.0F, 0.0F, 0.0F, 55.0F);
+    b.wallInfo = std::make_unique<StaPipInfoBag>();
+    b.wallInfo->model = &b.mat;
+    b.wallInfo->shadingType = TyraShadingFlat;
+    b.wallInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.wallInfo->zTestType = PipelineZTest_TestOnly;
+    b.wallInfo->dynLightPick = false;  // a shadow is never re-lit
+    b.wallInfo->spotLit = false;
+    b.wallInfo->fullClipChecks = true;
+    b.wallColorBag = std::make_unique<StaPipColorBag>();
+    b.wallColorBag->single = &b.wallColor;
+    b.wallTexBag = std::make_unique<StaPipTextureBag>();
+    b.wallTexBag->texture = b.texBag->texture;
+    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallBag = std::make_unique<StaPipBag>();
+    b.wallBag->info = b.wallInfo.get();
+    b.wallBag->color = b.wallColorBag.get();
+    b.wallBag->texture = b.wallTexBag.get();
+    b.wallBag->vertices = b.wallVerts.data();
+    b.wallBag->count = 0;
   }
   // See setupLightBeams: the bags point INTO the vector elements, so they are
   // rebound once the vector has stopped reallocating under them. This is what
@@ -8382,6 +9576,8 @@ void TerrainGame::setupProjShadows() {
   for (ProjShadow& b : projShadows) {
     b.info->model = &b.mat;
     b.colorBag->single = &b.color;
+    b.wallInfo->model = &b.mat;
+    b.wallColorBag->single = &b.wallColor;
   }
 }
 
@@ -8459,6 +9655,244 @@ void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
     g_projRecv.push_back(r);
     if (g_projRecv.size() >= 24) break;  // a patch never needs more
   }
+}
+
+/** Solid boxes the flashlight's beam can land on, WALLS included.
+ *
+ * projCollectReceivers answers "what could this stand on", so it drops anything
+ * whose top is above the caster - which is every wall in the level. A beam does
+ * not care: shine it at a wall and the light belongs on the wall. This collects
+ * the same objects, with no height test, and projWallHit intersects them
+ * exactly rather than marching the column the ground path uses (a column would
+ * put the light on top of the wall).
+ *
+ * ORIENTED boxes, not axis-aligned ones. Everything else in this file that asks
+ * "what is under here" works on the AABB with rotation ignored, because it is
+ * asking about a FOOTPRINT and a footprint has no facing. A wall's facing is the
+ * entire question here: on an AABB, a wall turned 30 degrees to the world would
+ * take its light on a face that is not where the wall is. So the ray goes into
+ * the box's own frame (areaBasis - the same rotated basis an Area uses), the
+ * slab test happens there, and the patch is built there too. */
+
+void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
+  g_projBoxes.clear();
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible) continue;
+    if (o.data.collision == 2) continue;  // no collision = nothing to light
+    const int t = o.data.type;
+    // The same marker/volume skip list projCollectReceivers uses.
+    if (t == 4 || t == 6 || t == 7 || t == 8 || t == 9 || t == 11 || t == 13 ||
+        t == 14 || t == 17)
+      continue;
+    const GameModel* gm = nullptr;
+    if (t == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* am = nullptr;
+    if (t == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      am = gameAnimModels[o.data.animModel].src.get();
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    V3 lc = {0.0F, 0.0F, 0.0F};
+    const float* mn = gm ? gm->mn : (am ? am->min : nullptr);
+    const float* mx = gm ? gm->mx : (am ? am->max : nullptr);
+    if (mn && mx) {
+      lc = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+            0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+            0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    const AreaBasis ab = areaBasis(o.data);
+    ProjBox r;
+    for (int a = 0; a < 3; ++a) {
+      r.ax[a] = ab.ax[a], r.ay[a] = ab.ay[a], r.az[a] = ab.az[a];
+    }
+    // The mesh AABB's own centre offset is a LOCAL offset, so it rotates with
+    // the object - which is the whole point of doing this in the box's frame.
+    r.o[0] = o.data.position[0] + ab.ax[0] * lc.x + ab.ay[0] * lc.y +
+             ab.az[0] * lc.z;
+    r.o[1] = o.data.position[1] + ab.ax[1] * lc.x + ab.ay[1] * lc.y +
+             ab.az[1] * lc.z;
+    r.o[2] = o.data.position[2] + ab.ax[2] * lc.x + ab.ay[2] * lc.y +
+             ab.az[2] * lc.z;
+    r.h[0] = ex, r.h[1] = ey, r.h[2] = ez;
+    r.obj = oi;
+    r.type = t;
+    // Reach test on the bounding SPHERE - cheap, and rotation cannot fool it.
+    const float rad = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (r.o[0] + rad < cx - reach || r.o[0] - rad > cx + reach) continue;
+    if (r.o[2] + rad < cz - reach || r.o[2] - rad > cz + reach) continue;
+    g_projBoxes.push_back(r);
+    if (g_projBoxes.size() >= 24) break;
+  }
+}
+
+bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
+                              float maxT, float& outT, int& outAxis,
+                              float& outSign, ProjBox& outBox) {
+  bool found = false;
+  for (const ProjBox& b : g_projBoxes) {
+    // A THIN box - a lamp post, a sign - is transparent to this ray: its
+    // AABB is a slab of mostly air (the post's arm stretches it), and the
+    // surface the light belongs to is whatever stands BEHIND it. Same 0.25
+    // rule as the receiver slots.
+    float bthin = b.h[0] < b.h[1] ? b.h[0] : b.h[1];
+    if (b.h[2] < bthin) bthin = b.h[2];
+    if (bthin < 0.25F) continue;
+    // The ray, in the box's own frame: project the offset and the direction
+    // onto its three axes. From here it is the ordinary slab test, and the slab
+    // that ADMITTED the ray last is the face it enters through - which is the
+    // plane the light lands on.
+    const float ox = from.x - b.o[0], oy = from.y - b.o[1],
+                oz = from.z - b.o[2];
+    const float lo3[3] = {ox * b.ax[0] + oy * b.ax[1] + oz * b.ax[2],
+                          ox * b.ay[0] + oy * b.ay[1] + oz * b.ay[2],
+                          ox * b.az[0] + oy * b.az[1] + oz * b.az[2]};
+    const float ld[3] = {dx * b.ax[0] + dy * b.ax[1] + dz * b.ax[2],
+                         dx * b.ay[0] + dy * b.ay[1] + dz * b.ay[2],
+                         dx * b.az[0] + dy * b.az[1] + dz * b.az[2]};
+    float t0 = 0.0F, t1 = maxT;
+    int axis = -1;
+    float sign = 0.0F;
+    bool ok = true;
+    for (int a = 0; a < 3 && ok; ++a) {
+      if (ld[a] > -1e-6F && ld[a] < 1e-6F) {
+        if (lo3[a] < -b.h[a] || lo3[a] > b.h[a]) ok = false;
+        continue;
+      }
+      const float inv = 1.0F / ld[a];
+      float tn = (-b.h[a] - lo3[a]) * inv;
+      float tf = (b.h[a] - lo3[a]) * inv;
+      float s = -1.0F;
+      if (tn > tf) {
+        const float tmp = tn;
+        tn = tf, tf = tmp;
+        s = 1.0F;
+      }
+      if (tn > t0) t0 = tn, axis = a, sign = s;
+      if (tf < t1) t1 = tf;
+      if (t0 > t1) ok = false;
+    }
+    if (!ok || axis < 0 || t0 <= 0.05F) continue;
+    if (found && t0 >= outT) continue;
+    found = true;
+    outT = t0;
+    outAxis = axis;
+    outSign = sign;
+    outBox = b;
+  }
+  return found;
+}
+
+/** Takes one object off the camera spot, and puts the previous one back.
+ *
+ * The per-vertex cone lights a box face from its four corners with no N.L, so a
+ * big flat receiver comes up EVENLY - and once the projected pool lands on that
+ * same face, the pool reads as a hotspot on an already-lit wall instead of as
+ * the only light on it. The wall is the one surface where the pool can do the
+ * whole job, so the cone gets out of its way, exactly as the terrain's does.
+ *
+ * The flag lives in the object's own info bags rather than at the submission
+ * sites - there are eleven of those (portals, mirrors, the through-views, the
+ * main pass) and a flag applied per site would be forgotten at one of them.
+ * It therefore takes effect on the NEXT frame, since the pool is drawn after
+ * the objects: 20 ms of cone on a wall you have just swept onto, which is not
+ * a thing anyone can see. Only the receiver's OWN spot is dropped, so the
+ * torch keeps lighting everything else in the beam. */
+/** Every big flat BOX in the beam's reach gives up the per-vertex cone, not
+ * merely the one the beam happens to be touching.
+ *
+ * Doing it for the hit alone left the other half of the report standing: a wall
+ * off to the side, inside the cone but not aimed at, still lit up as "a few
+ * bright triangles" - and then those triangles vanished the instant the beam
+ * came onto it and the pool took over. Two pops for the price of one.
+ *
+ * A wall never wants that term, whether or not the beam is centred on it. So the
+ * rule is a property of the OBJECT, not of the aim: a box primitive whose
+ * largest face is more than about 1.4 units across is lit by the pool when the
+ * pool is there and by the moon when it is not.
+ *
+ * BOXES ONLY, and that restriction is load-bearing: a model's bounding box says
+ * nothing about how its surface is tessellated, and a baked scatter chunk has an
+ * enormous one - a whole grouping cell of trees - so a size test would strip the
+ * cone from the entire forest. */
+void TerrainGame::updateFlashSpotOff() {
+  static std::vector<int> want;
+  want.clear();
+  for (int e : flashSpotExtra) want.push_back(e);
+  for (const ProjBox& b : g_projBoxes) {
+    bool have = false;
+    for (int e : flashSpotExtra)
+      if (e == b.obj) { have = true; break; }
+    if (have) continue;
+    if (b.type != 0) continue;  // box primitives only
+    float h0 = b.h[0], h1 = b.h[1], h2 = b.h[2];
+    if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
+    if (h1 < h2) { const float t = h1; h1 = h2, h2 = t; }
+    if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
+    if (sqrtf(h0 * h0 + h1 * h1) > 1.4F) want.push_back(b.obj);
+  }
+  for (int prev : flashSpotOffList) {
+    bool still = false;
+    for (int w : want)
+      if (w == prev) { still = true; break; }
+    if (!still) setFlashSpotOff(prev, true);
+  }
+  flashSpotOffList.assign(want.begin(), want.end());
+  for (int w : want) setFlashSpotOff(w, false);
+}
+
+void TerrainGame::setFlashSpotOff(int obj, bool spot) {
+  // A STATICALLY BATCHED receiver does not draw from its own bags at all - its
+  // geometry lives in a merged bag that other objects share - so flagging its
+  // parts reaches nothing. (Measured the hard way: the flag was provably set,
+  // `Static batching: 3 objects in 3 batches` in the log, and the wall kept its
+  // cone.) A batch that holds ONLY this object can take the flag as a whole,
+  // which is the common case for a wall: batches group by cell and material, so
+  // a big lone wall tends to be its own. A batch with company keeps the cone -
+  // one torch must not darken every object grouped with what it points at.
+  auto loneBatch = [&](int i) -> StaticBatch* {
+    if (i < 0 || i >= (int)objectBatchOf.size()) return nullptr;
+    const int bi = objectBatchOf[i];
+    if (bi < 0 || bi >= (int)staticBatches.size()) return nullptr;
+    StaticBatch* sb = &staticBatches[bi];
+    return sb->members.size() == 1 && sb->bag ? sb : nullptr;
+  };
+  auto apply = [&](int i, bool lit) {
+    if (i < 0 || i >= (int)objectGeometry.size()) return;
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.infoBag) part.infoBag->spotLit = lit;
+    if (objectGeometry[i].animInfoBag)
+      objectGeometry[i].animInfoBag->spotLit = lit;
+    if (StaticBatch* sb = loneBatch(i)) {
+      if (lit) {
+        if (batchInfoBag) sb->bag->info = batchInfoBag.get();
+      } else {
+        if (!batchNoSpotInfoBag) {
+          // The same settings rebuildStaticBatch gives batchInfoBag, and one
+          // more: no camera spot.
+          batchNoSpotInfoBag = std::make_unique<StaPipInfoBag>();
+          batchNoSpotInfoBag->model = &model;
+          batchNoSpotInfoBag->shadingType = TyraShadingFlat;
+          batchNoSpotInfoBag->frustumCulling =
+              PipelineInfoBagFrustumCulling_Precise;
+          batchNoSpotInfoBag->fullClipChecks = true;
+          batchNoSpotInfoBag->spotLit = false;
+        }
+        sb->bag->info = batchNoSpotInfoBag.get();
+      }
+    }
+  };
+  // Applied EVERY frame by the caller, not once on a transition:
+  // rebuildObjectGeometry makes a fresh info bag whenever a part's bag has gone
+  // (a demotion out of a static batch, a Live Link edit, a script that moves
+  // vertices), and that bag arrives with the cone switched back on. A flag set
+  // once would then be silently lost for as long as the beam stayed on that
+  // wall - which is exactly when it matters.
+  apply(obj, spot);
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {
@@ -8550,7 +9984,19 @@ void TerrainGame::renderProjShadows() {
       // every caster has been through, so it has to re-collect each one's
       // receivers rather than inherit the last caster's list.
       syMax[Tyra::RendererCoreShadowMap::slots];
+  // The torch's slots additionally paint the silhouette on the WALL behind
+  // the caster, so those need the shadow ray itself: caster centre + radius,
+  // the light->caster direction, and whether the torch was the light at all.
+  bool storch[Tyra::RendererCoreShadowMap::slots];
+  float sray[Tyra::RendererCoreShadowMap::slots][7];  // cx,cy,cz, dx,dy,dz, r
   int used = 0;
+  // The beam, for the cone gate below (a caster behind the player must not
+  // take a shadow from a light that does not reach it).
+  float fbx = cameraLookAt.x - cameraPosition.x,
+        fby = cameraLookAt.y - cameraPosition.y,
+        fbz = cameraLookAt.z - cameraPosition.z;
+  const float fbl = sqrtf(fbx * fbx + fby * fby + fbz * fbz);
+  if (fbl > 0.0001F) fbx /= fbl, fby /= fbl, fbz /= fbl;
 
   for (const Cand& c : cands) {
     if (used >= (int)projShadows.size()) break;
@@ -8606,16 +10052,20 @@ void TerrainGame::renderProjShadows() {
     // matter and the flat caster silently cast nothing at all.
     const AreaBasis casterBox = areaBasis(o.data);
     auto consider = [&](float px, float py, float pz, float radius,
-                        float bright, float level) {
+                        float bright, float level, float levelBar) {
       if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
       const float dx = cx - px, dy = cy - py, dz = cz - pz;
       const float d = sqrtf(dx * dx + dy * dy + dz * dz);
       if (d < 0.05F) return;
       if (areaDistSq(casterBox, px, py, pz) < 0.04F) return;  // in the caster
-      // Level with the caster or below it: nothing lands on the ground. The
-      // bar is low (~5 degrees) because the patch distance is clamped below -
-      // a flat ray now yields a truncated shadow instead of none.
-      if (dy > -0.08F * d) return;
+      // Level with the caster or below it: nothing lands on the GROUND, so a
+      // fixed light is not worth a slot (the bar is low, ~5 degrees, because
+      // the patch distance is clamped below - a flat ray yields a truncated
+      // shadow instead of none). The TORCH passes a laxer bar: it is carried
+      // at eye height, level with everything, and its shadow's whole point is
+      // the WALL behind the caster - the ground patch is simply skipped when
+      // the ray is too flat for one (see groundOk below).
+      if (dy > levelBar * d) return;
       const float fall = 1.0F - d / radius;
       if (fall <= 0.0F) return;  // out of the light's reach
       const float score = bright * level * fall;
@@ -8632,12 +10082,56 @@ void TerrainGame::renderProjShadows() {
         continue;
       const SceneObjectData& ld = runtimeObjects[L.objIndex].data;  // live
       consider(ld.position[0], ld.position[1], ld.position[2], ld.lightRadius,
-               ld.lightBright, L.lastLevel);
+               ld.lightBright, L.lastLevel, -0.08F);
     }
     // Baked point lights cast too: their light is vertex-baked and static,
     // but the CASTER moves, so its shadow cannot be baked with it.
     for (const BakedPointLight& L : g_scenePointLights)
-      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F);
+      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F, -0.08F);
+    // And the TORCH (docs/flashlight.md, "The shadow") - the Silent Hill
+    // moment this system existed for without knowing it: a caster in the beam
+    // hurls its silhouette away from the player, and the shadow swings with
+    // every step and every turn because the light is the player. Gated on the
+    // caster actually being IN the cone (with a margin for its radius): a prop
+    // beside the beam must not shadow from a light that does not reach it.
+    // Brightness 2.0 - at night the torch IS the light, and a scene point
+    // light you stand next to can still outbid it through its falloff term.
+    // (Volumes mode carries the torch's shadows in the destination alpha
+    // instead - the slots stay free for the scene's own lights there.)
+    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled && g_flashOn) {
+      const float tx2 = cx - cameraPosition.x, ty2 = cy - cameraPosition.y,
+                  tz2 = cz - cameraPosition.z;
+      const float td = sqrtf(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
+      if (td > 0.05F) {
+        const float ca2 = (tx2 * fbx + ty2 * fby + tz2 * fbz) / td;
+        const float margin = td > 0.05F ? r / td : 1.0F;
+        if (ca2 + margin > cosf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F)) {
+          // ...and only with LINE OF SIGHT. The torch is the one light that
+          // walks around, so a caster on the far side of a wall is a routine
+          // arrangement, not an edge case - and without this test it still
+          // won the score and painted its silhouette THROUGH the wall, as a
+          // dark shape floating in the pool on the near face (seen in PCSX2
+          // before this test existed). One slab query along torch->caster,
+          // stopped a little short so the caster's own box cannot occlude
+          // itself.
+          projCollectBoxes(cameraPosition.x + tx2 * 0.5F,
+                           cameraPosition.z + tz2 * 0.5F, td * 0.5F + 2.0F);
+          float lt = 0.0F, ls = 0.0F;
+          int la = -1;
+          ProjBox lb;
+          const bool blocked =
+              projWallHit(cameraPosition, tx2 / td, ty2 / td, tz2 / td,
+                          td - r * 0.8F, lt, la, ls, lb) &&
+              lb.obj != i;
+          if (!blocked)
+            consider(cameraPosition.x, cameraPosition.y, cameraPosition.z,
+                     FLASHLIGHT_RANGE, 2.0F, 1.0F, 0.35F);
+        }
+      }
+    }
+    // Exact-equality test on purpose: consider() stored these very floats.
+    const bool fromTorch = !bestSun && lpx == cameraPosition.x &&
+                           lpy == cameraPosition.y && lpz == cameraPosition.z;
     if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
 
     // Light camera. For a point light the eye sits AT the light, so the
@@ -8657,7 +10151,11 @@ void TerrainGame::renderProjShadows() {
     const float eDist = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
     if (eDist < 0.0001F) continue;
     ddx /= eDist, ddy /= eDist, ddz /= eDist;
-    if (ddy > -0.08F) continue;  // level or rising: nothing reaches the ground
+    // Level or rising: nothing reaches the GROUND. For a fixed light that is
+    // the end of it; the torch keeps the slot for the silhouette and the wall
+    // pass, and only the ground patch is skipped.
+    const bool groundOk = ddy <= -0.08F;
+    if (!fromTorch && !groundOk) continue;
 
     // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
     // smears edge texels outward - the border guarantees the edges stay
@@ -8700,6 +10198,8 @@ void TerrainGame::renderProjShadows() {
     const float latMax = r * 4.0F;
     const float tgMax =
         horizRun > 0.0001F ? latMax / horizRun : 1.0e9F;
+    float gx = cx, gz = cz, half = 0.0F;
+    if (groundOk) {
     // Receivers first: everything below is asking "where is the floor", and
     // indoors the floor is geometry. yMax is the caster's own underside (feet
     // for the anim/player types the lift above accounts for) plus a little,
@@ -8709,7 +10209,7 @@ void TerrainGame::renderProjShadows() {
     float gy = projSurfaceAt(cx, cz);
     float tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
-    float gx = cx + ddx * tg, gz = cz + ddz * tg;
+    gx = cx + ddx * tg, gz = cz + ddz * tg;
     gy = projSurfaceAt(gx, gz);
     tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
@@ -8723,12 +10223,17 @@ void TerrainGame::renderProjShadows() {
     // quad, and its triangles straddle the near plane every frame - exactly
     // where big triangles are fragile (and it looked wrong anyway). The cost
     // is a cropped shadow tip when the light is very low or very close.
-    float half = bestSun ? r * 1.6F + tg * 0.25F
-                         : r * 1.7F * ((eDist + tg) / eDist);
+    half = bestSun ? r * 1.6F + tg * 0.25F
+                   : r * 1.7F * ((eDist + tg) / eDist);
     const float halfCap = r * 3.5F;
     if (half > halfCap) half = halfCap;
+    }  // groundOk
 
     sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
+    storch[used] = fromTorch;
+    sray[used][0] = cx, sray[used][1] = cy, sray[used][2] = cz;
+    sray[used][3] = ddx, sray[used][4] = ddy, sray[used][5] = ddz;
+    sray[used][6] = r;
     syMax[used] = cy - r + 0.35F;
     const float dist = sqrtf(c.d2);
     sfade[used] =
@@ -8780,6 +10285,104 @@ void TerrainGame::renderProjShadows() {
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
+    // Wall pass FIRST: the ground code below `continue`s on its own dead ends
+    // (a void landing, a sub-threshold fade), and a flat torch ray has no
+    // ground patch at all - shalf 0 marks it - while the wall is the point.
+    if (storch[s]) do {
+    // --- the WALL behind a torch-lit caster (docs/flashlight.md) ----------
+    // The silhouette painted ON the wall - the Silent Hill shot. The shadow
+    // ray (torch through caster) is chased to the nearest solid face, and the
+    // geometry it lands on is re-rendered with the slot's silhouette sampled
+    // through the light view-proj: STQ again, so the projection is exact per
+    // PIXEL, and the GS's CLAMP on the slot texture ends it at the
+    // silhouette's own transparent border. Torch slots only - a scene light
+    // is fixed and its wall shadow would be too, which the bake already does
+    // better; the torch's moves with every step, which nothing baked can.
+    const float* R = sray[s];
+    const float reach2 = R[6] * 8.0F;
+    projCollectBoxes(R[0] + R[3] * reach2 * 0.5F, R[2] + R[5] * reach2 * 0.5F,
+                     reach2 * 0.5F + 2.0F);
+    float wT = 0.0F, wSign = 0.0F;
+    int wAxis = -1;
+    ProjBox wBox;
+    if (!projWallHit(Vec4(R[0], R[1], R[2], 1.0F), R[3], R[4], R[5], reach2,
+                     wT, wAxis, wSign, wBox))
+      break;
+    {
+      // A face pointing mostly up is a floor: the flat patch above already
+      // owns it, and painting it twice doubles the darkness.
+      const float* fa2 =
+          wAxis == 0 ? wBox.ax : (wAxis == 1 ? wBox.ay : wBox.az);
+      if (fa2[1] * wSign >= 0.7F) break;
+    }
+    const int wo = wBox.obj;
+    if (wo < 0 || wo >= (int)objectGeometry.size()) break;
+    const bool wBatched =
+        wo < (int)objectBatchOf.size() && objectBatchOf[wo] >= 0;
+    if (wBatched) {
+      if (objectGeometry[wo].parts.empty() && !runtimeObjects[wo].dirty)
+        rebuildObjectGeometry(wo);
+    } else if (runtimeObjects[wo].dirty) {
+      rebuildObjectGeometry(wo);
+    }
+    ObjectGeometry& wg = objectGeometry[wo];
+    if (wg.parts.empty() || wg.matrixMode) break;
+    b.wallVerts.clear();
+    b.wallSts.clear();
+    const float* woc = runtimeObjects[wo].data.position;
+    for (GeoPart& part : wg.parts) {
+      if (!part.bag) continue;
+      const size_t nvt = part.vertices.size() / 3 * 3;
+      for (size_t vi = 0; vi + 2 < nvt + 1; vi += 3) {
+        if (b.wallVerts.size() >= 3997) break;
+        const Vec4& a3 = part.vertices[vi];
+        const Vec4& b3 = part.vertices[vi + 1];
+        const Vec4& c3 = part.vertices[vi + 2];
+        // The same facing cull as the light pass, against the same torch: a
+        // face the light cannot reach must not take its shadow either - this
+        // is what keeps the silhouette off the wall's INNER face.
+        float nx2 =
+            (b3.y - a3.y) * (c3.z - a3.z) - (b3.z - a3.z) * (c3.y - a3.y);
+        float ny2 =
+            (b3.z - a3.z) * (c3.x - a3.x) - (b3.x - a3.x) * (c3.z - a3.z);
+        float nz2 =
+            (b3.x - a3.x) * (c3.y - a3.y) - (b3.y - a3.y) * (c3.x - a3.x);
+        const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+        const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+        const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+        if (nx2 * (cx3 - woc[0]) + ny2 * (cy3 - woc[1]) +
+                nz2 * (cz3 - woc[2]) <
+            0.0F)
+          nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+        if (nx2 * (cameraPosition.x - cx3) + ny2 * (cameraPosition.y - cy3) +
+                nz2 * (cameraPosition.z - cz3) <=
+            0.0F)
+          continue;
+        // The silhouette's STQ: clip = lightVP * world, and the same 2048
+        // raster convention as the flat patch (kUv). Q guards at a hair above
+        // zero - a vertex behind the light plane lands far outside 0..1 and
+        // the CLAMP returns the border, which the fov margin keeps empty.
+        const Vec4 tri3[3] = {a3, b3, c3};
+        for (int k3 = 0; k3 < 3; ++k3) {
+          b.wallVerts.push_back(tri3[k3]);
+          const Vec4 clip = lightVP[s] * tri3[k3];
+          const float q = clip.w > 0.001F ? clip.w : 0.001F;
+          b.wallSts.push_back(Vec4(0.5F * q + kUv * clip.x,
+                                   0.5F * q + kUv * clip.y, q, 0.0F));
+        }
+      }
+    }
+    b.wallVerts.resize(b.wallVerts.size() / 3 * 3);
+    b.wallSts.resize(b.wallVerts.size());
+    if (b.wallVerts.empty()) break;
+    b.wallColor.a = 55.0F * sfade[s];
+    b.wallBag->vertices = b.wallVerts.data();
+    b.wallBag->count = (u32)b.wallVerts.size();
+    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.wallBag.get());
+    } while (0);
+    if (half < 0.01F) continue;  // a flat torch ray: wall only
     projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
     // What this patch lies on is decided ONCE, at its centre - never per
     // vertex.
@@ -8858,6 +10461,7 @@ void TerrainGame::renderProjShadows() {
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
+
   }
 }
 
@@ -10023,6 +11627,17 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   // probe path. Never both (docs/global-illumination.md).
   g_giLightmap = SCENE_AO_ATLAS_GI && g_emisAtlas;
   g_giProbeShade = !g_giLightmap && SCENE_PROBES != nullptr;
+  // ...unless the object's TEXTURE already carries its light
+  // (docs/prelit-models.md). Then nothing may be baked into its vertices at
+  // all: every term below - ambient, N.L, the baked point lights, the emissive
+  // pools - is already in the albedo, per pixel, and adding it again lights the
+  // surface twice. This is the only per-pixel static light a TEXTURED surface
+  // can have on this hardware, so the flag has to beat both routes above.
+  g_prelitTex = o.data.prelit != 0;
+  if (g_prelitTex) {
+    g_giLightmap = false;
+    g_giProbeShade = false;
+  }
   // Dynamic lighting wins over both: VU1 lights this object from a bag the
   // frame loop refills, so nothing may be baked into its vertices at all.
   // Needs a probe grid to read - without one there is nothing to be dynamic
@@ -14725,6 +16340,40 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunkSlot.assign(total, -1);
 }
 
+// Distance detail (docs/terrain-lod.md). Two bands, then the floor: full grid
+// inside TERRAIN_LOD_DISTANCE, every 2nd sample out to 2.2x it, every 4th
+// beyond. 2.2 rather than 2 so the middle band is wide enough to be crossed
+// rather than straddled - the whole point of a band is that walking through it
+// rebuilds a ring once.
+//
+// The distance is measured to the chunk's CENTRE, from whichever focus is
+// nearest (split screen has two), and both are snapped by the caller. A chunk
+// asks this about its neighbours as well as itself, so the answer must depend on
+// nothing but the arguments and that snapped state - never on what is resident.
+int TerrainGame::terrainLodStep(int cx, int cz) const {
+  if (TERRAIN_LOD_DISTANCE <= 0.0F || terrainLodFocusCount <= 0) return 1;
+  if (cx < 0 || cz < 0 || cx >= terrainChunksX || cz >= terrainChunksZ) return 1;
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  if (cellsX <= 0 || cellsZ <= 0) return 1;
+  const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+  const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+  const float wx = -TERRAIN_WIDTH * 0.5F + (cx + 0.5F) * spanX;
+  const float wz = -TERRAIN_DEPTH * 0.5F + (cz + 0.5F) * spanZ;
+  float best = -1.0F;
+  for (int i = 0; i < terrainLodFocusCount; ++i) {
+    const float dx = wx - terrainLodFocus[i][0];
+    const float dz = wz - terrainLodFocus[i][1];
+    const float d2 = dx * dx + dz * dz;
+    if (best < 0.0F || d2 < best) best = d2;
+  }
+  const float near2 = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+  if (best <= near2) return 1;
+  const float mid = TERRAIN_LOD_DISTANCE * 2.2F;
+  if (best <= mid * mid) return 2;
+  return 4;
+}
+
 // Macro ground variation (docs/terrain-painting.md): deterministic value
 // noise over WORLD position - two smoothstepped octaves - multiplied into the
 // vertex shade below. Large soft patches of lighter/darker ground at zero
@@ -14902,15 +16551,87 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   if (gx1 > cellsX) gx1 = cellsX;  // edge chunks cover the remainder
   if (gz1 > cellsZ) gz1 = cellsZ;
 
+  // Distance detail (docs/terrain-lod.md): far chunks take every 2nd or 4th
+  // heightmap sample, so a big map costs its vertices where the player is
+  // rather than uniformly. Gameplay never notices - terrainHeightAt samples
+  // TERRAIN_HEIGHTS and not the mesh - and with the feature off every stride is
+  // 1 and this whole build is the pre-LOD one, quad for quad.
+  const int lod = terrainLodStep(cx, cz);
+  ch.lod = (unsigned char)lod;
+  ch.lodW = (unsigned char)terrainLodStep(cx - 1, cz);
+  ch.lodE = (unsigned char)terrainLodStep(cx + 1, cz);
+  ch.lodN = (unsigned char)terrainLodStep(cx, cz - 1);
+  ch.lodS = (unsigned char)terrainLodStep(cx, cz + 1);
+  // A vertex on an edge whose neighbour is COARSER has to sit on the
+  // NEIGHBOUR's segment, or the two meshes disagree along that line and the
+  // difference shows as a hairline of background - the classic geomipmap crack.
+  // Interpolating it onto the coarse segment is exact and adds no vertices
+  // (skirts, the other cure, add a quarter as much geometry again to the chunks
+  // that can least afford it). The shade is interpolated the same way: matching
+  // only the height would close the hole and leave a colour seam in its place.
+  // Corners need no special case - a chunk corner is a multiple of every
+  // stride, so both interpolations land on the vertex itself.
+  struct EdgeMix {
+    int a = 0, b = 0;
+    float t = 0.0F;
+    bool alongZ = false, snap = false;
+  };
+  auto edgeMix = [&](int ix, int iz) {
+    EdgeMix m;
+    int sn = 0;
+    bool alongZ = true;
+    if (ix == gx0 && cx > 0)
+      sn = ch.lodW;
+    else if (ix == gx1 && cx < terrainChunksX - 1)
+      sn = ch.lodE;
+    if (sn <= lod) {
+      sn = 0;
+      alongZ = false;
+      if (iz == gz0 && cz > 0)
+        sn = ch.lodN;
+      else if (iz == gz1 && cz < terrainChunksZ - 1)
+        sn = ch.lodS;
+    }
+    if (sn <= lod) return m;
+    const int i = alongZ ? iz : ix;
+    const int i0 = alongZ ? gz0 : gx0;
+    const int iMax = alongZ ? gz1 : gx1;
+    const int a = i0 + ((i - i0) / sn) * sn;
+    int b = a + sn;
+    if (b > iMax) b = iMax;
+    if (b <= a || i == a) return m;
+    m.a = a, m.b = b, m.alongZ = alongZ, m.snap = true;
+    m.t = (float)(i - a) / (float)(b - a);
+    return m;
+  };
+  auto hAtE = [&](int ix, int iz) {
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return hAt(ix, iz);
+    const float ha = m.alongZ ? hAt(ix, m.a) : hAt(m.a, iz);
+    const float hb = m.alongZ ? hAt(ix, m.b) : hAt(m.b, iz);
+    return ha + (hb - ha) * m.t;
+  };
+  auto shadeAtE = [&](int ix, int iz) -> V3 {
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return shadeAt(ix, iz);
+    const V3 sa = m.alongZ ? shadeAt(ix, m.a) : shadeAt(m.a, iz);
+    const V3 sb = m.alongZ ? shadeAt(ix, m.b) : shadeAt(m.b, iz);
+    return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
+              sa.z + (sb.z - sa.z) * m.t};
+  };
+  // Quads this chunk really emits - the reserve has to follow the stride or a
+  // distant chunk asks for sixteen times the memory it fills.
+  const int quadsX = (gx1 - gx0 + lod - 1) / lod;
+  const int quadsZ = (gz1 - gz0 + lod - 1) / lod;
+
   ch.vertices.clear();
   ch.colors.clear();
   ch.sts.clear();
   ch.emisCols.clear();
-  if (terrainMapLit)
-    ch.emisCols.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  ch.vertices.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  if (terrainMapLit) ch.emisCols.reserve((size_t)quadsX * quadsZ * 6);
+  ch.vertices.reserve((size_t)quadsX * quadsZ * 6);
+  ch.colors.reserve((size_t)quadsX * quadsZ * 6);
+  if (textured) ch.sts.reserve((size_t)quadsX * quadsZ * 6);
 
   // Painted terrain layers: find which layers have any weight on this chunk's
   // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
@@ -14938,8 +16659,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.layer = activeLayers[a];
     lp.colors.clear();
     lp.sts.clear();
-    lp.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-    lp.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+    lp.colors.reserve((size_t)quadsX * quadsZ * 6);
+    lp.sts.reserve((size_t)quadsX * quadsZ * 6);
   }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
@@ -14949,18 +16670,25 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
   };
 
-  for (int z = gz0; z < gz1; ++z) {
-    for (int x = gx0; x < gx1; ++x) {
+  for (int z = gz0; z < gz1; z += lod) {
+    for (int x = gx0; x < gx1; x += lod) {
+      // The far corner, clamped: an edge chunk covers the map's remainder, so
+      // the last quad of a row may be shorter than the stride.
+      const int xN = x + lod > gx1 ? gx1 : x + lod;
+      const int zN = z + lod > gz1 ? gz1 : z + lod;
       const float x0 = startX + x * stepX;
-      const float x1 = x0 + stepX;
+      const float x1 = startX + xN * stepX;
       const float z0 = startZ + z * stepZ;
-      const float z1 = z0 + stepZ;
-      const float* base = ((x + z) % 2 == 0) ? baseA : baseB;
+      const float z1 = startZ + zN * stepZ;
+      // The untextured checker counts QUADS, not cells: on x += 2 the parity of
+      // (x + z) never changes, so a distant chunk would come out one flat
+      // colour and the band boundary would read as a seam in the ground.
+      const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
 
-      const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
-      const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
-      const V3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
-      const V3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+      const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
+      const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
+      const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
+      const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
       auto shaded = [&](const V3& s) {
         return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
       };
@@ -15016,8 +16744,13 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
                        tint[2] * lk * s.z, w * 128.0F);
         };
-        const float w00 = splatAt(x, z, l), w10 = splatAt(x + 1, z, l);
-        const float w01 = splatAt(x, z + 1, l), w11 = splatAt(x + 1, z + 1, l);
+        // Sampled at the quad's own corners: a painted layer's weight is a
+        // blend factor, so a coarse chunk reading coarse weights loses detail
+        // in the painting exactly the way it loses it in the relief. The edge
+        // snap deliberately does NOT extend here - a weight that disagrees by a
+        // few percent across a seam is invisible, unlike a height.
+        const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
+        const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
         lp.colors.push_back(lcol(s00, w00));
         lp.colors.push_back(lcol(s10, w10));
         lp.colors.push_back(lcol(s01, w01));
@@ -15254,6 +16987,23 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
   addRect(focusX, focusZ);
   if (twoFoci) addRect(focus2X, focus2Z);
 
+  // The LOD bands' own foci, SNAPPED to half a chunk. Detail is a step
+  // function, so its input may as well be one: without the snap the field
+  // changes on every centimetre of walking and a chunk sitting on a band
+  // boundary rebuilds itself for ever.
+  if (TERRAIN_LOD_DISTANCE > 0.0F) {
+    auto snap = [](float v, float step) {
+      return floorf(v / step) * step + step * 0.5F;
+    };
+    const float snapX = spanX * 0.5F, snapZ = spanZ * 0.5F;
+    terrainLodFocusCount = 0;
+    for (int r = 0; r < rectCount; ++r) {
+      terrainLodFocus[r][0] = snap(rects[r].fx, snapX);
+      terrainLodFocus[r][1] = snap(rects[r].fz, snapZ);
+      ++terrainLodFocusCount;
+    }
+  }
+
   if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
@@ -15288,7 +17038,7 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
             bestD = d;
           }
         }
-    if (bestCx < 0) return;  // everything in view is built
+    if (bestCx < 0) break;  // everything in view is built
 
     int slot = -1;
     for (int s = 0; s < (int)terrainChunks.size(); ++s)
@@ -15299,6 +17049,31 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     if (slot < 0) return;  // pool momentarily full - eviction frees one soon
 
     buildTerrainChunk(slot, bestCx, bestCz);
+    --budget;
+  }
+
+  // Then the resident chunks whose detail has gone stale - their own band
+  // moved, or a NEIGHBOUR's did, which is a crack along the edge they share.
+  // Missing chunks are built first on purpose: a hole in the ground is a worse
+  // frame than a hairline, and both are settled within a few frames at one
+  // build apiece.
+  if (TERRAIN_LOD_DISTANCE <= 0.0F) return;
+  while (budget > 0) {
+    int slot = -1;
+    for (int s = 0; s < (int)terrainChunks.size(); ++s) {
+      const TerrainChunk& ch = terrainChunks[s];
+      if (ch.cx < 0) continue;
+      if (ch.lod == terrainLodStep(ch.cx, ch.cz) &&
+          ch.lodW == terrainLodStep(ch.cx - 1, ch.cz) &&
+          ch.lodE == terrainLodStep(ch.cx + 1, ch.cz) &&
+          ch.lodN == terrainLodStep(ch.cx, ch.cz - 1) &&
+          ch.lodS == terrainLodStep(ch.cx, ch.cz + 1))
+        continue;
+      slot = s;
+      break;
+    }
+    if (slot < 0) return;
+    buildTerrainChunk(slot, terrainChunks[slot].cx, terrainChunks[slot].cz);
     --budget;
   }
 }

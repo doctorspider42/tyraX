@@ -24,6 +24,8 @@ for people building games with it. Internals live in code comments, the git log
   plane is optional; what "no terrain" means in the editor and in the game.
 - [Terrain painting](terrain-painting.md) — blending grass/rock/path layers
   with a brush, two-pass GS splatting, stochastic tiling.
+- [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
+  heightmap samples, stitched so no crack shows; what makes a big map drawable.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
@@ -54,6 +56,12 @@ for people building games with it. Internals live in code comments, the git log
   256x256 pages and what that reclaims in GS VRAM.
 - [Emissive materials (glow)](emissive-materials.md) — self-lit materials, the
   white-hot core, bloom threshold and spread, and baked emissive light.
+- [Pre-lit models (light baked into the texture)](prelit-models.md) — per-pixel
+  static light on a TEXTURED model, the way the PS2 era did it, why the lightmap
+  cannot do it, and how a scene's pre-lit objects are tracked, batch-baked and
+  reverted.
+- [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
+  projected ground pool, and the gobo texture that decides its shape.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
@@ -63,7 +71,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Portals](portals.md) — the linkable surface that shows a live through-view
   and teleports whatever walks in, velocity included.
 - [Baked ambient occlusion (contact shadows)](ambient-occlusion.md) — soft
-  shadows where geometry meets, and the knobs.
+  shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
+  model's own self-occlusion baked automatically into the texture it already
+  ships, for no extra VRAM.
 - [Baked global illumination + light probes](global-illumination.md) — a
   multi-bounce lightmap plus a probe grid, traced on your desktop so the
   console pays nothing.

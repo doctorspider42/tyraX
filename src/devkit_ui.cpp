@@ -245,15 +245,24 @@ void App::liveLinkTick() {
         put(r.o->color, 12);
         // Player records carry the RESOLVED speed tiers (the same functions
         // codegen bakes with), so a speed edit streams instead of flipping
-        // the chip amber. Zeros on everything else.
-        float speeds[3] = {0.0f, 0.0f, 0.0f};
+        // the chip amber. DYNAMIC LIGHT records reuse the same slot (their
+        // types never collide) for brightness/radius/flicker, and the record
+        // tail carries the spot angle (0 = keep). Zeros on everything else.
+        float extra[3] = {0.0f, 0.0f, 0.0f};
+        float tail = 0.0f;
         if (r.o->type == PrimitiveType::Player) {
-            speeds[0] = r.o->playerWalkSpeed;
-            speeds[1] = project::playerRunSpeed(*r.o);
-            speeds[2] = project::playerSprintSpeed(*r.o, project_.settings);
+            extra[0] = r.o->playerWalkSpeed;
+            extra[1] = project::playerRunSpeed(*r.o);
+            extra[2] = project::playerSprintSpeed(*r.o, project_.settings);
+        } else if (r.o->type == PrimitiveType::PointLight &&
+                   r.o->lightDynamic) {
+            extra[0] = r.o->lightBright;
+            extra[1] = r.o->lightRadius;
+            extra[2] = r.o->lightFlicker;
+            tail = r.o->lightSpot ? r.o->lightSpotAngle : 0.0f;
         }
-        put(speeds, 12);
-        put(&pad, 4);
+        put(extra, 12);
+        put(&tail, 4);
     }
     if (body == liveLinkLastPayload_) return;  // nothing to stream
 
@@ -264,7 +273,7 @@ void App::liveLinkTick() {
     const uint32_t seq = liveLinkSeq_ + 1;
     std::vector<unsigned char> file;
     file.reserve(24 + body.size() - 8 + 4);
-    const uint32_t magic = 0x4C4C5854, version = 3, reserved = 0;
+    const uint32_t magic = 0x4C4C5854, version = 4, reserved = 0;
     const uint32_t footer = seq ^ 0x5A5A5A5AU;
     auto app32 = [&](const void* v) {
         const unsigned char* b = static_cast<const unsigned char*>(v);

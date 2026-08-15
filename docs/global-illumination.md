@@ -75,6 +75,20 @@ lands twice.
 | Untextured terrain | **per-texel lightmap**, same deal | `SCENE_AO_MAP_GI` |
 | Imported models, textured receivers, batched props, physics bodies, spawn-pool clones, textured terrain | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
 | Animated models, the player, NPCs | **probe grid**, sampled once per frame at the model's centre | `updateAndRenderAnimObjects` |
+| A static textured model marked [**pre-lit**](prelit-models.md) | **its own texture** — the light was gathered per texel and multiplied into a unique `-lit.png` for that object | `SceneObject::prelit` → neutral vertex colours in `pushVert`; managed in Tools > Baked Lighting |
+
+The pre-lit row is the one route that OPTS OUT of everything above it: a pre-lit
+object's vertex colours go neutral, because the ambient, the N·L, the baked
+point lights, the emissive pools and the probe answer are all already in its
+texture. That is the "declare your route or the light lands twice" rule at its
+sharpest — and it is why the pre-lit texture goes **stale** when the scene's
+light changes rather than following it.
+
+A `.obj` model's route is the probe grid for the light it *receives*, but its
+own **self-occlusion** is a separate, per-texel answer that costs nothing:
+[Model AO](ambient-occlusion.md#model-ao) multiplies it straight into the
+model's texture at build. The two compose — flat probe light times per-pixel
+self-shadowing — and neither needs a lightmap chart.
 
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
@@ -181,6 +195,18 @@ progress bar, cancel), or headlessly:
 tyrax-editor --bake-gi <projectDir>
 ```
 
+**Or let the build do it — for stale scenes only.** *Project > Preferences >
+Build > Re-bake stale global illumination* (the same switch sits under the
+Bake buttons on this tab; off by default, needs GI enabled). Every build — the
+toolbar, `--build`, Run on PS2 — then re-bakes exactly the scenes whose cache
+signature no longer matches, before the [pre-lit](prelit-models.md) pass and the
+source refresh, and prints one `gi: baked GI ...` / `gi: fresh ...` line per
+scene. A build with everything fresh costs one signature pass; a changed big
+scene costs the minutes it always did, but out loud instead of shipping the
+fallback in silence. The rule below still stands for the default: an expensive
+bake is pressed, not implied — this is the opt-in for a project that would rather
+never see the fallback.
+
 **A stale cache is silent, so check the generated side, not the screen.** The
 fallback is the whole point of the design - the scene keeps rendering, just with
 the pre-GI lighting - which means a project can ship for months with its bounce
@@ -281,6 +307,15 @@ Said out loud in the Bake window too, not just here:
   geometry. Dropping it produced exactly the symptom you would not connect: a
   plate that still glowed (the `Ke` floor is a vertex-colour term, independent
   of the bake) lighting absolutely nothing around it.
+- **The bake reads a pre-lit object's SOURCE material, never its `-lit`
+  texture** (`albedoMaterial` in gibake.cpp, in both `build()` and
+  `signature()`). A [pre-lit](prelit-models.md) texture is albedo × the light
+  this very bake computes, so reading it back as albedo would fold the light
+  into the bounce a second time — and, worse, every pre-lit bake repoints the
+  object's `materialPath` and would stale the scene's GI cache for nothing. The
+  scene is hashed and tessellated **as authored**; the price is that bounce
+  light off a pre-lit neighbour's new texture is not a term at all, which is
+  what you want.
 - **The signature ignores objects that contribute nothing** — markers, spawn
   points, the player, cameras, areas, decals, mirrors, portals. They cannot
   change what the bake produces, and hashing them only manufactures false

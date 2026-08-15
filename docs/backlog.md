@@ -101,24 +101,60 @@ picture under REPEAT while bounding coordinates by chunk size.
 
 ### Ship one example with sculpted terrain
 
-Every heightmap in `examples/` is flat — checked, all of them, relief 0.00 —
-so the terrain horizon scan has never been exercised by anything committed.
-That is how a bare 30° slope came to darken itself by 16% for several releases
-without anyone seeing it, and why the fix for it changes not one pixel of any
-example. An example that actually sculpts a valley would put the Terrain Editor,
-the AO scan and the walker's slope handling under the same regression pressure
-as everything else here.
+DONE — `examples/ambient-occlusion`. Left here only for the fact that produced
+it: every heightmap in `examples/` used to be flat, relief 0.00, all of them,
+which is how a bare 30° slope came to darken itself by 16% for several releases
+with nobody seeing it. Keep at least one example sculpted.
+
+### Give the occluder response a solid angle instead of a distance
+
+`occluderOcclusionAt` is `(1 - dist/range)²` times `0.35 + 0.65·N·L`, i.e. a
+function of how CLOSE a shape is rather than of how much sky it blocks. Two
+consequences, both measured on `examples/ambient-occlusion`: a crate with
+another crate resting on it darkens over its whole height, because the 0.35
+floor gives its side faces a third of the term for an occluder they can barely
+see; and a sphere gets a dark BAND at its equator, because the ground term
+weights by `0.5 - 0.5·n.y`, which peaks exactly there.
+
+The fix is the analytic solid angle the shape subtends (closed form for a
+sphere, a good approximation for a box), plus combining occluders as
+`1 - Π(1 - occ)` instead of a clamped sum so the ground and the occluders stop
+saturating each other. It is what would let imported models RECEIVE the scene's
+occlusion per vertex (see ambient-occlusion.md — Model AO is
+transform-invariant and cannot answer for neighbours). One deliberate look
+change across all three twins: host `aobake`, the generated `aoOccluderAt`, and
+the viewport fragment shader. Wants an A/B on `gi-showcase`, `day-night` and
+`ambient-occlusion`.
 
 ### Give scene occluders more than one box each
 
 An occluder is a single oriented box or sphere per object
 (`aobake::collectOccluders`), so a chair, an L-shaped wall and a doorway arch
 are all one rectangle to the bake. Splitting a model's triangles into 2–4 boxes
-is what would lift that ceiling; the two cheaper ideas next to it — combining
-occlusion as `1 - Π(1 - occ)` instead of a clamped sum, and taking the analytic
-solid angle instead of the `0.35 + 0.65·N·L` heuristic — are one deliberate
-look change across all three twins (host, EE, viewport shader) and want their
-own branch and an A/B.
+is what would lift that ceiling. Do it after the solid-angle change above, not
+before — a better response over one box may be enough for most of them.
+
+### Model AO for animated models and for shared textures
+
+[Model AO](ambient-occlusion.md#model-ao) covers static `.obj` assets only.
+Two deliberate gaps are worth revisiting once it has been used in anger. An
+animated `.glb`/`.fbx` bakes a bind-pose AO map perfectly well, but its
+textures ship through `animBakedTextureRel`, so the multiply needs a second
+hook and the map is a lie for anything that deforms much. And a texture shared
+by several model assets is skipped outright, because two UV layouts over one
+image make a single multiply wrong for both — the honest fix is a per-asset
+COPY of the texture in the bake, which trades the feature's zero-VRAM property
+for coverage and should only be done where the author asks for it.
+
+### Pre-lit bake parameters are editor state, not project state
+
+`litbake::Params` (size, rays, padding, strength, floor, seed) lives on the App
+and is not serialized, but it IS part of every object's staleness signature
+(docs/prelit-models.md). So `--bake-prelit` uses the defaults and considers an
+object baked at 256 px from the panel stale, and a second editor session starts
+from the defaults too. The honest fix is per-object bake parameters stored
+beside `prelitSig`, which is also what would let one hero wall be 256 while the
+rest of the scene is 128 — worth doing the first time somebody mixes sizes.
 
 ## Medium
 

@@ -118,24 +118,25 @@ the Terrain Editor.
   [procedural-runtime.md](procedural-runtime.md), "Ambient occlusion" — that is
   also where the two traps live (the chunk has to be Gouraud-shaded, and a
   rotated block asset mismatches the lattice).
-- **Imported models neither receive nor self-occlude** for now. The whole
-  self-AO pipeline (`aobake::modelAO`, the `.aov` sidecar, the
-  `LeanObjLoader` reader) stays in the tree, disabled, for a future per-model
-  lightmap-unwrap approach. Animated models relight dynamically and are
-  unaffected, like with baked point lights.
+- **Imported models do not RECEIVE** the scene's contact shadows. The
+  per-vertex pipeline (`aobake::modelAO`, the `.aov` sidecar, the
+  `LeanObjLoader` reader) stays in the tree, disabled. They **do self-occlude**
+  — see [Model AO](#model-ao) below, which is per texel and free. Animated
+  models relight dynamically and are unaffected, like with baked point lights.
 
-  The reason is **sampling density, not the bake**, and it was re-measured on
-  the console with `examples/ambient-occlusion` (which is full of real kit
-  props) rather than inherited: a model receives per VERTEX, and a crate 1.06
-  units tall standing under a 2.5-unit AO radius has every one of its corners
-  inside the occluder's reach with no interior vertices to carry a gradient —
-  so it darkens as a lump while its neighbour 20 cm away stays bright. Models
-  comparable to the radius or larger (a wagon, a wall panel) came out fine.
-  Flat shading is *also* involved and is not the whole story: switching those
-  bags to Gouraud is necessary and not sufficient. Two things would fix it
-  properly, both in [backlog.md](backlog.md) — an occluder response that falls
-  off with the solid angle the shape subtends rather than with distance alone,
-  and a per-model lightmap unwrap (`src/uvunwrap.cpp` is most of the second).
+  The reason receiving is off is **sampling density**, and it was re-measured
+  on the console with `examples/ambient-occlusion` (which is full of real kit
+  props) rather than inherited from the original call: a model would receive
+  per VERTEX, and a crate 1.06 units tall standing under a 2.5-unit AO radius
+  has every one of its corners inside the occluder's reach with no interior
+  vertices to carry a gradient — so it darkens as a lump while its neighbour
+  20 cm away stays bright. Models comparable to the radius or larger (a wagon,
+  a wall panel) came out fine. Flat shading is *also* involved and is not the
+  whole story: switching those bags to Gouraud is necessary and not sufficient.
+  Note this is the half Model AO cannot answer — that bake is
+  transform-invariant by design, so it can never know a neighbour is there. The
+  fix is an occluder response that falls off with the solid angle the shape
+  subtends rather than with distance alone; see [backlog.md](backlog.md).
 
 ## Static by design
 
@@ -177,3 +178,93 @@ Volume* node rebuilt mid-game — is shaded correctly with nothing shipped.
   block, once, inside a generation pass that was already building that block's
   vertices. The chunk changes from flat to Gouraud shading, which the GS
   rasterizer does for free.
+
+## Model AO
+
+*Tools > Baked Lighting > Model AO. Headless:
+`tyrax-editor --bake-model-ao <projectDir> [--texbake]`.*
+
+Everything above is about the **scene**: how objects darken each other and the
+ground. Model AO is the other half — a model darkening **itself**, in the
+crease where its own two surfaces meet, under its own eave, inside its own
+doorway. In a real game most objects are textured `.obj` models, and until this
+existed they had no automatic occlusion at all: the lightmap atlas refuses a
+textured surface (it is additive, and an additive term over a texture blows out
+its dark texels) and baked GI reaches them only as flat per-vertex probe light.
+
+It is the [Material Editor's map bake](material-baking.md) — the same
+`matbake` raytracer, the same UV-space rasterization — run **per model asset**,
+automatically, and multiplied into the texture that model already ships.
+
+**Why that is affordable comes entirely from what is being baked:**
+
+- A model's own surface occlusion is **transform-invariant**. It does not
+  change when you move, rotate or scale the object, so every instance of the
+  asset shares one map. Twenty crates cost one bake.
+- The pixels ride in an **existing** texture, so it costs **zero extra GS
+  VRAM** ([gs-vram.md](gs-vram.md)). That is the difference between this and
+  [pre-lit models](prelit-models.md), which buy per-pixel *scene* light at one
+  unique texture per object.
+
+### The knobs
+
+| Control | What it does |
+|---|---|
+| **Bake model AO into textures** | The project default. New projects have it on; a project saved before it existed keeps its look until you tick it. |
+| **Strength** | `ao' = 1 − strength × (1 − ao)`. An *apply-time* remap — moving it re-multiplies, it never re-bakes. |
+| **Rays per texel** | Hemisphere rays. More = less noise, linearly more bake time. |
+| **Distance** | How far the occlusion reaches, in world units. 0 = a quarter of the model's own bounding-box diagonal, which darkens where surfaces *meet* rather than shading the whole prop. |
+| **Per-asset column** | *Default* / *On* / *Off*, keyed by the model's asset path (`Project::modelAoMode`). |
+
+These are project-wide bake quality, deliberately **not** part of the ambience
+preset overlay — a preset changes what the light looks like, this does not.
+
+### What it refuses to bake, and why
+
+The panel names every one of these on its own row, and so does the build log.
+An AO map that silently is not there is indistinguishable from a broken
+feature.
+
+| Skipped | Why |
+|---|---|
+| animated `.glb`/`.fbx` | They relight dynamically, and their textures go down the `animBakedTextureRel` path. |
+| an untextured material | It already has the scene lightmap route, which costs no texture at all. |
+| **a texture used by more than one model asset** | Two UV layouts over one image: a single multiply would be wrong for both. This is what makes a procedurally-scattered project (whose chunks all share the source asset's texture) skip cleanly. |
+| **a pre-lit material** (`res/materials/*-lit.png`) | Its gather already contains occlusion; multiplying AO in again would darken the same shadow twice. |
+
+### The cache
+
+`.res-baked/modelao/<pair>-<signature>.png`, one grayscale map per (model,
+texture) pair, never shipped. The signature is a **content** hash — the `.obj`
+bytes, every `.mtl` it resolves, the texture's *dimensions*, the ray/distance
+knobs and the module version — following the same rule
+[GI](global-illumination.md) uses: never mtimes, because a checkout or a copy
+is not an edit.
+
+Deliberately **not** in it: the texture's **pixels**. AO is a function of
+geometry and UVs alone, so repainting a texture does not throw the bake away.
+Nor is *Strength*, which is applied at multiply time.
+
+### Where the multiply happens
+
+In exactly one function (`modelao::applyToRgba`), called from three places, so
+they cannot drift:
+
+1. **`texbake`**, at build — into the mirrored PNG's RGB, before the PS2-valid
+   resize and the palette quantization, so the CLUT is computed from the pixels
+   the console will display. Atlas members get it as they are composited into
+   their page. **Sources in `res/` are never written.** A headless `--build`
+   is therefore correct with no editor running.
+2. **The editor viewport**, as a texture is uploaded — so the preview shows
+   what the console will.
+3. **[litbake](prelit-models.md)**, into the albedo it reads — otherwise an
+   object would lose its self-AO the moment it went pre-lit.
+
+**Alpha is never touched.** StaPip's GS alpha test discards `alpha == 0`
+texels, so writing occlusion into alpha would delete a pass — the same rule the
+lightmap alpha floor above exists for.
+
+The editor bakes missing maps on a worker thread whenever the settings or the
+per-asset overrides change; a build bakes whatever is still missing itself.
+Bake time is seconds at these resolutions (the map is 64–256 px square,
+derived from the texture it multiplies into).

@@ -1219,6 +1219,16 @@ void App::drawGiBakeSection() {
                                "%d scene(s) need a bake", staleCount);
         }
     }
+    // The same switch Project Preferences > Build carries, offered where the
+    // staleness it answers is on screen. Only stale scenes, so a build with
+    // everything fresh costs one signature pass.
+    ImGui::BeginDisabled(!st.giEnabled);
+    if (ImGui::Checkbox("Re-bake stale scenes before every build",
+                        &st.giAutoBake))
+        commitChange();
+    ImGui::EndDisabled();
+    prefHelp("Only the scenes whose cache no longer matches them; a changed big "
+             "scene can cost minutes. Also in Project > Preferences > Build.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("What this does not do");
@@ -1231,10 +1241,480 @@ void App::drawGiBakeSection() {
         "lights are unchanged.\n"
         "Textured surfaces and imported models take their light from the "
         "probe grid, not the lightmap - a flat additive term over a texture "
-        "would blow out its dark texels.\n"
+        "would blow out its dark texels. For a per-PIXEL answer on one of "
+        "those, bake the light into its texture instead (Properties > Bake "
+        "lighting into texture, docs/prelit-models.md).\n"
         "The editor preview evaluates the probe grid per pixel, so the "
         "console's per-texel contact shadows are sharper than what you see "
         "here.");
+}
+
+// --- Baked lighting tab ------------------------------------------------------
+
+// Everything the project's model-AO state depends on, in one number: the
+// project-wide knobs plus every per-asset override. Cheap - it never touches
+// the file system, which is the point (the SCAN parses every .obj).
+static uint64_t modelAoIntentOf(const Project& p) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    auto mix = [&h](uint64_t v) {
+        h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    };
+    const modelao::Params prm = modelao::paramsOf(p.settings);
+    mix(prm.enabled ? 1 : 0);
+    mix((uint64_t)prm.rays);
+    uint32_t bits = 0;
+    std::memcpy(&bits, &prm.strength, sizeof bits);
+    mix(bits);
+    std::memcpy(&bits, &prm.dist, sizeof bits);
+    mix(bits);
+    for (const auto& [asset, mode] : p.modelAoMode) {
+        for (unsigned char c : asset) mix(c);
+        mix((uint64_t)mode);
+    }
+    return h;
+}
+
+// Polled every frame from drawUI and from nowhere else - the giBakerPoll rule:
+// a bake that finishes has to reach the VIEWPORT whether or not the tab is
+// open, and toggling the setting has to invalidate the textures it affects
+// even if the panel was never looked at.
+//
+// It starts a run only when the INTENT changes, because a scan parses every
+// .obj under res/models. That is also why the worker owns the plan: the UI
+// thread never walks the project's models.
+void App::modelAoPoll() {
+    if (!hasProject_) return;
+    const modelao::Params prm = modelao::paramsOf(project_.settings);
+    const uint64_t intent = modelAoIntentOf(project_);
+    if (intent != modelAoIntent_) {
+        modelAoIntent_ = intent;
+        if (prm.enabled || !project_.modelAoMode.empty())
+            modelAoBaker_.start(project_, prm);
+        else
+            viewport_.setModelAoMaps({}, 0.0f);
+        // A strength edit changes nothing on disk, so no bake will land to
+        // push it - the table is re-set here with the new strength, and
+        // setModelAoMaps is a no-op when neither actually moved.
+        if (modelAoSeen_ == modelAoBaker_.version() && !modelAoBaker_.running())
+            viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+    }
+    if (modelAoSeen_ == modelAoBaker_.version()) return;
+    modelAoSeen_ = modelAoBaker_.version();
+    viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+}
+
+// The "Baked lighting" tab of the Ambience Editor (drawAmbienceWindow): the
+// light that is computed on the HOST and ships as pixels inside textures the
+// project already has. It lives beside the GI tab because that window is where
+// a scene's light is authored - and separately from it because none of this is
+// per scene: model AO is a property of an ASSET.
+//
+// A list of sections on purpose. Add the next one by appending a call here.
+void App::drawBakedLightingSection() {
+    drawModelAoSection();
+    ImGui::Spacing();
+    drawPrelitSection();
+}
+
+void App::drawModelAoSection() {
+    ProjectSettings& st = project_.settings;
+    bool changed = false;
+
+    ImGui::SeparatorText("Model AO");
+    if (ImGui::Checkbox("Bake model AO into textures", &st.modelAo))
+        changed = true;
+    prefHelp(
+        "Each .obj model's own surface occlusion, multiplied into the texture "
+        "it already ships. Transform-invariant, so every instance shares it - "
+        "and it costs no extra VRAM.");
+
+    ImGui::BeginDisabled(!st.modelAo);
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Strength", &st.modelAoStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full occlusion gets. Changing it re-multiplies; it does "
+             "not re-bake.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderInt("Rays per texel", &st.modelAoRays, 8, 512))
+        changed = true;
+    prefHelp("More = less noise, linearly more bake time.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Distance", &st.modelAoDist, 0.0f, 20.0f,
+                           st.modelAoDist > 0.0f ? "%.2f u" : "auto"))
+        changed = true;
+    prefHelp("How far the occlusion reaches, in world units. 0 = a quarter of "
+             "the model's own size.");
+    ImGui::EndDisabled();
+
+    if (changed) commitChange();
+
+    ImGui::Spacing();
+    if (modelAoBaker_.running()) {
+        ImGui::ProgressBar(modelAoBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(modelAoBaker_.status().c_str());
+        if (ImGui::Button("Cancel##modelao", ImVec2(scaled(140.0f), 0)))
+            modelAoBaker_.cancel();
+    } else if (ImGui::Button("Re-scan##modelao", ImVec2(scaled(140.0f), 0))) {
+        modelAoBaker_.start(project_, modelao::paramsOf(st));
+    }
+
+    const modelao::Report rep = modelAoBaker_.report();
+    if (rep.rows.empty()) {
+        ImGui::TextDisabled("No model assets scanned yet.");
+        return;
+    }
+    if (ImGui::BeginTable("modelao", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Asset");
+        ImGui::TableSetupColumn("AO");
+        ImGui::TableSetupColumn("Bake");
+        ImGui::TableHeadersRow();
+        std::string lastModel;
+        for (size_t i = 0; i < rep.rows.size(); ++i) {
+            const modelao::Row& r = rep.rows[i];
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.modelRel.c_str());
+            ImGui::TableNextColumn();
+            if (r.baked)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
+            else if (r.eligible)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "%s",
+                                   r.status.c_str());
+            else
+                ImGui::TextDisabled("%s", r.status.c_str());
+            if (ImGui::IsItemHovered() && !r.textureRel.empty())
+                ImGui::SetTooltip("%s", r.textureRel.c_str());
+            ImGui::TableNextColumn();
+            // One combo per MODEL, on its first row: the override is keyed by
+            // the asset, so a model with two textures must not offer two.
+            if (r.modelRel == lastModel) {
+                ImGui::TextDisabled("-");
+                continue;
+            }
+            lastModel = r.modelRel;
+            auto it = project_.modelAoMode.find(r.modelRel);
+            int mode = it == project_.modelAoMode.end() ? 0 : it->second;
+            const char* kModes[] = {"Default", "On", "Off"};
+            ImGui::PushID((int)i);
+            ImGui::SetNextItemWidth(scaled(100.0f));
+            if (ImGui::Combo("##mode", &mode, kModes, 3)) {
+                if (mode == 0)
+                    project_.modelAoMode.erase(r.modelRel);
+                else
+                    project_.modelAoMode[r.modelRel] = mode;
+                commitChange();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("%d baked, %d pending, %d skipped", rep.baked,
+                        rep.pending, rep.skipped);
+}
+
+// --- Pre-lit models (docs/prelit-models.md, "Managing pre-lit objects") ------
+
+// Everything the two panels draw from, computed at most once per edit.
+//
+// It cannot be computed per frame: litbake::signature's scene half is
+// gibake::signature, which content-hashes the heightmap and every model and
+// material file the bake reads. So the answer is cached against the one key
+// that can change it - the scene, the model serial and the bake parameters -
+// and, while a widget is being dragged, not recomputed at all.
+const std::vector<App::PrelitStatus>& App::prelitStatuses() {
+    if (!hasProject_ || project_.scenes.empty()) {
+        prelitStatus_.clear();
+        prelitStatusKey_ = ~0ull;
+        return prelitStatus_;
+    }
+    uint64_t key = 0xcbf29ce484222325ull;
+    auto mix = [&key](uint64_t v) {
+        key ^= v + 0x9e3779b97f4a7c15ull + (key << 6) + (key >> 2);
+    };
+    mix((uint64_t)project_.activeScene);
+    mix(modelEditSerial_);
+    mix((uint64_t)litBakeParams_.size);
+    mix((uint64_t)litBakeParams_.rays);
+    if (key == prelitStatusKey_) return prelitStatus_;
+    // A drag bumps one of those every frame. Answer when the hand comes off.
+    if (ImGui::IsAnyItemActive() && prelitStatusKey_ != ~0ull)
+        return prelitStatus_;
+    prelitStatusKey_ = key;
+    prelitStatus_.clear();
+
+    const SceneData& sc = project_.active();
+    const std::set<std::string> refs =
+        project::runtimeRefNames(project_, sc.objects);
+    const std::vector<char> flags =
+        litbake::freshFlags(project_, sc, litBakeParams_);
+    for (size_t i = 0; i < sc.objects.size(); ++i) {
+        const SceneObject& o = sc.objects[i];
+        // Eligible = a STATIC model, which is what litbake bakes. An object
+        // that is already pre-lit is listed whatever it is now, or turning a
+        // model into something else would hide the row that reverts it.
+        const bool eligible = o.type == PrimitiveType::Model &&
+                              !o.modelPath.empty() &&
+                              !isAnimatedModelPath(o.modelPath);
+        if (!eligible && !o.prelit && !o.prelitWanted) continue;
+        PrelitStatus st;
+        st.index = (int)i;
+        st.prelit = o.prelit;
+        st.fresh = i < flags.size() && flags[i] != 0;
+        st.movable = project::objectRuntimeMovable(o, refs);
+        if (o.prelit) {
+            int w = 0, h = 0, comp = 0;
+            const std::string png =
+                (std::filesystem::path(project_.dir) / litbake::outputPngRel(o))
+                    .string();
+            if (stbi_info(png.c_str(), &w, &h, &comp)) st.texSize = w;
+        }
+        prelitStatus_.push_back(st);
+    }
+    return prelitStatus_;
+}
+
+const App::PrelitStatus* App::prelitStatusFor(int objIndex) {
+    for (const PrelitStatus& s : prelitStatuses())
+        if (s.index == objIndex) return &s;
+    return nullptr;
+}
+
+// Polled every frame from drawUI, never from a window body: a batch started
+// from the tab must land even if the tab was closed, the selection moved or
+// the object's Properties panel is showing something else entirely.
+//
+// The whole batch is ONE undo step - it is one operation the user asked for.
+void App::litBakerPoll() {
+    if (!hasProject_) return;
+    std::vector<litbake::Baker::Done> done;
+    if (!litBaker_.take(done)) return;
+    const int si = litBaker_.sceneIndex();
+    if (si < 0 || si >= (int)project_.scenes.size()) return;
+    int ok = 0;
+    std::string firstErr, lastName;
+    for (litbake::Baker::Done& d : done) {
+        const std::string e = litbake::applyToObject(
+            project_, project_.scenes[si], d.objectIndex, d.result, d.sig);
+        if (!e.empty()) {
+            if (firstErr.empty()) firstErr = e;
+            continue;
+        }
+        ++ok;
+        if (d.objectIndex >= 0 &&
+            d.objectIndex < (int)project_.scenes[si].objects.size())
+            lastName = project_.scenes[si].objects[d.objectIndex].name;
+    }
+    if (ok) {
+        commitChange();
+        prelitStatusKey_ = ~0ull;
+        // A RE-bake writes the same file with new pixels, so the viewport's
+        // cached texture is now a lie. (A first bake writes a new path and
+        // would have been picked up anyway.)
+        viewport_.invalidateAssets();
+    }
+    if (!firstErr.empty())
+        statusMessage_ = "Pre-light failed: " + firstErr;
+    else if (ok == 1)
+        statusMessage_ = "Pre-lit " + lastName;
+    else if (ok > 1)
+        statusMessage_ = "Pre-lit " + std::to_string(ok) + " objects";
+}
+
+void App::revertPrelit(int objIndex) {
+    if (!hasProject_ || project_.scenes.empty()) return;
+    SceneData& sc = project_.active();
+    if (objIndex < 0 || objIndex >= (int)sc.objects.size()) return;
+    litbake::revertObject(sc.objects[objIndex]);
+    commitChange();
+    prelitStatusKey_ = ~0ull;
+    viewport_.invalidateAssets();
+    statusMessage_ = "Reverted " + sc.objects[objIndex].name +
+                     " to its source material";
+}
+
+// The second section of the "Baked lighting" tab: the scene's pre-lit objects,
+// what their textures still agree with, and the batch bake.
+//
+// It is per SCENE where Model AO above is per ASSET, and that is the whole
+// difference between the two mechanisms: a model's self-occlusion is
+// transform-invariant and free, a pre-lit texture is particular to where the
+// object stands and costs one texture each.
+void App::drawPrelitSection() {
+    ImGui::SeparatorText("Pre-lit models");
+    if (!hasProject_ || project_.scenes.empty()) {
+        ImGui::TextDisabled("No scene.");
+        return;
+    }
+    SceneData& sc = project_.active();
+    ImGui::TextDisabled(
+        "Scene \"%s\". The scene's light baked INTO an object's own texture -\n"
+        "the only per-pixel static light a TEXTURED surface can take here.",
+        sc.name.c_str());
+
+    // Both labels are unique IN THE WHOLE TAB on purpose: Model AO above has a
+    // "Rays per texel" of its own, a label IS an ImGui id, and a duplicate is
+    // additionally a name --ui-script could never tell apart.
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::DragInt("Pre-lit size", &litBakeParams_.size, 8.0f, 32, 512, "%d px");
+    prefHelp(
+        "Output texture size. Each pre-lit object costs size^2 x 4 bytes of "
+        "GS VRAM. Changing it makes every baked object stale.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::DragInt("Pre-lit rays", &litBakeParams_.rays, 1.0f, 8, 512,
+                   "%d rays");
+    prefHelp("Hemisphere rays per texel. More = less noise, linearly more "
+             "bake time.");
+
+    const std::vector<PrelitStatus>& rows = prelitStatuses();
+    if (rows.empty()) {
+        ImGui::TextDisabled("No static models in this scene.");
+        return;
+    }
+
+    int wanted = 0, pending = 0, prelitCount = 0;
+    double vramKb = 0.0;
+    for (const PrelitStatus& r : rows) {
+        const SceneObject& o = sc.objects[r.index];
+        if (o.prelitWanted) ++wanted;
+        if (o.prelitWanted && !(r.prelit && r.fresh)) ++pending;
+        if (r.prelit) {
+            ++prelitCount;
+            const double px = r.texSize > 0 ? r.texSize : litBakeParams_.size;
+            vramKb += px * px * 4.0 / 1024.0;
+        }
+    }
+
+    if (ImGui::BeginTable("prelitobjects", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Ship pre-lit");
+        ImGui::TableSetupColumn("Status");
+        ImGui::TableSetupColumn("VRAM", ImGuiTableColumnFlags_WidthFixed,
+                                scaled(60.0f));
+        ImGui::TableHeadersRow();
+        for (const PrelitStatus& r : rows) {
+            SceneObject& o = sc.objects[r.index];
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            // The checkbox carries the object's NAME as its label, ##-suffixed
+            // by index so two objects called the same thing are still two
+            // widgets. A label-less checkbox would have been an untargetable
+            // row for --ui-script, i.e. a control nothing but a human can ever
+            // press - and unticking this one runs a Revert.
+            const std::string rowLabel =
+                o.name + "##prelitrow" + std::to_string(r.index);
+            bool want = o.prelitWanted;
+            if (ImGui::Checkbox(rowLabel.c_str(), &want)) {
+                // Ticking states an intention and bakes nothing - the bake is
+                // minutes and belongs on a button. UNticking is the Revert:
+                // the object goes back to its source material immediately,
+                // because leaving a pre-lit texture on an object nobody wants
+                // pre-lit is exactly the state this panel exists to end.
+                if (!want && o.prelit) {
+                    revertPrelit(r.index);
+                } else {
+                    o.prelitWanted = want;
+                    commitChange();
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ship this object pre-lit. Ticking only says so - press "
+                    "Bake pending below.\nUnticking reverts it to its source "
+                    "material.");
+
+            ImGui::TableNextColumn();
+            if (r.prelit && r.fresh)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "pre-lit");
+            else if (r.prelit)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "stale");
+            else
+                ImGui::TextDisabled("not baked");
+            if (r.movable) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                                   "moves at runtime");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "A pre-lit texture GLUES the light to the surface.\n"
+                        "This object can be moved at run time, so it would\n"
+                        "carry contact shadows that match nothing.");
+            }
+
+            ImGui::TableNextColumn();
+            if (r.prelit) {
+                const double px = r.texSize > 0 ? r.texSize : litBakeParams_.size;
+                ImGui::Text("%.0f KB", px * px * 4.0 / 1024.0);
+            } else {
+                ImGui::TextDisabled("-");
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    if (litBaker_.running()) {
+        ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(litBaker_.status().c_str());
+        if (ImGui::Button("Cancel##prelitbatch", ImVec2(scaled(140.0f), 0)))
+            litBaker_.cancel();
+    } else {
+        auto startBatch = [&](bool onlyStale) {
+            std::vector<int> objs;
+            for (const PrelitStatus& r : rows) {
+                if (!sc.objects[r.index].prelitWanted) continue;
+                if (onlyStale && r.prelit && r.fresh) continue;
+                objs.push_back(r.index);
+            }
+            if (objs.empty()) return;
+            saveProject();  // the bake reads the models off disk
+            litBaker_.start(project_, project_.activeScene, objs,
+                            litBakeParams_);
+        };
+        char lbl[64];
+        std::snprintf(lbl, sizeof lbl, "Bake pending (%d)###prelitpending",
+                      pending);
+        ImGui::BeginDisabled(pending == 0);
+        if (ImGui::Button(lbl, ImVec2(scaled(160.0f), 0))) startBatch(true);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        std::snprintf(lbl, sizeof lbl, "Re-bake all (%d)###prelitall", wanted);
+        ImGui::BeginDisabled(wanted == 0);
+        if (ImGui::Button(lbl, ImVec2(scaled(160.0f), 0))) startBatch(false);
+        ImGui::EndDisabled();
+        if (wanted == 0) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("tick an object above first");
+        } else if (pending == 0) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                               "everything is fresh");
+        }
+        if (!litBaker_.error().empty())
+            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                               litBaker_.error().c_str());
+    }
+
+    // The cost, stated where the decision is made. ~1.33 MB is the GS budget
+    // (docs/gs-vram.md) and every one of these textures is pinned for good.
+    if (prelitCount)
+        ImGui::TextDisabled("%d pre-lit texture(s) ~ %.0f KB of the ~1.33 MB "
+                            "GS budget",
+                            prelitCount, vramKb);
+    else
+        ImGui::TextDisabled("Nothing pre-lit in this scene - 0 KB.");
+    // The same switch Project Preferences > Build carries, offered where the
+    // person is looking at the staleness it answers. Project-wide, not per
+    // scene - a build compiles every scene.
+    if (ImGui::Checkbox("Re-bake stale objects before every build",
+                        &project_.settings.prelitAutoBake))
+        commitChange();
+    prefHelp("Only the stale ones, all scenes; a build with everything fresh "
+             "costs nothing. Also in Project > Preferences > Build.");
+    ImGui::TextDisabled("Headless: --bake-prelit <projectDir> [scene]");
 }
 
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a

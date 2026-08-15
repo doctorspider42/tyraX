@@ -140,11 +140,14 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **Look**
 
-- **Lighting** — directional light, point lights (baked or dynamic, with
+- **Lighting** — directional light, point and spot lights (baked or dynamic, with
   flicker), light beams, blob and projected shadows, lens flare and god rays.
 - **Baked realism** — [global illumination + light probes](docs/global-illumination.md),
-  [ambient occlusion](docs/ambient-occlusion.md) and a
-  [day/night cycle](docs/day-night-cycle.md) the whole bake follows.
+  [ambient occlusion](docs/ambient-occlusion.md) — scene contact shadows plus
+  automatic per-model self-AO multiplied into each model's own texture, for no
+  extra VRAM — [pre-lit models](docs/prelit-models.md) for per-pixel static
+  light on a textured surface, and a [day/night cycle](docs/day-night-cycle.md)
+  the whole bake follows.
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
@@ -257,6 +260,8 @@ wait for their polish pass.
 | [showcase](examples/showcase) | The kitchen sink: two scenes joined by a portal, and half the manual — streaming, animation, particles, menus, post-FX — making cameos |
 | [layer-streaming](examples/layer-streaming) | Two buildings, one corridor — and the building behind you quietly stops existing, GTA3-style |
 | [large-terrain](examples/large-terrain) | A 2048×2048 world that could never fit in 32 MB of RAM. It doesn't have to |
+| [deep-forest](examples/deep-forest) | The same 2048×2048 in daylight with 2800 spruces — terrain detail distance, mesh LOD and draw distance carrying it at 50 FPS |
+| [night-walk](examples/night-walk) | A dark backlot and a torch that projects, lands on real walls, and carves shadows — every flashlight feature in one yard |
 | [cutscene-demo](examples/cutscene-demo) | 14 seconds of dolly, hard cut, shake, FOV ramp and cinema bars. Skippable, of course |
 | [nav-ai](examples/nav-ai) | A guard that patrols, spots you, and chases you around the wall instead of into it. The rabbit just runs |
 | [physics-playground](examples/physics-playground) | 28 hyperactive bodies rain onto a terraced slope. Doubles as the physics benchmark |

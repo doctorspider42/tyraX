@@ -1,0 +1,1 @@
+{ "id": "bb22000000000002", "name": "facade-west", "type": "model", "position": [-11.5, 0, -2], "rotation": [0, 114, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/kenney/facade-west.obj" }

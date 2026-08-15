@@ -1,0 +1,1 @@
+{ "id": "bb22000000000003", "name": "fence-east", "type": "model", "position": [12, 0, -1], "rotation": [0, 90, 0], "scale": [3, 3, 3], "color": [1, 1, 1], "physics": false, "model": "res/models/kenney/fence-east.obj" }
