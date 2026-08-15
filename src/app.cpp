@@ -14665,6 +14665,15 @@ void App::drawPreferencesWindow() {
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
 
+    ImGui::SeparatorText("Bakes before a build");
+    ImGui::Checkbox("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
+    prefHelp(
+        "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
+        "texture no longer matches the scene (moved, or the light changed).\n"
+        "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
+        "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
+        "Procedural volumes and model AO are always baked; GI never is.");
+
     ImGui::SeparatorText("Debug overlays");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("Show FPS", &prefSettings_.showFps);

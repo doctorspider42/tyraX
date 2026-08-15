@@ -1696,6 +1696,14 @@ void App::drawPrelitSection() {
                             prelitCount, vramKb);
     else
         ImGui::TextDisabled("Nothing pre-lit in this scene - 0 KB.");
+    // The same switch Project Preferences > Build carries, offered where the
+    // person is looking at the staleness it answers. Project-wide, not per
+    // scene - a build compiles every scene.
+    if (ImGui::Checkbox("Re-bake stale objects before every build",
+                        &project_.settings.prelitAutoBake))
+        commitChange();
+    prefHelp("Only the stale ones, all scenes; a build with everything fresh "
+             "costs nothing. Also in Project > Preferences > Build.");
     ImGui::TextDisabled("Headless: --bake-prelit <projectDir> [scene]");
 }
 

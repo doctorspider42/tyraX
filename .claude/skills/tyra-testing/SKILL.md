@@ -368,7 +368,10 @@ mtime before trusting a run from there.
   `objects/<id>.json` as `prelitSig` (hex string), `prelitWanted` and - only
   when the object had a material override before its first bake -
   `prelitSource`. It refuses a project needing a format migration, like every
-  headless verb that writes the project.
+  headless verb that writes the project. With `"prelitAutoBake": true` in the
+  project's settings, `--build` (and the GUI's build) runs the SAME loop first
+  and prints `pre-lit: ...` lines - the check is a build log that says
+  `0 baked, N already fresh` on the second build.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:

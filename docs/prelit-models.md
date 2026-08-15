@@ -151,11 +151,26 @@ the other headless verbs that write the project, it refuses a project that needs
 [a format migration](format-versioning.md). Running it twice is the check that
 the staleness tracking is honest: the second run bakes nothing.
 
+### Or let the build do it — for stale objects only
+
+By default nothing bakes at build time, on purpose: a bake that takes seconds is
+pressed, not implied (the [GI](global-illumination.md) rule). If you would rather
+never ship a stale texture, tick **Re-bake stale pre-lit objects** in *Project >
+Preferences > Build* (the same switch sits under the pre-lit table). Every build
+— the toolbar, `--build`, Run on PS2 — then runs exactly what `--bake-prelit`
+runs, before the procedural volumes are baked and the sources refreshed: only the
+`prelitWanted` objects whose signature is stale, in every scene. A build with
+everything fresh pays for one signature pass and nothing else; a build with three
+moved objects pays one scene solve plus three gathers and says so in the status
+bar and the build log. In the editor it lands as one undoable edit, and it never
+touches GI (still explicit) or model AO (always automatic).
+
 ## Things that will catch you
 
 - **Move the object and its texture is a lie.** The light was gathered where it
   used to stand, contact shadows and all. You no longer have to remember: the
-  object reads **stale** in the panel above and `--bake-prelit` picks it up.
+  object reads **stale** in the panel above and `--bake-prelit` picks it up —
+  or the build does, with the opt-in above.
   Same after changing the scene's lighting, or repainting a wall it can see.
 - **Re-baking is idempotent** because the albedo is read from the model's own
   `.mtl`, never from the pre-lit material the last bake assigned. You cannot

@@ -348,6 +348,28 @@ static void bakeProcedural(Project& p) {
                      err.c_str());
 }
 
+// The opt-in pre-build pre-lit pass (ProjectSettings::prelitAutoBake,
+// docs/prelit-models.md): re-bake the STALE wanted objects and save, so what
+// ships agrees with the scene. The GUI twin is App::projectForBuild. Off by
+// default, and only stale objects are touched - a build with everything fresh
+// pays for one signature pass and nothing else.
+static void bakeStalePrelit(Project& p) {
+    if (!p.settings.prelitAutoBake) return;
+    const litbake::Params prm;
+    const litbake::StaleReport rep = litbake::bakeStale(
+        p, prm, "",
+        [](const std::string& line) { std::printf("pre-lit: %s\n", line.c_str()); });
+    if (rep.baked || rep.failed) {
+        if (std::string err = project::save(p); !err.empty())
+            std::fprintf(stderr,
+                         "warning: could not save the pre-lit scene: %s\n",
+                         err.c_str());
+    }
+    if (rep.failed)
+        std::fprintf(stderr, "warning: %d pre-lit bake(s) failed - %s\n",
+                     rep.failed, rep.firstError.c_str());
+}
+
 // Shared gate for the headless commands: a project with pending format
 // migrations is refused instead of silently and irreversibly rewritten by a
 // script/CI - migrating is an explicit act (--migrate, or opening in the GUI).
@@ -395,6 +417,7 @@ static int buildFromCli(int argc, char** argv) {
     if (refuseUnmigrated(p)) return 1;
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
+    bakeStalePrelit(p);
 
     Runner runner;
     if (runPs2)
@@ -835,71 +858,20 @@ static int bakePrelitFromCli(int argc, char** argv) {
     const char* wantScene = argc > 3 ? argv[3] : nullptr;
 
     const litbake::Params prm;  // the editor's own defaults - see the doc
-    const std::atomic<bool> never{false};
-    int baked = 0, kept = 0, failed = 0, wanted = 0;
-    bool sceneFound = false;
-    for (int si = 0; si < (int)p.scenes.size(); ++si) {
-        SceneData& sc = p.scenes[si];
-        if (wantScene && sc.name != wantScene) continue;
-        sceneFound = true;
-        const std::vector<char> fresh = litbake::freshFlags(p, sc, prm);
-        std::vector<int> todo;
-        for (size_t i = 0; i < sc.objects.size(); ++i) {
-            const SceneObject& o = sc.objects[i];
-            if (!o.prelitWanted) continue;
-            ++wanted;
-            if (o.prelit && i < fresh.size() && fresh[i]) {
-                std::printf("fresh     %s (%s)\n", o.name.c_str(),
-                            sc.name.c_str());
-                ++kept;
-                continue;
-            }
-            todo.push_back((int)i);
-        }
-        if (todo.empty()) continue;
-
-        gibake::Settings st = gibake::settingsOf(p.settings);
-        st.enabled = true;  // the gather works whether or not GI ships
-        gibake::Scene scene = gibake::build(p, sc, st);
-        gibake::solve(scene, st, &never, nullptr);
-        // Hashed once for the whole scene - it reads every file the GI bake
-        // reads. Taken BEFORE any apply, which is also when it is correct:
-        // sceneSignature normalizes pre-lit overrides away, so it does not
-        // move as objects are applied, and this only saves the re-hashing.
-        const uint64_t sceneSig = litbake::sceneSignature(p, sc);
-        for (int oi : todo) {
-            const std::string name = sc.objects[oi].name;
-            litbake::Result r;
-            std::string err;
-            const auto t0 = std::chrono::steady_clock::now();
-            if (!litbake::bakeObject(p, sc, oi, scene, prm, r, err)) {
-                std::fprintf(stderr, "error: %s (%s): %s\n", name.c_str(),
-                             sc.name.c_str(), err.c_str());
-                ++failed;
-                continue;
-            }
-            const uint64_t sig = litbake::signature(p, sc, oi, prm, sceneSig);
-            if (std::string e = litbake::applyToObject(p, sc, oi, r, sig);
-                !e.empty()) {
-                std::fprintf(stderr, "error: %s: %s\n", name.c_str(), e.c_str());
-                ++failed;
-                continue;
-            }
-            const double secs =
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
-                    .count();
-            std::printf(
-                "baked     %s (%s): %dx%d, %d texels, mean light %.3f, %.1fs\n",
-                name.c_str(), sc.name.c_str(), r.size, r.size, r.litTexels,
-                r.meanLight, secs);
-            ++baked;
-        }
-    }
-    if (wantScene && !sceneFound) {
+    const litbake::StaleReport rep = litbake::bakeStale(
+        p, prm, wantScene ? wantScene : "",
+        [](const std::string& line) {
+            // The verb's own summary line keeps its historic spelling.
+            if (line.rfind("summary   ", 0) == 0)
+                std::printf("pre-lit: %s\n", line.c_str() + 10);
+            else
+                std::printf("%s\n", line.c_str());
+        });
+    if (wantScene && !rep.sceneFound) {
         std::fprintf(stderr, "error: no scene named '%s'\n", wantScene);
         return 1;
     }
-    if (baked) {
+    if (rep.baked) {
         if (std::string err = project::save(p); !err.empty()) {
             std::fprintf(stderr, "error: %s\n", err.c_str());
             return 1;
@@ -909,14 +881,11 @@ static int bakePrelitFromCli(int argc, char** argv) {
             return 1;
         }
     }
-    std::printf("pre-lit: %d baked, %d already fresh, %d failed (%d object(s) "
-                "marked)\n",
-                baked, kept, failed, wanted);
-    if (!wanted)
+    if (!rep.wanted)
         std::printf(
             "nothing is marked to ship pre-lit - tick objects in Tools > "
             "Baked Lighting, or use --bake-object-light for a one-off\n");
-    return failed ? 1 : 0;
+    return rep.failed ? 1 : 0;
 }
 
 // tyrax-editor --bake-model-ao <projectDir> [--texbake]

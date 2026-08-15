@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -251,6 +252,84 @@ void revertObject(SceneObject& o) {
     o.prelitSig = 0;
     // prelitSource is deliberately NOT cleared: it costs nothing, and keeping
     // it means a re-bake after a Revert still knows the way back.
+}
+
+StaleReport bakeStale(Project& p, const Params& prm, const std::string& sceneName,
+                      const std::function<void(const std::string&)>& log) {
+    StaleReport rep;
+    const auto say = [&](const std::string& s) {
+        if (log) log(s);
+    };
+    const std::atomic<bool> never{false};
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        SceneData& sc = p.scenes[si];
+        if (!sceneName.empty() && sc.name != sceneName) continue;
+        rep.sceneFound = true;
+        // Cheap early out BEFORE freshFlags: a scene with nothing marked must
+        // cost nothing, and freshFlags reads every file the GI bake reads.
+        bool anyWanted = false;
+        for (const SceneObject& o : sc.objects) anyWanted |= o.prelitWanted;
+        if (!anyWanted) continue;
+
+        const std::vector<char> fresh = freshFlags(p, sc, prm);
+        std::vector<int> todo;
+        for (size_t i = 0; i < sc.objects.size(); ++i) {
+            const SceneObject& o = sc.objects[i];
+            if (!o.prelitWanted) continue;
+            ++rep.wanted;
+            if (o.prelit && i < fresh.size() && fresh[i]) {
+                say("fresh     " + o.name + " (" + sc.name + ")");
+                ++rep.kept;
+                continue;
+            }
+            todo.push_back((int)i);
+        }
+        if (todo.empty()) continue;
+
+        gibake::Settings st = gibake::settingsOf(p.settings);
+        st.enabled = true;  // the gather works whether or not GI ships
+        gibake::Scene scene = gibake::build(p, sc, st);
+        gibake::solve(scene, st, &never, nullptr);
+        // Hashed once for the whole scene, BEFORE any apply - sceneSignature
+        // normalizes pre-lit overrides away, so it does not move as objects are
+        // applied; taking it once only saves the re-hashing.
+        const uint64_t sceneSig = sceneSignature(p, sc);
+        for (int oi : todo) {
+            const std::string name = sc.objects[oi].name;
+            Result r;
+            std::string err;
+            const auto t0 = std::chrono::steady_clock::now();
+            if (!bakeObject(p, sc, oi, scene, prm, r, err)) {
+                say("error     " + name + " (" + sc.name + "): " + err);
+                if (rep.firstError.empty()) rep.firstError = name + ": " + err;
+                ++rep.failed;
+                continue;
+            }
+            const uint64_t sig = signature(p, sc, oi, prm, sceneSig);
+            if (std::string e = applyToObject(p, sc, oi, r, sig); !e.empty()) {
+                say("error     " + name + ": " + e);
+                if (rep.firstError.empty()) rep.firstError = name + ": " + e;
+                ++rep.failed;
+                continue;
+            }
+            const double secs =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count();
+            char line[256];
+            std::snprintf(line, sizeof line,
+                          "baked     %s (%s): %dx%d, %d texels, mean light %.3f, "
+                          "%.1fs",
+                          name.c_str(), sc.name.c_str(), r.size, r.size,
+                          r.litTexels, r.meanLight, secs);
+            say(line);
+            ++rep.baked;
+        }
+    }
+    say("summary   " + std::to_string(rep.baked) + " baked, " +
+        std::to_string(rep.kept) + " already fresh, " +
+        std::to_string(rep.failed) + " failed (" + std::to_string(rep.wanted) +
+        " object(s) marked)");
+    return rep;
 }
 
 bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,

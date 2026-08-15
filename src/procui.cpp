@@ -389,6 +389,28 @@ Project& App::projectForBuild() {
             for (const std::string& w : rep.warnings) statusMessage_ += " | " + w;
         }
     }
+    // The opt-in pre-lit pass (ProjectSettings::prelitAutoBake): the same
+    // "stale gets baked first" contract as the volumes above, for the same
+    // reason - what runs on the console should agree with the scene. It is
+    // synchronous like the procedural bake (one gibake solve per scene with
+    // work, seconds), and it edits the model, so it must be the editor's own
+    // commit rather than something the Runner does to its copy.
+    if (hasProject_ && project_.settings.prelitAutoBake) {
+        std::string lastLine;
+        const litbake::StaleReport rep = litbake::bakeStale(
+            project_, litBakeParams_, "",
+            [&](const std::string& l) { lastLine = l; });
+        if (rep.baked || rep.failed) {
+            commitChange();
+            prelitStatusKey_ = ~0ull;
+            viewport_.invalidateAssets();
+        }
+        if (rep.failed)
+            statusMessage_ = "Pre-lit bake failed: " + rep.firstError;
+        else if (rep.baked)
+            statusMessage_ = "Pre-lit " + std::to_string(rep.baked) +
+                             " stale object(s) before the build";
+    }
     return project_;
 }
 

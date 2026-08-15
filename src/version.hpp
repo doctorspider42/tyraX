@@ -83,7 +83,12 @@
 // polled from drawUI, so a batch started from the tab arrives whether or not
 // the tab, the selection or Properties is still showing it. --bake-prelit is
 // its headless twin: it re-bakes every stale wanted object and says `fresh` for
-// the rest, so running it twice is the check that the tracking is honest.
+// the rest, so running it twice is the check that the tracking is honest. The
+// three of them - the tab's button, the verb and the OPT-IN pre-build pass
+// (ProjectSettings::prelitAutoBake, Preferences > Build) - are one loop,
+// litbake::bakeStale, so a build cannot bake something the tab would have
+// called fresh. Off by default: the gibake rule that an expensive bake is
+// pressed, not implied, still stands, and only STALE objects are ever touched.
 //
 // ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
 // Tools > Baked Lighting..., which is where the scene's light was already
@@ -1177,7 +1182,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
 // statement that the object ships pre-lit), prelitSig (a hex-string hash of
 // what the last bake saw) and prelitSource (the materialPath to revert to,
-// recorded on the first bake only). Every one of them is written ONLY when it
+// recorded on the first bake only); plus ProjectSettings::prelitAutoBake, the
+// opt-in "re-bake stale pre-lit objects before every build" switch. Every one
+// of them is written ONLY when it
 // differs from its default and the modelAoMode section is omitted entirely
 // while empty, so a project that never touches either feature resaves byte for
 // byte; the struct defaults reproduce what an older file did (no model AO at

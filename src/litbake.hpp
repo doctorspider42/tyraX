@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -135,6 +136,26 @@ std::vector<char> freshFlags(const Project& p, const SceneData& sc,
 // ones, and deleting a file behind the user's back on an undoable edit is the
 // worse failure. The caller commits.
 void revertObject(SceneObject& o);
+
+// The MANAGED bake, synchronous: every prelitWanted object whose texture no
+// longer matches the scene is re-baked and applied IN PLACE (materialPath,
+// prelit, prelitSig), the fresh ones are left alone. One gibake::build + solve
+// per scene that has any work, however many objects come out of it. Three
+// callers, one loop: `--bake-prelit`, the pre-build step of `--build` and of
+// App::projectForBuild when ProjectSettings::prelitAutoBake is on. It does not
+// save and does not commit - the caller owns that, because what "the edit
+// landed" means differs between a CLI (project::save) and the editor
+// (commitChange, so it is undoable and reaches session peers).
+//
+// `sceneName` empty = every scene. `log` receives one line per object
+// (`baked ...` / `fresh ...` / `error ...`) plus the summary; may be null.
+struct StaleReport {
+    int wanted = 0, baked = 0, kept = 0, failed = 0;
+    bool sceneFound = false;  // false only when sceneName named nothing
+    std::string firstError;
+};
+StaleReport bakeStale(Project& p, const Params& prm, const std::string& sceneName,
+                      const std::function<void(const std::string&)>& log);
 
 // Asynchronous baker for the editor - the gibake::Baker pattern (worker thread,
 // polled from the UI). The scene build and the bounce solve are what make this
