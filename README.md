@@ -328,6 +328,11 @@ did not change is not rewritten, so a build with nothing to do finishes in secon
 **Build > Rebuild** drops the container, the objects and the compiled engine when
 an incremental build cannot see what went wrong; *Clean* also wipes `bin\`.
 
+While the build runs, a spinning **BUILDING** chip appears at the end of the menu
+bar, and turns into a red **BUILD FAILED** when a build did not make it. Clicking
+either brings the *Output* panel forward; the toolbar's Stop button (or
+**Build > Cancel Build**) cancels a build in progress.
+
 ## Run on a real PS2
 
 With a console on the LAN running the **TyraX ps2link**, **Build > Build && Run on
