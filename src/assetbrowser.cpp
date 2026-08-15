@@ -668,6 +668,16 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         if (!to.empty()) project_.musicBuild[to] = value;
         ++hits;
     }
+    // The model's automatic-AO override (docs/ambient-occlusion.md): a setting
+    // keyed by the asset path, so it has to travel with the file or a renamed
+    // model silently falls back to the project default.
+    if (auto it = project_.modelAoMode.find(from);
+        it != project_.modelAoMode.end()) {
+        const int value = it->second;
+        project_.modelAoMode.erase(it);
+        if (!to.empty()) project_.modelAoMode[to] = value;
+        ++hits;
+    }
     if (auto it = project_.modelLods.find(from); it != project_.modelLods.end()) {
         const std::vector<std::string> value = it->second;
         project_.modelLods.erase(it);

@@ -64,6 +64,12 @@ player walks up to, not on everything. Watch `VRAM` in the debug HUD
 - **Re-baking is idempotent** because the albedo is read from the model's own
   `.mtl`, never from the pre-lit material the last bake assigned. You cannot
   accidentally multiply light in twice.
+- **The model's own AO comes along.** If
+  [Model AO](ambient-occlusion.md#model-ao) resolves on for that asset, the
+  pre-lit bake multiplies the same map into the albedo it reads — otherwise the
+  object would lose its self-occlusion the moment it went pre-lit, which reads
+  as the pre-lit bake having flattened it. The `-lit.png` output is in turn
+  skipped by Model AO, so nothing is darkened twice.
 - **The model needs UVs.** Unwrapped models only; the bake reports how many
   texels its islands covered, and zero means it has none.
 - **A model's materials share one output texture.** Its islands must not

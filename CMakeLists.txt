@@ -261,6 +261,7 @@ add_executable(tyrax-editor
     src/vushader_palette_sample.cpp
     src/vukernel_sample.cpp
     src/matbake.cpp
+    src/modelao.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp

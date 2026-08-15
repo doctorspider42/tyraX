@@ -81,6 +81,18 @@ Terrain UVs grow with world position and can outrun the GS fixed-point range.
 Fold each chunk by whole texture repeats during generation, preserving the
 picture under REPEAT while bounding coordinates by chunk size.
 
+### Model AO for animated models and for shared textures
+
+[Model AO](ambient-occlusion.md#model-ao) covers static `.obj` assets only.
+Two deliberate gaps are worth revisiting once it has been used in anger. An
+animated `.glb`/`.fbx` bakes a bind-pose AO map perfectly well, but its
+textures ship through `animBakedTextureRel`, so the multiply needs a second
+hook and the map is a lie for anything that deforms much. And a texture shared
+by several model assets is skipped outright, because two UV layouts over one
+image make a single multiply wrong for both — the honest fix is a per-asset
+COPY of the texture in the bake, which trades the feature's zero-VRAM property
+for coverage and should only be done where the author asks for it.
+
 ## Medium
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing

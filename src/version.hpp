@@ -16,6 +16,51 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.35.0 (the lighting redesign: baked light gets one home, and a textured
+// model finally occludes itself). Lighting had accumulated four separate
+// places - AO in the ambience presets, model AO by hand in the Material
+// Editor, GI in its own tab, and a per-object pre-lit button in Properties -
+// and the automatic half of that did the least for the thing a real game is
+// mostly made of, TEXTURED MODELS. The engine's lightmap route refuses them
+// (it is additive, and an additive term over a texture blows out its dark
+// texels) and GI reaches them only as flat per-vertex probe light, so an
+// imported model has never had any self-occlusion at all.
+//
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v26): the
+// Material Editor's matbake AO, run per model ASSET without anybody asking,
+// and multiplied into the texture that model ships anyway. Two properties are
+// what make it affordable, and both fall out of WHAT is being baked rather
+// than out of any cleverness: a model's own surface occlusion is
+// TRANSFORM-INVARIANT, so every instance of the asset shares one map wherever
+// it stands; and the pixels ride in an existing texture, so it costs ZERO
+// extra GS VRAM - against one unique texture per object for the pre-lit route
+// next to it. src/modelao.cpp owns the bake, the content-hash cache in
+// .res-baked/modelao/ (the gibake rule: never mtimes, and never the texture's
+// PIXELS - AO is a function of geometry and UVs, so repainting must not throw
+// a bake away), and - the part that matters most - the MULTIPLY. That one
+// function is called by texbake for the shipped PNG and by the viewport for
+// the uploaded pixels, so what the editor shows and what the console draws
+// cannot drift.
+//
+// WHAT IT REFUSES TO DO IS THE DESIGN. A texture referenced by more than one
+// model asset is skipped and SAID SO, because two UV layouts over one image
+// make a single multiply wrong for both; so is a pre-lit material, whose
+// gather already contains occlusion and would be darkened twice. Both show up
+// as a named row in the panel and a line in the build log - an AO map that
+// silently is not there is indistinguishable from a broken feature. And
+// litbake now multiplies the same map into the albedo it reads, so an object
+// does not lose its self-AO the moment it goes pre-lit.
+//
+// ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
+// Tools > Baked Lighting..., which is where the scene's light was already
+// authored. The Material Editor's manual bake is untouched and gains one line
+// pointing at the automatic path.
+//
+// MINOR: a capability appears (a textured model can occlude itself, for free,
+// and --bake-model-ao is a new headless verb). No existing project's look
+// moves - the setting is false in the struct, which is what every file saved
+// before it loads as, and true only for projects created from here on.
+//
 // 1.33.0 (the flashlight stops being drawn by the terrain's vertex grid, and
 // the ground gets distance detail): two halves of one report - a torch on a big
 // map looked bad, and the proposed cure was a finer heightmap near the player.
@@ -812,7 +857,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 34
+#define TYRAX_VERSION_MINOR 35
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1054,6 +1099,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // neutral. Written only when true, so a project that has never baked one
 // resaves byte for byte; it defaults to false, which is what every existing
 // object is. No migration step.
-inline constexpr int kFormatVersion = 25;
+// v26 (automatic model AO, docs/ambient-occlusion.md "Model AO"):
+// ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
+// project-wide bake knobs - plus the "modelAoMode" section, the per-asset
+// force-on/force-off override keyed by a model's asset path. Every one of them
+// is written ONLY when it differs from its default and the section is omitted
+// entirely while empty, so a project that never touches the feature resaves
+// byte for byte; the struct defaults reproduce what an older file did (no
+// model AO at all), while project::create turns it on for new projects. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 26;
 
 }  // namespace version

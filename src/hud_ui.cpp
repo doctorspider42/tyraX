@@ -1239,6 +1239,169 @@ void App::drawGiBakeSection() {
         "here.");
 }
 
+// --- Baked lighting tab ------------------------------------------------------
+
+// Everything the project's model-AO state depends on, in one number: the
+// project-wide knobs plus every per-asset override. Cheap - it never touches
+// the file system, which is the point (the SCAN parses every .obj).
+static uint64_t modelAoIntentOf(const Project& p) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    auto mix = [&h](uint64_t v) {
+        h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    };
+    const modelao::Params prm = modelao::paramsOf(p.settings);
+    mix(prm.enabled ? 1 : 0);
+    mix((uint64_t)prm.rays);
+    uint32_t bits = 0;
+    std::memcpy(&bits, &prm.strength, sizeof bits);
+    mix(bits);
+    std::memcpy(&bits, &prm.dist, sizeof bits);
+    mix(bits);
+    for (const auto& [asset, mode] : p.modelAoMode) {
+        for (unsigned char c : asset) mix(c);
+        mix((uint64_t)mode);
+    }
+    return h;
+}
+
+// Polled every frame from drawUI and from nowhere else - the giBakerPoll rule:
+// a bake that finishes has to reach the VIEWPORT whether or not the tab is
+// open, and toggling the setting has to invalidate the textures it affects
+// even if the panel was never looked at.
+//
+// It starts a run only when the INTENT changes, because a scan parses every
+// .obj under res/models. That is also why the worker owns the plan: the UI
+// thread never walks the project's models.
+void App::modelAoPoll() {
+    if (!hasProject_) return;
+    const modelao::Params prm = modelao::paramsOf(project_.settings);
+    const uint64_t intent = modelAoIntentOf(project_);
+    if (intent != modelAoIntent_) {
+        modelAoIntent_ = intent;
+        if (prm.enabled || !project_.modelAoMode.empty())
+            modelAoBaker_.start(project_, prm);
+        else
+            viewport_.setModelAoMaps({}, 0.0f);
+        // A strength edit changes nothing on disk, so no bake will land to
+        // push it - the table is re-set here with the new strength, and
+        // setModelAoMaps is a no-op when neither actually moved.
+        if (modelAoSeen_ == modelAoBaker_.version() && !modelAoBaker_.running())
+            viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+    }
+    if (modelAoSeen_ == modelAoBaker_.version()) return;
+    modelAoSeen_ = modelAoBaker_.version();
+    viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+}
+
+// The "Baked lighting" tab of the Ambience Editor (drawAmbienceWindow): the
+// light that is computed on the HOST and ships as pixels inside textures the
+// project already has. It lives beside the GI tab because that window is where
+// a scene's light is authored - and separately from it because none of this is
+// per scene: model AO is a property of an ASSET.
+//
+// A list of sections on purpose. Add the next one by appending a call here.
+void App::drawBakedLightingSection() {
+    drawModelAoSection();
+}
+
+void App::drawModelAoSection() {
+    ProjectSettings& st = project_.settings;
+    bool changed = false;
+
+    ImGui::SeparatorText("Model AO");
+    if (ImGui::Checkbox("Bake model AO into textures", &st.modelAo))
+        changed = true;
+    prefHelp(
+        "Each .obj model's own surface occlusion, multiplied into the texture "
+        "it already ships. Transform-invariant, so every instance shares it - "
+        "and it costs no extra VRAM.");
+
+    ImGui::BeginDisabled(!st.modelAo);
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Strength", &st.modelAoStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full occlusion gets. Changing it re-multiplies; it does "
+             "not re-bake.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderInt("Rays per texel", &st.modelAoRays, 8, 512))
+        changed = true;
+    prefHelp("More = less noise, linearly more bake time.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Distance", &st.modelAoDist, 0.0f, 20.0f,
+                           st.modelAoDist > 0.0f ? "%.2f u" : "auto"))
+        changed = true;
+    prefHelp("How far the occlusion reaches, in world units. 0 = a quarter of "
+             "the model's own size.");
+    ImGui::EndDisabled();
+
+    if (changed) commitChange();
+
+    ImGui::Spacing();
+    if (modelAoBaker_.running()) {
+        ImGui::ProgressBar(modelAoBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(modelAoBaker_.status().c_str());
+        if (ImGui::Button("Cancel##modelao", ImVec2(scaled(140.0f), 0)))
+            modelAoBaker_.cancel();
+    } else if (ImGui::Button("Re-scan##modelao", ImVec2(scaled(140.0f), 0))) {
+        modelAoBaker_.start(project_, modelao::paramsOf(st));
+    }
+
+    const modelao::Report rep = modelAoBaker_.report();
+    if (rep.rows.empty()) {
+        ImGui::TextDisabled("No model assets scanned yet.");
+        return;
+    }
+    if (ImGui::BeginTable("modelao", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Asset");
+        ImGui::TableSetupColumn("AO");
+        ImGui::TableSetupColumn("Bake");
+        ImGui::TableHeadersRow();
+        std::string lastModel;
+        for (size_t i = 0; i < rep.rows.size(); ++i) {
+            const modelao::Row& r = rep.rows[i];
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.modelRel.c_str());
+            ImGui::TableNextColumn();
+            if (r.baked)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
+            else if (r.eligible)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "%s",
+                                   r.status.c_str());
+            else
+                ImGui::TextDisabled("%s", r.status.c_str());
+            if (ImGui::IsItemHovered() && !r.textureRel.empty())
+                ImGui::SetTooltip("%s", r.textureRel.c_str());
+            ImGui::TableNextColumn();
+            // One combo per MODEL, on its first row: the override is keyed by
+            // the asset, so a model with two textures must not offer two.
+            if (r.modelRel == lastModel) {
+                ImGui::TextDisabled("-");
+                continue;
+            }
+            lastModel = r.modelRel;
+            auto it = project_.modelAoMode.find(r.modelRel);
+            int mode = it == project_.modelAoMode.end() ? 0 : it->second;
+            const char* kModes[] = {"Default", "On", "Off"};
+            ImGui::PushID((int)i);
+            ImGui::SetNextItemWidth(scaled(100.0f));
+            if (ImGui::Combo("##mode", &mode, kModes, 3)) {
+                if (mode == 0)
+                    project_.modelAoMode.erase(r.modelRel);
+                else
+                    project_.modelAoMode[r.modelRel] = mode;
+                commitChange();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("%d baked, %d pending, %d skipped", rep.baked,
+                        rep.pending, rep.skipped);
+}
+
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
 // live turntable preview, then bake it into res/models/trees as an ordinary
 // Model object. Deterministic in the seed, so the same knobs always give the

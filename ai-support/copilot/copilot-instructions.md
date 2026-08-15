@@ -79,6 +79,10 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--bake-gi <projectDir>` - bake global illumination + light probes
   (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
   a scene falls its lighting back to classic shading until you re-bake)
+- `--bake-model-ao <projectDir> [--texbake]` - bake every `.obj` model's own
+  ambient occlusion into `.res-baked/modelao/`, printing what was skipped and
+  why (a build does it too; `--texbake` also runs the multiply into
+  `.res-baked`)
 - `--resave <projectDir>` - load + save with validation/migrations
 - `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
   `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with

@@ -76,6 +76,12 @@ lands twice.
 | Imported models, textured receivers, batched props, physics bodies, spawn-pool clones, textured terrain | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
 | Animated models, the player, NPCs | **probe grid**, sampled once per frame at the model's centre | `updateAndRenderAnimObjects` |
 
+A `.obj` model's route is the probe grid for the light it *receives*, but its
+own **self-occlusion** is a separate, per-texel answer that costs nothing:
+[Model AO](ambient-occlusion.md#model-ao) multiplies it straight into the
+model's texture at build. The two compose — flat probe light times per-pixel
+self-shadowing — and neither needs a lightmap chart.
+
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
 ground goes down the lightmap route; `setGiProbes` covers everything else.

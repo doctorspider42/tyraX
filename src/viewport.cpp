@@ -14,6 +14,7 @@
 #include "animedit.hpp"
 #include "aobake.hpp"
 #include "gl_loader.h"
+#include "modelao.hpp"  // the ONE AO multiply, shared with texbake
 #include "objparser.hpp"
 #include "placement.hpp"
 #include "primmesh.hpp"
@@ -2946,6 +2947,17 @@ void Viewport::clearTexCache() {
     texAlpha_.clear();  // re-derived when the images reload
 }
 
+void Viewport::setModelAoMaps(std::map<std::string, std::string> maps,
+                              float strength) {
+    if (maps == modelAoMaps_ && strength == modelAoStrength_) return;
+    modelAoMaps_ = std::move(maps);
+    modelAoStrength_ = strength;
+    // See the header: a per-texture drop is NOT enough, because the model and
+    // material caches hold the GL name. This is rare (a finished bake or a
+    // settings edit), so it takes the same route an edited asset takes.
+    invalidateAssets();
+}
+
 void Viewport::invalidateAssets() {
     clearModelCache();  // also drops materialCache_
     clearTexCache();
@@ -2973,6 +2985,12 @@ uint32_t Viewport::glTexture(const std::string& relPath) {
                     hasAlpha = true;
                     break;
                 }
+        // The editor must show what the console will: texbake multiplies the
+        // model's baked AO into this texture's RGB, so the upload does too -
+        // through the same modelao helper, never a second copy of the formula.
+        // Alpha is untouched, so the transparency scan above stays valid.
+        if (auto ao = modelAoMaps_.find(relPath); ao != modelAoMaps_.end())
+            modelao::applyMapFile(ao->second, pixels, w, h, modelAoStrength_);
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
         glUploadTexRgba(w, h, pixels);

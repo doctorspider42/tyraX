@@ -70,7 +70,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Portals](portals.md) — the linkable surface that shows a live through-view
   and teleports whatever walks in, velocity included.
 - [Baked ambient occlusion (contact shadows)](ambient-occlusion.md) — soft
-  shadows where geometry meets, and the knobs.
+  shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
+  model's own self-occlusion baked automatically into the texture it already
+  ships, for no extra VRAM.
 - [Baked global illumination + light probes](global-illumination.md) — a
   multi-bounce lightmap plus a probe grid, traced on your desktop so the
   console pays nothing.

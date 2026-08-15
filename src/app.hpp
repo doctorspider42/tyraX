@@ -26,6 +26,7 @@
 #include "litbake.hpp"
 #include "procbake.hpp"
 #include "matbake.hpp"
+#include "modelao.hpp"  // the automatic model-AO baker + its per-asset plan
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
 #include "menulayout.hpp"  // the Menu Preview's row geometry
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
@@ -702,6 +703,13 @@ private:
     // on gibake::Baker's worker thread (docs/global-illumination.md).
     void giBakerPoll();
     void drawGiBakeSection();
+    // The "Baked lighting" tab of the Ambience Editor (docs/ambient-occlusion.md).
+    // One home for the light that is computed on the host and shipped as
+    // pixels; drawBakedLightingSection is a list of sections, drawModelAoSection
+    // is the first of them.
+    void modelAoPoll();
+    void drawBakedLightingSection();
+    void drawModelAoSection();
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -1876,6 +1884,20 @@ private:
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). The bake is
+    // a property of an ASSET, not of a scene, so it has no per-scene staleness
+    // readout - it just has to be there when the viewport uploads a texture.
+    // showBakedLighting_ is not a window flag: it is "show me that tab",
+    // exactly like showGiBake_.
+    bool showBakedLighting_ = false;
+    modelao::Baker modelAoBaker_;
+    uint64_t modelAoSeen_ = 0;  // last Baker version pushed to the viewport
+    // What the last run was started FOR: the settings plus the per-asset
+    // overrides. Re-scanning every frame would mean parsing every .obj in the
+    // project every frame, so the poll starts a run when this changes and at
+    // no other time (plus the panel's explicit Re-scan).
+    uint64_t modelAoIntent_ = 0;
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // One job at a time: every verb here saturates the machine, so a second

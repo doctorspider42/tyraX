@@ -25,6 +25,8 @@
 #include "elfsym.hpp"
 #include "gibake.hpp"
 #include "litbake.hpp"
+#include "modelao.hpp"
+#include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
 #include "livepad.hpp"
 #include "uiscript.hpp"
@@ -803,6 +805,76 @@ static int bakeObjectLightFromCli(int argc, char** argv) {
     }
     std::printf("pre-lit %d object(s)\n", found);
     return 0;
+}
+
+// tyrax-editor --bake-model-ao <projectDir> [--texbake]
+//
+// Bakes every eligible model asset's own ambient occlusion into
+// .res-baked/modelao/ (docs/ambient-occlusion.md, "Model AO") and reports what
+// it did and what it deliberately skipped.
+//
+// It exists because the shipping path for this feature is texbake, which runs
+// only inside a real build - so without a verb the only way to exercise the
+// bake would be Docker, and the only way to see the skip rules would be to
+// read them. `--texbake` additionally runs the texture bake, i.e. the actual
+// multiply into .res-baked, so the whole chain is checkable with no container.
+static int bakeModelAoFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-model-ao <projectDir> "
+                     "[--texbake]\n");
+        return 2;
+    }
+    bool alsoTexbake = false;
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--texbake") == 0) alsoTexbake = true;
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const modelao::Params prm = modelao::paramsOf(p.settings);
+    if (!prm.enabled && p.modelAoMode.empty()) {
+        std::fprintf(stderr,
+                     "error: model AO is off for this project (Tools > Baked "
+                     "Lighting)\n");
+        return 1;
+    }
+    const modelao::Plan pl = modelao::plan(p, prm);
+    int baked = 0, failed = 0;
+    for (const modelao::Target& t : pl.targets) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool had = modelao::fresh(p, t, prm);
+        const std::string err = modelao::ensure(p, t, prm);
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        if (!err.empty()) {
+            std::fprintf(stderr, "error: %s: %s\n", t.textureRel.c_str(),
+                         err.c_str());
+            ++failed;
+            continue;
+        }
+        std::printf("%-9s %s (%s, %dx%d) %.1fs\n", had ? "fresh" : "baked",
+                    t.textureRel.c_str(), t.modelRel.c_str(), t.texW, t.texH,
+                    secs);
+        ++baked;
+    }
+    for (const modelao::Skipped& s : pl.skipped)
+        std::printf("skipped   %s (%s): %s\n",
+                    s.textureRel.empty() ? "-" : s.textureRel.c_str(),
+                    s.modelRel.c_str(), s.reason.c_str());
+    std::printf("model AO: %d map(s), %d skipped, %d failed\n", baked,
+                (int)pl.skipped.size(), failed);
+    if (alsoTexbake) {
+        if (std::string err = texbake::bake(
+                p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+            !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    return failed ? 1 : 0;
 }
 
 // Bakes global illumination for every scene (docs/global-illumination.md) into
@@ -3246,6 +3318,8 @@ int main(int argc, char** argv) {
         return bakeObjectLightFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
+        return bakeModelAoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)
@@ -3305,6 +3379,10 @@ int main(int argc, char** argv) {
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
+            "  --bake-model-ao <projectDir> [--texbake]\n"
+            "                                          bake every model "
+            "asset's own AO into its texture\n"
+            "                                          (docs/ambient-occlusion.md)\n"
             "Neural upscaler (docs/neural-upscaler.md):\n"
             "  --blss-train [<projectDir>] [-o blss.net] [--frames N] "
             "[--epochs N] [--dump <dir>]\n"

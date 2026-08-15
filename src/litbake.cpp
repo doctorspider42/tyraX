@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "modelao.hpp"  // the model's own baked AO, folded into the albedo
 #include "objparser.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION_ALREADY
@@ -126,6 +127,19 @@ bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,
     // the model's own .mtl is what makes a re-bake idempotent - otherwise the
     // second bake would multiply light into a texture that already has it.
 
+    // ...but the model's automatic AO (docs/ambient-occlusion.md, "Model AO")
+    // IS part of the albedo everywhere else - texbake multiplies it into the
+    // shipped texture and the viewport into the uploaded one. Without this an
+    // object would LOSE its self-occlusion the moment it went pre-lit, which
+    // reads as the pre-lit bake having flattened it. Same helper, same
+    // formula; the maps are ensured here so the headless verb works too.
+    const modelao::Params aoPrm = modelao::paramsOf(p.settings);
+    std::map<std::string, std::string> aoMaps;
+    if (modelao::resolveFor(p, o.modelPath, aoPrm)) {
+        const modelao::Plan aoPlan = modelao::planFor(p, o.modelPath, aoPrm);
+        aoMaps = modelao::ensureAll(p, aoPrm, aoPlan, nullptr);
+    }
+
     int size = prm.size;
     if (size < 32) size = 32;
     if (size > 512) size = 512;
@@ -148,6 +162,13 @@ bool bakeObject(const Project& p, const SceneData& sc, int objectIndex,
             fs::path tp = modelFile.parent_path() / sm.texture;
             if (!fs::exists(tp)) tp = fs::path(p.dir) / sm.texture;
             loadTexture(tp, tex);
+            if (tex.ok()) {
+                const std::string rel =
+                    modelao::textureRel(p, o.modelPath, sm.texture);
+                if (auto it = aoMaps.find(rel); it != aoMaps.end())
+                    modelao::applyMapFile(it->second, tex.px.data(), tex.w,
+                                          tex.h, aoPrm.strength);
+            }
         }
         const size_t triCount = sm.verts.size() / 24;  // 3 verts * 8 floats
         for (size_t t = 0; t < triCount; ++t) {
