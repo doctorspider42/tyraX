@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.39.3 (thin things are transparent to the torch, in all three systems):
+// stand exactly on the street lamp's axis and the light died completely -
+// half a step sideways brought it back (reported, with the exact spot). The
+// lamp is a thin POLE, but its AABB - pole plus arm - is a big slab of
+// mostly air, and two systems still trusted that box: the volume pick cut a
+// shadow from it (on-axis, a slab three units from the lens blots out the
+// whole facade), and projWallHit called it "the wall the beam hits", which
+// then stuffed it into a guaranteed receiver slot. The 0.25 thin rule the
+// receiver scan already had now applies to all three: thin boxes cast no
+// volume, projWallHit sees through them to the surface behind, and the
+// guaranteed hit-slot inserts at its SORTED position (the interleaved walk
+// merges the receiver and caster lists by distance - an unsorted insert
+// drew a nearer light after farther volumes).
+//
 // 1.39.2 (nothing can shadow itself, and the toggle stops strobing the old
 // look): two more reports from the same yard. The shed went black in the
 // beam ("swallows the light like a black hole") because a model's AABB
@@ -1003,7 +1017,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 39
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

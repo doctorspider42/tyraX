@@ -11749,7 +11749,18 @@ void TerrainGame::updateAndRenderLightPools() {
         for (int k2 = 0; k2 < recvN; ++k2)
           if (recvObj[k2] == wallBox.obj) haveHit = true;
         if (!haveHit) {
-          const int at = recvN < 3 ? recvN : 2;  // evict the farthest
+          // Insert at the SORTED position (evicting the farthest): the
+          // interleaved walk below merges recvT with the caster distances
+          // and both lists must stay ascending - a slot stuffed at the end
+          // with a nearer t drew its light after farther volumes.
+          int at = recvN < 3 ? recvN : 3;
+          for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+            if (wallT < recvT[k2]) { at = k2; break; }
+          if (at >= 3) at = 2;
+          for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+            recvObj[k2] = recvObj[k2 - 1];
+            recvT[k2] = recvT[k2 - 1];
+          }
           recvObj[at] = wallBox.obj;
           recvT[at] = wallT;
           if (recvN < 3) ++recvN;
@@ -11974,6 +11985,14 @@ void TerrainGame::updateAndRenderLightPools() {
           const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
                                  pb.h[2] * pb.h[2]);
           if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
+          // A THIN thing casts nothing: the volume is cut from the BOX, and
+          // a lamp post's AABB (pole plus arm) is a big slab of mostly air -
+          // stand on its axis and that slab's shadow blotted out the whole
+          // facade behind it ("no light at all until half a step sideways",
+          // reported). Same 0.25 rule as the receiver slots.
+          float vthin = pb.h[0] < pb.h[1] ? pb.h[0] : pb.h[1];
+          if (pb.h[2] < vthin) vthin = pb.h[2];
+          if (vthin < 0.25F) continue;
           if (t < 0.3F || t > FLASHLIGHT_RANGE) continue;
           const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
                       pz2 = ez2 - dz * t;
@@ -12755,6 +12774,13 @@ bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
                               float& outSign, ProjBox& outBox) {
   bool found = false;
   for (const ProjBox& b : g_projBoxes) {
+    // A THIN box - a lamp post, a sign - is transparent to this ray: its
+    // AABB is a slab of mostly air (the post's arm stretches it), and the
+    // surface the light belongs to is whatever stands BEHIND it. Same 0.25
+    // rule as the receiver slots.
+    float bthin = b.h[0] < b.h[1] ? b.h[0] : b.h[1];
+    if (b.h[2] < bthin) bthin = b.h[2];
+    if (bthin < 0.25F) continue;
     // The ray, in the box's own frame: project the offset and the direction
     // onto its three axes. From here it is the ordinary slab test, and the slab
     // that ADMITTED the ray last is the face it enters through - which is the
