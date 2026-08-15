@@ -1238,6 +1238,18 @@ class TerrainGame : public Tyra::Game {
   struct ProjShadow {
     std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
     Tyra::Color color;
+    // The WALL copy (docs/flashlight.md, "The shadow"): when the torch is the
+    // light that threw this slot's silhouette, the geometry the shadow ray
+    // lands on is re-rendered with the silhouette sampled through the light's
+    // view-proj - the same second-pass trick the torch's own light uses, so a
+    // caster in the beam paints its shadow ON the wall behind it. Own buffers:
+    // the DMA may still be reading the ground patch's.
+    std::vector<Tyra::Vec4> wallVerts, wallSts;
+    Tyra::Color wallColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> wallInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> wallColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> wallTexBag;
+    std::unique_ptr<Tyra::StaPipBag> wallBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1268,7 +1280,10 @@ class TerrainGame : public Tyra::Game {
   // projected pool is doing that job on them (big flat boxes the cone would
   // simply flood). Rebuilt each frame by updateFlashSpotOff.
   std::vector<int> flashSpotOffList;
-  void updateFlashSpotOff(int alsoObj);
+  // ...fed by the pool pass: the cone receivers of this frame (objects the
+  // beam cone touches), whose per-vertex cone the projected light replaces.
+  std::vector<int> flashSpotExtra;
+  void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn

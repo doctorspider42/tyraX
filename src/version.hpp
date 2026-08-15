@@ -64,6 +64,25 @@
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
 //
+// 1.35.0 (the torch throws shadows, and its light stops picking favourites):
+// the flashlight becomes a candidate light in the projected-shadow system - a
+// caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
+// shadow-map slot, the ground patch samples it as always, and the wall behind
+// the caster is re-rendered with the silhouette through the light's view-proj,
+// per pixel: the Silent Hill composition, on the machinery that was already
+// there. Three findings paid for it: the torch needed a laxer elevation bar
+// than fixed lights (it is carried level with everything, and its shadow's
+// whole point is the WALL - the ground patch is simply skipped when the ray is
+// too flat); it needed a LINE-OF-SIGHT check, because a light that walks
+// around routinely stands on the wrong side of a wall from a caster, and the
+// silhouette painted straight through; and the light pass had to stop lighting
+// only the object the beam HITS - the wall behind a caster stayed dark (a
+// shadow with nothing to be carved from), and a shed with the beam at its feet
+// took no projected light at all and fell back to the per-vertex cone's hard
+// triangles. Receivers are now the nearest three solids whose oriented boxes
+// the CONE touches, drawn from one bag. MINOR: capabilities appear; no default
+// moves; the format is untouched (still v25).
+//
 // 1.34.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
 // renumbered on the merge below - main took 1.32.0 with #230 while this branch
 // was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
@@ -812,7 +831,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 34
+#define TYRAX_VERSION_MINOR 35
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

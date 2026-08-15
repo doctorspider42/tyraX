@@ -1,1 +1,1 @@
-{ "id": "aa11000000000011", "name": "shed-plain", "type": "model", "position": [3.5, 0, 9], "rotation": [0, 196, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/shed.obj" }
+{ "id": "aa11000000000011", "name": "shed-plain", "type": "model", "position": [3.5, 0, 9], "rotation": [0, 196, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "projShadow": true, "model": "res/models/shed.obj" }

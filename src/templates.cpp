@@ -1882,6 +1882,18 @@ class TerrainGame : public Tyra::Game {
   struct ProjShadow {
     std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
     Tyra::Color color;
+    // The WALL copy (docs/flashlight.md, "The shadow"): when the torch is the
+    // light that threw this slot's silhouette, the geometry the shadow ray
+    // lands on is re-rendered with the silhouette sampled through the light's
+    // view-proj - the same second-pass trick the torch's own light uses, so a
+    // caster in the beam paints its shadow ON the wall behind it. Own buffers:
+    // the DMA may still be reading the ground patch's.
+    std::vector<Tyra::Vec4> wallVerts, wallSts;
+    Tyra::Color wallColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> wallInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> wallColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> wallTexBag;
+    std::unique_ptr<Tyra::StaPipBag> wallBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1912,7 +1924,10 @@ class TerrainGame : public Tyra::Game {
   // projected pool is doing that job on them (big flat boxes the cone would
   // simply flood). Rebuilt each frame by updateFlashSpotOff.
   std::vector<int> flashSpotOffList;
-  void updateFlashSpotOff(int alsoObj);
+  // ...fed by the pool pass: the cone receivers of this frame (objects the
+  // beam cone touches), whose per-vertex cone the projected light replaces.
+  std::vector<int> flashSpotExtra;
+  void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
@@ -3199,6 +3214,18 @@ class TerrainGame : public Tyra::Game {
   struct ProjShadow {
     std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
     Tyra::Color color;
+    // The WALL copy (docs/flashlight.md, "The shadow"): when the torch is the
+    // light that threw this slot's silhouette, the geometry the shadow ray
+    // lands on is re-rendered with the silhouette sampled through the light's
+    // view-proj - the same second-pass trick the torch's own light uses, so a
+    // caster in the beam paints its shadow ON the wall behind it. Own buffers:
+    // the DMA may still be reading the ground patch's.
+    std::vector<Tyra::Vec4> wallVerts, wallSts;
+    Tyra::Color wallColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> wallInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> wallColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> wallTexBag;
+    std::unique_ptr<Tyra::StaPipBag> wallBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -3229,7 +3256,10 @@ class TerrainGame : public Tyra::Game {
   // projected pool is doing that job on them (big flat boxes the cone would
   // simply flood). Rebuilt each frame by updateFlashSpotOff.
   std::vector<int> flashSpotOffList;
-  void updateFlashSpotOff(int alsoObj);
+  // ...fed by the pool pass: the cone receivers of this frame (objects the
+  // beam cone touches), whose per-vertex cone the projected light replaces.
+  std::vector<int> flashSpotExtra;
+  void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
@@ -11493,6 +11523,7 @@ void TerrainGame::updateAndRenderLightPools() {
         // but the flag must not outlive the light that set it).
         for (int prev : flashSpotOffList) setFlashSpotOff(prev, true);
         flashSpotOffList.clear();
+        flashSpotExtra.clear();
         continue;
       }
       float dx = cameraLookAt.x - cameraPosition.x;
@@ -11533,20 +11564,54 @@ void TerrainGame::updateAndRenderLightPools() {
         const float ny = fa[1] * wallSign;
         onWall = ny < 0.7F;
       }
-      // Every big flat box in reach comes off the per-vertex cone (aimed at or
-      // not), and so does the object the beam is ON when its hit face is
-      // wall-sized - for a model that is what stops the cone re-drawing its
-      // Gouraud diagonal across the very pool that replaces it. Small things
-      // keep the cone: the pool lights what the beam faces, and a crate lit
-      // all over reads better than one bright patch with black sides.
-      int alsoStrip = -1;
-      if (onWall) {
-        const int ia = (wallAxis + 1) % 3, ib = (wallAxis + 2) % 3;
-        if (sqrtf(wallBox.h[ia] * wallBox.h[ia] +
-                  wallBox.h[ib] * wallBox.h[ib]) > 1.4F)
-          alsoStrip = wallBox.obj;
+      // The light's RECEIVERS: every solid whose box the beam cone touches,
+      // nearest first, up to three. Not merely the object the beam HITS -
+      // shine at the ground right under a shed and the shed is in the cone
+      // with nothing hit at all, and it used to keep its per-vertex cone,
+      // which lit it as the old hard triangles (reported from the console).
+      // Every receiver is drawn by the projected pass below and gives up its
+      // cone (size-gated: a crate lit all over still reads better than one
+      // patch with black sides). A grouping-cell-sized box (a baked scatter
+      // chunk that happens to be solid) is not a wall and stays out.
+      const float tanARecv = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      int recvObj[3] = {-1, -1, -1};
+      float recvT[3] = {0.0F, 0.0F, 0.0F};
+      int recvN = 0;
+      flashSpotExtra.clear();
+      for (const ProjBox& pb : g_projBoxes) {
+        const float ex2 = pb.o[0] - cameraPosition.x,
+                    ey2 = pb.o[1] - cameraPosition.y,
+                    ez2 = pb.o[2] - cameraPosition.z;
+        const float t = ex2 * dx + ey2 * dy + ez2 * dz;
+        const float br =
+            sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] + pb.h[2] * pb.h[2]);
+        if (br > 20.0F) continue;  // grouping-cell sized: not a wall
+        if (t < -br || t > FLASHLIGHT_RANGE) continue;
+        const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
+                    pz2 = ez2 - dz * t;
+        const float perp = sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2);
+        if (perp > (t > 0.0F ? t : 0.0F) * tanARecv * 1.3F + br) continue;
+        // insertion sort by t, keep the nearest three
+        int at = recvN < 3 ? recvN : 3;
+        for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+          if (t < recvT[k2]) { at = k2; break; }
+        if (at >= 3) continue;
+        for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+          recvObj[k2] = recvObj[k2 - 1];
+          recvT[k2] = recvT[k2 - 1];
+        }
+        recvObj[at] = pb.obj;
+        recvT[at] = t;
+        if (recvN < 3) ++recvN;
+        // The size gate for the cone strip, on the two largest extents.
+        float h0 = pb.h[0], h1 = pb.h[1], h2 = pb.h[2];
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (h1 < h2) { const float tmp = h1; h1 = h2, h2 = tmp; }
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (sqrtf(h0 * h0 + h1 * h1) > 1.4F)
+          flashSpotExtra.push_back(pb.obj);
       }
-      updateFlashSpotOff(alsoStrip);
+      updateFlashSpotOff();
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
@@ -11662,77 +11727,76 @@ void TerrainGame::updateAndRenderLightPools() {
                     cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
       };
 
-      // --- the beam landed on SOLID GEOMETRY --------------------------------
-      // The era's own trick, done the era's own way: the receiving geometry is
-      // rendered a SECOND time, additively, with the gobo's projective STQ per
-      // vertex - so the light lands on the object's REAL triangles, per pixel,
-      // whatever their count or orientation. The same pattern as the reflective
-      // env pass and the emissive atlas pass: one more very simple GS pass over
-      // geometry that is already there. (The SH2 PC port's lead programmer
-      // describes the original doing exactly this class of thing - the GS
-      // grinding many trivial passes - and its flashlight being per-vertex
-      // otherwise. Ours is per-PIXEL here, because the STQ rides the same
-      // perspective division their environment light could not afford.)
+      // --- the beam ON solid geometry ---------------------------------------
+      // The era's own trick, done the era's own way: every receiver the cone
+      // touches is rendered a SECOND time, additively, with the gobo's
+      // projective STQ per vertex - so the light lands on REAL triangles, per
+      // pixel, whatever their count or orientation. The same pattern as the
+      // reflective env pass and the emissive atlas pass: more very simple GS
+      // passes over geometry that is already there.
       //
-      // The oriented-box hit only decides WHICH object the beam is on and how
-      // far the light travelled; it no longer shapes anything. Its predecessor
-      // - a planar patch laid on the box FACE and clipped to it - drew light
-      // where a model's box face is only air: on a gabled shed the face plane
-      // extends over the gable triangle, and the patch showed as a glowing
-      // translucent rectangle floating in the sky beside the roof (reported
-      // from the console, screenshot and all).
+      // Receivers, plural, and by CONE rather than by hit - three reports
+      // taught that the hard way. A planar patch on the hit box's FACE drew
+      // light where a model's face is air (a glowing rectangle floating by a
+      // gabled roof); lighting only the HIT object left the wall behind a
+      // caster dark, so its shadow had nothing to be carved out of; and
+      // lighting only the hit object also meant a shed with the beam at its
+      // FEET took no projected light at all and fell back to the per-vertex
+      // cone - the old hard triangles, on the very object this pass exists
+      // for. All receivers go into ONE bag; no z bias, on purpose (equal
+      // floats through the identity matrix pass the GS's GEQUAL on equality,
+      // and a bias would paint light over whatever stands in front).
       do {
-        if (!onWall) break;
-        const int oi = wallBox.obj;
-        if (oi < 0 || oi >= (int)objectGeometry.size()) break;
-        // A statically batched receiver owns no solo geometry - bake it on
-        // first use, exactly like the projected shadows' silhouette pass (and
-        // with the same DIRTY caveat; see renderProjShadows). The batch keeps
-        // drawing the BASE pass; only this additive layer uses the solo bake.
-        const bool batched =
-            oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
-        if (batched) {
-          if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
-            rebuildObjectGeometry(oi);
-        } else if (runtimeObjects[oi].dirty) {
-          rebuildObjectGeometry(oi);
-        }
-        ObjectGeometry& g = objectGeometry[oi];
-        // Nothing to re-render: animated models (their bags are skinned
-        // buffers) and physics bodies (LOCAL verts under a live matrix - an EE
-        // transform here would not be bit-identical to VU1's, and this pass
-        // depends on EQUAL depth). Both are small and keep the cone instead.
-        if (g.parts.empty() || g.matrixMode) break;
-        // Copied and re-projected EVERY frame, into the pool's own buffers -
-        // never a second bag over the part's arrays, the DMA may still be
-        // reading them. And NO z bias, on purpose: these are the same
-        // world-space floats through the same identity model matrix, so they
-        // rasterize to the same depth and the GS's GEQUAL z test passes on
-        // equality. Biasing them toward the camera would let this layer paint
-        // light over whatever stands just in front of the wall.
+        if (recvN == 0) break;
         b.wVerts.clear();
         b.wSts.clear();
-        for (GeoPart& part : g.parts) {
-          if (!part.bag) continue;
-          for (const Vec4& pv : part.vertices) {
-            if (b.wVerts.size() >= 3999) break;  // fill-rate backstop
-            b.wVerts.push_back(pv);
-            b.wSts.push_back(goboST(pv.x, pv.y, pv.z));
+        for (int ri = 0; ri < recvN; ++ri) {
+          const int oi = recvObj[ri];
+          if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
+          // A statically batched receiver owns no solo geometry - bake it on
+          // first use, like the projected shadows' silhouette pass (and with
+          // the same DIRTY caveat). The batch keeps drawing the BASE pass;
+          // only this additive layer uses the solo bake.
+          const bool batched =
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+          if (batched) {
+            if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
+              rebuildObjectGeometry(oi);
+          } else if (runtimeObjects[oi].dirty) {
+            rebuildObjectGeometry(oi);
+          }
+          ObjectGeometry& g = objectGeometry[oi];
+          // Nothing to re-render: animated models (skinned buffers) and
+          // physics bodies (LOCAL verts under a live matrix - an EE transform
+          // would not be bit-identical to VU1's, and this pass depends on
+          // EQUAL depth). Both are small and keep the cone instead.
+          if (g.parts.empty() || g.matrixMode) continue;
+          for (GeoPart& part : g.parts) {
+            if (!part.bag) continue;
+            for (const Vec4& pv : part.vertices) {
+              if (b.wVerts.size() >= 3999) break;  // fill-rate backstop
+              b.wVerts.push_back(pv);
+              b.wSts.push_back(goboST(pv.x, pv.y, pv.z));
+            }
           }
         }
         b.wVerts.resize(b.wVerts.size() / 3 * 3);  // never a torn triangle
         b.wSts.resize(b.wVerts.size());
         if (b.wVerts.empty()) break;
-        // How square-on the beam meets the hit face - a grazing beam smears
-        // the same cone across more wall, exactly as it does across ground.
-        const float* fa = wallAxis == 0
-                              ? wallBox.ax
-                              : (wallAxis == 1 ? wallBox.ay : wallBox.az);
-        float cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
-        if (cosI < 0.0F) cosI = -cosI;
-        if (cosI < 0.25F) cosI = 0.25F;
+        // Reach fade from the nearest receiver; grazing dim from the hit face
+        // when the beam actually meets one square enough to know.
+        float cosI = 1.0F;
+        if (onWall) {
+          const float* fa = wallAxis == 0
+                                ? wallBox.ax
+                                : (wallAxis == 1 ? wallBox.ay : wallBox.az);
+          cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
+          if (cosI < 0.0F) cosI = -cosI;
+          if (cosI < 0.25F) cosI = 0.25F;
+        }
+        const float wallD = onWall ? wallT : (recvT[0] > 0.3F ? recvT[0] : 0.3F);
         b.wColor.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-        float wf = 1.0F - wallT / FLASHLIGHT_RANGE;
+        float wf = 1.0F - wallD / FLASHLIGHT_RANGE;
         wf = wf > 1.0F ? 1.0F : (wf < 0.0F ? 0.0F : wf);
         wf *= 0.55F + 0.45F * cosI;
         float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
@@ -12104,6 +12168,36 @@ void TerrainGame::setupProjShadows() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // GS CLAMP on the slot texture, for the WALL copy below: its STs are the
+    // silhouette projection evaluated per PIXEL (STQ), so there is no vertex
+    // to clamp on the EE the way the flat patch does - and REPEAT would tile
+    // the silhouette across the wall. The silhouette keeps a ~22% transparent
+    // border by construction (the fov sizing), so the clamped edge is empty.
+    b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
+    // The wall copy: same darkness, same slot texture, its own buffers. The
+    // STs are filled per frame from the light view-proj of the frame.
+    b.wallVerts.reserve(4096);
+    b.wallSts.reserve(4096);
+    b.wallColor = Color(0.0F, 0.0F, 0.0F, 55.0F);
+    b.wallInfo = std::make_unique<StaPipInfoBag>();
+    b.wallInfo->model = &b.mat;
+    b.wallInfo->shadingType = TyraShadingFlat;
+    b.wallInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.wallInfo->zTestType = PipelineZTest_TestOnly;
+    b.wallInfo->dynLightPick = false;  // a shadow is never re-lit
+    b.wallInfo->spotLit = false;
+    b.wallInfo->fullClipChecks = true;
+    b.wallColorBag = std::make_unique<StaPipColorBag>();
+    b.wallColorBag->single = &b.wallColor;
+    b.wallTexBag = std::make_unique<StaPipTextureBag>();
+    b.wallTexBag->texture = b.texBag->texture;
+    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallBag = std::make_unique<StaPipBag>();
+    b.wallBag->info = b.wallInfo.get();
+    b.wallBag->color = b.wallColorBag.get();
+    b.wallBag->texture = b.wallTexBag.get();
+    b.wallBag->vertices = b.wallVerts.data();
+    b.wallBag->count = 0;
   }
   // See setupLightBeams: the bags point INTO the vector elements, so they are
   // rebound once the vector has stopped reallocating under them. This is what
@@ -12112,6 +12206,8 @@ void TerrainGame::setupProjShadows() {
   for (ProjShadow& b : projShadows) {
     b.info->model = &b.mat;
     b.colorBag->single = &b.color;
+    b.wallInfo->model = &b.mat;
+    b.wallColorBag->single = &b.wallColor;
   }
 }
 
@@ -12346,12 +12442,15 @@ bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
  * nothing about how its surface is tessellated, and a baked scatter chunk has an
  * enormous one - a whole grouping cell of trees - so a size test would strip the
  * cone from the entire forest. */
-void TerrainGame::updateFlashSpotOff(int alsoObj) {
+void TerrainGame::updateFlashSpotOff() {
   static std::vector<int> want;
   want.clear();
-  if (alsoObj >= 0) want.push_back(alsoObj);
+  for (int e : flashSpotExtra) want.push_back(e);
   for (const ProjBox& b : g_projBoxes) {
-    if (b.obj == alsoObj) continue;
+    bool have = false;
+    for (int e : flashSpotExtra)
+      if (e == b.obj) { have = true; break; }
+    if (have) continue;
     if (b.type != 0) continue;  // box primitives only
     float h0 = b.h[0], h1 = b.h[1], h2 = b.h[2];
     if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
@@ -12508,7 +12607,19 @@ void TerrainGame::renderProjShadows() {
       // every caster has been through, so it has to re-collect each one's
       // receivers rather than inherit the last caster's list.
       syMax[Tyra::RendererCoreShadowMap::slots];
+  // The torch's slots additionally paint the silhouette on the WALL behind
+  // the caster, so those need the shadow ray itself: caster centre + radius,
+  // the light->caster direction, and whether the torch was the light at all.
+  bool storch[Tyra::RendererCoreShadowMap::slots];
+  float sray[Tyra::RendererCoreShadowMap::slots][7];  // cx,cy,cz, dx,dy,dz, r
   int used = 0;
+  // The beam, for the cone gate below (a caster behind the player must not
+  // take a shadow from a light that does not reach it).
+  float fbx = cameraLookAt.x - cameraPosition.x,
+        fby = cameraLookAt.y - cameraPosition.y,
+        fbz = cameraLookAt.z - cameraPosition.z;
+  const float fbl = sqrtf(fbx * fbx + fby * fby + fbz * fbz);
+  if (fbl > 0.0001F) fbx /= fbl, fby /= fbl, fbz /= fbl;
 
   for (const Cand& c : cands) {
     if (used >= (int)projShadows.size()) break;
@@ -12564,16 +12675,20 @@ void TerrainGame::renderProjShadows() {
     // matter and the flat caster silently cast nothing at all.
     const AreaBasis casterBox = areaBasis(o.data);
     auto consider = [&](float px, float py, float pz, float radius,
-                        float bright, float level) {
+                        float bright, float level, float levelBar) {
       if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
       const float dx = cx - px, dy = cy - py, dz = cz - pz;
       const float d = sqrtf(dx * dx + dy * dy + dz * dz);
       if (d < 0.05F) return;
       if (areaDistSq(casterBox, px, py, pz) < 0.04F) return;  // in the caster
-      // Level with the caster or below it: nothing lands on the ground. The
-      // bar is low (~5 degrees) because the patch distance is clamped below -
-      // a flat ray now yields a truncated shadow instead of none.
-      if (dy > -0.08F * d) return;
+      // Level with the caster or below it: nothing lands on the GROUND, so a
+      // fixed light is not worth a slot (the bar is low, ~5 degrees, because
+      // the patch distance is clamped below - a flat ray yields a truncated
+      // shadow instead of none). The TORCH passes a laxer bar: it is carried
+      // at eye height, level with everything, and its shadow's whole point is
+      // the WALL behind the caster - the ground patch is simply skipped when
+      // the ray is too flat for one (see groundOk below).
+      if (dy > levelBar * d) return;
       const float fall = 1.0F - d / radius;
       if (fall <= 0.0F) return;  // out of the light's reach
       const float score = bright * level * fall;
@@ -12590,12 +12705,54 @@ void TerrainGame::renderProjShadows() {
         continue;
       const SceneObjectData& ld = runtimeObjects[L.objIndex].data;  // live
       consider(ld.position[0], ld.position[1], ld.position[2], ld.lightRadius,
-               ld.lightBright, L.lastLevel);
+               ld.lightBright, L.lastLevel, -0.08F);
     }
     // Baked point lights cast too: their light is vertex-baked and static,
     // but the CASTER moves, so its shadow cannot be baked with it.
     for (const BakedPointLight& L : g_scenePointLights)
-      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F);
+      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F, -0.08F);
+    // And the TORCH (docs/flashlight.md, "The shadow") - the Silent Hill
+    // moment this system existed for without knowing it: a caster in the beam
+    // hurls its silhouette away from the player, and the shadow swings with
+    // every step and every turn because the light is the player. Gated on the
+    // caster actually being IN the cone (with a margin for its radius): a prop
+    // beside the beam must not shadow from a light that does not reach it.
+    // Brightness 2.0 - at night the torch IS the light, and a scene point
+    // light you stand next to can still outbid it through its falloff term.
+    if (g_flashEnabled && g_flashOn) {
+      const float tx2 = cx - cameraPosition.x, ty2 = cy - cameraPosition.y,
+                  tz2 = cz - cameraPosition.z;
+      const float td = sqrtf(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
+      if (td > 0.05F) {
+        const float ca2 = (tx2 * fbx + ty2 * fby + tz2 * fbz) / td;
+        const float margin = td > 0.05F ? r / td : 1.0F;
+        if (ca2 + margin > cosf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F)) {
+          // ...and only with LINE OF SIGHT. The torch is the one light that
+          // walks around, so a caster on the far side of a wall is a routine
+          // arrangement, not an edge case - and without this test it still
+          // won the score and painted its silhouette THROUGH the wall, as a
+          // dark shape floating in the pool on the near face (seen in PCSX2
+          // before this test existed). One slab query along torch->caster,
+          // stopped a little short so the caster's own box cannot occlude
+          // itself.
+          projCollectBoxes(cameraPosition.x + tx2 * 0.5F,
+                           cameraPosition.z + tz2 * 0.5F, td * 0.5F + 2.0F);
+          float lt = 0.0F, ls = 0.0F;
+          int la = -1;
+          ProjBox lb;
+          const bool blocked =
+              projWallHit(cameraPosition, tx2 / td, ty2 / td, tz2 / td,
+                          td - r * 0.8F, lt, la, ls, lb) &&
+              lb.obj != i;
+          if (!blocked)
+            consider(cameraPosition.x, cameraPosition.y, cameraPosition.z,
+                     FLASHLIGHT_RANGE, 2.0F, 1.0F, 0.35F);
+        }
+      }
+    }
+    // Exact-equality test on purpose: consider() stored these very floats.
+    const bool fromTorch = !bestSun && lpx == cameraPosition.x &&
+                           lpy == cameraPosition.y && lpz == cameraPosition.z;
     if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
 
     // Light camera. For a point light the eye sits AT the light, so the
@@ -12615,7 +12772,11 @@ void TerrainGame::renderProjShadows() {
     const float eDist = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
     if (eDist < 0.0001F) continue;
     ddx /= eDist, ddy /= eDist, ddz /= eDist;
-    if (ddy > -0.08F) continue;  // level or rising: nothing reaches the ground
+    // Level or rising: nothing reaches the GROUND. For a fixed light that is
+    // the end of it; the torch keeps the slot for the silhouette and the wall
+    // pass, and only the ground patch is skipped.
+    const bool groundOk = ddy <= -0.08F;
+    if (!fromTorch && !groundOk) continue;
 
     // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
     // smears edge texels outward - the border guarantees the edges stay
@@ -12658,6 +12819,8 @@ void TerrainGame::renderProjShadows() {
     const float latMax = r * 4.0F;
     const float tgMax =
         horizRun > 0.0001F ? latMax / horizRun : 1.0e9F;
+    float gx = cx, gz = cz, half = 0.0F;
+    if (groundOk) {
     // Receivers first: everything below is asking "where is the floor", and
     // indoors the floor is geometry. yMax is the caster's own underside (feet
     // for the anim/player types the lift above accounts for) plus a little,
@@ -12667,7 +12830,7 @@ void TerrainGame::renderProjShadows() {
     float gy = projSurfaceAt(cx, cz);
     float tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
-    float gx = cx + ddx * tg, gz = cz + ddz * tg;
+    gx = cx + ddx * tg, gz = cz + ddz * tg;
     gy = projSurfaceAt(gx, gz);
     tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
@@ -12681,12 +12844,17 @@ void TerrainGame::renderProjShadows() {
     // quad, and its triangles straddle the near plane every frame - exactly
     // where big triangles are fragile (and it looked wrong anyway). The cost
     // is a cropped shadow tip when the light is very low or very close.
-    float half = bestSun ? r * 1.6F + tg * 0.25F
-                         : r * 1.7F * ((eDist + tg) / eDist);
+    half = bestSun ? r * 1.6F + tg * 0.25F
+                   : r * 1.7F * ((eDist + tg) / eDist);
     const float halfCap = r * 3.5F;
     if (half > halfCap) half = halfCap;
+    }  // groundOk
 
     sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
+    storch[used] = fromTorch;
+    sray[used][0] = cx, sray[used][1] = cy, sray[used][2] = cz;
+    sray[used][3] = ddx, sray[used][4] = ddy, sray[used][5] = ddz;
+    sray[used][6] = r;
     syMax[used] = cy - r + 0.35F;
     const float dist = sqrtf(c.d2);
     sfade[used] =
@@ -12738,6 +12906,76 @@ void TerrainGame::renderProjShadows() {
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
+    // Wall pass FIRST: the ground code below `continue`s on its own dead ends
+    // (a void landing, a sub-threshold fade), and a flat torch ray has no
+    // ground patch at all - shalf 0 marks it - while the wall is the point.
+    if (storch[s]) do {
+    // --- the WALL behind a torch-lit caster (docs/flashlight.md) ----------
+    // The silhouette painted ON the wall - the Silent Hill shot. The shadow
+    // ray (torch through caster) is chased to the nearest solid face, and the
+    // geometry it lands on is re-rendered with the slot's silhouette sampled
+    // through the light view-proj: STQ again, so the projection is exact per
+    // PIXEL, and the GS's CLAMP on the slot texture ends it at the
+    // silhouette's own transparent border. Torch slots only - a scene light
+    // is fixed and its wall shadow would be too, which the bake already does
+    // better; the torch's moves with every step, which nothing baked can.
+    const float* R = sray[s];
+    const float reach2 = R[6] * 8.0F;
+    projCollectBoxes(R[0] + R[3] * reach2 * 0.5F, R[2] + R[5] * reach2 * 0.5F,
+                     reach2 * 0.5F + 2.0F);
+    float wT = 0.0F, wSign = 0.0F;
+    int wAxis = -1;
+    ProjBox wBox;
+    if (!projWallHit(Vec4(R[0], R[1], R[2], 1.0F), R[3], R[4], R[5], reach2,
+                     wT, wAxis, wSign, wBox))
+      break;
+    {
+      // A face pointing mostly up is a floor: the flat patch above already
+      // owns it, and painting it twice doubles the darkness.
+      const float* fa2 =
+          wAxis == 0 ? wBox.ax : (wAxis == 1 ? wBox.ay : wBox.az);
+      if (fa2[1] * wSign >= 0.7F) break;
+    }
+    const int wo = wBox.obj;
+    if (wo < 0 || wo >= (int)objectGeometry.size()) break;
+    const bool wBatched =
+        wo < (int)objectBatchOf.size() && objectBatchOf[wo] >= 0;
+    if (wBatched) {
+      if (objectGeometry[wo].parts.empty() && !runtimeObjects[wo].dirty)
+        rebuildObjectGeometry(wo);
+    } else if (runtimeObjects[wo].dirty) {
+      rebuildObjectGeometry(wo);
+    }
+    ObjectGeometry& wg = objectGeometry[wo];
+    if (wg.parts.empty() || wg.matrixMode) break;
+    b.wallVerts.clear();
+    b.wallSts.clear();
+    for (GeoPart& part : wg.parts) {
+      if (!part.bag) break;
+      for (const Vec4& pv2 : part.vertices) {
+        if (b.wallVerts.size() >= 3999) break;
+        b.wallVerts.push_back(pv2);
+        // The silhouette's STQ: clip = lightVP * world, and the same 2048
+        // raster convention as the flat patch (kUv). Q guards at a hair above
+        // zero - a vertex behind the light plane lands far outside 0..1 and
+        // the CLAMP returns the border, which the fov margin keeps empty.
+        const Vec4 clip = lightVP[s] * pv2;
+        const float q = clip.w > 0.001F ? clip.w : 0.001F;
+        b.wallSts.push_back(Vec4(0.5F * q + kUv * clip.x,
+                                 0.5F * q + kUv * clip.y, q, 0.0F));
+      }
+    }
+    b.wallVerts.resize(b.wallVerts.size() / 3 * 3);
+    b.wallSts.resize(b.wallVerts.size());
+    if (b.wallVerts.empty()) break;
+    b.wallColor.a = 55.0F * sfade[s];
+    b.wallBag->vertices = b.wallVerts.data();
+    b.wallBag->count = (u32)b.wallVerts.size();
+    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.wallBag.get());
+    } while (0);
+    if (half < 0.01F) continue;  // a flat torch ray: wall only
     projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
     // What this patch lies on is decided ONCE, at its centre - never per
     // vertex.
@@ -12816,6 +13054,7 @@ void TerrainGame::renderProjShadows() {
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
+
   }
 }
 
