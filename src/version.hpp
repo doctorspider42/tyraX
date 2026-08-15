@@ -40,7 +40,9 @@
 // Director's "Shot from" combo gains the Free shot entry it never had - free
 // shots are what the take importer and the phone-camera recorder write, so
 // calling them legacy and offering no way back to them was a one-way mis-click,
-// not a deprecation.
+// not a deprecation. (Authored as 1.34.0 against a 1.33.0 main; main reached
+// 1.33.1 while this branch was open, so 1.34.0 is still the MINOR strictly
+// above both parents and needed no renumbering on the way in - the rule below.)
 //
 // 1.24.4 (--vu-check says when its two halves are not from one commit): every
 // comparison it makes diffs a program GENERATED from the descriptions compiled
