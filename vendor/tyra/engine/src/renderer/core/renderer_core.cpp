@@ -66,6 +66,7 @@ void RendererCore::init(const RendererOptions& options) {
   // calls shadowMap.allocate() (init() also re-places the buffers after a
   // display-mode VRAM reset if they were on).
   shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);
   // Camera-feed render target (TyraX fork, "texture feeds"): a second
   // instance of the same redirect bracket, another 128 KB, and equally
   // opt-in. Clamp: feeds sample through plain surface UVs and the default
@@ -106,7 +107,8 @@ void RendererCore::rebuildPermanentBuffers() {
   gs.reallocateBuffers();
   postFx.init(&settings, &gs);
   envMap.init(&settings, &gs, &sync, &path1);
-  shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+  shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
   camFeed.init(&settings, &gs, &sync, &path1);
   // Null when this project reserved no camera-feed target (TyraX fork).
   if (camFeed.getTexture())
@@ -141,7 +143,8 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
-    shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+    shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
     camFeed.init(&settings, &gs, &sync, &path1);
     // Same for the BLSS low-res target: vram.reset() forgot it, and its size
     // follows the new framebuffer geometry (re-places only if configured).

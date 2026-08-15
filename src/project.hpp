@@ -1316,6 +1316,17 @@ struct ProjectSettings {
     // Gameplay is unaffected - collision and every height query read the
     // heightmap, never the mesh.
     float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
+    // false = silhouette slots: the caster's mesh silhouette from the torch,
+    // sampled on a ground patch and painted on the wall behind - mesh-accurate
+    // SHAPES, but light still leaks through unflagged casters and the four
+    // shadow-map slots are the ceiling. true = SHADOW VOLUMES: extruded
+    // occluder boxes stencil-counted in the framebuffer's destination alpha
+    // (the survival-horror era's own arrangement), and every torch light pass
+    // draws only where the mask says lit - occlusion exact per pixel against
+    // the real z buffer, for EVERY solid in the beam, no caster flag needed.
+    // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
+    bool flashShadowVolumes = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -1611,6 +1622,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
+           a.flashShadowVolumes == b.flashShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&

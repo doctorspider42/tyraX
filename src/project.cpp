@@ -1600,6 +1600,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"terrainLodDistance\": "
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
+         << (p.settings.flashShadowVolumes
+                 ? "    \"flashShadowVolumes\": true,\n"
+                 : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -5131,6 +5134,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.terrainLodDistance = (float)v->numberOr(0.0);
             if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
         }
+        if (const auto* v = s->find("flashShadowVolumes"))
+            st.flashShadowVolumes = v->boolOr(false);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))

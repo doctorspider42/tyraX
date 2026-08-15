@@ -237,7 +237,26 @@ position into a shadow-map slot, the ground patch samples it as before, and the
 wall behind the caster is re-rendered — the same second-pass trick as the light —
 with the silhouette sampled through the light's view-proj, exactly per pixel.
 
-What it needs and what it costs:
+**The technique is a project setting** (*Preferences > Rendering > Flashlight
+shadow volumes*), because the two answers trade different things:
+
+| | Silhouette slots (default) | Shadow volumes |
+| --- | --- | --- |
+| Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **box**, extruded |
+| Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
+| Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer, self-shadowing included |
+| Cost | four 64×64 silhouette renders | the volume fill each frame |
+
+Volumes are the survival-horror era's own arrangement, on its own hardware
+trick: each occluder box is extruded away from the torch into a closed volume,
+the volume's camera-front faces **set** the framebuffer's destination-alpha MSB
+where they beat the scene's depth, its back faces **clear** it where they do —
+plain z-testing is the entire algorithm — and every torch light pass then draws
+with the GS's destination-alpha test (`TEST.DATE`), only where the mask says
+lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
+and the torch genuinely does not reach you.
+
+What the silhouette mode needs and costs:
 
 - **"Cast shadow" (projected)** on the caster, like any projected shadow; the
   engine has four slots per frame and the nearest casters win them.

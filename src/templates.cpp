@@ -533,6 +533,14 @@ constexpr float TERRAIN_VIEW_DISTANCE = {{TERRAIN_VIEW_DISTANCE}};
 // never affected.
 constexpr float TERRAIN_LOD_DISTANCE = {{TERRAIN_LOD_DISTANCE}};
 
+// The flashlight's shadow technique (Preferences > Rendering,
+// docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
+// shapes, four-caster ceiling, light leaks through unflagged solids);
+// 1 = shadow volumes stencil-counted in the framebuffer's destination alpha
+// (occlusion exact per pixel against the real z buffer, box-shaped
+// silhouettes, every solid in the beam occludes).
+constexpr int FLASH_SHADOW_VOLUMES = {{FLASH_SHADOW_VOLUMES}};
+
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
@@ -1842,11 +1850,28 @@ class TerrainGame : public Tyra::Game {
     // as the light blinking off and on again. Its own buffers, never a second
     // pass over the first: the DMA may still be reading them.
     std::vector<Tyra::Vec4> wVerts, wSts;
+    // Per-vertex Gouraud colors, torch patches only: the projective STQ has
+    // no distance falloff of its own - along the beam's axis the mapping
+    // converges to the gobo's hot centre at ANY range, so a grazing pool lit
+    // its far reaches at full strength (bright trapezoids on every rise the
+    // beam touched, reported from the console). The reach falloff rides the
+    // vertex color instead, which the GS interpolates per pixel.
+    std::vector<Tyra::Color> colors, wColors;
     Tyra::Color wColor;
     std::unique_ptr<Tyra::StaPipInfoBag> wInfo;
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
     std::unique_ptr<Tyra::StaPipBag> wBag;
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
+    // occluder boxes, split by CAMERA facing. Front faces write destination
+    // alpha 0x80 where they are closer than the scene, back faces write 0
+    // where THEY are - two plain TestOnly draws inside the alpha-mask
+    // bracket, and the bit that survives is "this pixel is inside a volume".
+    std::vector<Tyra::Vec4> volFront, volBack;
+    Tyra::Color volSetColor, volClrColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
+    std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -3174,11 +3199,28 @@ class TerrainGame : public Tyra::Game {
     // as the light blinking off and on again. Its own buffers, never a second
     // pass over the first: the DMA may still be reading them.
     std::vector<Tyra::Vec4> wVerts, wSts;
+    // Per-vertex Gouraud colors, torch patches only: the projective STQ has
+    // no distance falloff of its own - along the beam's axis the mapping
+    // converges to the gobo's hot centre at ANY range, so a grazing pool lit
+    // its far reaches at full strength (bright trapezoids on every rise the
+    // beam touched, reported from the console). The reach falloff rides the
+    // vertex color instead, which the GS interpolates per pixel.
+    std::vector<Tyra::Color> colors, wColors;
     Tyra::Color wColor;
     std::unique_ptr<Tyra::StaPipInfoBag> wInfo;
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
     std::unique_ptr<Tyra::StaPipBag> wBag;
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
+    // occluder boxes, split by CAMERA facing. Front faces write destination
+    // alpha 0x80 where they are closer than the scene, back faces write 0
+    // where THEY are - two plain TestOnly draws inside the alpha-mask
+    // bracket, and the bit that survives is "this pixel is inside a volume".
+    std::vector<Tyra::Vec4> volFront, volBack;
+    Tyra::Color volSetColor, volClrColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
+    std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -11441,6 +11483,15 @@ void TerrainGame::setupLightPools() {
         }
         if (flashPoolTex) b.texBag->texture = flashPoolTex;
       }
+      // The reach falloff lives in per-vertex GOURAUD colors (see the struct
+      // note) - one flat color per patch cannot dim the far end of a pool
+      // that stretches forty units down a grazing beam.
+      b.colors.assign(b.verts.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
+      b.colorBag->many = b.colors.data();
+      b.colorBag->single = nullptr;
+      b.info->shadingType = TyraShadingGouraud;
+      b.wColors.reserve(4096);
+      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -11487,6 +11538,39 @@ void TerrainGame::setupLightPools() {
       b.wBag->texture = b.wTexBag.get();
       b.wBag->vertices = b.wVerts.data();
       b.wBag->count = (u32)b.wVerts.size();
+      if (FLASH_SHADOW_VOLUMES) {
+        // Untextured, unfogged, TestOnly against the real scene z: the test
+        // IS the algorithm. The vertex alpha is the whole payload - 128 sets
+        // the mask bit, 0 clears it - and the bracket's FBMSK keeps the
+        // colors out of the frame.
+        b.volFront.reserve(512);
+        b.volBack.reserve(512);
+        b.volSetColor = Color(0.0F, 0.0F, 0.0F, 128.0F);
+        b.volClrColor = Color(0.0F, 0.0F, 0.0F, 0.0F);
+        b.volInfo = std::make_unique<StaPipInfoBag>();
+        b.volInfo->model = &b.mat;
+        b.volInfo->shadingType = TyraShadingFlat;
+        b.volInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        b.volInfo->zTestType = PipelineZTest_TestOnly;
+        b.volInfo->dynLightPick = false;
+        b.volInfo->spotLit = false;
+        b.volInfo->fogDisabled = true;
+        b.volInfo->fullClipChecks = true;
+        b.volSetBagC = std::make_unique<StaPipColorBag>();
+        b.volSetBagC->single = &b.volSetColor;
+        b.volClrBagC = std::make_unique<StaPipColorBag>();
+        b.volClrBagC->single = &b.volClrColor;
+        b.volSetBag = std::make_unique<StaPipBag>();
+        b.volSetBag->info = b.volInfo.get();
+        b.volSetBag->color = b.volSetBagC.get();
+        b.volSetBag->vertices = b.volFront.data();
+        b.volSetBag->count = 0;
+        b.volClrBag = std::make_unique<StaPipBag>();
+        b.volClrBag->info = b.volInfo.get();
+        b.volClrBag->color = b.volClrBagC.get();
+        b.volClrBag->vertices = b.volBack.data();
+        b.volClrBag->count = 0;
+      }
     }
   }
   // REBIND after the vector has stopped growing - the bags hold pointers INTO
@@ -11496,7 +11580,17 @@ void TerrainGame::setupLightPools() {
     b.colorBag->single = &b.color;
     if (b.wInfo) {
       b.wInfo->model = &b.mat;
-      b.wColorBag->single = &b.wColor;
+      // The torch's bags carry per-vertex colors; wColorBag->many is
+      // re-pointed with the verts each frame.
+    }
+    if (b.objIndex < 0 && b.colorBag) {
+      b.colorBag->many = b.colors.data();
+      b.colorBag->single = nullptr;
+    }
+    if (b.volInfo) {
+      b.volInfo->model = &b.mat;
+      b.volSetBagC->single = &b.volSetColor;
+      b.volClrBagC->single = &b.volClrColor;
     }
   }
 }
@@ -11632,6 +11726,155 @@ void TerrainGame::updateAndRenderLightPools() {
           flashSpotExtra.push_back(pb.obj);
       }
       updateFlashSpotOff();
+      // --- SHADOW VOLUMES (FLASH_SHADOW_VOLUMES, docs/flashlight.md) --------
+      // The survival-horror arrangement, on its own hardware trick: each
+      // occluder box in the beam is extruded away from the torch into a closed
+      // volume, the volume's camera-front faces SET the framebuffer alpha's
+      // MSB where they are closer than the scene and its camera-back faces
+      // CLEAR it where they are - plain TestOnly z does all the reasoning -
+      // and every torch light pass then draws with DATE, i.e. only where the
+      // bit says lit. Occlusion exact per pixel against the real z buffer,
+      // for EVERY solid in the beam, no caster flag, no slot budget.
+      bool volMask = false;
+      if (FLASH_SHADOW_VOLUMES) {
+        b.volFront.clear();
+        b.volBack.clear();
+        int volCount = 0;
+        for (const ProjBox& pb : g_projBoxes) {
+          if (volCount >= 3 || b.volFront.size() > 3800) break;
+          const float ex2 = pb.o[0] - cameraPosition.x,
+                      ey2 = pb.o[1] - cameraPosition.y,
+                      ez2 = pb.o[2] - cameraPosition.z;
+          const float t = ex2 * dx + ey2 * dy + ez2 * dz;
+          const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
+                                 pb.h[2] * pb.h[2]);
+          if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
+          if (t < 0.3F || t > FLASHLIGHT_RANGE) continue;
+          const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
+                      pz2 = ez2 - dz * t;
+          if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) >
+              t * tanARecv * 1.3F + br)
+            continue;
+          ++volCount;
+          // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the
+          // light so the occluder's own lit face stays in front of the
+          // volume's near cap - without the push the cap ties the surface's
+          // depth and DATE eats the light on the very face the beam hits.
+          Vec4 nearP[8], farP[8];
+          for (int ci = 0; ci < 8; ++ci) {
+            const float sx = (ci & 1) ? 1.0F : -1.0F;
+            const float sy = (ci & 2) ? 1.0F : -1.0F;
+            const float sz = (ci & 4) ? 1.0F : -1.0F;
+            const float wx = pb.o[0] + pb.ax[0] * pb.h[0] * sx +
+                             pb.ay[0] * pb.h[1] * sy + pb.az[0] * pb.h[2] * sz;
+            const float wy = pb.o[1] + pb.ax[1] * pb.h[0] * sx +
+                             pb.ay[1] * pb.h[1] * sy + pb.az[1] * pb.h[2] * sz;
+            const float wz = pb.o[2] + pb.ax[2] * pb.h[0] * sx +
+                             pb.ay[2] * pb.h[1] * sy + pb.az[2] * pb.h[2] * sz;
+            float ddx2 = wx - cameraPosition.x, ddy2 = wy - cameraPosition.y,
+                  ddz2 = wz - cameraPosition.z;
+            const float dl2 = sqrtf(ddx2 * ddx2 + ddy2 * ddy2 + ddz2 * ddz2);
+            const float inv = dl2 > 0.05F ? 1.0F / dl2 : 20.0F;
+            ddx2 *= inv, ddy2 *= inv, ddz2 *= inv;
+            nearP[ci] = Vec4(wx + ddx2 * 0.05F, wy + ddy2 * 0.05F,
+                             wz + ddz2 * 0.05F, 1.0F);
+            farP[ci] = Vec4(cameraPosition.x + ddx2 * FLASHLIGHT_RANGE,
+                            cameraPosition.y + ddy2 * FLASHLIGHT_RANGE,
+                            cameraPosition.z + ddz2 * FLASHLIGHT_RANGE, 1.0F);
+          }
+          float volC[3] = {0.0F, 0.0F, 0.0F};
+          for (int ci = 0; ci < 8; ++ci) {
+            volC[0] += (nearP[ci].x + farP[ci].x) / 16.0F;
+            volC[1] += (nearP[ci].y + farP[ci].y) / 16.0F;
+            volC[2] += (nearP[ci].z + farP[ci].z) / 16.0F;
+          }
+          auto pushTri = [&](const Vec4& a3, const Vec4& b3, const Vec4& c3) {
+            const float ux2 = b3.x - a3.x, uy2 = b3.y - a3.y, uz2 = b3.z - a3.z;
+            const float vx2 = c3.x - a3.x, vy2 = c3.y - a3.y, vz2 = c3.z - a3.z;
+            float nx2 = uy2 * vz2 - uz2 * vy2, ny2 = uz2 * vx2 - ux2 * vz2,
+                  nz2 = ux2 * vy2 - uy2 * vx2;
+            const float cx3 = (a3.x + b3.x + c3.x) / 3.0F,
+                        cy3 = (a3.y + b3.y + c3.y) / 3.0F,
+                        cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+            // Winding is whatever the tables gave; orient the normal OUTWARD
+            // via the volume centroid, then classify against the camera. The
+            // GS has no face culling, so only the classification matters.
+            if (nx2 * (cx3 - volC[0]) + ny2 * (cy3 - volC[1]) +
+                    nz2 * (cz3 - volC[2]) <
+                0.0F)
+              nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+            const bool front = nx2 * (cameraPosition.x - cx3) +
+                                   ny2 * (cameraPosition.y - cy3) +
+                                   nz2 * (cameraPosition.z - cz3) >
+                               0.0F;
+            std::vector<Vec4>& dst = front ? b.volFront : b.volBack;
+            if (dst.size() > 4000) return;
+            dst.push_back(a3);
+            dst.push_back(b3);
+            dst.push_back(c3);
+          };
+          // 6 faces: corner indices + outward axis; lit = faces the light.
+          static const int kFace[6][4] = {{0, 2, 6, 4}, {1, 3, 7, 5},
+                                          {0, 1, 5, 4}, {2, 3, 7, 6},
+                                          {0, 1, 3, 2}, {4, 5, 7, 6}};
+          static const int kFaceAxis[6] = {0, 0, 1, 1, 2, 2};
+          static const float kFaceSign[6] = {-1, 1, -1, 1, -1, 1};
+          bool lit[6];
+          for (int f = 0; f < 6; ++f) {
+            const int a4 = kFaceAxis[f];
+            const float* ax2 = a4 == 0 ? pb.ax : (a4 == 1 ? pb.ay : pb.az);
+            float fc[3];
+            for (int c4 = 0; c4 < 3; ++c4)
+              fc[c4] = pb.o[c4] + ax2[c4] * pb.h[a4] * kFaceSign[f];
+            lit[f] = (fc[0] - cameraPosition.x) * ax2[0] * kFaceSign[f] +
+                         (fc[1] - cameraPosition.y) * ax2[1] * kFaceSign[f] +
+                         (fc[2] - cameraPosition.z) * ax2[2] * kFaceSign[f] <
+                     0.0F;
+            if (lit[f]) {
+              const int* q4 = kFace[f];
+              // near cap (the occluder's lit side) and its far projection
+              pushTri(nearP[q4[0]], nearP[q4[1]], nearP[q4[2]]);
+              pushTri(nearP[q4[0]], nearP[q4[2]], nearP[q4[3]]);
+              pushTri(farP[q4[0]], farP[q4[1]], farP[q4[2]]);
+              pushTri(farP[q4[0]], farP[q4[2]], farP[q4[3]]);
+            }
+          }
+          // Silhouette edges (adjacent faces disagree about the light): the
+          // extruded side quads that close the volume.
+          static const int kEdge[12][4] = {
+              {0, 1, 2, 4}, {2, 3, 3, 4}, {4, 5, 2, 5}, {6, 7, 3, 5},
+              {0, 2, 0, 4}, {1, 3, 1, 4}, {4, 6, 0, 5}, {5, 7, 1, 5},
+              {0, 4, 0, 2}, {1, 5, 1, 2}, {2, 6, 0, 3}, {3, 7, 1, 3}};
+          for (int e = 0; e < 12; ++e) {
+            if (lit[kEdge[e][2]] == lit[kEdge[e][3]]) continue;
+            const int p0 = kEdge[e][0], p1 = kEdge[e][1];
+            pushTri(nearP[p0], nearP[p1], farP[p1]);
+            pushTri(nearP[p0], farP[p1], farP[p0]);
+          }
+        }
+        if (!b.volFront.empty() || !b.volBack.empty()) {
+          auto& rc = engine->renderer.core;
+          rc.alphaMask.begin();
+          if (!b.volFront.empty()) {
+            b.volSetBag->vertices = b.volFront.data();
+            b.volSetBag->count = (u32)b.volFront.size();
+            b.volSetBag->bboxVersion = ++g_bboxStamp;
+            stapip.core.render(b.volSetBag.get());
+          }
+          if (!b.volBack.empty()) {
+            b.volClrBag->vertices = b.volBack.data();
+            b.volClrBag->count = (u32)b.volBack.size();
+            b.volClrBag->bboxVersion = ++g_bboxStamp;
+            stapip.core.render(b.volClrBag.get());
+          }
+          rc.alphaMask.end();
+          volMask = true;
+        }
+      }
+      // The torch's own passes draw through the mask - or plainly, without
+      // one. Set EVERY frame: the flags would outlive the mask otherwise.
+      b.info->dateLit = volMask;
+      b.wInfo->dateLit = volMask;
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
@@ -11770,6 +12013,7 @@ void TerrainGame::updateAndRenderLightPools() {
         if (recvN == 0) break;
         b.wVerts.clear();
         b.wSts.clear();
+        b.wColors.clear();
         for (int ri = 0; ri < recvN; ++ri) {
           const int oi = recvObj[ri];
           if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
@@ -11791,20 +12035,63 @@ void TerrainGame::updateAndRenderLightPools() {
           // would not be bit-identical to VU1's, and this pass depends on
           // EQUAL depth). Both are small and keep the cone instead.
           if (g.parts.empty() || g.matrixMode) continue;
+          // Two things per TRIANGLE here, both cheap and both reported from
+          // the console. A FACING cull: the STQ is a function of position
+          // alone, so a face pointing away from the torch sampled a lit texel
+          // - a box's far side and a roof's underside glowed. Orientation
+          // comes from the object's centre (an .obj's winding is nobody's
+          // promise), exact for boxes and close enough for shells. And the
+          // REACH falloff per vertex: the projection converges to the gobo's
+          // hot centre along the beam at ANY range, so without this the far
+          // reaches of a grazing pool lit distant rises at full strength.
+          const float* oc = runtimeObjects[oi].data.position;
           for (GeoPart& part : g.parts) {
             if (!part.bag) continue;
-            for (const Vec4& pv : part.vertices) {
-              if (b.wVerts.size() >= 3999) break;  // fill-rate backstop
-              b.wVerts.push_back(pv);
-              b.wSts.push_back(goboST(pv.x, pv.y, pv.z));
+            const size_t nvt = part.vertices.size() / 3 * 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+              if (b.wVerts.size() >= 3997) break;  // fill-rate backstop
+              const Vec4& a3 = part.vertices[vi];
+              const Vec4& b3 = part.vertices[vi + 1];
+              const Vec4& c3 = part.vertices[vi + 2];
+              float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
+                          (b3.z - a3.z) * (c3.y - a3.y);
+              float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
+                          (b3.x - a3.x) * (c3.z - a3.z);
+              float nz2 = (b3.x - a3.x) * (c3.y - a3.y) -
+                          (b3.y - a3.y) * (c3.x - a3.x);
+              const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+              const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+              const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+              if (nx2 * (cx3 - oc[0]) + ny2 * (cy3 - oc[1]) +
+                      nz2 * (cz3 - oc[2]) <
+                  0.0F)
+                nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+              if (nx2 * (cameraPosition.x - cx3) +
+                      ny2 * (cameraPosition.y - cy3) +
+                      nz2 * (cameraPosition.z - cz3) <=
+                  0.0F)
+                continue;  // faces away from the torch
+              const Vec4 tri3[3] = {a3, b3, c3};
+              for (int k3 = 0; k3 < 3; ++k3) {
+                b.wVerts.push_back(tri3[k3]);
+                const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
+                b.wSts.push_back(st3);
+                float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
+                if (reach < 0.0F) reach = 0.0F;
+                if (reach > 1.0F) reach = 1.0F;
+                b.wColors.push_back(Color(FLASHLIGHT_R * reach,
+                                          FLASHLIGHT_G * reach,
+                                          FLASHLIGHT_B * reach, 128.0F));
+              }
             }
           }
         }
         b.wVerts.resize(b.wVerts.size() / 3 * 3);  // never a torn triangle
         b.wSts.resize(b.wVerts.size());
+        b.wColors.resize(b.wVerts.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
         if (b.wVerts.empty()) break;
-        // Reach fade from the nearest receiver; grazing dim from the hit face
-        // when the beam actually meets one square enough to know.
+        // Grazing dim from the hit face when the beam actually meets one
+        // square enough to know; reach lives in the vertex colors.
         float cosI = 1.0F;
         if (onWall) {
           const float* fa = wallAxis == 0
@@ -11814,11 +12101,9 @@ void TerrainGame::updateAndRenderLightPools() {
           if (cosI < 0.0F) cosI = -cosI;
           if (cosI < 0.25F) cosI = 0.25F;
         }
-        const float wallD = onWall ? wallT : (recvT[0] > 0.3F ? recvT[0] : 0.3F);
-        b.wColor.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-        float wf = 1.0F - wallD / FLASHLIGHT_RANGE;
-        wf = wf > 1.0F ? 1.0F : (wf < 0.0F ? 0.0F : wf);
-        wf *= 0.55F + 0.45F * cosI;
+        // Reach lives in the vertex colors; the flat factor is the grazing
+        // dim and the aimed ceiling alone.
+        const float wf = 0.55F + 0.45F * cosI;
         float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
         if (FLASHLIGHT_B > wmaxC) wmaxC = FLASHLIGHT_B;
         if (wmaxC < 1.0F) wmaxC = 1.0F;
@@ -11828,6 +12113,8 @@ void TerrainGame::updateAndRenderLightPools() {
         b.wBag->vertices = b.wVerts.data();
         b.wBag->count = (u32)b.wVerts.size();
         b.wTexBag->coordinates = b.wSts.data();
+        b.wColorBag->many = b.wColors.data();
+        b.wColorBag->single = nullptr;
         b.wInfo->additiveBlendFix = (u8)wfix;
         b.wBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(b.wBag.get());
@@ -11929,8 +12216,14 @@ void TerrainGame::updateAndRenderLightPools() {
       // hard-edged dark wedge in the middle of the pool - which is exactly what
       // survived every earlier fix. Four leaves the rim a cell to fade in
       // without the fade eating the pool.
-      constexpr int kCells = 4;
-      b.bag->count = (u32)(kCells * kCells * 6);
+      //
+      // The 16 cells are SHAPED to the pool rather than fixed square: 4x4 on
+      // a steep beam, 2 across x 8 along once the pool stretches - the chord
+      // length ALONG the beam is what fights the relief, and eight segments
+      // halve it at the same one-package vertex budget.
+      const int cellsA = along > across * 3.0F ? 8 : 4;
+      const int cellsC = 16 / cellsA;
+      b.bag->count = (u32)(cellsA * cellsC * 6);
       // How far the patch floats above the ground it samples. A patch cell is
       // metres across and the terrain under it is NOT flat between its corners,
       // so the chord the patch draws dips below every crease it spans - and
@@ -11941,21 +12234,27 @@ void TerrainGame::updateAndRenderLightPools() {
       // So the lift grows with the patch instead of being a constant 4.5 cm,
       // which is free - this is additive light, not a shadow, and half a metre
       // of float is invisible on a soft blob.
-      float lift = 0.10F + 0.07F * across;
-      if (lift > 0.8F) lift = 0.8F;
-      float aOff[kCells + 1], cOff[kCells + 1];
-      for (int i = 0; i <= kCells; ++i) {
-        const float s = (float)i / kCells;                // 0 .. 1
+      // ...and the lift grows with the LENGTH too: a grazing beam stretches
+      // the pool over tens of units of rolling ground, and a hill's crest
+      // cuts through a chord that a knee-high lift covers on a short patch.
+      // Seen as bright trapezoids marching into the distance - the pieces of
+      // the pool that survived the z test between the crests that ate it.
+      float lift = 0.10F + 0.07F * across + 0.02F * along;
+      if (lift > 1.2F) lift = 1.2F;
+      float aOff[9], cOff[9];
+      for (int i = 0; i <= cellsA; ++i) {
+        const float s = (float)i / cellsA;                // 0 .. 1
         // 1.4x of margin on the FAR side: coverage is cheap now (the gobo is
         // black out there, so the extra ground costs fill and nothing else)
         // and running out of patch before the beam runs out of light cuts the
         // pool off with a straight edge across the ground.
         aOff[i] = aNear + (along * 1.4F - aNear) * s;     // asymmetric
-        cOff[i] = (s * 2.0F - 1.0F) * across;
       }
+      for (int i = 0; i <= cellsC; ++i)
+        cOff[i] = ((float)i / cellsC * 2.0F - 1.0F) * across;
       int v = 0;
-      for (int iz = 0; iz < kCells; ++iz) {
-        for (int ix = 0; ix < kCells; ++ix) {
+      for (int iz = 0; iz < cellsA; ++iz) {
+        for (int ix = 0; ix < cellsC; ++ix) {
           const float a0 = aOff[iz], a1 = aOff[iz + 1];
           const float c0 = cOff[ix], c1 = cOff[ix + 1];
           // Corner order matches buildPoolPatch's winding (along first, then
@@ -11966,6 +12265,7 @@ void TerrainGame::updateAndRenderLightPools() {
           const float qz[4] = {pz0 + az * a0 + cz2 * c0, pz0 + az * a1 + cz2 * c0,
                                pz0 + az * a1 + cz2 * c1, pz0 + az * a0 + cz2 * c1};
           Vec4 pv[4], ps[4];
+          Color pcv[4];
           for (int k2 = 0; k2 < 4; ++k2) {
             const float py =
                 (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + lift;
@@ -11973,11 +12273,19 @@ void TerrainGame::updateAndRenderLightPools() {
             // move the patch in z only, never slide the beam across it.
             ps[k2] = goboST(qx[k2], py, qz[k2]);
             pv[k2] = zBias(qx[k2], py, qz[k2]);
+            // Reach falloff per VERTEX (ps.z is the projection's own fwd):
+            // the far stretches of a grazing pool dim the way the beam does.
+            float reach = 1.0F - ps[k2].z / FLASHLIGHT_RANGE;
+            if (reach < 0.0F) reach = 0.0F;
+            if (reach > 1.0F) reach = 1.0F;
+            pcv[k2] = Color(FLASHLIGHT_R * reach, FLASHLIGHT_G * reach,
+                            FLASHLIGHT_B * reach, 128.0F);
           }
           constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
           for (int k2 = 0; k2 < 6; ++k2) {
             b.verts[v + k2] = pv[kTri[k2]];
             b.sts[v + k2] = ps[kTri[k2]];
+            b.colors[v + k2] = pcv[kTri[k2]];
           }
           v += 6;
         }
@@ -11996,12 +12304,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // The colour still drives the per-vertex cone on props at full strength,
       // which is the other half of the same trap: that term has no N.L, so a
       // bright torch flattens everything it touches into one colour.
-      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-      // The falloffs, all three: with reach, with the grazing angle, and with
-      // how much of its own footprint this patch manages to cover.
-      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
-      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
-      fade *= angleFade;
+      // Reach lives in the vertex colors now; the flat factor keeps only the
+      // grazing dim and the aimed ceiling.
+      const float fade = angleFade;
       float maxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
       if (FLASHLIGHT_B > maxC) maxC = FLASHLIGHT_B;
       if (maxC < 1.0F) maxC = 1.0F;
@@ -12739,7 +13044,9 @@ void TerrainGame::renderProjShadows() {
     // beside the beam must not shadow from a light that does not reach it.
     // Brightness 2.0 - at night the torch IS the light, and a scene point
     // light you stand next to can still outbid it through its falloff term.
-    if (g_flashEnabled && g_flashOn) {
+    // (Volumes mode carries the torch's shadows in the destination alpha
+    // instead - the slots stay free for the scene's own lights there.)
+    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled && g_flashOn) {
       const float tx2 = cx - cameraPosition.x, ty2 = cy - cameraPosition.y,
                   tz2 = cz - cameraPosition.z;
       const float td = sqrtf(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
@@ -12970,19 +13277,47 @@ void TerrainGame::renderProjShadows() {
     if (wg.parts.empty() || wg.matrixMode) break;
     b.wallVerts.clear();
     b.wallSts.clear();
+    const float* woc = runtimeObjects[wo].data.position;
     for (GeoPart& part : wg.parts) {
-      if (!part.bag) break;
-      for (const Vec4& pv2 : part.vertices) {
-        if (b.wallVerts.size() >= 3999) break;
-        b.wallVerts.push_back(pv2);
+      if (!part.bag) continue;
+      const size_t nvt = part.vertices.size() / 3 * 3;
+      for (size_t vi = 0; vi + 2 < nvt + 1; vi += 3) {
+        if (b.wallVerts.size() >= 3997) break;
+        const Vec4& a3 = part.vertices[vi];
+        const Vec4& b3 = part.vertices[vi + 1];
+        const Vec4& c3 = part.vertices[vi + 2];
+        // The same facing cull as the light pass, against the same torch: a
+        // face the light cannot reach must not take its shadow either - this
+        // is what keeps the silhouette off the wall's INNER face.
+        float nx2 =
+            (b3.y - a3.y) * (c3.z - a3.z) - (b3.z - a3.z) * (c3.y - a3.y);
+        float ny2 =
+            (b3.z - a3.z) * (c3.x - a3.x) - (b3.x - a3.x) * (c3.z - a3.z);
+        float nz2 =
+            (b3.x - a3.x) * (c3.y - a3.y) - (b3.y - a3.y) * (c3.x - a3.x);
+        const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+        const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+        const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+        if (nx2 * (cx3 - woc[0]) + ny2 * (cy3 - woc[1]) +
+                nz2 * (cz3 - woc[2]) <
+            0.0F)
+          nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+        if (nx2 * (cameraPosition.x - cx3) + ny2 * (cameraPosition.y - cy3) +
+                nz2 * (cameraPosition.z - cz3) <=
+            0.0F)
+          continue;
         // The silhouette's STQ: clip = lightVP * world, and the same 2048
         // raster convention as the flat patch (kUv). Q guards at a hair above
         // zero - a vertex behind the light plane lands far outside 0..1 and
         // the CLAMP returns the border, which the fov margin keeps empty.
-        const Vec4 clip = lightVP[s] * pv2;
-        const float q = clip.w > 0.001F ? clip.w : 0.001F;
-        b.wallSts.push_back(Vec4(0.5F * q + kUv * clip.x,
-                                 0.5F * q + kUv * clip.y, q, 0.0F));
+        const Vec4 tri3[3] = {a3, b3, c3};
+        for (int k3 = 0; k3 < 3; ++k3) {
+          b.wallVerts.push_back(tri3[k3]);
+          const Vec4 clip = lightVP[s] * tri3[k3];
+          const float q = clip.w > 0.001F ? clip.w : 0.001F;
+          b.wallSts.push_back(Vec4(0.5F * q + kUv * clip.x,
+                                   0.5F * q + kUv * clip.y, q, 0.0F));
+        }
       }
     }
     b.wallVerts.resize(b.wallVerts.size() / 3 * 3);
@@ -26552,6 +26887,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{DETAIL}}", std::to_string(st.terrainDetail));
     s = replaceAll(s, "{{TERRAIN_VIEW_DISTANCE}}", floatLit(st.terrainViewDistance));
     s = replaceAll(s, "{{TERRAIN_LOD_DISTANCE}}", floatLit(st.terrainLodDistance));
+    s = replaceAll(s, "{{FLASH_SHADOW_VOLUMES}}",
+                   st.flashShadowVolumes ? "1" : "0");
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{RUN_SPEED}}", floatLit(project::settingsRunSpeed(st)));

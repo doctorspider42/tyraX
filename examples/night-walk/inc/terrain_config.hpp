@@ -28,6 +28,14 @@ constexpr float TERRAIN_VIEW_DISTANCE = 320.0F;
 // never affected.
 constexpr float TERRAIN_LOD_DISTANCE = 55.0F;
 
+// The flashlight's shadow technique (Preferences > Rendering,
+// docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
+// shapes, four-caster ceiling, light leaks through unflagged solids);
+// 1 = shadow volumes stencil-counted in the framebuffer's destination alpha
+// (occlusion exact per pixel against the real z buffer, box-shaped
+// silhouettes, every solid in the beam occludes).
+constexpr int FLASH_SHADOW_VOLUMES = 1;
+
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.1F;
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is

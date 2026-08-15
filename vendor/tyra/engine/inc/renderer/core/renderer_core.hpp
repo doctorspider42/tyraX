@@ -24,6 +24,7 @@
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
 #include "./shadowmap/renderer_core_shadow_map.hpp"
+#include "./alphamask/renderer_core_alpha_mask.hpp"
 #include "./splitview/renderer_core_splitview.hpp"
 #include "./warp/renderer_core_warp.hpp"
 #include "./blss/renderer_core_blss.hpp"
@@ -132,6 +133,10 @@ class RendererCore : public RendererCore2dBounds {
 
   /** Dynamic spot light - the flashlight (TyraX fork). */
   RendererCoreSpotLight spot;
+
+  /** Destination-alpha shadow mask - the flashlight's shadow volumes
+   * (TyraX fork, docs/flashlight.md "The shadow"). */
+  RendererCoreAlphaMask alphaMask;
 
   /**
    * Scene dynamic lights (TyraX fork). The color VU1 programs evaluate ONE

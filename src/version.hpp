@@ -64,6 +64,28 @@
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
 //
+// 1.37.0 (the torch's shadows learn self-shadowing, and the technique becomes
+// a choice): ProjectSettings::flashShadowVolumes (format v27) picks how the
+// flashlight occludes. OFF keeps the silhouette slots below; ON is the
+// survival-horror era's own arrangement, built on its own hardware trick:
+// every occluder box in the beam is extruded away from the torch into a
+// closed volume, the volume's camera-front faces SET the framebuffer's
+// DESTINATION-ALPHA MSB where they beat the scene's depth and its back faces
+// CLEAR it where they do - plain TestOnly z is the entire algorithm - and
+// every torch light pass then draws with the GS's destination-alpha test
+// (TEST.DATE), i.e. only where the mask says lit. The mask gates LIGHT;
+// nothing ever paints darkness. Occlusion is exact per pixel against the
+// real z buffer, for EVERY solid in the beam, self-shadowing included, with
+// no caster flag and no four-slot budget; the price is the volume fill and
+// box-shaped rather than mesh-shaped silhouettes. Engine: a new
+// RendererCoreAlphaMask bracket (FBMSK to alpha-only + full-raster alpha
+// clear with z writes masked) and PipelineInfoBag::dateLit riding the same
+// in-band TEST qword every mesh already emits. Both re-render passes also
+// gained a per-triangle FACING cull (orientation from the object's centre -
+// an .obj's winding is nobody's promise), which is what stopped a box's far
+// side sampling a lit texel and a wall's inner face taking the silhouette.
+// MINOR: a capability and a setting appear; the default reproduces 1.36.0.
+//
 // 1.36.0 (the torch throws shadows, and its light stops picking favourites):
 // the flashlight becomes a candidate light in the projected-shadow system - a
 // caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
@@ -831,7 +853,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 36
+#define TYRAX_VERSION_MINOR 37
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1086,6 +1108,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // neutral. Written only when true, so a project that has never baked one
 // resaves byte for byte; it defaults to false, which is what every existing
 // object is. No migration step. (Authored as v25, renumbered with v25 above.)
-inline constexpr int kFormatVersion = 26;
+// v27 (flashlight shadow volumes, docs/flashlight.md "The shadow"):
+// ProjectSettings::flashShadowVolumes - written only when true, so an
+// untouched project resaves byte for byte; false (the default) is the
+// silhouette-slot behaviour every earlier file had. No migration step.
+inline constexpr int kFormatVersion = 27;
 
 }  // namespace version
