@@ -6401,53 +6401,19 @@ std::string load(Project& out, const std::string& projectDir) {
     ensureFactIds(out);
     readBlssShotsSection(root, out);
 
-    // Migrate projects authored before the Ambience Editor: sky/lighting/fog
-    // used to live in Preferences (global + per-scene overrides). Fold them
-    // into presets so the same values keep driving the scene now that those
-    // controls have moved. Only runs when the project has no presets yet.
-    if (out.ambiencePresets.empty()) {
-        auto uniqueName = [&](std::string base) {
-            if (base.empty()) base = "Ambience";
-            std::string n = base;
-            for (int k = 2;; ++k) {
-                bool taken = false;
-                for (const auto& a : out.ambiencePresets) taken |= (a.name == n);
-                if (!taken) return n;
-                n = base + "-" + std::to_string(k);
-            }
-        };
-        auto fromSettings = [](const ProjectSettings& s, const std::string& name) {
-            AmbiencePreset a;
-            a.name = name;
-            for (int i = 0; i < 3; ++i) {
-                a.skyColor[i] = s.skyColor[i];
-                a.skyTopColor[i] = s.skyTopColor[i];
-                a.lightDir[i] = s.lightDir[i];
-                a.lightColor[i] = s.lightColor[i];
-                a.fogColor[i] = s.fogColor[i];
-            }
-            a.skyDome = s.skyDome;
-            a.zenithSize = s.zenithSize;
-            a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
-            a.aoEnabled = s.aoEnabled, a.aoStrength = s.aoStrength;
-            a.aoRadius = s.aoRadius;
-            a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
-            return a;
-        };
-        // Default at index 0. Keep defaultAmbience = -1 during the per-scene
-        // loop so resolvedSettings() below sees NO preset overlay and captures
-        // each scene's own overridden sky/lighting/fog, not the default's.
-        out.ambiencePresets.push_back(fromSettings(out.settings, uniqueName("Default")));
-        for (SceneData& sc : out.scenes) {
-            if (!(sc.overrides.sky || sc.overrides.lighting || sc.overrides.fog))
-                continue;
-            AmbiencePreset a = fromSettings(resolvedSettings(out, sc), uniqueName(sc.name));
-            sc.ambiencePreset = a.name;
-            sc.overrides.sky = sc.overrides.lighting = sc.overrides.fog = false;
-            out.ambiencePresets.push_back(std::move(a));
-        }
-        out.defaultAmbience = 0;
-    }
+    // NOTE there is deliberately no "fold sky/lighting/fog into presets"
+    // migration here any more. It was the pre-Ambience-Editor lift, gated on
+    // `ambiencePresets.empty()` - and that gate stopped meaning "an old file"
+    // the moment the Ambience Editor let you delete every preset (it has an
+    // empty state and no last-one guard, so this is an ORDINARY state). On such
+    // a project it re-manufactured a "Default" preset, bound each scene that
+    // overrode sky/lighting/fog to a freshly invented preset named after the
+    // scene, and CLEARED those three override flags - measured, not feared: an
+    // emptied lighting example came back with `"ambiencePreset": "main"` and
+    // its two ticks off. The values survived inside the preset, but the
+    // structure the author chose did not. A pre-versioning file is refused at
+    // the version::kMinFormatVersion gate long before this point, so the lift
+    // had no one left to help.
     if (out.defaultAmbience < -1 ||
         out.defaultAmbience >= (int)out.ambiencePresets.size())
         out.defaultAmbience = -1;
