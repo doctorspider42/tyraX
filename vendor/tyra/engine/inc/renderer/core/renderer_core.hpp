@@ -148,10 +148,10 @@ class RendererCore : public RendererCore2dBounds {
   // beginFrame.
   bool drained3DFor2D = false;
 
-  /** Called by renderer */
-  void init(VideoMode videoMode = VideoMode::Auto,
-            DisplayMode displayMode = DisplayMode::Interlaced,
-            bool widescreen = false, bool tripleBuffering = false);
+  /** Called by renderer (TyraX fork: everything init-time in one struct -
+   * scan mode, colour depth, dithering, triple buffering and which render
+   * targets to reserve; see RendererOptions). */
+  void init(const RendererOptions& options = RendererOptions());
 
   /**
    * Runtime video output switch (TyraX fork): scan mode
