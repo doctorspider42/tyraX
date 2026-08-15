@@ -38,6 +38,7 @@ class PipelineInfoBag {
     additiveBlendFix = 0;
     dynLightPick = true;
     spotLit = true;
+    dateLit = false;
     blssProxy = true;
   }
   ~PipelineInfoBag() {}
@@ -113,6 +114,16 @@ class PipelineInfoBag {
    * reached such a bag anyway (that is what dynLightPick = false means).
    */
   bool spotLit;
+
+  /**
+   * Modified by TyraX: gate this bag on the destination-alpha shadow mask
+   * (RendererCoreAlphaMask): TEST.DATE = 1, DATM = 0, so the GS draws its
+   * pixels only where the framebuffer alpha's MSB is 0 - i.e. where the
+   * flashlight's shadow volumes did NOT mark shadow. The mask gates LIGHT;
+   * nothing ever paints darkness. Meaningless (and off) outside the frames
+   * that build the mask.
+   */
+  bool dateLit;
 
   /**
    * Modified by TyraX: opt-out from the BLSS neural upscaler's per-tile

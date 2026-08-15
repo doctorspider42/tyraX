@@ -1185,11 +1185,28 @@ class TerrainGame : public Tyra::Game {
     // as the light blinking off and on again. Its own buffers, never a second
     // pass over the first: the DMA may still be reading them.
     std::vector<Tyra::Vec4> wVerts, wSts;
+    // Per-vertex Gouraud colors, torch patches only: the projective STQ has
+    // no distance falloff of its own - along the beam's axis the mapping
+    // converges to the gobo's hot centre at ANY range, so a grazing pool lit
+    // its far reaches at full strength (bright trapezoids on every rise the
+    // beam touched, reported from the console). The reach falloff rides the
+    // vertex color instead, which the GS interpolates per pixel.
+    std::vector<Tyra::Color> colors, wColors;
     Tyra::Color wColor;
     std::unique_ptr<Tyra::StaPipInfoBag> wInfo;
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
     std::unique_ptr<Tyra::StaPipBag> wBag;
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
+    // occluder boxes, split by CAMERA facing. Front faces write destination
+    // alpha 0x80 where they are closer than the scene, back faces write 0
+    // where THEY are - two plain TestOnly draws inside the alpha-mask
+    // bracket, and the bit that survives is "this pixel is inside a volume".
+    std::vector<Tyra::Vec4> volFront, volBack;
+    Tyra::Color volSetColor, volClrColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
+    std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;

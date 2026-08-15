@@ -14456,6 +14456,18 @@ void App::drawPreferencesWindow() {
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
             "grounds them visually for one quad each. Project-wide.");
+    ImGui::Checkbox("Flashlight shadow volumes",
+                    &prefSettings_.flashShadowVolumes);
+    prefHelp(
+        "How the player's torch throws shadows (docs/flashlight.md).\n"
+        "OFF - silhouette slots: mesh-accurate shadow shapes rendered from\n"
+        "the torch, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four at once, and light still leaks through everything else.\n"
+        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
+        "every solid in the beam occludes, exactly per pixel against the\n"
+        "real depth buffer, self-shadowing included. Costs the volume fill\n"
+        "each frame, and the shadow shapes come from the objects' BOXES\n"
+        "rather than their meshes.");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);

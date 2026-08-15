@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.37.0 (the lighting redesign: baked light gets one home, and a textured
+// 1.38.0 (the lighting redesign: baked light gets one home, and a textured
 // model finally occludes itself). Lighting had accumulated four separate
 // places - AO in the ambience presets, model AO by hand in the Material
 // Editor, GI in its own tab, and a per-object pre-lit button in Properties -
@@ -26,9 +26,9 @@
 // texels) and GI reaches them only as flat per-vertex probe light, so an
 // imported model has never had any self-occlusion at all.
 //
-// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v27 -
-// authored as v26; this branch's base took v26 for pre-lit while the redesign
-// was in flight, and the claim that arrives second renumbers): the
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v28 -
+// authored as v26; this branch's base took v26 and then v27 while the
+// redesign was in flight, and the claim that arrives second renumbers): the
 // Material Editor's matbake AO, run per model ASSET without anybody asking,
 // and multiplied into the texture that model ships anyway. Two properties are
 // what make it affordable, and both fall out of WHAT is being baked rather
@@ -54,7 +54,7 @@
 // does not lose its self-AO the moment it goes pre-lit.
 //
 // PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
-// same format v27): 1.35.0 gave a textured model per-pixel static light through
+// same format v28): 1.35.0 gave a textured model per-pixel static light through
 // one button per object, and left everything around that button to memory - no
 // record of which objects were supposed to ship pre-lit, no way to know that a
 // texture had stopped agreeing with the scene, no bulk operation, no way back.
@@ -151,6 +151,28 @@
 // that can light a floor). The gobo is not a default change - it replaces a
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
+//
+// 1.37.0 (the torch's shadows learn self-shadowing, and the technique becomes
+// a choice): ProjectSettings::flashShadowVolumes (format v27) picks how the
+// flashlight occludes. OFF keeps the silhouette slots below; ON is the
+// survival-horror era's own arrangement, built on its own hardware trick:
+// every occluder box in the beam is extruded away from the torch into a
+// closed volume, the volume's camera-front faces SET the framebuffer's
+// DESTINATION-ALPHA MSB where they beat the scene's depth and its back faces
+// CLEAR it where they do - plain TestOnly z is the entire algorithm - and
+// every torch light pass then draws with the GS's destination-alpha test
+// (TEST.DATE), i.e. only where the mask says lit. The mask gates LIGHT;
+// nothing ever paints darkness. Occlusion is exact per pixel against the
+// real z buffer, for EVERY solid in the beam, self-shadowing included, with
+// no caster flag and no four-slot budget; the price is the volume fill and
+// box-shaped rather than mesh-shaped silhouettes. Engine: a new
+// RendererCoreAlphaMask bracket (FBMSK to alpha-only + full-raster alpha
+// clear with z writes masked) and PipelineInfoBag::dateLit riding the same
+// in-band TEST qword every mesh already emits. Both re-render passes also
+// gained a per-triangle FACING cull (orientation from the object's centre -
+// an .obj's winding is nobody's promise), which is what stopped a box's far
+// side sampling a lit texel and a wall's inner face taking the silhouette.
+// MINOR: a capability and a setting appear; the default reproduces 1.36.0.
 //
 // 1.36.0 (the torch throws shadows, and its light stops picking favourites):
 // the flashlight becomes a candidate light in the projected-shadow system - a
@@ -919,7 +941,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 37
+#define TYRAX_VERSION_MINOR 38
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1174,8 +1196,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // neutral. Written only when true, so a project that has never baked one
 // resaves byte for byte; it defaults to false, which is what every existing
 // object is. No migration step. (Authored as v25, renumbered with v25 above.)
-// v27 (the lighting redesign - automatic model AO + pre-lit management;
-// authored as v26, renumbered when this branch's base took v26 for pre-lit):
+// v27 (flashlight shadow volumes, docs/flashlight.md "The shadow"):
+// ProjectSettings::flashShadowVolumes - written only when true, so an
+// untouched project resaves byte for byte; false (the default) is the
+// silhouette-slot behaviour every earlier file had. No migration step.
+// v28 (the lighting redesign - automatic model AO + pre-lit management;
+// authored as v26, renumbered twice as this branch's base took v26 and then
+// v27 while the redesign was in flight - the arrive-second rule):
 // ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
 // project-wide bake knobs - plus the "modelAoMode" section, the per-asset
 // force-on/force-off override keyed by a model's asset path; and the three
@@ -1190,6 +1217,6 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // byte; the struct defaults reproduce what an older file did (no model AO at
 // all), while project::create turns modelAo on for new projects. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 27;
+inline constexpr int kFormatVersion = 28;
 
 }  // namespace version
