@@ -191,9 +191,9 @@ namespace {
 constexpr float PI = 3.14159265358979F;
 
 // Display-mode option rows (bind 5): the engine mode an option drives, and
-// the option a mode shows as. Rows without an explicit optModes table keep
-// the positional mapping (option index == Tyra::DisplayMode); a table entry
-// of -1 is the "DEFAULT" option - the project-default boot mode.
+// the option a mode shows as. Every such row carries an optModes table (codegen
+// fills a short one in positionally); a table entry of -1 is the "DEFAULT"
+// option - the project-default boot mode.
 int displayOptionMode(const MenuEntryData& en, int idx) {
   if (en.optModes && idx >= 0 && idx < en.optionCount) {
     const int m = en.optModes[idx];

@@ -2281,7 +2281,7 @@ void App::drawUiEditorWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "Baked to PNG sprites at build (the PS2 engine has no font).\n"
-            "Show/hide them from the flow graph: Show Text / Hide Text.");
+            "Show/hide them from the flow graph: Set Text Visible.");
 
     // Inline text icons. They belong to no single element - ANY text in the
     // project can splice one in - so they get their own modal rather than a

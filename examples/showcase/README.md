@@ -21,8 +21,9 @@ are rewritten on every build (see `refreshGenerated` in `src/project.cpp`);
   terrain near the camera is resident — needed for smooth playback on real
   PS2 hardware; the fog is tuned to hide the streaming edge.
 - **Streaming layers, loaded dynamically** — the `village` and `ruins`
-  districts start unloaded; two `Near Object` gates `Load Layer` the district
-  you approach and `Unload Layer` the other (GTA-style budget). The `forest`
+  districts start unloaded; two `Near Object` gates drive `Set Layer Loaded`
+  (**load** for the district you approach, **unload** for the other -
+  GTA-style budget). The `forest`
   and `weather` layers stay resident.
 - **Skeletal animation** — `res/models/wobbler.glb` is a cylinder skinned to a
   5-joint chain with two looping clips (`Wiggle`, `Twist`). The build bakes it
@@ -53,7 +54,7 @@ are rewritten on every build (see `refreshGenerated` in `src/project.cpp`);
   Set Particles, so you can trade effects for frame rate — and the states
   persist in save slots and reapply on scene entry.
 - **On-screen text** — an `options-hint` HUD text ("SELECT: graphics options")
-  pops up on scene start via the *Show Text* flow node and auto-hides after 6
+  pops up on scene start via the *Set Text Visible* flow node and auto-hides after 6
   seconds (texts are baked to sprites at build; see Tools > UI Editor > Texts).
 
 ## Performance

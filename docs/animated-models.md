@@ -114,7 +114,7 @@ fires once at the end of a one-shot and on every wrap of a loop.
 
 ```text
 On Used -> Animation play "open"
-On Animation Finished -> Hide Object
+On Animation Finished -> Set Object Visible (hide)
 ```
 
 Clip names are case-sensitive. An empty name uses the first clip.

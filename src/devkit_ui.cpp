@@ -65,10 +65,8 @@
 // vendor/tyra/engine/inc/debug/debug.hpp). Matched as substrings so a leading
 // log prefix (the Debug window's nothing, or the runner's "[ps2] "/timestamp)
 // does not defeat detection.
-// The engine's delimited error block. TyraX-built games print TYRAX; the old
-// TYRA banner is still accepted so an ELF built before the rename still reports.
+// The engine's delimited error block.
 static const char kTyraAssertBanner[] = "==============  TYRAX  =============";
-static const char kTyraAssertBannerLegacy[] = "==============  TYRA  ==============";
 static const char kTyraAssertClose[] = "====================================";
 
 // Returns the last complete TYRA assertion block in `text` (from its banner
@@ -76,7 +74,6 @@ static const char kTyraAssertClose[] = "====================================";
 // still being written.
 static std::string extractLastTyraAssert(const std::string& text) {
     size_t banner = text.rfind(kTyraAssertBanner);
-    if (banner == std::string::npos) banner = text.rfind(kTyraAssertBannerLegacy);
     if (banner == std::string::npos) return "";
     // Back up to the start of the banner's line so a log prefix is dropped and
     // the dump reads cleanly in the dialog.

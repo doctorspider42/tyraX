@@ -19,10 +19,14 @@ static std::string check(const std::vector<Migration>& steps) {
         const Migration& m = steps[i];
         const std::string which =
             "step v" + std::to_string(m.from) + " -> v" + std::to_string(m.from + 1);
-        if (m.from < 0 || m.from >= version::kFormatVersion)
-            return which + " is outside the format range: this editor writes v" +
+        if (m.from < version::kMinFormatVersion ||
+            m.from >= version::kFormatVersion)
+            return which + " is outside the format range: this editor reads v" +
+                   std::to_string(version::kMinFormatVersion) + " and writes v" +
                    std::to_string(version::kFormatVersion) +
-                   ", so a step must upgrade to v" +
+                   ", so a step must start at v" +
+                   std::to_string(version::kMinFormatVersion) +
+                   " at the earliest and upgrade to v" +
                    std::to_string(version::kFormatVersion) +
                    " at the latest. Bump kFormatVersion in the same commit as "
                    "the step (version.hpp).";
@@ -41,10 +45,9 @@ static std::string check(const std::vector<Migration>& steps) {
 }
 
 const std::vector<Migration>& all() {
-    // Format history. v0 -> v1 needs no step: v1 only introduced the
-    // formatVersion/editorVersion stamp, and project::load's legacy shims
-    // already lift every pre-v1 shape (inline objects, single "layout",
-    // project-level terrain, ...) on plain load.
+    // Format history. There is no v0 -> v1 step and there cannot be one: the
+    // reader no longer parses any pre-v1 shape, so such a file is refused at
+    // the version::kMinFormatVersion gate before a step could see it.
     static const std::vector<Migration> steps = {};
 
     // Checked HERE, at the registry's first use, and not only in run(): the most
@@ -120,18 +123,17 @@ std::string backup(const Project& p, int fileVersion, std::string& backupDir) {
     };
 
     // The format-bearing files at the project root: the .tyra manifest(s), the
-    // per-scene heightmaps (incl. the legacy single-scene terrain.heights) and
-    // the per-scene splat sidecars. This list must cover everything the
-    // migration save writes (project::save + saveHeights + saveSplat) - a file
-    // the save overwrites but the backup skipped could not be restored.
+    // per-scene heightmaps and the per-scene splat sidecars. This list must
+    // cover everything the migration save writes (project::save + saveHeights +
+    // saveSplat) - a file the save overwrites but the backup skipped could not
+    // be restored.
     for (const auto& entry : fs::directory_iterator(root, ec)) {
         if (!entry.is_regular_file(ec)) continue;
         const std::string fn = entry.path().filename().string();
         const std::string ext = entry.path().extension().string();
         const bool manifest = ext == ".tyra";
-        const bool terrain = fn == "terrain.heights" ||
-                             (fn.rfind("terrain-", 0) == 0 &&
-                              (ext == ".heights" || ext == ".splat"));
+        const bool terrain = fn.rfind("terrain-", 0) == 0 &&
+                             (ext == ".heights" || ext == ".splat");
         if (!manifest && !terrain) continue;
         fs::copy_file(entry.path(), dest / fn,
                       fs::copy_options::overwrite_existing, ec);
