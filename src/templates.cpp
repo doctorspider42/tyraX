@@ -1091,6 +1091,12 @@ class TerrainGame : public Tyra::Game {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  // ...and its Gouraud twin, for generated chunks whose vertex colours are
+  // meant to be READ ACROSS a triangle rather than picked from one corner
+  // (block ambient occlusion). Its own bag rather than a flag on the one
+  // above, because that one is shared with the static batcher, whose members
+  // are flat-shaded by design.
+  std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
@@ -1120,6 +1126,11 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Something in this chunk carries per-VERTEX colour that varies across a
+    // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
+    // equal corner colours is the flat result, so a chunk that mixes blocks
+    // with ordinary instances loses nothing.
+    bool smooth = false;
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -1162,11 +1173,19 @@ class TerrainGame : public Tyra::Game {
   float procBlockCeilAt(float x, float z, float minY) const;
   // Any solid block inside the vertical band [y0, y1] within `r` of (x, z)?
   bool procBlockBlocks(float x, float z, float y0, float y1, float r) const;
+  // Per-vertex ambient occlusion for one block of that field: its 3x3x3
+  // neighbourhood reduced to four corner levels per face, out[face * 4 +
+  // corner], 255 = open (docs/procedural-runtime.md, "Ambient occlusion").
+  void procBlockVertexAo(float x, float y, float z, unsigned char faces,
+                         unsigned char out[24]) const;
   void despawnPrefabInstance(int handle);
   // Merges a run of instances into procChunks. The two callers (a runtime
   // volume, a prefab instance) differ only in where the transforms come from.
+  // blockAo is the table procBlockVertexAo filled, and passing it is what
+  // makes an instance a self-occluding block rather than a scattered model.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
-                           unsigned char faces);
+                           unsigned char faces,
+                           const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
   GeoPart skyDome;
@@ -2350,6 +2369,12 @@ class TerrainGame : public Tyra::Game {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  // ...and its Gouraud twin, for generated chunks whose vertex colours are
+  // meant to be READ ACROSS a triangle rather than picked from one corner
+  // (block ambient occlusion). Its own bag rather than a flag on the one
+  // above, because that one is shared with the static batcher, whose members
+  // are flat-shaded by design.
+  std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
@@ -2379,6 +2404,11 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Something in this chunk carries per-VERTEX colour that varies across a
+    // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
+    // equal corner colours is the flat result, so a chunk that mixes blocks
+    // with ordinary instances loses nothing.
+    bool smooth = false;
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -2421,11 +2451,19 @@ class TerrainGame : public Tyra::Game {
   float procBlockCeilAt(float x, float z, float minY) const;
   // Any solid block inside the vertical band [y0, y1] within `r` of (x, z)?
   bool procBlockBlocks(float x, float z, float y0, float y1, float r) const;
+  // Per-vertex ambient occlusion for one block of that field: its 3x3x3
+  // neighbourhood reduced to four corner levels per face, out[face * 4 +
+  // corner], 255 = open (docs/procedural-runtime.md, "Ambient occlusion").
+  void procBlockVertexAo(float x, float y, float z, unsigned char faces,
+                         unsigned char out[24]) const;
   void despawnPrefabInstance(int handle);
   // Merges a run of instances into procChunks. The two callers (a runtime
   // volume, a prefab instance) differ only in where the transforms come from.
+  // blockAo is the table procBlockVertexAo filled, and passing it is what
+  // makes an instance a self-occluding block rather than a scattered model.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
-                           unsigned char faces);
+                           unsigned char faces,
+                           const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
   GeoPart skyDome;
@@ -14014,6 +14052,96 @@ static bool modelSourceMatches(int m, const char* srcPath) {
   return m >= 0 && m < MODEL_COUNT && !strcmp(MODEL_SOURCES[m], srcPath);
 }
 
+// --- block ambient occlusion ------------------------------------------------
+// The block lattice is the one piece of runtime geometry that can occlude
+// ITSELF, and the only one that already knows how: Blocks Fill publishes a
+// collision field saying which cells are solid, so the corner darkening a
+// voxel world lives on costs a handful of bit tests per block at generation
+// time and nothing per frame. Everything else generated at runtime is lit
+// from the probe grid and the baked occluder table
+// (docs/ambient-occlusion.md), and neither of those can see geometry that did
+// not exist when the scene was baked.
+//
+// Face index is faceOfNormal's, which is also the bit order of Blocks Fill's
+// visible-face mask: 0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z, 5 = -Z. Both
+// read the ASSET's local axes, so a block asset placed with a rotation
+// mismatches the lattice here exactly as it already does for face culling.
+//   kProcFaceAxis/kProcFaceDir - the axis the face looks along, and which way
+//   kProcFaceU/kProcFaceV      - its two in-plane axes, in the order the
+//                                corner index counts them:
+//                                corner = (v > 0) * 2 + (u > 0).
+static const int kProcFaceAxis[6] = {0, 0, 1, 1, 2, 2};
+static const int kProcFaceDir[6] = {1, -1, 1, -1, 1, -1};
+static const int kProcFaceU[6] = {2, 2, 0, 0, 0, 0};
+static const int kProcFaceV[6] = {1, 1, 2, 2, 1, 1};
+
+/** One cell of the 3x3x3 neighbourhood word procBlockVertexAo builds. */
+static bool procNbSolid(unsigned int nb, int dx, int dy, int dz) {
+  return ((nb >> ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1))) & 1u) != 0u;
+}
+
+void TerrainGame::procBlockVertexAo(float x, float y, float z,
+                                    unsigned char faces,
+                                    unsigned char out[24]) const {
+  for (int i = 0; i < 24; ++i) out[i] = 255;  // 255 = open sky
+  if (!procBlocks.active || !SCENE_AO_ENABLED) return;
+  // Sample the whole neighbourhood once - 26 field lookups instead of the 72
+  // the corners would ask for separately, and each corner below is then three
+  // bit tests. Offsets are taken from the block's CENTRE, so a lattice cell
+  // can never be missed by a rounding edge.
+  const float c = procBlocks.cell;
+  unsigned int nb = 0u;
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx)
+        if (procBlockSolid(x + (float)dx * c, y + (float)dy * c,
+                           z + (float)dz * c))
+          nb |= 1u << ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1));
+
+  for (int f = 0; f < 6; ++f) {
+    if (!(faces & (1 << f))) continue;  // buried: nothing will read it
+    const int na = kProcFaceAxis[f], ua = kProcFaceU[f], va = kProcFaceV[f];
+    for (int corner = 0; corner < 4; ++corner) {
+      const int us = (corner & 1) ? 1 : -1;
+      const int vs = (corner & 2) ? 1 : -1;
+      // The three cells sharing this corner, in the plane just OUTSIDE the
+      // face: the two edge neighbours and the diagonal between them.
+      int s1[3] = {0, 0, 0}, s2[3] = {0, 0, 0}, dg[3] = {0, 0, 0};
+      s1[na] = s2[na] = dg[na] = kProcFaceDir[f];
+      s1[ua] = us;
+      s2[va] = vs;
+      dg[ua] = us;
+      dg[va] = vs;
+      const int a = procNbSolid(nb, s1[0], s1[1], s1[2]) ? 1 : 0;
+      const int b = procNbSolid(nb, s2[0], s2[1], s2[2]) ? 1 : 0;
+      const int g = procNbSolid(nb, dg[0], dg[1], dg[2]) ? 1 : 0;
+      // Two solid edge neighbours wall the corner in completely and the
+      // diagonal behind them cannot make it darker; otherwise each of the
+      // three takes it down one step of four.
+      const int t = (a && b) ? 0 : 3 - (a + b + g);
+      out[f * 4 + corner] = (unsigned char)(t * 85);
+    }
+  }
+}
+
+/** Which of a face's four corner levels a vertex sits on. A block asset is
+ * authored as a unit cube, so its two in-plane local coordinates land on
+ * +-0.5 and this picks a corner exactly; interpolating rather than snapping
+ * is what keeps a SUBDIVIDED block asset smooth instead of banded. */
+static unsigned char procBlockAoAt(const unsigned char* ao, int face,
+                                   const float* v) {
+  float fu = v[kProcFaceU[face]] + 0.5F;
+  float fv = v[kProcFaceV[face]] + 0.5F;
+  if (fu < 0.0F) fu = 0.0F;
+  else if (fu > 1.0F) fu = 1.0F;
+  if (fv < 0.0F) fv = 0.0F;
+  else if (fv > 1.0F) fv = 1.0F;
+  const unsigned char* q = ao + face * 4;
+  const float lo = (float)q[0] + ((float)q[1] - (float)q[0]) * fu;
+  const float hi = (float)q[2] + ((float)q[3] - (float)q[2]) * fu;
+  return (unsigned char)(lo + (hi - lo) * fv + 0.5F);
+}
+
 static int faceOfNormal(float nx, float ny, float nz) {
   const float t = 0.85F;
   if (nx > t) return 0;
@@ -14027,7 +14155,8 @@ static int faceOfNormal(float nx, float ny, float nz) {
 
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
-                                      unsigned char faces) {
+                                      unsigned char faces,
+                                      const unsigned char* blockAo) {
   const float cell =
       owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
   const int cx = (int)floorf(d.position[0] / cell);
@@ -14049,7 +14178,12 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   g_aoAtlas = false;
   g_emisAtlas = false;
   g_aoSts = nullptr;
-  g_aoOff = d.type == 5;
+  // Imported models take no per-vertex occlusion - on an authored low-poly
+  // mesh it reads as triangulated shading (docs/ambient-occlusion.md). A
+  // BLOCK is the exception the rule was never about: two triangles per flat
+  // square face is exactly the geometry a corner gradient resolves well, so a
+  // table from procBlockVertexAo is what turns the vertex path back on.
+  g_aoOff = d.type == 5 && !blockAo;
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
   g_litNormals = nullptr;
@@ -14078,13 +14212,23 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
     procColliders.push_back(b);
   }
 
+  // Per-vertex AO is only worth computing if the rasterizer reads it ACROSS
+  // the triangle - flat shading takes one corner and paints the whole triangle
+  // with it, which turns a corner gradient into a hard diagonal seam down every
+  // face. Measured before this existed: one block face came out as two flat
+  // plateaus 42 levels apart instead of a gradient.
+  const bool wantSmooth = blockAo != nullptr;
+
   auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
     for (ProcChunk& c : procChunks)
       if (c.owner == owner && c.instance == instance && c.model == model &&
-          c.part == part && c.material == material && c.cx == cx && c.cz == cz)
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
+        c.smooth = c.smooth || wantSmooth;
         return c;
+      }
     procChunks.emplace_back();
     ProcChunk& c = procChunks.back();
+    c.smooth = wantSmooth;
     c.owner = owner;
     c.instance = instance;
     c.model = model;
@@ -14107,16 +14251,25 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       // Whole triangles, so a dropped face takes all of its triangles with it.
       for (size_t i = 0; i + 23 < src.verts.size(); i += 24) {
-        if (faces != 63) {
-          const float* v0 = &src.verts[i];
-          const int f = faceOfNormal(v0[3], v0[4], v0[5]);
-          if (f >= 0 && !(faces & (1 << f))) continue;
-        }
+        // The face this triangle belongs to answers two questions at once -
+        // whether a neighbour covers it, and which four corner AO levels its
+        // vertices interpolate - so it is resolved once, and only when
+        // somebody is going to ask.
+        const float* v0 = &src.verts[i];
+        const int face = (faces != 63 || blockAo)
+                             ? faceOfNormal(v0[3], v0[4], v0[5])
+                             : -1;
+        if (faces != 63 && face >= 0 && !(faces & (1 << face))) continue;
         for (int k = 0; k < 3; ++k) {
           const float* v = &src.verts[i + k * 8];
+          unsigned char vao =
+              hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255;
+          // A block's own lattice wins over a baked .aov sidecar: the sidecar
+          // describes the cube in isolation, the lattice describes where this
+          // copy of it actually sits.
+          if (blockAo && face >= 0) vao = procBlockAoAt(blockAo, face, v);
           pushVert(c.vertices, c.colors, c.sts, d, {v[0], v[1], v[2]},
-                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
-                   hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255,
+                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured, vao,
                    src.ke);
         }
       }
@@ -14161,6 +14314,17 @@ void TerrainGame::procFinishChunks() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  // Its Gouraud twin, built only once a chunk asks for it - a project with no
+  // block world never allocates it.
+  for (const ProcChunk& c : procChunks)
+    if (c.smooth && !c.vertices.empty() && !procSmoothInfoBag) {
+      procSmoothInfoBag = std::make_unique<StaPipInfoBag>();
+      procSmoothInfoBag->model = &model;
+      procSmoothInfoBag->shadingType = TyraShadingGouraud;
+      procSmoothInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      procSmoothInfoBag->fullClipChecks = true;
+      break;
+    }
   for (ProcChunk& c : procChunks) {
     if (c.vertices.empty()) {
       c.bag.reset();
@@ -14169,10 +14333,12 @@ void TerrainGame::procFinishChunks() {
     if (!c.bag) {
       c.colorBag = std::make_unique<StaPipColorBag>();
       c.bag = std::make_unique<StaPipBag>();
-      c.bag->info = batchInfoBag.get();
       c.bag->color = c.colorBag.get();
       c.bag->lighting = nullptr;
     }
+    // Re-stated every pass, not only on creation: a regeneration reuses the
+    // chunk, and a world whose blocks moved may have gained or lost the AO.
+    c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
     c.colorBag->many = c.colors.data();
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
@@ -14420,6 +14586,10 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
   d.material = -1;
   d.color[0] = d.color[1] = d.color[2] = 1.0F;
   d.primDetail = 1;
+  // Blocks self-occlude off the field published just above; nothing else here
+  // can, and a scene with ambient occlusion switched off computes none of it.
+  unsigned char blockAo[24];
+  const bool aoBlocks = procBlocks.active && SCENE_AO_ENABLED;
   for (int i = 0; i < count; ++i) {
     const procrt::Pt& P = c.buf[i];
     if (P.prefab >= 0) {
@@ -14438,7 +14608,9 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     d.rotation[1] = P.ry;
     d.rotation[2] = P.rz;
     d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
-    procAddMergedObject(volume, -1, d, P.faces);
+    const bool isBlock = aoBlocks && P.block != 0;
+    if (isBlock) procBlockVertexAo(P.x, P.y, P.z, P.faces, blockAo);
+    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
   }
   procFinishChunks();
 }

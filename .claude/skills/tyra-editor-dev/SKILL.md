@@ -393,7 +393,22 @@ geometry gets NO lightmap region, no static-batch membership and no scene-table
 entry - it is lit from the probe grid and nothing can address it. A new
 per-object visual feature therefore has to be staged explicitly in
 `procAddMergedObject`, which states the `g_*` globals rather than inheriting
-whatever the last rebuild left set.
+whatever the last rebuild left set. (4) **Blocks are the one exception, and its
+shape is the reusable part**: a Blocks Fill volume publishes a solid-cell
+field, so `procBlockVertexAo` answers self-occlusion from 26 bit tests per
+block at generation time and hands the result to `pushVert` as its `selfAo`
+byte - which is why `g_aoOff` is `d.type == 5 && !blockAo` rather than the flat
+`type == 5` the imported-models rule wants. The trap that cost a whole PS2
+build cycle: **a per-vertex value is invisible under flat shading.** Generated
+chunks are `TyraShadingFlat`, which takes ONE corner of a triangle and paints
+the whole triangle with it, so the corner gradient came out as two flat
+plateaus 42 levels apart with a hard diagonal seam between them - it read as a
+bug in the AO and was a bug in the shading (measured: 6964 hard adjacent-pixel
+steps against 2783 in the AO-off control, then 2868 once the shading followed).
+`ProcChunk::smooth` + `procSmoothInfoBag` are the fix, and it is a SECOND info
+bag rather than a flag on `batchInfoBag` because that one is shared with the
+static batcher, whose members are flat-shaded by design. Anything else that
+starts varying colour across a generated face owes the same pair.
 
 **Static batching invariants** (the generated game merges non-moving
 primitives into combined bags — `staticBatchEligible`/`batchBlockedNames` in

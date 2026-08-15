@@ -80,6 +80,14 @@ where the gradient is. See docs/emissive-materials.md for the numbers.
 - **Spawned clones and physics bodies** receive through a per-vertex
   fallback (`aoShadeMul` at geometry rebuild — they re-shade when they move
   or wake), not the atlas.
+- **Runtime blocks self-occlude**, and are the only generated geometry that
+  does — a Blocks Fill volume publishes a solid-cell field, so the corner
+  darkening is a bit test rather than a bake. It rides the same per-vertex
+  fallback and the same **AO strength**, on top of whatever the occluder table
+  and the ground contact already give them. See
+  [procedural-runtime.md](procedural-runtime.md), "Ambient occlusion" — that is
+  also where the two traps live (the chunk has to be Gouraud-shaded, and a
+  rotated block asset mismatches the lattice).
 - **Imported models neither receive nor self-occlude** for now: per-vertex
   occlusion on authored low-poly meshes reads as triangulated shading. The
   whole self-AO pipeline (`aobake::modelAO`, the `.aov` sidecar, the
@@ -93,6 +101,11 @@ AO is a bake. A runtime-moved object's *cast* shadow stays where the scene was
 built (terrain map + atlases are textures); the *received* shading of
 clones/physics re-bakes on rebuild. Live Link edits of `Cast shadow` (or of
 anything the bake reads) need a rebuild — the LIVE chip flips amber.
+
+The block self-occlusion above is the one exception, and only because it is not
+a bake at all: it is recomputed from the live cell field every time the volume
+generates, so a world that is different on every boot — or one a *Generate
+Volume* node rebuilt mid-game — is shaded correctly with nothing shipped.
 
 ## Costs
 
@@ -113,3 +126,7 @@ anything the bake reads) need a rebuild — the LIVE chip flips amber.
   and the measured cost.
 - **Build time**: a few hundred ms per scene, re-run on every build
   (deterministic, no caching needed).
+- **Runtime blocks**: nothing per frame and nothing in VRAM — 26 bit tests per
+  block, once, inside a generation pass that was already building that block's
+  vertices. The chunk changes from flat to Gouraud shading, which the GS
+  rasterizer does for free.
