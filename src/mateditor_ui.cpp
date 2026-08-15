@@ -81,8 +81,8 @@ bool App::loadMaterialFile(const std::string& relPath) {
 
     std::vector<char> gotHint;      // "# tyra-brightness" seen (Kd split)
     std::vector<char> gotKe;        // an "Ke" statement seen (emission)
-    // "# tyra-glow" seen: 0 none, 1 strength only (legacy - split Ke),
-    // 2 strength + authored color (+ optional white-hot; nothing to split)
+    // "# tyra-glow" seen: the authored strength + color (+ optional white-hot)
+    // behind the resolved Ke, so there is nothing to split back out of it.
     std::vector<char> gotGlowHint;
     // The raw "Ke" of each entry, kept OUT of the staged color so the hint
     // line and the statement cannot clobber each other whatever their order.
@@ -180,17 +180,14 @@ bool App::loadMaterialFile(const std::string& relPath) {
                 ss >> e.brightness;
                 gotHint.back() = 1;
             } else if (what == "tyra-glow") {
-                // "<strength> [r g b] [white]" - the authored controls behind
-                // the resolved Ke. The 1-number form is the original layout
-                // (color recovered by dividing Ke, no white-hot core).
-                ss >> e.glow;
+                // "<strength> <r> <g> <b> [white]" - the authored controls
+                // behind the resolved Ke, so nothing has to be split back out.
                 float r, g, b;
+                ss >> e.glow;
                 if (ss >> r >> g >> b) {
                     e.glowColor[0] = r, e.glowColor[1] = g, e.glowColor[2] = b;
-                    gotGlowHint.back() = 2;  // color authored too - no split
-                    ss >> e.glowWhite;       // absent = 0 (leaves the default)
-                } else {
                     gotGlowHint.back() = 1;
+                    ss >> e.glowWhite;  // absent = 0 (leaves the default)
                 }
             } else if (what == "tyra-glow-light") {
                 ss >> e.glowRange >> e.glowLight;
@@ -238,7 +235,7 @@ bool App::loadMaterialFile(const std::string& relPath) {
             e.glowColor[0] = e.glowColor[1] = e.glowColor[2] = 1.0f;
             continue;
         }
-        if (gotGlowHint[i] == 2) {
+        if (gotGlowHint[i]) {
             e.glow = e.glow < 0.0f ? 0.0f : (e.glow > 2.0f ? 2.0f : e.glow);
             e.glowWhite = e.glowWhite < 0.0f ? 0.0f
                           : (e.glowWhite > 1.0f ? 1.0f : e.glowWhite);
@@ -246,9 +243,11 @@ bool App::loadMaterialFile(const std::string& relPath) {
                 c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
             continue;
         }
+        // No hint at all - a hand-written .mtl carrying only an Ke. Split it
+        // the same way Kd/brightness is split: the brightest component is the
+        // strength, which renders identically either way.
         const std::array<float, 3>& k = keRaw[i];
-        float g = gotGlowHint[i] == 1 ? e.glow
-                                      : std::max(k[0], std::max(k[1], k[2]));
+        float g = std::max(k[0], std::max(k[1], k[2]));
         g = g < 0.0f ? 0.0f : g > 2.0f ? 2.0f : g;
         for (int c = 0; c < 3; ++c) {
             float v = g > 0.01f ? k[c] / g : 1.0f;

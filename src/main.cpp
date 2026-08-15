@@ -427,9 +427,10 @@ static int buildFromCli(int argc, char** argv) {
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
-// an up-to-date project, but the tolerant loader lifts every legacy shape (e.g.
-// stamping stable object ids on pre-id projects), so this refreshes a project
-// to the current on-disk format without opening the GUI. Projects with pending
+// an up-to-date project, but the loader defaults every field the file does not
+// carry and repairs what only the model can (stamping ids on objects that have
+// none, seeding the built-in layouts, clamping out-of-range values), so this
+// refreshes a project to the current on-disk format without opening the GUI. Projects with pending
 // REGISTERED migration steps (data transforms) are refused - that irreversible
 // path is --migrate's job.
 static int resaveFromCli(int argc, char** argv) {

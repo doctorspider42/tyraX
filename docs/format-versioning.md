@@ -15,7 +15,10 @@ format version means the migration prompt appears exactly when something
 irreversible is about to happen.
 
 A project saved before versioning existed has no `formatVersion` field and
-reads as **v0**.
+reads as **v0**, which this editor no longer opens — see the floor below.
+
+The editor reads **`version::kMinFormatVersion` … `kFormatVersion`**, currently
+v1 … v24.
 
 ## What happens when you open a project
 
@@ -25,9 +28,13 @@ reads as **v0**.
   would silently drop the fields this editor does not know and destroy them
   on the next save. The check lives in `project::load`, so every path (GUI,
   `--build`, `--resave`) shares it.
-- **Older, no registered migration steps** — opens silently. The tolerant
-  reader defaults missing fields and keeps reading legacy keys forever;
-  the file is re-stamped with the current version on the next save.
+- **Older than the floor** (`formatVersion` < `kMinFormatVersion`) — refused
+  too, naming the range this editor reads. The reader carries no translations
+  below the floor, so it would recognise nothing in the file and open an
+  *empty* project without saying why; a refusal is the honest answer.
+- **Older, no registered migration steps** — opens silently. The reader
+  defaults every missing field, so an additive bump costs an older project
+  nothing; the file is re-stamped with the current version on the next save.
 - **Older, with pending migration steps** — the editor prompts: old/new
   version, the list of steps that will run, and a warning that the operation
   is irreversible. On confirm it first **backs up** the format-bearing files
@@ -88,11 +95,14 @@ than a resave would drop whatever it skipped.
    number and would make every affected project *change* on open. Additive,
    no step. What the bump buys is the other half: an older editor now refuses
    the file instead of dropping the new key on its own next save.
-4. Keep the loader tolerant: `project::load` keeps reading legacy keys
-   forever (see the `"stickDeadzone"` → per-stick example). A migration step
-   transforms the **loaded model** where the old data's *meaning* changed;
-   a step that needs data the reader no longer parses can re-read files
-   itself via `Project::dir`.
+4. Keep the loader tolerant about **absent** keys — a missing field defaults
+   and an additive bump then costs an older project nothing. Tolerance is not
+   the same as carrying a *translation* for a key that was renamed or moved:
+   those are what `kMinFormatVersion` exists to retire, and the retiring is a
+   deliberate act (raise the floor, say so above `kFormatVersion`), never a
+   silent drop. A migration step transforms the **loaded model** where the old
+   data's *meaning* changed; a step that needs data the reader no longer
+   parses can re-read files itself via `Project::dir`.
 5. **A branch renumbers its bump on the way in — it never argues for the
    number it authored.** Two features may not share a format number: the
    number is the whole basis on which an older editor refuses a file, so if
@@ -172,5 +182,5 @@ below is only the two versions that predate those entries.
 
 | Version | Editor | Change |
 |---|---|---|
-| 0 | pre-1.0.0 | everything before versioning existed (legacy shapes are lifted by the tolerant reader: inline objects, single `"layout"` dump, project-level terrain, ...) |
-| 1 | 1.0.0 | the `formatVersion` / `editorVersion` stamp itself (no migration step — nothing to transform) |
+| 0 | pre-1.0.0 | everything before versioning existed — objects inline in the manifest, a single `"layout"` dump, a project-level terrain block and flow graph, raw TTF paths where a font name now goes. **No longer read**: the translations were retired with `kMinFormatVersion = 1`, since TyraX has never shipped publicly and no such file exists outside this repo's history. |
+| 1 | 1.0.0 | the `formatVersion` / `editorVersion` stamp itself (no migration step — nothing to transform); the oldest format this editor opens |

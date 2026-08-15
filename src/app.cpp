@@ -4562,7 +4562,7 @@ void App::applyActiveLayout() {
         // Load the saved dump at the run() frame boundary.
         layoutLoadPending_ = true;
         recipeRebuildPending_ = false;
-        // Legacy dumps predating the Properties window lack a slot for it; carve
+        // A dump saved while Properties was closed has no slot for it; carve
         // one once the load settles (drawUI waits for the Project dock node).
         dockPropertiesPending_ = L.ini.find("[Window][Properties]") == std::string::npos;
     } else {
@@ -6083,20 +6083,9 @@ void App::attachProject() {
     }
 
     // Emulator path and PS2 IP are machine-global editor settings (editor.ini),
-    // not project data. Migrate any value carried by an older .tyra file into
-    // the global config the first time such a project is opened, then feed the
-    // global values into this project - project_ is the Runner's runtime
+    // not project data - the .tyra neither carries nor reads them. Feed the
+    // global values into this project: project_ is the Runner's runtime
     // transport for them (see Project::emulatorPath / ps2LinkIp).
-    bool migrated = false;
-    if (globalEmulatorPath_.empty() && !project_.emulatorPath.empty()) {
-        globalEmulatorPath_ = project_.emulatorPath;
-        migrated = true;
-    }
-    if (globalPs2Ip_.empty() && !project_.ps2LinkIp.empty()) {
-        globalPs2Ip_ = project_.ps2LinkIp;
-        migrated = true;
-    }
-    if (migrated) saveGlobalConfig();
     project_.emulatorPath = globalEmulatorPath_;
     project_.ps2LinkIp = globalPs2Ip_;
 
@@ -14268,7 +14257,7 @@ void App::drawPreferencesWindow() {
                                                          : 0;
     const char* clipNames[] = {
         "Precise clipping on VU1 (no holes, no EE cost - default)",
-        "Precise clipping on EE (legacy; costs EE time)",
+        "Precise clipping on EE (the older clipper; costs EE time)",
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
         prefSettings_.clipping =
@@ -15338,7 +15327,7 @@ void App::drawScenePreferencesModal() {
                                                  : 0;
         const char* clipNames[] = {
             "Precise clipping on VU1 (no holes, no EE cost - default)",
-            "Precise clipping on EE (legacy; costs EE time)",
+            "Precise clipping on EE (the older clipper; costs EE time)",
             "Fast culling (fastest; big near triangles may vanish)"};
         if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
             s.clipping =
