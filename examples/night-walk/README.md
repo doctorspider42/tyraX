@@ -1,101 +1,66 @@
 # night-walk example
 
-A 2048×2048 map at night with a torch and 800 scattered spruces, holding **50
-FPS** — the two features that make that possible are
-[terrain distance detail](../../docs/terrain-lod.md) and the
-[flashlight's projected pool](../../docs/flashlight.md).
+A dark backlot, a torch, and everything the
+[flashlight](../../docs/flashlight.md) can do — this is the example for the
+light itself. Two building facades, a fence, a dumpster, a truck and a couple
+of sheds stand around a dirt yard (models from Kenney's CC0 *Retro Urban Kit*),
+and the whole scene is arranged to be read by torchlight.
 
 Open `night-walk.tyra` in the editor and Build & Run (`F5`), or build headless:
 `tyrax-editor.exe --build <this folder> --run`. It ships in the **debug**
 profile, so the FPS / MEM / VRAM readouts are on screen. Walk with the left
 stick, look with the right, and **Circle** switches the torch off and on.
 
-Point the torch at the ground near your feet. That pool of light is a
-**projected texture**, not the terrain's vertex lighting — which is the whole
-point of the example.
-
 ## What it shows
 
-- **A big map that draws.** 2048 units square at terrain detail 512 (a 4-unit
-  grid), **View distance 320** so only the ring of tiles around you is in
-  memory, and **Detail distance 55**: tiles past 55 units are built from every
-  2nd heightmap sample, past 121 from every 4th. Edges are stitched to the
-  neighbouring tile's stride, so nothing cracks. Measured on this project,
-  walking, PCSX2, same build otherwise:
+- **The pool.** Point the torch at the ground: that ellipse is a **projected
+  texture** (`res/hud/flashlight-gobo.png`), per pixel, taking its coordinates
+  from the beam's own frustum — not the terrain's vertex lighting. It
+  stretches as you lower the beam and follows the dirt's relief.
 
-  | Detail distance | Frame rate |
-  |---|---|
-  | 0 (off — every tile full detail) | **25.0 fps** |
-  | 55 | **50.0 fps** (the PAL cap) |
+- **Light on real geometry.** Shine at a facade, the truck, the dumpster:
+  whatever solid thing the beam meets is rendered a second time, additively,
+  with the gobo projected onto its real triangles. The west facade is turned
+  24° off the world's axes to prove the receivers are oriented boxes, not
+  AABBs. Sweep the beam from the dirt up a wall — the light crosses the join
+  without blinking.
 
-  Exactly half, because that is what missing a 20 ms field costs on a PAL
-  console: the frame is shown one field late, every time.
+- **Shadows, both ways.** This project ships with **Flashlight shadow
+  volumes** ON (*Preferences > Rendering*): put the dumpster or the truck in
+  the beam and its shadow is CARVED out of the light, per pixel, on the ground
+  and on the facade behind — stand behind the truck and the torch genuinely
+  does not reach you. Turn the setting off to compare with the silhouette
+  mode, where the flagged casters (*Cast shadow (projected)* on the dumpster
+  and the truck) throw mesh-shaped patches from the torch instead.
 
-  Set it to 0 in *Project > Preferences > World* and rebuild to see that for
-  yourself.
-
-- **A flashlight worth looking at.** The pool under the beam takes its texture
-  coordinates from the light's own frustum, so its shape is the
-  `res/hud/flashlight-gobo.png` image — per pixel, an ellipse that stretches as
-  you lower the beam, following the ground's relief. The terrain deliberately
-  takes **no** per-vertex light from the torch: that term is one value per
-  vertex, and a terrain vertex is four units from the next, so it draws a blocky
-  wedge that moves in cell-sized steps. Props and trees still get it — they are
-  small enough for it to look like light.
-
-  Three stone walls stand by the spawn - one of them turned 34 degrees to the
-  world - and whatever solid thing the beam meets is rendered a SECOND time,
-  additively, with the gobo projected onto its real triangles. Shine at a wall,
-  a shed, the gable of its roof: the light follows the actual surface, per
-  pixel. The walls never take the per-vertex cone at all, and neither does the
-  object the beam is on - sweep the beam from the grass up a wall and the light
-  crosses the join without blinking. The tree trunks in front of them are small
-  enough to keep the cone, and do.
-
-  Two monoliths stand in front of the north wall, and this project ships with
-  **Flashlight shadow volumes** ON (Preferences > Rendering): put one in the
-  beam and its shadow is CARVED out of the light, per pixel, on the ground and
-  on the wall behind - stand behind it and the torch genuinely does not reach
-  you. Turn the setting off to compare with the silhouette mode, where the same
-  monoliths (they carry *Cast shadow (projected)*) throw mesh-shaped patches
-  from the torch instead.
-
-  The torch's colour is deliberately about 0.6, not white. The per-vertex cone
-  has no N·L, so a white one adds the same amount to every face of a tree
-  whichever way it points and flattens it into a cutout; at 0.6 the baked
-  moonlight still shows through and the tiers keep their shape.
-
-- **800 spruces and rocks, from a graph.** One
-  [procedural volume](../../docs/procedural-generation.md) scatters them over
-  420×420 units around the spawn, filtered by slope and by a noise mask so there
-  are clearings, then bakes them into 34 merged chunk meshes with a 210-unit
-  draw distance. ~19k triangles total, none of them authored by hand.
-
-- **Two sheds, one of them pre-lit.** They are the same textured model in the
-  same light. The left one had the scene's light
+- **Two sheds, one of them pre-lit.** The same textured model in the same
+  light. The left one had the scene's light
   [baked into its texture](../../docs/prelit-models.md)
-  (--bake-object-light night-walk shed-lit), so its planks read per pixel and
-  the torch's pool lands on them; the right one takes the ordinary per-vertex
-  route and the cone floods it to white at close range. That is the whole
-  argument for pre-lighting a textured model, in one screenshot.
+  (`--bake-object-light night-walk shed-lit`), so its planks read per pixel
+  and the torch's pool lands on them; the right one takes the ordinary
+  per-vertex route and the cone floods it to white at close range. That is
+  the whole argument for pre-lighting a textured model, in one screenshot.
 
-- **Fog doing its job.** Fog end (185) sits well inside the view distance (320),
-  so the streaming ring's edge is never the thing you notice.
+- **The cone, kept in its lane.** Small props — the trees, the pallets, the
+  street light — take the engine's per-vertex spot term, deliberately dimmer
+  (the torch's colour is ~0.6, not white) and soft-edged, because with no N·L
+  a bright cone flattens a low-poly prop into a cutout. The terrain and the
+  facades never take it at all; their light is the projected pool.
 
 ## Things worth trying
 
-- *Preferences > World > Detail distance* — drag it down to 20 and walk: the
-  bands come close enough to watch them settle behind you.
-- The torch's **Reach** and **Cone half-angle** (Properties on the player) size
-  the pool as well as the light.
-- Replace `res/hud/flashlight-gobo.png` with your own gobo — a cross, a grille,
-  a cracked lens. Shape in RGB, black border, power-of-two sides.
+- *Preferences > Rendering > Flashlight shadow volumes* — flip it and rebuild;
+  same yard, same casters, two philosophies of shadow.
+- The torch's **Reach** and **Cone half-angle** (Properties on the player)
+  size the pool as well as the light.
+- Replace `res/hud/flashlight-gobo.png` with your own gobo — a cross, a
+  grille, a cracked lens. Shape in RGB, black border, power-of-two sides.
 
 ## Assets
 
-`pine.obj` is a generated 32-triangle spruce: a square trunk and four stacked
-hexagonal tiers. Tiers rather than one cone because the props' shading is baked
-per vertex, so a stepped silhouette is what gives it any shape at all under a
-torch that has no N·L term. `rock.obj` and `props.mtl` come from the
-[procedural](../procedural) example. The heightmap is generated value noise with
-a flat clearing at the spawn.
+The buildings, fence, props, trees and the truck are from
+[Kenney's Retro Urban Kit](https://kenney.nl) (CC0). The facades are several
+kit wall tiles merged into ONE .obj each — deliberately: the torch lights the
+nearest three solids in its cone, so a wall must be one object to light as one
+wall. The sheds and the gobo are project-made. The heightmap is generated
+value noise with a flat clearing at the spawn.

@@ -41,3 +41,14 @@ The generated C++ in this project came from TyraX's templates. TyraX grants
 those generated files to you with NO conditions attached - no attribution, no
 license text, no notice. See LICENSE-EXCEPTION.md in the TyraX repository. This
 section is a courtesy credit, and you may delete it.
+
+
+Retro Urban Kit - CC0 (public domain)
+-------------------------------------
+Created and distributed by Kenney (www.kenney.nl).
+
+The buildings, fence, props, trees and the truck under res/models/kenney/
+come from Kenney's "Retro Urban Kit" (2.0), dedicated to the public domain
+under Creative Commons Zero (http://creativecommons.org/publicdomain/zero/1.0/).
+Attribution is not required; this credit is a courtesy. Some meshes are
+several kit tiles merged into one .obj by this project.

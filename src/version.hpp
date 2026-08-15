@@ -64,6 +64,19 @@
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
 //
+// 1.38.0 (one example was proving two features, so now there are two): the
+// night-walk example is split. deep-forest takes the scale story - the same
+// 2048x2048 map in daylight with 2800 scattered spruces, held at 50 FPS by
+// terrain detail distance + mesh LOD + chunk draw distance (2800 is measured:
+// 3777 instances died in the chunk build's loading peak, 3100 ran at
+// 30.7/32 MB, 2800 ships with headroom at 28.1). night-walk keeps the torch
+// and becomes a dark kenney-kit backlot (CC0 Retro Urban Kit) built to be
+// read by torchlight: brick facades, a dumpster and a truck for casters, the
+// pre-lit shed pair, the west facade turned 24 degrees for the oriented-box
+// receivers. The facades are kit tiles MERGED into one .obj each, because
+// the torch lights the nearest three solids in its cone - a wall of twelve
+// tile objects would light in patches. No engine or format change.
+//
 // 1.37.0 (the torch's shadows learn self-shadowing, and the technique becomes
 // a choice): ProjectSettings::flashShadowVolumes (format v27) picks how the
 // flashlight occludes. OFF keeps the silhouette slots below; ON is the
@@ -853,7 +866,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 37
+#define TYRAX_VERSION_MINOR 38
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
