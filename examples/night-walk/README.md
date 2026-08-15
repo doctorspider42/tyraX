@@ -47,6 +47,13 @@ stick, look with the right, and **Circle** switches the torch off and on.
   a bright cone flattens a low-poly prop into a cutout. The terrain and the
   facades never take it at all; their light is the projected pool.
 
+- **A street lamp that lights its street.** The lamp by the pallets carries
+  a dynamic **spot light** (*Spot (cone)* on a point light): the cone points
+  down the light object's local -Y, nearby props take it per vertex, and the
+  pool under it is the same per-pixel gobo projection the torch uses - from
+  the lamp's own frustum. It flickers a little, wears a corona, and answers
+  the *Set Light* flow node like any dynamic light.
+
 ## Things worth trying
 
 - *Preferences > Rendering > Flashlight shadow volumes* — flip it and rebuild;

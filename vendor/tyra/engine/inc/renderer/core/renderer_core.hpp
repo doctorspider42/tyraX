@@ -211,6 +211,17 @@ class RendererCore : public RendererCore2dBounds {
                        const float& range);
 
   /**
+   * Register a scene dynamic SPOT light for this frame (TyraX fork): the
+   * same registry slot as a point light, with the cone constants filled the
+   * way setSpotLight fills the camera torch. Direction need not be
+   * normalized. Silently ignored past DYN_LIGHTS_MAX.
+   */
+  int addDynSpotLight(const Color& color, const Vec4& position,
+                      const Vec4& direction, const float& range,
+                      const float& cutoffDegrees,
+                      const float& softness = 3.0F);
+
+  /**
    * Pick the strongest dynamic light (flashlight or scene light) for a
    * world-space bounding sphere (TyraX fork). Never null - with nothing
    * registered it returns the flashlight state, disabled or not, which

@@ -140,7 +140,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 
 **Look**
 
-- **Lighting** — directional light, point lights (baked or dynamic, with
+- **Lighting** — directional light, point and spot lights (baked or dynamic, with
   flicker), light beams, blob and projected shadows, lens flare and god rays.
 - **Baked realism** — [global illumination + light probes](docs/global-illumination.md),
   [ambient occlusion](docs/ambient-occlusion.md) — scene contact shadows plus

@@ -872,6 +872,9 @@ std::string objectJson(const SceneObject& o) {
                 ", \"radius\": " + fmtFloat(o.lightRadius) +
                 ", \"dynamic\": " + (o.lightDynamic ? "true" : "false") +
                 ", \"flicker\": " + fmtFloat(o.lightFlicker) +
+                (o.lightSpot ? ", \"spot\": true, \"spotAngle\": " +
+                                   fmtFloat(o.lightSpotAngle)
+                             : std::string()) +
                 ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
@@ -4840,6 +4843,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightFlicker = (float)v->numberOr(0.0);
             if (o.lightFlicker < 0.0f) o.lightFlicker = 0.0f;
             if (o.lightFlicker > 1.0f) o.lightFlicker = 1.0f;
+            if (const auto* v = lt->find("spot"))
+                o.lightSpot = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = lt->find("spotAngle"))
+                o.lightSpotAngle = (float)v->numberOr(25.0);
+            if (o.lightSpotAngle < 5.0f) o.lightSpotAngle = 5.0f;
+            if (o.lightSpotAngle > 60.0f) o.lightSpotAngle = 60.0f;
             if (const auto* v = lt->find("beam"))
                 o.lightBeam = (int)v->numberOr(0.0);
             if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;

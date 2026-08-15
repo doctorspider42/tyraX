@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.41.0 (a scene light can be the flashlight's kind of light): dynamic
+// point lights gain a SPOT style (format v29: "spot" + "spotAngle" in the
+// light object, written only when on - old files resave byte for byte).
+// The cone points down the object's local -Y (unrotated = straight down, a
+// street lamp; the rotation gizmo aims it), lights nearby meshes per vertex
+// through the same engine slot the camera torch uses (new
+// RendererCore::addDynSpotLight - the registry entry always carried the
+// cone constants, nothing changed on VU1), and its footprint on the ground
+// is the flashlight's projection on a scene light: the pool patch takes
+// the gobo's projective STQ from the LIGHT's frustum instead of the round
+// corona, so a lamp's pool is per-pixel however coarse the ground is.
+// night-walk's street lamp now actually lights its street (with a 0.12
+// flicker and a corona). Spot pools march the cone axis to the ground and
+// size the patch from the cone's footprint at the landing.
+//
 // 1.40.0 (a caster's shadow follows its shape, not its bounding box): a
 // model now casts from up to three TIGHT sub-boxes fitted to its triangles
 // - median split on the longest axis, twice, then leaves greedily merge
@@ -1031,7 +1046,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 40
+#define TYRAX_VERSION_MINOR 41
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1308,6 +1323,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // byte; the struct defaults reproduce what an older file did (no model AO at
 // all), while project::create turns modelAo on for new projects. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 28;
+// v29 (spot-style dynamic lights, docs/flashlight.md "A scene light with the
+// same trick"): "spot" + "spotAngle" on a light object's light block -
+// written only when the style is on, so an untouched project resaves byte
+// for byte; off (the default) is the point light every earlier file had.
+inline constexpr int kFormatVersion = 29;
 
 }  // namespace version

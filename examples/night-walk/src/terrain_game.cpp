@@ -523,10 +523,22 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
       float v = c * 128.0F * k;
       return v > 255.0F ? 255.0F : v;
     };
-    core.addDynPointLight(
-        Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
-        Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
-        d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+    if (d.lightSpot) {
+      // The cone points down the object's local -Y: unrotated, a lamp
+      // shines straight down; the rotation gizmo aims it.
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      core.addDynSpotLight(
+          Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+          Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+          Tyra::Vec4(sd.x, sd.y, sd.z, 0.0F),
+          d.lightRadius > 0.01F ? d.lightRadius : 0.01F, d.lightSpotAngle,
+          1.6F);
+    } else {
+      core.addDynPointLight(
+          Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+          Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+          d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+    }
   }
 }
 
@@ -8336,6 +8348,12 @@ void TerrainGame::setupLightPools() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = beamCoronaTex;
+    // A SPOT light's pool is the flashlight's trick on a scene light: the
+    // gobo projected from the light's own frustum, per pixel. The corona
+    // stays the fallback when the gobo failed to load.
+    if (b.objIndex >= 0 && b.objIndex < SCENE_OBJECT_COUNT &&
+        SCENE_OBJECTS[b.objIndex].lightSpot && flashGoboTex)
+      b.texBag->texture = flashGoboTex;
     // The flashlight's pool is PROJECTED, so its texture IS the beam's shape
     // (gobo, cross, cracked lens): the baked gobo by default, or an authored
     // sprite when the Player object names one. Additive, so the shape lives in
@@ -9310,8 +9328,55 @@ void TerrainGame::updateAndRenderLightPools() {
       }
     const float k = d.lightBright * level;
     if (k <= 0.01F) continue;
-    buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
-                   0.04F);  // under the shadows' 0.05/0.06
+    if (d.lightSpot && b.texBag->texture == flashGoboTex) {
+      // The flashlight's projection, from a SCENE light: march the cone's
+      // axis to the ground, drop the patch on the landing, and hand every
+      // vertex the projective STQ of the light's own frustum - the GS
+      // divides S/Q per pixel, so the footprint is the gobo however coarse
+      // the ground is (docs/flashlight.md; same formulas, light for camera).
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      const float lx = d.position[0], ly = d.position[1], lz = d.position[2];
+      float hit = -1.0F;
+      for (float t = 0.3F; t <= d.lightRadius; t += 0.3F) {
+        if (ly + sd.y * t <=
+            projSurfaceAt(lx + sd.x * t, lz + sd.z * t)) {
+          hit = t;
+          break;
+        }
+      }
+      if (hit < 0.0F) continue;
+      const float tanS = tanf(d.lightSpotAngle * 3.14159265F / 180.0F);
+      float rr = tanS * hit * 1.5F + 0.4F;
+      if (rr > d.lightRadius) rr = d.lightRadius;
+      buildPoolPatch(b, lx + sd.x * hit, lz + sd.z * hit, rr, 0.04F);
+      // Beam basis (the torch's degenerate-case trick, sd for the camera).
+      float srx, sry, srz;
+      if (sd.y > 0.995F || sd.y < -0.995F) {
+        srx = sd.y, sry = -sd.x, srz = 0.0F;
+      } else {
+        srx = -sd.z, sry = 0.0F, srz = sd.x;
+      }
+      const float srl = sqrtf(srx * srx + sry * sry + srz * srz);
+      if (srl < 0.0001F) continue;
+      srx /= srl, sry /= srl, srz /= srl;
+      const float sux = sry * sd.z - srz * sd.y;
+      const float suy = srz * sd.x - srx * sd.z;
+      const float suz = srx * sd.y - sry * sd.x;
+      const float kP = 0.43F / tanS;
+      for (size_t vi = 0; vi < b.verts.size(); ++vi) {
+        const float ex = b.verts[vi].x - lx, ey = b.verts[vi].y - ly,
+                    ez = b.verts[vi].z - lz;
+        float fwd = ex * sd.x + ey * sd.y + ez * sd.z;
+        if (fwd < 0.05F) fwd = 0.05F;
+        b.sts[vi] =
+            Vec4(0.5F * fwd + kP * (ex * srx + ey * sry + ez * srz),
+                 0.5F * fwd - kP * (ex * sux + ey * suy + ez * suz), fwd,
+                 0.0F);
+      }
+    } else {
+      buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
+                     0.04F);  // under the shadows' 0.05/0.06
+    }
     b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
                 128.0F);
     float fix = 96.0F * (k > 1.4F ? 1.4F : k);

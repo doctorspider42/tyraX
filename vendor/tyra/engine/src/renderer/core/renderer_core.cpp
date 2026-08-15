@@ -227,6 +227,34 @@ int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
   return static_cast<int>(dynLightCount++);
 }
 
+int RendererCore::addDynSpotLight(const Color& color,
+                                  const Vec4& position,
+                                  const Vec4& direction, const float& range,
+                                  const float& cutoffDegrees,
+                                  const float& softness) {
+  // Modified by TyraX: a scene spot light is the point-light registry entry
+  // with the cone constants filled - the VU1 slot has carried them since the
+  // camera torch, so no program changes.
+  const int slot = addDynPointLight(color, position, range);
+  if (slot < 0) return slot;
+  auto& l = dynLights[slot];
+  l.point = false;
+  l.direction = direction;
+  const float len = sqrtf(direction.x * direction.x +
+                          direction.y * direction.y +
+                          direction.z * direction.z);
+  if (len > 1e-5F) {
+    l.direction.x /= len;
+    l.direction.y /= len;
+    l.direction.z /= len;
+  }
+  l.direction.w = 0.0F;
+  const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
+  l.cosCutoff = cosf(halfAngle);
+  l.softness = softness < 1.0F ? 1.0F : softness;
+  return slot;
+}
+
 const RendererCoreSpotLight* RendererCore::pickDynLight(
     const Vec4& worldCenter, const float& worldRadius) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so

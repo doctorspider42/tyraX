@@ -1641,6 +1641,22 @@ void App::drawPropertiesWindow() {
                 "The engine lights each mesh with its strongest dynamic\n"
                 "light (one slot per mesh; max 8 per scene).");
         if (o.lightDynamic) {
+            committed |= ImGui::Checkbox("Spot (cone)", &o.lightSpot);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The light becomes a cone down the object's local -Y\n"
+                    "(unrotated = straight down; rotate the object to aim).\n"
+                    "Nearby meshes take the cone per vertex, and on the\n"
+                    "ground its footprint is PROJECTED per pixel with the\n"
+                    "flashlight's gobo - a street lamp that really lights\n"
+                    "the street (docs/flashlight.md).");
+            if (o.lightSpot) {
+                ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
+                                 5.0f, 60.0f, "%.0f deg");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+        }
+        if (o.lightDynamic) {
             ImGui::DragFloat("Flicker", &o.lightFlicker, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             if (ImGui::IsItemHovered())

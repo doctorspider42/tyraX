@@ -69,6 +69,23 @@ a triangle is exact and `S/Q` per pixel is the true projective mapping. Finished
 patch of a few dozen triangles, as a *fan of triangles* rather than a pool of
 light, however finely you cut it.
 
+## A scene light with the same trick
+
+A dynamic point light can opt into a **Spot** style (*Properties > Point
+light > Spot (cone)*, dynamic lights only): the light becomes a cone pointing
+down the object's local -Y - unrotated it shines straight down, a ceiling
+lamp or a street light; the rotation gizmo aims it. Nearby meshes take the
+cone per vertex through the same engine slot the torch uses, and the
+footprint on the ground is the flashlight's projection on a scene light: the
+pool patch takes the gobo's projective STQ from the LIGHT's own frustum
+instead of the round corona, so a lamp's pool is shaped per pixel however
+coarse the ground is. It follows *Set Light*, flicker and Move Object like
+any dynamic light, and pairs naturally with the visible beam (*Beam: corona*)
+- night-walk's street lamp is the demo. Spot lights do not take part in the
+torch's shadow machinery: no receivers, no volumes - one torch is the
+per-pixel protagonist, a scene spot is set dressing that finally lights its
+own street.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the
