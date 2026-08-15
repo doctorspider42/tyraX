@@ -1,0 +1,1 @@
+{ "id": "aobench0000016", "name": "bench", "type": "box", "position": [-6.6, 0.95, -7.4], "rotation": [0, 0, 0], "scale": [1, 0.9, 5], "color": [1, 1, 1], "physics": false, "material": "res/materials/terrace.mtl" }

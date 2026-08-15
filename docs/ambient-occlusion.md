@@ -118,12 +118,24 @@ the Terrain Editor.
   [procedural-runtime.md](procedural-runtime.md), "Ambient occlusion" — that is
   also where the two traps live (the chunk has to be Gouraud-shaded, and a
   rotated block asset mismatches the lattice).
-- **Imported models neither receive nor self-occlude** for now: per-vertex
-  occlusion on authored low-poly meshes reads as triangulated shading. The
-  whole self-AO pipeline (`aobake::modelAO`, the `.aov` sidecar, the
-  `LeanObjLoader` reader) stays in the tree, disabled, for a future
-  per-model lightmap-unwrap approach. Animated models relight dynamically
-  and are unaffected, like with baked point lights.
+- **Imported models neither receive nor self-occlude** for now. The whole
+  self-AO pipeline (`aobake::modelAO`, the `.aov` sidecar, the
+  `LeanObjLoader` reader) stays in the tree, disabled, for a future per-model
+  lightmap-unwrap approach. Animated models relight dynamically and are
+  unaffected, like with baked point lights.
+
+  The reason is **sampling density, not the bake**, and it was re-measured on
+  the console with `examples/ambient-occlusion` (which is full of real kit
+  props) rather than inherited: a model receives per VERTEX, and a crate 1.06
+  units tall standing under a 2.5-unit AO radius has every one of its corners
+  inside the occluder's reach with no interior vertices to carry a gradient —
+  so it darkens as a lump while its neighbour 20 cm away stays bright. Models
+  comparable to the radius or larger (a wagon, a wall panel) came out fine.
+  Flat shading is *also* involved and is not the whole story: switching those
+  bags to Gouraud is necessary and not sufficient. Two things would fix it
+  properly, both in [backlog.md](backlog.md) — an occluder response that falls
+  off with the solid angle the shape subtends rather than with distance alone,
+  and a per-model lightmap unwrap (`src/uvunwrap.cpp` is most of the second).
 
 ## Static by design
 
