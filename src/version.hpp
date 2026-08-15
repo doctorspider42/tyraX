@@ -16,6 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.39.2 (nothing can shadow itself, and the toggle stops strobing the old
+// look): two more reports from the same yard. The shed went black in the
+// beam ("swallows the light like a black hole") because a model's AABB
+// stands proud of its real walls - the roof overhang - so the shed's own
+// volume's near cap floated in front of the wall the beam lit; no cap
+// geometry fixes that (the radial push is tangent to a big face up close),
+// so the ORDER does: casters and receivers walk together sorted by distance
+// and each receiver's light draws BEFORE its own volume enters the mask
+// (RendererCoreAlphaMask::beginKeep - one bracket per caster, only the
+// first clears). A volume only shadows what is behind its caster, so
+// nearest-first is the dependency order and self-shadowing is structurally
+// impossible; the truck still carves the facade behind it. And spamming the
+// torch toggle strobed the OLD per-vertex look for one frame per enable:
+// the receivers' cone-off flags are computed in the light-pool pass, AFTER
+// the scene has drawn, so the enable frame hit every big receiver with the
+// full blocky cone once. The engine spot now arms one frame after the
+// toggle - the projected pool lights the same frame, only the cheap cone
+// waits, and on the props that keep it one frame is invisible. Verified in
+// PCSX2: 12 toggles x 70 snapshots, four tight byte-size clusters, zero
+// outliers - and the shed takes the full gobo in volumes mode.
+//
 // 1.39.1 (the volumes learn who actually casts, and the mask stops leaking
 // onto the screen; renumbered from 1.38.1 when the lighting redesign took
 // its slot): three reports from the reworked backlot. Volume slots
@@ -982,7 +1003,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 39
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

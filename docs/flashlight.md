@@ -256,16 +256,26 @@ with the GS's destination-alpha test (`TEST.DATE`), only where the mask says
 lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
 and the torch genuinely does not reach you.
 
-Three rules keep the volumes honest, each paid for with a report from the
-yard: the occluder slots go to the four candidates NEAREST the torch, never
+Four rules keep the volumes honest, each paid for with a report from the
+yard. The occluder slots go to the four candidates NEAREST the torch, never
 in object-table order (three merged facades used to eat every slot and the
-props between the torch and them never cast); a thin thing - a lamp post, a
-sign - neither claims a receiver slot nor casts a volume, it keeps its cheap
-per-vertex cone (the slot it stole was the facade's); and once the last
-DATE-gated pass has drawn, the raster's ALPHA is repainted to the neutral
-0x80 - the mask lives in the framebuffer's alpha, and the SDTV flicker
-filter blends its two read circuits by that very channel, so a mask left in
-place is SHOWN by the CRTC as translucent wedges over the picture.
+props between the torch and them never cast). A thin thing - a lamp post, a
+sign - never claims a receiver slot; it keeps its cheap per-vertex cone (the
+slot it stole was the facade's). Casters and receivers are walked TOGETHER,
+sorted by distance, each receiver's light drawn BEFORE its own volume enters
+the mask - a volume only ever shadows what is behind its caster, so
+nearest-first is the dependency order, and an object structurally cannot
+shadow itself (a model's AABB stands proud of its real walls - a roof
+overhang - and the shed's own volume used to swallow the shed: "a black
+hole"). And once the last DATE-gated pass has drawn, the raster's ALPHA is
+repainted to the neutral 0x80 - the mask lives in the framebuffer's alpha,
+and the SDTV flicker filter blends its two read circuits by that very
+channel, so a mask left in place is SHOWN by the CRTC as translucent wedges.
+
+The per-vertex cone also arms one frame AFTER the toggle: the receivers'
+cone-off flags are computed after the scene has drawn, so the enable frame
+used to hit every big receiver with the full blocky per-vertex term once -
+the pre-projector look, strobing when the toggle was spammed.
 
 What the silhouette mode needs and costs:
 

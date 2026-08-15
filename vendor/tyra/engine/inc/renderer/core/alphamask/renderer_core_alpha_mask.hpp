@@ -59,6 +59,15 @@ class RendererCoreAlphaMask {
    */
   void begin();
 
+  /**
+   * Like begin() but WITHOUT the alpha clear: re-enter the color mask while
+   * KEEPING the mask accumulated so far. The interleaved walk (templates:
+   * light passes and volumes alternating by distance, so a caster's own
+   * light draws before its own volume enters the mask) opens one bracket
+   * per caster, and only the first may reset the channel.
+   */
+  void beginKeep();
+
   /** Drain the volume draws and restore the raster environment (FBMSK 0). */
   void end();
 
@@ -83,6 +92,8 @@ class RendererCoreAlphaMask {
   // FINISH-parity slip would let a shared packet be rebuilt while the GIF is
   // still fetching it.
   packet2_t* repaintPacket = nullptr;
+  // beginKeep's own packet, same single-frame-reuse rule as repaintPacket.
+  packet2_t* keepPacket = nullptr;
 };
 
 }  // namespace Tyra

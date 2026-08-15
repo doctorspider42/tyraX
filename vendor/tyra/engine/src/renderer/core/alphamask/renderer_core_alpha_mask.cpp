@@ -22,6 +22,7 @@ RendererCoreAlphaMask::~RendererCoreAlphaMask() {
   if (beginPacket) packet2_free(beginPacket);
   if (endPacket) packet2_free(endPacket);
   if (repaintPacket) packet2_free(repaintPacket);
+  if (keepPacket) packet2_free(keepPacket);
 }
 
 void RendererCoreAlphaMask::init(RendererSettings* t_settings,
@@ -37,6 +38,8 @@ void RendererCoreAlphaMask::init(RendererSettings* t_settings,
     endPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   if (!repaintPacket)
     repaintPacket = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  if (!keepPacket)
+    keepPacket = packet2_create(8, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
 void RendererCoreAlphaMask::begin() {
@@ -100,6 +103,33 @@ void RendererCoreAlphaMask::begin() {
   packet2_update(beginPacket, draw_finish(beginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
+void RendererCoreAlphaMask::beginKeep() {
+  // Re-mask the color channels without touching the alpha already written -
+  // the walk in the generated game brackets each caster's volume separately
+  // so its own light can draw first, and brackets after the first must not
+  // reset what earlier casters put in the mask.
+  if (path1->isVU1Configured()) sync->align3D();
+
+  const RendererCoreGS::RasterTarget t = gs->getRasterTarget();
+  const int psm = settings->getFrameBufferPsm();
+  const unsigned fbmsk = psm == 0 ? 0x00FFFFFFu : 0x7FFF7FFFu;
+
+  packet2_reset(keepPacket, false);
+  qword_t* q = keepPacket->next;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6, psm,
+                           fbmsk),
+              GS_REG_FRAME_1);
+  q++;
+  packet2_update(keepPacket, q);
+  packet2_update(keepPacket, draw_finish(keepPacket->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(keepPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
 

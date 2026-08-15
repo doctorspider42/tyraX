@@ -2688,7 +2688,17 @@ void TerrainGame::loop() {
     gameMenuStackDepth = 0;
   }
   if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // The cone waits ONE frame after the toggle. The receivers' spot-off flags
+  // (updateFlashSpotOff) are computed in the light-pool pass, AFTER the
+  // scene's objects have drawn - so on the enable frame every big receiver
+  // still had its cone armed and took the full per-vertex term once: the OLD
+  // blocky-triangle look, strobing when the toggle is spammed (reported).
+  // The projected pool needs no warm-up and lights the same frame; only the
+  // cheap cone is deferred, and on the props that keep it one frame is
+  // invisible.
+  static bool flashSpotArmed = false;
+  const bool flashOnNow = g_flashEnabled && g_flashOn;
+  if (flashOnNow && flashSpotArmed) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
     // The cone is a FILL now, not the light (docs/flashlight.md): the ground
     // and every big flat surface take the projected pool instead, and what is
@@ -2708,6 +2718,7 @@ void TerrainGame::loop() {
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  flashSpotArmed = flashOnNow;
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
@@ -8450,30 +8461,216 @@ void TerrainGame::updateAndRenderLightPools() {
         }
       }
       updateFlashSpotOff();
-      // --- SHADOW VOLUMES (FLASH_SHADOW_VOLUMES, docs/flashlight.md) --------
+      // --- the beam's projection, needed by everything below ----------------
+      // (goboST/zBias used to live next to the floor patch; the light passes
+      // now interleave with the shadow volumes, so the projection must exist
+      // before either.)
+      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      // Beam basis. cross(dir, worldUp) degenerates when you look straight
+      // down - which is precisely the case this pool exists for - so world Z
+      // stands in there.
+      float rx, ry, rz;
+      if (dy > 0.995F || dy < -0.995F) {
+        rx = dy, ry = -dx, rz = 0.0F;
+      } else {
+        rx = -dz, ry = 0.0F, rz = dx;
+      }
+      const float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+      if (rl < 0.0001F) continue;  // nothing drew yet, nothing to repaint
+      rx /= rl, ry /= rl, rz /= rl;
+      const float ux = ry * dz - rz * dy;  // up = right x forward
+      const float uy = rz * dx - rx * dz;
+      const float uz = rx * dy - ry * dx;
+
+      // Where a world point sits in the beam's own frustum - as the
+      // projection's NUMERATOR AND DENOMINATOR, not as a finished u,v.
+      //
+      // This is the difference between a projected texture and a decal with
+      // the right picture on it. VU1 emits ST scaled by the vertex's own 1/w
+      // (PerformTexturePerspectiveCorrection: mulq stq, stq, q) and the GS
+      // divides S/Q per PIXEL, so whatever pair goes in here is interpolated
+      // exactly across the triangle in world space. u = S/Q with
+      //   S = 0.5 * fwd + k * (e . right)      k = 0.43 / tan(halfAngle)
+      //   Q = fwd                              fwd = e . forward
+      // and BOTH are affine in the world position, so the per-pixel quotient
+      // is the true projective mapping - not the linear approximation of it
+      // that finished u,v give (which read as a fan of triangles, reported
+      // from the console; 0.43 puts the cone edge at r = 0.86, the gobo's
+      // own black margin). No EE clamp: the gobo is GS CLAMP, so a sample
+      // outside the frustum takes the black border per pixel.
+      const float kProj = 0.43F / tanA;
+      auto goboST = [&](float x, float y, float z) {
+        const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
+                    ez = z - cameraPosition.z;
+        float fwd = ex * dx + ey * dy + ez * dz;
+        if (fwd < 0.05F) fwd = 0.05F;  // at or behind the lens
+        return Vec4(0.5F * fwd + kProj * (ex * rx + ey * ry + ez * rz),
+                    0.5F * fwd - kProj * (ex * ux + ey * uy + ez * uz), fwd,
+                    0.0F);
+      };
+      // The floor patch is depth-TESTED and never writes z, so it has to win
+      // that test against the surface it lies 4.5 cm above - which on one
+      // enormous floor triangle is not a margin the GS can always resolve.
+      // Pulling each vertex a fixed FRACTION of its eye distance closer wins
+      // at every range and costs nothing visually: the displacement is along
+      // the view ray, so the vertex projects to the same pixel. 0.975, not
+      // the projected shadows' 0.996: the margin must also cover a terrain
+      // CREASE falling between two patch vertices (the dark triangles in the
+      // pool were exactly that chord losing to the ground's own
+      // triangulation).
+      auto zBias = [&](float x, float y, float z) {
+        constexpr float k = 0.975F;
+        return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
+                    cameraPosition.y + (y - cameraPosition.y) * k,
+                    cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
+      };
+
+      // --- the beam ON solid geometry: fill, per receiver -------------------
+      // The era's own trick, done the era's own way: every receiver the cone
+      // touches is rendered a SECOND time, additively, with the gobo's
+      // projective STQ per vertex - light on REAL triangles, per pixel,
+      // whatever their count or orientation. Receivers by CONE rather than by
+      // hit (three console reports paid for that). The fill is sliced PER
+      // RECEIVER now, because the walk below renders each receiver's light at
+      // its own place in the caster order.
+      int wSliceStart[3] = {0, 0, 0};
+      int wSliceCount[3] = {0, 0, 0};
+      b.wVerts.clear();
+      b.wSts.clear();
+      b.wColors.clear();
+      {
+        for (int ri = 0; ri < recvN; ++ri) {
+          wSliceStart[ri] = (int)b.wVerts.size();
+          const int oi = recvObj[ri];
+          if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
+          // A statically batched receiver owns no solo geometry - bake it on
+          // first use, like the projected shadows' silhouette pass (and with
+          // the same DIRTY caveat). The batch keeps drawing the BASE pass;
+          // only this additive layer uses the solo bake.
+          const bool batched =
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+          if (batched) {
+            if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
+              rebuildObjectGeometry(oi);
+          } else if (runtimeObjects[oi].dirty) {
+            rebuildObjectGeometry(oi);
+          }
+          ObjectGeometry& g = objectGeometry[oi];
+          // Nothing to re-render: animated models (skinned buffers) and
+          // physics bodies (LOCAL verts under a live matrix - an EE transform
+          // would not be bit-identical to VU1's, and this pass depends on
+          // EQUAL depth). Both are small and keep the cone instead.
+          if (g.parts.empty() || g.matrixMode) continue;
+          // Two things per TRIANGLE, both cheap and both reported from the
+          // console. A FACING cull: the STQ is a function of position alone,
+          // so a face pointing away from the torch sampled a lit texel - a
+          // box's far side and a roof's underside glowed. Orientation comes
+          // from the object's centre (an .obj's winding is nobody's promise).
+          // And the REACH falloff per vertex: the projection converges to the
+          // gobo's hot centre along the beam at ANY range.
+          const float* oc = runtimeObjects[oi].data.position;
+          for (GeoPart& part : g.parts) {
+            if (!part.bag) continue;
+            const size_t nvt = part.vertices.size() / 3 * 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+              if (b.wVerts.size() >= 3997) break;  // fill-rate backstop
+              const Vec4& a3 = part.vertices[vi];
+              const Vec4& b3 = part.vertices[vi + 1];
+              const Vec4& c3 = part.vertices[vi + 2];
+              float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
+                          (b3.z - a3.z) * (c3.y - a3.y);
+              float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
+                          (b3.x - a3.x) * (c3.z - a3.z);
+              float nz2 = (b3.x - a3.x) * (c3.y - a3.y) -
+                          (b3.y - a3.y) * (c3.x - a3.x);
+              const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+              const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+              const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+              if (nx2 * (cx3 - oc[0]) + ny2 * (cy3 - oc[1]) +
+                      nz2 * (cz3 - oc[2]) <
+                  0.0F)
+                nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+              if (nx2 * (cameraPosition.x - cx3) +
+                      ny2 * (cameraPosition.y - cy3) +
+                      nz2 * (cameraPosition.z - cz3) <=
+                  0.0F)
+                continue;  // faces away from the torch
+              const Vec4 tri3[3] = {a3, b3, c3};
+              for (int k3 = 0; k3 < 3; ++k3) {
+                b.wVerts.push_back(tri3[k3]);
+                const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
+                b.wSts.push_back(st3);
+                float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
+                if (reach < 0.0F) reach = 0.0F;
+                if (reach > 1.0F) reach = 1.0F;
+                b.wColors.push_back(Color(FLASHLIGHT_R * reach,
+                                          FLASHLIGHT_G * reach,
+                                          FLASHLIGHT_B * reach, 128.0F));
+              }
+            }
+          }
+          wSliceCount[ri] = (int)b.wVerts.size() - wSliceStart[ri];
+        }
+      }
+      // Grazing dim from the hit face when the beam actually meets one square
+      // enough to know; reach lives in the vertex colors.
+      float cosI = 1.0F;
+      if (onWall) {
+        const float* fa = wallAxis == 0
+                              ? wallBox.ax
+                              : (wallAxis == 1 ? wallBox.ay : wallBox.az);
+        cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
+        if (cosI < 0.0F) cosI = -cosI;
+        if (cosI < 0.25F) cosI = 0.25F;
+      }
+      const float wf = 0.55F + 0.45F * cosI;
+      float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+      if (FLASHLIGHT_B > wmaxC) wmaxC = FLASHLIGHT_B;
+      if (wmaxC < 1.0F) wmaxC = 1.0F;
+      float wfix = 14746.0F / wmaxC * wf;
+      if (wfix > 255.0F) wfix = 255.0F;
+      const bool wLightOn = wfix >= 1.0F && !b.wVerts.empty();
+
+      // --- SHADOW VOLUMES x LIGHT PASSES, interleaved by distance -----------
       // The survival-horror arrangement, on its own hardware trick: each
-      // occluder box in the beam is extruded away from the torch into a closed
-      // volume, the volume's camera-front faces SET the framebuffer alpha's
-      // MSB where they are closer than the scene and its camera-back faces
-      // CLEAR it where they are - plain TestOnly z does all the reasoning -
-      // and every torch light pass then draws with DATE, i.e. only where the
-      // bit says lit. Occlusion exact per pixel against the real z buffer,
-      // for EVERY solid in the beam, no caster flag, no slot budget.
+      // occluder box in the beam is extruded away from the torch into a
+      // closed volume, its camera-front faces SET the framebuffer alpha's MSB
+      // where they are closer than the scene, its back faces CLEAR it - plain
+      // TestOnly z does all the reasoning - and the light passes draw with
+      // DATE, only where the bit says lit.
+      //
+      // The ORDER is the load-bearing part: casters and receivers walk
+      // together, sorted by distance from the torch, and each receiver's
+      // light draws BEFORE its own volume enters the mask. A volume can only
+      // shadow things BEHIND its caster (it extrudes away from the light), so
+      // nearer-first is exactly the dependency order - and an object can
+      // never shadow ITSELF. The shed taught why that matters: a model's
+      // AABB stands proud of its actual walls (the roof overhang), so its
+      // volume's near cap floated IN FRONT of the very wall the beam lit and
+      // the whole shed went black ("swallows the light like a black hole",
+      // reported). No cap geometry can fix that - the interleave makes it
+      // structurally impossible.
       bool volMask = false;
+      auto& rc = engine->renderer.core;
+      auto renderSlice = [&](int ri) {
+        if (!wLightOn || wSliceCount[ri] <= 0) return;
+        b.wInfo->dateLit = volMask;
+        b.wBag->vertices = b.wVerts.data() + wSliceStart[ri];
+        b.wBag->count = (u32)wSliceCount[ri];
+        b.wTexBag->coordinates = b.wSts.data() + wSliceStart[ri];
+        b.wColorBag->many = b.wColors.data() + wSliceStart[ri];
+        b.wColorBag->single = nullptr;
+        b.wInfo->additiveBlendFix = (u8)wfix;
+        b.wBag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(b.wBag.get());
+      };
+      // Occluder candidates, NEAREST first - never object-table order (the
+      // scene's merged facades used to eat every slot and the props between
+      // the torch and them never cast; reported as "no dynamic shadows").
+      const ProjBox* volPick[4] = {nullptr, nullptr, nullptr, nullptr};
+      float volPickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      int volCount = 0;
       if (FLASH_SHADOW_VOLUMES) {
-        b.volFront.clear();
-        b.volBack.clear();
-        // NEAREST first, never object order. The slots used to go to
-        // whichever boxes came first in the object table, and in a scene
-        // whose first solids are three merged facades - each huge enough to
-        // intersect the cone whenever the beam faces it - all the slots went
-        // to architecture and the props between the torch and it never cast
-        // (reported as "no dynamic shadows at all"). An occluder close to
-        // the torch shadows more of the beam than any occluder behind it,
-        // so distance is the right priority.
-        const ProjBox* volPick[4] = {nullptr, nullptr, nullptr, nullptr};
-        float volPickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
-        int volCount = 0;
         for (const ProjBox& pb : g_projBoxes) {
           const float ex2 = pb.o[0] - cameraPosition.x,
                       ey2 = pb.o[1] - cameraPosition.y,
@@ -8500,13 +8697,25 @@ void TerrainGame::updateAndRenderLightPools() {
           volPickT[at] = t;
           if (volCount < 4) ++volCount;
         }
-        for (int vi = 0; vi < volCount; ++vi) {
-          const ProjBox& pb = *volPick[vi];
-          if (b.volFront.size() > 3800) break;
+      }
+      {
+        int li = 0, vj = 0;
+        while (li < recvN || vj < volCount) {
+          // Tie goes to the LIGHT: when the receiver and the caster are the
+          // same object (same box, same t) its light must precede its volume.
+          if (li < recvN && (vj >= volCount || recvT[li] <= volPickT[vj])) {
+            renderSlice(li);
+            ++li;
+            continue;
+          }
+          const ProjBox& pb = *volPick[vj];
+          ++vj;
+          b.volFront.clear();
+          b.volBack.clear();
           // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the
-          // light so the occluder's own lit face stays in front of the
-          // volume's near cap - without the push the cap ties the surface's
-          // depth and DATE eats the light on the very face the beam hits.
+          // light: with the interleave the push no longer guards the
+          // caster's own face (its light drew already) - it only breaks the
+          // depth TIE against the next surface a cap might touch.
           Vec4 nearP[8], farP[8];
           for (int ci = 0; ci < 8; ++ci) {
             const float sx = (ci & 1) ? 1.0F : -1.0F;
@@ -8536,8 +8745,10 @@ void TerrainGame::updateAndRenderLightPools() {
             volC[2] += (nearP[ci].z + farP[ci].z) / 16.0F;
           }
           auto pushTri = [&](const Vec4& a3, const Vec4& b3, const Vec4& c3) {
-            const float ux2 = b3.x - a3.x, uy2 = b3.y - a3.y, uz2 = b3.z - a3.z;
-            const float vx2 = c3.x - a3.x, vy2 = c3.y - a3.y, vz2 = c3.z - a3.z;
+            const float ux2 = b3.x - a3.x, uy2 = b3.y - a3.y,
+                        uz2 = b3.z - a3.z;
+            const float vx2 = c3.x - a3.x, vy2 = c3.y - a3.y,
+                        vz2 = c3.z - a3.z;
             float nx2 = uy2 * vz2 - uz2 * vy2, ny2 = uz2 * vx2 - ux2 * vz2,
                   nz2 = ux2 * vy2 - uy2 * vx2;
             const float cx3 = (a3.x + b3.x + c3.x) / 3.0F,
@@ -8598,10 +8809,14 @@ void TerrainGame::updateAndRenderLightPools() {
             pushTri(nearP[p0], nearP[p1], farP[p1]);
             pushTri(nearP[p0], farP[p1], farP[p0]);
           }
-        }
-        if (!b.volFront.empty() || !b.volBack.empty()) {
-          auto& rc = engine->renderer.core;
-          rc.alphaMask.begin();
+          if (b.volFront.empty() && b.volBack.empty()) continue;
+          // One bracket per caster; only the FIRST clears the mask channel.
+          if (!volMask) {
+            rc.alphaMask.begin();
+            volMask = true;
+          } else {
+            rc.alphaMask.beginKeep();
+          }
           if (!b.volFront.empty()) {
             b.volSetBag->vertices = b.volFront.data();
             b.volSetBag->count = (u32)b.volFront.size();
@@ -8615,13 +8830,11 @@ void TerrainGame::updateAndRenderLightPools() {
             stapip.core.render(b.volClrBag.get());
           }
           rc.alphaMask.end();
-          volMask = true;
         }
       }
-      // The torch's own passes draw through the mask - or plainly, without
-      // one. Set EVERY frame: the flags would outlive the mask otherwise.
+      // The floor pool draws through the mask - or plainly, without one.
+      // Set EVERY frame: the flag would outlive the mask otherwise.
       b.info->dateLit = volMask;
-      b.wInfo->dateLit = volMask;
       // The mask lives in the framebuffer's ALPHA, and on the SDTV
       // interlaced modes that channel is live display state (the flicker
       // filter blends its two read circuits by per-pixel alpha) - leave it
@@ -8654,234 +8867,21 @@ void TerrainGame::updateAndRenderLightPools() {
         }
         prev = t;
       }
-      if (hit < 0.0F && !onWall) {
+      if (hit < 0.0F) {
+        // Nothing on the ground to light; the receivers already got theirs.
         finishVolMask();
         continue;
       }
-      // BOTH patches are drawn when both surfaces are there - no "the wall
-      // wins" any more. A beam sweeping off the floor and up a wall lights the
-      // two at once for as long as it straddles the join, and having one patch
-      // that had to belong to one surface or the other made that moment a
-      // blink: the floor pool vanished, the wall's lit triangles vanished, and
-      // a pool appeared on the wall, all in one frame. Each patch now covers
-      // its own surface and the DEPTH BUFFER decides where each one shows -
-      // the floor patch beyond a wall is behind it and simply loses the test.
-      // Their fades do the rest: a floor hit thirty units away, which is what
-      // "aimed at the wall" means for the ground ray, is already dim.
-      const float gx = cameraPosition.x + dx * (hit > 0.0F ? hit : 0.0F);
-      const float gz = cameraPosition.z + dz * (hit > 0.0F ? hit : 0.0F);
-      // What the patch lies on is decided ONCE, at the landing point, never per
-      // vertex: projSurfaceAt answers "the top of any receiver over this point",
-      // so a prop standing inside the patch would otherwise punch a cliff into
-      // it and the quad between would rasterize as a wall (renderProjShadows
-      // pays for that lesson in full). Terrain relief IS followed - it is
-      // smooth, and following it is what keeps the pool on the ground.
+      const float gx = cameraPosition.x + dx * hit;
+      const float gz = cameraPosition.z + dz * hit;
+      // What the patch lies on is decided ONCE, at the landing point, never
+      // per vertex: projSurfaceAt answers "the top of any receiver over this
+      // point", so a prop standing inside the patch would otherwise punch a
+      // cliff into it and the quad between would rasterize as a wall
+      // (renderProjShadows pays for that lesson in full). Terrain relief IS
+      // followed - it is smooth, and following it keeps the pool grounded.
       const float baseY = projSurfaceAt(gx, gz);
       const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
-
-      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
-      // Beam basis for the projection. cross(dir, worldUp) degenerates when you
-      // look straight down - which is precisely the case this pool exists for -
-      // so world Z stands in there.
-      float rx, ry, rz;
-      if (dy > 0.995F || dy < -0.995F) {
-        rx = dy, ry = -dx, rz = 0.0F;
-      } else {
-        rx = -dz, ry = 0.0F, rz = dx;
-      }
-      const float rl = sqrtf(rx * rx + ry * ry + rz * rz);
-      if (rl < 0.0001F) {
-        finishVolMask();
-        continue;
-      }
-      rx /= rl, ry /= rl, rz /= rl;
-      const float ux = ry * dz - rz * dy;  // up = right x forward
-      const float uy = rz * dx - rx * dz;
-      const float uz = rx * dy - ry * dx;
-
-      // Where this point sits in the beam's own frustum - as the projection's
-      // NUMERATOR AND DENOMINATOR, not as a finished u,v.
-      //
-      // This is the difference between a projected texture and a decal with the
-      // right picture on it. VU1 emits ST scaled by the vertex's own 1/w
-      // (PerformTexturePerspectiveCorrection: mulq stq, stq, q) and the GS
-      // divides S/Q per PIXEL, so whatever pair goes in here is interpolated
-      // exactly across the triangle in world space. u = S/Q with
-      //   S = 0.5 * fwd + k * (e . right)      k = 0.43 / tan(halfAngle)
-      //   Q = fwd                              fwd = e . forward
-      // and BOTH are affine in the world position, so the per-pixel quotient is
-      // the true projective mapping - not the linear approximation of it that
-      // finished u,v give. Finished u,v are exact at the vertices and wrong
-      // between them, which is what made the pool read as a fan of triangles
-      // however finely the patch was cut (reported from the console; 0.43 puts
-      // the cone edge at r = 0.86, the gobo's own black margin).
-      //
-      // No EE clamp any more either: the gobo texture is set to GS CLAMP in
-      // setupLightPools, so a sample outside the frustum takes the black border
-      // per pixel instead of repeating the pool. That is what the EE clamp was
-      // standing in for, and it could only ever move whole vertices.
-      const float kProj = 0.43F / tanA;
-      auto goboST = [&](float x, float y, float z) {
-        const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
-                    ez = z - cameraPosition.z;
-        float fwd = ex * dx + ey * dy + ez * dz;
-        if (fwd < 0.05F) fwd = 0.05F;  // at or behind the lens
-        return Vec4(0.5F * fwd + kProj * (ex * rx + ey * ry + ez * rz),
-                    0.5F * fwd - kProj * (ex * ux + ey * uy + ez * uz), fwd,
-                    0.0F);
-      };
-      // The patch is depth-TESTED and never writes z, so it has to win that
-      // test against the surface it lies 4.5 cm above - which on one enormous
-      // floor triangle is not a margin the GS can always resolve. Pulling each
-      // vertex a fixed FRACTION of its eye distance closer wins at every range
-      // and costs nothing visually: the displacement is along the view ray, so
-      // the vertex projects to the same pixel (the projected shadows' zBias).
-      auto zBias = [&](float x, float y, float z) {
-        // 0.975, not the projected shadows' 0.996. The margin has to cover more
-        // than fixed-point z here: this patch is 4x4 cells over ground whose
-        // own cells are the same size, so wherever a terrain CREASE falls
-        // between two patch vertices the ground pokes through the chord between
-        // them and the pool loses the test in a wedge bounded by the terrain's
-        // own triangulation. That is what the dark triangles in the pool were.
-        // Costs nothing visually - the displacement is along the view ray, so
-        // every vertex still projects to exactly the same pixel - and the only
-        // thing it can now draw over is a surface within 2.5% of the lit
-        // ground's depth, i.e. one practically touching it.
-        constexpr float k = 0.975F;
-        return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
-                    cameraPosition.y + (y - cameraPosition.y) * k,
-                    cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
-      };
-
-      // --- the beam ON solid geometry ---------------------------------------
-      // The era's own trick, done the era's own way: every receiver the cone
-      // touches is rendered a SECOND time, additively, with the gobo's
-      // projective STQ per vertex - so the light lands on REAL triangles, per
-      // pixel, whatever their count or orientation. The same pattern as the
-      // reflective env pass and the emissive atlas pass: more very simple GS
-      // passes over geometry that is already there.
-      //
-      // Receivers, plural, and by CONE rather than by hit - three reports
-      // taught that the hard way. A planar patch on the hit box's FACE drew
-      // light where a model's face is air (a glowing rectangle floating by a
-      // gabled roof); lighting only the HIT object left the wall behind a
-      // caster dark, so its shadow had nothing to be carved out of; and
-      // lighting only the hit object also meant a shed with the beam at its
-      // FEET took no projected light at all and fell back to the per-vertex
-      // cone - the old hard triangles, on the very object this pass exists
-      // for. All receivers go into ONE bag; no z bias, on purpose (equal
-      // floats through the identity matrix pass the GS's GEQUAL on equality,
-      // and a bias would paint light over whatever stands in front).
-      do {
-        if (recvN == 0) break;
-        b.wVerts.clear();
-        b.wSts.clear();
-        b.wColors.clear();
-        for (int ri = 0; ri < recvN; ++ri) {
-          const int oi = recvObj[ri];
-          if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
-          // A statically batched receiver owns no solo geometry - bake it on
-          // first use, like the projected shadows' silhouette pass (and with
-          // the same DIRTY caveat). The batch keeps drawing the BASE pass;
-          // only this additive layer uses the solo bake.
-          const bool batched =
-              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
-          if (batched) {
-            if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
-              rebuildObjectGeometry(oi);
-          } else if (runtimeObjects[oi].dirty) {
-            rebuildObjectGeometry(oi);
-          }
-          ObjectGeometry& g = objectGeometry[oi];
-          // Nothing to re-render: animated models (skinned buffers) and
-          // physics bodies (LOCAL verts under a live matrix - an EE transform
-          // would not be bit-identical to VU1's, and this pass depends on
-          // EQUAL depth). Both are small and keep the cone instead.
-          if (g.parts.empty() || g.matrixMode) continue;
-          // Two things per TRIANGLE here, both cheap and both reported from
-          // the console. A FACING cull: the STQ is a function of position
-          // alone, so a face pointing away from the torch sampled a lit texel
-          // - a box's far side and a roof's underside glowed. Orientation
-          // comes from the object's centre (an .obj's winding is nobody's
-          // promise), exact for boxes and close enough for shells. And the
-          // REACH falloff per vertex: the projection converges to the gobo's
-          // hot centre along the beam at ANY range, so without this the far
-          // reaches of a grazing pool lit distant rises at full strength.
-          const float* oc = runtimeObjects[oi].data.position;
-          for (GeoPart& part : g.parts) {
-            if (!part.bag) continue;
-            const size_t nvt = part.vertices.size() / 3 * 3;
-            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
-              if (b.wVerts.size() >= 3997) break;  // fill-rate backstop
-              const Vec4& a3 = part.vertices[vi];
-              const Vec4& b3 = part.vertices[vi + 1];
-              const Vec4& c3 = part.vertices[vi + 2];
-              float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
-                          (b3.z - a3.z) * (c3.y - a3.y);
-              float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
-                          (b3.x - a3.x) * (c3.z - a3.z);
-              float nz2 = (b3.x - a3.x) * (c3.y - a3.y) -
-                          (b3.y - a3.y) * (c3.x - a3.x);
-              const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
-              const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
-              const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
-              if (nx2 * (cx3 - oc[0]) + ny2 * (cy3 - oc[1]) +
-                      nz2 * (cz3 - oc[2]) <
-                  0.0F)
-                nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
-              if (nx2 * (cameraPosition.x - cx3) +
-                      ny2 * (cameraPosition.y - cy3) +
-                      nz2 * (cameraPosition.z - cz3) <=
-                  0.0F)
-                continue;  // faces away from the torch
-              const Vec4 tri3[3] = {a3, b3, c3};
-              for (int k3 = 0; k3 < 3; ++k3) {
-                b.wVerts.push_back(tri3[k3]);
-                const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
-                b.wSts.push_back(st3);
-                float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
-                if (reach < 0.0F) reach = 0.0F;
-                if (reach > 1.0F) reach = 1.0F;
-                b.wColors.push_back(Color(FLASHLIGHT_R * reach,
-                                          FLASHLIGHT_G * reach,
-                                          FLASHLIGHT_B * reach, 128.0F));
-              }
-            }
-          }
-        }
-        b.wVerts.resize(b.wVerts.size() / 3 * 3);  // never a torn triangle
-        b.wSts.resize(b.wVerts.size());
-        b.wColors.resize(b.wVerts.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
-        if (b.wVerts.empty()) break;
-        // Grazing dim from the hit face when the beam actually meets one
-        // square enough to know; reach lives in the vertex colors.
-        float cosI = 1.0F;
-        if (onWall) {
-          const float* fa = wallAxis == 0
-                                ? wallBox.ax
-                                : (wallAxis == 1 ? wallBox.ay : wallBox.az);
-          cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
-          if (cosI < 0.0F) cosI = -cosI;
-          if (cosI < 0.25F) cosI = 0.25F;
-        }
-        // Reach lives in the vertex colors; the flat factor is the grazing
-        // dim and the aimed ceiling alone.
-        const float wf = 0.55F + 0.45F * cosI;
-        float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
-        if (FLASHLIGHT_B > wmaxC) wmaxC = FLASHLIGHT_B;
-        if (wmaxC < 1.0F) wmaxC = 1.0F;
-        float wfix = 14746.0F / wmaxC * wf;
-        if (wfix > 255.0F) wfix = 255.0F;
-        if (wfix < 1.0F) break;
-        b.wBag->vertices = b.wVerts.data();
-        b.wBag->count = (u32)b.wVerts.size();
-        b.wTexBag->coordinates = b.wSts.data();
-        b.wColorBag->many = b.wColors.data();
-        b.wColorBag->single = nullptr;
-        b.wInfo->additiveBlendFix = (u8)wfix;
-        b.wBag->bboxVersion = ++g_bboxStamp;
-        stapip.core.render(b.wBag.get());
-      } while (0);
 
       // --- and the FLOOR patch, whether or not there was a wall -------------
       // Nothing to stand on where the beam lands (no terrain, no receiver) is
