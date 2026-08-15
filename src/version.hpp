@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.40.0 (a caster's shadow follows its shape, not its bounding box): a
+// model now casts from up to three TIGHT sub-boxes fitted to its triangles
+// - median split on the longest axis, twice, then leaves greedily merge
+// back wherever the split bought nothing (a solid crate collapses to one
+// box; an L-shape stays a pole and an arm). Built lazily per model asset,
+// local space, shared by instances (g_shadowSubBoxes). This retires the
+// volume pick's thin-skip: a tight thin box (a sign, a pole) casts its
+// honest stripe now - the street lamp's shadow is its POLE again, not the
+// pole-plus-arm slab of air that blotted out a facade. Each sub-box gets
+// its own mask bracket because set/clear is only sound inside one CONVEX
+// volume - the GS cannot count like a stencil, which is also why true
+// mesh-shaped volumes (SH2's bed slats) need the era's full arrangement
+// (count in a spare color channel with add/sub blending + a resolve pass)
+// and are left as the named next step.
+//
 // 1.39.3 (thin things are transparent to the torch, in all three systems):
 // stand exactly on the street lamp's axis and the light died completely -
 // half a step sideways brought it back (reported, with the exact spot). The
@@ -1016,8 +1031,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 39
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 40
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

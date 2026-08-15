@@ -256,6 +256,17 @@ with the GS's destination-alpha test (`TEST.DATE`), only where the mask says
 lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
 and the torch genuinely does not reach you.
 
+A model caster casts from up to three TIGHT sub-boxes fitted to its
+triangles (median split, then leaves merge back wherever splitting bought
+nothing), never from its one AABB - a lamp post's AABB is a slab of mostly
+air, and a slab's shadow is a lie. Each sub-box is convex, which is what the
+1-bit destination-alpha trick genuinely requires: the GS cannot COUNT like a
+stencil, so a non-convex volume's set/clear order lies. (True mesh-shaped
+volumes - the hospital-bed slats - need the era's full arrangement: count in
+a spare framebuffer channel with add/subtract blending, then one resolve
+pass converts count into the mask bit. The machinery exists here; it is a
+planned step, not this one.)
+
 Four rules keep the volumes honest, each paid for with a report from the
 yard. The occluder slots go to the four candidates NEAREST the torch, never
 in object-table order (three merged facades used to eat every slot and the

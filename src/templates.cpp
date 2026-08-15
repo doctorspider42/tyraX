@@ -11409,6 +11409,159 @@ struct ProjBox {
 };
 std::vector<ProjBox> g_projBoxes;
 
+// The shadow volumes are cut from BOXES, and one AABB around a sparse model
+// lies about its shape: a lamp post's box (pole plus arm) is a slab of
+// mostly air, and its "shadow" blotted out whole walls. So a model's volume
+// is cut from up to three TIGHT sub-boxes instead: split the triangles at
+// the median of the box's longest axis, twice, then greedily merge leaves
+// back wherever the split bought nothing - a solid crate merges back to one
+// box, an L-shape stays a pole and an arm. Each sub-box is convex, which is
+// the one thing the 1-bit destination-alpha trick genuinely requires (the
+// GS cannot COUNT like a stencil, so a non-convex volume's set/clear order
+// lies; a true mesh volume is off the table for exactly that reason).
+struct ShadowSubBox {
+  float mn[3], mx[3];
+};
+// Lazily built per MODEL asset (local space, shared by every instance),
+// keyed by gameModels index; cleared whenever the model table changes size.
+static std::vector<std::vector<ShadowSubBox>> g_shadowSubBoxes;
+
+static void buildShadowSubBoxes(
+    const std::vector<const std::vector<float>*>& parts,
+    std::vector<ShadowSubBox>& out) {
+  struct Tri {
+    float cen[3];
+    float mn[3], mx[3];
+  };
+  std::vector<Tri> tris;
+  for (const std::vector<float>* pv : parts) {
+    const std::vector<float>& v = *pv;
+    const size_t n = v.size() / 8;
+    for (size_t i = 0; i + 3 <= n; i += 3) {
+      Tri t;
+      for (int a = 0; a < 3; ++a) {
+        const float p0 = v[(i + 0) * 8 + a];
+        const float p1 = v[(i + 1) * 8 + a];
+        const float p2 = v[(i + 2) * 8 + a];
+        t.cen[a] = (p0 + p1 + p2) / 3.0F;
+        t.mn[a] = p0 < p1 ? (p0 < p2 ? p0 : p2) : (p1 < p2 ? p1 : p2);
+        t.mx[a] = p0 > p1 ? (p0 > p2 ? p0 : p2) : (p1 > p2 ? p1 : p2);
+      }
+      tris.push_back(t);
+    }
+  }
+  auto boxOf = [&](const std::vector<int>& idx, ShadowSubBox& b) {
+    b.mn[0] = b.mn[1] = b.mn[2] = 1e30F;
+    b.mx[0] = b.mx[1] = b.mx[2] = -1e30F;
+    for (int i : idx)
+      for (int a = 0; a < 3; ++a) {
+        if (tris[i].mn[a] < b.mn[a]) b.mn[a] = tris[i].mn[a];
+        if (tris[i].mx[a] > b.mx[a]) b.mx[a] = tris[i].mx[a];
+      }
+  };
+  // A padded volume, so flat boxes still compare meaningfully.
+  auto volOf = [](const ShadowSubBox& b) {
+    return (b.mx[0] - b.mn[0] + 0.05F) * (b.mx[1] - b.mn[1] + 0.05F) *
+           (b.mx[2] - b.mn[2] + 0.05F);
+  };
+  out.clear();
+  if (tris.empty()) return;
+  std::vector<int> all(tris.size());
+  for (size_t i = 0; i < tris.size(); ++i) all[i] = (int)i;
+  // Median split on the longest axis, applied twice -> up to four leaves.
+  // Iterative on purpose (no std::function in the game TU).
+  auto halve = [&](const std::vector<int>& idx, std::vector<int>& lo,
+                   std::vector<int>& hi) {
+    ShadowSubBox b;
+    boxOf(idx, b);
+    int ax = 0;
+    float best = b.mx[0] - b.mn[0];
+    for (int a = 1; a < 3; ++a)
+      if (b.mx[a] - b.mn[a] > best) best = b.mx[a] - b.mn[a], ax = a;
+    std::vector<int> srt = idx;
+    std::sort(srt.begin(), srt.end(), [&](int l, int r) {
+      return tris[l].cen[ax] < tris[r].cen[ax];
+    });
+    lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
+    hi.assign(srt.begin() + srt.size() / 2, srt.end());
+  };
+  std::vector<std::vector<int>> leaves;
+  if (all.size() < 8) {
+    leaves.push_back(all);
+  } else {
+    std::vector<int> lo, hi;
+    halve(all, lo, hi);
+    std::vector<std::vector<int>> level = {lo, hi};
+    for (std::vector<int>& half : level) {
+      if (half.size() < 8) {
+        leaves.push_back(half);
+        continue;
+      }
+      std::vector<int> l2, h2;
+      halve(half, l2, h2);
+      leaves.push_back(l2);
+      leaves.push_back(h2);
+    }
+  }
+  std::vector<ShadowSubBox> boxes;
+  for (std::vector<int>& lf : leaves) {
+    if (lf.empty()) continue;
+    ShadowSubBox b;
+    boxOf(lf, b);
+    boxes.push_back(b);
+  }
+  // Greedy merge: whenever a union costs little more than its parts, the
+  // split bought nothing - a solid model collapses back to one box.
+  auto tryMerge = [&](float slack) {
+    for (bool again = true; again;) {
+      again = false;
+      for (size_t i = 0; i < boxes.size() && !again; ++i)
+        for (size_t j = i + 1; j < boxes.size() && !again; ++j) {
+          ShadowSubBox u;
+          for (int a = 0; a < 3; ++a) {
+            u.mn[a] = boxes[i].mn[a] < boxes[j].mn[a] ? boxes[i].mn[a]
+                                                      : boxes[j].mn[a];
+            u.mx[a] = boxes[i].mx[a] > boxes[j].mx[a] ? boxes[i].mx[a]
+                                                      : boxes[j].mx[a];
+          }
+          if (volOf(u) <= (volOf(boxes[i]) + volOf(boxes[j])) * slack) {
+            boxes[i] = u;
+            boxes.erase(boxes.begin() + j);
+            again = true;
+          }
+        }
+    }
+  };
+  tryMerge(1.4F);
+  // Cap at three: force-merge the cheapest pairs beyond that.
+  while (boxes.size() > 3) {
+    size_t bi = 0, bj = 1;
+    float bestCost = 1e30F;
+    for (size_t i = 0; i < boxes.size(); ++i)
+      for (size_t j = i + 1; j < boxes.size(); ++j) {
+        ShadowSubBox u;
+        for (int a = 0; a < 3; ++a) {
+          u.mn[a] = boxes[i].mn[a] < boxes[j].mn[a] ? boxes[i].mn[a]
+                                                    : boxes[j].mn[a];
+          u.mx[a] = boxes[i].mx[a] > boxes[j].mx[a] ? boxes[i].mx[a]
+                                                    : boxes[j].mx[a];
+        }
+        const float c = volOf(u);
+        if (c < bestCost) bestCost = c, bi = i, bj = j;
+      }
+    ShadowSubBox u;
+    for (int a = 0; a < 3; ++a) {
+      u.mn[a] = boxes[bi].mn[a] < boxes[bj].mn[a] ? boxes[bi].mn[a]
+                                                  : boxes[bj].mn[a];
+      u.mx[a] = boxes[bi].mx[a] > boxes[bj].mx[a] ? boxes[bi].mx[a]
+                                                  : boxes[bj].mx[a];
+    }
+    boxes[bi] = u;
+    boxes.erase(boxes.begin() + bj);
+  }
+  out = boxes;
+}
+
 // Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
 // terrain patch per dynamic light, textured with the corona sprite (shape
 // in RGB - additive bags ignore texture alpha), tinted by the light color.
@@ -11985,14 +12138,6 @@ void TerrainGame::updateAndRenderLightPools() {
           const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
                                  pb.h[2] * pb.h[2]);
           if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
-          // A THIN thing casts nothing: the volume is cut from the BOX, and
-          // a lamp post's AABB (pole plus arm) is a big slab of mostly air -
-          // stand on its axis and that slab's shadow blotted out the whole
-          // facade behind it ("no light at all until half a step sideways",
-          // reported). Same 0.25 rule as the receiver slots.
-          float vthin = pb.h[0] < pb.h[1] ? pb.h[0] : pb.h[1];
-          if (pb.h[2] < vthin) vthin = pb.h[2];
-          if (vthin < 0.25F) continue;
           if (t < 0.3F || t > FLASHLIGHT_RANGE) continue;
           const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
                       pz2 = ez2 - dz * t;
@@ -12022,8 +12167,50 @@ void TerrainGame::updateAndRenderLightPools() {
             ++li;
             continue;
           }
-          const ProjBox& pb = *volPick[vj];
+          const ProjBox& castPb = *volPick[vj];
           ++vj;
+          // A model caster casts from its TIGHT sub-boxes, not its one AABB
+          // (see buildShadowSubBoxes): the lamp's box is a slab of mostly
+          // air, and standing on its axis that slab's shadow blotted out
+          // the whole facade ("no light until half a step sideways",
+          // reported). Sub-boxes give the pole its honest thin stripe back.
+          ProjBox subBox[3];
+          int subN = 0;
+          const SceneObjectData& cdd = runtimeObjects[castPb.obj].data;
+          if (cdd.type == 5 && cdd.model >= 0 &&
+              cdd.model < (int)gameModels.size()) {
+            if (g_shadowSubBoxes.size() != gameModels.size())
+              g_shadowSubBoxes.assign(gameModels.size(),
+                                      std::vector<ShadowSubBox>());
+            std::vector<ShadowSubBox>& sbs = g_shadowSubBoxes[cdd.model];
+            if (sbs.empty()) {
+              std::vector<const std::vector<float>*> pv;
+              for (const GameModelPart& gp : gameModels[cdd.model].parts)
+                pv.push_back(&gp.verts);
+              buildShadowSubBoxes(pv, sbs);
+            }
+            for (const ShadowSubBox& box : sbs) {
+              if (subN >= 3) break;
+              ProjBox r = castPb;  // the basis and the object ride along
+              float lc2[3], hh2[3];
+              for (int a = 0; a < 3; ++a) {
+                lc2[a] = 0.5F * (box.mn[a] + box.mx[a]) * cdd.scale[a];
+                hh2[a] = 0.5F * (box.mx[a] - box.mn[a]) * cdd.scale[a];
+                if (hh2[a] < 0.0F) hh2[a] = -hh2[a];
+              }
+              r.o[0] = cdd.position[0] + castPb.ax[0] * lc2[0] +
+                       castPb.ay[0] * lc2[1] + castPb.az[0] * lc2[2];
+              r.o[1] = cdd.position[1] + castPb.ax[1] * lc2[0] +
+                       castPb.ay[1] * lc2[1] + castPb.az[1] * lc2[2];
+              r.o[2] = cdd.position[2] + castPb.ax[2] * lc2[0] +
+                       castPb.ay[2] * lc2[1] + castPb.az[2] * lc2[2];
+              r.h[0] = hh2[0], r.h[1] = hh2[1], r.h[2] = hh2[2];
+              subBox[subN++] = r;
+            }
+          }
+          if (subN == 0) subBox[subN++] = castPb;
+          for (int si = 0; si < subN; ++si) {
+          const ProjBox& pb = subBox[si];
           b.volFront.clear();
           b.volBack.clear();
           // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the
@@ -12124,7 +12311,10 @@ void TerrainGame::updateAndRenderLightPools() {
             pushTri(nearP[p0], farP[p1], farP[p0]);
           }
           if (b.volFront.empty() && b.volBack.empty()) continue;
-          // One bracket per caster; only the FIRST clears the mask channel.
+          // One bracket per sub-box; only the FIRST clears the mask channel.
+          // (Set-then-clear is only sound inside ONE convex volume, so each
+          // sub-box gets its own bracket; where two sub-boxes of one model
+          // overlap - the pole/arm joint - the artifact is a sliver.)
           if (!volMask) {
             rc.alphaMask.begin();
             volMask = true;
@@ -12144,6 +12334,7 @@ void TerrainGame::updateAndRenderLightPools() {
             stapip.core.render(b.volClrBag.get());
           }
           rc.alphaMask.end();
+          }
         }
       }
       // The floor pool draws through the mask - or plainly, without one.
