@@ -57,8 +57,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Emissive materials (glow)](emissive-materials.md) — self-lit materials, the
   white-hot core, bloom threshold and spread, and baked emissive light.
 - [Pre-lit models (light baked into the texture)](prelit-models.md) — per-pixel
-  static light on a TEXTURED model, the way the PS2 era did it, and why the
-  lightmap cannot do it.
+  static light on a TEXTURED model, the way the PS2 era did it, why the lightmap
+  cannot do it, and how a scene's pre-lit objects are tracked, batch-baked and
+  reverted.
 - [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
   projected ground pool, and the gobo texture that decides its shape.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —

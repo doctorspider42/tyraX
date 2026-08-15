@@ -606,6 +606,11 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (SceneObject& o : scene.objects) {
             swap(o.modelPath);
             swap(o.materialPath);
+            // The material a Revert would put back (docs/prelit-models.md): a
+            // stored asset path like any other, so renaming that .mtl must
+            // follow it or Revert points a pre-lit object at a file that has
+            // moved.
+            swap(o.prelitSource);
             swap(o.soundPath);
             for (FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
@@ -625,6 +630,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (SceneObject& o : pf.objects) {
             swap(o.modelPath);
             swap(o.materialPath);
+            swap(o.prelitSource);
             swap(o.soundPath);
         }
 

@@ -51,15 +51,51 @@
 // litbake now multiplies the same map into the albedo it reads, so an object
 // does not lose its self-AO the moment it goes pre-lit.
 //
+// PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
+// same format v26): 1.34.0 gave a textured model per-pixel static light through
+// one button per object, and left everything around that button to memory - no
+// record of which objects were supposed to ship pre-lit, no way to know that a
+// texture had stopped agreeing with the scene, no bulk operation, no way back.
+// Three SceneObject fields close that: prelitWanted (the author's statement),
+// prelitSig (what the last bake SAW) and prelitSource (the material to revert
+// to, recorded on the FIRST bake only, an asset path that joins
+// retargetAssetPath). All three are written only when they say something, so an
+// object that never met the baker resaves byte for byte.
+//
+// THE SIGNATURE IS THE FEATURE, and the load-bearing decision in it is what it
+// deliberately does NOT see. It mixes gibake's own scene signature, the
+// object's transform, the model and its .mtl libraries by content, the bake
+// parameters and - when Model AO resolves on for the asset - that map's
+// signature, since it is multiplied into the albedo. But the scene half hashes
+// the scene AS AUTHORED, with every pre-lit override normalized back to its
+// source material: gibake::signature hashes each object's materialPath and that
+// file's bytes, so without the normalization applying a bake would change the
+// scene signature and make the object it just baked read STALE on the next
+// frame, together with every other pre-lit object beside it. The price is that
+// bounce light off a neighbour's new pre-lit texture stales nothing, a
+// second-order term nobody would want a re-bake storm for.
+//
+// The batch baker builds and solves the gibake scene ONCE per scene and bakes N
+// objects from it (that solve is nearly all of the wall clock), reports "2/7:
+// crate-3", cancels, and lands as one undo step through App::litBakerPoll -
+// polled from drawUI, so a batch started from the tab arrives whether or not
+// the tab, the selection or Properties is still showing it. --bake-prelit is
+// its headless twin: it re-bakes every stale wanted object and says `fresh` for
+// the rest, so running it twice is the check that the tracking is honest.
+//
 // ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
 // Tools > Baked Lighting..., which is where the scene's light was already
-// authored. The Material Editor's manual bake is untouched and gains one line
+// authored - Model AO (per ASSET, free) and the pre-lit table (per SCENE, one
+// texture each, with the VRAM line stating what that costs) as two sections of
+// it. The Material Editor's manual bake is untouched and gains one line
 // pointing at the automatic path.
 //
-// MINOR: a capability appears (a textured model can occlude itself, for free,
-// and --bake-model-ao is a new headless verb). No existing project's look
-// moves - the setting is false in the struct, which is what every file saved
-// before it loads as, and true only for projects created from here on.
+// MINOR: capabilities appear (a textured model can occlude itself, for free;
+// pre-lit objects gain staleness, batch baking and a Revert; --bake-model-ao
+// and --bake-prelit are new headless verbs). No existing project's look moves -
+// modelAo is false in the struct, which is what every file saved before it
+// loads as, and true only for projects created from here on; the three pre-lit
+// fields are pure bookkeeping and reach no codegen at all.
 //
 // 1.33.0 (the flashlight stops being drawn by the terrain's vertex grid, and
 // the ground gets distance detail): two halves of one report - a torch on a big

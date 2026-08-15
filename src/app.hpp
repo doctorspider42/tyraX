@@ -710,6 +710,30 @@ private:
     void modelAoPoll();
     void drawBakedLightingSection();
     void drawModelAoSection();
+    // "Pre-lit models" - the second section of that tab (docs/prelit-models.md,
+    // "Managing pre-lit objects"): which objects of the active scene are
+    // pre-lit, whether their textures still match the scene, and the batch bake.
+    void drawPrelitSection();
+    // Drains litBaker_ and applies whatever it finished, as ONE undo step.
+    // Polled every frame from drawUI and from nowhere else - the giBakerPoll
+    // rule: a batch started from the tab has to land whether or not the tab (or
+    // Properties, or the object's selection) is still there when it finishes.
+    void litBakerPoll();
+    // Puts one object back on the material it had before its first bake and
+    // forgets it was ever pre-lit. One commitChange.
+    void revertPrelit(int objIndex);
+    // What the panels draw from. litbake::signature hashes every file the GI
+    // bake reads, so it cannot be asked per row per frame: this is recomputed
+    // only when the model, the scene or the bake parameters move.
+    struct PrelitStatus {
+        int index = -1;
+        bool prelit = false;  // its texture carries light TODAY
+        bool fresh = false;   // ...and still matches the scene
+        bool movable = false;  // project::objectRuntimeMovable
+        int texSize = 0;       // the baked image's own size, 0 = not on disk
+    };
+    const std::vector<PrelitStatus>& prelitStatuses();
+    const PrelitStatus* prelitStatusFor(int objIndex);
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -1877,6 +1901,10 @@ private:
     // the object edit goes through commitChange like every other edit.
     litbake::Baker litBaker_;
     litbake::Params litBakeParams_;
+    // The active scene's pre-lit status table + the key it was computed for
+    // (scene, modelEditSerial_, the bake parameters). ~0 = recompute.
+    std::vector<PrelitStatus> prelitStatus_;
+    uint64_t prelitStatusKey_ = ~0ull;
     // The probe grid currently uploaded to the viewport: reloaded when the
     // scene changes, the model is edited (which can stale the bake) or a bake
     // finishes.

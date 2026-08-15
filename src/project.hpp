@@ -382,6 +382,30 @@ struct SceneObject {
     // The DYNAMIC light still lands on top: the flashlight's projected pool,
     // its cone, and the live point lights are all added at run time.
     bool prelit = false;
+    // --- pre-lit BOOKKEEPING (docs/prelit-models.md, "Managing pre-lit
+    // objects"). None of this reaches the game: it is what turns a one-shot
+    // button into a managed mechanism - the author's intent, what the last bake
+    // saw, and the way back.
+    //
+    // The author's statement "this object should ship pre-lit". Set by a
+    // successful bake, cleared by Revert. It is what "Bake pending" and
+    // --bake-prelit iterate: `prelit` says the texture carries light TODAY,
+    // this says it is supposed to.
+    bool prelitWanted = false;
+    // litbake::signature at the last bake - the scene's light, this object's
+    // transform, the model, the source material and the bake parameters, in one
+    // number. Fresh = it still equals the signature computed now; 0 = never
+    // baked. Serialized as a hex STRING (the ProcGraph::bakedHash precedent):
+    // a JSON number loses 64-bit precision above 2^53, which would make a
+    // freshly baked object read as stale the moment it was re-loaded.
+    uint64_t prelitSig = 0;
+    // The materialPath this object had BEFORE its first bake, so Revert can put
+    // it back. "" is a legitimate value (the model's own mtllib) and is exactly
+    // what an un-overridden model reverts to, which is why the writer may omit
+    // it at "" without losing anything. Filled on the FIRST bake only - a
+    // re-bake must never overwrite it with the -lit path it just assigned.
+    // An ASSET PATH, so it joins App::retargetAssetPath.
+    std::string prelitSource;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -926,6 +950,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
            a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
+           a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
+           a.prelitSource == b.prelitSource &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&

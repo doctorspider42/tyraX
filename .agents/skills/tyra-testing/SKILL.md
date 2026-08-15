@@ -150,6 +150,7 @@ TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
+TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
@@ -355,6 +356,19 @@ mtime before trusting a run from there.
   confirm idempotence (`fresh`, byte-identical map). The verb refuses when the
   project has the feature off, so a fixture needs `"modelAo": true` in its
   `.tyra` settings (new projects get it; older ones do not).
+- `--bake-prelit <dir> [scene]` re-bakes every object marked to ship pre-lit
+  (`prelitWanted`) whose baked texture no longer matches the scene
+  (docs/prelit-models.md, "Managing pre-lit objects"), then saves and
+  regenerates. It prints `baked` or `fresh` per object plus a summary and exits
+  non-zero on a bake failure. **Two runs are the test**: the second must report
+  everything `fresh` and bake nothing, which is the only check that the
+  signature is stable rather than merely present. To see a stale one, move the
+  object (edit its `objects/<id>.json` position) and run again - it re-bakes,
+  and the reported `mean light` moves with it. The object's stamp lands in
+  `objects/<id>.json` as `prelitSig` (hex string), `prelitWanted` and - only
+  when the object had a material override before its first bake -
+  `prelitSource`. It refuses a project needing a format migration, like every
+  headless verb that writes the project.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:

@@ -75,6 +75,14 @@ lands twice.
 | Untextured terrain | **per-texel lightmap**, same deal | `SCENE_AO_MAP_GI` |
 | Imported models, textured receivers, batched props, physics bodies, spawn-pool clones, textured terrain | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
 | Animated models, the player, NPCs | **probe grid**, sampled once per frame at the model's centre | `updateAndRenderAnimObjects` |
+| A static textured model marked [**pre-lit**](prelit-models.md) | **its own texture** — the light was gathered per texel and multiplied into a unique `-lit.png` for that object | `SceneObject::prelit` → neutral vertex colours in `pushVert`; managed in Tools > Baked Lighting |
+
+The pre-lit row is the one route that OPTS OUT of everything above it: a pre-lit
+object's vertex colours go neutral, because the ambient, the N·L, the baked
+point lights, the emissive pools and the probe answer are all already in its
+texture. That is the "declare your route or the light lands twice" rule at its
+sharpest — and it is why the pre-lit texture goes **stale** when the scene's
+light changes rather than following it.
 
 A `.obj` model's route is the probe grid for the light it *receives*, but its
 own **self-occlusion** is a separate, per-texel answer that costs nothing:

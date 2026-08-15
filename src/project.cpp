@@ -734,6 +734,16 @@ std::string objectJson(const SceneObject& o) {
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
         (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
         (o.prelit ? std::string(", \"prelit\": true") : "") +
+        // Pre-lit bookkeeping, each written only when it says something (an
+        // object that never met the baker resaves byte for byte). prelitSig is
+        // a hex STRING - 64 bits do not survive a JSON number. prelitSource is
+        // omitted at "" because "" is also what a missing key reads as, and
+        // that IS the value it would have carried: the model's own mtllib.
+        (o.prelitWanted ? std::string(", \"prelitWanted\": true") : "") +
+        (o.prelitSig ? ", \"prelitSig\": \"" + hex64(o.prelitSig) + "\"" : "") +
+        (o.prelitSource.empty()
+             ? ""
+             : ", \"prelitSource\": \"" + jsonEscape(o.prelitSource) + "\"") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
@@ -4637,6 +4647,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("dynamicLighting"))
             o.dynamicLighting = v->boolOr(false);
         if (const auto* v = jo.find("prelit")) o.prelit = v->boolOr(false);
+        if (const auto* v = jo.find("prelitWanted"))
+            o.prelitWanted = v->boolOr(false);
+        if (const auto* v = jo.find("prelitSig"))
+            o.prelitSig = parseHex64(v->stringOr(""));
+        if (const auto* v = jo.find("prelitSource"))
+            o.prelitSource = v->stringOr("");
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");

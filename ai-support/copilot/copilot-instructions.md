@@ -83,6 +83,9 @@ The editor executable on this machine: `{TYRAX_EXE}`
   ambient occlusion into `.res-baked/modelao/`, printing what was skipped and
   why (a build does it too; `--texbake` also runs the multiply into
   `.res-baked`)
+- `--bake-prelit <projectDir> [sceneName]` - re-bake every object marked to ship
+  pre-lit whose texture no longer matches the scene, then save + regenerate
+  (explicit, never part of a build; a second run bakes nothing)
 - `--resave <projectDir>` - load + save with validation/migrations
 - `--pad <projectDir> "<script>"` - drive the RUNNING game's controller through
   `bin/livepad.bin`, so a pad-driven behavior can be tested from a script with

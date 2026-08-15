@@ -93,6 +93,16 @@ image make a single multiply wrong for both — the honest fix is a per-asset
 COPY of the texture in the bake, which trades the feature's zero-VRAM property
 for coverage and should only be done where the author asks for it.
 
+### Pre-lit bake parameters are editor state, not project state
+
+`litbake::Params` (size, rays, padding, strength, floor, seed) lives on the App
+and is not serialized, but it IS part of every object's staleness signature
+(docs/prelit-models.md). So `--bake-prelit` uses the defaults and considers an
+object baked at 256 px from the panel stale, and a second editor session starts
+from the defaults too. The honest fix is per-object bake parameters stored
+beside `prelitSig`, which is also what would let one hero wall be 256 while the
+rest of the scene is 128 — worth doing the first time somebody mixes sizes.
+
 ## Medium
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing

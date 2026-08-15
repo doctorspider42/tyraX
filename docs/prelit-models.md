@@ -1,8 +1,11 @@
 # Pre-lit models (light baked into the texture)
 
 *Select the model, then **Properties > Lighting > Bake lighting into texture**
-(the two fields beside it are the output size and the rays per texel). Headless:
-`tyrax-editor --bake-object-light <projectDir> <objectName> [size] [rays]`.*
+(the two fields beside it are the output size and the rays per texel). Every
+pre-lit object in a scene lives in **Tools > Baked Lighting > Pre-lit models**.
+Headless: `tyrax-editor --bake-object-light <projectDir> <objectName> [size]
+[rays]` for one, `tyrax-editor --bake-prelit <projectDir> [sceneName]` to
+refresh every stale one.*
 
 A textured surface cannot take this engine's
 [lightmap](global-illumination.md), and that is not a limitation waiting to be
@@ -56,11 +59,104 @@ player walks up to, not on everything. Watch `VRAM` in the debug HUD
 ([gs-vram.md](gs-vram.md)); at 128² RGBA32 each pre-lit object is 64 KB of a
 ~1.33 MB budget.
 
+## Managing pre-lit objects
+
+One button per object is fine for one object. A scene with a dozen of them
+needs to answer three questions the button cannot: *which* objects ship pre-lit,
+*whether their textures still agree with the scene*, and *what that costs*.
+**Tools > Baked Lighting > Pre-lit models** is where those live — the same tab
+as [Model AO](ambient-occlusion.md#model-ao), because both are light computed on
+your desktop and shipped as pixels inside textures the project already has.
+
+### The intent, and the bake, are two different things
+
+Each row carries a **tick**, stored on the object as `prelitWanted`: *this object
+should ship pre-lit*. Ticking it bakes nothing — a bake is minutes, and it
+belongs on a button you pressed on purpose. **Unticking it reverts**
+immediately, because a pre-lit texture on an object nobody wants pre-lit is
+exactly the state this panel exists to end.
+
+- **Bake pending (N)** bakes every ticked object that is not already fresh.
+- **Re-bake all (N)** bakes every ticked object regardless.
+
+Both run one batch on a worker thread with a progress bar naming the object it
+is on (`2/7: crate-3`) and a Cancel. The batch is what makes a scene-full
+affordable: `gibake` builds the scene's triangle BVH and solves its bounces
+**once**, however many objects come out of it — that solve is nearly all of the
+wall clock, and the per-texel gather afterwards is seconds each. The whole batch
+lands as **one undo step**.
+
+### Fresh, stale, not baked
+
+Every bake stamps the object with a **signature** (`prelitSig`) of everything
+that could change what it produces:
+
+- the scene's entire light — sky, sun, emissive materials, baked point lights,
+  and every contributing object's transform, material and model **file
+  content** (this is `gibake`'s own signature, so a repainted wall stales the
+  objects that see it);
+- this object's own position, rotation and scale;
+- the model, its `.mtl` libraries and the source material, by content;
+- the bake parameters (size, rays, padding, strength, floor, seed);
+- the [Model AO](ambient-occlusion.md#model-ao) map, when it resolves on for
+  that asset — because that map is multiplied into the albedo the bake reads.
+
+A row reads **pre-lit** (green) while the stored signature still matches, and
+**stale** (amber) the moment it does not. Content hashes, never modification
+times: a `git clone` or a file copy is not an edit.
+
+Two deliberate holes, both to stop a re-bake storm. The signature is computed
+over the scene **as authored** — every pre-lit override normalized back to its
+source material — or applying a bake would change the scene's signature and
+stale the object it just baked, plus every other pre-lit object beside it. The
+price is that bounce light picked up off a *neighbour's* new pre-lit texture
+does not stale anything, which is a second-order term. And the bake parameters
+are editor state, not project state, so the CLI verb uses their defaults
+(128 px, 96 rays): bake from the panel at 256 and `--bake-prelit` will consider
+it stale.
+
+### Reverting
+
+**Properties > Revert to source material**, or untick the object's row. The
+object goes back to the `materialPath` it had **before its first bake**
+(`prelitSource`, recorded then and never overwritten by a re-bake — an empty
+value is a real one and means "the model's own `mtllib`"), and stops being
+pre-lit. The `-lit.png` / `-lit.mtl` are **left on disk**: they are ordinary
+assets, the [Asset Browser](asset-browser.md) already lists unused ones, and
+deleting files behind your back on an undoable edit is the worse failure.
+
+### The budget
+
+The panel prints `N pre-lit textures ~ X KB of the ~1.33 MB GS budget`, counted
+from each object's own baked image where it exists. That is the number to watch
+— see [GS VRAM](gs-vram.md); at 128² RGBA32 each object is 64 KB, and the GS
+pins a texture forever once it has drawn it.
+
+An object the editor can prove moves at run time (physics, pickable, usable,
+save-state, streamed, named by a flow graph) gets a **moves at runtime** marker.
+It is a warning, not a refusal: a pre-lit texture glues the light to the
+surface, so such an object carries contact shadows that match nothing the moment
+it moves.
+
+### Headless
+
+```
+tyrax-editor --bake-prelit <projectDir> [sceneName]
+```
+
+Re-bakes every `prelitWanted` object whose signature is stale, in every scene or
+the named one, then saves and regenerates. It prints one line per object —
+`baked` or `fresh` — plus a summary, and exits non-zero if any bake failed. Like
+the other headless verbs that write the project, it refuses a project that needs
+[a format migration](format-versioning.md). Running it twice is the check that
+the staleness tracking is honest: the second run bakes nothing.
+
 ## Things that will catch you
 
 - **Move the object and its texture is a lie.** The light was gathered where it
-  used to stand, contact shadows and all. Re-bake after moving it, and re-bake
-  after changing the scene's lighting.
+  used to stand, contact shadows and all. You no longer have to remember: the
+  object reads **stale** in the panel above and `--bake-prelit` picks it up.
+  Same after changing the scene's lighting, or repainting a wall it can see.
 - **Re-baking is idempotent** because the albedo is read from the model's own
   `.mtl`, never from the pre-lit material the last bake assigned. You cannot
   accidentally multiply light in twice.

@@ -807,6 +807,118 @@ static int bakeObjectLightFromCli(int argc, char** argv) {
     return 0;
 }
 
+// tyrax-editor --bake-prelit <projectDir> [sceneName]
+//
+// The MANAGED half of pre-lighting (docs/prelit-models.md, "Managing pre-lit
+// objects"), headless: every object the author marked `prelitWanted` whose
+// baked texture no longer matches the scene is re-baked, and the ones that
+// still match are left alone and said so. That last part is the point - a
+// pre-lit texture goes stale when the object moves or the scene's light
+// changes, and until now the only way to know was to remember.
+//
+// One gibake::build + one gibake::solve PER SCENE, however many objects come
+// out of it: the gather per object is seconds and the bounce solve is the rest.
+// Twin of the Baked lighting tab's "Bake pending" button.
+static int bakePrelitFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-prelit <projectDir> "
+                     "[sceneName]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;  // it saves the project
+    const char* wantScene = argc > 3 ? argv[3] : nullptr;
+
+    const litbake::Params prm;  // the editor's own defaults - see the doc
+    const std::atomic<bool> never{false};
+    int baked = 0, kept = 0, failed = 0, wanted = 0;
+    bool sceneFound = false;
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        SceneData& sc = p.scenes[si];
+        if (wantScene && sc.name != wantScene) continue;
+        sceneFound = true;
+        const std::vector<char> fresh = litbake::freshFlags(p, sc, prm);
+        std::vector<int> todo;
+        for (size_t i = 0; i < sc.objects.size(); ++i) {
+            const SceneObject& o = sc.objects[i];
+            if (!o.prelitWanted) continue;
+            ++wanted;
+            if (o.prelit && i < fresh.size() && fresh[i]) {
+                std::printf("fresh     %s (%s)\n", o.name.c_str(),
+                            sc.name.c_str());
+                ++kept;
+                continue;
+            }
+            todo.push_back((int)i);
+        }
+        if (todo.empty()) continue;
+
+        gibake::Settings st = gibake::settingsOf(p.settings);
+        st.enabled = true;  // the gather works whether or not GI ships
+        gibake::Scene scene = gibake::build(p, sc, st);
+        gibake::solve(scene, st, &never, nullptr);
+        // Hashed once for the whole scene - it reads every file the GI bake
+        // reads. Taken BEFORE any apply, which is also when it is correct:
+        // sceneSignature normalizes pre-lit overrides away, so it does not
+        // move as objects are applied, and this only saves the re-hashing.
+        const uint64_t sceneSig = litbake::sceneSignature(p, sc);
+        for (int oi : todo) {
+            const std::string name = sc.objects[oi].name;
+            litbake::Result r;
+            std::string err;
+            const auto t0 = std::chrono::steady_clock::now();
+            if (!litbake::bakeObject(p, sc, oi, scene, prm, r, err)) {
+                std::fprintf(stderr, "error: %s (%s): %s\n", name.c_str(),
+                             sc.name.c_str(), err.c_str());
+                ++failed;
+                continue;
+            }
+            const uint64_t sig = litbake::signature(p, sc, oi, prm, sceneSig);
+            if (std::string e = litbake::applyToObject(p, sc, oi, r, sig);
+                !e.empty()) {
+                std::fprintf(stderr, "error: %s: %s\n", name.c_str(), e.c_str());
+                ++failed;
+                continue;
+            }
+            const double secs =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count();
+            std::printf(
+                "baked     %s (%s): %dx%d, %d texels, mean light %.3f, %.1fs\n",
+                name.c_str(), sc.name.c_str(), r.size, r.size, r.litTexels,
+                r.meanLight, secs);
+            ++baked;
+        }
+    }
+    if (wantScene && !sceneFound) {
+        std::fprintf(stderr, "error: no scene named '%s'\n", wantScene);
+        return 1;
+    }
+    if (baked) {
+        if (std::string err = project::save(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        if (std::string err = project::refreshGenerated(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    std::printf("pre-lit: %d baked, %d already fresh, %d failed (%d object(s) "
+                "marked)\n",
+                baked, kept, failed, wanted);
+    if (!wanted)
+        std::printf(
+            "nothing is marked to ship pre-lit - tick objects in Tools > "
+            "Baked Lighting, or use --bake-object-light for a one-off\n");
+    return failed ? 1 : 0;
+}
+
 // tyrax-editor --bake-model-ao <projectDir> [--texbake]
 //
 // Bakes every eligible model asset's own ambient occlusion into
@@ -3316,6 +3428,8 @@ int main(int argc, char** argv) {
         return refreshGenFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-object-light") == 0)
         return bakeObjectLightFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-prelit") == 0)
+        return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
@@ -3383,6 +3497,9 @@ int main(int argc, char** argv) {
             "                                          bake every model "
             "asset's own AO into its texture\n"
             "                                          (docs/ambient-occlusion.md)\n"
+            "  --bake-prelit <projectDir> [sceneName]  re-bake every STALE "
+            "pre-lit object\n"
+            "                                          (docs/prelit-models.md)\n"
             "Neural upscaler (docs/neural-upscaler.md):\n"
             "  --blss-train [<projectDir>] [-o blss.net] [--frames N] "
             "[--epochs N] [--dump <dir>]\n"

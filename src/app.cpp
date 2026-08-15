@@ -895,6 +895,7 @@ void App::drawUI() {
     drawDroneGeneratorWindow();
     giBakerPoll();
     modelAoPoll();
+    litBakerPoll();
     blssPoll();
     drawBlssWindow();
     drawLoadingScreenWindow();
