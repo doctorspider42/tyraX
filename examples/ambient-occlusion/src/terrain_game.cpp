@@ -667,30 +667,68 @@ void occShapeAt(const Shape& oc, const V3& wp, float& dist, V3& toOcc) {
   }
 }
 
-/** Occlusion contribution of one occluder at a surface point (0..1). */
+/** Radius of a disc with the same PROJECTED AREA as the shape, seen along
+ * `toOcc`. Twin of aobake::occProjRadius. */
+float aoProjRadius(const AoOccData& oc, const V3& toOcc) {
+  if (oc.sphere) return oc.half[0];
+  const float* ax[3] = {oc.ax, oc.ay, oc.az};
+  float a = 0.0F;
+  for (int k = 0; k < 3; ++k) {
+    float c = toOcc.x * ax[k][0] + toOcc.y * ax[k][1] + toOcc.z * ax[k][2];
+    if (c < 0.0F) c = -c;
+    a += c * 4.0F * oc.half[(k + 1) % 3] * oc.half[(k + 2) % 3];
+  }
+  return sqrtf(a * (1.0F / 3.14159265F));
+}
+
+/** Occlusion contribution of one occluder at a surface point (0..1) - how much
+ * of the surface's cosine-weighted hemisphere the shape covers, NOT how close
+ * it is. Twin of aobake::occluderOcclusionAt and of aoOcclusion in the
+ * viewport shader; the reasoning and the measurements are in aobake.cpp. */
 float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
   float dist;
   V3 toOcc;  // direction from the point toward the occluder surface
   occShapeAt(oc, wp, dist, toOcc);
   if (dist <= 0.0F) return 1.0F;  // touching / inside
-  float fade = 1.0F - dist / SCENE_AO_RADIUS;
-  if (fade <= 0.0F) return 0.0F;
-  fade *= fade;
-  // Facing weight: full occlusion facing the occluder, ~0.35 side-on (a wall
-  // still darkens the floor at its base), zero facing away.
-  float w = 0.35F + 0.65F * (n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z);
-  if (w <= 0.0F) return 0.0F;
-  if (w > 1.0F) w = 1.0F;
-  return fade * w;
+  if (dist >= SCENE_AO_RADIUS) return 0.0F;
+
+  float r = aoProjRadius(oc, toOcc);
+  if (r > SCENE_AO_RADIUS) r = SCENE_AO_RADIUS;
+  if (r <= 0.00001F) return 0.0F;
+
+  // Aimed at the midpoint of the nearest surface point and the shape centre,
+  // so a wall beside a floor is aimed at its bulk rather than at its foot.
+  float ax = toOcc.x * dist * 0.5F + (oc.pos[0] - wp.x) * 0.5F;
+  float ay = toOcc.y * dist * 0.5F + (oc.pos[1] - wp.y) * 0.5F;
+  float az = toOcc.z * dist * 0.5F + (oc.pos[2] - wp.z) * 0.5F;
+  const float al = sqrtf(ax * ax + ay * ay + az * az);
+  if (al > 0.00001F) ax /= al, ay /= al, az /= al;
+  const float cosT = n.x * ax + n.y * ay + n.z * az;
+  if (cosT <= 0.0F) return 0.0F;  // wholly behind the surface
+
+  const float d = dist + r;
+  float occ = cosT * (r * r) / (d * d);
+  if (occ > 1.0F) occ = 1.0F;
+  float t = (SCENE_AO_RADIUS - dist) / (0.4F * SCENE_AO_RADIUS);
+  if (t < 1.0F) {
+    if (t < 0.0F) t = 0.0F;
+    occ *= t * t * (3.0F - 2.0F * t);
+  }
+  return occ;
 }
 
-/** Occlusion sum over the pruned local list (+ the terrain contact term for
- * object geometry) -> shade multiplier. groundTerm is off for the terrain
- * itself - the ground doesn't sit next to itself. */
+/** Occlusion over the pruned local list (+ the terrain contact term for object
+ * geometry) -> shade multiplier. groundTerm is off for the terrain itself -
+ * the ground doesn't sit next to itself.
+ *
+ * Blockers combine as VISIBILITY (the product of what each leaves open), not
+ * as a clamped sum: a sum saturates, which is what let a neighbouring box and
+ * the ground between them black out a surface each of them only half covers.
+ * Twin of aobake::aoAccumVis and of the viewport shader. */
 float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
   if (!SCENE_AO_ENABLED) return 1.0F;
-  float occ = 0.0F;
-  for (const AoOccData* oc : g_aoLocal) occ += aoOccluderAt(*oc, wp, n);
+  float vis = 1.0F;
+  for (const AoOccData* oc : g_aoLocal) vis *= 1.0F - aoOccluderAt(*oc, wp, n);
   if (groundTerm) {
     float dy = wp.y - terrainHeightAt(wp.x, wp.z);
     if (dy < 0.0F) dy = 0.0F;
@@ -701,9 +739,10 @@ float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
       // (the ground is lit and bounces - full half-hemisphere reads too dark)
       float horiz = 0.5F - 0.5F * n.y;
       if (horiz < 0.0F) horiz = 0.0F;
-      occ += 0.7F * fade * horiz;
+      vis *= 1.0F - 0.7F * fade * horiz;
     }
   }
+  float occ = 1.0F - vis;
   if (occ > 1.0F) occ = 1.0F;
   return 1.0F - SCENE_AO_STRENGTH * occ;
 }

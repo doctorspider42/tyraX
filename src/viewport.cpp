@@ -477,8 +477,22 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     return add;
 }
 
+// Radius of a disc with the same PROJECTED AREA as the shape seen along
+// toOcc. Twin of aobake::occProjRadius / aoProjRadius in the generated game.
+float aoProjRadius(int i, vec3 h, vec3 toOcc) {
+    if (uAoPos[i].w > 0.5) return h.x;   // sphere
+    vec3 c = abs(vec3(dot(toOcc, uAoAx[i].xyz), dot(toOcc, uAoAy[i].xyz),
+                      dot(toOcc, uAoAz[i].xyz)));
+    float a = 4.0 * (c.x * h.y * h.z + c.y * h.x * h.z + c.z * h.x * h.y);
+    return sqrt(a / 3.14159265);
+}
+
+// How much of the surface's cosine-weighted hemisphere each shape covers - NOT
+// how close it is. Twin of aobake::occluderOcclusionAt and of aoOccluderAt in
+// the generated game; the reasoning and the measurements are in aobake.cpp.
+// Blockers combine as VISIBILITY (a product), because a clamped sum saturates.
 float aoOcclusion(vec3 wp, vec3 n) {
-    float occ = 0.0;
+    float vis = 1.0;
     for (int i = 0; i < uAoCount; ++i) {
         if (uAoObj[i] == uAoSelfObj) continue;  // an object never occludes itself
         vec3 rel = wp - uAoPos[i].xyz;
@@ -502,13 +516,21 @@ float aoOcclusion(vec3 wp, vec3 n) {
                 toOcc = vec3(0.0, 1.0, 0.0);
             }
         }
-        if (dist <= 0.0) { occ += 1.0; continue; }  // touching / inside
-        float fade = 1.0 - dist / uAoRadius;
-        if (fade <= 0.0) continue;
-        fade *= fade;
-        // full occlusion facing the occluder, ~0.35 side-on, zero facing away
-        float w = clamp(0.35 + 0.65 * dot(n, toOcc), 0.0, 1.0);
-        occ += fade * w;
+        if (dist <= 0.0) { vis = 0.0; continue; }  // touching / inside
+        if (dist >= uAoRadius) continue;
+        float r = min(aoProjRadius(i, h, toOcc), uAoRadius);
+        if (r <= 0.00001) continue;
+        // aimed at the midpoint of the nearest surface point and the centre
+        vec3 aim = toOcc * dist * 0.5 + (uAoPos[i].xyz - wp) * 0.5;
+        float al = length(aim);
+        if (al > 0.00001) aim /= al;
+        float cosT = dot(n, aim);
+        if (cosT <= 0.0) continue;  // wholly behind the surface
+        float d = dist + r;
+        float occ = min(cosT * (r * r) / (d * d), 1.0);
+        float t = clamp((uAoRadius - dist) / (0.4 * uAoRadius), 0.0, 1.0);
+        occ *= t * t * (3.0 - 2.0 * t);
+        vis *= 1.0 - occ;
     }
     if (uAoGround != 0) {
         float ground = 0.0;
@@ -520,10 +542,10 @@ float aoOcclusion(vec3 wp, vec3 n) {
         if (dy < uAoRadius) {
             float fade = 1.0 - dy / uAoRadius;
             // 0.7: same wall-base softening as the game's aoShadeMul
-            occ += 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
+            vis *= 1.0 - 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
         }
     }
-    return min(occ, 1.0);
+    return clamp(1.0 - vis, 0.0, 1.0);
 }
 
 void main() {

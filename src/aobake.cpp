@@ -230,20 +230,98 @@ static void occShapeAt(const Occluder& oc, const float wp[3], float& dist,
     }
 }
 
+// Independent occluders combine as VISIBILITY, not as a sum. A clamped sum
+// saturates: two shapes each taking half the sky read as fully dark instead of
+// three quarters, which is what let a neighbouring box and the ground between
+// them black out a crate that is only partly covered. Accumulate the product
+// of what each one leaves visible and take one minus it at the end.
+//
+// The twins are aoShadeMul in the generated game and aoOcclusion in the
+// viewport fragment shader - change one, change all three.
+inline void aoAccumVis(float& vis, float occ) { vis *= 1.0f - occ; }
+
+// Radius of a disc with the same PROJECTED AREA as the shape seen along the
+// unit direction `toOcc` (pointing from the receiving point at the occluder).
+// A sphere projects pi*r^2 from every side; a box projects the sum of its three
+// face pairs weighted by how square-on each is, which is what makes a thin slab
+// read as the wall it is from the front and as almost nothing from the edge.
+static float occProjRadius(const Occluder& oc, const float toOcc[3]) {
+    if (oc.sphere) return oc.half[0];
+    float a = 0.0f;
+    for (int k = 0; k < 3; ++k) {
+        const float c = std::fabs(toOcc[0] * oc.axis[k][0] +
+                                  toOcc[1] * oc.axis[k][1] +
+                                  toOcc[2] * oc.axis[k][2]);
+        a += c * 4.0f * oc.half[(k + 1) % 3] * oc.half[(k + 2) % 3];
+    }
+    return std::sqrt(a / kPi);
+}
+
 float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range) {
     float dist;
     float toOcc[3];  // direction from the point toward the occluder surface
     occShapeAt(oc, wp, dist, toOcc);
     if (dist <= 0.0f) return 1.0f;  // touching / inside
-    float fade = 1.0f - dist / range;
-    if (fade <= 0.0f) return 0.0f;
-    fade *= fade;
-    // full occlusion facing the occluder, ~0.35 side-on, zero facing away
-    float w = 0.35f + 0.65f * (n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2]);
-    if (w <= 0.0f) return 0.0f;
-    if (w > 1.0f) w = 1.0f;
-    return fade * w;
+    if (dist >= range) return 0.0f;
+
+    // HOW MUCH SKY THIS SHAPE TAKES, not how close it is.
+    //
+    // The old response was (1 - dist/range)^2 times a facing weight with a
+    // 0.35 FLOOR, so a surface turned 90 degrees away from an occluder it can
+    // barely see still kept a third of the term - and since the term depended
+    // only on distance, anything smaller than the AO radius darkened over its
+    // whole height as a lump. Measured on examples/ambient-occlusion: a crate
+    // with another crate resting on it read 0.30 on its side faces where the
+    // geometry says about 0.06.
+    //
+    // What actually occludes a surface is the fraction of its cosine-weighted
+    // hemisphere the shape covers. For a disc of radius r whose centre lies at
+    // distance d along toOcc that fraction is exactly cos(theta) * (r/d)^2,
+    // and taking r from the shape's projected area makes the same expression
+    // serve a sphere and a box. Placing that disc TANGENT to the nearest
+    // surface point (d = dist + r) is what keeps it honest at both ends: a
+    // shape resting against the surface gives cos(theta), a distant one falls
+    // off as the inverse square it should.
+    // Capped at the AO radius, and not as a fudge: occlusion past `range` is
+    // deliberately not counted, so the part of a 26-unit wall that can matter
+    // to a point 0.4 units from it is the part within reach. Uncapped, the
+    // whole wall collapses into one disc of radius 5.15 sitting almost against
+    // the surface and reads 0.70 where a half-plane at contact can only block
+    // about 0.45.
+    float r = occProjRadius(oc, toOcc);
+    if (r > range) r = range;
+    if (r <= 1e-5f) return 0.0f;
+
+    // WHERE THE SHAPE SITS IN THE SKY IS NOT WHERE ITS NEAREST POINT IS. Aim
+    // the disc at the midpoint between the nearest surface point and the
+    // shape's centre: a small shape barely moves (the two coincide), while a
+    // wall standing beside a floor is aimed UP at its bulk instead of
+    // sideways at its foot. Taking the nearest point alone reads the floor
+    // next to a 3-unit wall as unoccluded - measured 0.000 - because the wall
+    // touches it edge-on and the cosine falls out.
+    const float aim[3] = {
+        wp[0] + toOcc[0] * dist * 0.5f + (oc.pos[0] - wp[0]) * 0.5f,
+        wp[1] + toOcc[1] * dist * 0.5f + (oc.pos[1] - wp[1]) * 0.5f,
+        wp[2] + toOcc[2] * dist * 0.5f + (oc.pos[2] - wp[2]) * 0.5f};
+    float ax = aim[0] - wp[0], ay = aim[1] - wp[1], az = aim[2] - wp[2];
+    const float al = std::sqrt(ax * ax + ay * ay + az * az);
+    if (al > 1e-5f) ax /= al, ay /= al, az /= al;
+    const float cosT = n[0] * ax + n[1] * ay + n[2] * az;
+    if (cosT <= 0.0f) return 0.0f;  // wholly behind the surface: not in the way
+    const float d = dist + r;
+    float occ = cosT * (r * r) / (d * d);
+    if (occ > 1.0f) occ = 1.0f;
+
+    // Close the tail at `range` so the effect stays a CONTACT shadow - and so
+    // the bake's occluder grid, which prunes by exactly this radius, cannot
+    // drop a shape that would still have contributed.
+    float t = (range - dist) / (0.4f * range);
+    if (t < 1.0f) {
+        if (t < 0.0f) t = 0.0f;
+        occ *= t * t * (3.0f - 2.0f * t);
+    }
+    return occ;
 }
 
 std::vector<Emitter> collectEmitters(const std::string& projectDir,
@@ -957,15 +1035,24 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
             };
             if (bakeOcc) {
+                // Product-combined per sub-sample, then AVERAGED over the
+                // footprint - combining first and averaging second is what
+                // keeps the supersample an antialiasing pass rather than a
+                // second, wrong way of adding occluders together.
                 float occAcc = 0.0f;
                 for (int sy = 0; sy < kSuper; ++sy)
                     for (int sx = 0; sx < kSuper; ++sx) {
                         float sp[3];
                         subPoint(sx, sy, sp);
+                        float vis = 1.0f;
                         for (const Occluder* oc : occludersAt(sp[0], sp[2]))
-                            occAcc += occluderOcclusionAt(*oc, sp, n, radiusWorld);
+                            aoAccumVis(vis,
+                                       occluderOcclusionAt(*oc, sp, n, radiusWorld));
+                        occAcc += 1.0f - vis;
                     }
-                occ += occAcc * invSuper;
+                // ...and the heightmap's own horizon occlusion is a third
+                // independent blocker, so it joins the same way.
+                occ = 1.0f - (1.0f - occ) * (1.0f - occAcc * invSuper);
                 if (occ > 1.0f) occ = 1.0f;
                 const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
                 out.alpha[texel] = a;
@@ -1303,9 +1390,9 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         n[0] = rn.x, n[1] = rn.y, n[2] = rn.z;
     };
     auto occlusionAt = [&](const float wp[3], const float n[3]) {
-        float occ = 0.0f;
+        float vis = 1.0f;
         for (const Occluder* oc : local)
-            occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
+            aoAccumVis(vis, occluderOcclusionAt(*oc, wp, n, rs.aoRadius));
         // ground term; an empty heightmap samples the y = 0 plane. With the
         // terrain REMOVED there is no ground to contact at all, so the term is
         // left out rather than taken against that plane (docs/terrain.md).
@@ -1313,8 +1400,9 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
             const float ground =
                 heightAtWorld(sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                               (float)sc.terrain.depth, wp[0], wp[2]);
-            occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+            aoAccumVis(vis, groundOcclusion(wp[1] - ground, n[1], rs.aoRadius));
         }
+        const float occ = 1.0f - vis;
         return occ > 1.0f ? 1.0f : occ;
     };
     auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,

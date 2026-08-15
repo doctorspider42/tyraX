@@ -98,6 +98,55 @@ sculpts its terrain** — every shipped heightmap is flat, which is exactly why
 the slope bug survived as long as it did. They show up the moment somebody uses
 the Terrain Editor.
 
+## What an occluder does to a surface
+
+An occluder darkens a point by **how much of that point's sky it covers**, not
+by how close it is. For a shape whose projected silhouette has radius `r` and
+whose centre sits `d` away, the fraction of the cosine-weighted hemisphere it
+blocks is `cos(theta) * (r/d)^2`; `r` comes from the shape's projected area (so
+one expression serves a sphere and a box, and a thin slab reads as the wall it
+is from the front and as almost nothing edge-on), and the disc is placed
+**tangent to the nearest surface point** so a shape resting against a surface
+gives `cos(theta)` and a distant one falls off as the inverse square.
+
+That replaced `(1 - dist/radius)^2` times a facing weight with a **0.35 floor**,
+which had two consequences worth recording because they are what the change is
+for. A surface turned away from an occluder it can barely see still kept a
+third of the term; and since the term depended only on distance, anything
+smaller than the AO radius darkened over its whole height as a lump. Measured
+on `examples/ambient-occlusion`, on the console: a crate with another crate
+resting on it read **0.78** of its uncovered neighbour's brightness where the
+scene without AO reads 0.87 — a visible step between two crates 20 cm apart.
+With the solid-angle response it reads **1.04**, and the sides of the covered
+crate went from 0.22 to **0.000**, which is not a suppression but the right
+answer: the crate above lies entirely behind the plane of those faces and
+blocks none of their sky.
+
+Two traps this cost, both caught by measuring rather than by reading the
+formula:
+
+- **A single direction is not enough for a large shape.** Aimed at its nearest
+  point, a wall standing beside a floor is aimed *sideways at its foot*, the
+  cosine falls out and the floor reads 0.000 occluded. The disc is aimed at
+  the midpoint of the nearest point and the shape's centre, so it points at
+  the wall's bulk.
+- **An uncapped disc over-reads a big near shape.** A 26-unit wall collapses
+  into one disc of radius 5.15 sitting almost against the surface and reads
+  0.70, where a half-plane at contact can block at most about 0.45. `r` is
+  capped at the AO radius — not a fudge: occlusion past that radius is
+  deliberately not counted, so the part of the wall that can matter is the
+  part within reach.
+
+**Blockers combine as visibility, never as a sum.** `1 - prod(1 - occ)`, over
+the occluders and the ground term together. A clamped sum saturates: two shapes
+each taking half the sky read as fully dark instead of three quarters, which is
+what let a neighbour and the ground between them black out a surface neither of
+them covers.
+
+The three implementations are twins — `aobake::occluderOcclusionAt` on the
+host, `aoOccluderAt`/`aoShadeMul` in the generated game, `aoOcclusion` in the
+viewport fragment shader. Change one, change all three.
+
 ## Who casts, who receives
 
 - **Casts** (with *Cast shadow* on): boxes, spheres, cylinders, cones,

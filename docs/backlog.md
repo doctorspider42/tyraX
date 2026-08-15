@@ -106,25 +106,22 @@ it: every heightmap in `examples/` used to be flat, relief 0.00, all of them,
 which is how a bare 30° slope came to darken itself by 16% for several releases
 with nobody seeing it. Keep at least one example sculpted.
 
-### Give the occluder response a solid angle instead of a distance
+### Finish the ground term the way the occluder response was finished
 
-`occluderOcclusionAt` is `(1 - dist/range)²` times `0.35 + 0.65·N·L`, i.e. a
-function of how CLOSE a shape is rather than of how much sky it blocks. Two
-consequences, both measured on `examples/ambient-occlusion`: a crate with
-another crate resting on it darkens over its whole height, because the 0.35
-floor gives its side faces a third of the term for an occluder they can barely
-see; and a sphere gets a dark BAND at its equator, because the ground term
-weights by `0.5 - 0.5·n.y`, which peaks exactly there.
+The occluder half is done (ambient-occlusion.md, "What an occluder does to a
+surface"): occlusion is now the solid angle a shape subtends, and blockers
+combine as visibility. The GROUND contact term was deliberately left on its old
+shape - `0.7 * (1 - dy/range)^2 * (0.5 - 0.5*n.y)` - and it is now the term
+that decides how dark a small prop gets, because anything shorter than the AO
+radius sits wholly inside it.
 
-The fix is the analytic solid angle the shape subtends (closed form for a
-sphere, a good approximation for a box), plus combining occluders as
-`1 - Π(1 - occ)` instead of a clamped sum so the ground and the occluders stop
-saturating each other. It is what would let imported models RECEIVE the scene's
-occlusion per vertex (see ambient-occlusion.md — Model AO is
-transform-invariant and cannot answer for neighbours). One deliberate look
-change across all three twins: host `aobake`, the generated `aoOccluderAt`, and
-the viewport fragment shader. Wants an A/B on `gi-showcase`, `day-night` and
-`ambient-occlusion`.
+Going fully physical there is NOT obviously right and wants measuring first.
+The true cosine-weighted fraction a ground plane blocks is `(1 - n.y)/2` with a
+`1/(1+(dy/R)^2)` falloff, which at dy = 0.5 and R = 2.5 is about 0.48 against
+today's 0.217 - i.e. small props would darken MORE, not less. The `0.7` carries
+a comment saying exactly why it is below physics ("the ground is lit and
+bounces - full half-hemisphere reads too dark"), so that is a measured decision
+to overturn with evidence, not a leftover.
 
 ### Give scene occluders more than one box each
 

@@ -16,6 +16,36 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.44.0 (an occluder darkens you by how much sky it takes, not by how close
+// it is): occluderOcclusionAt was (1 - dist/radius)^2 times a facing weight
+// with a 0.35 FLOOR, so a surface turned away from a shape it can barely see
+// kept a third of the term, and anything smaller than the AO radius darkened
+// over its whole height as a lump. It is now the solid angle the shape
+// subtends - cos(theta) * (r/d)^2 with r from the projected area and the disc
+// placed tangent to the nearest surface point - and blockers combine as
+// VISIBILITY, 1 - prod(1 - occ), instead of a clamped sum that saturates.
+//
+// Measured on the console, examples/ambient-occlusion: a crate with another
+// crate resting on it read 0.78 of its uncovered neighbour's brightness where
+// the AO-off scene reads 0.87 - a visible step between two crates 20 cm apart.
+// It now reads 1.04. The covered crate's SIDES went 0.22 -> 0.000, which is
+// the right answer rather than a suppression: the crate above lies entirely
+// behind the plane of those faces. Contact shadows got stronger where they
+// belong (floor beside a wall 0.247 -> 0.603). Existing scenes barely move:
+// gi-showcase terrain alpha mean 60.9 -> 59.6.
+//
+// TWO OF MY OWN ERRORS, both caught by measuring rather than by reading the
+// formula: aiming the disc at the shape's nearest point reads the floor beside
+// a wall as 0.000 occluded (the wall touches it edge-on and the cosine falls
+// out) - it is aimed at the midpoint of the nearest point and the centre; and
+// an uncapped disc collapses a 26-unit wall into radius 5.15 against the
+// surface for 0.70, where a half-plane at contact can block about 0.45 - r is
+// capped at the AO radius, which is also the radius the bake prunes by.
+//
+// The GROUND term is deliberately untouched and is now what decides how dark a
+// small prop gets; docs/backlog.md says why going fully physical there needs
+// measuring first. MINOR: every scene with AO looks different.
+//
 // 1.43.0 (ambient occlusion: runtime blocks, and a terrain scan that stops
 // shading bare slopes). Three things, and the number is a MERGE renumber - the
 // branch stood at 1.35.0 while main reached 1.42.0, and the rule at the bottom
@@ -1096,7 +1126,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 43
+#define TYRAX_VERSION_MINOR 44
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
