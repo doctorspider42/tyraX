@@ -21,6 +21,7 @@ RendererCoreAlphaMask::RendererCoreAlphaMask() {}
 RendererCoreAlphaMask::~RendererCoreAlphaMask() {
   if (beginPacket) packet2_free(beginPacket);
   if (endPacket) packet2_free(endPacket);
+  if (repaintPacket) packet2_free(repaintPacket);
 }
 
 void RendererCoreAlphaMask::init(RendererSettings* t_settings,
@@ -34,6 +35,8 @@ void RendererCoreAlphaMask::init(RendererSettings* t_settings,
     beginPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   if (!endPacket)
     endPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+  if (!repaintPacket)
+    repaintPacket = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
 }
 
 void RendererCoreAlphaMask::begin() {
@@ -97,6 +100,63 @@ void RendererCoreAlphaMask::begin() {
   packet2_update(beginPacket, draw_finish(beginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
+void RendererCoreAlphaMask::repaintAlpha() {
+  // The mask LIVES in the framebuffer's alpha, and on the SDTV interlaced
+  // modes that channel is live display state: presentFrameBuffer programs
+  // ps2sdk's flicker filter (graph_set_framebuffer_filtered), whose PMODE
+  // blends the two line-offset read circuits by PER-PIXEL alpha. Leave the
+  // mask in place and the CRTC shows it - the volume shapes appear as
+  // soft translucent wedges over the picture (found by frame-stepping a
+  // torch toggle in PCSX2). So once the last DATE-gated light pass has
+  // consumed the mask, the alpha byte is repainted to the 0x80 the rest of
+  // the scene writes, colors untouched. Costs one alpha-only raster fill,
+  // paid only on frames that drew a mask.
+  if (path1->isVU1Configured()) sync->align3D();
+
+  const RendererCoreGS::RasterTarget t = gs->getRasterTarget();
+  const int psm = settings->getFrameBufferPsm();
+  const unsigned fbmsk = psm == 0 ? 0x00FFFFFFu : 0x7FFF7FFFu;
+  const int w = static_cast<int>(settings->getWidth());
+  const int h = static_cast<int>(settings->getRenderHeightF());
+
+  packet2_reset(repaintPacket, false);
+  qword_t* q = repaintPacket->next;
+  // Rows: FRAME, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2 = 7. The raster
+  // restore below re-emits FRAME/tests/ZBUF with its own tag.
+  PACK_GIFTAG(q, GIF_SET_TAG(7, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6, psm,
+                           fbmsk),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+              GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_ZBUF(gs->zBuffer.address >> 11, gs->zBuffer.zsm, 1),
+              GS_REG_ZBUF_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_RGBAQ(0, 0, 0, 0x80, 0x3F800000), GS_REG_RGBAQ);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYZ(t.offsetX16, t.offsetY16, 0), GS_REG_XYZ2);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_XYZ(t.offsetX16 + (w << 4), t.offsetY16 + (h << 4), 0),
+              GS_REG_XYZ2);
+  q++;
+  packet2_update(repaintPacket, q);
+  packet2_update(repaintPacket,
+                 gs->emitRasterRestore(repaintPacket->next, false));
+  packet2_update(repaintPacket, draw_finish(repaintPacket->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(repaintPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
 

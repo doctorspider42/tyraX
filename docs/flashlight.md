@@ -256,6 +256,17 @@ with the GS's destination-alpha test (`TEST.DATE`), only where the mask says
 lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
 and the torch genuinely does not reach you.
 
+Three rules keep the volumes honest, each paid for with a report from the
+yard: the occluder slots go to the four candidates NEAREST the torch, never
+in object-table order (three merged facades used to eat every slot and the
+props between the torch and them never cast); a thin thing - a lamp post, a
+sign - neither claims a receiver slot nor casts a volume, it keeps its cheap
+per-vertex cone (the slot it stole was the facade's); and once the last
+DATE-gated pass has drawn, the raster's ALPHA is repainted to the neutral
+0x80 - the mask lives in the framebuffer's alpha, and the SDTV flicker
+filter blends its two read circuits by that very channel, so a mask left in
+place is SHOWN by the CRTC as translucent wedges over the picture.
+
 What the silhouette mode needs and costs:
 
 - **"Cast shadow" (projected)** on the caster, like any projected shadow; the

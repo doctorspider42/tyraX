@@ -62,6 +62,16 @@ class RendererCoreAlphaMask {
   /** Drain the volume draws and restore the raster environment (FBMSK 0). */
   void end();
 
+  /**
+   * Repaint the raster's ALPHA byte to the scene's neutral 0x80, colors and
+   * z untouched. MUST be called once the frame's last DATE-gated pass has
+   * drawn: on the SDTV interlaced modes the flicker filter's PMODE blends
+   * the two read circuits by PER-PIXEL framebuffer alpha, so a mask left in
+   * the channel is shown by the CRTC - the volume shapes appear as soft
+   * translucent wedges over the finished picture.
+   */
+  void repaintAlpha();
+
  private:
   RendererSettings* settings = nullptr;
   RendererCoreGS* gs = nullptr;
@@ -69,6 +79,10 @@ class RendererCoreAlphaMask {
   Path1* path1 = nullptr;
   packet2_t* beginPacket = nullptr;
   packet2_t* endPacket = nullptr;
+  // repaintAlpha's own packet: it runs in the same frame as begin(), and a
+  // FINISH-parity slip would let a shared packet be rebuilt while the GIF is
+  // still fetching it.
+  packet2_t* repaintPacket = nullptr;
 };
 
 }  // namespace Tyra

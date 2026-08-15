@@ -8405,6 +8405,14 @@ void TerrainGame::updateAndRenderLightPools() {
         const float br =
             sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] + pb.h[2] * pb.h[2]);
         if (br > 20.0F) continue;  // grouping-cell sized: not a wall
+        // A THIN thing - a lamp post, a sign, a fence rail - claims no slot
+        // and keeps its per-vertex cone: the projected pass on a sliver buys
+        // nothing visible, and the slot it stole was the facade's (reported
+        // from the yard: stand by the street lamp and the building behind
+        // stops taking the torch).
+        float hthin = pb.h[0] < pb.h[1] ? pb.h[0] : pb.h[1];
+        if (pb.h[2] < hthin) hthin = pb.h[2];
+        if (hthin < 0.25F) continue;
         if (t < -br || t > FLASHLIGHT_RANGE) continue;
         const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
                     pz2 = ez2 - dz * t;
@@ -8430,6 +8438,17 @@ void TerrainGame::updateAndRenderLightPools() {
         if (sqrtf(h0 * h0 + h1 * h1) > 1.4F)
           flashSpotExtra.push_back(pb.obj);
       }
+      if (onWall) {
+        bool haveHit = false;
+        for (int k2 = 0; k2 < recvN; ++k2)
+          if (recvObj[k2] == wallBox.obj) haveHit = true;
+        if (!haveHit) {
+          const int at = recvN < 3 ? recvN : 2;  // evict the farthest
+          recvObj[at] = wallBox.obj;
+          recvT[at] = wallT;
+          if (recvN < 3) ++recvN;
+        }
+      }
       updateFlashSpotOff();
       // --- SHADOW VOLUMES (FLASH_SHADOW_VOLUMES, docs/flashlight.md) --------
       // The survival-horror arrangement, on its own hardware trick: each
@@ -8444,9 +8463,18 @@ void TerrainGame::updateAndRenderLightPools() {
       if (FLASH_SHADOW_VOLUMES) {
         b.volFront.clear();
         b.volBack.clear();
+        // NEAREST first, never object order. The slots used to go to
+        // whichever boxes came first in the object table, and in a scene
+        // whose first solids are three merged facades - each huge enough to
+        // intersect the cone whenever the beam faces it - all the slots went
+        // to architecture and the props between the torch and it never cast
+        // (reported as "no dynamic shadows at all"). An occluder close to
+        // the torch shadows more of the beam than any occluder behind it,
+        // so distance is the right priority.
+        const ProjBox* volPick[4] = {nullptr, nullptr, nullptr, nullptr};
+        float volPickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
         int volCount = 0;
         for (const ProjBox& pb : g_projBoxes) {
-          if (volCount >= 3 || b.volFront.size() > 3800) break;
           const float ex2 = pb.o[0] - cameraPosition.x,
                       ey2 = pb.o[1] - cameraPosition.y,
                       ez2 = pb.o[2] - cameraPosition.z;
@@ -8460,7 +8488,21 @@ void TerrainGame::updateAndRenderLightPools() {
           if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) >
               t * tanARecv * 1.3F + br)
             continue;
-          ++volCount;
+          int at = volCount < 4 ? volCount : 4;
+          for (int k2 = 0; k2 < volCount && k2 < 4; ++k2)
+            if (t < volPickT[k2]) { at = k2; break; }
+          if (at >= 4) continue;
+          for (int k2 = (volCount < 4 ? volCount : 3); k2 > at; --k2) {
+            volPick[k2] = volPick[k2 - 1];
+            volPickT[k2] = volPickT[k2 - 1];
+          }
+          volPick[at] = &pb;
+          volPickT[at] = t;
+          if (volCount < 4) ++volCount;
+        }
+        for (int vi = 0; vi < volCount; ++vi) {
+          const ProjBox& pb = *volPick[vi];
+          if (b.volFront.size() > 3800) break;
           // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the
           // light so the occluder's own lit face stays in front of the
           // volume's near cap - without the push the cap ties the surface's
@@ -8580,6 +8622,16 @@ void TerrainGame::updateAndRenderLightPools() {
       // one. Set EVERY frame: the flags would outlive the mask otherwise.
       b.info->dateLit = volMask;
       b.wInfo->dateLit = volMask;
+      // The mask lives in the framebuffer's ALPHA, and on the SDTV
+      // interlaced modes that channel is live display state (the flicker
+      // filter blends its two read circuits by per-pixel alpha) - leave it
+      // and the CRTC shows the volume shapes as translucent wedges over the
+      // picture. So once the last DATE-gated pass of this torch has drawn,
+      // the alpha byte goes back to the scene's neutral 0x80. Every exit
+      // from the branch below this point runs it.
+      auto finishVolMask = [&] {
+        if (volMask) engine->renderer.core.alphaMask.repaintAlpha();
+      };
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
@@ -8602,7 +8654,10 @@ void TerrainGame::updateAndRenderLightPools() {
         }
         prev = t;
       }
-      if (hit < 0.0F && !onWall) continue;
+      if (hit < 0.0F && !onWall) {
+        finishVolMask();
+        continue;
+      }
       // BOTH patches are drawn when both surfaces are there - no "the wall
       // wins" any more. A beam sweeping off the floor and up a wall lights the
       // two at once for as long as it straddles the join, and having one patch
@@ -8635,7 +8690,10 @@ void TerrainGame::updateAndRenderLightPools() {
         rx = -dz, ry = 0.0F, rz = dx;
       }
       const float rl = sqrtf(rx * rx + ry * ry + rz * rz);
-      if (rl < 0.0001F) continue;
+      if (rl < 0.0001F) {
+        finishVolMask();
+        continue;
+      }
       rx /= rl, ry /= rl, rz /= rl;
       const float ux = ry * dz - rz * dy;  // up = right x forward
       const float uy = rz * dx - rx * dz;
@@ -8828,7 +8886,10 @@ void TerrainGame::updateAndRenderLightPools() {
       // --- and the FLOOR patch, whether or not there was a wall -------------
       // Nothing to stand on where the beam lands (no terrain, no receiver) is
       // the one case with no floor pool at all.
-      if (hit < 0.0F || baseY <= TERRAIN_VOID_Y * 0.5F) continue;
+      if (hit < 0.0F || baseY <= TERRAIN_VOID_Y * 0.5F) {
+        finishVolMask();
+        continue;
+      }
       // The lit footprint is an ELLIPSE: a beam meeting the floor at a grazing
       // angle reaches far further than it is wide. So the patch is laid out
       // along the beam's ground run rather than axis-aligned - a round one
@@ -9017,10 +9078,14 @@ void TerrainGame::updateAndRenderLightPools() {
       if (maxC < 1.0F) maxC = 1.0F;
       float fix = 14746.0F / maxC * fade;  // 0.9 * 128 * 128
       if (fix > 255.0F) fix = 255.0F;
-      if (fix < 1.0F) continue;
+      if (fix < 1.0F) {
+        finishVolMask();
+        continue;
+      }
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
       stapip.core.render(b.bag.get());
+      finishVolMask();
       continue;
     }
     if (b.objIndex >= (int)runtimeObjects.size()) continue;

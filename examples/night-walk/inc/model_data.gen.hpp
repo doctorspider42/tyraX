@@ -3,7 +3,7 @@
 
 namespace Night_walk {
 
-constexpr int MODEL_COUNT = 12;
+constexpr int MODEL_COUNT = 11;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/kenney/facade-north.tmdl",
     "models/kenney/facade-west.tmdl",
@@ -16,7 +16,6 @@ inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/kenney/tree-large.tmdl",
     "models/kenney/tree-pine-large.tmdl",
     "models/shed__ovrf284.tmdl",
-    "models/shed.tmdl",
 };
 // per-model .mtl override, for the .obj fallback path only (a
 // .tmdl already carries the resolved override) - "" = none
@@ -32,7 +31,6 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
     "",
     "materials/shed-lit-lit.mtl",
-    "",
 };
 // The AUTHORED asset path each slot was baked from ("res/models/x.obj").
 // Nothing loads it - it is the key a runtime procedural volume
@@ -50,9 +48,8 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/kenney/tree-large.obj",
     "res/models/kenney/tree-pine-large.obj",
     "res/models/shed.obj",
-    "res/models/shed.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false};
+constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false};
 
 constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
