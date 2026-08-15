@@ -202,6 +202,18 @@ uniform float uOpacity;          // constant alpha multiplier (mirror glass)
 uniform int uLit;                // 0: lines/markers/sky - skip point lights
 uniform int uLightCount;
 uniform vec4 uLightPos[8];       // xyz = world position, w = radius
+// xyz = the spot's direction; w encodes the style: 2.0 = baked point (no
+// live shadow - the bake owns it), 1.6 = dynamic point, < 1.5 = a spot's
+// cos(cutoff). Spots take the cone with NO N.L - exactly the term the
+// console's VU1 slot adds.
+uniform vec4 uLightDir[8];
+// The GAME's shadow rules, not a raytracer's: a dynamic light darkens only
+// through its nearest FOUR Cast-shadow-projected objects - these are their
+// AO-proxy slots, -1 = empty. The test point is quantized to a radius-scaled
+// grid so the edge is as blocky as the 64x64 silhouette the console actually
+// samples. The editor used to shadow nothing here, which read as looks-great
+// in the editor, then surprise in the game - reported.
+uniform int uLightOcc[32];  // 4 slots per light, flat
 uniform vec4 uLightCol[8];       // rgb = color, w = brightness
 uniform int uFogOn;              // GS hardware fog preview (lit geometry only)
 uniform vec3 uFogColor;
@@ -556,7 +568,36 @@ void main() {
             if (dist >= radius) continue;
             float atten = 1.0 - dist / radius;
             atten *= atten;
+            float styleW = uLightDir[i].w;
             float ndotl = dist > 0.0001 ? max(dot(n, d / dist), 0.0) : 1.0;
+            if (styleW < 1.5) {
+                // A spot: the cone term, soft-edged, and no N.L - the same
+                // trade the console's per-vertex slot makes.
+                float ca = dist > 0.0001 ? dot(-d / dist, uLightDir[i].xyz)
+                                         : 1.0;
+                if (ca <= styleW) continue;
+                float cone = (ca - styleW) / max(1.0 - styleW, 0.001);
+                atten *= min(cone * 1.6, 1.0);
+                ndotl = 1.0;
+            }
+            // Dynamic lights shadow the game's way: nearest-four flagged
+            // casters, hard edge, quantized to the silhouette's coarseness.
+            if (styleW < 1.9) {
+                float q = max(radius / 28.0, 0.05);
+                vec3 qp = (floor(vWorld / q) + 0.5) * q;
+                vec3 dq = uLightPos[i].xyz - qp;
+                float dl = length(dq);
+                bool blocked = false;
+                for (int s = 0; s < 4 && !blocked; ++s) {
+                    int k = uLightOcc[i * 4 + s];
+                    if (k < 0) break;
+                    if (uAoObj[k] == uAoSelfObj) continue;
+                    if (dl > 0.1 &&
+                        shadowHit(k, qp + n * 0.05, dq / dl, dl - 0.1))
+                        blocked = true;
+                }
+                if (blocked) continue;
+            }
             add += uLightCol[i].rgb * (uLightCol[i].w * atten * ndotl);
         }
         shade = min(shade + add, vec3(1.0));
@@ -1130,6 +1171,8 @@ bool Viewport::init() {
     uLit_ = glGetUniformLocation(program_, "uLit");
     uLightCount_ = glGetUniformLocation(program_, "uLightCount");
     uLightPos_ = glGetUniformLocation(program_, "uLightPos");
+    uLightDir_ = glGetUniformLocation(program_, "uLightDir");
+    uLightOcc_ = glGetUniformLocation(program_, "uLightOcc");
     uLightCol_ = glGetUniformLocation(program_, "uLightCol");
     uFogOn_ = glGetUniformLocation(program_, "uFogOn");
     uFogColor_ = glGetUniformLocation(program_, "uFogColor");
@@ -1304,6 +1347,7 @@ void Viewport::shutdown() {
     destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
     destroyMesh(segment_);
@@ -1610,6 +1654,7 @@ void Viewport::buildPrimitiveMeshes() {
     destroyMesh(collisionCube_);
     destroyMesh(lightGizmo_);
     destroyMesh(wireSphere_);
+    destroyMesh(wireCone_);
     destroyMesh(cameraBody_);
     destroyMesh(cameraFrustum_);
     destroyMesh(segment_);
@@ -1630,6 +1675,24 @@ void Viewport::buildPrimitiveMeshes() {
     collisionCube_ = uploadMesh(unitWireCube(0.5f));  // exact edges (overlay)
     lightGizmo_ = uploadMesh(unitLightBulb());
     wireSphere_ = uploadMesh(unitWireSphere());
+    {
+        // Unit wire cone for the spot-light gizmo: apex at the origin,
+        // base ring at y = -1 with radius 1 (scaled by tan(angle) * reach).
+        std::vector<float> wc;
+        constexpr int kSeg = 20;
+        for (int i = 0; i < kSeg; ++i) {
+            const float a0 = (float)i / kSeg * 2.0f * kPi;
+            const float a1 = (float)(i + 1) / kSeg * 2.0f * kPi;
+            pushVertexColor(wc, std::cos(a0), -1.0f, std::sin(a0), 1, 1, 1);
+            pushVertexColor(wc, std::cos(a1), -1.0f, std::sin(a1), 1, 1, 1);
+        }
+        for (int i = 0; i < 4; ++i) {
+            const float a = (float)i / 4 * 2.0f * kPi;
+            pushVertexColor(wc, 0.0f, 0.0f, 0.0f, 1, 1, 1);
+            pushVertexColor(wc, std::cos(a), -1.0f, std::sin(a), 1, 1, 1);
+        }
+        wireCone_ = uploadMesh(wc);
+    }
     cameraBody_ = uploadMesh(unitCameraBody());
     cameraFrustum_ = uploadMesh(unitCameraFrustum());
     {
@@ -4114,9 +4177,12 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Point lights in the scene -> fragment shader uniforms (live preview of
     // what the game bakes into vertex colors; capped at the shader's 8).
     int pointLightCount = 0;
+    float lightPosPrev[8 * 4] = {};
+    bool lightDynPrev[8] = {};
     {
         float pos[8 * 4] = {};
         float col[8 * 4] = {};
+        float dir[8 * 4] = {};
         int count = 0;
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             const SceneObject& o = objects[oi];
@@ -4130,11 +4196,32 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             col[count * 4 + 1] = o.color[1];
             col[count * 4 + 2] = o.color[2];
             col[count * 4 + 3] = o.lightBright;
+            // Style channel (see the shader): spots carry their direction -
+            // the object's local -Y through its rotation, the same axis the
+            // game resolves - and cos(cutoff); points carry 1.6 (dynamic,
+            // shadows the game's way) or 2.0 (baked - the bake owns those).
+            if (o.lightDynamic && o.lightSpot) {
+                const float d2r = kPi / 180.0f;
+                const Mat4 rot = mul(rotZ(o.rotation[2] * d2r),
+                                     mul(rotY(o.rotation[1] * d2r),
+                                         rotX(o.rotation[0] * d2r)));
+                dir[count * 4 + 0] = -rot.m[4];
+                dir[count * 4 + 1] = -rot.m[5];
+                dir[count * 4 + 2] = -rot.m[6];
+                dir[count * 4 + 3] =
+                    std::cos(o.lightSpotAngle * d2r);
+            } else {
+                dir[count * 4 + 3] = o.lightDynamic ? 1.6f : 2.0f;
+            }
+            lightDynPrev[count] = o.lightDynamic;
+            for (int c = 0; c < 4; ++c)
+                lightPosPrev[count * 4 + c] = pos[count * 4 + c];
             ++count;
         }
         glUniform1i(uLightCount_, count);
         glUniform4fv(uLightPos_, 8, pos);
         glUniform4fv(uLightCol_, 8, col);
+        glUniform4fv(uLightDir_, 8, dir);
         pointLightCount = count;
     }
 
@@ -4276,6 +4363,43 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             glUniform4fv(uAoAz_, 32, az);
             glUniform1iv(uAoObj_, 32, obj);
             aoCount = (int)occs.size();
+            // Each dynamic light's shadow casters, THE GAME'S WAY: only
+            // objects with "Cast shadow (projected)", nearest four to the
+            // light. The editor used to let everything shadow (or nothing),
+            // which is exactly the in-game surprise this preview now spoils
+            // in advance.
+            int lightOcc[8 * 4];
+            for (int i = 0; i < 8 * 4; ++i) lightOcc[i] = -1;
+            for (int li = 0; li < pointLightCount; ++li) {
+                if (!lightDynPrev[li]) continue;
+                const float* lp = lightPosPrev + li * 4;
+                struct Cand {
+                    float d2;
+                    int slot;
+                };
+                Cand cand[32];
+                int cn = 0;
+                for (size_t s = 0; s < occs.size(); ++s) {
+                    const int objIdx = occs[s].objIndex;
+                    if (objIdx < 0 || objIdx >= (int)objects.size()) continue;
+                    if (!objects[objIdx].projShadow) continue;
+                    const float dx = occs[s].pos[0] - lp[0];
+                    const float dy = occs[s].pos[1] - lp[1];
+                    const float dz = occs[s].pos[2] - lp[2];
+                    const float d2v = dx * dx + dy * dy + dz * dz;
+                    if (d2v > lp[3] * lp[3] * 4.0f) continue;
+                    cand[cn].d2 = d2v;
+                    cand[cn].slot = (int)s;
+                    if (++cn >= 32) break;
+                }
+                std::sort(cand, cand + cn,
+                          [](const Cand& a, const Cand& b) {
+                              return a.d2 < b.d2;
+                          });
+                for (int s = 0; s < cn && s < 4; ++s)
+                    lightOcc[li * 4 + s] = cand[s].slot;
+            }
+            glUniform1iv(uLightOcc_, 32, lightOcc);
         }
         glUniform1i(uAoOn_, aoOn_ ? 1 : 0);
         glUniform1f(uAoStrength_, aoStrength_);
@@ -4548,7 +4672,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             // draws the box outline (drawing them here would fill the volume
             // and hide whatever it encloses).
             if (o.type == PrimitiveType::Area) continue;
-            const Mat4 model = modelMatrix(o);
+            Mat4 model = modelMatrix(o);
+            // The bulb is a MARKER: small and constant, whatever the object
+            // scale - a unit-sized bulb hid the very point it marks and made
+            // the light's true origin a guess (reported with a screenshot).
+            if (o.type == PrimitiveType::PointLight)
+                model = mul(translation(o.position[0], o.position[1],
+                                        o.position[2]),
+                            scaleM(0.28f, 0.28f, 0.28f));
             const Mat4 mvp = mul(viewProj, model);
             // the bulb gizmo stays emissive - everything else receives light
             const bool lit = !asLines && o.type != PrimitiveType::PointLight;
@@ -4992,15 +5123,32 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         }
     }
 
-    // Point-light reach: a ring sphere at each light, scaled to its radius and
-    // tinted with the light color (a rough preview of the lit volume).
+    // Point-light reach: a ring sphere scaled to the radius - or, for a
+    // SPOT, the actual cone: apex at the light, opening down the object's
+    // local -Y for the reach, base sized by the cone half-angle. The sphere
+    // said nothing about where a spot points; the cone is the light.
     for (size_t oi = 0; oi < objects.size(); ++oi) {
         const SceneObject& o = objects[oi];
         if (o.type != PrimitiveType::PointLight || hiddenAt(oi)) continue;
         const float r = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
-        const Mat4 m = mul(translation(o.position[0], o.position[1], o.position[2]),
-                           scaleM(r, r, r));
-        draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0], o.color[1], o.color[2]);
+        if (o.lightDynamic && o.lightSpot) {
+            const float d2r = kPi / 180.0f;
+            const float t = std::tan(o.lightSpotAngle * d2r);
+            Mat4 m = scaleM(t * r, r, t * r);
+            m = mul(rotX(o.rotation[0] * d2r), m);
+            m = mul(rotY(o.rotation[1] * d2r), m);
+            m = mul(rotZ(o.rotation[2] * d2r), m);
+            m = mul(translation(o.position[0], o.position[1], o.position[2]),
+                    m);
+            draw(wireCone_, GL_LINES, mul(viewProj, m), o.color[0],
+                 o.color[1], o.color[2]);
+        } else {
+            const Mat4 m =
+                mul(translation(o.position[0], o.position[1], o.position[2]),
+                    scaleM(r, r, r));
+            draw(wireSphere_, GL_LINES, mul(viewProj, m), o.color[0],
+                 o.color[1], o.color[2]);
+        }
     }
 
     // Camera entity FOV frustum: the unit frustum scaled to the entity's FOV

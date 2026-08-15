@@ -16,6 +16,25 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.42.0 (the editor stops flattering you about lights): three preview
+// gaps, all reported with a screenshot. The bulb gizmo is a small constant
+// MARKER now instead of a unit-sized glow that hid the very point it marks;
+// a spot light draws its actual CONE (apex at the light, opening down the
+// aimed -Y for the reach) instead of a radius sphere that said nothing
+// about direction; and the viewport lights shade the GAME's way - spots
+// use the cone term with no N.L (exactly the VU1 slot's trade), and a
+// dynamic light darkens only through its nearest FOUR Cast-shadow
+// (projected) objects, hard-edged and quantized to the coarseness of the
+// 64x64 silhouette the console samples. The editor used to raytrace
+// nothing for scene lights and everything for emissives, which is how "it
+// looks amazing in the editor, then surprise" happened. And Live Link
+// learns lights: protocol v4 streams a DYNAMIC light's pose, color,
+// brightness, radius, flicker and spot angle (the record's player-speeds
+// slot, reused - types never collide - plus the tail pad), so aiming a
+// lamp is a live drag instead of an amber chip. Baked lights still
+// rebuild (vertex colors own them), as do the dynamic flag, the beam and
+// the spot style (setup-time bags/textures).
+//
 // 1.41.0 (a scene light can be the flashlight's kind of light): dynamic
 // point lights gain a SPOT style (format v29: "spot" + "spotAngle" in the
 // light object, written only when on - old files resave byte for byte).
@@ -1046,7 +1065,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 41
+#define TYRAX_VERSION_MINOR 42
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

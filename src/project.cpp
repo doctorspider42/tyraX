@@ -7092,11 +7092,20 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMix3(h, o.position), fnvMix3(h, o.rotation), fnvMix3(h, o.scale);
     }
     if (o.type == PrimitiveType::PointLight) {
-        fnvMix3(h, o.position), fnvMix3(h, o.color);
-        fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
-        // Dynamic lights live in a baked side table (DYN_LIGHTS) - flipping
-        // the flag or the flicker needs a rebuild like any baked change.
-        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f), fnvMixF(h, o.lightFlicker);
+        // A BAKED light's pose/color/falloff is baked into vertex colors, so
+        // any edit needs a rebuild. A DYNAMIC light reads its object data
+        // every frame - since livelink v4 its transform, color, brightness,
+        // radius, flicker and spot angle STREAM instead, so they stay out of
+        // the recipe. What still rebuilds: the dynamic flag itself, the beam
+        // (its bags exist per light from scene setup) and the spot STYLE
+        // (the pool's texture - gobo vs corona - is chosen at setup).
+        if (!o.lightDynamic) {
+            fnvMix3(h, o.position), fnvMix3(h, o.color);
+            fnvMixF(h, o.lightBright), fnvMixF(h, o.lightRadius);
+            fnvMixF(h, o.lightFlicker);
+        }
+        fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f);
+        fnvMixF(h, o.lightSpot ? 1.0f : 0.0f);
         fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were
