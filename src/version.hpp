@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.35.0 (the lighting redesign: baked light gets one home, and a textured
+// 1.37.0 (the lighting redesign: baked light gets one home, and a textured
 // model finally occludes itself). Lighting had accumulated four separate
 // places - AO in the ambience presets, model AO by hand in the Material
 // Editor, GI in its own tab, and a per-object pre-lit button in Properties -
@@ -26,7 +26,9 @@
 // texels) and GI reaches them only as flat per-vertex probe light, so an
 // imported model has never had any self-occlusion at all.
 //
-// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v26): the
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v27 -
+// authored as v26; this branch's base took v26 for pre-lit while the redesign
+// was in flight, and the claim that arrives second renumbers): the
 // Material Editor's matbake AO, run per model ASSET without anybody asking,
 // and multiplied into the texture that model ships anyway. Two properties are
 // what make it affordable, and both fall out of WHAT is being baked rather
@@ -52,7 +54,7 @@
 // does not lose its self-AO the moment it goes pre-lit.
 //
 // PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
-// same format v26): 1.34.0 gave a textured model per-pixel static light through
+// same format v27): 1.35.0 gave a textured model per-pixel static light through
 // one button per object, and left everything around that button to memory - no
 // record of which objects were supposed to ship pre-lit, no way to know that a
 // texture had stopped agreeing with the scene, no bulk operation, no way back.
@@ -97,7 +99,7 @@
 // loads as, and true only for projects created from here on; the three pre-lit
 // fields are pure bookkeeping and reach no codegen at all.
 //
-// 1.33.0 (the flashlight stops being drawn by the terrain's vertex grid, and
+// 1.34.0 (the flashlight stops being drawn by the terrain's vertex grid, and
 // the ground gets distance detail): two halves of one report - a torch on a big
 // map looked bad, and the proposed cure was a finer heightmap near the player.
 // The second half is built here as its own feature, because it is a good answer
@@ -128,7 +130,7 @@
 // now, which is what its own documentation always claimed it was.
 //
 // DISTANCE DETAIL (docs/terrain-lod.md, ProjectSettings::terrainLodDistance,
-// format v24): beyond the set range a terrain tile is built from every 2nd
+// format v25): beyond the set range a terrain tile is built from every 2nd
 // heightmap sample and beyond 2.2x it from every 4th - a quarter and a
 // sixteenth of the triangles. The load-bearing decision is that the stride is a
 // PURE function of the snapped view focus, so a tile can work out what its
@@ -145,7 +147,26 @@
 // sprite that was never the right one - but the LOD key IS written into every
 // project's settings block on its next save, hence the format bump.
 //
-// 1.34.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
+// 1.36.0 (the torch throws shadows, and its light stops picking favourites):
+// the flashlight becomes a candidate light in the projected-shadow system - a
+// caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
+// shadow-map slot, the ground patch samples it as always, and the wall behind
+// the caster is re-rendered with the silhouette through the light's view-proj,
+// per pixel: the Silent Hill composition, on the machinery that was already
+// there. Three findings paid for it: the torch needed a laxer elevation bar
+// than fixed lights (it is carried level with everything, and its shadow's
+// whole point is the WALL - the ground patch is simply skipped when the ray is
+// too flat); it needed a LINE-OF-SIGHT check, because a light that walks
+// around routinely stands on the wrong side of a wall from a caster, and the
+// silhouette painted straight through; and the light pass had to stop lighting
+// only the object the beam HITS - the wall behind a caster stayed dark (a
+// shadow with nothing to be carved from), and a shed with the beam at its feet
+// took no projected light at all and fell back to the per-vertex cone's hard
+// triangles. Receivers are now the nearest three solids whose oriented boxes
+// the CONE touches, drawn from one bag. MINOR: capabilities appear; no default
+// moves; the format is untouched by it.
+//
+// 1.35.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
 // renumbered on the merge below - main took 1.32.0 with #230 while this branch
 // was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
 // Hill had textured models and it looked fine", which is a fair objection to
@@ -162,7 +183,7 @@
 // missing was the join. src/litbake.cpp walks the object's UV islands, turns
 // each texel into a WORLD position and normal through the object's transform,
 // asks gibake what arrives there, multiplies it into the albedo and writes the
-// object its own material. SceneObject::prelit (format v25) then switches that
+// object its own material. SceneObject::prelit (format v26) then switches that
 // object's vertex colours to neutral, because every term they used to carry is
 // in the texture now and adding it again lights the surface twice.
 //
@@ -893,7 +914,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 35
+#define TYRAX_VERSION_MINOR 37
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1121,7 +1142,19 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
 // degrees of torso pitch applied by the retargeter. Written only when
 // non-zero; no migration step.
-// v24 (terrain distance detail, docs/terrain-lod.md):
+// v24 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
+// frame buffers' pixel format (PSMCT32 or the half-size PSMCT16) and
+// ProjectSettings::dither drives the GS's ordered dither. Both are written
+// only when set away from their defaults, and those defaults are exactly what
+// every older project already did, so no migration step. (The two optional
+// render targets that landed with them are NOT in the format at all - they
+// are derived at build time from what the project ships, not stored.
+// Authored as v9 on this branch, renumbered to v18 at the first merge and to
+// v24 at this one, the same rule every note above applied to itself: main's
+// neural-upscaler batch took 8 through 17 and its speed/animation-import batch
+// 18 through 23 while this branch was open, and the claim that arrives second
+// renumbers.)
+// v25 (terrain distance detail, docs/terrain-lod.md):
 // ProjectSettings::terrainLodDistance - beyond it the ground is built from
 // every 2nd heightmap sample, beyond 2.2x it from every 4th. It defaults to 0,
 // which builds every tile at full detail, i.e. exactly what every project did
@@ -1129,21 +1162,27 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // migration step is needed. It is written unconditionally, like the
 // terrainViewDistance beside it in that flat settings block, so an untouched
 // project does gain the key on its next save - which is precisely what this
-// number exists to make safe.
-// v25 (pre-lit models, docs/prelit-models.md): SceneObject::prelit - the
+// number exists to make safe. (Authored as v24; main's VRAM options took that
+// number first, and the claim that arrives second renumbers.)
+// v26 (pre-lit models, docs/prelit-models.md): SceneObject::prelit - the
 // object's texture already carries its light, so its vertex colours go
 // neutral. Written only when true, so a project that has never baked one
 // resaves byte for byte; it defaults to false, which is what every existing
-// object is. No migration step.
-// v26 (automatic model AO, docs/ambient-occlusion.md "Model AO"):
+// object is. No migration step. (Authored as v25, renumbered with v25 above.)
+// v27 (the lighting redesign - automatic model AO + pre-lit management;
+// authored as v26, renumbered when this branch's base took v26 for pre-lit):
 // ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
 // project-wide bake knobs - plus the "modelAoMode" section, the per-asset
-// force-on/force-off override keyed by a model's asset path. Every one of them
-// is written ONLY when it differs from its default and the section is omitted
-// entirely while empty, so a project that never touches the feature resaves
-// byte for byte; the struct defaults reproduce what an older file did (no
-// model AO at all), while project::create turns it on for new projects. Purely
+// force-on/force-off override keyed by a model's asset path; and the three
+// pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
+// statement that the object ships pre-lit), prelitSig (a hex-string hash of
+// what the last bake saw) and prelitSource (the materialPath to revert to,
+// recorded on the first bake only). Every one of them is written ONLY when it
+// differs from its default and the modelAoMode section is omitted entirely
+// while empty, so a project that never touches either feature resaves byte for
+// byte; the struct defaults reproduce what an older file did (no model AO at
+// all), while project::create turns modelAo on for new projects. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 26;
+inline constexpr int kFormatVersion = 27;
 
 }  // namespace version

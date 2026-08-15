@@ -11,10 +11,46 @@ asks for more than fits.
 ## The budget
 
 GS VRAM is 4 MB = 1 048 576 "words" (1 word = 4 bytes), and the allocator
-counts in words. A default project spends it like this:
+counts in words. A project spends it like this — the two frame buffers are the
+dominant term, which is why the colour depth below is the biggest single lever
+anyone has over the texture budget:
 
-| Region | Words | Notes |
+| Region | Words (32bpp) | Words (16bpp) | Notes |
+|---|---|---|---|
+| Frame buffer × 2 (512×448) | 458 752 | 229 376 | halves again in the `InterlacedField` scan mode |
+| Z buffer (512×448, always 32bpp) | 229 376 | 229 376 | |
+| Post-fx scratch `lowVram[0..1]` | ~8 192 | ~4 096 | bloom/DoF blur chain; follows the frame format |
+| Film-grain noise (always 32bpp) | 4 096 | 4 096 | uploaded, not rendered |
+| Env-map target + its z (128×128) | 32 768 | 32 768 | **only if the project has a reflective `@sky` material** |
+| Camera-feed target + its z (128×128) | 32 768 | 32 768 | **only if the project has a feed camera** |
+| **Left for textures** | **~282 000 (1.08 MB)** | **~511 000 (1.95 MB)** | plus 65 536 more per unreserved target |
+
+`Pal576i` costs ~380 KB more at 32bpp (three 512-line buffers); at 16bpp the
+colour half of that comes back.
+
+Measured on `examples/showcase` (4-bit textures), `VRAMSTAT`'s `freeMB`:
+
+| Build | Free |
+|---|---|
+| before this work | 0.87 MB |
+| exact sizing + neither optional target reserved | **1.15 MB** |
+| ...and 16-bit colour | **2.04 MB** |
+
+### What a texture costs
+
+GS memory is **paged and swizzled**: a page is 2048 words (8 KB) and holds 32
+blocks of 64 words, and the texels of one page are spread over those blocks in
+a scrambled order. So a texture does not occupy `width * height` words — it
+occupies every block up to the highest one its texels reach. `getSize()`
+computes exactly that (whole pages once a texture is bigger than one, whole
+blocks inside a single page). At 32bpp:
+
+| Texture | Words | Of the 1.08 MB heap |
 |---|---|---|
+| 64×64 | 4 096 | 1.5% |
+| 128×128 | 16 384 | 5.8% |
+| 256×256 | 65 536 | 23% |
+| 512×512 | 262 144 | 93% — one texture, basically the whole heap |
 | Frame buffer × 2 (512×448, 32bpp) | 458 752 | halves in the `InterlacedField` scan mode |
 | Z buffer (512×448, 32bpp) | 229 376 | sized from the **raster**, so the [neural upscaler](neural-upscaler.md) shrinks it to 57 344 at 2×2 |
 | Post-fx scratch `lowVram[0..1]` + film-grain noise | ~12 288 | bloom/DoF blur chain |
@@ -22,42 +58,119 @@ counts in words. A default project spends it like this:
 | Camera-feed target + its z buffer (128×128) | 32 768 | texture feeds |
 | **Left for textures** | **~282 000** | **≈ 1.08 MB** |
 
-`Pal576i` costs ~380 KB more (three 512-line buffers) and leaves ~1 MB.
+A **CLUT** is addressed by CBP in blocks, not pages: a 16-entry palette is one
+block (64 words, 256 B) and a 256-entry one is four (256 words, 1 KB).
 
-Each texture allocation also carries ~8 KB of padding (`getSize()` adds
-`1024 * 2` words before block alignment — an upstream workaround for
-overlapping textures), so many small textures cost far more than their pixel
-count suggests. At 32bpp:
+Palettizing is the single biggest lever after the colour depth:
+*Preferences > Rendering > Textures* at 4-bit turns a 256×256 into ~1/8 of the
+pixels plus a 64-byte CLUT (8 192 words instead of 65 536). It is why the
+`showcase` example, which draws a whole village, never comes close to filling
+VRAM.
 
-| Texture | Words | Of the ~1.08 MB heap |
+> **This used to be a flat `+1024 * 2` words per allocation**, an upstream
+> workaround carrying the comment *"without this hack, textures are
+> overlapping ourselves"*. It was not derived from anything, and it was wrong
+> in both directions: a 16-entry CLUT carrying 64 bytes of data was charged
+> **8.25 KB** (so twenty palettized textures spent 160 KB of a 1 MB heap on
+> palette padding alone), while an extreme aspect ratio was still
+> UNDER-allocated — a 512×32 PSMCT16 strip spans 8 pages and reaches word
+> 15 360, and was handed 10 240. The overlap the hack was named after was
+> never fixed by it, only made less likely.
+
+## Colour depth
+
+*Preferences > Display > Colour depth* picks the frame buffers' pixel format
+(`ProjectSettings::colorDepth`, `EngineOptions::colorDepth`):
+
+- **32-bit** (`PSMCT32`) — the stock 8-8-8-8 buffer.
+- **16-bit** (`PSMCT16`) — 5-5-5-1. Halves the two frame buffers and hands all
+  of it to the texture heap, which roughly doubles. This is what makes the
+  taller scan modes practical: 1080i at 32bpp leaves *less* texture VRAM than
+  plain 480i does, and at 16bpp it leaves more than twice as much.
+
+The **z buffer stays 32-bit either way**. A 16-bit z would save another
+229 376 words, but at the projection's near/far ratio (0.1 / 51200) its
+resolution collapses with distance — roughly 1.5 world units at 100 units out —
+and terrain and baked shadows start z-fighting. That is a separate decision
+with a real quality cost, not a free saving.
+
+The cost of 16-bit colour is 32 levels per channel instead of 256, i.e.
+banding in anything smooth — skies, fog, the post-fx blur. **GS ordered
+dithering** (the `DTHE` + `DIMX` registers, *Preferences > Display > Dithering*,
+on by default) trades that banding for fine noise a TV blurs away. The
+hardware only dithers 16-bit destinations, so the switch does nothing at
+32-bit. Measured on a `showcase` sky band (500×120 px of the captured frame):
+
+| Build | Unique colours | High-frequency energy |
 |---|---|---|
-| 64×64 | 6 144 | 2% |
-| 128×128 | 18 432 | 6.5% |
-| 256×256 | 67 584 | 24% |
-| 512×512 | 264 192 | 93% — one texture, basically the whole heap |
+| 32-bit | 2 101 | 1.43 |
+| 16-bit, dither off | 1 020 | 1.31 |
+| 16-bit, dither on | 5 810 | 4.29 |
 
-Palettizing is the single biggest lever: *Preferences > Rendering > Textures*
-at 4-bit turns a 256×256 into ~1/8 of the pixels plus a small CLUT. It is why
-the `showcase` example, which draws a whole village, never comes close to
-filling VRAM.
+The middle row is the quantization showing up as exactly half the levels; the
+last is the dither turning it back into detail, at the price of visible grain
+up close.
 
-## An allocation is whole PAGES, not pixels
+> **Anything that writes a `FRAME` register for the screen must use the
+> framebuffer's PSM**, not a hardcoded `GS_PSM_32`: the drawing environment,
+> every post-fx blit, and the env-map / shadow-map brackets' restores. The
+> post-fx work buffers are allocated in the frame format for the same reason;
+> the film-grain noise texture stays PSMCT32 because it is uploaded rather
+> than rendered (`RendererCorePostFx::psmFor` is what keeps those apart).
+>
+> **ps2sdk's `GS_SET_DIMX` cannot express the dither matrix.** Each DIMX entry
+> is a 3-bit signed value (-4..3) and that macro masks the entries with `0x03`,
+> so the negative half of the standard matrix (encoded 4..7) silently collapses
+> to 0..3 and the dither comes out one-sided. `renderer_core_gs.cpp` packs the
+> qword by hand.
 
-`getSize()` counts a texture's **pixels**. The GS stores a texture in whole
-8 KB **pages**, a row of pages at a time, so a texture that does not fill its
-last page row still *owns* those pages — and the next allocation has to start
-past them. For anything short and wide the two answers differ by a factor:
+## Optional render targets
 
-| texture | pixels (+ the 2 048-word pad) | pages actually spanned |
+Two 128×128 targets, each with its own z buffer, cost 128 KB apiece — a
+quarter of the 32-bit texture heap between them — and used to be reserved for
+every project whether or not anything read them:
+
+- the **dynamic env map**, read only by a material whose `refl` is the `@sky`
+  token (docs/reflective-materials.md);
+- the **camera feed**, read only where a feed camera exists
+  (docs/texture-feeds.md).
+
+They are opt-in now (`EngineOptions::envMapTarget` / `camFeedTarget`,
+`RendererCoreEnvMap::setEnabled`). The editor's codegen decides: it scans the
+project's shipped `.mtl` / `.tmdl` / `.tskl` files for `@sky` and its scenes
+for a feed camera (`projectNeedsEnvMap` / `projectNeedsCamFeed` in
+`templates.cpp`). Looking at the files rather than the model is deliberate —
+that token reaches the game through files it loads at run time, so a
+hand-edited `.mtl` and a material only a spawn-pool prefab uses both count.
+
+A disabled target owns no VRAM and `getTexture()` returns **nullptr**; the
+generated game null-checks it and simply draws without the reflection pass. So
+the failure mode of a detection miss is a missing reflection, never a sampled
+address that belongs to something else.
+
+The **projected shadow map** was already lazy in the same spirit — the game
+calls `shadowMap.allocate()` only when a scene has "Cast shadow" objects.
+
+## An allocation is whole BLOCKS, not pixels
+
+`getSize()` used to count a texture's **pixels** plus a flat 2 048-word pad.
+The GS does not store one that way: memory is paged *and* swizzled, so what an
+allocation must cover is the highest **block** its texels reach — the last
+page's index times 32 blocks, plus the block the swizzle puts that page's
+bottom-right corner at.
+
+For anything short and wide the pixel count is a wild under-estimate:
+
+| texture | pixels (+ the 2 048-word pad) | really spanned |
 |---|---|---|
-| 256×256 PSMCT32 | 65 536 + 2 048 | 4 × 8 = 65 536 ✔ |
-| 64×64 PSMCT32 | 4 096 + 2 048 | 1 × 2 = 4 096 ✔ |
-| **512×16 PSMCT32** (the debug HUD font) | **10 240** | **8 × 1 = 16 384** ✘ |
+| 256×256 PSMCT32 | 65 536 + 2 048 | 65 536 |
+| 64×64 PSMCT32 | 4 096 + 2 048 | 4 096 |
+| **512×16 PSMCT32** (the debug HUD font) | **10 240** | **15 872** |
 
-A PSMCT32 page is 64×32 texels. The 512×16 font is one page row of **eight**
-pages, so it spans 16 384 words while being sized at 10 240 — and the next
-texture was placed 10 240 words in, page 5 of the font's own 8. It overwrote
-pages 5, 6 and 7: **every glyph from x = 320 rightwards**.
+A PSMCT32 page is 64×32 texels, so the 512×16 font is one page row of **eight**
+pages — and the next texture was placed 10 240 words in, which is page 5 of the
+font's own 8. It overwrote pages 5, 6 and 7: **every glyph from x = 320
+rightwards**.
 
 That is the bug behind *"opening the menu makes letters disappear"*. The HUD
 read `V AM` because `R` sits at x = 480 and was the only glyph past x = 320 on
@@ -66,17 +179,14 @@ own font atlas is the allocation that lands on it — which is why a *menu
 opening* triggers it, and why every scene that never opens one was fine.
 
 Upstream's `// TODO: Without this hack, textures are overlapping ourselves`
-sat on that 2 048-word pad. The pad is not the fix: it covers a width of 128
-and nothing wider. `getSize()` now returns **at least** the page footprint,
-`ceil(w / pageW) × ceil(h / pageH) × 2048`, with the page geometry per format
-(PSMCT32 64×32, PSMT8 128×64, PSMT4 128×128, PSM16 64×64; the `8H`/`4HL`/`4HH`
-formats are the high bits of a 32-bit buffer and keep 64×32).
+sat on that 2 048-word pad. The pad was never the fix — it covers a width of
+128 and nothing wider — and it was expensive at the other end of the scale, so
+it is gone: the block arithmetic is a real bound, and a 16-entry CLUT costs
+**one block** instead of 8.25 KB.
 
-It changes **nothing** for the frame and z buffers — those are page-aligned
-already, and all five display modes come out identical either way — and
-nothing for textures at least 32 rows tall. The one measured cost is the debug
-font growing 10 240 → 16 384 words: **24 KB**, visible as the HUD's own `VRAM`
-line moving 3.21 → 3.23 MB.
+It changes **nothing** for the frame and z buffers — those are whole pages
+already, and all five display modes come out identical either way. The debug
+font grows 10 240 → 15 872 words, and almost everything else shrinks.
 
 ## Two regions
 
@@ -213,9 +323,9 @@ from `RendererCore::endFrame`) prints a `VRAMSTAT` line to the game's
 frames:
 
 ```
-VRAMSTAT f=240 bind=1859 (+1737) hit=1852 (+1734) up=7 (+3) reup=0 (+0)
+VRAMSTAT f=1440 bind=27280 (+2520) hit=27273 (+2520) up=7 (+0) reup=0 (+0)
          evict=0 (+0) runs=0 res=6 peak=6 oofree=0
-         freeMB=0.870605 minFreeMB=0.870605 largestKB=891
+         freeMB=1.15381 minFreeMB=1.15381 largestKB=1181
 ```
 
 - `(+n)` are deltas since the previous line.
@@ -237,9 +347,13 @@ logging is debug-only, since `TYRA_LOG` compiles away under `NDEBUG`. Use a
 
 All PCSX2, software renderer, PAL, 512×448.
 
+These are the eviction-policy numbers, measured when the free list replaced the
+bump allocator; the heap was ~0.87 MB free on `showcase` at the time (it is
+1.15 MB now — see the budget section).
+
 | Scene | re-uploads/frame before | after |
 |---|---|---|
-| `examples/showcase` (4-bit palettized, 6 allocations, 0.87 MB free) | 0 | 0 |
+| `examples/showcase` (4-bit palettized, 6 allocations) | 0 | 0 |
 | 3×256² + 3×128² 32bpp, just over budget | 9–10 | **3** |
 | 6×256² 32bpp, ~2.4× over budget | 10 | 8 |
 
@@ -266,4 +380,20 @@ is the closest proxy available for what the transfers cost a real console.
 - `free()` ignores addresses it did not hand out. That is the guard rail for
   the permanent region; do not "fix" it into an assert.
 - If you add a new permanent buffer, update the budget table above — it is
-  ~1.08 MB of texture heap and every 128×128 target is 3% of it.
+  ~1.08 MB of texture heap at 32-bit colour and every 128×128 target is 3% of
+  it. And ask whether it can be **opt-in**: two of the existing ones now are,
+  and between them that was a quarter of the heap for projects that read
+  neither.
+- A new buffer that holds screen-shaped pixels should take
+  `settings->getFrameBufferPsm()`, not `GS_PSM_32` — see the colour-depth
+  section. One that is uploaded rather than rendered into (a lookup texture,
+  noise) stays whatever format its data is in.
+- `getSize()` is the only place that knows the GS storage layout. If you add a
+  pixel format to it, give it a page geometry AND a block order, or leave the
+  order null and let it round to whole pages (which is what the Z formats do —
+  their block orders are permuted variants for which the corner rule the
+  sub-page path relies on does not hold).
+- The editor keeps a **host-side mirror** of this arithmetic in
+  `menulayout.cpp` (`gsWords`) for the Menu Editor's "does it fit" check. It
+  and `getSize()` must agree, or the editor reports menus as too big when they
+  fit.

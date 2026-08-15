@@ -75,6 +75,24 @@ Review the fork's RPC handlers and their callers for waits that can stall the
 single audsrv path. Record the cost beside each caller and replace blocking
 polls where the API allows it. The music-streaming stall is the known control.
 
+### Let the Menu Editor's fit check know the real heap
+
+`menulayout.cpp` measures a menu against a hardcoded 282 000-word texture heap,
+which is only the 32-bit, both-targets-reserved case — a 16-bit project has
+nearly twice that and still gets warned as if it did not. Take the number from
+the project's settings the way the engine does. See [GS VRAM](gs-vram.md).
+
+### Report ps2sdk's `GS_SET_DIMX` bitmask upstream
+
+Each DIMX entry is a **3-bit signed** value (-4..+3) and ps2sdk masks all
+sixteen with `0x00000003`, so the negative half of any dither matrix collapses
+onto 0..3, the offsets stop cancelling and the dither biases the image upward.
+The patch is `0x00000003` -> `0x00000007` in `common/include/gs_gp.h`, and the
+regression risk is nil: a caller passing 0..3 gets bit-identical output. Still
+present on master with no open issue when checked (2026-08-12); PCSX2's own
+`s32 DM00 : 3` is the evidence for the width. `tyraxDitherMatrix()` in
+`renderer_core_gs.cpp` packs the register by hand until it lands, and says so.
+
 ### Bound terrain UVs on very large maps
 
 Terrain UVs grow with world position and can outrun the GS fixed-point range.
@@ -366,6 +384,16 @@ whole-box projection, tile count and part stride on the host; enable both twins
 in one change and re-run parity plus performance measurements. See
 [BLSS reconstruction](blss-reconstruction.md).
 
+### Make the small render targets follow the colour depth
+
+The env map, the camera feed and the four shadow slots are PSMCT32 render
+targets read as textures (~192 KB when a project uses all three). They could
+follow the project's colour depth the way the post-fx work buffers now do, for
+about half of that — but they are bound through `Texture::vramResident`, whose
+`TextureBuilderData` has no 16-bit `bpp`, so `TextureBpp` has to be widened
+first. Left out of the colour-depth work deliberately: the frame buffers were
+90% of the win. See [GS VRAM](gs-vram.md).
+
 ### Specialize VU programs per project
 
 Generate only program variants a project may use, including spawn-pool prefabs.
@@ -392,8 +420,25 @@ than returning a bare yes/no. See [runtime procedural generation](procedural-run
 
 Build and upload an opt-in mip chain, terrain first, and use the GS LOD path to
 reduce distant shimmer and moire. Account for the roughly 33% texture-memory
-cost, verify small-level addressing on hardware, and keep non-mipped textures
+cost — the heap is bigger than it was, 1.08 MB at 32-bit colour and ~1.95 MB at
+16-bit ([GS VRAM](gs-vram.md)), but a mip chain is still opt-in per texture —
+verify small-level addressing on hardware, and keep non-mipped textures
 unchanged.
+
+### Offer a 16-bit Z buffer
+
+The z buffer is the largest single block left at 229 376 words, as much as both
+frame buffers cost together at 16-bit colour, and `PSMZ16` would halve it. What
+stops it being free is precision: the projection runs `near` 0.1 / `far` 51200
+and depth is hyperbolic, so 16 bits resolve roughly 1.5 world units at 100 out
+and ~38 at 500 — terrain and baked shadows would z-fight. So it is a per-project
+option gated on raising `near`, judged on a fixture with a short view distance,
+not a default. The mechanical part is small but crosses four layers: the VU1 z
+scale (`0xFFFFFF / 2`) is an EE-side constant in `stapip_vu1_program.cpp` and
+its dynpip / mcpip twins, and the same constant appears in the generated game's
+EE clipper (`templates.cpp`), in `vugen`/`vusim` and in `vucap`. Also unsettled:
+whether `PSMZ16` may pair with a `PSMCT32` frame buffer, which decides whether
+the two depths can be chosen independently at all. See [GS VRAM](gs-vram.md).
 
 ### Render particle emitters in the BLSS corpus
 

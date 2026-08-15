@@ -124,15 +124,15 @@ it is, as far as the surviving accounts go, how the PS2 survival-horror games
 did their torch: the GS grinding many trivial passes. Nothing about the
 projection changes for it — `goboST` is a function of the world position alone.
 
-Three things worth knowing about how the receiver is found and drawn:
+Three things worth knowing about how the receivers are found and drawn:
 
-- The beam is intersected against **oriented** boxes, not axis-aligned ones
-  (the same rotated basis an [Area](areas.md) uses). A wall turned thirty
-  degrees to the world takes its light where the wall actually is. The hit only
-  decides *which* object and *how far* — the light's shape comes from the
-  object's own triangles. (An earlier version drew a planar patch on the box
-  *face*, and a model's box face is often air: a gabled roof put a glowing
-  rectangle in the sky beside the gable.)
+- Receivers are **everything the cone touches** — the nearest three solids whose
+  oriented boxes (the same rotated basis an [Area](areas.md) uses) intersect the
+  beam — not merely the object the beam hits. That distinction closed two
+  reports: the wall *behind* a caster stayed dark, so a shadow had nothing to be
+  carved out of; and a shed with the beam at its *feet* took no projected light
+  at all and fell back to the per-vertex cone — the old hard triangles, on the
+  very surface this pass exists for. All receivers draw from one bag.
 - The second pass draws at **equal depth** with no bias — same world-space
   floats, same identity matrix — so it never paints over anything standing in
   front of the receiver, and never z-fights it.
@@ -225,6 +225,39 @@ The viewport previews the **cone**, per pixel, with the exact formula VU1 runs.
 It does not draw the pool. So the editor is a good guide to reach, angle and
 colour, and the console is where you judge the gobo — the two are answering
 different questions rather than disagreeing.
+
+## The shadow
+
+A caster in the beam throws its silhouette **away from the player** — onto the
+ground, and onto the wall behind it — and the shadow swings with every step and
+every turn, because the light *is* the player. This is the
+[projected-shadow](ambient-occlusion.md) machinery with the torch as one more
+candidate light source: the caster's silhouette is rendered from the torch's own
+position into a shadow-map slot, the ground patch samples it as before, and the
+wall behind the caster is re-rendered — the same second-pass trick as the light —
+with the silhouette sampled through the light's view-proj, exactly per pixel.
+
+What it needs and what it costs:
+
+- **"Cast shadow" (projected)** on the caster, like any projected shadow; the
+  engine has four slots per frame and the nearest casters win them.
+- The torch competes with the scene's lights for each caster and usually wins at
+  night (a strong point light you stand next to can still outbid it).
+- **Line of sight is checked** — a caster on the far side of a wall is a routine
+  arrangement for a light that walks around, and without the check its
+  silhouette painted *through* the wall.
+- A torch level with the caster throws **no ground shadow** (there is no ground
+  the ray reaches) but still paints the wall — which is the Silent Hill shot.
+- In first person the shadow hides *behind* its caster from your point of view —
+  the light is your eye. It reveals itself at the edges (the silhouette is
+  bigger than the caster by the light's divergence), on casters off the beam's
+  axis, and whenever the camera is anywhere other than the torch.
+
+One era artifact, inherited honestly: the wall pass has no self-shadowing, so
+the silhouette lands on the far wall even when the beam's own light got there
+through the gap *beside* the caster rather than through it. Silent Hill spent
+its shadow volumes on exactly this class of correctness; here four slots and a
+64×64 silhouette are the whole budget.
 
 ## What is still on the model, and what to do about it
 

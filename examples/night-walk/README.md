@@ -52,6 +52,12 @@ point of the example.
   crosses the join without blinking. The tree trunks in front of them are small
   enough to keep the cone, and do.
 
+  Two monoliths stand in front of the north wall with **Cast shadow
+  (projected)** on: put them in the beam and they hurl their silhouettes away
+  from you - across the ground and onto the wall behind - swinging with every
+  step, because the light is you. That is the flashlight competing in the same
+  projected-shadow slots the sun and the point lights use.
+
   The torch's colour is deliberately about 0.6, not white. The per-vertex cone
   has no N·L, so a white one adds the same amount to every face of a tree
   whichever way it points and flattens it into a cutout; at 0.6 the baked

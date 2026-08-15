@@ -3338,7 +3338,7 @@ void TerrainGame::buildScene() {
     // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
     // predicate that bakes the two PNGs (templates::projectUsesDayCycle), so a
     // cycle-less project pays no VRAM for a sky it does not draw. Together they
-    // are 64x64 + 128x128 = ~8.7% of the ~1.08 MB texture heap (docs/gs-vram.md).
+    // are 64x64 + 128x128 = ~7.3% of the ~1.08 MB texture heap (docs/gs-vram.md).
     if (DAYCYCLE_USED) {
       sunDiscTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/sun-disc.png"));
@@ -3488,11 +3488,16 @@ void TerrainGame::loadModelAsset(int i) {
     }
     if (mat.reflTextureName == "@sky") {
       // Dynamic env map: the engine-owned VRAM target, re-rendered from the
-      // sky dome every frame (renderScene).
+      // sky dome every frame (renderScene). Null when this build reserved no
+      // env-map target (nothing looked like it used one at build time) - the
+      // material then simply draws without its reflection pass rather than
+      // sampling VRAM that belongs to somebody else.
       part.reflTexture = engine->renderer.core.envMap.getTexture();
-      part.reflStrength = mat.reflStrength;
-      part.reflDynamic = true;
-      ++g_dynamicEnvUsers;
+      if (part.reflTexture) {
+        part.reflStrength = mat.reflStrength;
+        part.reflDynamic = true;
+        ++g_dynamicEnvUsers;
+      }
     } else if (!mat.reflTextureName.empty()) {
       const std::string path = dir + mat.reflTextureName;
       part.reflTexture = acquireTexture(path);
@@ -3546,11 +3551,13 @@ void TerrainGame::loadMaterialAsset(int i) {
     for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
   }
   if (mat.reflTextureName == "@sky") {
-    // Dynamic env map (see loadModelAsset).
+    // Dynamic env map (see loadModelAsset), null when unreserved.
     gmat.reflTexture = engine->renderer.core.envMap.getTexture();
-    gmat.reflStrength = mat.reflStrength;
-    gmat.reflDynamic = true;
-    ++g_dynamicEnvUsers;
+    if (gmat.reflTexture) {
+      gmat.reflStrength = mat.reflStrength;
+      gmat.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    }
   } else if (!mat.reflTextureName.empty()) {
     gmat.reflTexPath = dir + mat.reflTextureName;
     gmat.reflTexture = acquireTexture(gmat.reflTexPath);
