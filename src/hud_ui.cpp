@@ -1219,6 +1219,16 @@ void App::drawGiBakeSection() {
                                "%d scene(s) need a bake", staleCount);
         }
     }
+    // The same switch Project Preferences > Build carries, offered where the
+    // staleness it answers is on screen. Only stale scenes, so a build with
+    // everything fresh costs one signature pass.
+    ImGui::BeginDisabled(!st.giEnabled);
+    if (ImGui::Checkbox("Re-bake stale scenes before every build",
+                        &st.giAutoBake))
+        commitChange();
+    ImGui::EndDisabled();
+    prefHelp("Only the scenes whose cache no longer matches them; a changed big "
+             "scene can cost minutes. Also in Project > Preferences > Build.");
 
     ImGui::Spacing();
     ImGui::SeparatorText("What this does not do");

@@ -146,6 +146,11 @@ std::string outputMtlRel(const SceneObject& o) {
 // pre-lighting; the price is that bounce light picked up off a pre-lit
 // neighbour's new texture does not stale anything, which is a second-order
 // term nobody would want a re-bake storm for.
+//
+// gibake now applies the same normalization ITSELF (gibake.cpp
+// albedoMaterial - its cache had the identical staleness problem, plus it was
+// reading a -lit texture back in as albedo), so the copy below is belt and
+// braces: it keeps this signature correct even if that ever regresses.
 uint64_t sceneSignature(const Project& p, const SceneData& sc) {
     SceneData norm = sc;
     for (SceneObject& o : norm.objects)

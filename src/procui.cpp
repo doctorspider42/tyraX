@@ -389,6 +389,23 @@ Project& App::projectForBuild() {
             for (const std::string& w : rep.warnings) statusMessage_ += " | " + w;
         }
     }
+    // The opt-in GI pass (ProjectSettings::giAutoBake): stale scene caches are
+    // re-baked so the build reads fresh light instead of silently shipping the
+    // pre-GI fallback. BEFORE pre-lit, which gathers from the solved scene. The
+    // cache is on disk, so the model is untouched - only the viewport has to
+    // re-read it (the giBakerPoll rule).
+    if (hasProject_ && project_.settings.giAutoBake && project_.settings.giEnabled &&
+        !giBaker_.running()) {
+        const gibake::StaleReport rep = gibake::bakeStale(project_, nullptr);
+        if (rep.baked) {
+            applyProjectToViewport();
+            statusMessage_ = "Baked GI for " + std::to_string(rep.baked) +
+                             " stale scene(s) before the build";
+        }
+        if (rep.failed)
+            statusMessage_ = "GI bake failed for " + std::to_string(rep.failed) +
+                             " scene(s) - they ship the pre-GI lighting";
+    }
     // The opt-in pre-lit pass (ProjectSettings::prelitAutoBake): the same
     // "stale gets baked first" contract as the volumes above, for the same
     // reason - what runs on the console should agree with the scene. It is

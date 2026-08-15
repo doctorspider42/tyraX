@@ -158,12 +158,14 @@ pressed, not implied (the [GI](global-illumination.md) rule). If you would rathe
 never ship a stale texture, tick **Re-bake stale pre-lit objects** in *Project >
 Preferences > Build* (the same switch sits under the pre-lit table). Every build
 — the toolbar, `--build`, Run on PS2 — then runs exactly what `--bake-prelit`
-runs, before the procedural volumes are baked and the sources refreshed: only the
+runs, after the procedural volumes and (with its own switch) the stale GI caches
+are baked and before the sources are refreshed: only the
 `prelitWanted` objects whose signature is stale, in every scene. A build with
 everything fresh pays for one signature pass and nothing else; a build with three
 moved objects pays one scene solve plus three gathers and says so in the status
-bar and the build log. In the editor it lands as one undoable edit, and it never
-touches GI (still explicit) or model AO (always automatic).
+bar and the build log. In the editor it lands as one undoable edit. GI has the
+same opt-in switch of its own beside it (*Re-bake stale global illumination*,
+[global-illumination.md](global-illumination.md)); model AO is always automatic.
 
 ## Things that will catch you
 

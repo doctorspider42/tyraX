@@ -1679,6 +1679,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                        ",\n"
                  : "")
          << (p.settings.prelitAutoBake ? "    \"prelitAutoBake\": true,\n" : "")
+         << (p.settings.giAutoBake ? "    \"giAutoBake\": true,\n" : "")
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -5293,6 +5294,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.modelAoDist < 0.0f) st.modelAoDist = 0.0f;
         if (const auto* v = s->find("prelitAutoBake"))
             st.prelitAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("giAutoBake"))
+            st.giAutoBake = v->boolOr(false);
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);

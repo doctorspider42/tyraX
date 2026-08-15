@@ -14678,13 +14678,22 @@ void App::drawPreferencesWindow() {
     ImGui::EndDisabled();
 
     ImGui::SeparatorText("Bakes before a build");
+    ImGui::BeginDisabled(!prefSettings_.giEnabled);
+    ImGui::Checkbox("Re-bake stale global illumination", &prefSettings_.giAutoBake);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Before every build, re-bake every scene whose GI cache no longer\n"
+        "matches it. Only STALE scenes - a build with everything fresh costs\n"
+        "nothing; a changed big scene can cost minutes. Off = bake by hand from\n"
+        "the Global illumination tab or --bake-gi, and a stale scene ships the\n"
+        "pre-GI lighting. Needs GI enabled.");
     ImGui::Checkbox("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
     prefHelp(
         "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
         "texture no longer matches the scene (moved, or the light changed).\n"
         "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
         "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
-        "Procedural volumes and model AO are always baked; GI never is.");
+        "Procedural volumes and model AO are always baked.");
 
     ImGui::SeparatorText("Debug overlays");
     ImGui::BeginDisabled(profile == 0);

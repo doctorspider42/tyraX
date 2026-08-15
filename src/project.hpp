@@ -1493,6 +1493,16 @@ struct ProjectSettings {
     // would rather never see a stale texture ship. Only stale objects are
     // touched, so a build with everything fresh costs nothing.
     bool prelitAutoBake = false;
+    // The same opt-in for global illumination (docs/global-illumination.md,
+    // "The bake is explicit, and cached"): re-bake every scene whose GI cache
+    // is absent or STALE right before a build. Off by default for the same
+    // reason - and because a GI bake is minutes on a big scene - but the
+    // silent alternative is worse than it looks: a stale cache drops the whole
+    // scene back to the pre-GI lighting without a word, and both GI examples
+    // shipped that way for a while before anyone noticed. Only stale scenes are
+    // touched (content-hashed cache), so a build with everything fresh costs one
+    // signature pass. Requires giEnabled; does nothing otherwise.
+    bool giAutoBake = false;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -1703,6 +1713,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.modelAoStrength == b.modelAoStrength &&
            a.modelAoRays == b.modelAoRays && a.modelAoDist == b.modelAoDist &&
            a.prelitAutoBake == b.prelitAutoBake &&
+           a.giAutoBake == b.giAutoBake &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&

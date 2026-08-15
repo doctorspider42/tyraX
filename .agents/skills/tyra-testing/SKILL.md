@@ -337,9 +337,12 @@ mtime before trusting a run from there.
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
   against the same project with `"giEnabled": false` in its `.tyra`. Two
-  traps worth knowing: the bake is NEVER part of a build (a build only READS
-  the cache), so a change to the scene silently falls it back to the pre-GI
-  lighting until you re-bake; and it prints per scene how long it took plus
+  traps worth knowing: the bake is NOT part of a build by default (a build only
+  READS the cache), so a change to the scene silently falls it back to the
+  pre-GI lighting until you re-bake - `"giAutoBake": true` in the settings
+  makes `--build` (and the GUI build) re-bake exactly the STALE scenes first,
+  printing `gi: baked GI ...` / `gi: fresh ...` per scene, and the check is a
+  second build that says `fresh` for all of them; and it prints per scene how long it took plus
   the atlas/terrain/probe dimensions, which is the fastest sanity check that
   it saw any geometry at all (`atlas 0` means no eligible receivers).
 - `--bake-model-ao` bakes every eligible `.obj` model's OWN ambient occlusion

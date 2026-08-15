@@ -348,6 +348,22 @@ static void bakeProcedural(Project& p) {
                      err.c_str());
 }
 
+// The opt-in pre-build GI pass (ProjectSettings::giAutoBake,
+// docs/global-illumination.md): re-bake every scene whose cache is stale so the
+// build reads a fresh one instead of silently falling back to the pre-GI
+// lighting. Runs BEFORE the pre-lit pass, which gathers from the solved scene.
+// The cache lives on disk, so nothing here needs saving.
+static void bakeStaleGi(const Project& p) {
+    if (!p.settings.giAutoBake || !p.settings.giEnabled) return;
+    const gibake::StaleReport rep = gibake::bakeStale(p, [](const std::string& l) {
+        std::printf("gi: %s\n", l.c_str());
+    });
+    if (rep.failed)
+        std::fprintf(stderr, "warning: %d GI bake(s) failed - the scene ships "
+                             "the pre-GI lighting\n",
+                     rep.failed);
+}
+
 // The opt-in pre-build pre-lit pass (ProjectSettings::prelitAutoBake,
 // docs/prelit-models.md): re-bake the STALE wanted objects and save, so what
 // ships agrees with the scene. The GUI twin is App::projectForBuild. Off by
@@ -417,6 +433,7 @@ static int buildFromCli(int argc, char** argv) {
     if (refuseUnmigrated(p)) return 1;
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
+    bakeStaleGi(p);
     bakeStalePrelit(p);
 
     Runner runner;

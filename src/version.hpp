@@ -89,6 +89,14 @@
 // litbake::bakeStale, so a build cannot bake something the tab would have
 // called fresh. Off by default: the gibake rule that an expensive bake is
 // pressed, not implied, still stands, and only STALE objects are ever touched.
+// GI gets the SAME opt-in (ProjectSettings::giAutoBake, gibake::bakeStale -
+// stale scene caches re-baked before the pre-lit pass), because the silent
+// alternative had already bitten twice: a stale cache drops a whole scene to
+// the pre-GI lighting without a word. And gibake now reads a pre-lit object's
+// SOURCE material (albedoMaterial) in both build() and signature(): a -lit
+// texture is albedo x light, reading it as albedo doubled the light in the
+// bounce, and every pre-lit bake used to stale the GI cache by repointing the
+// object's materialPath.
 //
 // ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
 // Tools > Baked Lighting..., which is where the scene's light was already
@@ -1209,8 +1217,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
 // statement that the object ships pre-lit), prelitSig (a hex-string hash of
 // what the last bake saw) and prelitSource (the materialPath to revert to,
-// recorded on the first bake only); plus ProjectSettings::prelitAutoBake, the
-// opt-in "re-bake stale pre-lit objects before every build" switch. Every one
+// recorded on the first bake only); plus ProjectSettings::prelitAutoBake and
+// giAutoBake, the opt-in "re-bake what went stale before every build"
+// switches for pre-lit objects and for the GI caches. Every one
 // of them is written ONLY when it
 // differs from its default and the modelAoMode section is omitted entirely
 // while empty, so a project that never touches either feature resaves byte for
