@@ -1,1 +1,1 @@
-{ "id": "bb22000000000013", "name": "pallets-2", "type": "model", "position": [-5.4, 0.48, -10.6], "rotation": [0, 11, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/kenney/pallet.obj" }
+{ "id": "bb22000000000013", "name": "pallets-2", "type": "model", "position": [-5.4, 0.48, -8.39342], "rotation": [0, 11, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/kenney/pallet.obj" }

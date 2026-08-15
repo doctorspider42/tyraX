@@ -1,7 +1,7 @@
 {
   "name": "night-walk",
   "formatVersion": 27,
-  "editorVersion": "1.37.0",
+  "editorVersion": "1.38.0",
   "template": "fpp",
   "projectId": "e6b0bf4e49f40133",
   "settings": {
@@ -113,7 +113,7 @@
     { "name": "main",
       "terrain": { "width": 2048, "depth": 2048 },
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": ["03b7b92d790d3bb7", "bb22000000000001", "bb22000000000002", "bb22000000000003", "bb22000000000010", "bb22000000000011", "bb22000000000012", "bb22000000000013", "bb22000000000014", "bb22000000000015", "bb22000000000020", "bb22000000000021", "bb22000000000022", "bb22000000000023", "aa11000000000010", "aa11000000000011"] }
+      "objects": ["03b7b92d790d3bb7", "bb22000000000001", "bb22000000000002", "bb22000000000003", "bb22000000000010", "bb22000000000011", "bb22000000000012", "bb22000000000013", "bb22000000000014", "bb22000000000015", "bb22000000000020", "bb22000000000021", "bb22000000000022", "bb22000000000023", "aa11000000000010"] }
   ],
   "fonts": [
     { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
@@ -228,10 +228,10 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": 14, "gizmo": 1, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "" },
+    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=460,994\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260815\n\n[Window][Properties]\nPos=1541,23\nSize=379,994\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260815\n\n[Window][Debugger]\nPos=1541,23\nSize=379,994\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260815\n\n[Window][Output]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260815\n\n[Window][Debug]\nPos=462,753\nSize=1077,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260815\n\n[Window][Flow Graph]\nPos=462,23\nSize=1077,728\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260815\n\n[Window][Viewport]\nPos=462,23\nSize=1077,728\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260815\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,994\nCollapsed=0\nLastUsed=20260815\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260815\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,994 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1017 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
     { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },

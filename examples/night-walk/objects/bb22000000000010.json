@@ -1,1 +1,1 @@
-{ "id": "bb22000000000010", "name": "dumpster", "type": "model", "position": [-7.6, 0, -9.6], "rotation": [0, 14, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "projShadow": true, "model": "res/models/kenney/detail-dumpster-closed.obj" }
+{ "id": "bb22000000000010", "name": "dumpster", "type": "model", "position": [-8.4456, -4.89567e-06, -9.52056], "rotation": [-179.999, -2.30605, -180], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "projShadow": true, "model": "res/models/kenney/detail-dumpster-closed.obj" }
