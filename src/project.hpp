@@ -382,6 +382,30 @@ struct SceneObject {
     // The DYNAMIC light still lands on top: the flashlight's projected pool,
     // its cone, and the live point lights are all added at run time.
     bool prelit = false;
+    // --- pre-lit BOOKKEEPING (docs/prelit-models.md, "Managing pre-lit
+    // objects"). None of this reaches the game: it is what turns a one-shot
+    // button into a managed mechanism - the author's intent, what the last bake
+    // saw, and the way back.
+    //
+    // The author's statement "this object should ship pre-lit". Set by a
+    // successful bake, cleared by Revert. It is what "Bake pending" and
+    // --bake-prelit iterate: `prelit` says the texture carries light TODAY,
+    // this says it is supposed to.
+    bool prelitWanted = false;
+    // litbake::signature at the last bake - the scene's light, this object's
+    // transform, the model, the source material and the bake parameters, in one
+    // number. Fresh = it still equals the signature computed now; 0 = never
+    // baked. Serialized as a hex STRING (the ProcGraph::bakedHash precedent):
+    // a JSON number loses 64-bit precision above 2^53, which would make a
+    // freshly baked object read as stale the moment it was re-loaded.
+    uint64_t prelitSig = 0;
+    // The materialPath this object had BEFORE its first bake, so Revert can put
+    // it back. "" is a legitimate value (the model's own mtllib) and is exactly
+    // what an un-overridden model reverts to, which is why the writer may omit
+    // it at "" without losing anything. Filled on the FIRST bake only - a
+    // re-bake must never overwrite it with the -lit path it just assigned.
+    // An ASSET PATH, so it joins App::retargetAssetPath.
+    std::string prelitSource;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -926,6 +950,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.projShadow == b.projShadow &&
            a.bakedLighting == b.bakedLighting &&
            a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
+           a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
+           a.prelitSource == b.prelitSource &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
@@ -1443,6 +1469,41 @@ struct ProjectSettings {
     float giProbeHeight = 2.0f;  // ...and between vertical levels
     int giProbeLevels = 4;       // vertical levels above the lowest ground
 
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). Project-wide
+    // for the same reason the GI knobs above are: these are bake quality, not
+    // part of the ambience-preset mood overlay. Nothing here reaches the game -
+    // the occlusion is multiplied into the model's own texture at build
+    // (modelao + texbake), so it costs no extra GS VRAM at all.
+    //
+    // FALSE in the struct, TRUE in project::create (the aoEnabled precedent):
+    // a project saved before this existed must keep its look, a new one should
+    // have it out of the box.
+    bool modelAo = false;
+    // ao' = 1 - strength * (1 - ao). An apply-time remap, so changing it
+    // re-multiplies rather than re-baking.
+    float modelAoStrength = 0.7f;
+    int modelAoRays = 64;      // hemisphere rays per texel
+    float modelAoDist = 0.0f;  // occlusion reach in world units; 0 = auto
+                               // (25% of the model's bounding-box diagonal)
+    // Pre-lit objects (docs/prelit-models.md, "Managing pre-lit objects"):
+    // re-bake every prelitWanted object whose texture went STALE right before
+    // a build, the way stale procedural volumes are baked. Off by default and
+    // deliberately so - the gibake rule is that a bake taking seconds is
+    // pressed, not implied; this is the opt-in for a project whose author
+    // would rather never see a stale texture ship. Only stale objects are
+    // touched, so a build with everything fresh costs nothing.
+    bool prelitAutoBake = false;
+    // The same opt-in for global illumination (docs/global-illumination.md,
+    // "The bake is explicit, and cached"): re-bake every scene whose GI cache
+    // is absent or STALE right before a build. Off by default for the same
+    // reason - and because a GI bake is minutes on a big scene - but the
+    // silent alternative is worse than it looks: a stale cache drops the whole
+    // scene back to the pre-GI lighting without a word, and both GI examples
+    // shipped that way for a while before anyone noticed. Only stale scenes are
+    // touched (content-hashed cache), so a build with everything fresh costs one
+    // signature pass. Requires giEnabled; does nothing otherwise.
+    bool giAutoBake = false;
+
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
     // tiled by the map's "-s" scale (repeats per world unit), otherwise the
@@ -1648,6 +1709,11 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.giProbeSpacing == b.giProbeSpacing &&
            a.giProbeHeight == b.giProbeHeight &&
            a.giProbeLevels == b.giProbeLevels &&
+           a.modelAo == b.modelAo &&
+           a.modelAoStrength == b.modelAoStrength &&
+           a.modelAoRays == b.modelAoRays && a.modelAoDist == b.modelAoDist &&
+           a.prelitAutoBake == b.prelitAutoBake &&
+           a.giAutoBake == b.giAutoBake &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
@@ -2977,6 +3043,14 @@ struct Project {
     // Only used when a mesh LOD distance is in play (Preferences > Rendering
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
+    // Per-asset override of ProjectSettings::modelAo, keyed by the model's
+    // asset path ("res/models/shed.obj"): 1 = always bake its self-AO into its
+    // texture, 2 = never. Absent (or 0) follows the project default, which is
+    // why an untouched project writes no key at all. See modelao.hpp.
+    // Deliberately NOT part of rebuildAssetUsage - it is a SETTING keyed by an
+    // asset, not a reference to one, and counting it as a use would make every
+    // imported model read as used.
+    std::map<std::string, int> modelAoMode;
     // Real-world size of an imported model, keyed by its asset path:
     // how many METERS one unit of the file measures. An entry exists only
     // for models whose real size is known - written when a model is imported
@@ -3407,6 +3481,7 @@ enum class Section {
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)
+    ModelAo,         // "modelAoMode" (per-model automatic-AO overrides)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
@@ -3434,7 +3509,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 21,
+static_assert(kSectionCount == 22,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

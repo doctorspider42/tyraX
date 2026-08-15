@@ -143,8 +143,11 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **Lighting** — directional light, point lights (baked or dynamic, with
   flicker), light beams, blob and projected shadows, lens flare and god rays.
 - **Baked realism** — [global illumination + light probes](docs/global-illumination.md),
-  [ambient occlusion](docs/ambient-occlusion.md) and a
-  [day/night cycle](docs/day-night-cycle.md) the whole bake follows.
+  [ambient occlusion](docs/ambient-occlusion.md) — scene contact shadows plus
+  automatic per-model self-AO multiplied into each model's own texture, for no
+  extra VRAM — [pre-lit models](docs/prelit-models.md) for per-pixel static
+  light on a textured surface, and a [day/night cycle](docs/day-night-cycle.md)
+  the whole bake follows.
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -324,6 +325,18 @@ bool contributesToBake(const SceneObject& o) {
     }
 }
 
+// The material whose ALBEDO the bake reads for an object. A pre-lit object
+// (docs/prelit-models.md) points at a -lit.mtl whose texture is albedo x the
+// light this very bake computes - reading THAT as albedo would fold the light
+// into the bounce a second time, and worse, every pre-lit bake would repoint
+// the object and stale the scene's GI cache for nothing. So the bake reads the
+// scene AS AUTHORED: the material the object had before its first pre-lit bake
+// (prelitSource; empty = the model's own mtllib). Both build() and signature()
+// go through this, which is what makes the cache stable under pre-lighting.
+const std::string& albedoMaterial(const SceneObject& o) {
+    return o.prelit ? o.prelitSource : o.materialPath;
+}
+
 std::vector<float> primitiveMesh(PrimitiveType type, int detail, bool rings) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
@@ -455,7 +468,8 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
 
     // --- objects ------------------------------------------------------------
     for (const SceneObject& o : sc.objects) {
-        const MatInfo& mi = materialInfo(p.dir, o.materialPath, matCache, texCache);
+        const std::string& matRel = albedoMaterial(o);
+        const MatInfo& mi = materialInfo(p.dir, matRel, matCache, texCache);
         // "Cast shadow" off already means "light passes through me", and
         // honouring it here keeps that switch meaning one thing - but an
         // EMISSIVE surface is the light itself, and there is no way to have
@@ -480,9 +494,9 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
             if (o.modelPath.empty() || animatedModelPath(o.modelPath)) continue;
             objparser::Model m;
             if (!objparser::load((fs::path(p.dir) / o.modelPath).string(), m,
-                                 o.materialPath.empty()
+                                 matRel.empty()
                                      ? std::string()
-                                     : (fs::path(p.dir) / o.materialPath).string()))
+                                     : (fs::path(p.dir) / matRel).string()))
                 continue;
             for (const objparser::Submesh& sm : m.submeshes) {
                 float a[3], e[3] = {0, 0, 0};
@@ -490,9 +504,9 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
                     a[k] = std::min(0.92f, o.color[k] * sm.kd[k]);
                 if (!sm.texture.empty()) {
                     const fs::path base =
-                        o.materialPath.empty()
+                        matRel.empty()
                             ? fs::path(p.dir) / fs::path(o.modelPath).parent_path()
-                            : (fs::path(p.dir) / o.materialPath).parent_path();
+                            : (fs::path(p.dir) / matRel).parent_path();
                     const std::array<float, 3>& tm = textureMean(
                         (base / sm.texture).lexically_normal().string(), texCache);
                     for (int k = 0; k < 3; ++k) a[k] *= tm[k];
@@ -988,9 +1002,12 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
             mixF(h, o.scale[k]);
             mixF(h, o.color[k]);
         }
-        mixS(h, o.materialPath);
+        // The scene AS AUTHORED (albedoMaterial): a pre-lit bake repoints the
+        // object at its -lit.mtl, and hashing that would stale this cache on
+        // every pre-lit bake and read the light back in as albedo.
+        mixS(h, albedoMaterial(o));
         mixS(h, o.modelPath);
-        mixFile(o.materialPath);
+        mixFile(albedoMaterial(o));
         mixFile(o.modelPath);
     }
     return h;
@@ -1122,6 +1139,51 @@ Bake load(const Project& p, int sceneIndex) {
     if (!read(cachePath(p, sceneIndex), b)) return Bake();
     if (b.signature != signature(p, p.scenes[sceneIndex], st)) return Bake();
     return b;
+}
+
+StaleReport bakeStale(const Project& p,
+                      const std::function<void(const std::string&)>& log) {
+    StaleReport rep;
+    const auto say = [&](const std::string& s) {
+        if (log) log(s);
+    };
+    if (!p.settings.giEnabled) return rep;
+    const std::atomic<bool> never{false};
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const std::string& name = p.scenes[si].name;
+        // Signature check only - the cache's pixels are not decoded here.
+        Bake have;
+        const bool fresh =
+            read(cachePath(p, si), have) &&
+            have.signature == signature(p, p.scenes[si], settingsOf(p.settings));
+        if (fresh) {
+            say("fresh     " + name);
+            ++rep.kept;
+            continue;
+        }
+        const auto t0 = std::chrono::steady_clock::now();
+        const Bake b = bakeScene(p, si, &never, nullptr);
+        if (!b.valid || !write(cachePath(p, si), b)) {
+            say("error     " + name + ": " +
+                (b.valid ? "cannot write the cache" : "bake failed"));
+            ++rep.failed;
+            continue;
+        }
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        char line[256];
+        std::snprintf(line, sizeof line,
+                      "baked GI  %s (atlas %d, terrain %d, probes %dx%dx%d) %.1fs",
+                      name.c_str(), b.atlas.size, b.terrain.size, b.probes.dim[0],
+                      b.probes.dim[1], b.probes.dim[2], secs);
+        say(line);
+        ++rep.baked;
+    }
+    say("summary   " + std::to_string(rep.baked) + " scene(s) baked, " +
+        std::to_string(rep.kept) + " already fresh, " +
+        std::to_string(rep.failed) + " failed");
+    return rep;
 }
 
 // --- the whole bake for one scene -------------------------------------------

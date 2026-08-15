@@ -16,6 +16,102 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.38.0 (the lighting redesign: baked light gets one home, and a textured
+// model finally occludes itself). Lighting had accumulated four separate
+// places - AO in the ambience presets, model AO by hand in the Material
+// Editor, GI in its own tab, and a per-object pre-lit button in Properties -
+// and the automatic half of that did the least for the thing a real game is
+// mostly made of, TEXTURED MODELS. The engine's lightmap route refuses them
+// (it is additive, and an additive term over a texture blows out its dark
+// texels) and GI reaches them only as flat per-vertex probe light, so an
+// imported model has never had any self-occlusion at all.
+//
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v28 -
+// authored as v26; this branch's base took v26 and then v27 while the
+// redesign was in flight, and the claim that arrives second renumbers): the
+// Material Editor's matbake AO, run per model ASSET without anybody asking,
+// and multiplied into the texture that model ships anyway. Two properties are
+// what make it affordable, and both fall out of WHAT is being baked rather
+// than out of any cleverness: a model's own surface occlusion is
+// TRANSFORM-INVARIANT, so every instance of the asset shares one map wherever
+// it stands; and the pixels ride in an existing texture, so it costs ZERO
+// extra GS VRAM - against one unique texture per object for the pre-lit route
+// next to it. src/modelao.cpp owns the bake, the content-hash cache in
+// .res-baked/modelao/ (the gibake rule: never mtimes, and never the texture's
+// PIXELS - AO is a function of geometry and UVs, so repainting must not throw
+// a bake away), and - the part that matters most - the MULTIPLY. That one
+// function is called by texbake for the shipped PNG and by the viewport for
+// the uploaded pixels, so what the editor shows and what the console draws
+// cannot drift.
+//
+// WHAT IT REFUSES TO DO IS THE DESIGN. A texture referenced by more than one
+// model asset is skipped and SAID SO, because two UV layouts over one image
+// make a single multiply wrong for both; so is a pre-lit material, whose
+// gather already contains occlusion and would be darkened twice. Both show up
+// as a named row in the panel and a line in the build log - an AO map that
+// silently is not there is indistinguishable from a broken feature. And
+// litbake now multiplies the same map into the albedo it reads, so an object
+// does not lose its self-AO the moment it goes pre-lit.
+//
+// PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
+// same format v28): 1.35.0 gave a textured model per-pixel static light through
+// one button per object, and left everything around that button to memory - no
+// record of which objects were supposed to ship pre-lit, no way to know that a
+// texture had stopped agreeing with the scene, no bulk operation, no way back.
+// Three SceneObject fields close that: prelitWanted (the author's statement),
+// prelitSig (what the last bake SAW) and prelitSource (the material to revert
+// to, recorded on the FIRST bake only, an asset path that joins
+// retargetAssetPath). All three are written only when they say something, so an
+// object that never met the baker resaves byte for byte.
+//
+// THE SIGNATURE IS THE FEATURE, and the load-bearing decision in it is what it
+// deliberately does NOT see. It mixes gibake's own scene signature, the
+// object's transform, the model and its .mtl libraries by content, the bake
+// parameters and - when Model AO resolves on for the asset - that map's
+// signature, since it is multiplied into the albedo. But the scene half hashes
+// the scene AS AUTHORED, with every pre-lit override normalized back to its
+// source material: gibake::signature hashes each object's materialPath and that
+// file's bytes, so without the normalization applying a bake would change the
+// scene signature and make the object it just baked read STALE on the next
+// frame, together with every other pre-lit object beside it. The price is that
+// bounce light off a neighbour's new pre-lit texture stales nothing, a
+// second-order term nobody would want a re-bake storm for.
+//
+// The batch baker builds and solves the gibake scene ONCE per scene and bakes N
+// objects from it (that solve is nearly all of the wall clock), reports "2/7:
+// crate-3", cancels, and lands as one undo step through App::litBakerPoll -
+// polled from drawUI, so a batch started from the tab arrives whether or not
+// the tab, the selection or Properties is still showing it. --bake-prelit is
+// its headless twin: it re-bakes every stale wanted object and says `fresh` for
+// the rest, so running it twice is the check that the tracking is honest. The
+// three of them - the tab's button, the verb and the OPT-IN pre-build pass
+// (ProjectSettings::prelitAutoBake, Preferences > Build) - are one loop,
+// litbake::bakeStale, so a build cannot bake something the tab would have
+// called fresh. Off by default: the gibake rule that an expensive bake is
+// pressed, not implied, still stands, and only STALE objects are ever touched.
+// GI gets the SAME opt-in (ProjectSettings::giAutoBake, gibake::bakeStale -
+// stale scene caches re-baked before the pre-lit pass), because the silent
+// alternative had already bitten twice: a stale cache drops a whole scene to
+// the pre-GI lighting without a word. And gibake now reads a pre-lit object's
+// SOURCE material (albedoMaterial) in both build() and signature(): a -lit
+// texture is albedo x light, reading it as albedo doubled the light in the
+// bounce, and every pre-lit bake used to stale the GI cache by repointing the
+// object's materialPath.
+//
+// ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
+// Tools > Baked Lighting..., which is where the scene's light was already
+// authored - Model AO (per ASSET, free) and the pre-lit table (per SCENE, one
+// texture each, with the VRAM line stating what that costs) as two sections of
+// it. The Material Editor's manual bake is untouched and gains one line
+// pointing at the automatic path.
+//
+// MINOR: capabilities appear (a textured model can occlude itself, for free;
+// pre-lit objects gain staleness, batch baking and a Revert; --bake-model-ao
+// and --bake-prelit are new headless verbs). No existing project's look moves -
+// modelAo is false in the struct, which is what every file saved before it
+// loads as, and true only for projects created from here on; the three pre-lit
+// fields are pure bookkeeping and reach no codegen at all.
+//
 // 1.34.0 (the flashlight stops being drawn by the terrain's vertex grid, and
 // the ground gets distance detail): two halves of one report - a torch on a big
 // map looked bad, and the proposed cure was a finer heightmap near the player.
@@ -1125,6 +1221,24 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // ProjectSettings::flashShadowVolumes - written only when true, so an
 // untouched project resaves byte for byte; false (the default) is the
 // silhouette-slot behaviour every earlier file had. No migration step.
-inline constexpr int kFormatVersion = 27;
+// v28 (the lighting redesign - automatic model AO + pre-lit management;
+// authored as v26, renumbered twice as this branch's base took v26 and then
+// v27 while the redesign was in flight - the arrive-second rule):
+// ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
+// project-wide bake knobs - plus the "modelAoMode" section, the per-asset
+// force-on/force-off override keyed by a model's asset path; and the three
+// pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
+// statement that the object ships pre-lit), prelitSig (a hex-string hash of
+// what the last bake saw) and prelitSource (the materialPath to revert to,
+// recorded on the first bake only); plus ProjectSettings::prelitAutoBake and
+// giAutoBake, the opt-in "re-bake what went stale before every build"
+// switches for pre-lit objects and for the GI caches. Every one
+// of them is written ONLY when it
+// differs from its default and the modelAoMode section is omitted entirely
+// while empty, so a project that never touches either feature resaves byte for
+// byte; the struct defaults reproduce what an older file did (no model AO at
+// all), while project::create turns modelAo on for new projects. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 28;
 
 }  // namespace version

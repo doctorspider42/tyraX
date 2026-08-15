@@ -896,27 +896,37 @@ void App::drawPropertiesWindow() {
                     "live point lights still land on top.\n"
                     "Costs one texture per object, and goes STALE if you move\n"
                     "the object or change the scene's lighting - re-bake it.");
-            if (o.prelit)
-                ImGui::TextColored(ImVec4(0.55f, 0.85f, 0.55f, 1.0f),
-                                   "Pre-lit: its texture carries its light");
+            // Fresh or stale, from the signature - the same answer the Baked
+            // lighting tab gives, out of the same cached table (asking
+            // litbake::signature per frame would content-hash every file the
+            // GI bake reads).
+            if (o.prelit) {
+                const PrelitStatus* st = prelitStatusFor(myIndex);
+                if (st && st->fresh)
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                                       "Pre-lit: its texture carries its light");
+                else
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Pre-lit, but STALE: the scene or this object has "
+                        "moved since the bake");
+                if (ImGui::Button("Revert to source material"))
+                    revertPrelit(myIndex);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Puts back the material this object had before its\n"
+                        "first bake and stops shipping it pre-lit. The baked\n"
+                        "-lit.png/.mtl are left on disk (the Asset Browser\n"
+                        "lists them as unused).");
+            }
+            ImGui::TextDisabled(
+                "Every pre-lit object in this scene: Tools > Baked Lighting");
             if (!litBaker_.error().empty() && mine)
                 ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
                                    litBaker_.error().c_str());
-            // Applied HERE, on the UI thread, so it goes through the editor's
-            // own commit path like every other object edit.
-            litbake::Result done;
-            if (mine && !litBaker_.running() && litBaker_.take(done)) {
-                const std::string e = litbake::applyToObject(
-                    project_, project_.active(), myIndex, done);
-                if (e.empty()) {
-                    statusMessage_ = "Pre-lit " + o.name + ": " +
-                                     std::to_string(done.size) + "px, " +
-                                     std::to_string(done.litTexels) + " texels";
-                    committed = true;
-                } else {
-                    statusMessage_ = "Pre-light failed: " + e;
-                }
-            }
+            // The result is applied by App::litBakerPoll, not here: a bake
+            // that finishes has to land whether or not this object is still
+            // the selected one.
         }
     }
 
