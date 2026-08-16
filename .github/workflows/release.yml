@@ -1,25 +1,37 @@
 # Every push to main becomes a released, installable build.
 #
-# THE VERSION IS src/version.hpp AND NOTHING ELSE. Three jobs, in this order:
+# THE VERSION IS src/version.hpp, AND THE TAGS SAY WHICH PART OF IT IS SPENT.
+# Three jobs, in this order:
 #
-#   version  read TYRAX_VERSION_MAJOR/MINOR/PATCH. If that version is already
-#            tagged, bump PATCH, commit the header back to main and use the new
-#            number. Then tag - here, not at the end - so two pushes landing a
-#            minute apart cannot both claim one version.
-#   build    Windows: build the editor, package installer\tyrax.iss with Inno
-#            Setup 7 into dist\TyraX-Setup-<version>.exe.
+#   version  read TYRAX_VERSION_MAJOR/MINOR/PATCH. If v<that> is not tagged,
+#            release it as it stands; if it is, take the highest v<MAJOR>.<MINOR>.*
+#            tag and go one PATCH past it. Then tag - here, before anything is
+#            built - so two pushes a minute apart cannot both claim one version.
+#   build    Windows: stamp that PATCH into src/version.hpp IN THE WORKSPACE,
+#            build the editor, package installer\tyrax.iss with Inno Setup 7
+#            into dist\TyraX-Setup-<version>.exe.
 #   release  publish the tag as a GitHub release with that installer attached.
 #
-# The bump commit says [skip ci], which GitHub honours for push events - without
-# it the bump would trigger this workflow again, find its own tag already there,
-# bump once more, and never stop.
+# NOTHING HERE WRITES TO main, AND THAT IS THE FIX FOR THIS REPOSITORY'S OWN
+# RULES. The first version of this workflow committed the bumped header back to
+# main with [skip ci]; main has a ruleset saying "changes must be made through a
+# pull request", so the push was rejected (GH013) and the release stopped there.
+# Rules apply to refs/heads/main only, so pushing a TAG is fine - which is what
+# makes the tag, rather than a commit, the thing that records a version as used.
 #
-# So a human bumping MINOR in version.hpp (with the changelog paragraph the file
-# expects, per docs/format-versioning.md) is what SHOULD happen for a feature;
-# the automatic PATCH bump is the floor under everything else, so that no push
-# to main can leave main unreleased. The editor's own update check reads these
-# releases (docs/updates.md) - the asset name is not hardcoded anywhere, it is
-# taken from the release's asset list, so renaming the installer breaks nothing.
+# The consequence, and it has to be said plainly: between releases the PATCH in
+# src/version.hpp is a FLOOR, not a fact. A build from a checkout reports the
+# number in the file; a RELEASE reports the number in its tag, because the build
+# job rewrites the file before compiling. That keeps the one thing that must not
+# drift in step - the binary, the installer and the release all say the same
+# version, so the editor's update check cannot decide it is permanently out of
+# date. MAJOR and MINOR are never touched by CI: bumping those (with the
+# changelog paragraph version.hpp expects) is a human's job and resets the patch
+# sequence.
+#
+# The editor's own update check reads these releases (docs/updates.md) - the
+# asset name is not hardcoded anywhere, it is taken from the release's asset
+# list, so renaming the installer breaks nothing.
 #
 # THE ACTION VERSIONS BELOW ARE THE Node 24 MAJORS, and the numbers differ per
 # action on purpose - do not "tidy" them back into one. The first release run
@@ -54,13 +66,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.pick.outputs.version }}
+      patch: ${{ steps.pick.outputs.patch }}
       sha: ${{ steps.pick.outputs.sha }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Decide the version, bump it if it is already taken, and tag it
+      - name: Decide the version from the file and the tags, and claim it
         id: pick
         run: |
           set -euo pipefail
@@ -71,26 +84,30 @@ jobs:
           major=$(read_part MAJOR); minor=$(read_part MINOR); patch=$(read_part PATCH)
           test -n "$major" -a -n "$minor" -a -n "$patch" \
             || { echo "FAIL: src/version.hpp has no TYRAX_VERSION_* macros"; exit 1; }
-          version="$major.$minor.$patch"
 
           git fetch --tags --quiet
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            patch=$((patch + 1))
-            version="$major.$minor.$patch"
-            echo "v$major.$minor.$((patch - 1)) is already released - bumping to v$version"
-            sed -i "s/^#define TYRAX_VERSION_PATCH .*/#define TYRAX_VERSION_PATCH $patch/" \
-              src/version.hpp
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -am "chore(release): v$version [skip ci]"
-            git push origin HEAD:main
+          if git rev-parse -q --verify "refs/tags/v$major.$minor.$patch" >/dev/null; then
+            # The highest patch ALREADY RELEASED on this MAJOR.MINOR line, not
+            # merely the file's + 1: a series of pushes must not keep proposing
+            # the same number, and a hand-bumped file that is behind the tags
+            # must not go backwards either. `sort -n` so .10 beats .9.
+            highest=$(git tag -l "v$major.$minor.*" \
+                      | sed "s/^v$major\.$minor\.//" \
+                      | grep -E '^[0-9]+$' | sort -n | tail -n1)
+            echo "v$major.$minor.$patch is already released (highest patch: $highest)"
+            patch=$((highest + 1))
           else
-            echo "v$version is not released yet - releasing this tree as it stands"
+            echo "v$major.$minor.$patch is not released yet - releasing this tree as it stands"
           fi
+          version="$major.$minor.$patch"
 
+          # The tag is the claim, and it is the ONLY thing this workflow writes
+          # to the repository. main's ruleset forbids a direct push to the
+          # branch; it says nothing about tags.
           git tag "v$version"
           git push origin "v$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "patch=$patch" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "## TyraX v$version" >> "$GITHUB_STEP_SUMMARY"
 
@@ -100,9 +117,32 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The commit the version job settled on - which is NOT github.sha when
-          # it had to bump the header.
           ref: ${{ needs.version.outputs.sha }}
+
+      # STAMP THE RELEASED PATCH INTO THE WORKSPACE COPY of version.hpp. Never
+      # committed - see the note at the top. This is what keeps the binary, the
+      # installer's file name and the tag saying one number; without it a build
+      # released as v1.51.1 would introduce itself as 1.51.0 and then offer
+      # itself an update, for ever. MAJOR and MINOR are the file's own and are
+      # only asserted here.
+      - name: Stamp the version
+        shell: pwsh
+        run: |
+          $version = '${{ needs.version.outputs.version }}'
+          $patch = '${{ needs.version.outputs.patch }}'
+          $p = 'src/version.hpp'
+          $text = [IO.File]::ReadAllText($p)
+          $major = [regex]::Match($text, '(?m)^#define TYRAX_VERSION_MAJOR (\d+)\s*$').Groups[1].Value
+          $minor = [regex]::Match($text, '(?m)^#define TYRAX_VERSION_MINOR (\d+)\s*$').Groups[1].Value
+          if ("$major.$minor.$patch" -ne $version) {
+            throw "version.hpp says $major.$minor.* but the release is $version - CI only ever moves PATCH"
+          }
+          $text = [regex]::Replace($text, '(?m)^#define TYRAX_VERSION_PATCH .*$',
+                                   "#define TYRAX_VERSION_PATCH $patch")
+          # WriteAllText, not Set-Content: UTF-8 with no BOM, whatever shell
+          # this runs under.
+          [IO.File]::WriteAllText($p, $text)
+          Write-Host "building as $version"
 
       # MinGW-w64, and deliberately not whatever `gcc` resolves to: the runner
       # image also has Strawberry Perl's ancient GCC on PATH, and this project

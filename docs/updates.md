@@ -86,21 +86,37 @@ a machine without it loses the update check and nothing else.
 `.github/workflows/release.yml` runs on every push to `main`:
 
 1. **version** — reads `TYRAX_VERSION_MAJOR/MINOR/PATCH` from
-   `src/version.hpp`. If that version is already tagged, it bumps `PATCH`,
-   commits the header back to `main` with `[skip ci]` and uses the new number.
-   Then it creates and pushes the tag, which is what claims the version.
-2. **build** — Windows runner: builds the editor with MinGW-w64 and packages
+   `src/version.hpp`. If `v<that>` is not tagged, it releases the tree as it
+   stands; if it is, it takes the highest `v<MAJOR>.<MINOR>.*` tag and goes one
+   PATCH past it. Then it creates and pushes the tag, which is what claims the
+   version — and is the only thing the workflow writes to the repository.
+2. **build** — Windows runner: stamps that PATCH into `src/version.hpp` *in the
+   workspace*, builds the editor with MinGW-w64 and packages
    `dist\TyraX-Setup-<version>.exe` with Inno Setup 7.
 3. **release** — publishes the tag with generated notes and that installer
    attached.
 
-So **`src/version.hpp` is the single source of the version**, in CI and on a
+**`src/version.hpp` is where the version is authored** — in CI and on a
 developer's machine alike (`installer/build-installer.ps1` reads the same three
-macros). Bumping MINOR by hand, with the changelog paragraph that file expects,
-is what should happen for a feature — see
+macros) — but between releases its PATCH is a *floor*, not a fact: the tags
+record which patches are spent, and a release goes past them. So a build from a
+checkout reports the number in the file, while a released build reports the
+number on its tag, because the build job rewrites the file before compiling.
+That is what keeps the binary, the installer and the release saying one
+version — otherwise a build released as 1.51.1 would introduce itself as 1.51.0
+and then offer itself an update, forever.
+
+CI never touches MAJOR or MINOR. Bumping those by hand, with the changelog
+paragraph that file expects, is what should happen for a feature (see
 [format versioning](format-versioning.md) for the rules the two numbers in that
-file follow. The automatic PATCH bump is the floor underneath, so that no push
-to `main` can leave `main` unreleased.
+file follow) and it resets the patch sequence. The automatic PATCH is the floor
+underneath, so that no push to `main` can leave `main` unreleased.
+
+> **Why not commit the bump back?** The first version of this workflow did,
+> with `[skip ci]`. `main` carries a ruleset saying *changes must be made
+> through a pull request*, so the push was rejected (`GH013`) and the release
+> stopped there. Rulesets apply to branches; a **tag** push is unaffected, which
+> is why the tag — not a commit — is what records a version as used.
 
 ### Building an installer yourself
 
