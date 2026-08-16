@@ -45,10 +45,30 @@ The build now does all of that once. Reading the same model as `.tmdl` takes
 **39 ms**, and the whole load (textures included) went from 306 ms to 59 ms.
 The PS2 side is a sequential read plus a memory copy per material.
 
-The `.tmdl` carries the triangulated mesh, flat face normals, the resolved
-material assignment (including a per-object `.mtl` override), texture-atlas
-UV rectangles already folded into the UVs, texture paths as the game will
-open them, and the LOD levels below.
+The `.tmdl` carries the triangulated mesh, crease-smoothed normals (below),
+the resolved material assignment (including a per-object `.mtl` override),
+texture-atlas UV rectangles already folded into the UVs, texture paths as the
+game will open them, and the LOD levels below.
+
+## Shading: crease-angle smoothing
+
+The pipeline ignores an `.obj`'s `vn` lines and derives normals itself: a
+normal per face, then **crease-angle smoothing** — faces meeting at a shared
+position average their normals when the angle between them is under 60
+degrees, and keep their own above it. So a curved low-poly surface (a
+six-sided lamp pole, a barrel) takes the baked per-vertex lighting as a
+smooth gradient around its circumference instead of stepping hard at every
+triangle edge, while a box corner or a chamfer stays a hard edge. There is
+nothing to configure and no way to author around it in the file (`vn` stays
+ignored); if you need a hard edge below 60 degrees, split the surface into
+separate positions (most tools' "split edge" / "mark sharp with split
+normals" export does exactly that — a corner that does not share its
+position with its neighbour is never smoothed with it).
+
+The editor viewport derives its normals through the same parser, so what you
+see is what the console shades — and each LOD level re-derives its own
+normals after decimation the same way, so a distance switch does not pop a
+curved surface back to faceted.
 
 ## What this means for your project
 

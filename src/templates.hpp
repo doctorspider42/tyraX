@@ -37,8 +37,9 @@ std::string bakedModelPath(const std::string& modelPath,
 // Bakes every static model (.obj) referenced by the project into the binary
 // .tmdl the game loads (res/models/<stem>.tmdl, or <stem>__ovr<hash>.tmdl for
 // a per-object .mtl override) - see src/tmdl.hpp and docs/model-pipeline.md.
-// Materials, atlas UV rects, flat normals and bin-relative texture paths are
-// resolved at bake time, so the PS2 side is a sequential read plus a memcpy.
+// Materials, atlas UV rects, crease-smoothed normals and bin-relative texture
+// paths are resolved at bake time, so the PS2 side is a sequential read plus a
+// memcpy.
 // A model that cannot be parsed is reported in `warnings` and skipped (the
 // game warns and renders nothing for it - the same soft-fail as .tskl).
 std::vector<File> bakeStaticModels(const Project& p,

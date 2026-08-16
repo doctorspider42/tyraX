@@ -16,6 +16,45 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.44.0 (a curved low-poly surface stops shading in steps): the static-model
+// pipeline derives its normals per FACE (`vn` is ignored), so on anything
+// curved - the night-walk street lamp's six-sided pole - the baked per-vertex
+// moon/ambient N.L stepped hard at every triangle edge, each face carrying its
+// own vertex copies with its own flat shade, while the torch's positional cone
+// term stayed smooth over the very same vertices. meshlod::smoothNormals is
+// the fix: weld positions by their float bits, average area-weighted face
+// normals across faces whose dihedral is under 60 degrees, keep the edge hard
+// above it (60 with a little comparison slack, so a hexagonal pole - adjacent
+// faces at exactly 60 - lands smooth while a 90-degree box edge stays a box
+// edge). It runs at the END of objparser::load, across submeshes, which is the
+// single-source move: the .tmdl bake, the viewport's shadeOf twin and every
+// lighting bake inherit the same normals by construction instead of by twin
+// maintenance. generateTiers re-derives per tier (recomputeFaceNormals, then
+// smoothNormals) so a mesh-LOD switch no longer pops a curved surface back to
+// faceted; the weld stays keyed on position+uv, since crease corners still
+// carry differing normals. The votes are weighted by the corner's INTERIOR
+// ANGLE, not per triangle - a fan-triangulated quad puts two triangles at some
+// of its corners and one at the others, and a per-triangle vote measured 11
+// degrees off radial on a hexagonal pole where angle weighting lands exact.
+// procbake's decimated instance path deliberately stops at flat normals - its
+// chunk .obj writer drops them and the .tmdl re-parse re-derives. Verified
+// three ways: a host harness over objparser+meshlod (one pooled normal per
+// pole-side position, across a material split; radial to 1e-4; caps and a
+// cube's 90-degree edges untouched; flatten+re-smooth idempotent), a baked
+// .tmdl A/B against the pre-change editor (pole positions/UVs byte-identical,
+// side normals rotated exactly 30 degrees onto the bisector, seam-twin
+// positions 4/8 -> 0/8), and a PCSX2 A/B on a hexagonal pole planted into a
+// copy of examples/night-walk - the two visible faces the moon direction
+// leaves in the ambient clamp render byte-identically (they must: d clamps to
+// 0 in both arms) and the moon-catching face turns from a flat band behind a
+// hard seam into a monotone gradient rising toward the moonlit rim, diff
+// ramping 2.1 -> 15.9 luminance exactly as the smoothed corners predict.
+// (night-walk's OWN lamp pole is a square column - 90-degree edges, correctly
+// still hard - which is why the check needed a planted six-sided pole.)
+// MINOR: shading of every curved static model changes by design; the .tyra
+// format is untouched (still v29 - .tmdl files are per-build artifacts, not
+// project data).
+//
 // 1.43.0 (the pre-release legacy comes out, and version::kMinFormatVersion is
 // what replaces it): TyraX has never shipped publicly, so every translation the
 // reader carried for a shape that changed on its way to v1 was weight nobody
@@ -1094,7 +1133,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 43
+#define TYRAX_VERSION_MINOR 44
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

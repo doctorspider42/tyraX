@@ -154,8 +154,8 @@ per-vertex `vertexAo` bytes the generated game folds into its shade bake),
 binary static-model format the generated game actually loads; the ASCII
 `LeanObjLoader` above is now only the fallback path. Reads the whole file
 sequentially and memcpys each part, because the stored layout IS
-`LeanObjMaterial::vertices` — everything else (triangulation, flat normals,
-material assignment, atlas UV rects, texture paths, LOD tiers) was resolved
+`LeanObjMaterial::vertices` — everything else (triangulation, crease-smoothed
+normals, material assignment, atlas UV rects, texture paths, LOD tiers) was resolved
 by the editor's `templates::bakeStaticModels`; the layout lives in the
 editor's `src/tmdl.hpp`, **keep the two in sync**. It returns the same
 `LeanObjMesh` so the game keeps one geometry path, with two differences the
