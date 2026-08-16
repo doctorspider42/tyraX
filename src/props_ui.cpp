@@ -421,7 +421,7 @@ void App::drawPropertiesWindow() {
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
-                    "Scripts/flow graph: Play Animation, Stop Animation,\n"
+                    "Scripts/flow graph: the Animation node (play/stop),\n"
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
@@ -1557,7 +1557,7 @@ void App::drawPropertiesWindow() {
                                 "X/Z near 0 and Y = height above the player.");
         ImGui::TextDisabled("Color tints the particles; scale X/Z = spawn area.\n"
                             "Rain falls from the emitter down to the terrain.\n"
-                            "Show/Hide Object nodes switch the emitter on/off.");
+                            "Set Object Visible switches the emitter on/off.");
     }
 
     if (o.type == PrimitiveType::SoundEmitter) {
@@ -1616,11 +1616,11 @@ void App::drawPropertiesWindow() {
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"
-                                "narration). Hide Object mutes.");
+                                "narration). Set Object Visible (hide) mutes.");
         } else {
             ImGui::TextDisabled("Volume fades with distance to the player.\n"
                                 "Interval 0 loops the sample seamlessly; > 0\n"
-                                "retriggers it every N seconds. Hide Object mutes.");
+                                "retriggers it every N seconds. Hiding the object mutes.");
         }
     }
 
@@ -1955,7 +1955,7 @@ void App::drawPropertiesWindow() {
                         "run speed, so it always plays the run clip.");
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
-                        "\"Play Animation\" one-shot plays to the end first.");
+                        "an Animation one-shot plays to the end first.");
                     // Directional locomotion: only meaningful with the avatar
                     // facing the camera - otherwise it turns into the movement
                     // and every step is a forward step.

@@ -204,9 +204,6 @@ SaveSizeInfo saveSizeInfo(const Project& p);
 // The game's save directory on the memory card ("/TYRA-<NAME>").
 std::string saveDirName(const Project& p);
 
-// True when `content` is byte-identical to what an older editor version
-// generated for this file - i.e. the user never edited it and it is safe
-// to regenerate even though it predates the ownership marker.
 // A File::relativePath as a filesystem path. The generator writes '\\'
 // separators (and hundreds of call sites compare against literals spelled that
 // way), but a backslash is an ordinary FILENAME CHARACTER on POSIX - writing
@@ -214,9 +211,6 @@ std::string saveDirName(const Project& p);
 // instead of the directory tree. Every place a relativePath meets the file
 // system goes through here.
 std::filesystem::path nativePath(const std::string& relativePath);
-
-bool matchesLegacy(const Project& p, const std::string& relativePath,
-                   const std::string& content);
 
 // `.vscode/extensions.json` with the ids the editor knows about ensured
 // present, given whatever the project already has. "" when nothing needs
