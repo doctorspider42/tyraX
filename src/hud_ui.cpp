@@ -32,6 +32,7 @@
 #include "editorcfg.hpp"
 #include "gl_loader.h"
 #include "fbxparser.hpp"
+#include "gigpu.hpp"
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
@@ -1202,22 +1203,67 @@ void App::drawGiBakeSection() {
         if (ImGui::Button("Cancel", ImVec2(scaled(140.0f), 0)))
             giBaker_.cancel();
     } else {
+        // Which engine will gather the light. RESOLVED before the buttons and
+        // DRAWN after them, so the two Bake buttons keep the exact position
+        // they had before this switch existed - a widget inserted above them
+        // moves everything below, and the panel is already at the bottom of its
+        // window. gigpu::available() is cached after its first call and must be
+        // reached from the main thread, which a window body is.
+        std::string gpuWhy;
+        const bool gpuHere = gigpu::available(&gpuWhy);
+        const bool useGpu = giGpuBake_ && gpuHere;
+
         ImGui::BeginDisabled(!st.giEnabled);
         if (ImGui::Button("Bake this scene", ImVec2(scaled(140.0f), 0))) {
             saveProject();  // the bake reads the project from disk-backed state
-            giBaker_.start(project_, {project_.activeScene});
+            giBaker_.start(project_, {project_.activeScene}, useGpu);
         }
         ImGui::SameLine();
         if (ImGui::Button("Bake all scenes", ImVec2(scaled(140.0f), 0))) {
             saveProject();
-            giBaker_.start(project_, {});
+            giBaker_.start(project_, {}, useGpu);
         }
         ImGui::EndDisabled();
-        if (st.giEnabled && staleCount > 0) {
-            ImGui::SameLine();
+        // ON THE SAME LINE as the buttons, and that is not cosmetic: this panel
+        // already ends within a few pixels of its window's bottom edge, so a
+        // widget that adds a ROW pushes the one below it OUTSIDE the window -
+        // where ImGui still submits it and --ui-script still reports a rect for
+        // it, but no label arrives and a click at those coordinates goes
+        // through to whatever is behind. That is what an added row did to the
+        // two Bake buttons here, and it is invisible until something tries to
+        // press them.
+        //
+        // Asked here rather than in the Preferences modal because this is where
+        // a person is standing when the question matters - the errorPopup
+        // precedent: still a machine-global setting, still saved through
+        // saveGlobalConfig().
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!gpuHere);
+        bool wantGpu = useGpu;
+        if (ImGui::Checkbox("Bake on the GPU", &wantGpu)) {
+            giGpuBake_ = wantGpu;
+            saveGlobalConfig();
+        }
+        ImGui::EndDisabled();
+        prefHelp(
+            gpuHere
+                ? "Gathers the light on a GL 4.3 compute shader instead of the "
+                  "CPU cores. The two lightmap passes run about 8-10x faster; "
+                  "the totals gain less, because starting the backend costs "
+                  "~0.9s once per session.\n\n"
+                  "The two engines agree to a tolerance, not exactly - the "
+                  "light channels differ by at most 2 levels out of 255, and "
+                  "the atlas layout and the occlusion are identical. Off by "
+                  "default so a re-bake does not rewrite a cache that is "
+                  "checked into a repository."
+                : ("No GPU bake on this machine: " + gpuWhy +
+                   "\n\nThe CPU integrator is the reference and bakes "
+                   "everything the GPU would - this only costs wall clock.")
+                      .c_str());
+        if (st.giEnabled && staleCount > 0)
             ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
                                "%d scene(s) need a bake", staleCount);
-        }
+
     }
     // The same switch Project Preferences > Build carries, offered where the
     // staleness it answers is on screen. Only stale scenes, so a build with

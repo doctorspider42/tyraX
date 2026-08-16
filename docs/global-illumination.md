@@ -344,9 +344,16 @@ flatters the GPU by a factor of eight and is the wrong number to plan with.
 
 ### Baking with it
 
-`--bake-gi <projectDir> --gpu`. Opt-in rather than default, because the two
-backends agree to a tolerance and not bit-for-bit, so flipping it silently would
-change every existing project's cached bytes. End to end, 8 cores:
+In the editor it is a tick box beside the Bake buttons — *Tools > Ambience
+Editor > Global illumination > **Bake on the GPU***. It is greyed out with the
+reason on hover when the machine has no usable GPU, and it is **machine-global**
+(editor.ini), not a project setting: whether this box has a GPU is a fact about
+the box. Headless it is `--bake-gi <projectDir> --gpu`.
+
+Opt-in in both, because the two backends agree to a tolerance and not
+bit-for-bit, so flipping it silently would change every existing project's
+cached bytes — and this repo's own GI examples ship that cache. End to end,
+8 cores:
 
 | Example | CPU | GPU | atlas | terrain |
 | --- | --- | --- | --- | --- |

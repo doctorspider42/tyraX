@@ -3103,6 +3103,12 @@ private:
     // track that; they are baselined on project attach so opening a project
     // with a stale dump in its log neither pops it nor looks like a shrink.
     bool errorPopupEnabled_ = true;
+    // "Bake GI on the GPU when this machine has one" - machine-global
+    // (editor.ini), edited from the Ambience Editor's Global illumination tab
+    // next to the Bake buttons, which is where a person looks for it. The
+    // errorPopup precedent: a machine-wide setting does not have to live in the
+    // Preferences modal, it just has to go through saveGlobalConfig().
+    bool giGpuBake_ = false;
     std::string errorSeenSig_;
     std::string errorModalText_;      // block shown in the open dialog
     bool openErrorPopup_ = false;     // request to open the modal next frame
