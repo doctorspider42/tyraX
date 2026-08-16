@@ -71,14 +71,20 @@ struct MtlMaterial {
 // is non-empty it is a path to a material library that REPLACES the model's
 // own libraries (mtllib + sibling are skipped) - usemtl names resolve against
 // it, and the submesh texture paths are then relative to that file. Faces are
-// fan-triangulated, normals are computed per face, `vt` texture coordinates
-// are used when present (v is flipped to image space, missing = 0,0). Faces
-// before any usemtl (or with an unknown material) land in a default white
-// submesh. Returns false when the file cannot be read or has no triangles.
+// fan-triangulated, normals are DERIVED (`vn` is ignored): per face, then
+// crease-smoothed across submeshes (meshlod::smoothNormals - a curved
+// low-poly surface shades as a gradient, a hard edge stays hard). `vt`
+// texture coordinates are used when present (v is flipped to image space,
+// missing = 0,0). Faces before any usemtl (or with an unknown material) land
+// in a default white submesh. Returns false when the file cannot be read or
+// has no triangles.
 //
 // Keep the parsing semantics in sync with the PS2 runtime loader in
 // vendor/tyra/engine/src/loaders/3d/obj_loader/lean_obj_loader.cpp - the
-// editor viewport and the game must see the same geometry and shading.
+// editor viewport and the game must see the same geometry and shading. (The
+// runtime .obj path stays flat-shaded: models ship as .tmdl, which bakes
+// these smoothed normals in, so the game never re-derives them - see
+// src/tmdl.hpp.)
 bool load(const std::string& path, Model& out,
           const std::string& overrideMtl = "");
 

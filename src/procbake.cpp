@@ -105,10 +105,12 @@ struct ChunkFile {
 // per (asset, detail) because both the budget readout and the bake ask for it,
 // and decimation is the expensive part.
 //
-// The welding trap that cost the .tmdl bake a day: a static mesh derives a
-// flat normal per FACE, so keying the weld on normals makes every position a
-// seam twin, the border lock fires everywhere and nothing decimates. Weld by
-// position+uv, then recompute the face normals.
+// The welding trap that cost the .tmdl bake a day: a static mesh's normals
+// are DERIVED (per face, crease-smoothed since), so keying the weld on them
+// makes crease corners seam twins, the border lock fires and little
+// decimates. Weld by position+uv, then recompute the face normals - and stop
+// there: the chunk .obj writer below drops normals anyway, and the re-parse
+// at .tmdl bake time re-derives (and re-smooths) them.
 std::shared_ptr<const procgen::AssetMesh> sourceMesh(const Project& p,
                                                      const std::string& rel,
                                                      int detail) {

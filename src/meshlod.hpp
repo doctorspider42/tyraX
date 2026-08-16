@@ -36,12 +36,13 @@ struct Mesh {
 //
 // `keyNormals` decides whether the normal is part of the identity. Keep it on
 // for authored normals (skinned models), where a hard edge must stay a seam.
-// Turn it OFF for a mesh whose normals are DERIVED per face - the static .obj
-// path computes flat face normals and ignores `vn` entirely, so every corner
-// of a position carries a different normal, every position looks like a seam
-// twin, the collapse locks all of them and nothing decimates at all. Weld
-// such a mesh by position (and uv) and recompute the normals afterwards with
-// recomputeFaceNormals().
+// Turn it OFF for a mesh whose normals are DERIVED - the static .obj path
+// ignores `vn` entirely and computes face normals (crease-smoothed by
+// smoothNormals() below), so every corner on a crease carries a different
+// normal, those positions look like seam twins, the collapse locks them and
+// little decimates (fully flat meshes decimated NOTHING before the
+// smoothing existed). Weld such a mesh by position (and uv) and re-derive
+// the normals afterwards: recomputeFaceNormals(), then smoothNormals().
 Mesh weld(const float* positions, const float* normals, const float* uvs,
           const unsigned char* joints, const unsigned char* weights,
           size_t count, bool keyNormals = true);
@@ -52,9 +53,33 @@ Mesh weldInterleaved(const float* verts, size_t count, bool keyNormals = true);
 
 // Overwrites every triangle's three corner normals with its face normal, in
 // place, over an interleaved 8-float triangle list. Same formula (and same
-// degenerate fallback) as objparser/LeanObjLoader, so a decimated tier is
-// flat-shaded exactly the way the full mesh is.
+// degenerate fallback) as objparser/LeanObjLoader. Callers that ship the
+// normals follow up with smoothNormals() so a tier is shaded exactly the way
+// the full mesh is; callers whose normals never survive (the procedural
+// chunk .obj writer drops them) stop here.
 void recomputeFaceNormals(std::vector<float>& verts);
+
+// Crease-angle normal smoothing over interleaved 8-float triangle lists, in
+// place: every corner averages the (interior-angle-weighted) face normals of
+// the faces meeting at its position whose dihedral angle against its own face
+// is below `creaseDeg` - so a curved low-poly surface (a lamp pole) shades as a
+// gradient instead of stepping at every triangle edge, while a box corner
+// stays hard. Positions weld by their float bits (corners sharing a position
+// are copies of one source vertex, so no tolerance is needed), ACROSS all the
+// arrays passed in one call - a material border on a continuous surface is
+// not a crease. objparser::load runs this on every parsed .obj, which is what
+// hands the same normals to the .tmdl bake, the viewport (shadeOf) and every
+// lighting bake at once; generateTiers re-runs it per tier so a LOD switch
+// does not pop back to flat.
+//
+// 60 degrees keeps a hexagonal pole smooth (adjacent faces meet at exactly
+// 60 - the comparison carries a little slack for float noise) and a 90-degree
+// box edge hard.
+constexpr float kCreaseAngleDeg = 60.0f;
+void smoothNormals(std::vector<float>* const* parts, size_t partCount,
+                   float creaseDeg = kCreaseAngleDeg);
+void smoothNormals(std::vector<float>& verts,
+                   float creaseDeg = kCreaseAngleDeg);
 
 // Collapses the mesh down to at most `targetVerts` live welded vertices,
 // rewriting `tris` (degenerate triangles are dropped, so the triangle count

@@ -11,6 +11,7 @@
 #include <sstream>
 
 #include "glbparser.hpp"  // Baked / Skel, the two override targets
+#include "meshlod.hpp"    // smoothNormals - crease-angle shading
 
 namespace objparser {
 
@@ -343,6 +344,22 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
     for (size_t i = out.submeshes.size(); i-- > 0;)
         if (out.submeshes[i].verts.empty())
             out.submeshes.erase(out.submeshes.begin() + i);
+
+    // Crease-angle smoothing over the face normals derived above: faces
+    // meeting at a position within meshlod::kCreaseAngleDeg pool their
+    // normals, so a curved low-poly surface shades as a gradient instead of
+    // stepping at every triangle edge, while a hard edge stays hard. Across
+    // submeshes, so a material border on a continuous surface is not a seam.
+    // Every consumer inherits the result HERE - the .tmdl bake, the viewport
+    // (shadeOf) and the lighting bakes - which is what keeps the editor and
+    // the console shading one mesh the same way.
+    {
+        std::vector<std::vector<float>*> parts;
+        parts.reserve(out.submeshes.size());
+        for (Submesh& s : out.submeshes) parts.push_back(&s.verts);
+        if (!parts.empty())
+            meshlod::smoothNormals(parts.data(), parts.size());
+    }
 
     out.positionCount = (int)positions.size() / 3;
     return !out.submeshes.empty();

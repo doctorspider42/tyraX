@@ -10,7 +10,8 @@
 // normals, a std::map lookup per usemtl - which is a visible hitch inside a
 // streaming layer's one-asset-per-frame job. Everything that parse computed
 // is a pure function of build-time inputs, so the build resolves it once:
-// triangulation, flat normals, the v flip, the material assignment (including
+// triangulation, crease-smoothed normals (meshlod::smoothNormals - a runtime
+// .obj load stays flat-shaded), the v flip, the material assignment (including
 // a per-object .mtl override), atlas UV rects, and bin-relative texture
 // paths. What is left at runtime is one sequential read plus a memcpy per
 // part, because `Part::verts` is exactly the interleaved 8-float layout

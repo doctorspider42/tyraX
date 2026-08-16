@@ -116,6 +116,113 @@ void recomputeFaceNormals(std::vector<float>& verts) {
     }
 }
 
+void smoothNormals(std::vector<float>* const* parts, size_t partCount,
+                   float creaseDeg) {
+    struct Face {
+        float n[3];  // normalized face normal
+    };
+    // One vote per triangle CORNER, weighted by that corner's interior angle
+    // (Thuermer/Wuethrich): a quad fan-triangulates into two triangles that
+    // both touch some of its corners and only one of the others, and a
+    // per-triangle vote would tilt the pooled normal toward the double-voting
+    // side (measured 11 degrees off radial on a hexagonal pole). The two
+    // triangles' corner angles SUM to the quad's own, so angle weighting makes
+    // the result independent of how faces were triangulated - and a sliver's
+    // sharp corners vote almost nothing.
+    struct Vote {
+        uint32_t part, tri;
+        float ang;
+    };
+    std::vector<std::vector<Face>> faces(partCount);
+    std::map<std::string, std::vector<Vote>> atPos;  // position bits -> votes
+    std::string key;
+    for (size_t pi = 0; pi < partCount; ++pi) {
+        const std::vector<float>& v = *parts[pi];
+        const size_t triCount = v.size() / 24;
+        faces[pi].resize(triCount);
+        for (size_t t = 0; t < triCount; ++t) {
+            const float* p[3] = {&v[t * 24], &v[t * 24 + 8], &v[t * 24 + 16]};
+            const float ux = p[1][0] - p[0][0], uy = p[1][1] - p[0][1],
+                        uz = p[1][2] - p[0][2];
+            const float vx = p[2][0] - p[0][0], vy = p[2][1] - p[0][1],
+                        vz = p[2][2] - p[0][2];
+            float nx = uy * vz - uz * vy;
+            float ny = uz * vx - ux * vz;
+            float nz = ux * vy - uy * vx;
+            const float len = std::sqrt(nx * nx + ny * ny + nz * nz);
+            Face& f = faces[pi][t];
+            if (len > 1e-8f) {
+                f.n[0] = nx / len, f.n[1] = ny / len, f.n[2] = nz / len;
+            } else {
+                f.n[0] = 0.0f, f.n[1] = 1.0f, f.n[2] = 0.0f;
+            }
+            for (int k = 0; k < 3; ++k) {
+                // interior angle at corner k, between the edges to the other
+                // two corners
+                const float* o1 = p[(k + 1) % 3];
+                const float* o2 = p[(k + 2) % 3];
+                float e1[3] = {o1[0] - p[k][0], o1[1] - p[k][1],
+                               o1[2] - p[k][2]};
+                float e2[3] = {o2[0] - p[k][0], o2[1] - p[k][1],
+                               o2[2] - p[k][2]};
+                const float l1 = std::sqrt(e1[0] * e1[0] + e1[1] * e1[1] +
+                                           e1[2] * e1[2]);
+                const float l2 = std::sqrt(e2[0] * e2[0] + e2[1] * e2[1] +
+                                           e2[2] * e2[2]);
+                float ang = 0.0f;
+                if (l1 > 1e-8f && l2 > 1e-8f) {
+                    float d = (e1[0] * e2[0] + e1[1] * e2[1] + e1[2] * e2[2]) /
+                              (l1 * l2);
+                    d = d < -1.0f ? -1.0f : (d > 1.0f ? 1.0f : d);
+                    ang = std::acos(d);
+                }
+                key.assign(reinterpret_cast<const char*>(&v[t * 24 + k * 8]),
+                           3 * sizeof(float));
+                atPos[key].push_back({(uint32_t)pi, (uint32_t)t, ang});
+            }
+        }
+    }
+    // The slack keeps a surface whose faces meet at EXACTLY the crease angle
+    // (a hexagonal pole at 60) on the smooth side instead of flickering on
+    // float noise. Opposite-facing coplanar faces (double-sided quads) read
+    // dot -1 and never pool, so they cannot cancel each other to zero.
+    const float cosT = std::cos(creaseDeg * 3.14159265358979f / 180.0f) - 1e-3f;
+    for (size_t pi = 0; pi < partCount; ++pi) {
+        std::vector<float>& v = *parts[pi];
+        const size_t triCount = v.size() / 24;
+        for (size_t t = 0; t < triCount; ++t) {
+            const Face& self = faces[pi][t];
+            for (int k = 0; k < 3; ++k) {
+                key.assign(reinterpret_cast<const char*>(&v[t * 24 + k * 8]),
+                           3 * sizeof(float));
+                float sx = 0.0f, sy = 0.0f, sz = 0.0f;
+                for (const Vote& q : atPos.find(key)->second) {
+                    const Face& g = faces[q.part][q.tri];
+                    if (self.n[0] * g.n[0] + self.n[1] * g.n[1] +
+                            self.n[2] * g.n[2] <
+                        cosT)
+                        continue;
+                    sx += g.n[0] * q.ang;
+                    sy += g.n[1] * q.ang;
+                    sz += g.n[2] * q.ang;
+                }
+                const float len = std::sqrt(sx * sx + sy * sy + sz * sz);
+                float* n = &v[t * 24 + k * 8 + 3];
+                if (len > 1e-8f) {
+                    n[0] = sx / len, n[1] = sy / len, n[2] = sz / len;
+                } else {
+                    n[0] = self.n[0], n[1] = self.n[1], n[2] = self.n[2];
+                }
+            }
+        }
+    }
+}
+
+void smoothNormals(std::vector<float>& verts, float creaseDeg) {
+    std::vector<float>* p = &verts;
+    smoothNormals(&p, 1, creaseDeg);
+}
+
 void decimate(Mesh& w, size_t targetVerts) {
     const size_t vertCount = w.pos.size() / 3;
     std::vector<uint32_t> remap(vertCount);
@@ -244,14 +351,18 @@ std::vector<std::vector<float>> generateTiers(const std::vector<float>& verts) {
     const size_t corners = verts.size() / 8;
     if (corners < kMinCorners) return tiers;
     for (float ratio : kRatios) {
-        // Weld by position+uv, not by normal: these normals are derived per
-        // face, so keying on them would lock every vertex as a seam twin (see
-        // weld()). The tier's own face normals are computed after the collapse.
+        // Weld by position+uv, not by normal: these normals are DERIVED (per
+        // face, then crease-smoothed), so keying on them would lock crease
+        // corners as seam twins (see weld()). The tier's own normals are
+        // re-derived after the collapse the same way the parser derives the
+        // full mesh's - face normals, then the same crease smoothing - so a
+        // LOD switch does not pop a curved surface back to flat.
         Mesh w = weldInterleaved(verts.data(), corners, false);
         const size_t target = (size_t)(w.vertexCount() * ratio + 0.5f);
         decimate(w, target < 3 ? 3 : target);
         std::vector<float> tier = unweldInterleaved(w);
         recomputeFaceNormals(tier);
+        smoothNormals(tier, kCreaseAngleDeg);
         // The target is in welded vertices while this check is in corners -
         // sound because a collapse removes triangles roughly in proportion.
         const size_t tierCorners = tier.size() / 8;

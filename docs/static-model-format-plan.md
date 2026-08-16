@@ -69,7 +69,11 @@ every position looks like a uv/normal seam twin, the collapse's position-twin
 lock fires on all of them and nothing decimates. The first implementation
 produced byte-identical "tiers" for exactly this reason. Static tiers weld by
 position+uv and recompute face normals after the collapse — which is also
-what flat shading wants (each tier flat-shaded on its own faces). The
+what flat shading wants (each tier flat-shaded on its own faces).
+*(Since 1.44.0 the derived normals are crease-smoothed —
+`meshlod::smoothNormals`, docs/model-pipeline.md "Shading" — so "every corner
+differs" holds only on creases now; the weld rule and the disc-size argument
+stand unchanged, and each tier re-smooths after its collapse.)* The
 animated path keeps welding on normals: authored smooth normals are real
 data and a hard edge must stay a seam.
 

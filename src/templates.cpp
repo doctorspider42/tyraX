@@ -6871,9 +6871,9 @@ void TerrainGame::releaseTexture(const std::string& path) {
 }
 
 // Loads one static model: the baked binary .tmdl (TmdlLoader - materials,
-// atlas UV rects, flat normals and texture paths all resolved at build time,
-// so this is a read plus a memcpy) or, for a path that is not a .tmdl, an
-// ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
+// atlas UV rects, crease-smoothed normals and texture paths all resolved at
+// build time, so this is a read plus a memcpy) or, for a path that is not a
+// .tmdl, an ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
 // textures go through the texture cache, plus the real mesh AABB for box
 // collision and a CollisionMesh where some scene object collides in mesh
 // mode. Called on demand by the layer streaming.
