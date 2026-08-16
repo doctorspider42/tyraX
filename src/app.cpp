@@ -10850,8 +10850,8 @@ void App::updateSkyBodyPreview(int presetIndex) {
         // star from drawing as a hard little square.
         menubake::bakeFlareRGBA(2, rgba);
         viewport_.setSkyBodyTexture(Viewport::SkyStarDot,
-                                    menubake::kFlareSpriteSize,
-                                    menubake::kFlareSpriteSize, rgba.data());
+                                    menubake::kCoronaSpriteSize,
+                                    menubake::kCoronaSpriteSize, rgba.data());
         skyBodySunUploaded_ = true;
     }
     // The moon is a real image projection - only re-bake when its inputs move.

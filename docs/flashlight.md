@@ -86,6 +86,19 @@ torch's shadow machinery: no receivers, no volumes - one torch is the
 per-pixel protagonist, a scene spot is set dressing that finally lights its
 own street.
 
+The corona itself is a depth-tested additive billboard, and two details keep
+it clean on the fixture that carries it. It is drawn **pulled toward the
+camera** (a quarter of the light's radius, capped at three quarters of the
+camera distance, its size scaled down by the same fraction so the picture
+does not move): a sprite centred exactly on the bulb slices through the
+lamp's own pole and arm, and the GS's fixed-point z cuts the soft glow on a
+jagged, stair-stepped seam that wanders as you move. Pulled clear, the glow
+blooms **over** the thin fixture - which is what a glow does in a real lens -
+while a wall between you and the lamp still hides it. And it bakes at
+**128x128** (the 2D lens-flare sprites stay 64): up close the billboard can
+cover a third of the screen, and a 64-texel radial gradient contours in
+visible steps at that magnification.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the
