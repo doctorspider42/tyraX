@@ -20,6 +20,18 @@
 # to main can leave main unreleased. The editor's own update check reads these
 # releases (docs/updates.md) - the asset name is not hardcoded anywhere, it is
 # taken from the release's asset list, so renaming the installer breaks nothing.
+#
+# THE ACTION VERSIONS BELOW ARE THE Node 24 MAJORS, and the numbers differ per
+# action on purpose - do not "tidy" them back into one. The first release run
+# warned that checkout@v4 targets the deprecated Node 20 and was being forced
+# onto Node 24; each action fixed that in a different major, and for the two
+# artifact actions the FIRST major to claim Node 24 still defaulted to Node 20
+# (their own release notes say so - upload v5 and download v5/v6 are
+# "preliminary"), so v5 would have left the warning in place. Hence checkout@v7,
+# cache@v6, upload-artifact@v7, download-artifact@v8: the newest major of each,
+# whose only breaking change that touches this workflow is download-artifact v8
+# failing on a digest mismatch instead of warning - which is what we want from
+# the job that publishes an installer other people will run.
 name: release
 
 on:
@@ -44,7 +56,7 @@ jobs:
       version: ${{ steps.pick.outputs.version }}
       sha: ${{ steps.pick.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -86,7 +98,7 @@ jobs:
     needs: version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The commit the version job settled on - which is NOT github.sha when
           # it had to bump the header.
@@ -118,7 +130,7 @@ jobs:
       # A cold build of this repo is dominated by -O3 on a handful of very large
       # translation units; a warm ccache turns a release into a few minutes.
       - name: ccache store
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/AppData/Local/ccache
           key: release-ccache-${{ needs.version.outputs.sha }}
@@ -145,7 +157,7 @@ jobs:
         shell: pwsh
         run: ./installer/build-installer.ps1 -SkipBuild -Version ${{ needs.version.outputs.version }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: installer
           path: dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
@@ -155,7 +167,7 @@ jobs:
     needs: [version, build]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: installer
           path: dist
