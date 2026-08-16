@@ -31,6 +31,19 @@ inline float bayerDither(int x, int y) {
     return m[(y & 3) * 4 + (x & 3)] * (1.0f / 16.0f) - 0.5f;
 }
 
+// The locality window every occlusion term closes with. Occlusion past
+// `range` is deliberately not counted - this is a CONTACT shadow, and the
+// bake's occluder grid prunes by exactly this radius - so the term has to
+// reach zero there rather than merely become small. Smooth over the last 40%
+// so nothing steps at the cutoff.
+inline float aoRangeWindow(float dist, float range) {
+    if (dist >= range) return 0.0f;
+    float t = (range - dist) / (0.4f * range);
+    if (t >= 1.0f) return 1.0f;
+    if (t < 0.0f) t = 0.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
 // Sine of the tangent-plane elevation along a horizontal direction, for a
 // surface with unit normal n; `m` is the rise per unit walked.
 //
@@ -285,43 +298,52 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
     // off as the inverse square it should.
     // Capped at the AO radius, and not as a fudge: occlusion past `range` is
     // deliberately not counted, so the part of a 26-unit wall that can matter
-    // to a point 0.4 units from it is the part within reach. Uncapped, the
-    // whole wall collapses into one disc of radius 5.15 sitting almost against
-    // the surface and reads 0.70 where a half-plane at contact can only block
-    // about 0.45.
+    // to a point 0.4 units from it is the part within reach.
     float r = occProjRadius(oc, toOcc);
     if (r > range) r = range;
     if (r <= 1e-5f) return 0.0f;
 
-    // WHERE THE SHAPE SITS IN THE SKY IS NOT WHERE ITS NEAREST POINT IS. Aim
-    // the disc at the midpoint between the nearest surface point and the
-    // shape's centre: a small shape barely moves (the two coincide), while a
-    // wall standing beside a floor is aimed UP at its bulk instead of
-    // sideways at its foot. Taking the nearest point alone reads the floor
-    // next to a 3-unit wall as unoccluded - measured 0.000 - because the wall
-    // touches it edge-on and the cosine falls out.
-    const float aim[3] = {
-        wp[0] + toOcc[0] * dist * 0.5f + (oc.pos[0] - wp[0]) * 0.5f,
-        wp[1] + toOcc[1] * dist * 0.5f + (oc.pos[1] - wp[1]) * 0.5f,
-        wp[2] + toOcc[2] * dist * 0.5f + (oc.pos[2] - wp[2]) * 0.5f};
-    float ax = aim[0] - wp[0], ay = aim[1] - wp[1], az = aim[2] - wp[2];
-    const float al = std::sqrt(ax * ax + ay * ay + az * az);
-    if (al > 1e-5f) ax /= al, ay /= al, az /= al;
-    const float cosT = n[0] * ax + n[1] * ay + n[2] * az;
-    if (cosT <= 0.0f) return 0.0f;  // wholly behind the surface: not in the way
-    const float d = dist + r;
-    float occ = cosT * (r * r) / (d * d);
+    const float cosT = n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2];
+
+    // A SHAPE OCCLUDES IN ONE OF TWO REGIMES, AND WHICH ONE IS THE WHOLE
+    // DIFFICULTY.
+    //
+    // Far and small, it is a disc: it takes cos(theta) * (r/d)^2 of the
+    // cosine-weighted hemisphere, an inverse square in the distance.
+    //
+    // Near and large, it is not a disc at all - it is a HALF-SPACE. A floor
+    // slab under your feet blocks every downward direction no matter where its
+    // centre happens to be, and a disc model has to be told which way to point.
+    // Every attempt to tell it fails on real geometry: aiming at the nearest
+    // point reads the floor beside a wall as 0.000 occluded (the wall touches
+    // it edge-on and the cosine falls out), and aiming at the shape's centre
+    // reads a crate standing on a 30x24 terrace as 0.66 occluded ON ITS SIDES,
+    // because that terrace's centre is ten units sideways. Both measured.
+    //
+    // The half-space needs no aiming: what it blocks is the hemisphere behind
+    // its face, which is (1 + n.toOcc)/2 - zero for a surface facing away,
+    // one half for a surface along it, one for a surface facing into it.
+    //
+    // k is sin(alpha), the sine of the shape's angular radius: 1 when it is
+    // against the surface and filling the sky, 0 when it is a distant speck.
+    // k*k is then the solid-angle fraction the disc form already used, and k
+    // is what carries the surface between the two regimes.
+    //
+    // BOTH FACTORS ARE NEEDED AND THAT IS WHAT THE FIRST ATTEMPT GOT WRONG.
+    // Blending linearly on k alone let a crate 0.6 units away - alpha of 27
+    // degrees, a speck - hand a horizontal surface the half-space's 0.5, and a
+    // ring of neighbours then summed to "half the sky is gone" on a crate top
+    // with nothing above it (measured 0.500). Scaling the whole thing by the
+    // solid angle keeps a small shape small however close it gets, while a
+    // shape that really does fill the hemisphere still reaches the plane.
+    const float k = r / (r + dist);
+    const float lit = (cosT > 0.0f) ? cosT : 0.0f;      // disc regime
+    const float plane = (1.0f + cosT) * 0.5f;           // half-space regime
+    float occ = k * k * (lit + (plane - lit) * k);
+    if (occ < 0.0f) occ = 0.0f;
     if (occ > 1.0f) occ = 1.0f;
 
-    // Close the tail at `range` so the effect stays a CONTACT shadow - and so
-    // the bake's occluder grid, which prunes by exactly this radius, cannot
-    // drop a shape that would still have contributed.
-    float t = (range - dist) / (0.4f * range);
-    if (t < 1.0f) {
-        if (t < 0.0f) t = 0.0f;
-        occ *= t * t * (3.0f - 2.0f * t);
-    }
-    return occ;
+    return occ * aoRangeWindow(dist, range);
 }
 
 std::vector<Emitter> collectEmitters(const std::string& projectDir,
@@ -808,17 +830,30 @@ float heightAtWorld(const std::vector<float>& heights, int w, int d,
     return t * (1 - fz) + b * fz;
 }
 
-// The wall-base-softened ground contact term - the host copy of the
-// generated aoShadeMul ground branch (and the viewport shader's). Sync all
-// three when the formula moves.
+// The ground contact term - host copy of the generated aoShadeMul ground
+// branch and the viewport shader's. Sync all three when the formula moves.
+//
+// THIS IS THE SAME HALF-SPACE THE OCCLUDER RESPONSE FALLS BACK TO, and saying
+// so is the point: the ground is a plane whose `toOcc` is straight down, so
+// (1 + n.toOcc)/2 becomes (1 - n.y)/2 - which is exactly the `0.5 - 0.5*ny`
+// this term always had. It was never a separate model, only a separate
+// spelling with its own constant, and one shape hiding behind two formulas is
+// how the two drifted apart in the first place.
+//
+// kAoBounce is what is left of that constant, and it is now the ONLY place a
+// number sits between the geometry and the picture. A fully physical half
+// hemisphere is what a surface standing on a floor really loses, but this
+// engine has no indirect light to put back: the floor is lit and bounces, and
+// at 1.0 every wall base and every crate reads muddy. The original ground term
+// carried 0.7 with that reasoning in a comment; it is kept, applied once, to
+// everything - so raising it is a single, reviewable decision rather than a
+// hunt through three files.
 float groundOcclusion(float dy, float ny, float range) {
     if (dy < 0.0f) dy = 0.0f;
     if (dy >= range) return 0.0f;
-    float fade = 1.0f - dy / range;
-    fade *= fade;
     float horiz = 0.5f - 0.5f * ny;
     if (horiz < 0.0f) horiz = 0.0f;
-    return 0.7f * fade * horiz;
+    return horiz * aoRangeWindow(dy, range);
 }
 
 int pow2Up(int v) {
@@ -1052,7 +1087,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                     }
                 // ...and the heightmap's own horizon occlusion is a third
                 // independent blocker, so it joins the same way.
-                occ = 1.0f - (1.0f - occ) * (1.0f - occAcc * invSuper);
+                occ = 1.0f - (1.0f - occ) * (1.0f - kAoBounce * occAcc * invSuper);
                 if (occ > 1.0f) occ = 1.0f;
                 const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
                 out.alpha[texel] = a;
@@ -1402,7 +1437,7 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                               (float)sc.terrain.depth, wp[0], wp[2]);
             aoAccumVis(vis, groundOcclusion(wp[1] - ground, n[1], rs.aoRadius));
         }
-        const float occ = 1.0f - vis;
+        const float occ = kAoBounce * (1.0f - vis);
         return occ > 1.0f ? 1.0f : occ;
     };
     auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,

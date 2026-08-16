@@ -170,6 +170,20 @@ void emitterLightAt(const Emitter& em, const float wp[3], const float n[3],
 bool shapeBlocksRay(const Occluder& oc, const float origin[3],
                     const float dir[3], float maxT);
 
+// The one number standing between the geometry and the picture.
+//
+// A surface resting on a floor really does lose half its cosine-weighted
+// hemisphere, and the occlusion model computes exactly that. But this engine
+// has no indirect light to put back - the floor is lit and bounces, and at 1.0
+// every wall base and every crate reads muddy. So the finished occlusion is
+// scaled by this ONCE, over the occluders and the ground together.
+//
+// It was 0.7 buried in the ground term (with that reasoning in a comment)
+// while the occluder term carried an unrelated 0.35 facing floor. Both are
+// gone; this is what replaced them, and its value must be the same in all
+// three twins - the host, the generated aoShadeMul, and the viewport shader.
+constexpr float kAoBounce = 0.7f;
+
 // Host reference of the occluder response formula at a surface point
 // (0..1 occlusion; range = aoRadius). The generated game (aoOccluderAt in
 // templates.cpp, per vertex at load) and the viewport fragment shader

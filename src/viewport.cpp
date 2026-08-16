@@ -477,6 +477,12 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     return add;
 }
 
+// Locality window; twin of aobake::aoRangeWindow.
+float aoRangeWindow(float dist, float range) {
+    float t = clamp((range - dist) / (0.4 * range), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
 // Radius of a disc with the same PROJECTED AREA as the shape seen along
 // toOcc. Twin of aobake::occProjRadius / aoProjRadius in the generated game.
 float aoProjRadius(int i, vec3 h, vec3 toOcc) {
@@ -520,17 +526,14 @@ float aoOcclusion(vec3 wp, vec3 n) {
         if (dist >= uAoRadius) continue;
         float r = min(aoProjRadius(i, h, toOcc), uAoRadius);
         if (r <= 0.00001) continue;
-        // aimed at the midpoint of the nearest surface point and the centre
-        vec3 aim = toOcc * dist * 0.5 + (uAoPos[i].xyz - wp) * 0.5;
-        float al = length(aim);
-        if (al > 0.00001) aim /= al;
-        float cosT = dot(n, aim);
-        if (cosT <= 0.0) continue;  // wholly behind the surface
-        float d = dist + r;
-        float occ = min(cosT * (r * r) / (d * d), 1.0);
-        float t = clamp((uAoRadius - dist) / (0.4 * uAoRadius), 0.0, 1.0);
-        occ *= t * t * (3.0 - 2.0 * t);
-        vis *= 1.0 - occ;
+        float cosT = dot(n, toOcc);
+        // disc when small and far, HALF-SPACE when large and near; k =
+        // sin(alpha) blends and k*k is the solid angle. See aobake.cpp.
+        float k = r / (r + dist);
+        float lit = max(cosT, 0.0);
+        float plane = (1.0 + cosT) * 0.5;
+        float occ = clamp(k * k * (lit + (plane - lit) * k), 0.0, 1.0);
+        vis *= 1.0 - occ * aoRangeWindow(dist, uAoRadius);
     }
     if (uAoGround != 0) {
         float ground = 0.0;
@@ -539,13 +542,10 @@ float aoOcclusion(vec3 wp, vec3 n) {
             ground = texture(uAoHeight, clamp(uv, 0.0, 1.0)).r;
         }
         float dy = max(wp.y - ground, 0.0);
-        if (dy < uAoRadius) {
-            float fade = 1.0 - dy / uAoRadius;
-            // 0.7: same wall-base softening as the game's aoShadeMul
-            vis *= 1.0 - 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
-        }
+        // the same half-space, with toOcc straight down
+        vis *= 1.0 - max(0.5 - 0.5 * n.y, 0.0) * aoRangeWindow(dy, uAoRadius);
     }
-    return clamp(1.0 - vis, 0.0, 1.0);
+    return clamp(0.7 * (1.0 - vis), 0.0, 1.0);  // kAoBounce
 }
 
 void main() {

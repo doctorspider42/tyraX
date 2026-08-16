@@ -106,22 +106,22 @@ it: every heightmap in `examples/` used to be flat, relief 0.00, all of them,
 which is how a bare 30° slope came to darken itself by 16% for several releases
 with nobody seeing it. Keep at least one example sculpted.
 
-### Finish the ground term the way the occluder response was finished
+### Let imported models receive the scene occlusion
 
-The occluder half is done (ambient-occlusion.md, "What an occluder does to a
-surface"): occlusion is now the solid angle a shape subtends, and blockers
-combine as visibility. The GROUND contact term was deliberately left on its old
-shape - `0.7 * (1 - dy/range)^2 * (0.5 - 0.5*n.y)` - and it is now the term
-that decides how dark a small prop gets, because anything shorter than the AO
-radius sits wholly inside it.
+The occlusion model is now good enough for it, and that was the blocker rather
+than the plumbing. Re-measured on the console with `examples/ambient-occlusion`
+(real kit props): with models receiving, a crate under another crate reads 0.98
+of its uncovered neighbour's brightness against 0.87 for the AO-off scene, and
+nothing reads as a lump - where the old distance-based response gave 0.78 and a
+visibly darker box. Model AO (per texel, in the shipped texture) answers a
+model's SELF occlusion and is transform-invariant, so it can never answer for a
+neighbour; this is the other half.
 
-Going fully physical there is NOT obviously right and wants measuring first.
-The true cosine-weighted fraction a ground plane blocks is `(1 - n.y)/2` with a
-`1/(1+(dy/R)^2)` falloff, which at dy = 0.5 and R = 2.5 is about 0.48 against
-today's 0.217 - i.e. small props would darken MORE, not less. The `0.7` carries
-a comment saying exactly why it is below physics ("the ground is lit and
-bounces - full half-hemisphere reads too dark"), so that is a measured decision
-to overturn with evidence, not a leftover.
+What it needs, and why it is its own commit: `g_aoOff` off for type 5 in BOTH
+the solo and the static-batch paths, model part bags switched to Gouraud (a
+per-vertex value is invisible under flat shading - the lesson from the block
+work), and a re-verification pass over the examples, because it changes how
+every textured prop in every project is shaded.
 
 ### Give scene occluders more than one box each
 

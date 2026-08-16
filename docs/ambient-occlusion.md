@@ -100,52 +100,69 @@ the Terrain Editor.
 
 ## What an occluder does to a surface
 
-An occluder darkens a point by **how much of that point's sky it covers**, not
-by how close it is. For a shape whose projected silhouette has radius `r` and
-whose centre sits `d` away, the fraction of the cosine-weighted hemisphere it
-blocks is `cos(theta) * (r/d)^2`; `r` comes from the shape's projected area (so
-one expression serves a sphere and a box, and a thin slab reads as the wall it
-is from the front and as almost nothing edge-on), and the disc is placed
-**tangent to the nearest surface point** so a shape resting against a surface
-gives `cos(theta)` and a distant one falls off as the inverse square.
+A shape darkens a point by **how much of that point's sky it covers**. It does
+that in one of two regimes, and picking between them is the whole difficulty.
 
-That replaced `(1 - dist/radius)^2` times a facing weight with a **0.35 floor**,
-which had two consequences worth recording because they are what the change is
-for. A surface turned away from an occluder it can barely see still kept a
-third of the term; and since the term depended only on distance, anything
-smaller than the AO radius darkened over its whole height as a lump. Measured
-on `examples/ambient-occlusion`, on the console: a crate with another crate
-resting on it read **0.78** of its uncovered neighbour's brightness where the
-scene without AO reads 0.87 — a visible step between two crates 20 cm apart.
-With the solid-angle response it reads **1.04**, and the sides of the covered
-crate went from 0.22 to **0.000**, which is not a suppression but the right
-answer: the crate above lies entirely behind the plane of those faces and
-blocks none of their sky.
+**Far and small, it is a disc**: it takes `cos(theta)` of its solid angle, an
+inverse square in the distance. `r` comes from the shape's projected area, so
+one expression serves a sphere and a box and a thin slab reads as the wall it
+is from the front and as almost nothing edge-on.
 
-Two traps this cost, both caught by measuring rather than by reading the
-formula:
+**Near and large, it is not a disc at all — it is a half-space.** A floor slab
+under your feet blocks every downward direction no matter where its centre
+happens to be, and a disc has to be told which way to point. Every way of
+telling it fails on real geometry, and both failures were measured on
+`examples/ambient-occlusion`: aimed at the shape's nearest point, the floor
+beside a wall reads **0.000** occluded (the wall touches it edge-on and the
+cosine falls out); aimed at the shape's centre, a crate standing on a 30×24
+terrace reads **0.66** occluded *on its sides*, because that terrace's centre
+is ten units sideways. A half-space needs no aiming: what it blocks is the
+hemisphere behind its face, `(1 + n·toOcc)/2`.
 
-- **A single direction is not enough for a large shape.** Aimed at its nearest
-  point, a wall standing beside a floor is aimed *sideways at its foot*, the
-  cosine falls out and the floor reads 0.000 occluded. The disc is aimed at
-  the midpoint of the nearest point and the shape's centre, so it points at
-  the wall's bulk.
-- **An uncapped disc over-reads a big near shape.** A 26-unit wall collapses
-  into one disc of radius 5.15 sitting almost against the surface and reads
-  0.70, where a half-plane at contact can block at most about 0.45. `r` is
-  capped at the AO radius — not a fudge: occlusion past that radius is
-  deliberately not counted, so the part of the wall that can matter is the
-  part within reach.
+The two are blended on `k = sin(alpha) = r/(r + dist)`, the sine of the shape's
+angular radius — and the result is scaled by `k²`, the solid angle, as well.
+**Both factors are needed.** Blending on `k` alone let a crate 0.6 units away —
+27°, a speck — hand a horizontal surface the half-space's 0.5, and a ring of
+neighbours then summed to *half the sky gone on a crate top with nothing above
+it* (measured 0.500; it is 0.140 now).
 
-**Blockers combine as visibility, never as a sum.** `1 - prod(1 - occ)`, over
-the occluders and the ground term together. A clamped sum saturates: two shapes
-each taking half the sky read as fully dark instead of three quarters, which is
-what let a neighbour and the ground between them black out a surface neither of
-them covers.
+**The ground contact term is the same half-space**, with `toOcc` pointing
+straight down: `(1 + n·toOcc)/2` becomes `(1 - n.y)/2`, which is exactly the
+`0.5 - 0.5·n.y` that term always carried. It was never a separate model, only a
+separate spelling with its own constant — and one shape behind two formulas is
+how the two drifted apart.
+
+**Blockers combine as visibility, never as a sum**: `1 - prod(1 - occ)`, over
+the occluders and the ground together. A clamped sum saturates — two shapes
+each taking half the sky read as fully dark instead of three quarters.
+
+### The one constant
+
+A surface resting on a floor really does lose half its cosine-weighted
+hemisphere, and the model now computes exactly that. This engine has no
+indirect light to put back, so the finished occlusion is scaled by
+**`aobake::kAoBounce` (0.7)**, once, over everything. It replaced two unrelated
+magic numbers — a `0.7` inside the ground term and a `0.35` facing floor inside
+the occluder term — so raising or lowering the effect is now a single
+reviewable decision instead of a hunt through three files.
+
+### What it did to the reported case
+
+A crate with another crate resting on it used to go dark as a lump while its
+neighbour 20 cm away stayed bright. Brightness of the covered crate against
+that neighbour, on the console at one frozen vantage:
+
+| | covered / neighbour |
+|---|---|
+| AO off (the natural difference) | 0.87 |
+| distance + 0.35 floor | **0.78** |
+| disc only | 1.04 |
+| disc + half-space | **0.98** |
 
 The three implementations are twins — `aobake::occluderOcclusionAt` on the
 host, `aoOccluderAt`/`aoShadeMul` in the generated game, `aoOcclusion` in the
-viewport fragment shader. Change one, change all three.
+viewport fragment shader. Change one, change all three; `kAoBounce` and the
+locality window live in all three too.
 
 ## Who casts, who receives
 

@@ -667,6 +667,22 @@ void occShapeAt(const Shape& oc, const V3& wp, float& dist, V3& toOcc) {
   }
 }
 
+/** The locality window every occlusion term closes with; occlusion past the
+ * AO radius is deliberately not counted. Twin of aobake::aoRangeWindow. */
+float aoRangeWindow(float dist, float range) {
+  if (dist >= range) return 0.0F;
+  float t = (range - dist) / (0.4F * range);
+  if (t >= 1.0F) return 1.0F;
+  if (t < 0.0F) t = 0.0F;
+  return t * t * (3.0F - 2.0F * t);
+}
+
+/** The one number between the geometry and the picture: a surface resting on a
+ * floor really does lose half its hemisphere, but there is no indirect light
+ * here to put back, so the finished occlusion is scaled once. Twin of
+ * aobake::kAoBounce - the two must not drift. */
+constexpr float kAoBounce = 0.7F;
+
 /** Radius of a disc with the same PROJECTED AREA as the shape, seen along
  * `toOcc`. Twin of aobake::occProjRadius. */
 float aoProjRadius(const AoOccData& oc, const V3& toOcc) {
@@ -691,30 +707,26 @@ float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
   occShapeAt(oc, wp, dist, toOcc);
   if (dist <= 0.0F) return 1.0F;  // touching / inside
   if (dist >= SCENE_AO_RADIUS) return 0.0F;
-
+  const float cosT = n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z;
   float r = aoProjRadius(oc, toOcc);
   if (r > SCENE_AO_RADIUS) r = SCENE_AO_RADIUS;
   if (r <= 0.00001F) return 0.0F;
 
-  // Aimed at the midpoint of the nearest surface point and the shape centre,
-  // so a wall beside a floor is aimed at its bulk rather than at its foot.
-  float ax = toOcc.x * dist * 0.5F + (oc.pos[0] - wp.x) * 0.5F;
-  float ay = toOcc.y * dist * 0.5F + (oc.pos[1] - wp.y) * 0.5F;
-  float az = toOcc.z * dist * 0.5F + (oc.pos[2] - wp.z) * 0.5F;
-  const float al = sqrtf(ax * ax + ay * ay + az * az);
-  if (al > 0.00001F) ax /= al, ay /= al, az /= al;
-  const float cosT = n.x * ax + n.y * ay + n.z * az;
-  if (cosT <= 0.0F) return 0.0F;  // wholly behind the surface
-
-  const float d = dist + r;
-  float occ = cosT * (r * r) / (d * d);
+  // Two regimes, picked by the shape's angular radius. Far and small it is a
+  // disc taking cos(theta) of its solid angle; near and large it is a
+  // HALF-SPACE, which needs no aiming - what a plane blocks is the hemisphere
+  // behind its face, (1 + n.toOcc)/2. k = sin(alpha) carries the surface
+  // between them and k*k is the solid angle, and BOTH factors are needed: on k
+  // alone a crate 0.6 units away hands a horizontal surface the plane's 0.5,
+  // and a ring of neighbours then reads as half the sky gone on a crate top
+  // with nothing above it. See aobake.cpp for the measurements.
+  const float k = r / (r + dist);
+  const float lit = (cosT > 0.0F) ? cosT : 0.0F;
+  const float plane = (1.0F + cosT) * 0.5F;
+  float occ = k * k * (lit + (plane - lit) * k);
+  if (occ < 0.0F) occ = 0.0F;
   if (occ > 1.0F) occ = 1.0F;
-  float t = (SCENE_AO_RADIUS - dist) / (0.4F * SCENE_AO_RADIUS);
-  if (t < 1.0F) {
-    if (t < 0.0F) t = 0.0F;
-    occ *= t * t * (3.0F - 2.0F * t);
-  }
-  return occ;
+  return occ * aoRangeWindow(dist, SCENE_AO_RADIUS);
 }
 
 /** Occlusion over the pruned local list (+ the terrain contact term for object
@@ -733,16 +745,16 @@ float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
     float dy = wp.y - terrainHeightAt(wp.x, wp.z);
     if (dy < 0.0F) dy = 0.0F;
     if (dy < SCENE_AO_RADIUS) {
-      float fade = 1.0F - dy / SCENE_AO_RADIUS;
-      fade *= fade;
-      // up-facing: open sky above; the 0.7 keeps wall bases from muddying
-      // (the ground is lit and bounces - full half-hemisphere reads too dark)
+      // The SAME half-space the occluder response falls back to: the ground
+      // is a plane whose toOcc points straight down, so (1 + n.toOcc)/2 is
+      // (1 - n.y)/2 - which is what this term always was, under its own
+      // constant. One shape, one spelling now.
       float horiz = 0.5F - 0.5F * n.y;
       if (horiz < 0.0F) horiz = 0.0F;
-      vis *= 1.0F - 0.7F * fade * horiz;
+      vis *= 1.0F - horiz * aoRangeWindow(dy, SCENE_AO_RADIUS);
     }
   }
-  float occ = 1.0F - vis;
+  float occ = kAoBounce * (1.0F - vis);
   if (occ > 1.0F) occ = 1.0F;
   return 1.0F - SCENE_AO_STRENGTH * occ;
 }

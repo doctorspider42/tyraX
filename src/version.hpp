@@ -16,6 +16,37 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.46.0 (one occlusion model, two regimes, one constant): the response
+// finished in 1.45.0 was a disc, and a disc has to be TOLD WHICH WAY TO POINT.
+// Both ways of telling it fail on real geometry, and both were measured on
+// examples/ambient-occlusion: aimed at the shape's nearest point the floor
+// beside a wall reads 0.000 occluded (the wall touches it edge-on and the
+// cosine falls out), and aimed at the shape's centre a crate standing on a
+// 30x24 terrace reads 0.66 occluded ON ITS SIDES, because that terrace's
+// centre is ten units sideways. The second one is what the 1.45.0 shipped, and
+// this fixes it.
+//
+// Near and large, a shape is not a disc - it is a HALF-SPACE, and a half-space
+// needs no aiming: it blocks the hemisphere behind its face, (1 + n.toOcc)/2.
+// The two regimes blend on k = sin(alpha) = r/(r + dist), scaled by k*k, the
+// solid angle. BOTH FACTORS ARE NEEDED: blending on k alone let a crate 0.6
+// units away - 27 degrees, a speck - hand a horizontal surface the plane's
+// 0.5, and a ring of neighbours summed to half the sky gone on a crate top
+// with nothing above it (0.500 measured; 0.140 now).
+//
+// THE GROUND TERM TURNS OUT TO BE THAT SAME HALF-SPACE with toOcc pointing
+// down - (1 + n.toOcc)/2 is (1 - n.y)/2, exactly the 0.5 - 0.5*n.y it always
+// carried. It was never a separate model, only a separate spelling with its
+// own constant, which is how the two drifted. One shape, one spelling, and one
+// number left between the geometry and the picture: kAoBounce (0.7), applied
+// once over everything, replacing the ground term's 0.7 AND the occluder
+// term's unrelated 0.35 facing floor.
+//
+// The reported case, on the console at one frozen vantage - brightness of a
+// crate with another crate on it against its uncovered neighbour: 0.87 with AO
+// off (the natural difference), 0.78 before this branch, 1.04 with the disc
+// alone, 0.98 now. 50 FPS. MINOR: every scene with AO looks different again.
+//
 // 1.45.0 (an occluder darkens you by how much sky it takes, not by how close
 // it is): occluderOcclusionAt was (1 - dist/radius)^2 times a facing weight
 // with a 0.35 FLOOR, so a surface turned away from a shape it can barely see
@@ -1155,7 +1186,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 45
+#define TYRAX_VERSION_MINOR 46
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
