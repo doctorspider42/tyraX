@@ -4607,12 +4607,26 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoSelfObj = -1;       // terrain belongs to no scene object
         aoGroundOn = false;   // the ground doesn't sit next to itself
         aoReceive = true;
-        const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
-        if (giGround) glUniform1i(uGiSkipProbe_, 1);
+        // THE GROUND NEVER TAKES PROBE LIGHT, with or without a lightmap.
+        //
+        // The probe grid is built for objects: a few levels of samples a few
+        // units apart, sized to a room. Handed a landscape it has nothing to
+        // say - and since giProbe REPLACES the shade outright rather than
+        // adding to it, a terrain that falls through to it comes out black
+        // wherever no live probe reaches, which on a hill is the whole hill.
+        // Reported as "with GI on the peaks are pitch black".
+        //
+        // This used to be gated on having a baked ground lightmap, and the
+        // gap that opened is exactly a TEXTURED terrain: it deliberately gets
+        // no lightmap (the pass is additive and would blow out its dark
+        // texels - see docs/ambient-occlusion.md), so it had neither the map
+        // nor its own shading. Without a map the right answer is the ordinary
+        // directional + ambient term, which is what skipping the probe keeps.
+        glUniform1i(uGiSkipProbe_, 1);
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
-        if (giGround) glUniform1i(uGiSkipProbe_, 0);
+        glUniform1i(uGiSkipProbe_, 0);
 
         // Painted terrain layers: alpha-blend each layer's pass over the base
         // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain

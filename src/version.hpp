@@ -16,6 +16,28 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.47.1 (the ground never takes probe light): reported as "with GI on the
+// peaks are pitch black", and it was the editor preview alone - the generated
+// game never had it.
+//
+// A TEXTURED terrain deliberately gets no GI lightmap: the ground pass is
+// additive and would blow out the texture's dark texels, so gibake passes no
+// light function for one, and with the scene's ambient occlusion also off
+// terrainAOMap returns an EMPTY image. Correct so far. What was wrong is that
+// the viewport only skipped the probe grid when a ground lightmap existed, so
+// such a terrain fell through to giProbe - which REPLACES the shade instead of
+// adding to it, and which is a grid built for objects, a few levels a few
+// units apart. Handed a 192x192 landscape it has nothing to say, so every hill
+// went black. Measured on the reporter's own saved project: viewport mean RGB
+// 114/80/33 with GI off, 85/54/30 with GI on, and 114/80/33 after.
+//
+// The diagnosis is worth more than the fix. gibake::load returned valid=1 with
+// terrain size 0 / hasLight 0, which is what said the map was absent BY DESIGN
+// rather than broken - and the generated game reads terrainGi = terrainMapLit
+// && SCENE_AO_MAP_GI and never consults the probes for ground, which is what
+// said the console was fine. PATCH: no capability changes, a preview stops
+// lying.
+//
 // 1.47.0 (the viewport remembers where you were looking, and stops repainting
 // untextured models): two reports, both about the editor disagreeing with
 // itself or with the console.
@@ -1216,7 +1238,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 47
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

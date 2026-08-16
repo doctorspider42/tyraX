@@ -280,6 +280,21 @@ Said out loud in the Bake window too, not just here:
 
 ## Traps, for whoever touches this next
 
+- **A TEXTURED terrain gets no GI lightmap at all, and must then keep its
+  ordinary shading.** The ground pass is additive and would blow out a
+  texture's dark texels, so `gibake` passes no light function for a textured
+  terrain (`terrainTextured ? nullptr : &giLight`) and `terrainAOMap` returns
+  an *empty image* — size 0, no light channel — whenever the scene also has
+  ambient occlusion switched off. Nothing is wrong with that; what was wrong is
+  what the ground did next. The editor viewport only skipped the probe grid
+  when a ground lightmap existed, so a textured terrain fell through to
+  `giProbe`, which **replaces** the shade rather than adding to it — and the
+  probe grid is built for objects, a few levels a few units apart. Handed a
+  landscape it has nothing to say, so every hill came out black. Reported as
+  "with GI on the peaks are pitch black"; the generated game never had it
+  (`terrainGi = terrainMapLit && SCENE_AO_MAP_GI`, and its terrain builder
+  does not consult the probes at all), so it was a preview-only divergence.
+  **The ground never takes probe light, map or no map.**
 - **A lightmap texel's alpha must never be 0** (`aobake::kMinLightmapAlpha`).
   StaPip's alpha test discards alpha-0 texels and both passes sample the *same*
   texture, so a zero-occlusion texel takes the additive light pass down with
