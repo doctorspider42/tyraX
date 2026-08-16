@@ -342,6 +342,46 @@ size a real atlas pass hands over (~170k points):
 **Quote the 8-core column.** The CPU bake is parallel now, so the per-core ratio
 flatters the GPU by a factor of eight and is the wrong number to plan with.
 
+### Baking with it
+
+`--bake-gi <projectDir> --gpu`. Opt-in rather than default, because the two
+backends agree to a tolerance and not bit-for-bit, so flipping it silently would
+change every existing project's cached bytes. End to end, 8 cores:
+
+| Example | CPU | GPU | atlas | terrain |
+| --- | --- | --- | --- | --- |
+| global-illumination | 3.9 s | **1.4 s** | 2.97 → 0.37 s | 0.84 → 0.11 s |
+| gi-showcase | 8.0 s | **2.0 s** | 3.51 → 0.55 s | 4.21 → 0.40 s |
+
+The two lightmap passes go **~8–10×** against all eight cores. The totals do not,
+because **0.86 s of every run is starting the backend** — creating the GL context
+— and that is paid once per process, not per scene. So a one-scene project sees
+2.8×, and a twenty-scene project, which is the case this exists for, sees close
+to the per-pass number.
+
+**What the two backends agree on**, measured by re-baking both ways and
+comparing the cache:
+
+| | atlas rects / lit / firstRegion | light channels | occlusion |
+| --- | --- | --- | --- |
+| result | **identical** | 0.3–0.4% of bytes differ, **max 2 levels of 255** | **identical** |
+
+Two levels, in an image that is dithered and then drawn into a 16-bit
+framebuffer with 32 levels per channel. The occlusion channel is identical
+because it is analytic and never leaves the CPU.
+
+**The layout is identical on purpose, and that took a fix.** The importance
+pre-pass turns a continuous measurement into a *discrete* decision — how many
+texels each region gets, and from that how everything packs — so a difference far
+below one output level can tip a bisection and re-pack the whole atlas. Baked on
+the GPU it did exactly that: `rects` differed, and with them 13–34% of the atlas
+bytes, which made the two bakes incomparable and looked like a broken kernel. The
+pre-pass is therefore pinned to the CPU whatever the gather backend is
+(`aobake::bakeSceneLightAtlas`'s `giLayout`), which costs ~3% of the pass — 36
+probes a region against a quarter of a million texel samples — and buys a layout
+that is a property of the scene rather than of the machine. **Generalise the
+rule: a discrete decision must not ride on a tolerance.**
+
 **Batch size is most of the result**, which is why the gather takes a batch and
 not a point. The same scenes measured at 21k points read 20–50× against one core
 and as low as 9× cold; at 170k they read 41–67× and stop moving. A per-point

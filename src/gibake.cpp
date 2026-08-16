@@ -10,10 +10,12 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 
 #include <stb_image.h>  // implementation lives in app.cpp
 
 #include "bakepar.hpp"
+#include "gigpu.hpp"
 #include "objparser.hpp"
 #include "primmesh.hpp"
 #include "wire.hpp"   // fnv1a64/hashFile - the bake signature hashes CONTENT
@@ -1165,7 +1167,7 @@ StaleReport bakeStale(const Project& p,
 
 Bake bakeScene(const Project& p, int sceneIndex,
                const std::atomic<bool>* cancel, const ProgressFn& progress,
-               Timings* timings) {
+               Timings* timings, bool useGpu) {
     Bake out;
     if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return out;
     const SceneData& sc = p.scenes[sceneIndex];
@@ -1205,12 +1207,53 @@ Bake bakeScene(const Project& p, int sceneIndex,
     // the solved scene. The seed is the texel's own atlas coordinate, handed
     // in by aobake - so a texel's sample set never depends on which thread or
     // which region reached it first.
-    aobake::LightFn giLight = [&](const float wp[3], const float n[3],
-                                  uint32_t seed, float outRgb[3]) {
-        gather(s, wp, n, seed, st.rays, outRgb);
+    // The GPU backend, when this machine has one. It is chosen ONCE per bake
+    // and reported, because a bake's bytes depend on which one ran: a GPU has
+    // its own transcendentals and rounding, so the two agree to a tolerance and
+    // never bit-for-bit (docs/global-illumination.md, "The GPU backend"). Every
+    // failure falls back to the CPU rather than failing the bake - a headless
+    // build server is an expected state, not an error.
+    std::unique_ptr<gigpu::Gather> gpu;
+    if (useGpu) {
+        std::string err;
+        if (!gigpu::available(&err)) {
+            if (timings) timings->gpuNote = err;
+        } else {
+            auto g = std::make_unique<gigpu::Gather>();
+            if (g->upload(s, &err))
+                gpu = std::move(g);
+            else if (timings)
+                timings->gpuNote = err;
+        }
+    }
+    if (timings) timings->gpu = gpu != nullptr;
+
+    aobake::LightFn giLight = [&](const float* wp, const float* n,
+                                  const uint32_t* seed, int count,
+                                  float* outRgb) {
+        if (gpu && gpu->run(wp, n, seed, count, st.rays, outRgb)) return;
+        // The reference. Also the fallback: a dispatch that failed mid-bake
+        // must not leave half an image gathered.
+        bakepar::parallelFor(count, cancel, [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i)
+                gather(s, &wp[(size_t)i * 3], &n[(size_t)i * 3], seed[i],
+                       st.rays, &outRgb[(size_t)i * 3]);
+        });
     };
     tPhase = clock();
-    out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight);
+    // The pre-pass runs on the CPU whatever the gather backend is, so the atlas
+    // LAYOUT is a property of the scene and not of the machine that baked it
+    // (see aobake.hpp on giLayout). ~3% of the pass.
+    aobake::LightFn giLayout = [&](const float* wp, const float* n,
+                                   const uint32_t* seed, int count,
+                                   float* outRgb) {
+        bakepar::parallelFor(count, cancel, [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i)
+                gather(s, &wp[(size_t)i * 3], &n[(size_t)i * 3], seed[i],
+                       st.rays, &outRgb[(size_t)i * 3]);
+        });
+    };
+    out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight, &giLayout);
     phase(timings ? &timings->atlas : nullptr, tPhase);
     step(0.40f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();

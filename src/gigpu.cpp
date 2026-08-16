@@ -114,6 +114,12 @@ struct Ctx {
     std::string why;
     bool tried = false;
     bool good = false;
+    // The kernel source is a constant, so it is compiled ONCE per process and
+    // shared by every Gather. A per-scene compile is pure overhead in a
+    // multi-scene bake, which is the case the GPU backend exists for.
+    GLuint prog = 0;
+    std::string progErr;
+    bool progTried = false;
 };
 
 Ctx& ctx() {
@@ -156,6 +162,9 @@ bool ensureCtx() {
     return true;
 }
 
+// Compiles the kernel once per process. Must be called with our context current.
+bool ensureProgram();
+
 // Makes our context current for the duration and puts back whatever was there.
 // The editor draws from its own context on the main thread; a bake that left
 // ours current would blank the viewport.
@@ -166,6 +175,8 @@ struct ScopedCurrent {
     }
     ~ScopedCurrent() { glfwMakeContextCurrent(prev); }
 };
+
+
 
 // --- the kernel --------------------------------------------------------------
 // A line-by-line twin of gibake::gather + directAt + skyRadiance + bvh::trace /
@@ -348,6 +359,38 @@ void main() {
 }
 )GLSL";
 
+bool ensureProgram() {
+    Ctx& c = ctx();
+    if (c.progTried) return c.prog != 0;
+    c.progTried = true;
+    const Api& gl = c.api;
+    GLuint sh = gl.CreateShader(GL_COMPUTE_SHADER);
+    gl.ShaderSource(sh, 1, &kKernel, nullptr);
+    gl.CompileShader(sh);
+    GLint ok = 0;
+    gl.GetShaderiv(sh, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[4096] = {0};
+        gl.GetShaderInfoLog(sh, sizeof log, nullptr, log);
+        gl.DeleteShader(sh);
+        c.progErr = std::string("compute shader: ") + log;
+        return false;
+    }
+    const GLuint pr = gl.CreateProgram();
+    gl.AttachShader(pr, sh);
+    gl.LinkProgram(pr);
+    gl.GetProgramiv(pr, GL_LINK_STATUS, &ok);
+    gl.DeleteShader(sh);
+    if (!ok) {
+        char log[4096] = {0};
+        gl.GetProgramInfoLog(pr, sizeof log, nullptr, log);
+        c.progErr = std::string("compute link: ") + log;
+        return false;
+    }
+    c.prog = pr;
+    return true;
+}
+
 }  // namespace
 
 bool available(std::string* why) {
@@ -377,7 +420,7 @@ Gather::~Gather() {
     if (!ensureCtx()) return;
     ScopedCurrent cur(ctx().win);
     const Api& gl = ctx().api;
-    if (impl_->prog) gl.DeleteProgram(impl_->prog);
+    // impl_->prog is the shared, context-owned program - never deleted here.
     gl.DeleteBuffers(7, impl_->buf);
 }
 
@@ -391,28 +434,8 @@ bool Gather::upload(const gibake::Scene& s, std::string* err) {
     ScopedCurrent cur(ctx().win);
     const Api& gl = ctx().api;
 
-    // compile
-    GLuint sh = gl.CreateShader(GL_COMPUTE_SHADER);
-    gl.ShaderSource(sh, 1, &kKernel, nullptr);
-    gl.CompileShader(sh);
-    GLint ok = 0;
-    gl.GetShaderiv(sh, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[4096] = {0};
-        gl.GetShaderInfoLog(sh, sizeof log, nullptr, log);
-        gl.DeleteShader(sh);
-        return fail(std::string("compute shader: ") + log);
-    }
-    impl_->prog = gl.CreateProgram();
-    gl.AttachShader(impl_->prog, sh);
-    gl.LinkProgram(impl_->prog);
-    gl.GetProgramiv(impl_->prog, GL_LINK_STATUS, &ok);
-    gl.DeleteShader(sh);
-    if (!ok) {
-        char log[4096] = {0};
-        gl.GetProgramInfoLog(impl_->prog, sizeof log, nullptr, log);
-        return fail(std::string("compute link: ") + log);
-    }
+    if (!ensureProgram()) return fail(ctx().progErr);
+    impl_->prog = ctx().prog;
 
     // Nodes as two vec4 each: (bmin, left) and (bmax, count). std430 packs a
     // vec4 array with no padding, so this is the tightest faithful layout.

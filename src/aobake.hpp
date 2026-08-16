@@ -186,8 +186,17 @@ float occluderOcclusionAt(const Occluder& oc, const float wp[3],
 //           sample spiral by it, so a texel's rays are a property of that texel
 //           and the bake is bit-identical at any core count
 //   out   = light in the same units emitterLightAt writes (1.0 = full white)
-using LightFn = std::function<void(const float wp[3], const float n[3],
-                                   uint32_t seed, float outRgb[3])>;
+// It is a BATCH - `count` points in, `count` RGB triples out - and that is not
+// an optimisation, it is what lets the callee be a GPU at all: a dispatch costs
+// more than one gather does on a core, so a per-point seam can only ever be a
+// CPU seam (docs/global-illumination.md, "The GPU backend"). The CPU backend is
+// the same loop it always was, so nothing about the answer changed with it.
+//
+// wp/n are 3 floats per point; the callee may not assume any ordering or
+// locality, only that every point is independent.
+using LightFn = std::function<void(const float* wp, const float* n,
+                                   const uint32_t* seed, int count,
+                                   float* outRgb)>;
 
 // --- the AO textures (how the bake ships) -----------------------------------
 
@@ -267,9 +276,21 @@ struct SceneLightAtlas {
     // because the atlas now carries all of it (docs/global-illumination.md).
     bool gi = false;
 };
+// giLayout: the light source the importance PRE-PASS uses, when it must differ
+// from `gi`. It exists for one reason, and it is a rule worth generalising: the
+// pre-pass turns a continuous measurement into a DISCRETE decision - how many
+// texels each region gets, and from that how everything packs - so a difference
+// far below one output level can still tip a bisection and re-pack the whole
+// atlas. Backends that agree to a tolerance (the GPU gather) therefore produce
+// different LAYOUTS, not merely different pixels, which makes two bakes of one
+// scene incomparable and their caches genuinely different artifacts. Pinning
+// the pre-pass to one implementation costs ~3% of the pass (36 probes a region
+// against a quarter of a million texel samples) and buys a layout that is a
+// property of the scene rather than of the machine. Null = use `gi`.
 SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                                     const ModelAabbFn& modelAabb,
-                                    const LightFn* gi = nullptr);
+                                    const LightFn* gi = nullptr,
+                                    const LightFn* giLayout = nullptr);
 
 // Terrain self-occlusion: an 8-direction horizon scan over the heightmap
 // (w x d vertex grid, row-major [z*w+x], cell size stepX/stepZ world units).

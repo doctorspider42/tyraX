@@ -776,6 +776,13 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     // hemisphere gather per sub-sample per texel, against a handful of rays
     // for the whole probe grid.
     std::vector<char> rowOcc((size_t)size, 0), rowLight((size_t)size, 0);
+    // With a GI source the light channel is a SECOND pass: its samples are
+    // gathered in one batch (aobake::LightFn is batched so the callee can be a
+    // GPU), which means the per-texel surface has to survive this loop. Cheap -
+    // four floats a texel, 1 MB at the 256 cap.
+    const bool giLight = gi != nullptr && bakeLight;
+    std::vector<float> texH(giLight ? (size_t)size * size : 0, 0.0f);
+    std::vector<float> texN(giLight ? (size_t)size * size * 3 : 0, 0.0f);
     bakepar::parallelFor(size, nullptr, [&](int jLo, int jHi) {
         for (int j = jLo; j < jHi; ++j) {
             // The "did anything land in this image" flags are per ROW and
@@ -852,6 +859,11 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                     out.alpha[texel] = a;
                     anyOcc |= (a != 0);
                 }
+                if (giLight) {
+                    texH[texel] = h0;
+                    for (int k = 0; k < 3; ++k) texN[texel * 3 + k] = n[k];
+                    continue;  // the light channel is the batched pass below
+                }
                 // Emissive light, in framebuffer units - the additive pass adds
                 // these bytes straight onto the frame, modulated by the terrain's
                 // own base tint (which rides in that pass's vertex colors, so the
@@ -868,17 +880,6 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                         sp[0] = x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
                         sp[1] = h0;
                         sp[2] = z + ((sy + 0.5f) / sup - 0.5f) * szStep;
-                        if (gi) {
-                            // Seeded by the texel AND its sub-sample, so the
-                            // sub-samples of one texel do not share a ray set and
-                            // waste the supersampling.
-                            float l[3];
-                            (*gi)(sp, n,
-                                  (uint32_t)(texel * 17u + (uint32_t)(sy * sup + sx)),
-                                  l);
-                            for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
-                            continue;
-                        }
                         for (size_t e = 0; e < ems.size(); ++e) {
                             float l[3];
                             emitterLightAt(ems[e], sp, n, l, &emBlock[e]);
@@ -897,6 +898,67 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             }
         }
     });
+    // --- the batched GI light pass ------------------------------------------
+    // Collect every sub-sample of the whole image, hand it over in ONE call,
+    // then write. The seeds are the same (texel, sub-sample) pairs the
+    // per-point version used, so the answer does not depend on this having
+    // become a batch.
+    if (giLight) {
+        const int sup = kSuperGi;
+        const float invSup = 1.0f / (sup * sup);
+        const float sxStep = width / size, szStep = depth / size;
+        const size_t nPts = (size_t)size * size * sup * sup;
+        std::vector<float> pw(nPts * 3), pn(nPts * 3), pl(nPts * 3, 0.0f);
+        std::vector<uint32_t> ps(nPts);
+        bakepar::parallelFor(size, nullptr, [&](int jLo, int jHi) {
+            for (int j = jLo; j < jHi; ++j)
+                for (int i = 0; i < size; ++i) {
+                    const float x = ((i + 0.5f) / size - 0.5f) * width;
+                    const float z = ((j + 0.5f) / size - 0.5f) * depth;
+                    const size_t texel = (size_t)j * size + i;
+                    for (int sy = 0; sy < sup; ++sy)
+                        for (int sx = 0; sx < sup; ++sx) {
+                            const size_t q =
+                                (texel * sup + (size_t)sy) * sup + (size_t)sx;
+                            pw[q * 3 + 0] =
+                                x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
+                            pw[q * 3 + 1] = texH[texel];
+                            pw[q * 3 + 2] =
+                                z + ((sy + 0.5f) / sup - 0.5f) * szStep;
+                            for (int k = 0; k < 3; ++k)
+                                pn[q * 3 + k] = texN[texel * 3 + k];
+                            ps[q] = (uint32_t)(texel * 17u +
+                                               (uint32_t)(sy * sup + sx));
+                        }
+                }
+        });
+        (*gi)(pw.data(), pn.data(), ps.data(), (int)nPts, pl.data());
+        bakepar::parallelFor(size, nullptr, [&](int jLo, int jHi) {
+            for (int j = jLo; j < jHi; ++j) {
+                char& anyLight = rowLight[j];
+                for (int i = 0; i < size; ++i) {
+                    const size_t texel = (size_t)j * size + i;
+                    float add[3] = {0, 0, 0};
+                    for (int sy = 0; sy < sup; ++sy)
+                        for (int sx = 0; sx < sup; ++sx) {
+                            const size_t q =
+                                (texel * sup + (size_t)sy) * sup + (size_t)sx;
+                            for (int k = 0; k < 3; ++k)
+                                add[k] += pl[q * 3 + k] * invSup;
+                        }
+                    const float dz = bayerDither(i, j);
+                    for (int k = 0; k < 3; ++k) {
+                        float v = 255.0f * add[k] + dz;
+                        if (v <= 0.0f) continue;
+                        if (v > 255.0f) v = 255.0f;
+                        const uint8_t b = (uint8_t)(v + 0.5f);
+                        out.light[texel * 3 + k] = b;
+                        if (b) anyLight = 1;
+                    }
+                }
+            }
+        });
+    }
     bool anyOcc = false, anyLight = false;
     for (int j = 0; j < size; ++j) {
         anyOcc = anyOcc || rowOcc[j] != 0;
@@ -1041,7 +1103,11 @@ int regionCountFor(PrimitiveType t) {
 }  // namespace
 
 SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
-                              const ModelAabbFn& modelAabb, const LightFn* gi) {
+                                    const ModelAabbFn& modelAabb,
+                                    const LightFn* gi, const LightFn* giLayout) {
+    // See the header: the pre-pass decides the PACKING, so it must not ride on
+    // a backend's float noise.
+    if (!giLayout) giLayout = gi;
     SceneLightAtlas out;
     const ProjectSettings rs = project::resolvedSettings(p, sc);
     out.firstRegion.assign(sc.objects.size(), -1);
@@ -1218,12 +1284,12 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         }
         return occ > 1.0f ? 1.0f : occ;
     };
+    // The ANALYTIC emitter response, per point. GI never comes through here -
+    // it is a batched source (see aobake::LightFn) and every one of its
+    // consumers below collects points first and calls it once.
     auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,
                        float add[3], const ObjPrune& st) {
-        if (gi) {
-            (*gi)(wp, n, seed, add);
-            return;
-        }
+        (void)seed;
         add[0] = add[1] = add[2] = 0.0f;
         for (const Emitter* em : st.localEm) {
             float l[3];
@@ -1254,6 +1320,33 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     // each probe of this grid is a full hemisphere gather, so the pre-pass is
     // itself a raytrace and not a cheap estimate. The seed is (region, probe),
     // so the split does not move a texel.
+    // With GI every probe of this grid is a hemisphere gather, so it goes
+    // through the same batched seam the two texel passes do - collected for
+    // every region at once, answered in one call, and read back below. Seeds
+    // stay (region, probe), so batching moved nothing.
+    std::vector<float> preLight;
+    if (gi) {
+        const size_t per = (size_t)kProbe * kProbe;
+        const size_t nPts = per * regions.size();
+        std::vector<float> pw(nPts * 3), pn(nPts * 3);
+        std::vector<uint32_t> ps(nPts);
+        preLight.assign(nPts * 3, 0.0f);
+        bakepar::parallelFor((int)regions.size(), nullptr, [&](int lo, int hi) {
+            for (int ri = lo; ri < hi; ++ri) {
+                const Region& rg = regions[ri];
+                const SceneObject& o = sc.objects[rg.obj];
+                for (int j = 0; j < kProbe; ++j)
+                    for (int i = 0; i < kProbe; ++i) {
+                        const size_t q = (size_t)ri * per + (size_t)j * kProbe + i;
+                        surfaceAt(o, rg.idx, (i + 0.5f) / kProbe,
+                                  (j + 0.5f) / kProbe, &pw[q * 3], &pn[q * 3]);
+                        ps[q] = (uint32_t)(ri * 37 + j * kProbe + i);
+                    }
+            }
+        });
+        (*giLayout)(pw.data(), pn.data(), ps.data(), (int)nPts,
+                    preLight.data());
+    }
     bakepar::parallelFor((int)regions.size(), nullptr, [&](int rLo, int rHi) {
         ObjPrune st;
         std::vector<float> sig((size_t)kProbe * kProbe, 0.0f);
@@ -1271,13 +1364,19 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                     if (aoOn) s = rs.aoStrength * occlusionAt(wp, n, st);
                     if (hasLight(st)) {
                         float add[3];
-                        // The pre-pass only decides texel BUDGET, so it may
-                        // sample coarsely - but its seed still has to be
-                        // stable, hence (region, probe).
-                        lightAt(wp, n,
-                                (uint32_t)(ri * 37 +
-                                           j * kProbe + i),
-                                add, st);
+                        if (gi) {
+                            const size_t q = (size_t)ri * kProbe * kProbe +
+                                             (size_t)j * kProbe + i;
+                            for (int k = 0; k < 3; ++k)
+                                add[k] = preLight[q * 3 + k];
+                        } else {
+                            // The pre-pass only decides texel BUDGET, so it may
+                            // sample coarsely - but its seed still has to be
+                            // stable, hence (region, probe).
+                            lightAt(wp, n,
+                                    (uint32_t)(ri * 37 + j * kProbe + i), add,
+                                    st);
+                        }
                         for (int k = 0; k < 3; ++k) {
                             const float lv = add[k] * st.recvTint[k];
                             if (lv > s) s = lv;
@@ -1474,7 +1573,11 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                     // that is already the expensive half by four for no visible
                     // gain.
                     if (!hasLight(st)) continue;
-                    const int sup = gi ? kSuperGi : kSuper;
+                    // With GI the light channel is a batched second pass below
+                    // - one gather per sub-sample is what a bake spends its
+                    // time on, and a per-point seam cannot be handed to a GPU.
+                    if (gi) continue;
+                    const int sup = kSuper;
                     float addAcc[3] = {0, 0, 0};
                     for (int sy = 0; sy < sup; ++sy)
                         for (int sx = 0; sx < sup; ++sx) {
@@ -1490,12 +1593,6 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
                             for (int k = 0; k < 3; ++k) addAcc[k] += add[k];
                         }
                     const float invS = 1.0f / (sup * sup);
-                    // GI owns this surface's whole shade, so its region must be
-                    // kept even where the answer is (nearly) black - a dark
-                    // corner is a RESULT here, not an absence. Without this the
-                    // corner would fall back to the vertex path and come out
-                    // BRIGHTER than the lit wall beside it.
-                    if (gi) bakeRow = 1, litRow = 1;
                     {
                         const float dz = bayerDither(rg.px + 1 + i, rg.py + 1 + j);
                         for (int k = 0; k < 3; ++k) {
@@ -1515,6 +1612,113 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
     for (size_t q = 0; q < jobs.size(); ++q) {
         if (jobBake[q]) regBake[jobs[q].region] = 1;
         if (jobLit[q]) regLit[jobs[q].region] = 1;
+    }
+    // --- the batched GI light pass ------------------------------------------
+    // Same shape as the terrain map's: collect every sub-sample of every region
+    // that takes a light channel, hand the lot over in ONE call, then write.
+    // The seeds are the same (texel, sub-sample) pairs the per-point version
+    // used, so becoming a batch did not move the answer.
+    //
+    // The prune state is not needed here at all - with GI the only thing that
+    // decides whether a receiver has a light channel is whether it is TEXTURED
+    // (a flat additive term would blow out its dark texels), which is a
+    // property of its material and not of its neighbours.
+    if (gi) {
+        struct Recv {
+            float tint[3] = {1, 1, 1};
+            bool textured = false;
+        };
+        std::vector<Recv> recv(sc.objects.size());
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const MaterialGlow& mg =
+                materialGlow(p.dir, sc.objects[oi].materialPath, glowCache);
+            for (int k = 0; k < 3; ++k)
+                recv[oi].tint[k] = sc.objects[oi].color[k] * mg.kd[k];
+            recv[oi].textured = mg.textured;
+        }
+        const int sup = kSuperGi;
+        const float invS = 1.0f / (sup * sup);
+        // One flat point list over every lit region, with each region's slice
+        // recorded so the write-back can walk it again.
+        struct Slice {
+            size_t first = 0;
+            int iw = 0, ih = 0;
+        };
+        std::vector<Slice> slice(regions.size());
+        size_t nPts = 0;
+        for (size_t ri = 0; ri < regions.size(); ++ri) {
+            const Region& rg = regions[ri];
+            slice[ri].iw = rg.w - 2;
+            slice[ri].ih = rg.h - 2;
+            slice[ri].first = nPts;
+            if (recv[rg.obj].textured) continue;
+            nPts += (size_t)slice[ri].iw * slice[ri].ih * sup * sup;
+        }
+        if (nPts > 0) {
+            std::vector<float> pw(nPts * 3), pn(nPts * 3), pl(nPts * 3, 0.0f);
+            std::vector<uint32_t> ps(nPts);
+            bakepar::parallelFor((int)regions.size(), nullptr, [&](int lo,
+                                                                   int hi) {
+                for (int ri = lo; ri < hi; ++ri) {
+                    const Region& rg = regions[ri];
+                    if (recv[rg.obj].textured) continue;
+                    const SceneObject& o = sc.objects[rg.obj];
+                    const int iw = slice[ri].iw, ih = slice[ri].ih;
+                    size_t q = slice[ri].first;
+                    for (int j = 0; j < ih; ++j)
+                        for (int i = 0; i < iw; ++i) {
+                            const size_t texel =
+                                (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
+                            for (int sy = 0; sy < sup; ++sy)
+                                for (int sx = 0; sx < sup; ++sx, ++q) {
+                                    const float u = (i + (sx + 0.5f) / sup) / iw;
+                                    const float v = (j + (sy + 0.5f) / sup) / ih;
+                                    surfaceAt(o, rg.idx, u, v, &pw[q * 3],
+                                              &pn[q * 3]);
+                                    ps[q] = (uint32_t)(texel * 17u +
+                                                       (uint32_t)(sy * sup + sx));
+                                }
+                        }
+                }
+            });
+            (*gi)(pw.data(), pn.data(), ps.data(), (int)nPts, pl.data());
+            bakepar::parallelFor((int)regions.size(), nullptr, [&](int lo,
+                                                                   int hi) {
+                for (int ri = lo; ri < hi; ++ri) {
+                    const Region& rg = regions[ri];
+                    if (recv[rg.obj].textured) continue;
+                    const int iw = slice[ri].iw, ih = slice[ri].ih;
+                    const float* tint = recv[rg.obj].tint;
+                    size_t q = slice[ri].first;
+                    // GI owns this surface's whole shade, so the region is kept
+                    // even where the answer is (nearly) black - a dark corner
+                    // is a RESULT here, not an absence. Without this it would
+                    // fall back to the vertex path and come out BRIGHTER than
+                    // the lit wall beside it.
+                    regBake[ri] = 1;
+                    regLit[ri] = 1;
+                    for (int j = 0; j < ih; ++j)
+                        for (int i = 0; i < iw; ++i) {
+                            const size_t texel =
+                                (size_t)(rg.py + 1 + j) * atlasSize + rg.px + 1 + i;
+                            float addAcc[3] = {0, 0, 0};
+                            for (int sy = 0; sy < sup; ++sy)
+                                for (int sx = 0; sx < sup; ++sx, ++q)
+                                    for (int k = 0; k < 3; ++k)
+                                        addAcc[k] += pl[q * 3 + k];
+                            const float dz =
+                                bayerDither(rg.px + 1 + i, rg.py + 1 + j);
+                            for (int k = 0; k < 3; ++k) {
+                                float v =
+                                    255.0f * addAcc[k] * invS * tint[k] + dz;
+                                if (v <= 0.0f) continue;
+                                if (v > 255.0f) v = 255.0f;
+                                out.light[texel * 3 + k] = (uint8_t)(v + 0.5f);
+                            }
+                        }
+                }
+            });
+        }
     }
     for (size_t ri = 0; ri < regions.size(); ++ri) {
         if (regBake[ri]) objHasBake[regions[ri].obj] = 1;

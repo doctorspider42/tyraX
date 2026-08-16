@@ -1050,7 +1050,7 @@ static int bakeModelAoFromCli(int argc, char** argv) {
 // how the bake gets verified without clicking anything.
 static int bakeGiFromCli(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir>\n");
+        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir> [--gpu]\n");
         return 2;
     }
     Project p;
@@ -1064,11 +1064,19 @@ static int bakeGiFromCli(int argc, char** argv) {
                      "(Preferences > Lighting)\n");
         return 1;
     }
+    // --gpu ASKS for the compute backend (docs/global-illumination.md, "The GPU
+    // backend"). It is opt-in rather than default because the two backends
+    // agree to a tolerance and not bit-for-bit, so flipping it silently would
+    // change every existing project's cached bytes.
+    bool useGpu = false;
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--gpu") == 0) useGpu = true;
     const std::atomic<bool> never{false};
     for (int si = 0; si < (int)p.scenes.size(); ++si) {
         const auto t0 = std::chrono::steady_clock::now();
         gibake::Timings tm;
-        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr, &tm);
+        const gibake::Bake b =
+            gibake::bakeScene(p, si, &never, nullptr, &tm, useGpu);
         if (!b.valid) {
             std::fprintf(stderr, "error: bake failed for scene %d\n", si);
             return 1;
@@ -1093,6 +1101,10 @@ static int bakeGiFromCli(int argc, char** argv) {
             "probes %.2fs  other %.2fs\n",
             tm.build, tm.solve, tm.atlas, tm.terrain, tm.probes,
             other > 0.0 ? other : 0.0);
+        // Which backend ran is part of the measurement, not a footnote: the
+        // two do not produce the same bytes.
+        std::printf("  gather: %s%s%s\n", tm.gpu ? "GPU" : "CPU",
+                    tm.gpuNote.empty() ? "" : " - ", tm.gpuNote.c_str());
     }
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
