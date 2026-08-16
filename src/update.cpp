@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
 #include <mutex>
 
 #include "json.hpp"
@@ -122,7 +123,21 @@ int compareVersions(const std::string& a, const std::string& b) {
     return 0;
 }
 
-bool parseRelease(const std::string& body, Release& out, std::string& error) {
+const char* platformAssetSuffix() {
+#ifdef _WIN32
+    return ".exe";
+#else
+    // The tarball, not the .deb or the .rpm: it is the one format an editor can
+    // apply to itself without asking anybody for root (docs/updates.md), and a
+    // package-managed install is refused by selfInstallBlocked() before the
+    // asset is ever fetched. The architecture is in the name because a release
+    // may one day carry more than one.
+    return "-linux-x86_64.tar.gz";
+#endif
+}
+
+bool parseRelease(const std::string& body, Release& out, std::string& error,
+                  const std::string& assetSuffix) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object) {
         error = "GitHub's answer was not a JSON object";
@@ -146,17 +161,15 @@ bool parseRelease(const std::string& body, Release& out, std::string& error) {
         out.version.erase(0, 1);
     if (const json::Value* v = root.find("body")) out.notes = v->stringOr("");
     if (const json::Value* v = root.find("html_url")) out.pageUrl = v->stringOr("");
-    // The Windows installer, picked by extension rather than by a name pattern:
-    // the release workflow stamps the version into the file name, so anything
-    // matching "TyraX-Setup-<version>.exe" here would have to be kept in step
-    // with a string in a YAML file for no gain.
+    // This platform's package among the several a release carries, picked by
+    // suffix - see platformAssetSuffix() for why it is a suffix and not a name.
     if (const json::Value* assets = root.find("assets");
         assets && assets->type == json::Value::Type::Array) {
         for (const json::Value& a : assets->arr) {
             const json::Value* name = a.find("name");
             const json::Value* url = a.find("browser_download_url");
             if (!name || !url) continue;
-            if (!endsWithNoCase(name->stringOr(""), ".exe")) continue;
+            if (!endsWithNoCase(name->stringOr(""), assetSuffix)) continue;
             out.assetName = name->stringOr("");
             out.assetUrl = url->stringOr("");
             if (const json::Value* sz = a.find("size"))
@@ -246,7 +259,77 @@ void cancel() {
     if (gProc) gProc->kill();
 }
 
+fs::path installRoot() {
+    const std::string exe = platform::exePath();
+    if (exe.empty()) return {};
+    // <root>/bin/tyrax-editor. exePath() resolves /proc/self/exe through
+    // canonical(), so a /usr/bin symlink into /opt lands on the real tree.
+    std::error_code ec;
+    const fs::path root = fs::path(exe).parent_path().parent_path();
+    const fs::path canon = fs::weakly_canonical(root, ec);
+    return ec ? root : canon;
+}
+
+InstallKind installKind() {
+#ifdef _WIN32
+    return InstallKind::Windows;
+#else
+    const fs::path root = installRoot();
+    if (root.empty()) return InstallKind::Source;
+    std::ifstream f(root / ".tyrax-package");
+    std::string word;
+    if (!(f >> word)) return InstallKind::Source;
+    if (word == "tarball") return InstallKind::Tarball;
+    if (word == "deb") return InstallKind::Deb;
+    if (word == "rpm") return InstallKind::Rpm;
+    return InstallKind::Source;
+#endif
+}
+
+std::string selfInstallBlocked() {
+    switch (installKind()) {
+        case InstallKind::Windows:
+            return {};
+        case InstallKind::Deb:
+            return "This TyraX was installed from a .deb, so its files belong to "
+                   "your package manager. Download the new .deb from the release "
+                   "page and install it with "
+                   "'sudo apt install ./tyrax_<version>_amd64.deb'.";
+        case InstallKind::Rpm:
+            return "This TyraX was installed from an .rpm, so its files belong to "
+                   "your package manager. Download the new .rpm from the release "
+                   "page and install it with "
+                   "'sudo dnf install ./tyrax-<version>-1.x86_64.rpm'.";
+        case InstallKind::Source:
+            return "This TyraX runs from a source checkout, which the editor will "
+                   "not overwrite. Update it with 'git pull' and ./build.sh "
+                   "(./build.ps1 on Windows).";
+        case InstallKind::Tarball:
+            break;
+    }
+    // A tarball anybody may have unpacked into a directory they cannot write
+    // to. Probing beats guessing from ownership: root, a group, an ACL and a
+    // read-only mount all answer the same question differently.
+    const fs::path root = installRoot();
+    const fs::path probe = root / ".tyrax-write-probe";
+    std::error_code ec;
+    {
+        std::ofstream f(probe);
+        if (!f) {
+            return "TyraX cannot write to " + root.string() +
+                   ", so it cannot update itself. Unpack the new tarball there "
+                   "yourself, or reinstall somewhere you own.";
+        }
+    }
+    fs::remove(probe, ec);
+    return {};
+}
+
 bool runInstaller(const fs::path& file, std::string& error) {
+    if (const std::string why = selfInstallBlocked(); !why.empty()) {
+        error = why;
+        return false;
+    }
 #ifdef _WIN32
     // /SILENT is a progress window and no questions; /RELAUNCH=1 is our own
     // parameter, read by the Check: in installer/tyrax.iss, and it is what
@@ -260,12 +343,64 @@ bool runInstaller(const fs::path& file, std::string& error) {
     }
     return true;
 #else
-    (void)file;
-    // Deliberate: there is no Linux package yet (docs/backlog.md). The UI never
-    // offers the button that would land here, and if something ever does, it
-    // gets a sentence rather than a half-working install.
-    error = "TyraX has no Linux installer yet - update from the release page";
-    return false;
+    // A TARBALL CANNOT UNPACK ITSELF OVER A RUNNING EDITOR, so the Linux half
+    // of what tyrax.iss does is a small script we write and detach: it waits
+    // for THIS process to exit (the editor closes itself right after this
+    // returns, through the ordinary path that asks about unsaved work), lays
+    // the new tree over the old one and starts the editor again. Detached
+    // means setsid, so our own exit does not take it with us.
+    //
+    // `cp -a` OVERLAYS rather than replaces: a file that a later release
+    // dropped is left behind. That is deliberate and it is what the Windows
+    // installer does too (ignoreversion overwrites, it does not prune) - the
+    // alternative is deleting a directory the user may have put their own
+    // projects in.
+    const fs::path root = installRoot();
+    const std::string exe = platform::exePath();
+    if (root.empty() || exe.empty()) {
+        error = "could not work out where TyraX is installed";
+        return false;
+    }
+    // A FIXED name beside the download, so the script cannot accumulate: it
+    // outlives the update that ran it (a running /bin/sh reads its file as it
+    // goes, so it must not delete itself) and the next update overwrites it.
+    const fs::path script = file.parent_path() / "tyrax-update.sh";
+    {
+        std::ofstream f(script);
+        if (!f) {
+            error = "could not write the update script to " + script.string();
+            return false;
+        }
+        f << "#!/bin/sh\n"
+             "# Written by TyraX (update::runInstaller). Safe to delete.\n"
+             "# Waits for the editor to exit, unpacks the new release over its\n"
+             "# install directory and starts it again.\n"
+             "pid=" << platform::processId() << "\n"
+             "i=0\n"
+             // 120 s, then go ahead anyway: an editor still up after two
+             // minutes is one stuck in a dialog, and unpacking under it is
+             // still better than an update that silently never happened.
+             "while kill -0 \"$pid\" 2>/dev/null && [ \"$i\" -lt 600 ]; do\n"
+             "    sleep 0.2\n"
+             "    i=$((i + 1))\n"
+             "done\n"
+             "tmp=$(mktemp -d) || exit 1\n"
+             "tar -xzf " << platform::shellArg(file.string()) << " -C \"$tmp\" || exit 1\n"
+             // The archive holds exactly one top-level directory, named for
+             // the version; its CONTENTS are what goes over the install root.
+             "src=$(find \"$tmp\" -mindepth 1 -maxdepth 1 -type d | head -n 1)\n"
+             "[ -n \"$src\" ] || exit 1\n"
+             "cp -a \"$src/.\" " << platform::shellArg(root.string() + "/") << " || exit 1\n"
+             "rm -rf \"$tmp\" " << platform::shellArg(file.string()) << "\n"
+             "exec " << platform::shellArg(exe) << "\n";
+    }
+    std::error_code ec;
+    fs::permissions(script, fs::perms::owner_all, ec);
+    if (!platform::Process::startDetached("/bin/sh " + platform::shellArg(script.string()))) {
+        error = "could not start the update script";
+        return false;
+    }
+    return true;
 #endif
 }
 

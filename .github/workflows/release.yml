@@ -1,7 +1,7 @@
 # Every push to main becomes a released, installable build.
 #
 # THE VERSION IS src/version.hpp, AND THE TAGS SAY WHICH PART OF IT IS SPENT.
-# Three jobs, in this order:
+# Four jobs, in this order:
 #
 #   version  read TYRAX_VERSION_MAJOR/MINOR/PATCH. If v<that> is not tagged,
 #            release it as it stands; if it is, take the highest v<MAJOR>.<MINOR>.*
@@ -10,7 +10,13 @@
 #   build    Windows: stamp that PATCH into src/version.hpp IN THE WORKSPACE,
 #            build the editor, package installer\tyrax.iss with Inno Setup 7
 #            into dist\TyraX-Setup-<version>.exe.
-#   release  publish the tag as a GitHub release with that installer attached.
+#   build-linux  Linux: the same stamp, then the editor, then
+#            installer/build-package.sh --all for the tarball, the .deb and the
+#            .rpm. It runs on the OLDEST runner image we support ON PURPOSE - a
+#            binary links against the glibc it was built on and runs on anything
+#            newer, never older, so that one line is the compatibility floor of
+#            every Linux package we ship.
+#   release  publish the tag as a GitHub release with all four packages attached.
 #
 # NOTHING HERE WRITES TO main, AND THAT IS THE FIX FOR THIS REPOSITORY'S OWN
 # RULES. The first version of this workflow committed the bumped header back to
@@ -29,9 +35,13 @@
 # changelog paragraph version.hpp expects) is a human's job and resets the patch
 # sequence.
 #
-# The editor's own update check reads these releases (docs/updates.md) - the
-# asset name is not hardcoded anywhere, it is taken from the release's asset
-# list, so renaming the installer breaks nothing.
+# The editor's own update check reads these releases (docs/updates.md) - no
+# asset NAME is hardcoded anywhere, it picks the one from the release's asset
+# list whose name ENDS with its platform's suffix (update::platformAssetSuffix),
+# so a version moving inside a file name breaks nothing. The two SUFFIXES are
+# the contract: `.exe`, and `-linux-x86_64.tar.gz` for the one Linux format an
+# install can apply to itself (a .deb or .rpm belongs to the package manager,
+# and the editor says so instead of offering the button).
 #
 # THE ACTION VERSIONS BELOW ARE THE Node 24 MAJORS, and the numbers differ per
 # action on purpose - do not "tidy" them back into one. The first release run
@@ -230,13 +240,87 @@ jobs:
           path: dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
           if-no-files-found: error
 
+  build-linux:
+    needs: version
+    # THE OLDEST IMAGE WE SUPPORT, NOT ubuntu-latest: glibc is backward but not
+    # forward compatible, so this line is the floor of every Linux package the
+    # release carries (22.04 = glibc 2.35, which covers Ubuntu 22.04+,
+    # Debian 12+, Fedora 36+). Bumping it drops distributions, and nothing here
+    # would fail - the packages simply stop installing for people who never
+    # report it.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      # The same stamp the Windows job makes, for the same reason and with the
+      # same assertion - see it for the argument. A Linux build that skipped
+      # this would report the file's PATCH while its tarball carried the tag's,
+      # and every tarball install would offer itself an update for ever.
+      - name: Stamp the version
+        run: |
+          set -euo pipefail
+          version='${{ needs.version.outputs.version }}'
+          patch='${{ needs.version.outputs.patch }}'
+          read_part() {
+            sed -n "s/^#define TYRAX_VERSION_$1[[:space:]]\+\([0-9]\+\)[[:space:]]*$/\1/p" \
+              src/version.hpp | head -n1
+          }
+          major=$(read_part MAJOR); minor=$(read_part MINOR)
+          test "$major.$minor.$patch" = "$version" \
+            || { echo "FAIL: version.hpp says $major.$minor.* but the release is $version - CI only ever moves PATCH"; exit 1; }
+          sed -i "s/^#define TYRAX_VERSION_PATCH .*/#define TYRAX_VERSION_PATCH $patch/" src/version.hpp
+          echo "building as $version"
+
+      # The editor's own toolchain and the X11/Wayland/GL headers come from
+      # deps.sh, which is the one list; dpkg-dev and rpm are what
+      # build-package.sh's two distro formats shell out to.
+      - name: Dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev rpm ccache
+          ./setup.sh --deps
+
+      - name: ccache store
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: release-linux-ccache-${{ needs.version.outputs.sha }}
+          restore-keys: release-linux-ccache-
+
+      - name: Build the editor
+        run: ./build.sh
+
+      # --all is the tarball + the .deb + the .rpm, all staged from ONE tree, so
+      # the three cannot disagree about what is inside them. The tarball is the
+      # one an install can apply to itself; the packages are for people who
+      # would rather their package manager owned the files (docs/updates.md).
+      - name: Package
+        run: ./installer/build-package.sh --skip-build --all --version ${{ needs.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-packages
+          path: |
+            dist/tyrax-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
+            dist/tyrax_${{ needs.version.outputs.version }}_amd64.deb
+            dist/tyrax-${{ needs.version.outputs.version }}-1.x86_64.rpm
+          if-no-files-found: error
+
   release:
-    needs: [version, build]
+    needs: [version, build, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v8
         with:
           name: installer
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-packages
           path: dist
 
       - name: Publish the release
@@ -249,4 +333,7 @@ jobs:
             --title "TyraX ${{ needs.version.outputs.version }}" \
             --generate-notes \
             --target "${{ needs.version.outputs.sha }}" \
-            dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
+            dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe \
+            dist/tyrax-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz \
+            dist/tyrax_${{ needs.version.outputs.version }}_amd64.deb \
+            dist/tyrax-${{ needs.version.outputs.version }}-1.x86_64.rpm
