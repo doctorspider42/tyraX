@@ -1835,11 +1835,19 @@ built editor, and `.github/workflows/release.yml` does it on every push to main
   the installer puts the binary in `bin\` and those four beside it. **A new
   exe-relative lookup is a new `[Files]` entry** in the same commit, or the
   feature works in a checkout and is missing for everyone who installed.
-- **`src/version.hpp` is the only source of the version.** The PowerShell script
-  and the workflow read the same three macros with the same regex; CI bumps
-  PATCH and commits the header back (with `[skip ci]`) only when the version it
-  read is already tagged. So bump MINOR by hand for a feature - the automatic
-  bump exists so that no push leaves main unreleased, not as the normal path.
+- **`src/version.hpp` is where the version is AUTHORED, and the TAGS say which
+  patches are spent.** The PowerShell script and the workflow read the same
+  three macros with the same regex; CI releases them as they stand when
+  `v<that>` is untagged, else goes one PATCH past the highest
+  `v<MAJOR>.<MINOR>.*` tag - and stamps that number into a WORKSPACE copy of the
+  header before compiling, never a commit. So between releases the PATCH in the
+  file is a floor rather than a fact, and the binary/installer/tag still agree
+  (a release that introduced itself as the previous version would offer itself
+  an update for ever). It writes nothing to main because it CANNOT: the branch
+  ruleset requires a pull request, which is what killed the commit-back design
+  with a GH013 on its first real run; tag pushes are exempt. Bump MINOR by hand
+  for a feature - the automatic patch exists so that no push leaves main
+  unreleased, not as the normal path.
 
 There is deliberately no `build-installer.sh` twin (the platform-parity rule
 does not apply to a Windows-only tool with no Linux counterpart yet); Linux

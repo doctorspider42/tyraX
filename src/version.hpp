@@ -29,11 +29,16 @@
 // update install itself without a UAC prompt.
 //
 // EVERY PUSH TO main IS A RELEASE (.github/workflows/release.yml). The version
-// still lives in this file and nowhere else: CI reads these three macros, and
-// if that version is already tagged it bumps PATCH, commits the header back
-// with [skip ci] and uses the new number - so a human bumping MINOR for a
-// feature (with the paragraph above it, as here) is what SHOULD happen, and the
-// automatic bump is only the floor that stops main from sitting unreleased.
+// is authored HERE, and the TAGS record which patches are spent: CI reads these
+// three macros, releases them as they stand if v<that> is untagged, and
+// otherwise goes one PATCH past the highest v<MAJOR>.<MINOR>.* tag - stamping
+// that number into a workspace copy of this file before it compiles, so the
+// binary, the installer and the tag cannot disagree. It never writes to main
+// (the branch ruleset forbids it; tags are exempt), which means that between
+// releases the PATCH below is a FLOOR rather than a fact. A human bumping MINOR
+// for a feature (with the paragraph above it, as here) is what SHOULD happen
+// and resets that sequence; the automatic patch is only the floor that stops
+// main from sitting unreleased.
 //
 // AND THE EDITOR CHECKS FOR ITSELF (update.cpp / update_ui.cpp, Help > Check
 // for updates). One HTTPS request to the repository's releases at startup, on a
