@@ -14,9 +14,12 @@
 // vertex colors the directional light already bakes into:
 //
 //  - terrainAO(): heightmap self-occlusion (ravines, foot of hills), a u8 grid
-//    per terrain vertex. Codegen ships it as TERRAIN_AO_TABLES; the viewport
-//    multiplies the same grid into its terrain chunk colors - both consume
-//    identical data, no twin formula to drift.
+//    per terrain vertex. This is the EDITOR VIEWPORT's copy - it multiplies the
+//    grid into its terrain chunk colors - while the console reads the per-texel
+//    terrainAOMap below. A preview and its subject, so the term that decides
+//    the answer (tangentSin, the horizon measured above the surface's own
+//    tangent plane rather than above the horizontal) is shared; the azimuth
+//    COUNT is not, because one is a per-cell grid and the other a 256^2 image.
 //  - collectOccluders(): solid scene objects reduced to analytic occluders
 //    (oriented boxes / spheres). The RESPONSE to these is computed per vertex
 //    on the EE at scene load (templates.cpp aoOccludersAt/aoGroundAt) and per
@@ -167,6 +170,20 @@ void emitterLightAt(const Emitter& em, const float wp[3], const float n[3],
 bool shapeBlocksRay(const Occluder& oc, const float origin[3],
                     const float dir[3], float maxT);
 
+// The one number standing between the geometry and the picture.
+//
+// A surface resting on a floor really does lose half its cosine-weighted
+// hemisphere, and the occlusion model computes exactly that. But this engine
+// has no indirect light to put back - the floor is lit and bounces, and at 1.0
+// every wall base and every crate reads muddy. So the finished occlusion is
+// scaled by this ONCE, over the occluders and the ground together.
+//
+// It was 0.7 buried in the ground term (with that reasoning in a comment)
+// while the occluder term carried an unrelated 0.35 facing floor. Both are
+// gone; this is what replaced them, and its value must be the same in all
+// three twins - the host, the generated aoShadeMul, and the viewport shader.
+constexpr float kAoBounce = 0.7f;
+
 // Host reference of the occluder response formula at a surface point
 // (0..1 occlusion; range = aoRadius). The generated game (aoOccluderAt in
 // templates.cpp, per vertex at load) and the viewport fragment shader
@@ -211,6 +228,26 @@ struct AoImage {
     // must then drop its own ambient + directional + point-light shade, or
     // the scene is lit twice.
     bool gi = false;
+    // TEXTURED-TERRAIN GI, and the reason it looks like this. The GS cannot
+    // multiply the framebuffer by a COLOUR: GS_SET_ALPHA computes
+    // (A - B) * C + D and C is an alpha or a constant, never a colour channel.
+    // So per-pixel coloured light on a textured surface is not expressible in
+    // one pass - which is why the light channel is ADDITIVE, and why a
+    // textured terrain could not use it at all (a flat add over a texture
+    // blows out its dark texels) and fell to the probe grid instead, where a
+    // volume grid lighting a surface bands along contour lines.
+    //
+    // The way through is to split the signal by frequency. INTENSITY is the
+    // high-frequency half - it is what draws contact and self-shadowing - and
+    // it rides `alpha`, multiplied per pixel by the occlusion pass that
+    // already computes exactly Cd*(1-a). COLOUR is low-frequency and rides
+    // `light`, read PER VERTEX by the terrain builders, where one sample per
+    // terrain cell is honest.
+    //
+    // With this set, `alpha` is NOT ambient occlusion: under GI the occlusion
+    // is already inside the gathered answer, so the channel is free, and
+    // reusing it costs no VRAM and no new blend.
+    bool giLumAlpha = false;
 };
 
 // Terrain lightmap covering the full terrain extent: per-texel heightmap
@@ -224,7 +261,8 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn, const LightFn* gi = nullptr);
+                     float strength, bool aoOn, const LightFn* gi = nullptr,
+                     bool giTextured = false);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.

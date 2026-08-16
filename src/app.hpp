@@ -47,6 +47,7 @@
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "update.hpp"  // update::Release member (the update check's answer)
 #include "savebake.hpp"
 #include "viewport.hpp"
 
@@ -709,6 +710,7 @@ private:
     // is the first of them.
     void modelAoPoll();
     void drawBakedLightingSection();
+    void drawSceneAoSection();
     void drawModelAoSection();
     // "Pre-lit models" - the second section of that tab (docs/prelit-models.md,
     // "Managing pre-lit objects"): which objects of the active scene are
@@ -1526,6 +1528,40 @@ private:
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
     // Preferences > AI assistant). Model "" = the backend's default.
     aigen::Config globalAi_;
+
+    // --- Update check (docs/updates.md, update.cpp + update_ui.cpp) ---------
+    // Whether the editor asks GitHub for a newer release when it starts
+    // (editor.ini, Edit > Preferences; Help > Check for updates asks
+    // regardless), and one version the user has told it to stop mentioning.
+    // Both are machine-global: which build is installed on this PC is not a
+    // property of any project.
+    bool globalUpdateCheck_ = true;
+    std::string globalUpdateSkip_;
+    // ONE worker for both jobs (the check and the download), because they are
+    // never both wanted and the UI is a single modal. Everything below it is
+    // written by that thread and read by the UI thread only after `done` flips
+    // - the Runner/aigen idiom, no mutex.
+    std::thread updateThread_;
+    std::atomic<bool> updateDone_{false};
+    std::atomic<bool> updateBusy_{false};
+    update::Release updateRelease_;
+    std::string updateError_;
+    std::filesystem::path updateFile_;  // the downloaded installer
+    enum class UpdateJob { None, Check, Download };
+    UpdateJob updateJob_ = UpdateJob::None;
+    bool updateManual_ = false;      // asked for from the menu: say so either way
+    bool updateChecking_ = false;    // a check is in flight (menu item greys out)
+    bool updateDownloading_ = false;
+    bool openUpdatePopup_ = false;   // request to open the modal next frame
+    std::string updateStatus_;       // one line under the menu item / in the modal
+    // Started at startup (when the preference is on) and from Help > Check for
+    // updates; updateTick() collects the answer each frame from drawUI.
+    void startUpdateCheck(bool manual);
+    void updateTick();
+    void drawUpdateModal();
+    // Downloads the installer, then closes the editor and lets it run.
+    void updateDownload();
+    void updateJoinWorker();
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -1911,6 +1947,11 @@ private:
     int giViewScene_ = -1;
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
+    // ...and when the GI switch itself moves. Without it the preference was
+    // the one GI setting the viewport ignored: gibake::load already refuses
+    // to answer while GI is off, but nothing asked it again, so unticking the
+    // box left the baked light on screen until the scene changed.
+    int giViewEnabled_ = -1;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
 
     // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). The bake is

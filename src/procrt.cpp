@@ -617,7 +617,7 @@ struct Emitter {
              "((unsigned long long)(unsigned)iz << 17) ^ (unsigned long long)(unsigned)ix);");
         line("      procrt::Pt& P = c.buf[c.count++];");
         line("      procrt::clearPt(P);");
-        line("      P.key = key; P.faces = faces; P.sc = bs;");
+        line("      P.key = key; P.faces = faces; P.sc = bs; P.block = 1;");
         line("      P.x = c.blockOx + ((float)ix + 0.5F) * bs;");
         line("      P.y = " + fmt(baseY) + " + ((float)iy + 0.5F) * bs;");
         line("      P.z = c.blockOz + ((float)iz + 0.5F) * bs;");
@@ -1039,7 +1039,7 @@ float remap01(float v, float lo, float hi) {
 
 void clearPt(Pt& p) {
   p.x = p.y = p.z = 0.0F; p.rx = p.ry = p.rz = 0.0F; p.sc = 1.0F;
-  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63;
+  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63; p.block = 0;
   for (int i = 0; i < PROC_ATTR_SLOTS; ++i) p.a[i] = 0.0F;
 }
 // Volume local -> world, the twin of procgen's Volume::localToWorld.
@@ -1141,6 +1141,13 @@ Emitted emit(const Project& p) {
              "  short asset;        // index into VolumeDef::assets, -1 = none\n"
              "  short prefab;       // index into VolumeDef::prefabs, -1 = none\n"
              "  unsigned char faces;  // visible-face mask, 63 = all six\n"
+             "  // 1 = this point is a cell of the block lattice, so the merge\n"
+             "  // may read the collision field around it for ambient occlusion.\n"
+             "  // Stated rather than inferred: `faces` is 63 for a fully\n"
+             "  // exposed block AND for every point that never met the node,\n"
+             "  // so a graph merging blocks with a scatter has no other way to\n"
+             "  // tell the two apart.\n"
+             "  unsigned char block;\n"
              "  float a[PROC_ATTR_SLOTS];\n"
              "};\n\n";
         h << "struct Ctx {\n"

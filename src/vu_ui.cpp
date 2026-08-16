@@ -314,8 +314,10 @@ void App::drawVuStageList(std::vector<VuStage>& stages, bool kernel) {
                 ImGui::TextWrapped("%s", def->desc);
                 ImGui::Spacing();
             }
-            ImGui::Checkbox("Enabled", &s.enabled);
-            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+            // The return value, not IsItemDeactivatedAfterEdit - a checkbox
+            // is edited and deactivated in the SAME frame and can never
+            // report that (see drawAmbienceAppearance).
+            if (ImGui::Checkbox("Enabled", &s.enabled)) commitChange();
             for (int k = 0; def && k < def->paramCount; ++k) {
                 ImGui::PushID(k);
                 const vugen::StageParamDef& pd = def->params[k];

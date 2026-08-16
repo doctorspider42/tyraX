@@ -99,6 +99,38 @@ Terrain UVs grow with world position and can outrun the GS fixed-point range.
 Fold each chunk by whole texture repeats during generation, preserving the
 picture under REPEAT while bounding coordinates by chunk size.
 
+### Ship one example with sculpted terrain
+
+DONE — `examples/ambient-occlusion`. Left here only for the fact that produced
+it: every heightmap in `examples/` used to be flat, relief 0.00, all of them,
+which is how a bare 30° slope came to darken itself by 16% for several releases
+with nobody seeing it. Keep at least one example sculpted.
+
+### Let imported models receive the scene occlusion
+
+The occlusion model is now good enough for it, and that was the blocker rather
+than the plumbing. Re-measured on the console with `examples/ambient-occlusion`
+(real kit props): with models receiving, a crate under another crate reads 0.98
+of its uncovered neighbour's brightness against 0.87 for the AO-off scene, and
+nothing reads as a lump - where the old distance-based response gave 0.78 and a
+visibly darker box. Model AO (per texel, in the shipped texture) answers a
+model's SELF occlusion and is transform-invariant, so it can never answer for a
+neighbour; this is the other half.
+
+What it needs, and why it is its own commit: `g_aoOff` off for type 5 in BOTH
+the solo and the static-batch paths, model part bags switched to Gouraud (a
+per-vertex value is invisible under flat shading - the lesson from the block
+work), and a re-verification pass over the examples, because it changes how
+every textured prop in every project is shaded.
+
+### Give scene occluders more than one box each
+
+An occluder is a single oriented box or sphere per object
+(`aobake::collectOccluders`), so a chair, an L-shaped wall and a doorway arch
+are all one rectangle to the bake. Splitting a model's triangles into 2–4 boxes
+is what would lift that ceiling. Do it after the solid-angle change above, not
+before — a better response over one box may be enough for most of them.
+
 ### Model AO for animated models and for shared textures
 
 [Model AO](ambient-occlusion.md#model-ao) covers static `.obj` assets only.
@@ -120,6 +152,29 @@ object baked at 256 px from the panel stale, and a second editor session starts
 from the defaults too. The honest fix is per-object bake parameters stored
 beside `prelitSig`, which is also what would let one hero wall be 256 while the
 rest of the scene is 128 — worth doing the first time somebody mixes sizes.
+
+### Package TyraX for Linux
+
+The installer and the self-update path are Windows only (docs/updates.md):
+`installer/tyrax.iss` is Inno Setup, and `update::runInstaller` refuses
+elsewhere, so a Linux user is told a new version exists and sent to the release
+page. The check, the version comparison and the release workflow are all
+platform-blind already, so this is one packaging step plus one branch: an
+AppImage or a `.tar.gz` with the same repo-shaped layout (`bin/`, `vendor/tyra`,
+`tools/`, `src/`) built by the same release job, and an asset picker in
+`update::parseRelease` that chooses by platform instead of by `.exe`. Deliberately
+NOT a stub twin of the `.iss` in the meantime — a packaging script that cannot
+work is worse than an honest refusal.
+
+### Sign the Windows installer
+
+The released `TyraX-Setup-<version>.exe` is unsigned, so Windows SmartScreen
+warns on first run and the in-editor updater installs a binary whose only
+provenance is the URL it came from. A code-signing certificate plus a signing
+step in the release workflow fixes both; until then, the honest mitigation would
+be publishing the installer's SHA-256 with the release and having
+`update::download` check it (the release JSON already carries the asset's size,
+but not its digest).
 
 ## Medium
 
