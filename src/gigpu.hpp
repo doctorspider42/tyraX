@@ -41,6 +41,12 @@ namespace gigpu {
 // first call (the answer is cached). `why` receives a one-line reason when it
 // is false, for the log - "no GPU" and "GPU refused 4.3" are different problems
 // and a build server should be able to tell them apart.
+// MUST BE FIRST CALLED FROM THE MAIN THREAD. It creates the context, and GLFW
+// only allows window creation there - gibake::Baker runs its bake on a worker,
+// so the caller has to prime this before starting one (Baker::start does). The
+// context itself is then made current on whichever thread gathers, which GLFW
+// does allow; a context may simply not be current in two places at once, and
+// nothing else in the editor touches this one.
 bool available(std::string* why = nullptr);
 
 // One solved scene, resident on the GPU. Build it once per bake and reuse it

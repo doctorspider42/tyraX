@@ -247,7 +247,11 @@ class Baker {
 public:
     ~Baker() { cancel(); }
     // scenes: indices to bake; empty = every scene in the project.
-    void start(const Project& p, std::vector<int> scenes);
+    // useGpu asks for the compute backend, exactly as bakeScene's flag does.
+    // start() is a MAIN-THREAD call and primes the GPU context there before
+    // the worker begins - GLFW creates windows on the main thread only, and
+    // the bake itself runs on the worker (see gigpu::available).
+    void start(const Project& p, std::vector<int> scenes, bool useGpu = false);
     void cancel();
     bool running() const { return running_.load(); }
     float progress() const { return progress_.load(); }
@@ -257,7 +261,7 @@ public:
     uint64_t version() const { return version_.load(); }
 
 private:
-    void run(Project p, std::vector<int> scenes);
+    void run(Project p, std::vector<int> scenes, bool useGpu);
 
     std::thread worker_;
     std::atomic<bool> cancel_{false};

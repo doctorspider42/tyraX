@@ -1303,8 +1303,13 @@ Bake bakeScene(const Project& p, int sceneIndex,
 
 // --- the progressive baker ---------------------------------------------------
 
-void Baker::start(const Project& p, std::vector<int> scenes) {
+void Baker::start(const Project& p, std::vector<int> scenes, bool useGpu) {
     cancel();
+    // Prime the GPU context HERE, on the main thread. GLFW creates windows on
+    // the main thread only, and run() is a worker - asking for the backend from
+    // there is what would fail (gigpu::available). Priming it costs nothing when
+    // the machine has no GPU: the answer is cached and negative.
+    if (useGpu) gigpu::available(nullptr);
     if (scenes.empty())
         for (int i = 0; i < (int)p.scenes.size(); ++i) scenes.push_back(i);
     cancel_ = false;
@@ -1314,7 +1319,7 @@ void Baker::start(const Project& p, std::vector<int> scenes) {
         std::lock_guard<std::mutex> lk(mutex_);
         status_ = "Preparing...";
     }
-    worker_ = std::thread(&Baker::run, this, p, scenes);
+    worker_ = std::thread(&Baker::run, this, p, scenes, useGpu);
 }
 
 void Baker::cancel() {
@@ -1328,7 +1333,7 @@ std::string Baker::status() const {
     return status_;
 }
 
-void Baker::run(Project p, std::vector<int> scenes) {
+void Baker::run(Project p, std::vector<int> scenes, bool useGpu) {
     const int n = (int)scenes.size();
     for (int i = 0; i < n && !cancel_.load(); ++i) {
         const int si = scenes[i];
@@ -1339,9 +1344,9 @@ void Baker::run(Project p, std::vector<int> scenes) {
                                                  : std::to_string(si)) +
                       " (" + std::to_string(i + 1) + "/" + std::to_string(n) + ")";
         }
-        const Bake b = bakeScene(p, si, &cancel_, [&](float t) {
-            progress_ = (i + t) / n;
-        });
+        const Bake b = bakeScene(
+            p, si, &cancel_, [&](float t) { progress_ = (i + t) / n; }, nullptr,
+            useGpu);
         if (cancel_.load()) break;
         if (b.valid) write(cachePath(p, si), b);
         version_.fetch_add(1);
