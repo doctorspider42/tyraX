@@ -3141,6 +3141,11 @@ static std::string manifestJson(const Project& p) {
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
          << ", \"viewMode\": " << p.viewMode
          << ", \"viewProjection\": " << p.viewProjection
+         << ", \"showFog\": " << (p.viewShowFog ? "true" : "false")
+         << ", \"cam\": [" << fmtFloat(p.viewCamYaw) << ", "
+         << fmtFloat(p.viewCamPitch) << ", " << fmtFloat(p.viewCamDist) << ", "
+         << fmtFloat(p.viewCamTarget[0]) << ", " << fmtFloat(p.viewCamTarget[1])
+         << ", " << fmtFloat(p.viewCamTarget[2]) << "]"
          << ", \"breakpoints\": [";
     for (size_t i = 0; i < p.debugBreakpoints.size(); ++i)
         json << (i ? ", " : "") << "\"" << jsonEscape(p.debugBreakpoints[i])
@@ -6564,8 +6569,17 @@ std::string load(Project& out, const std::string& projectDir) {
         if (const auto* v = ed->find("gizmoSpace"))
             out.gizmoSpace = (int)v->numberOr(0);
         if (const auto* v = ed->find("viewMode")) out.viewMode = (int)v->numberOr(0);
+        if (const auto* c = ed->find("cam");
+            c && c->type == json::Value::Type::Array && c->arr.size() >= 6) {
+            out.viewCamYaw = (float)c->arr[0].numberOr(0.8);
+            out.viewCamPitch = (float)c->arr[1].numberOr(0.6);
+            out.viewCamDist = (float)c->arr[2].numberOr(90.0);
+            for (int k = 0; k < 3; ++k)
+                out.viewCamTarget[k] = (float)c->arr[3 + k].numberOr(0.0);
+        }
         if (const auto* v = ed->find("viewProjection"))
             out.viewProjection = (int)v->numberOr(0);
+        if (const auto* v = ed->find("showFog")) out.viewShowFog = v->boolOr(true);
         if (const auto* v = ed->find("breakpoints");
             v && v->type == json::Value::Type::Array)
             for (const auto& jb : v->arr)

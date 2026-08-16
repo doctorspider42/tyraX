@@ -31,6 +31,37 @@ inline float bayerDither(int x, int y) {
     return m[(y & 3) * 4 + (x & 3)] * (1.0f / 16.0f) - 0.5f;
 }
 
+// The locality window every occlusion term closes with. Occlusion past
+// `range` is deliberately not counted - this is a CONTACT shadow, and the
+// bake's occluder grid prunes by exactly this radius - so the term has to
+// reach zero there rather than merely become small. Smooth over the last 40%
+// so nothing steps at the cutoff.
+inline float aoRangeWindow(float dist, float range) {
+    if (dist >= range) return 0.0f;
+    float t = (range - dist) / (0.4f * range);
+    if (t >= 1.0f) return 1.0f;
+    if (t < 0.0f) t = 0.0f;
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Sine of the tangent-plane elevation along a horizontal direction, for a
+// surface with unit normal n; `m` is the rise per unit walked.
+//
+// THIS IS THE TERM THAT STOPS A BARE SLOPE SHADING ITSELF, and both terrain
+// horizon scans below apply it. A hillside rises in every uphill sample, so a
+// scan that only asks "how high does the land get" reports a smooth open hill
+// as occluded - the slope darkens for no reason but being a slope. What
+// occludes a point is the horizon standing above its own TANGENT PLANE (the
+// horizon-based formulation), and on a constant slope those are the same line:
+// occlusion 0, which is what a bare hillside should read as at any angle.
+// Ambient occlusion is occlusion, not irradiance - a tilted bare plane still
+// sees a whole hemisphere, just a different one.
+inline float tangentSin(const float n[3], float dx, float dz) {
+    if (n[1] <= 1e-5f) return 0.0f;
+    const float m = -(n[0] * dx + n[2] * dz) / n[1];
+    return m / std::sqrt(1.0f + m * m);
+}
+
 // Reads an object's assigned .mtl (docs/emissive-materials.md). Cached per
 // path - the sweeps below hit every object in the scene, and this touches disk.
 const MaterialGlow& materialGlow(const std::string& projectDir,
@@ -212,20 +243,107 @@ static void occShapeAt(const Occluder& oc, const float wp[3], float& dist,
     }
 }
 
+// Independent occluders combine as VISIBILITY, not as a sum. A clamped sum
+// saturates: two shapes each taking half the sky read as fully dark instead of
+// three quarters, which is what let a neighbouring box and the ground between
+// them black out a crate that is only partly covered. Accumulate the product
+// of what each one leaves visible and take one minus it at the end.
+//
+// The twins are aoShadeMul in the generated game and aoOcclusion in the
+// viewport fragment shader - change one, change all three.
+inline void aoAccumVis(float& vis, float occ) { vis *= 1.0f - occ; }
+
+// Radius of a disc with the same PROJECTED AREA as the shape seen along the
+// unit direction `toOcc` (pointing from the receiving point at the occluder).
+// A sphere projects pi*r^2 from every side; a box projects the sum of its three
+// face pairs weighted by how square-on each is, which is what makes a thin slab
+// read as the wall it is from the front and as almost nothing from the edge.
+static float occProjRadius(const Occluder& oc, const float toOcc[3]) {
+    if (oc.sphere) return oc.half[0];
+    float a = 0.0f;
+    for (int k = 0; k < 3; ++k) {
+        const float c = std::fabs(toOcc[0] * oc.axis[k][0] +
+                                  toOcc[1] * oc.axis[k][1] +
+                                  toOcc[2] * oc.axis[k][2]);
+        a += c * 4.0f * oc.half[(k + 1) % 3] * oc.half[(k + 2) % 3];
+    }
+    return std::sqrt(a / kPi);
+}
+
 float occluderOcclusionAt(const Occluder& oc, const float wp[3],
                           const float n[3], float range) {
     float dist;
     float toOcc[3];  // direction from the point toward the occluder surface
     occShapeAt(oc, wp, dist, toOcc);
     if (dist <= 0.0f) return 1.0f;  // touching / inside
-    float fade = 1.0f - dist / range;
-    if (fade <= 0.0f) return 0.0f;
-    fade *= fade;
-    // full occlusion facing the occluder, ~0.35 side-on, zero facing away
-    float w = 0.35f + 0.65f * (n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2]);
-    if (w <= 0.0f) return 0.0f;
-    if (w > 1.0f) w = 1.0f;
-    return fade * w;
+    if (dist >= range) return 0.0f;
+
+    // HOW MUCH SKY THIS SHAPE TAKES, not how close it is.
+    //
+    // The old response was (1 - dist/range)^2 times a facing weight with a
+    // 0.35 FLOOR, so a surface turned 90 degrees away from an occluder it can
+    // barely see still kept a third of the term - and since the term depended
+    // only on distance, anything smaller than the AO radius darkened over its
+    // whole height as a lump. Measured on examples/ambient-occlusion: a crate
+    // with another crate resting on it read 0.30 on its side faces where the
+    // geometry says about 0.06.
+    //
+    // What actually occludes a surface is the fraction of its cosine-weighted
+    // hemisphere the shape covers. For a disc of radius r whose centre lies at
+    // distance d along toOcc that fraction is exactly cos(theta) * (r/d)^2,
+    // and taking r from the shape's projected area makes the same expression
+    // serve a sphere and a box. Placing that disc TANGENT to the nearest
+    // surface point (d = dist + r) is what keeps it honest at both ends: a
+    // shape resting against the surface gives cos(theta), a distant one falls
+    // off as the inverse square it should.
+    // Capped at the AO radius, and not as a fudge: occlusion past `range` is
+    // deliberately not counted, so the part of a 26-unit wall that can matter
+    // to a point 0.4 units from it is the part within reach.
+    float r = occProjRadius(oc, toOcc);
+    if (r > range) r = range;
+    if (r <= 1e-5f) return 0.0f;
+
+    const float cosT = n[0] * toOcc[0] + n[1] * toOcc[1] + n[2] * toOcc[2];
+
+    // A SHAPE OCCLUDES IN ONE OF TWO REGIMES, AND WHICH ONE IS THE WHOLE
+    // DIFFICULTY.
+    //
+    // Far and small, it is a disc: it takes cos(theta) * (r/d)^2 of the
+    // cosine-weighted hemisphere, an inverse square in the distance.
+    //
+    // Near and large, it is not a disc at all - it is a HALF-SPACE. A floor
+    // slab under your feet blocks every downward direction no matter where its
+    // centre happens to be, and a disc model has to be told which way to point.
+    // Every attempt to tell it fails on real geometry: aiming at the nearest
+    // point reads the floor beside a wall as 0.000 occluded (the wall touches
+    // it edge-on and the cosine falls out), and aiming at the shape's centre
+    // reads a crate standing on a 30x24 terrace as 0.66 occluded ON ITS SIDES,
+    // because that terrace's centre is ten units sideways. Both measured.
+    //
+    // The half-space needs no aiming: what it blocks is the hemisphere behind
+    // its face, which is (1 + n.toOcc)/2 - zero for a surface facing away,
+    // one half for a surface along it, one for a surface facing into it.
+    //
+    // k is sin(alpha), the sine of the shape's angular radius: 1 when it is
+    // against the surface and filling the sky, 0 when it is a distant speck.
+    // k*k is then the solid-angle fraction the disc form already used, and k
+    // is what carries the surface between the two regimes.
+    //
+    // BOTH FACTORS ARE NEEDED AND THAT IS WHAT THE FIRST ATTEMPT GOT WRONG.
+    // Blending linearly on k alone let a crate 0.6 units away - alpha of 27
+    // degrees, a speck - hand a horizontal surface the half-space's 0.5, and a
+    // ring of neighbours then summed to "half the sky is gone" on a crate top
+    // with nothing above it (measured 0.500). Scaling the whole thing by the
+    // solid angle keeps a small shape small however close it gets, while a
+    // shape that really does fill the hemisphere still reaches the plane.
+    const float k = r / (r + dist);
+    const float lit = (cosT > 0.0f) ? cosT : 0.0f;      // disc regime
+    const float plane = (1.0f + cosT) * 0.5f;           // half-space regime
+    float occ = k * k * (lit + (plane - lit) * k);
+    if (occ < 0.0f) occ = 0.0f;
+    if (occ > 1.0f) occ = 1.0f;
+
+    return occ * aoRangeWindow(dist, range);
 }
 
 std::vector<Emitter> collectEmitters(const std::string& projectDir,
@@ -434,12 +552,40 @@ std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
     if (maxSteps < 2) maxSteps = 2;
     if (maxSteps > 48) maxSteps = 48;
 
+    // Central-difference normal straight off the grid - these samples ARE grid
+    // vertices, so neighbouring cells give it exactly and the bilinear
+    // resampling terrainAOMap needs would only blur it.
+    const auto gridNormal = [&](int x, int z, float n[3]) {
+        const auto at = [&](int a, int b) {
+            a = a < 0 ? 0 : (a >= w ? w - 1 : a);
+            b = b < 0 ? 0 : (b >= d ? d - 1 : b);
+            return heights[(size_t)b * w + a];
+        };
+        n[0] = at(x - 1, z) - at(x + 1, z);
+        n[1] = 2.0f * minStep;
+        n[2] = at(x, z - 1) - at(x, z + 1);
+        const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+        if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
+    };
+
     for (int z = 0; z < d; ++z) {
         for (int x = 0; x < w; ++x) {
             const float h0 = heights[(size_t)z * w + x];
+            float n[3] = {0, 1, 0};
+            gridNormal(x, z, n);
             float occ = 0.0f;
             for (int dir = 0; dir < 8; ++dir) {
-                float maxSin = 0.0f;
+                // The horizon is tracked over EVERY sample now, falling ones
+                // included: a direction where the land drops away has its
+                // horizon below the horizontal, and clamping that to zero is
+                // what used to make a downhill azimuth read as occluded the
+                // moment the tangent term was subtracted from it.
+                float maxSin = -1.0f;
+                const float invLen =
+                    1.0f / std::sqrt((float)(dirs[dir][0] * dirs[dir][0] +
+                                             dirs[dir][1] * dirs[dir][1]));
+                const float ux = dirs[dir][0] * invLen;
+                const float uz = dirs[dir][1] * invLen;
                 for (int k = 1; k <= maxSteps; ++k) {
                     const int sx = x + dirs[dir][0] * k;
                     const int sz = z + dirs[dir][1] * k;
@@ -447,11 +593,11 @@ std::vector<uint8_t> terrainAO(const std::vector<float>& heights, int w, int d,
                     const float dist = stepLen[dir] * k;
                     if (dist > radiusWorld) break;
                     const float dh = heights[(size_t)sz * w + sx] - h0;
-                    if (dh <= 0.0f) continue;
                     const float s = dh / std::sqrt(dh * dh + dist * dist);
                     if (s > maxSin) maxSin = s;
                 }
-                occ += maxSin;
+                const float rise = maxSin - tangentSin(n, ux, uz);
+                if (rise > 0.0f) occ += rise;
             }
             occ /= 8.0f;
             if (occ < 0.0f) occ = 0.0f;
@@ -684,17 +830,30 @@ float heightAtWorld(const std::vector<float>& heights, int w, int d,
     return t * (1 - fz) + b * fz;
 }
 
-// The wall-base-softened ground contact term - the host copy of the
-// generated aoShadeMul ground branch (and the viewport shader's). Sync all
-// three when the formula moves.
+// The ground contact term - host copy of the generated aoShadeMul ground
+// branch and the viewport shader's. Sync all three when the formula moves.
+//
+// THIS IS THE SAME HALF-SPACE THE OCCLUDER RESPONSE FALLS BACK TO, and saying
+// so is the point: the ground is a plane whose `toOcc` is straight down, so
+// (1 + n.toOcc)/2 becomes (1 - n.y)/2 - which is exactly the `0.5 - 0.5*ny`
+// this term always had. It was never a separate model, only a separate
+// spelling with its own constant, and one shape hiding behind two formulas is
+// how the two drifted apart in the first place.
+//
+// kAoBounce is what is left of that constant, and it is now the ONLY place a
+// number sits between the geometry and the picture. A fully physical half
+// hemisphere is what a surface standing on a floor really loses, but this
+// engine has no indirect light to put back: the floor is lit and bounces, and
+// at 1.0 every wall base and every crate reads muddy. The original ground term
+// carried 0.7 with that reasoning in a comment; it is kept, applied once, to
+// everything - so raising it is a single, reviewable decision rather than a
+// hunt through three files.
 float groundOcclusion(float dy, float ny, float range) {
     if (dy < 0.0f) dy = 0.0f;
     if (dy >= range) return 0.0f;
-    float fade = 1.0f - dy / range;
-    fade *= fade;
     float horiz = 0.5f - 0.5f * ny;
     if (horiz < 0.0f) horiz = 0.0f;
-    return 0.7f * fade * horiz;
+    return horiz * aoRangeWindow(dy, range);
 }
 
 int pow2Up(int v) {
@@ -703,16 +862,61 @@ int pow2Up(int v) {
     return p;
 }
 
+// --- the heightmap horizon scan ---------------------------------------------
+// Both terrain self-occlusion bakes walk the same 8 azimuths and ask the same
+// question - how high does the land rise this way - but answer it for
+// different consumers: terrainAO fills the per-vertex grid the editor VIEWPORT
+// shades its terrain with, terrainAOMap the per-texel image the CONSOLE draws.
+// A preview and its subject, so the tangent term they share is `tangentSin`,
+// declared once at the top of this file.
+
+// Central-difference heightmap normal in world space.
+inline void heightNormal(const std::vector<float>& heights, int w, int d,
+                         float width, float depth, float x, float z,
+                         float stepX, float stepZ, float n[3]) {
+    const float hx0 = heightAtWorld(heights, w, d, width, depth, x - stepX, z);
+    const float hx1 = heightAtWorld(heights, w, d, width, depth, x + stepX, z);
+    const float hz0 = heightAtWorld(heights, w, d, width, depth, x, z - stepZ);
+    const float hz1 = heightAtWorld(heights, w, d, width, depth, x, z + stepZ);
+    const float minStep = std::min(stepX, stepZ);
+    n[0] = hx0 - hx1;
+    n[1] = 2.0f * minStep;
+    n[2] = hz0 - hz1;
+    const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+    if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
+}
+
+// A NOTE ON THE AZIMUTH ROTATION THAT IS NOT HERE. Rotating each texel's fan
+// by a per-texel angle is the standard answer to a scan with few directions,
+// and it was implemented, measured and removed. On the fixture that shows the
+// artefact at all - a lone spire, sampled around a ring where symmetry says
+// the answer must be constant - it moved the spread by nothing that survives
+// a second ring: 13 / 27 / 23% of the mean with it against 13 / 26 / 30%
+// without, at 16 azimuths. The reason is that the scan is ONE sample per texel
+// (it is the expensive half and is deliberately not supersampled - see
+// kSuper), so a rotation has nothing downstream to average it: it decorrelates
+// the error between neighbours without making any texel's own answer better,
+// which trades a coherent star for an incoherent one of the same amplitude.
+// What DID work was raising the azimuth count - see kDirs below.
+
 }  // namespace
 
 AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn, const LightFn* gi) {
+                     float strength, bool aoOn, const LightFn* gi,
+                     bool giTextured) {
     AoImage out;
     if (width <= 0 || depth <= 0) return out;
     const bool bakeOcc = aoOn && strength > 0.0f;
+    // The GI multiply route (see AoImage::giLumAlpha): the light's INTENSITY
+    // takes the alpha channel and is multiplied per pixel by the pass that
+    // already exists, instead of being added over a texture it would blow out.
+    // It replaces the occlusion in that channel rather than sharing it -
+    // under GI the occlusion is already inside the gathered answer.
+    const bool giLum = gi != nullptr && giTextured;
+    out.giLumAlpha = giLum;
     // With a GI light source the RGB channel always has content - "no
     // emitters" no longer means "no light", it means daylight.
     const bool bakeLight = gi != nullptr || !ems.empty();
@@ -726,7 +930,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     if (size < 64) size = 64;
     if (size > 256) size = 256;
     out.size = size;
-    if (bakeOcc) out.alpha.assign((size_t)size * size, 0);
+    if (bakeOcc || giLum) out.alpha.assign((size_t)size * size, 0);
     if (bakeLight) out.light.assign((size_t)size * size * 3, 0);
 
     // Shadow casters per emitter, pruned ONCE. Every shadow ray for emitter e
@@ -764,9 +968,64 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     int maxSteps = (int)std::ceil(scanRadius / std::max(minStep, 0.001f));
     if (maxSteps < 2) maxSteps = 2;
     if (maxSteps > 48) maxSteps = 48;
-    const float dirs[8][2] = {{1, 0},  {-1, 0}, {0, 1},  {0, -1},
-                              {0.7071f, 0.7071f},  {0.7071f, -0.7071f},
-                              {-0.7071f, 0.7071f}, {-0.7071f, -0.7071f}};
+    // Azimuths of the horizon scan. EIGHT is not enough here and the number
+    // was measured, not chosen: a lone spire on flat ground is only found by a
+    // ray that happens to point at it, so its occlusion field comes out as an
+    // N-pointed star instead of a disc. Sampled around a ring centred on such
+    // a spire - where symmetry says the answer must be constant - 8 azimuths
+    // read a standard deviation of 91% of the mean at 16 cells out, and 16
+    // azimuths read 40%. The scan is the expensive half of this bake, so this
+    // doubles it: ~0.6 s to ~1.0 s on the heaviest example here, against a
+    // Docker build measured in minutes.
+    constexpr int kDirs = 16;
+    float dirs[kDirs][2];
+    for (int a = 0; a < kDirs; ++a) {
+        const float t = a * (2.0f * kPi / kDirs);
+        dirs[a][0] = std::cos(t);
+        dirs[a][1] = std::sin(t);
+    }
+
+    // Occluder lookup grid over the terrain footprint. The contact term dies
+    // at `radiusWorld`, so an occluder can only reach a point inside its own
+    // bounds grown by that - register it in every cell that grown box covers
+    // and a sample then reads ONE cell instead of the whole scene.
+    //
+    // Without this the loop below was |texels| * kSuper^2 * |occluders|:
+    // measured at 20.3 s for a 1100-occluder scene against 0.6 s for a
+    // 33-occluder one, i.e. the bake was linear in a number that scenes grow
+    // freely. Same lesson aoCollectLocal already learned on the EE, where
+    // scanning the whole table per vertex cost ~170 ms per chunk. Exact, not
+    // an approximation: nothing is dropped that could have contributed.
+    const float ocCell = std::max(radiusWorld, std::min(width, depth) / 64.0f);
+    const int ocNx = std::max(1, std::min(256, (int)std::ceil(width / ocCell)));
+    const int ocNz = std::max(1, std::min(256, (int)std::ceil(depth / ocCell)));
+    const float ocSx = width / ocNx, ocSz = depth / ocNz;
+    std::vector<std::vector<const Occluder*>> ocGrid((size_t)ocNx * ocNz);
+    if (bakeOcc) {
+        for (const Occluder& oc : occs) {
+            const float r = radiusWorld + std::sqrt(oc.half[0] * oc.half[0] +
+                                                    oc.half[1] * oc.half[1] +
+                                                    oc.half[2] * oc.half[2]);
+            const auto cellOf = [](float v, float ext, float step, int n) {
+                int c = (int)std::floor((v + ext * 0.5f) / step);
+                return c < 0 ? 0 : (c >= n ? n - 1 : c);
+            };
+            const int x0 = cellOf(oc.pos[0] - r, width, ocSx, ocNx);
+            const int x1 = cellOf(oc.pos[0] + r, width, ocSx, ocNx);
+            const int z0 = cellOf(oc.pos[2] - r, depth, ocSz, ocNz);
+            const int z1 = cellOf(oc.pos[2] + r, depth, ocSz, ocNz);
+            for (int cz = z0; cz <= z1; ++cz)
+                for (int cx = x0; cx <= x1; ++cx)
+                    ocGrid[(size_t)cz * ocNx + cx].push_back(&oc);
+        }
+    }
+    const auto occludersAt = [&](float px, float pz) -> const std::vector<const Occluder*>& {
+        int cx = (int)std::floor((px + width * 0.5f) / ocSx);
+        int cz = (int)std::floor((pz + depth * 0.5f) / ocSz);
+        cx = cx < 0 ? 0 : (cx >= ocNx ? ocNx - 1 : cx);
+        cz = cz < 0 ? 0 : (cz >= ocNz ? ocNz - 1 : cz);
+        return ocGrid[(size_t)cz * ocNx + cx];
+    };
 
     bool anyOcc = false, anyLight = false;
     for (int j = 0; j < size; ++j) {
@@ -778,36 +1037,29 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             float n[3] = {0, 1, 0};
             if (hasHeights) {
                 h0 = heightAtWorld(heights, w, d, width, depth, x, z);
-                // central-difference normal, same spirit as the chunk builders
-                const float hx0 = heightAtWorld(heights, w, d, width, depth, x - stepX, z);
-                const float hx1 = heightAtWorld(heights, w, d, width, depth, x + stepX, z);
-                const float hz0 = heightAtWorld(heights, w, d, width, depth, x, z - stepZ);
-                const float hz1 = heightAtWorld(heights, w, d, width, depth, x, z + stepZ);
-                n[0] = hx0 - hx1;
-                n[1] = 2.0f * minStep;
-                n[2] = hz0 - hz1;
-                const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-                if (len > 1e-5f) n[0] /= len, n[1] /= len, n[2] /= len;
+                heightNormal(heights, w, d, width, depth, x, z, stepX, stepZ, n);
                 // heightmap self-occlusion: the same horizon scan as
                 // terrainAO, on bilinear heights (alpha only - an
                 // emitters-only map skips the whole scan)
-                for (int dir = 0; bakeOcc && dir < 8; ++dir) {
-                    float maxSin = 0.0f;
+                for (int dir = 0; bakeOcc && dir < kDirs; ++dir) {
+                    const float ux = dirs[dir][0], uz = dirs[dir][1];
+                    // Falling samples count too - see terrainAO.
+                    float maxSin = -1.0f;
                     for (int k = 1; k <= maxSteps; ++k) {
                         const float dist = minStep * k;
                         if (dist > scanRadius) break;
-                        const float sx = x + dirs[dir][0] * dist;
-                        const float sz = z + dirs[dir][1] * dist;
+                        const float sx = x + ux * dist;
+                        const float sz = z + uz * dist;
                         if (sx < -width * 0.5f || sx > width * 0.5f ||
                             sz < -depth * 0.5f || sz > depth * 0.5f)
                             break;
                         const float dh =
                             heightAtWorld(heights, w, d, width, depth, sx, sz) - h0;
-                        if (dh <= 0.0f) continue;
                         const float s = dh / std::sqrt(dh * dh + dist * dist);
                         if (s > maxSin) maxSin = s;
                     }
-                    occ += maxSin / 8.0f;
+                    const float rise = maxSin - tangentSin(n, ux, uz);
+                    if (rise > 0.0f) occ += rise / kDirs;
                 }
             }
             const float wp[3] = {x, h0, z};
@@ -820,21 +1072,37 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             // reconstructs (see kSuper).
             const float sxStep = width / size, szStep = depth / size;
             const float invSuper = 1.0f / (kSuper * kSuper);
+            // The height is RE-SAMPLED, never inherited from the texel centre.
+            // A sub-sample is offset up to half a texel horizontally, and on
+            // any slope that is more height error than a ray-origin bias can
+            // absorb - the sample lands under the ground, its whole hemisphere
+            // hits the terrain's own triangles, and the texel bakes dark. That
+            // is what put a lattice of cell-sized blotches across the GI
+            // ground map: acne, quantised to the heightmap's cells.
             auto subPoint = [&](int sx, int sy, float p[3]) {
                 p[0] = x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
-                p[1] = h0;
                 p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+                p[1] = heightAtWorld(heights, w, d, width, depth, p[0], p[2]);
             };
-            if (bakeOcc) {
+            if (bakeOcc && !giLum) {
+                // Product-combined per sub-sample, then AVERAGED over the
+                // footprint - combining first and averaging second is what
+                // keeps the supersample an antialiasing pass rather than a
+                // second, wrong way of adding occluders together.
                 float occAcc = 0.0f;
                 for (int sy = 0; sy < kSuper; ++sy)
                     for (int sx = 0; sx < kSuper; ++sx) {
                         float sp[3];
                         subPoint(sx, sy, sp);
-                        for (const Occluder& oc : occs)
-                            occAcc += occluderOcclusionAt(oc, sp, n, radiusWorld);
+                        float vis = 1.0f;
+                        for (const Occluder* oc : occludersAt(sp[0], sp[2]))
+                            aoAccumVis(vis,
+                                       occluderOcclusionAt(*oc, sp, n, radiusWorld));
+                        occAcc += 1.0f - vis;
                     }
-                occ += occAcc * invSuper;
+                // ...and the heightmap's own horizon occlusion is a third
+                // independent blocker, so it joins the same way.
+                occ = 1.0f - (1.0f - occ) * (1.0f - kAoBounce * occAcc * invSuper);
                 if (occ > 1.0f) occ = 1.0f;
                 const uint8_t a = (uint8_t)(255.0f * strength * occ + 0.5f);
                 out.alpha[texel] = a;
@@ -852,10 +1120,13 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             for (int sy = 0; sy < sup; ++sy)
                 for (int sx = 0; sx < sup; ++sx) {
                     float sp[3];
-                    // subPoint divides by kSuper; re-derive for `sup`.
+                    // subPoint divides by kSuper; re-derive for `sup`. The
+                    // height is re-sampled for the reason written there - a
+                    // gather ray fired from under the ground bakes black.
                     sp[0] = x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
-                    sp[1] = h0;
                     sp[2] = z + ((sy + 0.5f) / sup - 0.5f) * szStep;
+                    sp[1] = heightAtWorld(heights, w, d, width, depth, sp[0],
+                                          sp[2]);
                     if (gi) {
                         // Seeded by the texel AND its sub-sample, so the
                         // sub-samples of one texel do not share a ray set and
@@ -873,6 +1144,20 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                         for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
                     }
                 }
+            if (giLum) {
+                // Rec.709 luminance of the gathered light, stored as the
+                // ATTENUATION the alpha-over pass applies: 0 = full light,
+                // 255 = black. Floored like every lightmap alpha, because the
+                // GS alpha test discards a zero (aobake::kMinLightmapAlpha).
+                float lum = 0.2126f * add[0] + 0.7152f * add[1] + 0.0722f * add[2];
+                if (lum < 0.0f) lum = 0.0f;
+                if (lum > 1.0f) lum = 1.0f;
+                float av = 255.0f * (1.0f - lum) + bayerDither(i, j);
+                if (av < (float)kMinLightmapAlpha) av = (float)kMinLightmapAlpha;
+                if (av > 255.0f) av = 255.0f;
+                out.alpha[texel] = (uint8_t)(av + 0.5f);
+                anyOcc = true;
+            }
             const float dz = bayerDither(i, j);
             for (int k = 0; k < 3; ++k) {
                 float v = 255.0f * add[k] + dz;
@@ -1172,9 +1457,9 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
         n[0] = rn.x, n[1] = rn.y, n[2] = rn.z;
     };
     auto occlusionAt = [&](const float wp[3], const float n[3]) {
-        float occ = 0.0f;
+        float vis = 1.0f;
         for (const Occluder* oc : local)
-            occ += occluderOcclusionAt(*oc, wp, n, rs.aoRadius);
+            aoAccumVis(vis, occluderOcclusionAt(*oc, wp, n, rs.aoRadius));
         // ground term; an empty heightmap samples the y = 0 plane. With the
         // terrain REMOVED there is no ground to contact at all, so the term is
         // left out rather than taken against that plane (docs/terrain.md).
@@ -1182,8 +1467,9 @@ SceneLightAtlas bakeSceneLightAtlas(const Project& p, const SceneData& sc,
             const float ground =
                 heightAtWorld(sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
                               (float)sc.terrain.depth, wp[0], wp[2]);
-            occ += groundOcclusion(wp[1] - ground, n[1], rs.aoRadius);
+            aoAccumVis(vis, groundOcclusion(wp[1] - ground, n[1], rs.aoRadius));
         }
+        const float occ = kAoBounce * (1.0f - vis);
         return occ > 1.0f ? 1.0f : occ;
     };
     auto lightAt = [&](const float wp[3], const float n[3], uint32_t seed,

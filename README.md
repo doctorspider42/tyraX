@@ -50,7 +50,12 @@ for me to create it without the AI. Please give it a chance :)
 
 ## Quickstart
 
-**Windows**
+**Windows — just use it:** grab `TyraX-Setup-<version>.exe` from the
+[latest release](https://github.com/doctorspider42/tyraX/releases). It installs
+per user (no admin), brings the engine and the PS2 tools with it, and the editor
+tells you when a newer build is out — [Installing and updating](docs/updates.md).
+
+**Windows — build it**
 
 ```powershell
 scoop install mingw cmake ninja      # editor toolchain (+ optional: scoop install ccache)
@@ -232,6 +237,8 @@ build that provably carries none of it
 - The [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`,
   [interface themes](docs/editor-theme.md), and
   [format versioning and migrations](docs/format-versioning.md).
+- A [Windows installer, released on every push, with an update check](docs/updates.md)
+  the editor makes itself (and one checkbox turns off).
 
 ## Shortcuts
 
@@ -279,6 +286,7 @@ wait for their polish pass.
 | [day-night](examples/day-night) | The same place at dawn, noon, dusk and night — plus one scene where the clock actually runs |
 | [material-lab](examples/material-lab) | The material pipeline on a single pedestal: baked AO, smart masks, atlasing, live reload |
 | [procedural](examples/procedural) | Every node in the scatter library at work in six volumes, baked down to 17 chunk meshes |
+| [ambient-occlusion](examples/ambient-occlusion) | A village on sculpted ground: contact shadows, a ravine that darkens and a bare bank that does not |
 | [blocks-terrain](examples/blocks-terrain) | A cube world the EE invents at boot. Press TRIANGLE for a new one. Still 50 FPS |
 | [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |

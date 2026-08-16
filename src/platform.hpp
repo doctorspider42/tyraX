@@ -223,6 +223,12 @@ void errorBox(const std::string& title, const std::string& message);
 // an unattended run must never silently consent to it.
 bool confirmBox(const std::string& title, const std::string& message);
 
+// Open an http(s) URL in the user's browser. Best-effort and non-blocking;
+// anything that is not http/https is ignored rather than handed to the shell -
+// the URLs here come off the network (a GitHub release's page), and "open
+// whatever this string says" is how that becomes an execution primitive.
+void openUrl(const std::string& url);
+
 // Show `path` in the system file manager, selecting the entry itself when it
 // is a file. Best-effort: silently does nothing when no file manager answers.
 void revealInFileManager(const std::string& path);

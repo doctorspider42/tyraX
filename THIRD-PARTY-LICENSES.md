@@ -373,6 +373,26 @@ by [Vr-cvantorium](https://sketchfab.com/Vr-cvantorium).
 The model is licensed under the
 [Creative Commons Attribution 4.0 International license](https://creativecommons.org/licenses/by/4.0/).
 
+### Medieval Village MegaKit — CC0 1.0 (public domain dedication)
+
+`examples/ambient-occlusion/res/models/*.obj` (and their `.mtl` files and the
+five `*.png` textures beside them) are a slice of the
+[Medieval Village MegaKit](https://quaternius.com) by
+[Quaternius](https://www.patreon.com/quaternius), from the free Standard
+version of the pack.
+
+Released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/), which
+waives copyright entirely — no attribution is required. It is recorded here
+anyway, because knowing where a shipped file came from is the point of this
+list.
+
+**Modified**: the base-colour textures are downsampled to 128x128 (the whole
+GS texture budget is ~1.33 MB), the roughness/normal maps are dropped, and the
+`map_Kd` lines are rewritten from the author's absolute Windows paths to bare
+sibling names — the PS2 resolves a Wavefront reference next to the file that
+named it and cannot walk `..`.
+
 ### NASA lunar colour map — public domain
 
 `resources/moon-lroc-color-1k.jpg` is the 2019 colour map from NASA's

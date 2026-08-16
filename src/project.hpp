@@ -3185,6 +3185,26 @@ struct Project {
     // Viewport camera projection (Viewport::Projection): 0 perspective,
     // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
     int viewProjection = 0;
+    // Where the viewport camera was pointing, so reopening a project puts you
+    // back where you left off instead of at a default that is usually outside
+    // the scene's own fog. The orbit camera IS these five numbers (yaw, pitch,
+    // distance, pivot) - the same ones Viewport::camState reads - so there is
+    // nothing to reconstruct and no matrix to keep in sync.
+    //
+    // Editor state, exactly like viewMode above: read off the viewport at save
+    // time, never dirties the project and never enters undo. Defaults match
+    // the viewport's own, so a project that predates the key opens where it
+    // always did.
+    float viewCamYaw = 0.8f;
+    float viewCamPitch = 0.6f;
+    float viewCamDist = 90.0f;
+    float viewCamTarget[3] = {0.0f, 0.0f, 0.0f};
+    // View > Distance fog: the viewport's own fog switch, which is NOT the
+    // scene's fogEnabled - it suppresses the preview of a fog the game still
+    // has, so you can see past it while authoring. Persisted for the same
+    // reason as the camera above: it is where you left the viewport, and a
+    // view setting that resets on every open reads as one that was not saved.
+    bool viewShowFog = true;
     // Live Debugger breakpoints (docs/live-debugger.md), as
     // "<objectId>:<nodeId>" - the owning object's stable id and the flow-graph
     // node id, so they survive renames, reorders and rebuilds. Personal

@@ -477,8 +477,28 @@ vec3 emissiveLight(vec3 wp, vec3 n, int selfObj) {
     return add;
 }
 
+// Locality window; twin of aobake::aoRangeWindow.
+float aoRangeWindow(float dist, float range) {
+    float t = clamp((range - dist) / (0.4 * range), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+// Radius of a disc with the same PROJECTED AREA as the shape seen along
+// toOcc. Twin of aobake::occProjRadius / aoProjRadius in the generated game.
+float aoProjRadius(int i, vec3 h, vec3 toOcc) {
+    if (uAoPos[i].w > 0.5) return h.x;   // sphere
+    vec3 c = abs(vec3(dot(toOcc, uAoAx[i].xyz), dot(toOcc, uAoAy[i].xyz),
+                      dot(toOcc, uAoAz[i].xyz)));
+    float a = 4.0 * (c.x * h.y * h.z + c.y * h.x * h.z + c.z * h.x * h.y);
+    return sqrt(a / 3.14159265);
+}
+
+// How much of the surface's cosine-weighted hemisphere each shape covers - NOT
+// how close it is. Twin of aobake::occluderOcclusionAt and of aoOccluderAt in
+// the generated game; the reasoning and the measurements are in aobake.cpp.
+// Blockers combine as VISIBILITY (a product), because a clamped sum saturates.
 float aoOcclusion(vec3 wp, vec3 n) {
-    float occ = 0.0;
+    float vis = 1.0;
     for (int i = 0; i < uAoCount; ++i) {
         if (uAoObj[i] == uAoSelfObj) continue;  // an object never occludes itself
         vec3 rel = wp - uAoPos[i].xyz;
@@ -502,13 +522,18 @@ float aoOcclusion(vec3 wp, vec3 n) {
                 toOcc = vec3(0.0, 1.0, 0.0);
             }
         }
-        if (dist <= 0.0) { occ += 1.0; continue; }  // touching / inside
-        float fade = 1.0 - dist / uAoRadius;
-        if (fade <= 0.0) continue;
-        fade *= fade;
-        // full occlusion facing the occluder, ~0.35 side-on, zero facing away
-        float w = clamp(0.35 + 0.65 * dot(n, toOcc), 0.0, 1.0);
-        occ += fade * w;
+        if (dist <= 0.0) { vis = 0.0; continue; }  // touching / inside
+        if (dist >= uAoRadius) continue;
+        float r = min(aoProjRadius(i, h, toOcc), uAoRadius);
+        if (r <= 0.00001) continue;
+        float cosT = dot(n, toOcc);
+        // disc when small and far, HALF-SPACE when large and near; k =
+        // sin(alpha) blends and k*k is the solid angle. See aobake.cpp.
+        float k = r / (r + dist);
+        float lit = max(cosT, 0.0);
+        float plane = (1.0 + cosT) * 0.5;
+        float occ = clamp(k * k * (lit + (plane - lit) * k), 0.0, 1.0);
+        vis *= 1.0 - occ * aoRangeWindow(dist, uAoRadius);
     }
     if (uAoGround != 0) {
         float ground = 0.0;
@@ -517,13 +542,10 @@ float aoOcclusion(vec3 wp, vec3 n) {
             ground = texture(uAoHeight, clamp(uv, 0.0, 1.0)).r;
         }
         float dy = max(wp.y - ground, 0.0);
-        if (dy < uAoRadius) {
-            float fade = 1.0 - dy / uAoRadius;
-            // 0.7: same wall-base softening as the game's aoShadeMul
-            occ += 0.7 * fade * fade * max(0.5 - 0.5 * n.y, 0.0);
-        }
+        // the same half-space, with toOcc straight down
+        vis *= 1.0 - max(0.5 - 0.5 * n.y, 0.0) * aoRangeWindow(dy, uAoRadius);
     }
-    return min(occ, 1.0);
+    return clamp(0.7 * (1.0 - vis), 0.0, 1.0);  // kAoBounce
 }
 
 void main() {
@@ -1899,7 +1921,15 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     // same image per PIXEL through an additive pass, so a preview on the
     // render grid is the one place these two differ, and it is a resolution
     // difference rather than a different answer.
-    const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
+    // Two GI routes for the ground, exactly as the console has them. An
+    // UNTEXTURED terrain replaces its shade with the map's RGB (giGround). A
+    // TEXTURED one cannot - the console applies the map's ALPHA as a per-pixel
+    // multiply over its ordinary shade instead, so the preview does the same
+    // per VERTEX, which is a resolution difference and not a different answer.
+    const bool giGround =
+        giTerrSize_ > 0 && !giTerrLight_.empty() && !giTerrLum_;
+    const bool giGroundMul =
+        giTerrSize_ > 0 && giTerrLum_ && !giTerrAlpha_.empty();
     auto giGroundAt = [&](float wx, float wz) -> Vec3 {
         const float u = (wx - x0) / w * (giTerrSize_ - 1);
         const float v = (wz - z0) / d * (giTerrSize_ - 1);
@@ -1919,15 +1949,31 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
                    (texel(u0, v1, c) * (1 - fu) + texel(u1, v1, c) * fu) * fv;
         return out;
     };
+    auto giMulAt = [&](float wx, float wz) -> float {
+        const float u = (wx - x0) / w * (giTerrSize_ - 1);
+        const float v = (wz - z0) / d * (giTerrSize_ - 1);
+        const int a = (int)(u < 0 ? 0 : (u > giTerrSize_ - 1 ? giTerrSize_ - 1 : u));
+        const int b = (int)(v < 0 ? 0 : (v > giTerrSize_ - 1 ? giTerrSize_ - 1 : v));
+        return 1.0f - giTerrAlpha_[(size_t)b * giTerrSize_ + a] / 255.0f;
+    };
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
         Vec3 s = giGround ? giGroundAt(x0 + ix * sx, z0 + iz * sz)
                           : shadeOf(normalize(n));
-        // Terrain self-AO: the same host-baked grid the game ships as
-        // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
-        // contact term arrives per fragment in the shader).
-        if (aoOn_ && (int)aoGrid_.size() == hmW_ * hmD_) {
+        // The multiply route: the ordinary shade, scaled by the gathered
+        // intensity the console applies per pixel.
+        if (giGroundMul) {
+            const float m = giMulAt(x0 + ix * sx, z0 + iz * sz);
+            s.x *= m, s.y *= m, s.z *= m;
+        }
+        // Terrain self-AO: the same host-baked grid the game ships in the AO
+        // map's alpha, multiplied before everything else (the occluder contact
+        // term arrives per fragment in the shader). Skipped on the multiply
+        // route, where that alpha channel carries the gathered light instead -
+        // the console cannot apply both, and the gather already answered the
+        // sky-visibility question ambient occlusion approximates.
+        if (aoOn_ && !giGroundMul && (int)aoGrid_.size() == hmW_ * hmD_) {
             const int ax = ix < 0 ? 0 : (ix > hmW_ - 1 ? hmW_ - 1 : ix);
             const int az = iz < 0 ? 0 : (iz > hmD_ - 1 ? hmD_ - 1 : iz);
             const float aoM =
@@ -2952,18 +2998,31 @@ void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
 }
 
 void Viewport::setGiTerrain(const aobake::AoImage& img) {
-    const bool on = img.size > 0 && img.hasLight && img.gi &&
-                    (int)img.light.size() == img.size * img.size * 3;
+    // Two routes, and the flag on the image says which (aobake::giLumAlpha):
+    // RGB replaces the shade for an untextured ground, ALPHA multiplies it for
+    // a textured one. Either way the answer is baked into the vertices here.
+    const bool lum = img.giLumAlpha &&
+                     (int)img.alpha.size() == img.size * img.size;
+    const bool on = img.size > 0 && img.gi &&
+                    (lum || (img.hasLight &&
+                             (int)img.light.size() == img.size * img.size * 3));
     if (!on) {
-        if (giTerrSize_ == 0 && giTerrLight_.empty()) return;
+        if (giTerrSize_ == 0 && giTerrLight_.empty() && giTerrAlpha_.empty())
+            return;
         giTerrSize_ = 0;
         giTerrLight_.clear();
+        giTerrAlpha_.clear();
+        giTerrLum_ = false;
         if (program_) buildTerrainMesh();
         return;
     }
-    if (giTerrSize_ == img.size && giTerrLight_ == img.light) return;
+    if (giTerrSize_ == img.size && giTerrLum_ == lum &&
+        giTerrLight_ == img.light && giTerrAlpha_ == img.alpha)
+        return;
     giTerrSize_ = img.size;
+    giTerrLum_ = lum;
     giTerrLight_ = img.light;
+    giTerrAlpha_ = img.alpha;
     if (program_) buildTerrainMesh();  // the shade is baked into the vertices
 }
 
@@ -3542,6 +3601,7 @@ void Viewport::animBakeCollect() {
                 AnimModelDraw::Part part;
                 if (src.image >= 0 && src.image < (int)imageTex.size())
                     part.tex = imageTex[src.image];
+                for (int c = 0; c < 3; ++c) part.kd[c] = src.baseColor[c];
                 std::vector<float> interleaved((size_t)src.vertexCount * 8,
                                                0.0f);
                 part.mesh = uploadMesh(interleaved);
@@ -4496,7 +4556,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                              const Mat4* model, float shade, bool asLines) {
         if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
         for (const AnimModelDraw::Part& part : ad.parts)
-            draw(part.mesh, GL_TRIANGLES, mvp, shade, shade, shade,
+            draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
+                 shade * part.kd[1], shade * part.kd[2],
                  asLines ? 0 : part.tex, model);
         if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
     };
@@ -4583,12 +4644,26 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoSelfObj = -1;       // terrain belongs to no scene object
         aoGroundOn = false;   // the ground doesn't sit next to itself
         aoReceive = true;
-        const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
-        if (giGround) glUniform1i(uGiSkipProbe_, 1);
+        // THE GROUND NEVER TAKES PROBE LIGHT, with or without a lightmap.
+        //
+        // The probe grid is built for objects: a few levels of samples a few
+        // units apart, sized to a room. Handed a landscape it has nothing to
+        // say - and since giProbe REPLACES the shade outright rather than
+        // adding to it, a terrain that falls through to it comes out black
+        // wherever no live probe reaches, which on a hill is the whole hill.
+        // Reported as "with GI on the peaks are pitch black".
+        //
+        // This used to be gated on having a baked ground lightmap, and the
+        // gap that opened is exactly a TEXTURED terrain: it deliberately gets
+        // no lightmap (the pass is additive and would blow out its dark
+        // texels - see docs/ambient-occlusion.md), so it had neither the map
+        // nor its own shading. Without a map the right answer is the ordinary
+        // directional + ambient term, which is what skipping the probe keeps.
+        glUniform1i(uGiSkipProbe_, 1);
         for (const Mesh& chunk : terrainChunkMeshes_)
             draw(chunk, GL_TRIANGLES, viewProj, tintScale, tintScale, tintScale,
                  terrainTex, asLines ? nullptr : &identityM);
-        if (giGround) glUniform1i(uGiSkipProbe_, 0);
+        glUniform1i(uGiSkipProbe_, 0);
 
         // Painted terrain layers: alpha-blend each layer's pass over the base
         // chunks - the GL twin of the PS2's two-pass splatting (renderTerrain

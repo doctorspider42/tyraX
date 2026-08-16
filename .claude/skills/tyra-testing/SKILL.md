@@ -2059,10 +2059,68 @@ And the reply is consumed by `aiChatTick`, which runs from `drawUI` whether or n
 the window is open - so a `wait` long enough for N backend invocations is what a
 multi-step turn needs, and closing the window mid-turn does not strand it.
 
+## Verifying the installer and the update check (docs/updates.md)
+
+Both halves are checkable on the machine you are on - neither needs CI, and
+neither should be believed without this.
+
+**The pure half first.** `update::compareVersions` and `update::parseRelease`
+have no ImGui, no GL and no `Project`, so they take a 40-line harness (the
+treegen/placement pattern):
+
+```bash
+g++ -std=c++20 -I src -I vendor/glfw/include harness.cpp \
+    src/update.cpp src/json.cpp src/platform.cpp build/vendor/glfw/src/libglfw3.a \
+    -o uh.exe -lshell32 -lole32 -luuid -lws2_32 -lcomdlg32 -lgdi32
+```
+
+Feed `parseRelease` a REAL payload, not only a hand-written one -
+`curl -sL https://api.github.com/repos/<any>/releases/latest` is one command and
+it is what proves the asset picker survives GitHub's actual shape. The same
+harness can call `fetchLatest()` for the live path; against a repository with no
+releases the honest answer is *no releases have been published yet*, which is a
+state and not a failure.
+
+**The UI half** is an ordinary `--ui-script` run - the modal is reachable with
+no network luck involved, because a failed check opens it too:
+
+```bash
+./build/tyrax-editor.exe --ui-script "frames 10; click Help; click 'Check for updates'; wait 3; shot upd.png; dump"
+```
+
+The automatic startup check is deliberately skipped while a UI script is running
+(`uiScriptActive_`), so no unattended run can have a dialog open itself mid-step.
+
+**The installer is verified by installing it**, and that is worth the five
+minutes because the thing it can silently get wrong is the LAYOUT. Note the
+first trap: a silent install started from a console-attached shell just sits
+there until something kills it - drive it with `Start-Process -Wait`.
+
+```powershell
+./installer/build-installer.ps1 -SkipBuild
+Start-Process dist\TyraX-Setup-<v>.exe -Wait -ArgumentList `
+  '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER',"/DIR=$env:TEMP\tyrax-test","/LOG=$env:TEMP\ins.log"
+```
+
+Then prove the installed tree WORKS rather than merely exists, which is two
+commands and covers every exe-relative lookup at once:
+
+```powershell
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --vu-check           # finds <exe>/../vendor/tyra
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --new t $env:TEMP    # then grep the engine path
+Select-String tyrax-test $env:TEMP\t\docker-compose.yml        #   in the generated compose
+```
+
+Finish with `unins000.exe /VERYSILENT` and check that the directory, the Start
+Menu folder and the `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`
+key are all gone - an installer that cannot uninstall itself is a worse bug than
+one that cannot install.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
 |---|---|
+| The installer or the update check | The section above: a harness for the pure half, `--ui-script` for the modal, a real silent install + `--vu-check` from it for the layout, then uninstall |
 | Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |

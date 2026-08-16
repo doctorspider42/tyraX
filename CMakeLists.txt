@@ -299,6 +299,8 @@ add_executable(tyrax-editor
     src/tmdl.cpp
     src/treegen.cpp
     src/uiscript.cpp
+    src/update.cpp
+    src/update_ui.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp

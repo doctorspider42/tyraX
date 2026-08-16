@@ -162,6 +162,12 @@ struct EditorConfig {
     // build. Off by default: everything else the assistant does is instant and
     // one Ctrl+Z away, this is neither.
     bool chatAllowBuild = false;
+    // Update check (docs/updates.md): whether the editor asks GitHub for a
+    // newer release at startup, and one version somebody has told it to stop
+    // mentioning. Which build is installed is a property of this machine, so
+    // both belong here rather than in any .tyra.
+    bool updateCheck = true;
+    std::string updateSkipVersion;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -255,6 +261,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
         else if (match("chatAllowEdits", v)) cfg.chatAllowEdits = toI(v, 1) != 0;
         else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
+        else if (match("updateCheck", v)) cfg.updateCheck = toI(v, 1) != 0;
+        else if (match("updateSkipVersion", v)) cfg.updateSkipVersion = v;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -325,7 +333,9 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
       << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n"
       << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
-      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n";
+      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n"
+      << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
+      << "updateSkipVersion=" << cfg.updateSkipVersion << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -576,6 +586,8 @@ int App::run(const std::string& initialProjectDir) {
         logDbg_.selectText = cfg.logSelectDebug;
         chatAllowEdits_ = cfg.chatAllowEdits;
         chatAllowBuild_ = cfg.chatAllowBuild;
+        globalUpdateCheck_ = cfg.updateCheck;
+        globalUpdateSkip_ = cfg.updateSkipVersion;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -616,6 +628,13 @@ int App::run(const std::string& initialProjectDir) {
         // owns the format-version gate + migration prompt.
         openProjectAt(dir);  // failure leaves the welcome screen up
     }
+
+    // Is there a newer TyraX? (docs/updates.md) A worker thread and one HTTPS
+    // request, so nothing here waits on it - the answer lands in updateTick()
+    // whenever it arrives, and a modal only appears if there IS something newer.
+    // Never during a UI script: an unattended run must not have a dialog open
+    // itself in the middle of somebody's step list.
+    if (globalUpdateCheck_ && !uiScriptActive_) startUpdateCheck(false);
 
     // UI scripting (docs/ui-scripting.md): collect ImGui's item boxes so a
     // script can name widgets, and stop pacing to the monitor - an unattended
@@ -709,6 +728,11 @@ int App::run(const std::string& initialProjectDir) {
     if (blssCovThread_.joinable()) blssCovThread_.join();
     // The importer publishes a result into App members, which must outlive it.
     if (modelImportThread_.joinable()) modelImportThread_.join();
+    // The update check writes into App members too, and its curl may be sitting
+    // on a 20-second timeout - kill it rather than making the exit wait for a
+    // network that is not answering.
+    update::cancel();
+    if (updateThread_.joinable()) updateThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
@@ -905,6 +929,11 @@ void App::drawUI() {
     drawRemotePadWindow();
     drawSessionWindow();
     drawPhoneCamWindow();
+    // The update check's answer, collected here and not from the modal's body:
+    // a check started at startup has to land whether or not anything about it
+    // is on screen (the giBakerPoll rule).
+    updateTick();
+    drawUpdateModal();
     drawNewProjectModal();
     drawPreferencesWindow();
     drawEditorPreferencesModal();
@@ -1073,6 +1102,7 @@ void App::saveGlobalConfig() {
                       theme::info(theme_).key, viewportPs2_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
+                      globalUpdateCheck_, globalUpdateSkip_,
                       std::move(recent)});
 }
 
@@ -1644,6 +1674,29 @@ void App::drawMenuBar() {
                 ImGui::SetTooltip(
                     "Light baked on the host and shipped as pixels: automatic\n"
                     "model AO multiplied into each model's own texture.");
+            ImGui::EndMenu();
+        }
+        // Deliberately outside the project gate: which build this is, and
+        // whether there is a newer one, are questions somebody has on the
+        // welcome screen too (docs/updates.md).
+        if (ImGui::BeginMenu("Help")) {
+            ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
+                            nullptr, false, false);
+            ImGui::Separator();
+            const bool updateBusy = updateChecking_ || updateDownloading_;
+            if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
+                startUpdateCheck(true);
+            if (!updateStatus_.empty()) ImGui::TextDisabled("%s", updateStatus_.c_str());
+            ImGui::Separator();
+            if (ImGui::MenuItem("Documentation"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/blob/main/docs/README.md");
+            if (ImGui::MenuItem("Releases"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/releases");
+            if (ImGui::MenuItem("Report an issue"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/issues");
             ImGui::EndMenu();
         }
 
@@ -4333,6 +4386,9 @@ void App::saveProject() {
     project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
     project_.viewProjection = (int)viewport_.projection();
+    viewport_.camState(project_.viewCamYaw, project_.viewCamPitch,
+                       project_.viewCamDist, project_.viewCamTarget);
+    project_.viewShowFog = showFog_;  // View > Distance fog
     // Fold the live docking arrangement + open windows into the active layout.
     // While a switch is still settling (load or rebuild pending) the on-screen
     // layout doesn't yet belong to the active layout - keep the stored one
@@ -6220,6 +6276,12 @@ void App::attachProject() {
                              ? project_.viewProjection
                              : 0;
     viewport_.setProjection((Viewport::Projection)viewProj);
+    // ...and where the camera was pointing. A project saved before this key
+    // existed carries the viewport's own defaults, so it opens exactly where
+    // it always did.
+    viewport_.setCamState(project_.viewCamYaw, project_.viewCamPitch,
+                          project_.viewCamDist, project_.viewCamTarget);
+    showFog_ = project_.viewShowFog;
     // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
     // set (hand-edited or very old file), then apply the active one. Applying is
     // deferred to a frame boundary: loading ImGui settings mid-frame is
@@ -10228,8 +10290,12 @@ void App::drawAmbiencePresets(bool& changed) {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::ColorEdit3("Sky zenith color", a.skyTopColor);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::Checkbox("Gradient sky dome", &a.skyDome);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    // A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit. It activates on
+    // mouse-down and both edits and deactivates on mouse-up, so the
+    // "was edited while active in a PREVIOUS frame" test it runs can never
+    // be true - the edit silently never reached the project, and the change
+    // survived only until the next reload. Use the return value.
+    if (ImGui::Checkbox("Gradient sky dome", &a.skyDome)) changed = true;
     ImGui::BeginDisabled(!a.skyDome);
     ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -10253,38 +10319,11 @@ void App::drawAmbiencePresets(bool& changed) {
     ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
-    ImGui::SeparatorText("Ambient occlusion");
-    ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Soft contact shadows where geometry meets: terrain\n"
-            "self-shadowing (ravines, foot of hills) and darkening where\n"
-            "objects touch the ground and each other - baked into per-pixel\n"
-            "AO textures at build (a terrain map + a primitive lightmap\n"
-            "atlas), drawn as extra blended passes. Which objects cast is\n"
-            "per object: Properties > Cast shadow. Imported and animated\n"
-            "models cast but don't receive.");
-    if (a.aoEnabled) {
-        ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How dark full occlusion gets (0 = invisible).");
-        ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "World units the contact darkening reaches from an\n"
-                "occluder. Terrain self-shadowing scans 3x this.");
-        if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
-        ImGui::TextDisabled("Static bake: moved objects re-shade themselves at "
-                            "runtime, but\nthe shadow they cast stays where the "
-                            "scene was built.");
-    }
-
+    // Scene AO lives in the Baked lighting tab now, beside model AO and
+    // pre-lit - moved, not mirrored. A read-only echo of a setting that is
+    // edited elsewhere is a second place to look for one answer.
     ImGui::SeparatorText("Distance fog");
-    ImGui::Checkbox("Fog enabled", &a.fogEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::Checkbox("Fog enabled", &a.fogEnabled)) changed = true;
     if (a.fogEnabled) {
         ImGui::ColorEdit3("Fog color", a.fogColor);
         changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -13332,10 +13371,12 @@ void App::applyProjectToViewport() {
     // per-frame cost.
     if (giViewScene_ != project_.activeScene ||
         giViewSerial_ != modelEditSerial_ ||
-        giViewVersion_ != giBaker_.version()) {
+        giViewVersion_ != giBaker_.version() ||
+        giViewEnabled_ != (rs.giEnabled ? 1 : 0)) {
         giViewScene_ = project_.activeScene;
         giViewSerial_ = modelEditSerial_;
         giViewVersion_ = giBaker_.version();
+        giViewEnabled_ = rs.giEnabled ? 1 : 0;
         const gibake::Bake b = gibake::load(project_, project_.activeScene);
         viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
         // The ground takes the baked terrain lightmap instead of the probes -
@@ -14915,11 +14956,24 @@ void App::drawEditorPreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // AN EXPLICIT SIZE, NOT AlwaysAutoResize - the Project Preferences shape,
+    // for the reason that dialog documents. This one had grown past the screen
+    // too: with the AI assistant section in it, Save and Cancel sat ~700 px
+    // BELOW the bottom of a 1080p display and could only be reached by
+    // scrolling the whole dialog first (measured with `--ui-script dump`: the
+    // buttons at y=2707 in a 1973-high window). The footer is outside the
+    // scrolling body now, so it stays one click away however much anybody adds
+    // above it.
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(560),
+               std::min(scaled(760), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
-        return;
+    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr, 0)) return;
+
+    const float footerH =
+        ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    ImGui::BeginChild("##body", ImVec2(0, -footerH));
 
     ImGui::TextDisabled(
         "Settings for this editor installation - shared by every project and\n"
@@ -15057,6 +15111,31 @@ void App::drawEditorPreferencesModal() {
             "uses curl. Thinking = extended reasoning where the backend\n"
             "supports it (slower, better on tricky logic).");
     }
+
+    // Applies IMMEDIATELY and saves itself, like the theme above and unlike the
+    // staged text fields: it is one switch, and staging it would make Cancel
+    // read as "do not check for updates" (docs/updates.md).
+    ImGui::SeparatorText("Updates");
+    if (ImGui::Checkbox("Check for updates at startup", &globalUpdateCheck_))
+        saveGlobalConfig();
+    prefHelp(
+        "Asks GitHub once, at startup, whether there is a newer TyraX, and\n"
+        "says so only if there is. Off means nothing leaves this machine on\n"
+        "its own - Help > Check for updates still works whenever you ask.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(updateChecking_ || updateDownloading_);
+    if (ImGui::SmallButton("Check now")) startUpdateCheck(true);
+    ImGui::EndDisabled();
+    if (!globalUpdateSkip_.empty()) {
+        ImGui::TextDisabled("Skipping %s.", globalUpdateSkip_.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop skipping")) {
+            globalUpdateSkip_.clear();
+            saveGlobalConfig();
+        }
+    }
+
+    ImGui::EndChild();  // the scrolling body; the footer below is pinned
 
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
