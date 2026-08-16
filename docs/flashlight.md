@@ -283,11 +283,19 @@ its back faces subtract it, both plain TestOnly z against the scene's depth,
 into a dedicated raster-sized 16-bit count target that shares the scene's own
 z buffer (`FRAME` and `ZBUF` are independent addresses over one pixel grid).
 Any pixel the light cannot reach ends net-positive; everything else returns to
-exact zero, whatever the overlap count. Then **one resolve pass per caster**
+exact zero, whatever the overlap count. Then **one resolve pass per frame**
 samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
 expands to alpha 0, anything else to 0x80 — and ORs *count > 0* into the
-framebuffer's destination-alpha MSB through an alpha test (a zero fragment
-writes nothing, so earlier casters' bits survive). Every torch light pass then
+framebuffer's destination-alpha MSB through an alpha test. Counting is exact
+over any pile of volumes, so every caster lands in ONE bracket — one clear,
+one resolve, scissored to the volumes' projected screen bbox, and the far
+caps are skipped outright (they only ever subtract at pixels beyond the
+light's range, where the reach falloff has already taken the light to zero).
+Each of those three was measured, not assumed: per-caster brackets with
+full-raster clears and resolves halved PCSX2's software renderer on the
+night yard's four-caster vantage (50 → 25 FPS); the scissor, the folded
+single-drain bracket entry and the dropped far caps put it back at 50.
+Every torch light pass then
 draws with the GS's destination-alpha test (`TEST.DATE`), only where the mask
 says lit. The mask gates *light*; nothing ever paints darkness. Stand behind a
 crate and the torch genuinely does not reach you.
@@ -312,13 +320,14 @@ yard. The occluder slots go to the four candidates NEAREST the torch, never
 in object-table order (three merged facades used to eat every slot and the
 props between the torch and them never cast). A thin thing - a lamp post, a
 sign - never claims a receiver slot; it keeps its cheap per-vertex cone (the
-slot it stole was the facade's). Casters and receivers are walked TOGETHER,
-sorted by distance, each receiver's light drawn BEFORE its own volume enters
-the mask - a volume only ever shadows what is behind its caster, so
-nearest-first is the dependency order, and an object structurally cannot
-shadow itself (a proud proxy used to swallow its own caster whole - "a black
-hole" - and even an exact mesh's pushed cap can win a grazing depth tie on a
-big face up close; the interleave makes the whole class impossible). And once
+slot it stole was the facade's). Self-shadowing is excluded BY CONSTRUCTION
+under counting: a caster's lit surface sits just outside its own volume's
+near caps (its own faces, pushed 0.05 down their rays), so the whole mask
+can be built before any light pass draws - where the 1-bit fallback instead
+walks casters and receivers TOGETHER, sorted by distance, each receiver's
+light drawn before its own volume enters the mask (a proud proxy used to
+swallow its own caster whole - "a black hole" - and that interleave is what
+makes the class impossible there). And once
 the last DATE-gated pass has drawn, the raster's ALPHA is
 repainted to the neutral 0x80 - the mask lives in the framebuffer's alpha,
 and the SDTV flicker filter blends its two read circuits by that very

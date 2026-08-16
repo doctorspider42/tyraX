@@ -27,19 +27,29 @@
 // (new PipelineInfoBag::subtractiveBlendFix, the additive qword's twin) in
 // a dedicated raster-sized PSMCT16 target that shares the scene's z buffer
 // (FRAME and ZBUF are independent addresses on one pixel grid), and ONE
-// resolve per caster samples that target with TEXA.AEM = 1 (all-zero texel
+// resolve per frame samples that target with TEXA.AEM = 1 (all-zero texel
 // = alpha 0, anything else = 0x80) and ORs count>0 into the mask through
 // ATEST != 0 - RendererCoreAlphaMask::allocateCount/countBegin/countResolve.
-// Counting also retires the sub-box overlap sliver: a caster's whole set of
-// pieces goes through ONE bracket. Two decisions that took derivation
+// Counting also retires the sub-box overlap sliver: EVERY caster's volume
+// goes through ONE bracket per FRAME - one clear, one resolve, scissored
+// to the volumes' projected screen bbox, entered in a single drain (the
+// alpha clear folded into countBegin's packet), with the far caps skipped
+// outright (they only subtract at pixels beyond the reach, where the
+// falloff already zeroed the light). Each of those was measured against
+// the pre-change baseline in PCSX2's software renderer: per-caster
+// brackets with full-raster passes read 25 FPS on the night yard's
+// four-caster boot vantage against the baseline's 50; the single scissored
+// bracket reads 50. The interleave (light before its own volume) survives
+// only in the 1-bit fallback - under counting a caster's lit surface sits
+// outside its exact volume by construction (near caps are its own faces
+// pushed 0.05 down their rays), so the mask is built whole before any
+// light draws. Two decisions that took derivation
 // rather than code: the volumes extrude from a VIRTUAL torch pushed
 // 0.05 x range (clamped 0.5..2) down the beam, because the real torch sits
 // exactly in the eye and a light in the eye casts shadows exactly hidden
 // behind their casters (the proud BOXES were the only reason anything was
-// ever visible); and the interleave (light before its own volume) STAYS -
-// the exact mesh removes the proud-proxy black hole, but a pushed cap can
-// still win a grazing depth tie on a big face up close, and the interleave
-// makes that class impossible rather than rare. Face orientation for the
+// ever visible); and self-shadow safety is structural per mode, as above.
+// Face orientation for the
 // front/back split is GEOMETRIC (caps toward/away from the light, side
 // quads via an interior sample), never winding-trusted - a globally flipped
 // mesh degrades to casting from its back faces, whose silhouette is the

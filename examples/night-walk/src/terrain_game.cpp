@@ -8394,7 +8394,7 @@ static void buildShadowMesh(
 static void emitMeshShadowVolume(const ShadowMesh& m,
                                  const SceneObjectData& cdd,
                                  const ProjBox& basis, const Vec4& vL,
-                                 const Vec4& cam, float range,
+                                 const Vec4& cam, float range, bool farCaps,
                                  std::vector<Vec4>& outFront,
                                  std::vector<Vec4>& outBack) {
   const int nv = (int)(m.pos.size() / 3);
@@ -8469,10 +8469,14 @@ static void emitMeshShadowVolume(const ShadowMesh& m,
                 cz = (a[2] + b[2] + c[2]) / 3.0F;
     lit[t] = nx * (vL.x - cx) + ny * (vL.y - cy) + nz * (vL.z - cz) > 0.0F;
     if (!lit[t]) continue;
-    // Near cap (the lit face, pushed) and its far projection.
+    // Near cap (the lit face, pushed) - and its far projection only when
+    // asked: a far cap only ever SUBTRACTS at pixels whose surface lies
+    // beyond the light's range, where the reach falloff has already taken
+    // the light to zero, so the counting path skips the fill entirely.
     emitTri(a, b, c, vlp, false);
-    emitTri(&fw[m.tri[t * 3 + 0] * 3], &fw[m.tri[t * 3 + 1] * 3],
-            &fw[m.tri[t * 3 + 2] * 3], vlp, true);
+    if (farCaps)
+      emitTri(&fw[m.tri[t * 3 + 0] * 3], &fw[m.tri[t * 3 + 1] * 3],
+              &fw[m.tri[t * 3 + 2] * 3], vlp, true);
   }
   const int ne = (int)(m.edge.size() / 4);
   for (int e = 0; e < ne; ++e) {
@@ -8524,7 +8528,7 @@ static void emitMeshShadowVolume(const ShadowMesh& m,
 // into one bracket) and the 1-bit fallback (origin = the eye, one convex
 // piece per bracket).
 static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
-                                const Vec4& cam, float range,
+                                const Vec4& cam, float range, bool farCaps,
                                 std::vector<Vec4>& outFront,
                                 std::vector<Vec4>& outBack) {
   // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the light:
@@ -8598,11 +8602,15 @@ static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
              0.0F;
     if (lit[f]) {
       const int* q4 = kFace[f];
-      // near cap (the occluder's lit side) and its far projection
+      // near cap (the occluder's lit side) and - for the 1-bit fallback,
+      // whose set/clear needs the closed volume - its far projection; the
+      // counting path skips far caps (they only subtract beyond the reach)
       pushTri(nearP[q4[0]], nearP[q4[1]], nearP[q4[2]]);
       pushTri(nearP[q4[0]], nearP[q4[2]], nearP[q4[3]]);
-      pushTri(farP[q4[0]], farP[q4[1]], farP[q4[2]]);
-      pushTri(farP[q4[0]], farP[q4[2]], farP[q4[3]]);
+      if (farCaps) {
+        pushTri(farP[q4[0]], farP[q4[1]], farP[q4[2]]);
+        pushTri(farP[q4[0]], farP[q4[2]], farP[q4[3]]);
+      }
     }
   }
   // Silhouette edges (adjacent faces disagree about the light): the
@@ -8627,7 +8635,7 @@ static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
 template <typename ModelVec>
 static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
                              const SceneObjectData& cdd, const Vec4& origin,
-                             const Vec4& cam, float range,
+                             const Vec4& cam, float range, bool farCaps,
                              std::vector<Vec4>& outFront,
                              std::vector<Vec4>& outBack) {
   const ShadowMesh* mesh = nullptr;
@@ -8648,8 +8656,8 @@ static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
     if (!sm.tri.empty()) mesh = &sm;
   }
   if (mesh) {
-    emitMeshShadowVolume(*mesh, cdd, castPb, origin, cam, range, outFront,
-                         outBack);
+    emitMeshShadowVolume(*mesh, cdd, castPb, origin, cam, range, farCaps,
+                         outFront, outBack);
     return;
   }
   ProjBox subBox[3];
@@ -8685,7 +8693,8 @@ static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
   }
   if (subN == 0) subBox[subN++] = castPb;
   for (int si = 0; si < subN; ++si)
-    emitBoxShadowVolume(subBox[si], origin, cam, range, outFront, outBack);
+    emitBoxShadowVolume(subBox[si], origin, cam, range, farCaps, outFront,
+                        outBack);
 }
 
 // Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
@@ -9347,18 +9356,74 @@ void TerrainGame::updateAndRenderLightPools() {
         for (int vj = 0; vj < volCount; ++vj)
           emitCasterVolume(*volPick[vj], gameModels,
                            runtimeObjects[volPick[vj]->obj].data, vTorch,
-                           cameraPosition, FLASHLIGHT_RANGE, b.volFront,
-                           b.volBack);
+                           cameraPosition, FLASHLIGHT_RANGE,
+                           /*farCaps=*/false, b.volFront, b.volBack);
         if (!b.volFront.empty() || !b.volBack.empty()) {
-          // Clear the FB alpha (begin+end - the count passes never touch
-          // the frame, so the FBMSK bracket closes immediately), count the
-          // volumes, resolve count>0 into the mask. Front faces FIRST:
-          // along any ray the entries outnumber the exits at every prefix,
-          // so the running sum never dips below zero and the GS's
-          // clamp-at-0 never eats a legitimate count.
-          rc.alphaMask.begin();
-          rc.alphaMask.end();
-          rc.alphaMask.countBegin();
+          // The counting bracket is SCISSORED to the volumes' screen bbox -
+          // a full-raster clear plus a full-raster resolve every frame
+          // measurably halved PCSX2's software renderer (50 -> 25 on the
+          // night yard's four-caster vantage). The bbox is the projection
+          // of every caster's box corners plus their far extrusions; any
+          // corner behind the near plane makes the projection unreliable
+          // and falls back to the whole raster.
+          const auto& vscr = engine->renderer.core.getSettings();
+          const float volW = vscr.getWidth();
+          const float volH = vscr.getRenderHeightF();
+          float bx0 = 1e9F, by0 = 1e9F, bx1 = -1e9F, by1 = -1e9F;
+          bool bWhole = false;
+          const M4x4 volVp = engine->renderer.core.renderer3D.getViewProj();
+          for (int pj = 0; pj < volCount && !bWhole; ++pj) {
+            const ProjBox& pb2 = *volPick[pj];
+            for (int ci = 0; ci < 8 && !bWhole; ++ci) {
+              const float sx2 = (ci & 1) ? 1.0F : -1.0F;
+              const float sy2 = (ci & 2) ? 1.0F : -1.0F;
+              const float sz2 = (ci & 4) ? 1.0F : -1.0F;
+              const float wx = pb2.o[0] + pb2.ax[0] * pb2.h[0] * sx2 +
+                               pb2.ay[0] * pb2.h[1] * sy2 +
+                               pb2.az[0] * pb2.h[2] * sz2;
+              const float wy = pb2.o[1] + pb2.ax[1] * pb2.h[0] * sx2 +
+                               pb2.ay[1] * pb2.h[1] * sy2 +
+                               pb2.az[1] * pb2.h[2] * sz2;
+              const float wz = pb2.o[2] + pb2.ax[2] * pb2.h[0] * sx2 +
+                               pb2.ay[2] * pb2.h[1] * sy2 +
+                               pb2.az[2] * pb2.h[2] * sz2;
+              for (int k3 = 0; k3 < 2; ++k3) {
+                Vec4 p3(wx, wy, wz, 1.0F);
+                if (k3 == 1) {
+                  float ddx2 = wx - vTorch.x, ddy2 = wy - vTorch.y,
+                        ddz2 = wz - vTorch.z;
+                  const float dl2 =
+                      sqrtf(ddx2 * ddx2 + ddy2 * ddy2 + ddz2 * ddz2);
+                  const float inv2 = dl2 > 0.05F ? 1.0F / dl2 : 20.0F;
+                  p3 = Vec4(vTorch.x + ddx2 * inv2 * FLASHLIGHT_RANGE,
+                            vTorch.y + ddy2 * inv2 * FLASHLIGHT_RANGE,
+                            vTorch.z + ddz2 * inv2 * FLASHLIGHT_RANGE, 1.0F);
+                }
+                const Vec4 clip2 = volVp * p3;
+                if (clip2.w < 0.05F) {
+                  bWhole = true;
+                  break;
+                }
+                const float px2 = (clip2.x / clip2.w * 0.5F + 0.5F) * volW;
+                const float py2 = (0.5F - clip2.y / clip2.w * 0.5F) * volH;
+                if (px2 < bx0) bx0 = px2;
+                if (py2 < by0) by0 = py2;
+                if (px2 > bx1) bx1 = px2;
+                if (py2 > by1) by1 = py2;
+              }
+            }
+          }
+          if (bWhole) {
+            bx0 = 0.0F, by0 = 0.0F, bx1 = volW, by1 = volH;
+          }
+          const int rx0 = (int)(bx0 - 4.0F), ry0 = (int)(by0 - 4.0F);
+          const int rx1 = (int)(bx1 + 5.0F), ry1 = (int)(by1 + 5.0F);
+          // countBegin clears the FB alpha AND the count rect in one drain,
+          // the volumes count, the resolve ORs count>0 into the mask.
+          // Front faces FIRST: along any ray the entries outnumber the
+          // exits at every prefix, so the running sum never dips below
+          // zero and the GS's clamp-at-0 never eats a legitimate count.
+          rc.alphaMask.countBegin(rx0, ry0, rx1, ry1);
           if (!b.volFront.empty()) {
             b.volSetBag->vertices = b.volFront.data();
             b.volSetBag->count = (u32)b.volFront.size();
@@ -9371,7 +9436,7 @@ void TerrainGame::updateAndRenderLightPools() {
             b.volClrBag->bboxVersion = ++g_bboxStamp;
             stapip.core.render(b.volClrBag.get());
           }
-          rc.alphaMask.countResolve();
+          rc.alphaMask.countResolve(rx0, ry0, rx1, ry1);
           volMask = true;
         }
         for (int ri = 0; ri < recvN; ++ri) renderSlice(ri);
@@ -9436,7 +9501,8 @@ void TerrainGame::updateAndRenderLightPools() {
             // always did - the virtual-torch parallax is the counting
             // path's refinement.
             emitBoxShadowVolume(subBox[si], cameraPosition, cameraPosition,
-                                FLASHLIGHT_RANGE, b.volFront, b.volBack);
+                                FLASHLIGHT_RANGE, /*farCaps=*/true,
+                                b.volFront, b.volBack);
             if (b.volFront.empty() && b.volBack.empty()) continue;
             // One bracket per sub-box; only the FIRST clears the mask
             // channel. (Set-then-clear is only sound inside ONE convex

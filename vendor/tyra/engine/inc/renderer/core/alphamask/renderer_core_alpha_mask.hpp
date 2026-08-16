@@ -109,14 +109,20 @@ class RendererCoreAlphaMask {
    * 1-bit brackets when the VRAM allocation was refused. */
   bool countReady() const { return countAllocated; }
 
-  /** Redirect FRAME to the count target (scene z stays bound for the
-   * TestOnly volume draws) and clear it to zero. Drains PATH1 first. */
-  void countBegin();
+  /** Open the counting bracket in ONE drain: clear the framebuffer's ALPHA
+   * to 0 (the begin()+end() job - "everything lit"), then redirect FRAME to
+   * the count target (scene z stays bound for the TestOnly volume draws),
+   * narrow the scissor to the given raster rect (x1/y1 exclusive; the
+   * caller derives it from the volumes' projected corners - a full-raster
+   * clear plus a full-raster resolve per frame measurably halves PCSX2's
+   * software renderer) and clear the rect to zero. */
+  void countBegin(int x0, int y0, int x1, int y1);
 
   /** Drain the volume draws, convert count>0 into the framebuffer alpha's
-   * MSB (an OR - never clears earlier casters' bits) and restore the whole
-   * raster environment. */
-  void countResolve();
+   * MSB (an OR - never clears earlier casters' bits) over the SAME rect
+   * countBegin was given, and restore the whole raster environment
+   * (emitRasterRestore puts the scissor back). */
+  void countResolve(int x0, int y0, int x1, int y1);
 
   /**
    * Repaint the raster's ALPHA byte to the scene's neutral 0x80, colors and
