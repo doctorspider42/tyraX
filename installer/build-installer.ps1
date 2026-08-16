@@ -33,27 +33,53 @@ function Get-EditorVersion {
     $parts -join '.'
 }
 
+# Which major an ISCC.exe is, or 0 when it will not say. The banner ("Inno
+# Setup 7 Command-Line Compiler") goes to STDOUT while the usage text goes to
+# stderr, and `/?` exits 1 - so capture stdout, parse it, and ignore the exit
+# code. Do not add `2>&1` here: in Windows PowerShell that wraps a native
+# command's stderr in ErrorRecords and turns this probe into a failure.
+function Get-ISCCMajor([string]$path) {
+    try { $out = & $path /? | Out-String } catch { return 0 }
+    if ($out -match 'Inno Setup (\d+)') { return [int]$Matches[1] }
+    return 0
+}
+
 function Find-ISCC {
-    $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
-    if ($cmd) { return $cmd.Source }
-    # Newest first, so a machine with 6 and 7 side by side still gets 7 - which
-    # is the ordinary case, since Inno Setup installs each major version in its
-    # own folder and 7 does not replace 6. The LOCALAPPDATA\Programs root is
-    # where a per-user install lands (what `winget install JRSoftware.InnoSetup`
-    # does without elevation).
+    # VERSIONED FOLDERS FIRST, PATH LAST, AND VALIDATE WHAT COMES BACK. Both
+    # halves of that were paid for by the first release run: chocolatey's
+    # `innosetup` package is still on the 6.x line, so the CI runner had a
+    # 6.7.1 `ISCC.exe` shim on PATH - this function returned it without
+    # looking, and the build died inside ISPP on the .iss's own version guard
+    # instead of here, where the message can say what to do about it. Inno
+    # Setup installs each major in its own folder and 7 does not replace 6, so
+    # a machine with both is the ordinary case; LOCALAPPDATA\Programs is where
+    # a per-user install lands (winget without elevation).
     $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)},
                (Join-Path $env:LOCALAPPDATA 'Programs'), $env:LOCALAPPDATA) |
         Where-Object { $_ }
+    $candidates = @()
     foreach ($v in 7, 6) {
-        foreach ($root in $roots) {
-            $p = Join-Path $root "Inno Setup $v\ISCC.exe"
-            if (Test-Path $p) { return $p }
-        }
+        foreach ($root in $roots) { $candidates += (Join-Path $root "Inno Setup $v\ISCC.exe") }
     }
-    throw @'
-Inno Setup 7 not found. Install it from https://jrsoftware.org/isdl.php
-(or: winget install JRSoftware.InnoSetup), then re-run this script.
-'@
+    $cmd = Get-Command iscc.exe -ErrorAction SilentlyContinue
+    if ($cmd) { $candidates += $cmd.Source }
+
+    $tooOld = @()
+    foreach ($c in $candidates) {
+        if (-not (Test-Path $c)) { continue }
+        $major = Get-ISCCMajor $c
+        if ($major -ge 7) { return $c }
+        if ($major -gt 0) { $tooOld += "$c (Inno Setup $major)" }
+    }
+    $found = if ($tooOld) { "Found, but too old:`n  " + ($tooOld -join "`n  ") } else { 'None found.' }
+    throw @"
+Inno Setup 7 not found - installer/tyrax.iss needs it and refuses to compile
+under 6. $found
+
+Install it with:  winget install JRSoftware.InnoSetup.7
+or from https://jrsoftware.org/isdl.php - note that chocolatey's `innosetup`
+package is the 6.x line and will not do.
+"@
 }
 
 if (-not $Version) { $Version = Get-EditorVersion }

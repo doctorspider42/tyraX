@@ -147,11 +147,38 @@ jobs:
         shell: pwsh
         run: ./build.ps1
 
-      # The .iss refuses to compile under Inno Setup 6, so an old package here
-      # fails loudly instead of silently producing a different installer.
-      - name: Inno Setup
+      # INNO SETUP 7, FROM ITS OWN RELEASE, PINNED AND HASHED. Not
+      # `choco install innosetup`: that package is still the 6.x line, and the
+      # first release run duly installed 6.7.1 and died inside ISPP on the
+      # .iss's version guard - the guard doing its job, one step too late to be
+      # readable. Not winget either, which is not dependable in a non-
+      # interactive runner session. This is the vendor's own installer at a
+      # fixed version, checked against its SHA-256 before it is run: the file
+      # this step executes is the one that was reviewed, or the job stops.
+      # Bumping the version means re-recording the hash in the same commit.
+      - name: Inno Setup 7
         shell: pwsh
-        run: choco install innosetup -y --no-progress
+        run: |
+          $ver = '7.1.0'
+          $sha = '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F'
+          $url = "https://github.com/jrsoftware/issrc/releases/download/is-$($ver -replace '\.','_')/innosetup-$ver-x64.exe"
+          $exe = Join-Path $env:RUNNER_TEMP "innosetup-$ver-x64.exe"
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          $got = (Get-FileHash $exe -Algorithm SHA256).Hash
+          if ($got -ne $sha) { throw "innosetup-$ver-x64.exe SHA-256 is $got, expected $sha" }
+          Start-Process $exe -Wait -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-'
+          # Fail here rather than in the packaging step if the install silently
+          # did nothing - build-installer.ps1 would then fall back to whatever
+          # older ISCC the image ships and say so, which is a worse place to
+          # find out.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 7\ISCC.exe" }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup 7 did not install where expected" }
+          Write-Host ((& $iscc /?) | Select-Object -First 1)
+          # ISCC exits 1 for /?, and the runner's pwsh epilogue exits the step
+          # with whatever $LASTEXITCODE holds - so a banner is the one thing
+          # that must not be the last command without this line.
+          $LASTEXITCODE = 0
 
       - name: Package the installer
         shell: pwsh
