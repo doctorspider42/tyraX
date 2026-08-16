@@ -224,6 +224,12 @@ private:
     // RendererSettings::updateGeometry, so a new display mode is one entry in
     // both places.
     bool viewportPs2_ = false;
+    // PS2 shading (per-vertex + flat triangles) and GS colour simulation
+    // (0 = match project, 1 = full 32-bit, 2 = 16-bit, 3 = 16-bit + dither) -
+    // docs/ps2-viewport.md. Machine-global like viewportPs2_, pushed to the
+    // viewport each frame next to setPs2Output.
+    bool viewportPs2Shade_ = false;
+    int viewportGsColor_ = 0;
     Viewport::Ps2Output ps2ViewportOutput() const;
     // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
     void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);

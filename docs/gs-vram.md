@@ -111,6 +111,10 @@ The middle row is the quantization showing up as exactly half the levels; the
 last is the dither turning it back into detail, at the price of visible grain
 up close.
 
+The editor's viewport can show all of this before a build: **GS colour** in
+the viewport gear (default *Match project*) quantizes the picture with the
+same DIMX matrix — see [ps2-viewport.md](ps2-viewport.md).
+
 > **Anything that writes a `FRAME` register for the screen must use the
 > framebuffer's PSM**, not a hardcoded `GS_PSM_32`: the drawing environment,
 > every post-fx blit, and the env-map / shadow-map brackets' restores. The
