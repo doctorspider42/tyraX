@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.48.0 (the probe grid reaches the top of its terrain, and every bake is in
+// one tab): the black hills, and the AO controls' new home.
+//
+// THE GRID. probeLevels was taken literally - anchored half a step above the
+// LOWEST ground and rising a fixed levels*probeHeight from there, whatever the
+// terrain did. On real relief the hills came out ABOVE the whole grid, the
+// sampler clamped them onto its top layer (over a hill: buried inside that
+// hill) and the ground shaded BLACK. Measured on examples/showcase: terrain
+// -6.45..+7.88, grid -5.3..+0.7, 15.9% of the ground surface sampling to zero;
+// after, 33x9x65 and 0.0%. The count is decided BEFORE the kMaxProbes cap, so
+// a tall terrain thins X and Z rather than silently losing the levels that
+// stopped the ground being black.
+//
+// SCENE AO MOVES to Ambience Editor > Baked lighting, beside model AO and
+// pre-lit. It is still a per-PRESET setting and the section carries its own
+// preset picker so that stays visible; the Presets tab keeps a one-line
+// On/Off pointer. The tab's premise is rewritten with it - its sections do not
+// share a scope and never did, they share the question "what is baked into
+// this project's light".
+//
+// STILL WRONG, and written down in docs/global-illumination.md rather than
+// left as a surprise: a volume probe grid lighting a SURFACE bands along
+// contour lines. The ground sample crosses a probe level as the terrain rises,
+// and a probe just above the grass sees mostly ground bounce where the next
+// one up sees sky. The black is gone; the banding is not.
+//
 // 1.47.1 (the ground never takes probe light): reported as "with GI on the
 // peaks are pitch black", and it was the editor preview alone - the generated
 // game never had it.
@@ -1237,8 +1263,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 47
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 48
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

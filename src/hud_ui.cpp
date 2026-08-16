@@ -1303,17 +1303,94 @@ void App::modelAoPoll() {
     viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
 }
 
-// The "Baked lighting" tab of the Ambience Editor (drawAmbienceWindow): the
-// light that is computed on the HOST and ships as pixels inside textures the
-// project already has. It lives beside the GI tab because that window is where
-// a scene's light is authored - and separately from it because none of this is
-// per scene: model AO is a property of an ASSET.
+// The "Baked lighting" tab of the Ambience Editor (drawAmbienceWindow):
+// everything whose light is computed on the HOST at build and ships as pixels
+// rather than as a scene table. It lives beside the GI tab because that window
+// is where a scene's light is authored.
+//
+// Its sections do NOT share a scope, and pretending they did is what this tab
+// used to get wrong: model AO is a property of an ASSET and pre-lit is per
+// OBJECT, while scene AO belongs to an ambience PRESET. They are together
+// because they answer one question - "what is baked into this project's
+// light" - which is the question somebody opens this tab with. Each section
+// names whose setting it is in its own header, so the scope is on screen
+// instead of implied by which tab you are on.
 //
 // A list of sections on purpose. Add the next one by appending a call here.
 void App::drawBakedLightingSection() {
+    drawSceneAoSection();
+    ImGui::Spacing();
     drawModelAoSection();
     ImGui::Spacing();
     drawPrelitSection();
+}
+
+// Scene ambient occlusion (docs/ambient-occlusion.md). Per ambience PRESET,
+// which is why the header names the one being edited - the same preset the
+// Presets tab has selected. Moved here from that tab so every baked-light
+// control is in one place; the numbers and their meaning are unchanged.
+void App::drawSceneAoSection() {
+    ImGui::SeparatorText("Scene AO (contact shadows)");
+    if (project_.ambiencePresets.empty()) {
+        ImGui::TextDisabled("This project has no ambience preset to hold it.");
+        return;
+    }
+    // Self-contained on purpose: the tab must say something the moment it is
+    // opened. With nothing selected in the Presets tab it edits the project's
+    // DEFAULT preset - the one a scene gets unless it asks for another - and
+    // the combo is here so switching never means leaving the tab you came to.
+    int sel = selectedAmbience_;
+    if (sel < 0 || sel >= (int)project_.ambiencePresets.size())
+        sel = (project_.defaultAmbience >= 0 &&
+               project_.defaultAmbience < (int)project_.ambiencePresets.size())
+                  ? project_.defaultAmbience
+                  : 0;
+    AmbiencePreset& a = project_.ambiencePresets[sel];
+    bool changed = false;
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("Preset", a.name.c_str())) {
+        for (int i = 0; i < (int)project_.ambiencePresets.size(); ++i) {
+            const bool cur = i == sel;
+            if (ImGui::Selectable(project_.ambiencePresets[i].name.c_str(), cur))
+                selectedAmbience_ = i;
+            if (cur) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    prefHelp("Scene AO is one of an ambience preset's settings, so a scene "
+             "picks it up with the rest of its mood. This is the same "
+             "selection the Presets tab shows.");
+    if (ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled)) changed = true;
+    prefHelp(
+        "Soft contact shadows where geometry meets: terrain self-shadowing "
+        "(ravines, the foot of hills) and darkening where objects touch the "
+        "ground and each other - baked at build into per-pixel AO textures (a "
+        "terrain map + a primitive lightmap atlas) and drawn as extra blended "
+        "passes. Which objects cast is per object: Properties > Cast shadow. "
+        "Imported models cast but do not receive; their own self-occlusion is "
+        "Model AO below.");
+
+    ImGui::BeginDisabled(!a.aoEnabled);
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full occlusion gets (0 = invisible).");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f"))
+        changed = true;
+    prefHelp(
+        "World units the contact darkening reaches from an occluder; terrain "
+        "self-shadowing scans 3x this. Set it larger than the things receiving "
+        "it and they darken as a lump instead of at their base.");
+    if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
+    ImGui::EndDisabled();
+
+    if (a.aoEnabled)
+        ImGui::TextDisabled(
+            "Static bake: a moved object re-shades itself at runtime, but its "
+            "cast shadow stays where the scene was built.");
+    if (changed) commitChange();
 }
 
 void App::drawModelAoSection() {

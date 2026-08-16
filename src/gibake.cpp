@@ -791,7 +791,44 @@ ProbeGrid bakeProbes(const Scene& s, const Settings& st,
     const float spacing = st.probeSpacing;
     int nx = (int)std::ceil((maxX - minX) / spacing) + 1;
     int nz = (int)std::ceil((maxZ - minZ) / spacing) + 1;
+
+    // How much ground the grid has to span vertically. Level 0 sits half a
+    // step above the LOWEST ground (below), so the levels must also reach the
+    // HIGHEST or the hills end up above the whole grid.
+    float lowest = 1e30f, highest = -1e30f;
+    if (s.hmW >= 2 && s.hmD >= 2)
+        for (int j = 0; j < nz; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const float x = minX + (maxX - minX) * i / std::max(1, nx - 1);
+                const float z = minZ + (maxZ - minZ) * j / std::max(1, nz - 1);
+                const float h = heightAtWorld(s.heights, s.hmW, s.hmD, s.hmWidth,
+                                              s.hmDepth, x, z);
+                lowest = std::min(lowest, h);
+                highest = std::max(highest, h);
+            }
+    if (lowest > 1e29f) lowest = s.bmin[1], highest = s.bmax[1];
+
+    // probeLevels USED TO BE TAKEN LITERALLY, and that is what put black hills
+    // on the ground. The grid was anchored to the lowest ground and rose a
+    // fixed levels*height above it whatever the terrain did, so on anything
+    // with real relief the hills came out ABOVE the entire grid; the sampler
+    // clamps such a point onto the top layer, which over a hill is buried
+    // inside that hill, and the ground shaded black. Measured on
+    // examples/showcase: terrain -6.45..+7.88, grid -5.3..+0.7, 15.9% of the
+    // ground surface sampling to zero.
+    //
+    // So the count is the authored one, or the one that reaches the highest
+    // ground plus a step of headroom - whichever is larger. The SPACING is
+    // untouched: probeHeight still means the distance between levels, which is
+    // what keeps the setting readable. This has to happen BEFORE the cap loop
+    // below, or a tall terrain would silently blow the probe budget.
     int ny = st.probeLevels;
+    if (highest > -1e29f && st.probeHeight > 1e-4f) {
+        const float base = lowest + st.probeHeight * 0.5f;
+        const int need =
+            (int)std::ceil((highest + st.probeHeight - base) / st.probeHeight) + 1;
+        if (need > ny) ny = need;
+    }
     // A hard cap on the shipped table: 12 bytes + 1 per probe in EE RAM, and
     // the codegen'd array is compiled, not loaded. 32x4x32 = 4096 probes =
     // 52 KB, which is the shape the design settled on.
@@ -815,20 +852,10 @@ ProbeGrid bakeProbes(const Scene& s, const Settings& st,
     g.origin[0] = minX;
     g.origin[2] = minZ;
     // Level 0 sits half a step above the LOWEST ground in the grid, so a probe
-    // never starts buried in a hill; the levels above stack from there.
-    float lowest = 1e30f;
-    // No heightmap = no ground: the fallback below starts the levels at the
-    // bottom of the scene's own geometry instead of an imagined y = 0 floor.
-    if (s.hmW >= 2 && s.hmD >= 2)
-        for (int j = 0; j < nz; ++j)
-            for (int i = 0; i < nx; ++i) {
-                const float x = minX + g.step[0] * i;
-                const float z = minZ + g.step[2] * j;
-                lowest = std::min(lowest,
-                                  heightAtWorld(s.heights, s.hmW, s.hmD, s.hmWidth,
-                                                s.hmDepth, x, z));
-            }
-    if (lowest > 1e29f) lowest = s.bmin[1];
+    // never starts buried in a hill; the levels above stack from there, and
+    // there are now enough of them to clear the highest (see the count above).
+    // No heightmap = no ground: `lowest` then falls back to the bottom of the
+    // scene's own geometry instead of an imagined y = 0 floor.
     g.origin[1] = lowest + g.step[1] * 0.5f;
 
     const int total = nx * ny * nz;

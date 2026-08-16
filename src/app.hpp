@@ -709,6 +709,7 @@ private:
     // is the first of them.
     void modelAoPoll();
     void drawBakedLightingSection();
+    void drawSceneAoSection();
     void drawModelAoSection();
     // "Pre-lit models" - the second section of that tab (docs/prelit-models.md,
     // "Managing pre-lit objects"): which objects of the active scene are

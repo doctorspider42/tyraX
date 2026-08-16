@@ -11,11 +11,18 @@ runtime.
 
 Two knobs, two places:
 
-- **Scene-wide** (*Tools > Ambience Editor*, "Ambient occlusion" block, per
-  ambience preset): the enable toggle, **AO strength** (how dark full
-  occlusion gets) and **AO radius** (world units the contact darkening
-  reaches; terrain self-shadowing scans 3× this). New projects have it
-  enabled on their Default preset; pre-AO projects keep their look.
+- **Scene-wide** (*Tools > Ambience Editor > **Baked lighting** > Scene AO*):
+  the enable toggle, **AO strength** (how dark full occlusion gets) and **AO
+  radius** (world units the contact darkening reaches; terrain self-shadowing
+  scans 3× this). New projects have it enabled on their Default preset; pre-AO
+  projects keep their look.
+
+  It is still a **per ambience preset** setting — a scene picks it up with the
+  rest of its mood — and the section carries its own preset picker so that is
+  visible rather than implied. It sits in the Baked lighting tab beside Model
+  AO and pre-lit models because that is the tab that answers "what is baked
+  into this project's light", which is the question somebody goes looking with.
+  The Presets tab keeps a one-line On/Off reminder pointing here.
 - **Per object** (*Properties > Cast shadow*, default on): whether this
   object darkens nearby terrain and objects. Off = it casts nothing but
   still receives shadows from others.
