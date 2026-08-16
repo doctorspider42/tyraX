@@ -11,11 +11,18 @@ runtime.
 
 Two knobs, two places:
 
-- **Scene-wide** (*Tools > Ambience Editor*, "Ambient occlusion" block, per
-  ambience preset): the enable toggle, **AO strength** (how dark full
-  occlusion gets) and **AO radius** (world units the contact darkening
-  reaches; terrain self-shadowing scans 3× this). New projects have it
-  enabled on their Default preset; pre-AO projects keep their look.
+- **Scene-wide** (*Tools > Ambience Editor > **Baked lighting** > Scene AO*):
+  the enable toggle, **AO strength** (how dark full occlusion gets) and **AO
+  radius** (world units the contact darkening reaches; terrain self-shadowing
+  scans 3× this). New projects have it enabled on their Default preset; pre-AO
+  projects keep their look.
+
+  It is still a **per ambience preset** setting — a scene picks it up with the
+  rest of its mood — and the section carries its own preset picker so that is
+  visible rather than implied. It sits in the Baked lighting tab beside Model
+  AO and pre-lit models because that is the tab that answers "what is baked
+  into this project's light", which is the question somebody goes looking with.
+  The Presets tab keeps a one-line On/Off reminder pointing here.
 - **Per object** (*Properties > Cast shadow*, default on): whether this
   object darkens nearby terrain and objects. Off = it casts nothing but
   still receives shadows from others.
@@ -33,7 +40,7 @@ scene, and nothing in `aobake` needs to know why.
 
 | What | Where it is computed | How it ships |
 |---|---|---|
-| Terrain lightmap | Host, at build (`aobake::terrainAOMap`: an 8-direction horizon scan over the heightmap + the occluder contact term, per texel) | `.res-baked/aomap/scene<N>.png` (≤256×256), drawn as one extra alpha-blended terrain pass per chunk |
+| Terrain lightmap | Host, at build (`aobake::terrainAOMap`: a 16-direction horizon scan over the heightmap + the occluder contact term, per texel) | `.res-baked/aomap/scene<N>.png` (≤256×256), drawn as one extra alpha-blended terrain pass per chunk |
 | Primitive lightmap atlas | Host, at build (`aobake::bakeSceneAoAtlas`: per-scene shelf-packed regions mirroring the builders' UV layouts - box 6 faces, sphere 1, cylinder 3, cone 2, plane 2) | `.res-baked/aoatlas/scene<N>.png` (≤256×256) + the matching UV rects in `inc/ao_data.gen.hpp`; each covered object draws one extra blended pass |
 | Occluder shapes | Host (`aobake::collectOccluders`: every solid `Cast shadow` object reduced to an oriented box / sphere; model AABBs from a fast `v`-line scan) | `inc/ao_data.gen.hpp` occluder tables - also consumed per vertex on the EE by the fallback below |
 
@@ -57,6 +64,17 @@ lamps and no baked occlusion still ships them, with an empty alpha channel and
 only the additive pass drawn. The occlusion pass, in turn, is drawn only when
 the alpha channel has content.
 
+**One route repurposes that alpha channel**: a *textured* terrain under global
+illumination cannot take an additive light pass without blowing out its dark
+texels, so its map carries the gathered light's **luminance** in alpha instead
+of occlusion and the same multiply becomes the light
+(`AoImage::giLumAlpha`, `SCENE_AO_MAP_GILUM` — see
+[global-illumination.md](global-illumination.md)). There the pass runs even
+with ambient occlusion switched off, the map's RGB is never read, and the
+terrain's own occlusion is *not* applied on top: the gather already answered
+the sky-visibility question AO approximates, and the channel can only hold one
+of the two.
+
 Codegen and `texbake` call the **same deterministic bake**, so the pixels and
 the emitted UV rects cannot drift.
 
@@ -67,6 +85,102 @@ the density globally until the image is full. Faces that receive nothing shrink
 to a floor size instead of eating the budget. The atlas *dimension* still comes
 from the unweighted area, so this never changes VRAM — it only moves texels to
 where the gradient is. See docs/emissive-materials.md for the numbers.
+
+## What the terrain scan measures
+
+The ground shadows itself with a **horizon scan**: from each texel, walk 16
+azimuths out to 3× the AO radius and find how high the land rises along each.
+Two things about it are worth knowing, because both were wrong until they were
+measured against synthetic ground.
+
+**A bare slope is not occluded, whatever its angle.** The scan asks how high
+the horizon stands above the surface's own **tangent plane**, not above the
+horizontal. Without that term a hillside darkens simply for being a hillside —
+every uphill sample is higher than the one before it — and it was measured at
+16% on a bare 30° slope and 30% on a 60° one, with no occluder anywhere.
+Ambient occlusion is occlusion: a tilted bare plane still sees a whole
+hemisphere, just a different one. What still darkens is what should — the foot
+of a step reads the same before and after.
+
+**16 azimuths, not 8.** A lone spire is only found by a ray that happens to
+point at it, so too few directions turn its occlusion field into a star instead
+of a disc. Sampled around a ring centred on such a spire — where symmetry says
+the answer must be constant — 8 azimuths read a standard deviation of 91% of
+the mean, and 16 read 30%. A per-texel azimuth ROTATION was tried on top and
+removed: the scan is one sample per texel with nothing downstream to average
+it, so a rotation only decorrelates the error between neighbours instead of
+reducing it (13/27/23% with, 13/26/30% without — see the note in `aobake.cpp`).
+
+Neither of these changes any example in this repo, because **no example
+sculpts its terrain** — every shipped heightmap is flat, which is exactly why
+the slope bug survived as long as it did. They show up the moment somebody uses
+the Terrain Editor.
+
+## What an occluder does to a surface
+
+A shape darkens a point by **how much of that point's sky it covers**. It does
+that in one of two regimes, and picking between them is the whole difficulty.
+
+**Far and small, it is a disc**: it takes `cos(theta)` of its solid angle, an
+inverse square in the distance. `r` comes from the shape's projected area, so
+one expression serves a sphere and a box and a thin slab reads as the wall it
+is from the front and as almost nothing edge-on.
+
+**Near and large, it is not a disc at all — it is a half-space.** A floor slab
+under your feet blocks every downward direction no matter where its centre
+happens to be, and a disc has to be told which way to point. Every way of
+telling it fails on real geometry, and both failures were measured on
+`examples/ambient-occlusion`: aimed at the shape's nearest point, the floor
+beside a wall reads **0.000** occluded (the wall touches it edge-on and the
+cosine falls out); aimed at the shape's centre, a crate standing on a 30×24
+terrace reads **0.66** occluded *on its sides*, because that terrace's centre
+is ten units sideways. A half-space needs no aiming: what it blocks is the
+hemisphere behind its face, `(1 + n·toOcc)/2`.
+
+The two are blended on `k = sin(alpha) = r/(r + dist)`, the sine of the shape's
+angular radius — and the result is scaled by `k²`, the solid angle, as well.
+**Both factors are needed.** Blending on `k` alone let a crate 0.6 units away —
+27°, a speck — hand a horizontal surface the half-space's 0.5, and a ring of
+neighbours then summed to *half the sky gone on a crate top with nothing above
+it* (measured 0.500; it is 0.140 now).
+
+**The ground contact term is the same half-space**, with `toOcc` pointing
+straight down: `(1 + n·toOcc)/2` becomes `(1 - n.y)/2`, which is exactly the
+`0.5 - 0.5·n.y` that term always carried. It was never a separate model, only a
+separate spelling with its own constant — and one shape behind two formulas is
+how the two drifted apart.
+
+**Blockers combine as visibility, never as a sum**: `1 - prod(1 - occ)`, over
+the occluders and the ground together. A clamped sum saturates — two shapes
+each taking half the sky read as fully dark instead of three quarters.
+
+### The one constant
+
+A surface resting on a floor really does lose half its cosine-weighted
+hemisphere, and the model now computes exactly that. This engine has no
+indirect light to put back, so the finished occlusion is scaled by
+**`aobake::kAoBounce` (0.7)**, once, over everything. It replaced two unrelated
+magic numbers — a `0.7` inside the ground term and a `0.35` facing floor inside
+the occluder term — so raising or lowering the effect is now a single
+reviewable decision instead of a hunt through three files.
+
+### What it did to the reported case
+
+A crate with another crate resting on it used to go dark as a lump while its
+neighbour 20 cm away stayed bright. Brightness of the covered crate against
+that neighbour, on the console at one frozen vantage:
+
+| | covered / neighbour |
+|---|---|
+| AO off (the natural difference) | 0.87 |
+| distance + 0.35 floor | **0.78** |
+| disc only | 1.04 |
+| disc + half-space | **0.98** |
+
+The three implementations are twins — `aobake::occluderOcclusionAt` on the
+host, `aoOccluderAt`/`aoShadeMul` in the generated game, `aoOcclusion` in the
+viewport fragment shader. Change one, change all three; `kAoBounce` and the
+locality window live in all three too.
 
 ## Who casts, who receives
 
@@ -80,12 +194,33 @@ where the gradient is. See docs/emissive-materials.md for the numbers.
 - **Spawned clones and physics bodies** receive through a per-vertex
   fallback (`aoShadeMul` at geometry rebuild — they re-shade when they move
   or wake), not the atlas.
-- **Imported models do not RECEIVE** the scene's contact shadows: per-vertex
-  occlusion on authored low-poly meshes reads as triangulated shading. The
+- **Runtime blocks self-occlude**, and are the only generated geometry that
+  does — a Blocks Fill volume publishes a solid-cell field, so the corner
+  darkening is a bit test rather than a bake. It rides the same per-vertex
+  fallback and the same **AO strength**, on top of whatever the occluder table
+  and the ground contact already give them. See
+  [procedural-runtime.md](procedural-runtime.md), "Ambient occlusion" — that is
+  also where the two traps live (the chunk has to be Gouraud-shaded, and a
+  rotated block asset mismatches the lattice).
+- **Imported models do not RECEIVE** the scene's contact shadows. The
   per-vertex pipeline (`aobake::modelAO`, the `.aov` sidecar, the
   `LeanObjLoader` reader) stays in the tree, disabled. They **do self-occlude**
   — see [Model AO](#model-ao) below, which is per texel and free. Animated
   models relight dynamically and are unaffected, like with baked point lights.
+
+  The reason receiving is off is **sampling density**, and it was re-measured
+  on the console with `examples/ambient-occlusion` (which is full of real kit
+  props) rather than inherited from the original call: a model would receive
+  per VERTEX, and a crate 1.06 units tall standing under a 2.5-unit AO radius
+  has every one of its corners inside the occluder's reach with no interior
+  vertices to carry a gradient — so it darkens as a lump while its neighbour
+  20 cm away stays bright. Models comparable to the radius or larger (a wagon,
+  a wall panel) came out fine. Flat shading is *also* involved and is not the
+  whole story: switching those bags to Gouraud is necessary and not sufficient.
+  Note this is the half Model AO cannot answer — that bake is
+  transform-invariant by design, so it can never know a neighbour is there. The
+  fix is an occluder response that falls off with the solid angle the shape
+  subtends rather than with distance alone; see [backlog.md](backlog.md).
 
 ## Static by design
 
@@ -93,6 +228,11 @@ AO is a bake. A runtime-moved object's *cast* shadow stays where the scene was
 built (terrain map + atlases are textures); the *received* shading of
 clones/physics re-bakes on rebuild. Live Link edits of `Cast shadow` (or of
 anything the bake reads) need a rebuild — the LIVE chip flips amber.
+
+The block self-occlusion above is the one exception, and only because it is not
+a bake at all: it is recomputed from the live cell field every time the volume
+generates, so a world that is different on every boot — or one a *Generate
+Volume* node rebuilt mid-game — is shaded correctly with nothing shipped.
 
 ## Costs
 
@@ -112,7 +252,16 @@ anything the bake reads) need a rebuild — the LIVE chip flips amber.
   [docs/reflective-materials.md](reflective-materials.md) for the mechanism
   and the measured cost.
 - **Build time**: a few hundred ms per scene, re-run on every build
-  (deterministic, no caching needed).
+  (deterministic, no caching needed) — and it no longer scales with the number
+  of objects. The per-texel occluder loop reads a uniform grid instead of the
+  whole scene, which is exact (identical pixels, verified byte for byte on
+  every example) and is the difference between **61 ms and 32 s** on a scene
+  with 1100 casters. The generated game learned the same lesson earlier;
+  `aoCollectLocal` is its version.
+- **Runtime blocks**: nothing per frame and nothing in VRAM — 26 bit tests per
+  block, once, inside a generation pass that was already building that block's
+  vertices. The chunk changes from flat to Gouraud shading, which the GS
+  rasterizer does for free.
 
 ## Model AO
 

@@ -279,6 +279,7 @@ wait for their polish pass.
 | [day-night](examples/day-night) | The same place at dawn, noon, dusk and night — plus one scene where the clock actually runs |
 | [material-lab](examples/material-lab) | The material pipeline on a single pedestal: baked AO, smart masks, atlasing, live reload |
 | [procedural](examples/procedural) | Every node in the scatter library at work in six volumes, baked down to 17 chunk meshes |
+| [ambient-occlusion](examples/ambient-occlusion) | A village on sculpted ground: contact shadows, a ravine that darkens and a bare bank that does not |
 | [blocks-terrain](examples/blocks-terrain) | A cube world the EE invents at boot. Press TRIANGLE for a new one. Still 50 FPS |
 | [cube](examples/cube) | A 3×3×3 lattice of rooms — prefabs times runtime generation, in ~4 draw calls |
 | [world-facts](examples/world-facts) | Every fact type and all four persistence tiers, exercised across a two-scene level |

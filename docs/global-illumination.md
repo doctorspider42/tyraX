@@ -73,7 +73,8 @@ lands twice.
 | --- | --- | --- |
 | Static, untextured primitives already in the atlas | **per-texel lightmap**. Vertex shade goes black; the additive pass puts every photon back per pixel | `SCENE_AO_ATLAS_GI` + per-object `SCENE_AO_ATLAS_LIT`, read by `g_giLightmap` in `pushVert` |
 | Untextured terrain | **per-texel lightmap**, same deal | `SCENE_AO_MAP_GI` |
-| Imported models, textured receivers, batched props, physics bodies, spawn-pool clones, textured terrain | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
+| Textured terrain | **per-texel lightmap, multiplied** — the map's *alpha* carries the light's intensity and the occlusion pass applies it per pixel; the vertex shade carries only its colour | `SCENE_AO_MAP_GILUM`, `AoImage::giLumAlpha` |
+| Imported models, textured receivers, batched props, physics bodies, spawn-pool clones | **probe grid**, sampled once per vertex at scene load | `g_giProbeShade` in `pushVert` / `shadeAt` |
 | Animated models, the player, NPCs | **probe grid**, sampled once per frame at the model's centre | `updateAndRenderAnimObjects` |
 | A static textured model marked [**pre-lit**](prelit-models.md) | **its own texture** — the light was gathered per texel and multiplied into a unique `-lit.png` for that object | `SceneObject::prelit` → neutral vertex colours in `pushVert`; managed in Tools > Baked Lighting |
 
@@ -92,7 +93,9 @@ self-shadowing — and neither needs a lightmap chart.
 
 **The editor viewport takes the same routes**, and has to: it shows what the
 console will. `Viewport::setGiTerrain` feeds it the baked terrain map so the
-ground goes down the lightmap route; `setGiProbes` covers everything else.
+ground goes down the lightmap route — the RGB one when the map replaces the
+shade, the alpha MULTIPLY one when `giLumAlpha` says the map's alpha is the
+light's intensity; `setGiProbes` covers everything else.
 Putting the ground on the probe route instead isn't a small preview
 inaccuracy — it paints the whole terrain one flat colour AND drops the ground's
 own tint, because the terrain carries that tint in its vertex colour and the
@@ -101,8 +104,12 @@ probe answer replaces the vertex shade wholesale (PROGRESS 134).
 In every GI case the ambient + directional term, the baked point lights and the
 emissive pools are **skipped** — the baked answer already contains them.
 
-**A textured surface never takes a lightmap.** A flat additive term over a
-texture blows out its dark texels — the pre-existing rule for this atlas.
+**A textured surface never takes an ADDITIVE lightmap.** A flat additive term
+over a texture blows out its dark texels — the pre-existing rule for this
+atlas. The terrain is the one textured surface that still gets per-texel light,
+because it takes it as a *multiply* through the alpha channel instead (see the
+routing table); a textured object has no such pass to borrow and stays on the
+probe grid.
 Probes are what makes obeying it cost nothing.
 
 **Neither does anything that can move.** A lightmap glues the light to the
@@ -280,6 +287,56 @@ Said out loud in the Bake window too, not just here:
 
 ## Traps, for whoever touches this next
 
+- **A gather ray must start on the surface the rays are TRACED against, and for
+  the ground those are two different surfaces.** The bake works on the fine
+  bilinear heightfield the game walks on; the BVH holds a *decimated* ground
+  (`build` caps it at 96×96 cells). Wherever the decimation cuts a bump the
+  bake's point sits **under** the traced triangles, the whole hemisphere hits
+  terrain, and the texel comes out black. It is not subtle at scale — it painted
+  a lattice of dark blotches across a scene with a dozen props in it, and the
+  residue lay along the coarse cells' **diagonals**, which is the tell: an
+  artefact that follows the triangulation is about the mesh, not about the
+  light. `Scene::coarseH` + `gibake::groundSurfaceY` re-derive the traced height
+  and the ground's own light function (`giGroundLight`) snaps its origin onto
+  it. The same mistake in miniature: `terrainAOMap`'s sub-samples used to
+  inherit the texel centre's height while moving half a texel sideways, which
+  on any slope is more error than a ray-origin bias can absorb. Both are
+  re-sampled now. If dark specks ever come back, check the origin before you
+  touch the ray count.
+
+- **A TEXTURED terrain takes its light as a MULTIPLY, not as an added pass, and
+  that took three wrong answers to arrive at.** The ground pass is additive and
+  would blow out a texture's dark texels, so the first arrangement gave a
+  textured terrain no light channel at all (`terrainTextured ? nullptr :
+  &giLight`) and let the vertex path handle it. The vertex path then reached
+  for `giProbe`, which **replaces** the shade rather than adding to it — and
+  the probe grid is built for objects, a few levels a few units apart. Handed a
+  landscape it has nothing to say, so every hill came out black ("with GI on
+  the peaks are pitch black"). Making the viewport skip the probes silenced the
+  symptom and produced a *uniform* ground instead, which is worse: a textured
+  terrain is meant to be lit. What is actually wrong in both is asking a
+  **volume** grid to light a **surface** — the answer changes one probe cell at
+  a time and bands along the contour lines of the hill.
+
+  The fix is a frequency split, and the shape of it is forced by the GS.
+  `GS_SET_ALPHA(A,B,C,D,FIX)` computes `(A−B)*C>>7 + D`, and **C may only be
+  As, Ad or FIX — never a colour**, so `Cs*Cd` is inexpressible and there is no
+  pass that multiplies the framebuffer by a coloured lightmap. But the
+  occlusion pass already multiplies by an *alpha*. So the bake writes the
+  gathered light's **luminance** into that alpha (`AoImage::giLumAlpha`, set by
+  `terrainAOMap`'s `giLum` branch) and the terrain keeps its **ordinary
+  directional shade** for colour: high-frequency intensity per pixel, low-
+  frequency colour per vertex, no new table, no new pass, and no pixels on the
+  EE. `SCENE_AO_MAP_GILUM` is the flag that says which meaning that alpha
+  channel carries, and it opens `terrainMapOcc` on its own — the pass has to
+  run even in a scene with ambient occlusion switched off, because on this
+  route the channel is *light*, not occlusion.
+
+  Two things follow. `terrainProbeGi` excludes it (`!terrainGi &&
+  !terrainGiLum`), so **the ground never takes probe light** on any route. And
+  the viewport twin (`giGroundMul` / `giMulAt` in `buildTerrainMesh`) applies
+  the same multiply per **vertex** — a resolution difference from the console's
+  per pixel, not a different answer, which is the standing rule for this pair.
 - **A lightmap texel's alpha must never be 0** (`aobake::kMinLightmapAlpha`).
   StaPip's alpha test discards alpha-0 texels and both passes sample the *same*
   texture, so a zero-occlusion texel takes the additive light pass down with

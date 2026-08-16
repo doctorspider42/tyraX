@@ -25,7 +25,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 4;
+constexpr uint32_t kCacheVersion = 5;  // + AoImage::giLumAlpha
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.
@@ -426,6 +426,16 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
             return heightAtWorld(sc.heights, sc.hmW, sc.hmD, s.hmWidth,
                                  s.hmDepth, x, z);
         };
+        // Keep the decimated corner heights: they are the ground the rays
+        // actually meet, and groundSurfaceY reads them back so a gather origin
+        // can be snapped onto the same surface (see Scene::coarseH).
+        s.coarseCells = cells;
+        s.coarseH.resize((size_t)(cells + 1) * (cells + 1));
+        for (int j = 0; j <= cells; ++j)
+            for (int i = 0; i <= cells; ++i)
+                s.coarseH[(size_t)j * (cells + 1) + i] =
+                    hAt(s.terrainMinX + s.hmWidth * i / cells,
+                        s.terrainMinZ + s.hmDepth * j / cells);
         for (int j = 0; j < cells; ++j) {
             for (int i = 0; i < cells; ++i) {
                 const float x0 = s.terrainMinX + s.hmWidth * i / cells;
@@ -593,6 +603,28 @@ void directAt(const Scene& s, const float o[3], const float n[3],
 }
 
 }  // namespace
+
+// The height of the ground AS TRACED, i.e. of the decimated triangle pair the
+// BVH holds, reproducing `build`'s split (corners 0,3,2 then 0,2,1 - the
+// diagonal runs from (x0,z0) to (x1,z1)). Returns -inf off the terrain.
+float groundSurfaceY(const Scene& s, float x, float z) {
+    const int cells = s.coarseCells;
+    if (cells <= 0 || s.coarseH.empty()) return -1e30f;
+    const float u = (x - s.terrainMinX) / s.hmWidth * cells;
+    const float v = (z - s.terrainMinZ) / s.hmDepth * cells;
+    if (u < 0 || v < 0 || u > cells || v > cells) return -1e30f;
+    int i = (int)u, j = (int)v;
+    if (i >= cells) i = cells - 1;
+    if (j >= cells) j = cells - 1;
+    const float fu = u - i, fv = v - j;
+    const int st = cells + 1;
+    const float h00 = s.coarseH[(size_t)j * st + i];
+    const float h10 = s.coarseH[(size_t)j * st + i + 1];
+    const float h01 = s.coarseH[(size_t)(j + 1) * st + i];
+    const float h11 = s.coarseH[(size_t)(j + 1) * st + i + 1];
+    return fu <= fv ? h00 + (h01 - h00) * fv + (h11 - h01) * fu
+                    : h00 + (h10 - h00) * fu + (h11 - h10) * fv;
+}
 
 void gather(const Scene& s, const float wp[3], const float n[3], uint32_t seed,
             int rays, float out[3]) {
@@ -791,7 +823,44 @@ ProbeGrid bakeProbes(const Scene& s, const Settings& st,
     const float spacing = st.probeSpacing;
     int nx = (int)std::ceil((maxX - minX) / spacing) + 1;
     int nz = (int)std::ceil((maxZ - minZ) / spacing) + 1;
+
+    // How much ground the grid has to span vertically. Level 0 sits half a
+    // step above the LOWEST ground (below), so the levels must also reach the
+    // HIGHEST or the hills end up above the whole grid.
+    float lowest = 1e30f, highest = -1e30f;
+    if (s.hmW >= 2 && s.hmD >= 2)
+        for (int j = 0; j < nz; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const float x = minX + (maxX - minX) * i / std::max(1, nx - 1);
+                const float z = minZ + (maxZ - minZ) * j / std::max(1, nz - 1);
+                const float h = heightAtWorld(s.heights, s.hmW, s.hmD, s.hmWidth,
+                                              s.hmDepth, x, z);
+                lowest = std::min(lowest, h);
+                highest = std::max(highest, h);
+            }
+    if (lowest > 1e29f) lowest = s.bmin[1], highest = s.bmax[1];
+
+    // probeLevels USED TO BE TAKEN LITERALLY, and that is what put black hills
+    // on the ground. The grid was anchored to the lowest ground and rose a
+    // fixed levels*height above it whatever the terrain did, so on anything
+    // with real relief the hills came out ABOVE the entire grid; the sampler
+    // clamps such a point onto the top layer, which over a hill is buried
+    // inside that hill, and the ground shaded black. Measured on
+    // examples/showcase: terrain -6.45..+7.88, grid -5.3..+0.7, 15.9% of the
+    // ground surface sampling to zero.
+    //
+    // So the count is the authored one, or the one that reaches the highest
+    // ground plus a step of headroom - whichever is larger. The SPACING is
+    // untouched: probeHeight still means the distance between levels, which is
+    // what keeps the setting readable. This has to happen BEFORE the cap loop
+    // below, or a tall terrain would silently blow the probe budget.
     int ny = st.probeLevels;
+    if (highest > -1e29f && st.probeHeight > 1e-4f) {
+        const float base = lowest + st.probeHeight * 0.5f;
+        const int need =
+            (int)std::ceil((highest + st.probeHeight - base) / st.probeHeight) + 1;
+        if (need > ny) ny = need;
+    }
     // A hard cap on the shipped table: 12 bytes + 1 per probe in EE RAM, and
     // the codegen'd array is compiled, not loaded. 32x4x32 = 4096 probes =
     // 52 KB, which is the shape the design settled on.
@@ -815,20 +884,10 @@ ProbeGrid bakeProbes(const Scene& s, const Settings& st,
     g.origin[0] = minX;
     g.origin[2] = minZ;
     // Level 0 sits half a step above the LOWEST ground in the grid, so a probe
-    // never starts buried in a hill; the levels above stack from there.
-    float lowest = 1e30f;
-    // No heightmap = no ground: the fallback below starts the levels at the
-    // bottom of the scene's own geometry instead of an imagined y = 0 floor.
-    if (s.hmW >= 2 && s.hmD >= 2)
-        for (int j = 0; j < nz; ++j)
-            for (int i = 0; i < nx; ++i) {
-                const float x = minX + g.step[0] * i;
-                const float z = minZ + g.step[2] * j;
-                lowest = std::min(lowest,
-                                  heightAtWorld(s.heights, s.hmW, s.hmD, s.hmWidth,
-                                                s.hmDepth, x, z));
-            }
-    if (lowest > 1e29f) lowest = s.bmin[1];
+    // never starts buried in a hill; the levels above stack from there, and
+    // there are now enough of them to clear the highest (see the count above).
+    // No heightmap = no ground: `lowest` then falls back to the bottom of the
+    // scene's own geometry instead of an imagined y = 0 floor.
     g.origin[1] = lowest + g.step[1] * 0.5f;
 
     const int total = nx * ny * nz;
@@ -1064,6 +1123,7 @@ bool write(const std::string& path, const Bake& b) {
     // renders the scene twice as bright as it was baked.
     wr(f, (uint8_t)(b.atlas.gi ? 1 : 0));
     wr(f, (uint8_t)(b.terrain.gi ? 1 : 0));
+    wr(f, (uint8_t)(b.terrain.giLumAlpha ? 1 : 0));
     wr(f, (int32_t)b.atlas.size);
     wrVec(f, b.atlas.alpha);
     wrVec(f, b.atlas.light);
@@ -1098,6 +1158,8 @@ bool read(const std::string& path, Bake& b) {
     b.atlas.gi = gi8 != 0;
     if (!rd(f, gi8)) return false;
     b.terrain.gi = gi8 != 0;
+    if (!rd(f, gi8)) return false;
+    b.terrain.giLumAlpha = gi8 != 0;
     int32_t v32 = 0;
     if (!rd(f, v32)) return false;
     b.atlas.size = v32;
@@ -1221,6 +1283,20 @@ Bake bakeScene(const Project& p, int sceneIndex,
                                   uint32_t seed, float outRgb[3]) {
         gather(s, wp, n, seed, st.rays, outRgb);
     };
+    // The GROUND's own light function. Same gather, but the origin is first
+    // snapped onto the surface the BVH actually holds: aobake hands out points
+    // on the fine bilinear heightfield the game walks on, and the traced
+    // ground is a decimated triangle mesh, so wherever the decimation cut a
+    // bump the point sits UNDER it, the whole hemisphere hits the ground and
+    // the texel bakes black. It showed up as a lattice of dark specks along
+    // the coarse cells' diagonals - the split direction is the giveaway.
+    aobake::LightFn giGroundLight = [&](const float wp[3], const float n[3],
+                                        uint32_t seed, float outRgb[3]) {
+        float p3[3] = {wp[0], wp[1], wp[2]};
+        const float gy = groundSurfaceY(s, p3[0], p3[2]);
+        if (gy > -1e29f && p3[1] < gy) p3[1] = gy;
+        gather(s, p3, n, seed, st.rays, outRgb);
+    };
     out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight);
     step(0.40f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
@@ -1252,8 +1328,8 @@ Bake bakeScene(const Project& p, int sceneIndex,
                   aobake::collectOccluders(sc.objects, aabbFn),
                   terrainTextured ? std::vector<aobake::Emitter>()
                                   : aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-                  rs.aoRadius, rs.aoStrength, rs.aoEnabled,
-                  terrainTextured ? nullptr : &giLight)
+                  rs.aoRadius, rs.aoStrength, rs.aoEnabled, &giGroundLight,
+                  terrainTextured)
             : aobake::AoImage();
     step(0.70f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();

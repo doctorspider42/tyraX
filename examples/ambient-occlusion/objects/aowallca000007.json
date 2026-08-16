@@ -1,0 +1,1 @@
+{ "id": "aowallca000007", "name": "wall-cap-short", "type": "box", "position": [-9.6, 3.62, -3], "rotation": [0, 0, 0], "scale": [1.1, 0.25, 16.1], "color": [1, 1, 1], "physics": false, "material": "res/materials/terrace.mtl" }

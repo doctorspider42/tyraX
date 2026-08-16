@@ -1,0 +1,16 @@
+# Blender 4.0.2 MTL File: 'MedievalVillage_Modules_Standard.blend'
+# www.blender.org
+
+newmtl MI_Brick
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+d 1.000000
+map_Kd brick.png
+
+newmtl MI_RockTrim
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+d 1.000000
+map_Kd rock.png

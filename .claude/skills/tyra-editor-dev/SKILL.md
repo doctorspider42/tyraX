@@ -395,7 +395,22 @@ geometry gets NO lightmap region, no static-batch membership and no scene-table
 entry - it is lit from the probe grid and nothing can address it. A new
 per-object visual feature therefore has to be staged explicitly in
 `procAddMergedObject`, which states the `g_*` globals rather than inheriting
-whatever the last rebuild left set.
+whatever the last rebuild left set. (4) **Blocks are the one exception, and its
+shape is the reusable part**: a Blocks Fill volume publishes a solid-cell
+field, so `procBlockVertexAo` answers self-occlusion from 26 bit tests per
+block at generation time and hands the result to `pushVert` as its `selfAo`
+byte - which is why `g_aoOff` is `d.type == 5 && !blockAo` rather than the flat
+`type == 5` the imported-models rule wants. The trap that cost a whole PS2
+build cycle: **a per-vertex value is invisible under flat shading.** Generated
+chunks are `TyraShadingFlat`, which takes ONE corner of a triangle and paints
+the whole triangle with it, so the corner gradient came out as two flat
+plateaus 42 levels apart with a hard diagonal seam between them - it read as a
+bug in the AO and was a bug in the shading (measured: 6964 hard adjacent-pixel
+steps against 2783 in the AO-off control, then 2868 once the shading followed).
+`ProcChunk::smooth` + `procSmoothInfoBag` are the fix, and it is a SECOND info
+bag rather than a flag on `batchInfoBag` because that one is shared with the
+static batcher, whose members are flat-shaded by design. Anything else that
+starts varying colour across a generated face owes the same pair.
 
 **Static batching invariants** (the generated game merges non-moving
 primitives into combined bags — `staticBatchEligible`/`batchBlockedNames` in
@@ -835,6 +850,24 @@ twice; a new setting has to land inside it rather than beside it.
   widget is neither active nor just-committed - so undo and a scene switch
   still show through. Any future setting whose apply is destructive wants that
   shape, not a modal.
+- **A CHECKBOX NEVER REPORTS `IsItemDeactivatedAfterEdit()`.** It activates on
+  mouse-down and both edits and deactivates on mouse-up, so the "was edited
+  while active in a PREVIOUS frame" test that call makes can never be true -
+  the edit silently never commits. Use the return value
+  (`if (ImGui::Checkbox(...)) commitChange();`). Three shipped checkboxes were
+  asking (`Fog enabled`, `Gradient sky dome`, a VU stage's `Enabled`); two of
+  them survived only because the Ambience window ALSO compares its section JSON
+  before and after, which is a backstop and not the contract. The rule of
+  thumb: `IsItemDeactivatedAfterEdit` is for widgets you DRAG (sliders, drags,
+  colour edits, text fields); anything that commits on the click itself reports
+  through its return value.
+- **`commitChange()` does not touch the viewport.** It pushes undo and marks
+  dirty; nothing more. A setting that changes the PICTURE rather than the next
+  build must call `applyProjectToViewport()` itself - the GI switch did not, so
+  unticking it left the baked light on screen until the scene changed, and read
+  as a preference that does nothing. Settings that only change what a future
+  bake would produce must NOT call it (a per-frame terrain rebuild while a
+  slider is held), which is the distinction to make before adding the call.
 - **The viewport refresh is deferred to the end of the interaction.**
   `applyProjectToViewport()` rebuilds the terrain mesh and re-reads the GI
   cache, which cannot happen sixty times a second while a slider is held: the

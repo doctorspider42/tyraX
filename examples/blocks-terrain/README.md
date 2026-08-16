@@ -29,6 +29,14 @@ The interesting number is the missing one: a 44 × 44 × 14 field is 27 000
 cubes, and 2 400 of them exist. The rest are never generated at all — nothing
 can see them.
 
+The cubes also **occlude each other**: corners walled in by neighbours darken,
+open ones stay bright. That comes out of the same solid-cell field the walker
+stands on, computed once per generation, and it is what stops a landscape of
+untextured cubes reading as flat cardboard — turn *Ambient occlusion* off in
+*Tools > Ambience Editor* and the whole world goes matte. See
+[ambient occlusion](../../docs/procedural-runtime.md) for how it works and what
+**AO strength** does to it.
+
 ## How the graph works
 
 `Blocks Fill` builds the columns from four octaves of Perlin noise and emits one

@@ -16,6 +16,266 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.50.0 (the ground bake stops shadowing itself, and three switches start
+// doing what they say): a round of reports off the 1.49.0 build.
+//
+// THE GROUND WAS SHADOWING ITSELF, in a lattice of dark blotches nobody could
+// place. Two causes, both the same mistake - a gather ray fired from a point
+// that is not on the surface the rays are traced against.
+//   1. The terrain map's SUB-SAMPLES inherited the texel centre's height while
+//      moving up to half a texel horizontally. On any slope that puts the
+//      sample under the ground; the whole hemisphere hits terrain and the texel
+//      bakes black. Re-sampled now (aobake::terrainAOMap).
+//   2. The traced ground is a DECIMATED mesh (gibake caps it at 96x96 cells)
+//      while the bake hands out points on the fine bilinear heightfield the
+//      game walks on. Wherever the decimation cuts a bump, the point sits under
+//      the triangles - and the residue showed up along the coarse cells'
+//      DIAGONALS, which is what named the cause. Scene::coarseH keeps those
+//      corner heights and gibake::groundSurfaceY reads the traced height back,
+//      so the ground's light function snaps its origin onto the surface the
+//      BVH actually has.
+// Measured on the reporter's showcase: texels under 8/255 went 0.1% -> 0.5% ->
+// 0.0% across the two fixes (the middle number is fix 1 alone uncovering the
+// second cause), map alpha mean 95.5 -> 86.7, and the map now reads as relief
+// shading plus real tree and village shadows with no lattice in it.
+//
+// A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit, and three of them were
+// asking. A checkbox activates on mouse-down and both edits and deactivates on
+// mouse-up, so "was edited while active in a previous frame" can never be true.
+// Fog enabled, Gradient sky dome and the VU stage's Enabled were all relying on
+// it. The Ambience window's section-JSON comparison happened to catch the first
+// two, so nothing was lost - but that is a backstop, not the contract.
+//
+// GI OFF NOW LOOKS LIKE GI OFF. gibake::load already refuses to answer while
+// the switch is off, but nothing asked it again: the viewport's cache key had
+// scene / model-edit / bake-version in it and not the preference, and
+// commitChange does not touch the viewport. Unticking the box left the baked
+// light on screen until the scene changed. Measured: 66.7% of the viewport
+// changes across the toggle now, 0.08% before.
+//
+// AND View > DISTANCE FOG IS PROJECT STATE, like the camera in 1.47.0 - the
+// same report, and the same answer. It is the VIEWPORT's fog switch, not the
+// scene's fogEnabled: it suppresses the preview of a fog the game still has, so
+// you can author past it. Resetting it on every open reads exactly like a
+// setting that was not saved. kFormatVersion 30 -> 31, purely additive.
+//
+// The Ambience Editor also loses two paragraphs it should not have had: the
+// "What this does not do" wall in the GI tab (five lines of routing caveats
+// that went stale the day the ground's route changed - that story lives in
+// docs/global-illumination.md, which the in-editor assistant reads), and the
+// read-only "Ambient occlusion - edit it in the Baked lighting tab" echo left
+// behind by the 1.48.0 move. Moved is moved.
+//
+// 1.49.0 (a textured ground takes its GI as a MULTIPLY): the last third of the
+// black-hills report - the peaks stopped being black in 1.47.1, the grid
+// stopped clipping them in 1.48.0, and what was left was a ground that BANDED
+// along contour lines because a volume probe grid was being asked to light a
+// surface. A probe sample crosses a level as the terrain rises, and the probe
+// just above the grass sees mostly ground bounce where the next one up sees
+// sky. No amount of grid tuning fixes that; the surface wants a surface answer.
+//
+// It could not have one, because the ground's per-texel light is an ADDITIVE
+// pass and a flat add over a texture blows out its dark texels. The way
+// through is a frequency split, and its shape is forced by the hardware:
+// GS_SET_ALPHA(A,B,C,D,FIX) computes (A-B)*C>>7 + D, and C may only be As, Ad
+// or FIX - never a colour - so Cs*Cd is inexpressible and no pass can multiply
+// the frame buffer by a coloured lightmap. But the OCCLUSION pass already
+// multiplies by an alpha. So the bake writes the gathered light's luminance
+// into that alpha (AoImage::giLumAlpha) and the terrain keeps its ordinary
+// directional shade for colour: intensity per pixel, colour per vertex, no new
+// table, no new pass, no pixels on the EE. SCENE_AO_MAP_GILUM says which
+// meaning the channel carries, and it opens the occlusion pass on its own -
+// the pass must run even with ambient occlusion switched off, because there
+// the channel is light.
+//
+// THE TWO ROUTES ARE EXCLUSIVE, and the flags are where that is enforced
+// (mapLit/mapGi are written off `&& !giLumAlpha`). Shipping both at once is not
+// a subtle bug: LIT still on runs the additive pass over the texture and washes
+// the ground to a flat wash with no texture left in it, which is exactly what
+// the first console boot of this route showed. On the multiply route the map's
+// RGB is never read, the emitters are not collected per chunk, and the point
+// lights and emissive pools are skipped - the gather already contains them.
+// The terrain's own AO goes with them, in the viewport too: that alpha channel
+// is the light now, and the gather answered the sky-visibility question AO
+// approximates.
+//
+// Verified on the reporter's saved showcase, rebaked: viewport and PCSX2 agree,
+// the ground is textured and softly shaded across an eight-frame turn-and-walk,
+// no black patch, no banding, 50.0/50 FPS held, VRAM 3.11/4 MB (+0.23 MB - the
+// AO map, now uploaded in a scene whose ambient occlusion is off). The two GI
+// examples are untextured ground and take the RGB route unchanged; their bakes
+// are re-run only because the cache version moved 4 -> 5.
+//
+// 1.48.0 (the probe grid reaches the top of its terrain, and every bake is in
+// one tab): the black hills, and the AO controls' new home.
+//
+// THE GRID. probeLevels was taken literally - anchored half a step above the
+// LOWEST ground and rising a fixed levels*probeHeight from there, whatever the
+// terrain did. On real relief the hills came out ABOVE the whole grid, the
+// sampler clamped them onto its top layer (over a hill: buried inside that
+// hill) and the ground shaded BLACK. Measured on examples/showcase: terrain
+// -6.45..+7.88, grid -5.3..+0.7, 15.9% of the ground surface sampling to zero;
+// after, 33x9x65 and 0.0%. The count is decided BEFORE the kMaxProbes cap, so
+// a tall terrain thins X and Z rather than silently losing the levels that
+// stopped the ground being black.
+//
+// SCENE AO MOVES to Ambience Editor > Baked lighting, beside model AO and
+// pre-lit. It is still a per-PRESET setting and the section carries its own
+// preset picker so that stays visible; the Presets tab keeps a one-line
+// On/Off pointer. The tab's premise is rewritten with it - its sections do not
+// share a scope and never did, they share the question "what is baked into
+// this project's light".
+//
+// STILL WRONG, and written down in docs/global-illumination.md rather than
+// left as a surprise: a volume probe grid lighting a SURFACE bands along
+// contour lines. The ground sample crosses a probe level as the terrain rises,
+// and a probe just above the grass sees mostly ground bounce where the next
+// one up sees sky. The black is gone; the banding is not. (Fixed in 1.49.0 -
+// by taking the ground off the probe grid entirely, not by tuning it.)
+//
+// 1.47.1 (the ground never takes probe light): reported as "with GI on the
+// peaks are pitch black", and it was the editor preview alone - the generated
+// game never had it.
+//
+// A TEXTURED terrain deliberately gets no GI lightmap: the ground pass is
+// additive and would blow out the texture's dark texels, so gibake passes no
+// light function for one, and with the scene's ambient occlusion also off
+// terrainAOMap returns an EMPTY image. Correct so far. What was wrong is that
+// the viewport only skipped the probe grid when a ground lightmap existed, so
+// such a terrain fell through to giProbe - which REPLACES the shade instead of
+// adding to it, and which is a grid built for objects, a few levels a few
+// units apart. Handed a 192x192 landscape it has nothing to say, so every hill
+// went black. Measured on the reporter's own saved project: viewport mean RGB
+// 114/80/33 with GI off, 85/54/30 with GI on, and 114/80/33 after.
+//
+// The diagnosis is worth more than the fix. gibake::load returned valid=1 with
+// terrain size 0 / hasLight 0, which is what said the map was absent BY DESIGN
+// rather than broken - and the generated game reads terrainGi = terrainMapLit
+// && SCENE_AO_MAP_GI and never consults the probes for ground, which is what
+// said the console was fine. PATCH: no capability changes, a preview stops
+// lying.
+//
+// 1.47.0 (the viewport remembers where you were looking, and stops repainting
+// untextured models): two reports, both about the editor disagreeing with
+// itself or with the console.
+//
+// THE VIEWPORT CAMERA IS NOW PROJECT STATE. The .tyra carried the render mode,
+// the projection, the selection and the gizmo - everything about the viewport
+// except where it was pointing - so every reopen started at a default 90 units
+// out, which on a scene with distance fog ending at 82 is a flat wall of fog
+// colour. It is the five numbers the orbit camera IS (yaw, pitch, distance,
+// pivot), read off the viewport at save time exactly like viewMode, never
+// dirtying the project and never entering undo. kFormatVersion 29 -> 30,
+// purely additive: a file without the key opens at the viewport's own
+// defaults, which is where it always opened.
+//
+// It also makes a scene SETTABLE from outside the GUI, which is what it was
+// asked for: an agent or a script can put the camera on the thing it needs to
+// photograph instead of describing where to drag.
+//
+// AND AN UNTEXTURED ANIMATED MODEL KEEPS ITS OWN COLOUR. AnimModelDraw::Part
+// carried a mesh and a texture and nothing else, so glTF baseColorFactor was
+// dropped and the model was drawn in the scene light alone. On
+// examples/showcase - whose wobbler is teal by that factor and has no texture
+// at all (baseColorFactor [0.15, 0.72, 0.62], images: none) - it came out
+// ORANGE in the editor under a sunset preset while the console drew it green.
+// Reported as exactly that. The parser already read the factor; only the
+// viewport's own Part struct threw it away.
+//
+// MINOR: one new persisted key and a preview that changes colour.
+//
+// 1.46.0 (one occlusion model, two regimes, one constant): the response
+// finished in 1.45.0 was a disc, and a disc has to be TOLD WHICH WAY TO POINT.
+// Both ways of telling it fail on real geometry, and both were measured on
+// examples/ambient-occlusion: aimed at the shape's nearest point the floor
+// beside a wall reads 0.000 occluded (the wall touches it edge-on and the
+// cosine falls out), and aimed at the shape's centre a crate standing on a
+// 30x24 terrace reads 0.66 occluded ON ITS SIDES, because that terrace's
+// centre is ten units sideways. The second one is what the 1.45.0 shipped, and
+// this fixes it.
+//
+// Near and large, a shape is not a disc - it is a HALF-SPACE, and a half-space
+// needs no aiming: it blocks the hemisphere behind its face, (1 + n.toOcc)/2.
+// The two regimes blend on k = sin(alpha) = r/(r + dist), scaled by k*k, the
+// solid angle. BOTH FACTORS ARE NEEDED: blending on k alone let a crate 0.6
+// units away - 27 degrees, a speck - hand a horizontal surface the plane's
+// 0.5, and a ring of neighbours summed to half the sky gone on a crate top
+// with nothing above it (0.500 measured; 0.140 now).
+//
+// THE GROUND TERM TURNS OUT TO BE THAT SAME HALF-SPACE with toOcc pointing
+// down - (1 + n.toOcc)/2 is (1 - n.y)/2, exactly the 0.5 - 0.5*n.y it always
+// carried. It was never a separate model, only a separate spelling with its
+// own constant, which is how the two drifted. One shape, one spelling, and one
+// number left between the geometry and the picture: kAoBounce (0.7), applied
+// once over everything, replacing the ground term's 0.7 AND the occluder
+// term's unrelated 0.35 facing floor.
+//
+// The reported case, on the console at one frozen vantage - brightness of a
+// crate with another crate on it against its uncovered neighbour: 0.87 with AO
+// off (the natural difference), 0.78 before this branch, 1.04 with the disc
+// alone, 0.98 now. 50 FPS. MINOR: every scene with AO looks different again.
+//
+// 1.45.0 (an occluder darkens you by how much sky it takes, not by how close
+// it is): occluderOcclusionAt was (1 - dist/radius)^2 times a facing weight
+// with a 0.35 FLOOR, so a surface turned away from a shape it can barely see
+// kept a third of the term, and anything smaller than the AO radius darkened
+// over its whole height as a lump. It is now the solid angle the shape
+// subtends - cos(theta) * (r/d)^2 with r from the projected area and the disc
+// placed tangent to the nearest surface point - and blockers combine as
+// VISIBILITY, 1 - prod(1 - occ), instead of a clamped sum that saturates.
+//
+// Measured on the console, examples/ambient-occlusion: a crate with another
+// crate resting on it read 0.78 of its uncovered neighbour's brightness where
+// the AO-off scene reads 0.87 - a visible step between two crates 20 cm apart.
+// It now reads 1.04. The covered crate's SIDES went 0.22 -> 0.000, which is
+// the right answer rather than a suppression: the crate above lies entirely
+// behind the plane of those faces. Contact shadows got stronger where they
+// belong (floor beside a wall 0.247 -> 0.603). Existing scenes barely move:
+// gi-showcase terrain alpha mean 60.9 -> 59.6.
+//
+// TWO OF MY OWN ERRORS, both caught by measuring rather than by reading the
+// formula: aiming the disc at the shape's nearest point reads the floor beside
+// a wall as 0.000 occluded (the wall touches it edge-on and the cosine falls
+// out) - it is aimed at the midpoint of the nearest point and the centre; and
+// an uncapped disc collapses a 26-unit wall into radius 5.15 against the
+// surface for 0.70, where a half-plane at contact can block about 0.45 - r is
+// capped at the AO radius, which is also the radius the bake prunes by.
+//
+// The GROUND term is deliberately untouched and is now what decides how dark a
+// small prop gets; docs/backlog.md says why going fully physical there needs
+// measuring first. MINOR: every scene with AO looks different.
+//
+// 1.44.0 (ambient occlusion: runtime blocks, and a terrain scan that stops
+// shading bare slopes). Three things, and the number is a MERGE renumber - the
+// branch stood at 1.35.0 while main took 1.42.0 and then 1.43.0, and the rule
+// of this block takes the MINOR above both rather than picking a side.
+//
+// Runtime blocks self-occlude off the solid-cell field a Blocks Fill volume
+// already publishes: 26 bit tests per block at generation time, reduced per
+// visible face to four corner levels, riding the selfAo byte pushVert already
+// takes - so the scene's own AO strength scales it and a scene with AO off
+// computes none of it. THE TRAP WAS THE SHADING, NOT THE AO: generated chunks
+// draw TyraShadingFlat, which takes one corner of a triangle and paints the
+// whole triangle, so the first console build split every block face into two
+// flat plateaus 42 levels apart. Hard adjacent-pixel steps over the frame read
+// 2783 / 6964 / 2868 for AO-off / AO-on-flat / AO-on-Gouraud.
+//
+// The terrain horizon scan gets the term that stops a BARE SLOPE shading
+// itself - the horizon measured above the surface's own tangent plane rather
+// than above the horizontal - because every uphill sample is higher than the
+// last and a smooth open hillside was darkening for being a hillside: 16% at
+// 30 degrees, 30% at 60, no occluder anywhere. Both read open now while the
+// foot of a step is unchanged. Also 16 azimuths instead of 8 (a lone spire's
+// ring standard deviation 91% -> 30% of the mean) and an occluder GRID instead
+// of scanning every occluder per sub-sample (32.0 s -> 61 ms on 1100 casters,
+// and byte-identical output on every existing example).
+//
+// A per-texel azimuth rotation was implemented, measured and REMOVED - the
+// scan is one sample per texel with nothing downstream to average it, so it
+// decorrelates the error without reducing it. MINOR: behaviour changes for any
+// project with sculpted terrain, and examples/ambient-occlusion is the first
+// one in the tree that has any.
+//
 // 1.43.0 (the pre-release legacy comes out, and version::kMinFormatVersion is
 // what replaces it): TyraX has never shipped publicly, so every translation the
 // reader carried for a shape that changed on its way to v1 was weight nobody
@@ -1094,7 +1354,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 43
+#define TYRAX_VERSION_MINOR 50
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1375,7 +1635,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 29;
+inline constexpr int kFormatVersion = 31;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
