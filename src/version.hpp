@@ -16,6 +16,35 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.47.0 (the viewport remembers where you were looking, and stops repainting
+// untextured models): two reports, both about the editor disagreeing with
+// itself or with the console.
+//
+// THE VIEWPORT CAMERA IS NOW PROJECT STATE. The .tyra carried the render mode,
+// the projection, the selection and the gizmo - everything about the viewport
+// except where it was pointing - so every reopen started at a default 90 units
+// out, which on a scene with distance fog ending at 82 is a flat wall of fog
+// colour. It is the five numbers the orbit camera IS (yaw, pitch, distance,
+// pivot), read off the viewport at save time exactly like viewMode, never
+// dirtying the project and never entering undo. kFormatVersion 29 -> 30,
+// purely additive: a file without the key opens at the viewport's own
+// defaults, which is where it always opened.
+//
+// It also makes a scene SETTABLE from outside the GUI, which is what it was
+// asked for: an agent or a script can put the camera on the thing it needs to
+// photograph instead of describing where to drag.
+//
+// AND AN UNTEXTURED ANIMATED MODEL KEEPS ITS OWN COLOUR. AnimModelDraw::Part
+// carried a mesh and a texture and nothing else, so glTF baseColorFactor was
+// dropped and the model was drawn in the scene light alone. On
+// examples/showcase - whose wobbler is teal by that factor and has no texture
+// at all (baseColorFactor [0.15, 0.72, 0.62], images: none) - it came out
+// ORANGE in the editor under a sunset preset while the console drew it green.
+// Reported as exactly that. The parser already read the factor; only the
+// viewport's own Part struct threw it away.
+//
+// MINOR: one new persisted key and a preview that changes colour.
+//
 // 1.46.0 (one occlusion model, two regimes, one constant): the response
 // finished in 1.45.0 was a disc, and a disc has to be TOLD WHICH WAY TO POINT.
 // Both ways of telling it fail on real geometry, and both were measured on
@@ -1186,7 +1215,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 46
+#define TYRAX_VERSION_MINOR 47
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1467,7 +1496,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 29;
+inline constexpr int kFormatVersion = 30;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

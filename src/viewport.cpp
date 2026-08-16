@@ -3564,6 +3564,7 @@ void Viewport::animBakeCollect() {
                 AnimModelDraw::Part part;
                 if (src.image >= 0 && src.image < (int)imageTex.size())
                     part.tex = imageTex[src.image];
+                for (int c = 0; c < 3; ++c) part.kd[c] = src.baseColor[c];
                 std::vector<float> interleaved((size_t)src.vertexCount * 8,
                                                0.0f);
                 part.mesh = uploadMesh(interleaved);
@@ -4518,7 +4519,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                              const Mat4* model, float shade, bool asLines) {
         if (pointLightCount > 0) glUniform1i(uLightCount_, 0);
         for (const AnimModelDraw::Part& part : ad.parts)
-            draw(part.mesh, GL_TRIANGLES, mvp, shade, shade, shade,
+            draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
+                 shade * part.kd[1], shade * part.kd[2],
                  asLines ? 0 : part.tex, model);
         if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
     };

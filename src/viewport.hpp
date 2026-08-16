@@ -31,6 +31,22 @@ public:
 
     // View > Collision boxes: draw the box the GAME collides with over every
     // collider (docs/collision-boxes.md). Editor state, no project data.
+    // The orbit camera as the five numbers it actually is, so the project can
+    // store where you were looking (project.hpp viewCam*). Read at save time
+    // and applied on open; neither dirties anything.
+    void camState(float& yaw, float& pitch, float& dist, float t[3]) const {
+        yaw = yaw_, pitch = pitch_, dist = distance_;
+        t[0] = target_[0], t[1] = target_[1], t[2] = target_[2];
+    }
+    void setCamState(float yaw, float pitch, float dist, const float t[3]) {
+        yaw_ = yaw;
+        pitch_ = pitch < -kOrbitPitchLimit
+                     ? -kOrbitPitchLimit
+                     : (pitch > kOrbitPitchLimit ? kOrbitPitchLimit : pitch);
+        distance_ = dist > 0.01f ? dist : 0.01f;
+        target_[0] = t[0], target_[1] = t[1], target_[2] = t[2];
+    }
+
     void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
     bool collisionOverlay() const { return collisionOverlay_; }
 
@@ -929,6 +945,11 @@ private:
         struct Part {
             Mesh mesh;
             uint32_t tex = 0;
+            // glTF baseColorFactor. An animated model with no texture carries
+            // its whole colour here (the wobbler is teal by this and nothing
+            // else), and dropping it drew every such model in the scene light
+            // alone - green in the game, orange in the viewport.
+            float kd[3] = {1.0f, 1.0f, 1.0f};
         };
         std::vector<Part> parts;  // parallel to baked.parts
         bool stale = false;  // a rebake is in flight; keep drawing this one

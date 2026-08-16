@@ -1,7 +1,7 @@
 {
   "name": "ambient-occlusion",
-  "formatVersion": 29,
-  "editorVersion": "1.45.0",
+  "formatVersion": 30,
+  "editorVersion": "1.47.0",
   "template": "fpp",
   "projectId": "d3895922f032e61f",
   "settings": {
@@ -227,7 +227,7 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "" },
