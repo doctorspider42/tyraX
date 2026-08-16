@@ -39,7 +39,7 @@ struct SceneObjectData {
                   // 5 custom (physics below)
   int emitCount;  // emitters: particle pool size (density)
   float emitSize; // emitters: base particle size
-  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)
+  int emitEnabled; // emitters: 0 = off (Set Object Visible enables)
   int emitFollow;  // emitters: 1 = position is an offset from the player
   float emitSpeed;   // custom: emission speed along rotated +Y, units/s
   float emitSpread;  // custom: cone half-angle, degrees

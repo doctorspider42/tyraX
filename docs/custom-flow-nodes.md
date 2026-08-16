@@ -21,7 +21,7 @@ Two flavors, from quick to fully general:
 Both are self-contained files, so moving a node to another project is a copy —
 see [Moving nodes to another project](#moving-nodes-to-another-project).
 
-![The custom-nodes example graph in the Flow Graph tab: On Button (Cross) fires a custom "Nearest Visible" node whose object output is wired into a built-in "Hide Object"; On Button (Square) fires a custom "Spin By" node. Round pins carry execution, square pins carry object ids.](img/flow-graph.png)
+![The custom-nodes example graph in the Flow Graph tab: On Button (Cross) fires a custom "Nearest Visible" node whose object output is wired into a built-in "Set Object Visible"; On Button (Square) fires a custom "Spin By" node. Round pins carry execution, square pins carry object ids.](img/flow-graph.png)
 
 *The [custom-nodes example](../examples/custom-nodes): two custom nodes
 (`Nearest Visible`, `Spin By`) wired next to a built-in action.*

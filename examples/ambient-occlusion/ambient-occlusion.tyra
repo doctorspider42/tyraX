@@ -1,7 +1,7 @@
-﻿{
+{
   "name": "ambient-occlusion",
-  "formatVersion": 24,
-  "editorVersion": "1.35.0",
+  "formatVersion": 29,
+  "editorVersion": "1.45.0",
   "template": "fpp",
   "projectId": "d3895922f032e61f",
   "settings": {
@@ -39,6 +39,7 @@
     "unitsPerMeter": 1,
     "terrainDetail": 64,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,

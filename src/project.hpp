@@ -801,7 +801,7 @@ struct SceneObject {
 // ---------------------------------------------------------------------------
 
 // One authored stage. `kind` is a key from vugen::stageDefs(); an unknown one
-// is DROPPED on load rather than guessed at, the flowLegacyNodes rule - a
+// is DROPPED on load rather than guessed at, the readFlowGraph rule - a
 // project written by a newer editor must not silently compile to a different
 // microprogram here.
 struct VuStage {
@@ -1262,7 +1262,7 @@ struct ProjectSettings {
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
     // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
-    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // programs, no EE cost), "precise" (the older EE clipper) or "fast"
     // (cull-only). Projects saved before the vu1 default keep their value.
     std::string clipping = "vu1";
 
@@ -2468,8 +2468,9 @@ struct MenuEntry {
     // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
     // (parallel to `options`, values 0..4; -1 = the project-default mode,
     // resolved at boot on the player's console - region + the PAL-picture
-    // preference). Empty = the option index itself (the legacy positional
-    // mapping), so old projects behave unchanged.
+    // preference). The Menu Editor keeps it the same length as `options`;
+    // codegen fills a short one in positionally so the generated table always
+    // has an entry per option.
     std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's
@@ -3192,7 +3193,7 @@ struct Project {
     std::vector<std::string> debugBreakpoints;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
-    // least one; seedBuiltinLayouts() fills a fresh/legacy project with the
+    // least one; seedBuiltinLayouts() fills a project that carries none with the
     // Default/Director/Material built-ins. activeLayout indexes into this list.
     std::vector<WindowLayout> windowLayouts;
     int activeLayout = 0;
@@ -3325,9 +3326,8 @@ std::string create(Project& out, const std::string& name, const std::string& par
 
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
-// activeLayout to 0. Used for fresh projects and to migrate older projects that
-// predate named layouts. A pre-existing single "layout" dump can be preserved
-// by the caller by assigning it into windowLayouts[0].ini after seeding.
+// activeLayout to 0. Used for a fresh project and for one whose manifest
+// carries no "layouts" array.
 void seedBuiltinLayouts(Project& p);
 
 // A fresh opaque object id (16 hex chars from a 64-bit random value). Unique

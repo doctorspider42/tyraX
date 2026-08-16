@@ -139,7 +139,7 @@ class LiveLink : public Script {
 
     // Authored objects missing from the snapshot were deleted in the editor:
     // hide them (geometry stays baked until a rebuild; collision remains -
-    // an approximation, exactly like the Hide Object flow node).
+    // an approximation, exactly like Set Object Visible (hide)).
     const int authored =
         SCENE_OBJECT_COUNTS[ctx.scene] < LL_MAX_OBJECTS
             ? SCENE_OBJECT_COUNTS[ctx.scene]

@@ -356,8 +356,8 @@ static std::string jsonEscape(const std::string& s) {
 
 static void readVec3(const json::Value* v, float* out);
 
-// "flowGraph": { nodes, links, nextId } - shared by objects (per-object
-// graphs) and the legacy project-level graph reader.
+// "flowGraph": { nodes, links, nextId } - one per scene object, stored inside
+// that object's objects/<id>.json body.
 static std::string flowGraphJson(const FlowGraph& fg) {
     std::string json = "{ \"nextId\": " + std::to_string(fg.nextId) + ", \"nodes\": [";
     for (size_t i = 0; i < fg.nodes.size(); ++i) {
@@ -587,56 +587,7 @@ bool parseProcGraph(const std::string& body, ProcGraph& out) {
     return true;
 }
 
-// Pre-Font-Manager projects stored a raw TTF path on every text and menu
-// ("res/fonts/x.ttf", "impact.ttf"). Those fields now name a Project::fonts
-// entry, so fold each distinct legacy path into one entry and rewrite the
-// references to its name. A value that is already a name is left alone.
-static void migrateFontRefs(Project& out) {
-    auto looksLikePath = [](const std::string& s) {
-        if (s.find('/') != std::string::npos || s.find('\\') != std::string::npos)
-            return true;
-        if (s.size() < 4) return false;
-        std::string ext = s.substr(s.size() - 4);
-        for (char& c : ext) c = (char)tolower((unsigned char)c);
-        return ext == ".ttf" || ext == ".otf";
-    };
-    auto entryFor = [&](const std::string& path) -> std::string {
-        for (const GameFont& f : out.fonts)
-            if (f.fontPath == path) return f.name;
-        std::string base = fs::path(path).stem().string();
-        if (base.empty()) base = "font";
-        std::string name = base;
-        for (int n = 2;; ++n) {
-            bool taken = false;
-            for (const GameFont& f : out.fonts) taken |= (f.name == name);
-            if (!taken) break;
-            name = base + "-" + std::to_string(n);
-        }
-        GameFont f;
-        f.name = name;
-        f.fontPath = path;
-        out.fonts.push_back(f);
-        return name;
-    };
-    auto fix = [&](std::string& ref) {
-        if (!ref.empty() && looksLikePath(ref)) ref = entryFor(ref);
-    };
-    for (HudText& t : out.hudTexts) fix(t.font);
-    for (LoadingScreenDef& ls : out.loadingScreens)
-        for (HudText& t : ls.texts) fix(t.font);
-    for (GameMenu& m : out.menus) fix(m.font);
-}
-
 static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
-    // Pre-merge graphs name a node per branch (ShowObject / HideObject / ...);
-    // those types are gone, so each one becomes its merged type and every exec
-    // link landing on it is retargeted to the branch's pin (flowLegacyNodes).
-    struct Retarget {
-        int nodeId;
-        int pin;
-    };
-    std::vector<Retarget> retargets;
-
     if (const auto* v = jg.find("nextId")) fg.nextId = (int)v->numberOr(1);
     if (const auto* nodes = jg.find("nodes");
         nodes && nodes->type == json::Value::Type::Array) {
@@ -655,10 +606,6 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 v && v->type == json::Value::Type::Array)
                 for (size_t i = 0; i < 4 && i < v->arr.size(); ++i)
                     n.num[i] = (float)v->arr[i].numberOr(0);
-            if (const FlowLegacyNode* m = flowLegacyNode(n.type)) {
-                n.type = m->to;
-                if (m->pin) retargets.push_back({n.id, m->pin});
-            }
             if (n.id > 0 && flowNodeType(n.type)) fg.nodes.push_back(n);
         }
     }
@@ -689,12 +636,8 @@ static void readFlowGraph(const json::Value& jg, FlowGraph& fg) {
                 l.kind = FlowLinkNum;
             if (const auto* v = jl.find("pin")) l.toPin = (int)v->numberOr(0);
             // "fpin" = which exec OUTPUT of the source the link leaves (Branch's
-            // true/false, Sequence's 1..4). Omitted at 0, which is every link
-            // written before multi-output nodes existed.
+            // true/false, Sequence's 1..4). Omitted at 0, the first output.
             if (const auto* v = jl.find("fpin")) l.fromPin = (int)v->numberOr(0);
-            if (l.kind == FlowLinkExec && !l.toPin)
-                for (const Retarget& r : retargets)
-                    if (r.nodeId == l.toNode) l.toPin = r.pin;
             if (l.id > 0) fg.links.push_back(l);
         }
     }
@@ -1138,9 +1081,9 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
         j << ", \"loadingScreen\": \"" << jsonEscape(sc.loadingScreen) << "\"";
 }
 
-// Reads a scene's scene-visual settings + override flags. New files carry an
-// "overrides" object; older files carried a top-level "lighting"/"terrainTexScale"
-// per scene (always-active) - migrate those with the two flags on.
+// Reads a scene's scene-visual settings + override flags: a "settings" object
+// carrying every category's values, and an "overrides" object saying which of
+// them this scene actually overrides (the rest inherit the project's).
 static void readSceneVisuals(const json::Value& js, SceneData& sc) {
     ProjectSettings& s = sc.settings;
     auto clamp01 = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
@@ -1163,13 +1106,9 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
             }
             if (const auto* v = st->find("clipping")) {
                 // "vu1" (default) = precise per-package classification +
-                // clipping on VU1; "precise" = the legacy EE clipper.
+                // clipping on VU1; "precise" = the EE clipper.
                 const std::string c = v->stringOr("vu1");
                 s.clipping = (c == "fast" || c == "precise") ? c : "vu1";
-            } else {
-                // pre-clipping-key projects were authored against the EE
-                // clipper - keep their behavior
-                s.clipping = "precise";
             }
             if (const auto* v = st->find("terrainMaterial")) s.terrainMaterial = v->stringOr("");
             if (const auto* pf = st->find("postfx")) {
@@ -1224,31 +1163,14 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
         sc.overrides.lighting = ov->find("lighting") ? ov->find("lighting")->boolOr(false) : false;
         sc.overrides.sky = ov->find("sky") ? ov->find("sky")->boolOr(false) : false;
         sc.overrides.clipping = ov->find("clipping") ? ov->find("clipping")->boolOr(false) : false;
-        // Legacy files carried this flag as "terrainTex" (it gated the terrain
-        // texture, now the terrain material). Accept both keys.
         sc.overrides.terrainMat =
-            ov->find("terrainMat")   ? ov->find("terrainMat")->boolOr(false)
-            : ov->find("terrainTex") ? ov->find("terrainTex")->boolOr(false)
-                                     : false;
+            ov->find("terrainMat") ? ov->find("terrainMat")->boolOr(false) : false;
         sc.overrides.postFx = ov->find("postFx") ? ov->find("postFx")->boolOr(false) : false;
         sc.overrides.fog = ov->find("fog") ? ov->find("fog")->boolOr(false) : false;
         sc.overrides.highlight =
             ov->find("highlight") ? ov->find("highlight")->boolOr(false) : false;
         sc.overrides.upscaler =
             ov->find("upscaler") ? ov->find("upscaler")->boolOr(false) : false;
-    } else {
-        // Legacy per-scene lighting + terrain texture were always active.
-        if (const auto* li = js.find("lighting")) {
-            readVec3(li->find("dir"), s.lightDir);
-            if (const auto* v = li->find("ambient")) s.ambient = (float)v->numberOr(0.55);
-            if (const auto* v = li->find("diffuse")) s.diffuse = (float)v->numberOr(0.45);
-            readVec3(li->find("color"), s.lightColor);
-            if (const auto* v = li->find("brightness")) s.brightness = (float)v->numberOr(1.0);
-            sc.overrides.lighting = true;
-        }
-        // Terrain was picked by raw texture + tiling scale in these legacy
-        // files; both are gone now - terrain takes a material whose map "-s"
-        // option carries the tiling. Nothing to migrate here.
     }
     if (const auto* v = js.find("ambiencePreset")) sc.ambiencePreset = v->stringOr("");
     if (const auto* v = js.find("loadingScreen")) sc.loadingScreen = v->stringOr("");
@@ -3080,28 +3002,13 @@ static void readVuSection(const json::Value& root, Project& out) {
         }
     if (const json::Value* x = v->find("activeLook"))
         out.vu.activeLook = (int)x->numberOr(0);
-    // "looks" is the current key. "programs" with a "base" string is the
-    // one-day-old shape from before a look could span classes, migrated here so
-    // a project written in between still opens.
     const json::Value* arr = v->find("looks");
-    const bool legacy = arr == nullptr;
-    if (legacy) arr = v->find("programs");
     if (arr && arr->type == json::Value::Type::Array)
         for (const json::Value& e : arr->arr) {
             VuProgram pr;
-            if (legacy) {
-                const json::Value* b = e.find("base");
-                const std::string base = b ? b->stringOr("") : "";
-                if (base.empty()) continue;
-                pr.name = base;
-                pr.classes = base == "cullTextureColor" ? (1u << 3)
-                             : base == "cullTextureEnv" ? (1u << 4)
-                                                        : (1u << 0);
-            } else {
-                if (const json::Value* x = e.find("name")) pr.name = x->stringOr("look");
-                if (const json::Value* x = e.find("classes"))
-                    pr.classes = (unsigned)x->numberOr(1.0) & 0x1Fu;
-            }
+            if (const json::Value* x = e.find("name")) pr.name = x->stringOr("look");
+            if (const json::Value* x = e.find("classes"))
+                pr.classes = (unsigned)x->numberOr(1.0) & 0x1Fu;
             if (const json::Value* x = e.find("off")) pr.enabled = !x->boolOr(false);
             if (const json::Value* x = e.find("stages")) readVuStages(*x, pr.stages);
             if (pr.classes == 0) continue;
@@ -3226,11 +3133,9 @@ static std::string manifestJson(const Project& p) {
         json << (i ? ", " : "") << "\"" << jsonEscape(p.debugBreakpoints[i])
              << "\"";
     json << "] }";
-    // emulatorPath / ps2LinkIp used to live here but are now machine-global
-    // editor settings (editor.ini), no longer written per-project. The reader
-    // still accepts them to migrate older projects into the global config.
-    // Named window layouts (docking arrangements) + the active one. Replaces the
-    // former single "layout" dump; the reader still migrates that legacy key.
+    // emulatorPath / ps2LinkIp are NOT written here: they are machine-global
+    // editor settings (editor.ini), not project data.
+    // Named window layouts (docking arrangements) + the active one.
     json << ",\n  \"activeLayout\": " << p.activeLayout;
     json << ",\n  \"layouts\": [";
     for (size_t i = 0; i < p.windowLayouts.size(); ++i) {
@@ -4007,8 +3912,7 @@ void flattenHeightmap(Project& p, float worldX, float worldZ, float radius, floa
     }
 }
 
-// One heights file per scene: terrain-<scene>.heights; the first scene also
-// reads the legacy single-scene terrain.heights.
+// One heights file per scene: terrain-<scene>.heights.
 static fs::path heightsPath(const Project& p, const SceneData& s) {
     return fs::path(p.dir) / ("terrain-" + s.name + ".heights");
 }
@@ -4151,7 +4055,6 @@ void loadHeights(Project& p) {
     for (size_t i = 0; i < p.scenes.size(); ++i) {
         SceneData& s = p.scenes[i];
         std::ifstream f(heightsPath(p, s));
-        if (!f && i == 0) f.open(fs::path(p.dir) / "terrain.heights");  // legacy
         if (!f) continue;
         int vw = 0, vd = 0;
         f >> vw >> vd;
@@ -4682,7 +4585,6 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
-        // pre-materials projects had a per-object "texture" PNG - dropped
         if (const auto* pl = jo.find("player")) {
             if (const auto* v = pl->find("mode")) {
                 const std::string m = v->stringOr("walk");
@@ -5021,19 +4923,13 @@ bool parseObject(const std::string& body, SceneObject& out) {
     return true;
 }
 
-// A scene's "objects" manifest field. New (split) layout: an array of id
-// strings, each loaded from objects/<id>.json in list order. Legacy layout: an
-// array of inline object bodies. The two are told apart by the first element's
-// type; an empty array is either. A referenced object file that is missing or
-// malformed is skipped (the object is dropped) rather than aborting the load.
+// A scene's "objects" manifest field: an array of object-id strings, each
+// loaded from objects/<id>.json in list order (the merge-friendly split - one
+// file per object). A referenced object file that is missing or malformed is
+// skipped (the object is dropped) rather than aborting the load.
 static void readSceneObjects(const Project& p, const json::Value& objs,
                              std::vector<SceneObject>& out) {
     if (objs.type != json::Value::Type::Array) return;
-    const bool split = !objs.arr.empty() && objs.arr[0].type == json::Value::Type::String;
-    if (!split) {  // legacy: bodies inline in the manifest
-        readObjectsArray(objs, out);
-        return;
-    }
     for (const auto& jid : objs.arr) {
         const std::string id = jid.stringOr("");
         if (id.empty()) continue;
@@ -5139,7 +5035,7 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.disableVsync = v->boolOr(false);
         if (const auto* v = s->find("clipping")) {
             // "vu1" (default) = precise per-package classification +
-            // clipping on VU1; "precise" = the legacy EE clipper.
+            // clipping on VU1; "precise" = the older EE clipper.
             const std::string c = v->stringOr("vu1");
             st.clipping = (c == "fast" || c == "precise") ? c : "vu1";
         } else {
@@ -5217,11 +5113,6 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.sprintMultiplier = (float)v->numberOr(1.8);
             if (st.sprintMultiplier < 1.0f) st.sprintMultiplier = 1.0f;
             if (st.sprintMultiplier > 4.0f) st.sprintMultiplier = 4.0f;
-        }
-        // Legacy single-value key seeds both sticks; per-stick keys override.
-        if (const auto* v = s->find("stickDeadzone")) {
-            st.stickDeadzoneL = (float)v->numberOr(0.2);
-            st.stickDeadzoneR = st.stickDeadzoneL;
         }
         if (const auto* v = s->find("stickDeadzoneL"))
             st.stickDeadzoneL = (float)v->numberOr(0.2);
@@ -5568,15 +5459,8 @@ static void readHudSection(const json::Value& root, Project& out) {
     // Seed/backfill the pad-button set: a project from before text icons (or one
     // whose key was trimmed) still resolves {{cross}}.
     ensureTextIcons(out);
-    // Effect layer positions; absent (older projects) or out of range = -1,
-    // i.e. the effect applies over everything at end of frame - the old
-    // behavior. "hudPostFxLayer" is the pre-split key (bloom+grain shared one
-    // layer); migrate it to both.
-    int legacyLayer = -1;
-    if (const auto* v = root.find("hudPostFxLayer"))
-        legacyLayer = (int)v->numberOr(-1.0);
-    out.hudBloomLayer = legacyLayer;
-    out.hudGrainLayer = legacyLayer;
+    // Effect layer positions; absent or out of range = -1, i.e. the effect
+    // applies over everything at end of frame.
     if (const auto* v = root.find("hudBloomLayer"))
         out.hudBloomLayer = (int)v->numberOr(-1.0);
     if (const auto* v = root.find("hudGrainLayer"))
@@ -6311,16 +6195,6 @@ static void readMenusSection(const json::Value& root, Project& out) {
                     if (!img.path.empty()) m.images.push_back(std::move(img));
                 }
             }
-            // Legacy single-image fields (pre image list)
-            if (const auto* v = jm.find("image")) {
-                MenuImage img;
-                img.path = v->stringOr("");
-                if (const auto* mode = jm.find("imageMode"))
-                    img.slot = mode->stringOr("top") == "background"
-                                   ? MenuImage::Background
-                                   : MenuImage::AboveTitle;
-                if (!img.path.empty()) m.images.push_back(std::move(img));
-            }
             readVec3(jm.find("accent"), m.accent);
             if (const auto* entries = jm.find("entries");
                 entries && entries->type == json::Value::Type::Array) {
@@ -6502,11 +6376,14 @@ std::string load(Project& out, const std::string& projectDir) {
     out = Project{};
     out.dir = fs::path(projectDir).string();
 
-    // Format gate, before anything else is read: a file written by a NEWER
-    // editor is refused outright - this editor would silently drop the fields
-    // it does not know and destroy them on the next save. Older files load
-    // normally; the caller checks migrations::stepsFor(formatVersionOnDisk)
-    // to decide whether an (irreversible) migration prompt is needed.
+    // Format gate, before anything else is read. Too NEW is refused outright -
+    // this editor would silently drop the fields it does not know and destroy
+    // them on the next save. Too OLD is refused as well, and by name: the
+    // reader carries no translations below kMinFormatVersion, so it would find
+    // nothing it recognises and open an empty project without saying why.
+    // Everything in between loads normally; the caller checks
+    // migrations::stepsFor(formatVersionOnDisk) to decide whether an
+    // (irreversible) migration prompt is needed.
     out.formatVersionOnDisk = 0;  // no field = saved before versioning existed
     if (const auto* v = root.find("formatVersion"))
         out.formatVersionOnDisk = (int)v->numberOr(0);
@@ -6519,6 +6396,15 @@ std::string load(Project& out, const std::string& projectDir) {
                ", this editor (TyraX " + version::kEditorVersion +
                ") reads up to v" + std::to_string(version::kFormatVersion) +
                ". Update TyraX to open this project.";
+    }
+    if (out.formatVersionOnDisk < version::kMinFormatVersion) {
+        return tyraPath.filename().string() +
+               " is in project format v" +
+               std::to_string(out.formatVersionOnDisk) +
+               ", which this editor (TyraX " + version::kEditorVersion +
+               ") no longer reads - it reads v" +
+               std::to_string(version::kMinFormatVersion) + " to v" +
+               std::to_string(version::kFormatVersion) + ".";
     }
 
     // Register the project's custom flow nodes BEFORE the graphs are parsed:
@@ -6547,67 +6433,45 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readSettingsSection(root, out);
 
-    // Scenes. New format: [{ "name", "objects" }]; legacy: an array of scene
-    // name strings plus a project-level "objects" array (single scene).
+    // Scenes: [{ "name", "terrain", "settings", "overrides", "objects" }], the
+    // "objects" list being the ids of the objects/<id>.json bodies.
     if (const auto* v = root.find("startScene")) out.startScene = (int)v->numberOr(0.0);
     if (const auto* scenes = root.find("scenes");
         scenes && scenes->type == json::Value::Type::Array && !scenes->arr.empty()) {
-        if (scenes->arr[0].type == json::Value::Type::Object) {
-            out.scenes.clear();
-            for (const auto& js : scenes->arr) {
-                SceneData sc;
-                if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
-                if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
-                if (const auto* tl = js.find("terrainLayers"))
-                    readTerrainLayersArray(*tl, sc.terrainLayers);
-                if (const auto* v = js.find("terrainBaseStochastic"))
-                    sc.terrainBaseStochastic = v->boolOr(false);
-                if (const auto* v = js.find("terrainTintVariation"))
-                    sc.terrainTintVariation = (float)v->numberOr(0.0);
-                if (const auto* v = js.find("terrainTintScale")) {
-                    sc.terrainTintScale = (float)v->numberOr(24.0);
-                    if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
-                }
-                if (const auto* objs = js.find("objects"))
-                    readSceneObjects(out, *objs, sc.objects);
-                if (const auto* t = js.find("terrain")) {
-                    if (const auto* v = t->find("width"))
-                        sc.terrain.width = (int)v->numberOr(64);
-                    if (const auto* v = t->find("depth"))
-                        sc.terrain.depth = (int)v->numberOr(64);
-                    if (const auto* v = t->find("enabled"))
-                        sc.terrain.enabled = v->boolOr(true);
-                }
-                readSceneVisuals(js, sc);
-                out.scenes.push_back(std::move(sc));
+        out.scenes.clear();
+        for (const auto& js : scenes->arr) {
+            SceneData sc;
+            if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
+            if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+            if (const auto* tl = js.find("terrainLayers"))
+                readTerrainLayersArray(*tl, sc.terrainLayers);
+            if (const auto* v = js.find("terrainBaseStochastic"))
+                sc.terrainBaseStochastic = v->boolOr(false);
+            if (const auto* v = js.find("terrainTintVariation"))
+                sc.terrainTintVariation = (float)v->numberOr(0.0);
+            if (const auto* v = js.find("terrainTintScale")) {
+                sc.terrainTintScale = (float)v->numberOr(24.0);
+                if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
             }
-        } else {
-            out.scenes.clear();
-            for (const auto& s : scenes->arr)
-                out.scenes.push_back(SceneData{s.stringOr("main"), {}});
+            if (const auto* objs = js.find("objects"))
+                readSceneObjects(out, *objs, sc.objects);
+            if (const auto* t = js.find("terrain")) {
+                if (const auto* v = t->find("width"))
+                    sc.terrain.width = (int)v->numberOr(64);
+                if (const auto* v = t->find("depth"))
+                    sc.terrain.depth = (int)v->numberOr(64);
+                if (const auto* v = t->find("enabled"))
+                    sc.terrain.enabled = v->boolOr(true);
+            }
+            readSceneVisuals(js, sc);
+            out.scenes.push_back(std::move(sc));
         }
     }
     if (out.scenes.empty()) out.scenes.push_back(SceneData{});
 
-    // Legacy project-level terrain size: copy into every scene. Legacy
-    // project-level lighting / terrain texture live in out.settings (read
-    // above) and reach scenes through inheritance (project::resolvedSettings),
-    // so no per-scene copy is needed here.
-    if (const auto* terrain = root.find("terrain")) {
-        TerrainConfig t{64, 64};  // legacy default, not the new-project one
-        if (const auto* v = terrain->find("width")) t.width = (int)v->numberOr(64);
-        if (const auto* v = terrain->find("depth")) t.depth = (int)v->numberOr(64);
-        for (SceneData& sc : out.scenes) sc.terrain = t;
-    }
-
-    if (const auto* objects = root.find("objects");
-        objects && objects->type == json::Value::Type::Array) {
-        readObjectsArray(*objects, out.scenes[0].objects);  // legacy single scene
-    }
-
     // Every scene object must carry a stable id before the caller snapshots the
-    // project (loadHistory compares against out.scenes). Pre-id projects get
-    // theirs here; they are written back on the next save.
+    // project (loadHistory compares against out.scenes); a just-added object
+    // has none until here, and they are written back on the next save.
     ensureObjectIds(out);
     clampStartScene(out);
 
@@ -6646,53 +6510,19 @@ std::string load(Project& out, const std::string& projectDir) {
     ensureFactIds(out);
     readBlssShotsSection(root, out);
 
-    // Migrate projects authored before the Ambience Editor: sky/lighting/fog
-    // used to live in Preferences (global + per-scene overrides). Fold them
-    // into presets so the same values keep driving the scene now that those
-    // controls have moved. Only runs when the project has no presets yet.
-    if (out.ambiencePresets.empty()) {
-        auto uniqueName = [&](std::string base) {
-            if (base.empty()) base = "Ambience";
-            std::string n = base;
-            for (int k = 2;; ++k) {
-                bool taken = false;
-                for (const auto& a : out.ambiencePresets) taken |= (a.name == n);
-                if (!taken) return n;
-                n = base + "-" + std::to_string(k);
-            }
-        };
-        auto fromSettings = [](const ProjectSettings& s, const std::string& name) {
-            AmbiencePreset a;
-            a.name = name;
-            for (int i = 0; i < 3; ++i) {
-                a.skyColor[i] = s.skyColor[i];
-                a.skyTopColor[i] = s.skyTopColor[i];
-                a.lightDir[i] = s.lightDir[i];
-                a.lightColor[i] = s.lightColor[i];
-                a.fogColor[i] = s.fogColor[i];
-            }
-            a.skyDome = s.skyDome;
-            a.zenithSize = s.zenithSize;
-            a.ambient = s.ambient, a.diffuse = s.diffuse, a.brightness = s.brightness;
-            a.aoEnabled = s.aoEnabled, a.aoStrength = s.aoStrength;
-            a.aoRadius = s.aoRadius;
-            a.fogEnabled = s.fogEnabled, a.fogStart = s.fogStart, a.fogEnd = s.fogEnd;
-            return a;
-        };
-        // Default at index 0. Keep defaultAmbience = -1 during the per-scene
-        // loop so resolvedSettings() below sees NO preset overlay and captures
-        // each scene's own overridden sky/lighting/fog, not the default's.
-        out.ambiencePresets.push_back(fromSettings(out.settings, uniqueName("Default")));
-        for (SceneData& sc : out.scenes) {
-            if (!(sc.overrides.sky || sc.overrides.lighting || sc.overrides.fog))
-                continue;
-            AmbiencePreset a = fromSettings(resolvedSettings(out, sc), uniqueName(sc.name));
-            sc.ambiencePreset = a.name;
-            sc.overrides.sky = sc.overrides.lighting = sc.overrides.fog = false;
-            out.ambiencePresets.push_back(std::move(a));
-        }
-        out.defaultAmbience = 0;
-    }
+    // NOTE there is deliberately no "fold sky/lighting/fog into presets"
+    // migration here any more. It was the pre-Ambience-Editor lift, gated on
+    // `ambiencePresets.empty()` - and that gate stopped meaning "an old file"
+    // the moment the Ambience Editor let you delete every preset (it has an
+    // empty state and no last-one guard, so this is an ORDINARY state). On such
+    // a project it re-manufactured a "Default" preset, bound each scene that
+    // overrode sky/lighting/fog to a freshly invented preset named after the
+    // scene, and CLEARED those three override flags - measured, not feared: an
+    // emptied lighting example came back with `"ambiencePreset": "main"` and
+    // its two ticks off. The values survived inside the preset, but the
+    // structure the author chose did not. A pre-versioning file is refused at
+    // the version::kMinFormatVersion gate long before this point, so the lift
+    // had no one left to help.
     if (out.defaultAmbience < -1 ||
         out.defaultAmbience >= (int)out.ambiencePresets.size())
         out.defaultAmbience = -1;
@@ -6712,16 +6542,6 @@ std::string load(Project& out, const std::string& projectDir) {
     ensureHeightmap(out);
     loadSplat(out);  // reads <scene>.splat sidecars + reconciles with the layers
 
-    // Legacy project-level flow graph (pre per-object graphs): adopt it into
-    // the first object so old projects keep working. It is written back in
-    // the new per-object format on the next save.
-    if (const auto* fg = root.find("flowGraph"); fg && !out.scenes[0].objects.empty()) {
-        FlowGraph legacy;
-        readFlowGraph(*fg, legacy);
-        if (!legacy.empty() && out.scenes[0].objects[0].flowGraph.empty())
-            out.scenes[0].objects[0].flowGraph = std::move(legacy);
-    }
-
     // Editor-side state + window layout (the .tyra file holds the whole
     // project). All are clamped/validated where they are applied.
     if (const auto* ed = root.find("editor")) {
@@ -6738,16 +6558,9 @@ std::string load(Project& out, const std::string& projectDir) {
             for (const auto& jb : v->arr)
                 if (jb.type == json::Value::Type::String && !jb.str.empty())
                     out.debugBreakpoints.push_back(jb.str);
-        // Legacy fields: emulatorPath / ps2LinkIp are now machine-global
-        // (editor.ini). Still read so the editor can migrate an older project's
-        // values into the global config on first open (see App::attachProject);
-        // no longer written back out.
-        if (const auto* v = ed->find("emulatorPath")) out.emulatorPath = v->stringOr("");
-        if (const auto* v = ed->find("ps2LinkIp")) out.ps2LinkIp = v->stringOr("");
     }
-    // Window layouts. New format: a "layouts" array + "activeLayout" index.
-    // Legacy format: a single "layout" dump - migrate it into the built-in set
-    // so older projects gain Director/Material while keeping their arrangement.
+    // Window layouts: a "layouts" array + an "activeLayout" index. A project
+    // that carries none is seeded with the built-in set.
     if (const auto* layouts = root.find("layouts");
         layouts && layouts->type == json::Value::Type::Array) {
         for (const auto& jl : layouts->arr) {
@@ -6765,10 +6578,6 @@ std::string load(Project& out, const std::string& projectDir) {
             out.activeLayout = (int)v->numberOr(0);
     } else {
         seedBuiltinLayouts(out);
-        if (const auto* v = root.find("layout")) {
-            const std::string legacy = v->stringOr("");
-            if (!legacy.empty()) out.windowLayouts[0].ini = legacy;  // keep old arrangement
-        }
     }
     // Top up the built-in set: a project saved before a built-in layout existed
     // keeps its own layouts, and would otherwise never see the new one. Only
@@ -6800,7 +6609,6 @@ std::string load(Project& out, const std::string& projectDir) {
     // Same contract as the layouts: fonts[0] is the fallback every empty font
     // reference resolves to, so the list must never be empty.
     if (out.fonts.empty()) out.fonts.push_back(GameFont{});
-    migrateFontRefs(out);
 
     return "";
 }
@@ -7501,8 +7309,8 @@ std::string refreshGenerated(const Project& p) {
                    f.relativePath == "inc\\controls.hpp" ||
                    f.relativePath == "inc\\scripts\\script.hpp" ||
                    f.relativePath == "inc\\scripts\\flow_nodes.hpp") {
-            // Regenerate while the ownership marker is present, or when the
-            // file is byte-identical to an old template (never user-edited).
+            // Regenerate only while the ownership marker is present: the user
+            // deletes that line to take the file over.
             std::ifstream existing(path, std::ios::binary);
             if (!existing) {
                 write = true;
@@ -7510,12 +7318,7 @@ std::string refreshGenerated(const Project& p) {
                 std::stringstream content;
                 content << existing.rdbuf();
                 std::string firstLine = content.str().substr(0, content.str().find('\n'));
-                // Accept the current "Generated by TyraX" marker and the legacy
-                // "Generated by tyra-editor" one (projects created before the
-                // TyraX rebrand) so their ownable files keep syncing.
-                write = firstLine.find("Generated by TyraX") != std::string::npos ||
-                        firstLine.find("Generated by tyra-editor") != std::string::npos ||
-                        templates::matchesLegacy(p, f.relativePath, content.str());
+                write = firstLine.find("Generated by TyraX") != std::string::npos;
             }
         } else if (f.relativePath == ".vscode\\extensions.json") {
             // Write-once like the notices below, EXCEPT that a recommendation

@@ -190,9 +190,9 @@ namespace {
 constexpr float PI = 3.14159265358979F;
 
 // Display-mode option rows (bind 5): the engine mode an option drives, and
-// the option a mode shows as. Rows without an explicit optModes table keep
-// the positional mapping (option index == Tyra::DisplayMode); a table entry
-// of -1 is the "DEFAULT" option - the project-default boot mode.
+// the option a mode shows as. Every such row carries an optModes table (codegen
+// fills a short one in positionally); a table entry of -1 is the "DEFAULT"
+// option - the project-default boot mode.
 int displayOptionMode(const MenuEntryData& en, int idx) {
   if (en.optModes && idx >= 0 && idx < en.optionCount) {
     const int m = en.optModes[idx];
@@ -5466,7 +5466,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
 // skipped while the channel is still busy, so the sample loops seamlessly.
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
-// "on the player" wherever they are (dialogs, narration). Hide Object mutes.
+// "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
@@ -11375,7 +11375,7 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // the planar speed as a fraction of full walk speed. The mapping is trivial -
 // idle / walk / run by speed, jump while airborne - and the avatar's playback
 // speed tracks the real speed so the feet don't slide. The escape hatch: if a
-// non-locomotion clip is currently playing (a script/flow "Play Animation"
+// non-locomotion clip is currently playing (a script or an Animation node
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,

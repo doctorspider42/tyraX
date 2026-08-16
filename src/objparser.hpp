@@ -103,7 +103,4 @@ template <class Model>
 bool applyMaterialOverride(Model& model, const std::string& overrideMtlPath,
                           std::vector<std::string>* warnings = nullptr);
 
-// Legacy flat loader: all submeshes concatenated (8 floats per vertex).
-bool load(const std::string& path, std::vector<float>& outPosNormalUv);
-
 }  // namespace objparser
