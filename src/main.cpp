@@ -24,6 +24,7 @@
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
+#include "gigpu.hpp"
 #include "litbake.hpp"
 #include "modelao.hpp"
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
@@ -904,6 +905,71 @@ static int bakePrelitFromCli(int argc, char** argv) {
             "nothing is marked to ship pre-lit - tick objects in Tools > "
             "Baked Lighting, or use --bake-object-light for a one-off\n");
     return rep.failed ? 1 : 0;
+}
+
+// tyrax-editor --gi-gpu-check <projectDir> [sceneIndex]
+//
+// The oracle for the GPU gather (docs/global-illumination.md, "The GPU
+// backend"). It builds and SOLVES one scene exactly as a bake does, then
+// gathers the same deterministic sample set both ways and reports how far apart
+// they are plus what each cost.
+//
+// It exists because the GLSL kernel is the fourth twin of gibake::gather, and
+// the only one that can be checked by machine: a bake is a pure function, so a
+// disagreement is a number rather than an opinion. Run it after touching either
+// side.
+static int giGpuCheckFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --gi-gpu-check <projectDir> "
+                     "[sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::string why;
+    if (!gigpu::available(&why)) {
+        std::printf("gpu: unavailable - %s\n", why.c_str());
+        std::printf("     the CPU integrator is what a bake would use here.\n");
+        return 0;  // not a failure: headless machines are an expected state
+    }
+    const int si = argc > 3 ? std::atoi(argv[3]) : 0;
+    if (si < 0 || si >= (int)p.scenes.size()) {
+        std::fprintf(stderr, "error: no scene %d\n", si);
+        return 1;
+    }
+    const gibake::Settings st = gibake::settingsOf(p.settings);
+    gibake::Scene s = gibake::build(p, p.scenes[si], st);
+    if (s.empty()) {
+        std::fprintf(stderr, "error: scene %d tessellates to nothing\n", si);
+        return 1;
+    }
+    const std::atomic<bool> never{false};
+    gibake::solve(s, st, &never, nullptr);
+    // 262144 is the batch the atlas pass actually hands over (256^2
+    // texels x the GI sub-grid), so this measures the kernel rather
+    // than dispatch latency.
+    const gigpu::Compare c = gigpu::compare(s, st.rays, 262144);
+    if (!c.ran) {
+        std::printf("gpu: did not run - %s\n", c.note.c_str());
+        return 1;
+    }
+    std::printf("scene %d: %d triangles, %d sample points, %d rays each\n", si,
+                s.tree.triCount(), c.points, st.rays);
+    std::printf("  cpu %.3fs   gpu %.3fs   speedup %.1fx\n", c.cpuSeconds,
+                c.gpuSeconds,
+                c.gpuSeconds > 0.0 ? c.cpuSeconds / c.gpuSeconds : 0.0);
+    std::printf("  mean |gpu-cpu| %.6f   max %.6f   (mean |cpu| %.6f)\n",
+                c.meanAbs, c.maxAbs, c.meanRef);
+    // A relative mean this small is float divergence between two transcendental
+    // implementations; anything larger is a kernel that stopped being a twin.
+    const double rel = c.meanRef > 1e-9 ? c.meanAbs / c.meanRef : 0.0;
+    std::printf("  relative mean error %.4f%%  -> %s\n", rel * 100.0,
+                rel < 0.01 ? "AGREE" : "DIVERGED, the kernel is not a twin");
+    return rel < 0.01 ? 0 : 1;
 }
 
 // tyrax-editor --bake-model-ao <projectDir> [--texbake]
@@ -3430,6 +3496,8 @@ int main(int argc, char** argv) {
         return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--gi-gpu-check") == 0)
+        return giGpuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
         return bakeModelAoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)

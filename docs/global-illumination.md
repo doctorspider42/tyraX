@@ -288,6 +288,69 @@ above and the 800% the box can give.
 
 ---
 
+## The GPU backend
+
+The hemisphere gather also exists as a **GL 4.3 compute kernel** (`src/gigpu.cpp`),
+a twin of `gibake::gather` + `directAt` + `skyRadiance` + `bvh::trace`.
+
+It is an accelerator **with a reference**, not a replacement, and that is
+structural rather than cautious: `--bake-gi` runs headless on build servers and
+inside the Docker build, where there is no display and no GL context at all. So
+the CPU integrator can never be deleted, and every path has to survive
+`gigpu::available()` answering false. The context is a hidden GLFW window rather
+than EGL, because GLFW is already a dependency on both platforms and a
+per-OS pair would be a file that exists twice (see "Platform parity" in the
+`tyra-editor-dev` skill).
+
+**It does not promise bit-identity, and cannot.** Every other bake here is
+bit-identical at any core count, but that holds because one implementation runs
+everywhere. A GPU has its own transcendental units, its own FMA contraction and
+its own rounding, so `sin` and `pow` in the kernel are simply not the host's. A
+GPU bake and a CPU bake are therefore compared with a **tolerance, never with
+`cmp`**, and a cache has to record which one produced it.
+
+### The oracle
+
+The kernel is the fourth twin in a codebase that already tracks host / EE /
+viewport-shader triplets — but it is the only one that can be checked by
+machine, because a bake is a pure function. `--gi-gpu-check <projectDir>` builds
+and solves a scene exactly as a bake does, gathers the same deterministic sample
+set both ways, and reports the disagreement and the cost:
+
+```
+scene 0: 2716 triangles, 173824 sample points, 128 rays each
+  cpu 15.557s   gpu 0.233s   speedup 66.8x
+  mean |gpu-cpu| 0.000019   max 0.006315   (mean |cpu| 0.641016)
+  relative mean error 0.0030%  -> AGREE
+```
+
+Run it after touching **either** side. A relative mean error in the thousandths
+of a percent is float divergence between two transcendental implementations;
+anything above 1% is a kernel that stopped being a twin, and the verb exits
+non-zero on it.
+
+### What it is actually worth
+
+Measured on this repo's examples, against a **single** CPU core, at the batch
+size a real atlas pass hands over (~170k points):
+
+| Example | CPU, 1 core | GPU | vs 1 core | vs 8 cores |
+| --- | --- | --- | --- | --- |
+| [global-illumination](../examples/global-illumination) | 11.1 s | 0.21 s | 54× | ~7× |
+| [gi-showcase](../examples/gi-showcase) | 15.6 s | 0.23 s | 67× | ~8× |
+
+**Quote the 8-core column.** The CPU bake is parallel now, so the per-core ratio
+flatters the GPU by a factor of eight and is the wrong number to plan with.
+
+**Batch size is most of the result**, which is why the gather takes a batch and
+not a point. The same scenes measured at 21k points read 20–50× against one core
+and as low as 9× cold; at 170k they read 41–67× and stop moving. A per-point
+entry point would lose all of it — the dispatch latency alone exceeds the CPU
+cost of one gather. The first measurement of all, taken on 2.6k points with no
+warm-up, read **1.2×**, which is what measuring driver start-up looks like.
+
+---
+
 ## Determinism
 
 Inherited from [matbake](material-baking.md), and load-bearing: the sample
