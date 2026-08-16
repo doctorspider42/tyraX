@@ -13,7 +13,9 @@ editor rather than work on it.
 
 `TyraX-Setup-<version>.exe` is attached to every release on the
 [releases page](https://github.com/doctorspider42/tyraX/releases). It is built
-with [Inno Setup 7](https://jrsoftware.org/) from `installer/tyrax.iss`.
+with [Inno Setup 7](https://jrsoftware.org/) from `installer/tyrax.iss` — a
+64-bit Setup (`SetupArchitecture=x64`, since the editor is 64-bit and there is
+no 32-bit build) whose wizard follows Windows' light or dark mode.
 
 **It installs per user by default**, into `%LOCALAPPDATA%\Programs\TyraX` — no
 administrator rights, no UAC prompt. That is not a preference: it is what lets
@@ -107,7 +109,17 @@ to `main` can leave `main` unreleased.
 ./installer/build-installer.ps1 -SkipBuild   # package what is already in build/
 ```
 
-It needs Inno Setup 7 (`winget install JRSoftware.InnoSetup.7`); the script
-finds `ISCC.exe` in the usual places, including a per-user install. The result
-is `dist\TyraX-Setup-<version>.exe`. The `.iss` refuses to compile under Inno
-Setup 6 rather than quietly producing a different installer.
+It needs Inno Setup 7 — `winget install JRSoftware.InnoSetup.7`. **Chocolatey's
+`innosetup` package is the 6.x line and will not do**; that is not a detail, it
+is what broke the first release run, and the script now says so by name rather
+than letting the compile die inside the `.iss`'s own version guard. It looks for
+`ISCC.exe` in the usual places (per-user installs included), **checks the major
+version of each candidate** and takes the first that is 7 or newer — so a
+chocolatey 6.x shim sitting on `PATH` is skipped rather than picked. CI
+downloads Inno Setup 7 straight from its own GitHub release and verifies the
+SHA-256 before running it.
+
+The result is `dist\TyraX-Setup-<version>.exe`. The `.iss` refuses to compile
+under Inno Setup 6 rather than quietly producing a different installer, and it
+uses 7-only features (`SetupArchitecture`, the `dynamic` wizard appearance), so
+that refusal is real rather than ceremonial.
