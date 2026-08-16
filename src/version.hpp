@@ -16,6 +16,44 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.52.2 (a lamp's glow stops sawing its own pole): reported from
+// examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
+// boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
+// at the reporter's own vantage (torch toggled: unchanged; light removed:
+// gone; Beam set to 0: gone - so the corona), with every capture taken by the
+// GAME ITSELF (ps2sdk's ps2_screenshot_file into host:, VIF1 reverse FIFO),
+// because the desktop was locked all night and no host-side capture can see a
+// window there. Two causes, two fixes, both in the generated
+// updateAndRenderLightBeams/menubake pair:
+//
+// THE SEAM IS A Z-FIGHT WITH ITS OWN FIXTURE. The corona is a depth-tested
+// additive billboard centred exactly on the bulb, so it slices through the
+// lamp's own pole and arm, and the GS's fixed-point z cuts the soft sprite on
+// a chunky seam that wanders as the camera moves. The sprite is now PULLED
+// toward the camera (a quarter of the light radius, capped at three quarters
+// of the camera distance - a half-distance cap measurably parked the seam at
+// the pole's base when looking steeply up, which is how the cap value was
+// chosen) and shrunk by the same fraction, so its apparent size is untouched:
+// the glow blooms OVER the thin fixture the way a real lens does, and a wall
+// between camera and lamp still occludes it. The cone shaft (Beam: shaft)
+// stays at the true position - it is world geometry.
+//
+// AND THE CORONA WAS 64 TEXELS ACROSS A THIRD OF THE SCREEN. Up close the
+// radial gradient's texels are ~4 px, so its rim contours in visible steps
+// whatever the z does. Kind 2 - the beam corona, which the star field also
+// draws through - bakes at 128 now (menubake::kCoronaSpriteSize; the 2D
+// lens-flare sprites stay 64, they draw small). The file is rewritten on
+// every refreshGenerated, so existing projects pick it up on their next
+// build; the editor viewport's star-dot upload follows the same constant.
+//
+// What this deliberately does NOT fix, measured so it is not re-chased: the
+// few-pixel stepping that remains at the pole's base is the pole model's own
+// edge aliasing at native resolution - identical with the corona's z-test
+// off, identical at 64 and 128, present with the beam entirely removed once
+// the contrast is matched - and would need AA or a higher raster, not a pass
+// change. PATCH: no capability appears, a defect goes away; the format is
+// untouched.
+//
 // 1.52.1 (the .rpm stops being twice its own size): v1.52.0 shipped a 31 MB
 // rpm of a tree that packs into 13, because a spec that says nothing about its
 // payload gets the BUILDER's default - and the CI runner's rpmbuild (Ubuntu
@@ -1447,7 +1485,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 52
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
