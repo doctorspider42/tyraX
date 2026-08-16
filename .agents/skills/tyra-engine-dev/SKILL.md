@@ -180,7 +180,25 @@ the game re-submits the caster's existing bags under a `pushEnvView` "light
 camera" and draws a terrain patch sampling the slot's VRAM-resident texture
 by light-space UVs; `allocate()` is called by generated games only when a
 project has "Cast shadow" objects, and init() re-places the buffers after a
-display-mode VRAM reset), `RendererCoreEnvMap` (128×128 VRAM render target for
+display-mode VRAM reset), `RendererCoreAlphaMask` (the flashlight shadow
+volumes' destination-alpha mask, docs/flashlight.md "The shadow": begin/
+beginKeep/end bracket FBMSK to the alpha bits for the convex 1-bit set/clear,
+repaintAlpha() is MANDATORY after the last DATE pass because the SDTV flicker
+filter displays per-pixel framebuffer alpha - and the COUNTING half for true
+mesh-shaped volumes: allocateCount() claims a raster-sized PSMCT16 count
+target (permanent-region discipline, refusal graceful via countReady()),
+countBegin() redirects FRAME there while ZBUF stays the scene's z (one pixel
+grid, two independent addresses), volume bags count with
+`PipelineInfoBag::additiveBlendFix`/`subtractiveBlendFix` (+N front faces /
+-N back faces, TestOnly z), and countResolve() converts count>0 into the
+alpha MSB with ONE textured sprite - TEXA.AEM=1 makes an all-zero texel
+alpha 0 and anything else TA0=0x80, ATEST!=0 makes the write an OR, and the
+packet restores CLAMP to REPEAT itself because emitRasterRestore does not
+know texture state. The GS cannot count in alpha - blending never writes A -
+which is why the count lives in color channels of a target that is never
+displayed; N=32 clears the 16-bit channel's 8-step quantization plus
+dithering's +-4, so DTHE needs no save/restore),
+`RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
 one qword of 2×2 basis weights per particle, colors one per particle; VU1

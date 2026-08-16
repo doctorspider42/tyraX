@@ -14504,9 +14504,10 @@ void App::drawPreferencesWindow() {
         "most four at once, and light still leaks through everything else.\n"
         "ON - shadow volumes, the survival-horror era's own arrangement:\n"
         "every solid in the beam occludes, exactly per pixel against the\n"
-        "real depth buffer, self-shadowing included. Costs the volume fill\n"
-        "each frame, and the shadow shapes come from the objects' BOXES\n"
-        "rather than their meshes.");
+        "real depth buffer - model casters from their REAL triangles\n"
+        "(silhouette-extruded, stencil-counted in a dedicated buffer),\n"
+        "primitives from their boxes. Costs the volume fill each frame\n"
+        "plus 448 KB of GS VRAM for the counting buffer.");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);

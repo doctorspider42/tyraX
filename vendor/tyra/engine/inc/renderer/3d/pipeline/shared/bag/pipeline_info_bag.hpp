@@ -36,6 +36,7 @@ class PipelineInfoBag {
     zTestType = PipelineZTest_Standard;
     fogDisabled = false;
     additiveBlendFix = 0;
+    subtractiveBlendFix = 0;
     dynLightPick = true;
     spotLit = true;
     dateLit = false;
@@ -85,6 +86,17 @@ class PipelineInfoBag {
    * draw. Consumed by the static pipeline only (StaPipCore::render).
    */
   u8 additiveBlendFix;
+
+  /**
+   * Modified by TyraX: like additiveBlendFix, but SUBTRACTIVE -
+   * Cv = Cd - Cs*FIX/128, i.e. the equation (0 - Cs)*FIX/128 + Cd with the
+   * GS clamping at 0. Rides the same in-band ALPHA qword; wins over
+   * additiveBlendFix when both are set. Exists for the flashlight shadow
+   * volumes' COUNTING pass: front faces add +N into the dedicated count
+   * target, back faces subtract it back, and the pixels the beam cannot
+   * reach are exactly the ones left non-zero (docs/flashlight.md).
+   */
+  u8 subtractiveBlendFix;
 
   /**
    * Modified by TyraX: opt-out from the per-bag scene-dynamic-light pick

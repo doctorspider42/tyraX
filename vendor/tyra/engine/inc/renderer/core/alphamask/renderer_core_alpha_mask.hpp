@@ -72,6 +72,53 @@ class RendererCoreAlphaMask {
   void end();
 
   /**
+   * THE COUNTING ARRANGEMENT (mesh-shaped shadow volumes). The 1-bit
+   * set/clear above is only sound for CONVEX volumes - the GS cannot count
+   * in destination alpha (blending never writes A). But it CAN add and
+   * subtract in COLOR channels, so a silhouette-extruded volume from a
+   * caster's real triangles counts in a dedicated raster-sized PSMCT16
+   * target instead:
+   *
+   *   core.alphaMask.allocateCount();      // once, in init(), before textures
+   *   ...per caster, scene z complete:
+   *   core.alphaMask.countBegin();         // FRAME -> count target, clear 0;
+   *                                        // ZBUF stays the SCENE's z
+   *   ... render the volume through the static pipeline: camera-front faces
+   *       with additiveBlendFix (each +N per channel), camera-back faces
+   *       with subtractiveBlendFix (-N), both TestOnly vs the scene depth.
+   *       Pixels inside the volume end up net-positive; everything else
+   *       returns to exact zero, whatever the overlap count.
+   *   core.alphaMask.countResolve();       // count>0 -> alpha MSB (OR)
+   *
+   * countResolve() samples the count target as a texture with TEXA.AEM = 1
+   * (an all-zero texel expands to alpha 0, anything else to TA0 = 0x80) and
+   * draws one full-raster sprite into the real framebuffer with FBMSK
+   * exposing only alpha and ATEST != 0 - so it ORs 0x80 into the mask and
+   * never clears what earlier casters set. The DATE-gated light passes then
+   * run unchanged. The count target is never displayed, so no color repaint
+   * is owed anywhere; repaintAlpha() stays mandatory exactly as before.
+   *
+   * The counting N is 32: comfortably above the 16-bit channel's 8-step
+   * quantization plus the dither matrix's +-4 (dithering therefore needs no
+   * save/restore - a dithered zero still truncates to a zero 5-bit channel),
+   * with headroom for 7 overlapping front faces before saturation.
+   */
+  void allocateCount();
+
+  /** True when the count target exists - callers fall back to the convex
+   * 1-bit brackets when the VRAM allocation was refused. */
+  bool countReady() const { return countAllocated; }
+
+  /** Redirect FRAME to the count target (scene z stays bound for the
+   * TestOnly volume draws) and clear it to zero. Drains PATH1 first. */
+  void countBegin();
+
+  /** Drain the volume draws, convert count>0 into the framebuffer alpha's
+   * MSB (an OR - never clears earlier casters' bits) and restore the whole
+   * raster environment. */
+  void countResolve();
+
+  /**
    * Repaint the raster's ALPHA byte to the scene's neutral 0x80, colors and
    * z untouched. MUST be called once the frame's last DATE-gated pass has
    * drawn: on the SDTV interlaced modes the flicker filter's PMODE blends
@@ -94,6 +141,15 @@ class RendererCoreAlphaMask {
   packet2_t* repaintPacket = nullptr;
   // beginKeep's own packet, same single-frame-reuse rule as repaintPacket.
   packet2_t* keepPacket = nullptr;
+  // The counting pair: each is sent several times per frame (one bracket per
+  // caster), rebuilt only after its own draw_wait_finish - the repaintPacket
+  // rule again.
+  packet2_t* countBeginPacket = nullptr;
+  packet2_t* countResolvePacket = nullptr;
+  bool countAllocated = false;
+  int countAddress = 0;
+  int countW = 0;
+  int countH = 0;
 };
 
 }  // namespace Tyra

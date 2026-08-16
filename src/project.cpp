@@ -193,11 +193,24 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
         lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
     }
 
+    // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
+    // shadow"): a raster-sized PSMCT16 buffer the generated init() claims
+    // right after the shadow-map slots whenever the technique is on and a
+    // scene has a flashlight. Allocated after the engine's own headroom
+    // check, like the upscaler's low-res target - so this twin subtracts it
+    // by hand too. Approximated as "any flashlight in the project" rather
+    // than re-deriving codegen's FLASHLIGHT_USED predicate: erring toward
+    // two buffers is the safe direction (the engine's own refusal is
+    // graceful either way - the volumes fall back to sub-boxes).
+    int countWords = 0;
+    if (s.flashShadowVolumes) countWords = pageUp((w * h + 1) / 2);
+
     TripleBufferFit f;
     f.bufferWords = bufferWords;
     f.needWords = kNeed;
-    f.leftWords =
-        kVramWords - (2 * bufferWords + zWords + lowWords) - bufferWords;
+    f.leftWords = kVramWords -
+                  (2 * bufferWords + zWords + lowWords + countWords) -
+                  bufferWords;
     f.fits = f.leftWords >= kNeed;
     f.mode = d.key;
     return f;

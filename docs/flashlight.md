@@ -158,8 +158,8 @@ Three things worth knowing about how the receivers are found and drawn:
 
 One era artifact comes with the era's method: the pass has no shadows of its
 own, so a beam on a hut's outer wall also lights the *inner* face of that wall
-for someone standing inside. Silent Hill spent its shadow volumes on exactly
-this; here it is simply the deal.
+for someone standing inside. The era’s games spent their shadow volumes on
+exactly this; here it is simply the deal.
 
 **Both patches are live at once.** A beam sweeping off the floor and up a wall
 lights the two together for as long as it straddles the join, so the flashlight
@@ -259,30 +259,53 @@ shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |
 | --- | --- | --- |
-| Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **box**, extruded |
+| Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **mesh**, silhouette-extruded (boxes only past 1200 triangles) |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
-| Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer, self-shadowing included |
-| Cost | four 64×64 silhouette renders | the volume fill each frame |
+| Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
+| Cost | four 64×64 silhouette renders | the volume fill each frame + 448 KB of GS VRAM for the count buffer |
 
 Volumes are the survival-horror era's own arrangement, on its own hardware
-trick: each occluder box is extruded away from the torch into a closed volume,
-the volume's camera-front faces **set** the framebuffer's destination-alpha MSB
-where they beat the scene's depth, its back faces **clear** it where they do —
-plain z-testing is the entire algorithm — and every torch light pass then draws
-with the GS's destination-alpha test (`TEST.DATE`), only where the mask says
-lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
-and the torch genuinely does not reach you.
+trick. Each occluder is extruded away from the torch into a closed volume — a
+model from its **real triangles** (the lit faces, pushed 5 cm down their rays,
+are the near caps; their projection at the light's range the far caps; and the
+silhouette edges, where a lit and an unlit face meet, become the extruded side
+walls — an *open* edge, and these models are not watertight, silhouettes
+whenever its one face is lit). A primitive extrudes its box, and a model past
+1200 triangles falls back to up to three tight sub-boxes (median split, then
+leaves merge back wherever splitting bought nothing).
 
-A model caster casts from up to three TIGHT sub-boxes fitted to its
-triangles (median split, then leaves merge back wherever splitting bought
-nothing), never from its one AABB - a lamp post's AABB is a slab of mostly
-air, and a slab's shadow is a lie. Each sub-box is convex, which is what the
-1-bit destination-alpha trick genuinely requires: the GS cannot COUNT like a
-stencil, so a non-convex volume's set/clear order lies. (True mesh-shaped
-volumes - the hospital-bed slats - need the era's full arrangement: count in
-a spare framebuffer channel with add/subtract blending, then one resolve
-pass converts count into the mask bit. The machinery exists here; it is a
-planned step, not this one.)
+Such a volume is thoroughly **concave** and overlaps itself constantly, which
+is exactly what 1-bit destination alpha cannot express: the GS cannot COUNT in
+the alpha channel — blending never writes A — so a set/clear order over a
+concave volume lies. The era's answer, reproduced here: the GS *can* add and
+subtract in **color** channels. The volume's camera-front faces add +32 and
+its back faces subtract it, both plain TestOnly z against the scene's depth,
+into a dedicated raster-sized 16-bit count target that shares the scene's own
+z buffer (`FRAME` and `ZBUF` are independent addresses over one pixel grid).
+Any pixel the light cannot reach ends net-positive; everything else returns to
+exact zero, whatever the overlap count. Then **one resolve pass per caster**
+samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
+expands to alpha 0, anything else to 0x80 — and ORs *count > 0* into the
+framebuffer's destination-alpha MSB through an alpha test (a zero fragment
+writes nothing, so earlier casters' bits survive). Every torch light pass then
+draws with the GS's destination-alpha test (`TEST.DATE`), only where the mask
+says lit. The mask gates *light*; nothing ever paints darkness. Stand behind a
+crate and the torch genuinely does not reach you.
+
+Two geometric facts shape the implementation. **The torch sits exactly in the
+eye**, and a light in the eye casts shadows exactly hidden behind their own
+casters — so the volumes extrude from a *virtual* torch pushed a short way
+down the beam (5% of the range, clamped to 0.5–2 units): the hand-held
+parallax that makes every shadow diverge and show around what casts it, the
+same reason the silhouette mode projects with a wider FOV. And **face
+orientation is geometric, never winding-trusted**: caps orient toward/away
+from the light, side walls away from an interior sample — a model with flipped
+winding degrades to casting from its back faces, whose silhouette is the same.
+
+If the count target's VRAM is refused (it is claimed at boot, right after the
+projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the
+volumes fall back to the convex sub-boxes with the old 1-bit set/clear — one
+bracket per convex piece, a sliver artifact where pieces overlap.
 
 Four rules keep the volumes honest, each paid for with a report from the
 yard. The occluder slots go to the four candidates NEAREST the torch, never
@@ -293,9 +316,10 @@ slot it stole was the facade's). Casters and receivers are walked TOGETHER,
 sorted by distance, each receiver's light drawn BEFORE its own volume enters
 the mask - a volume only ever shadows what is behind its caster, so
 nearest-first is the dependency order, and an object structurally cannot
-shadow itself (a model's AABB stands proud of its real walls - a roof
-overhang - and the shed's own volume used to swallow the shed: "a black
-hole"). And once the last DATE-gated pass has drawn, the raster's ALPHA is
+shadow itself (a proud proxy used to swallow its own caster whole - "a black
+hole" - and even an exact mesh's pushed cap can win a grazing depth tie on a
+big face up close; the interleave makes the whole class impossible). And once
+the last DATE-gated pass has drawn, the raster's ALPHA is
 repainted to the neutral 0x80 - the mask lives in the framebuffer's alpha,
 and the SDTV flicker filter blends its two read circuits by that very
 channel, so a mask left in place is SHOWN by the CRTC as translucent wedges.
@@ -315,7 +339,7 @@ What the silhouette mode needs and costs:
   arrangement for a light that walks around, and without the check its
   silhouette painted *through* the wall.
 - A torch level with the caster throws **no ground shadow** (there is no ground
-  the ray reaches) but still paints the wall — which is the Silent Hill shot.
+  the ray reaches) but still paints the wall — the era’s signature shot.
 - In first person the shadow hides *behind* its caster from your point of view —
   the light is your eye. It reveals itself at the edges (the silhouette is
   bigger than the caster by the light's divergence), on casters off the beam's
@@ -323,8 +347,8 @@ What the silhouette mode needs and costs:
 
 One era artifact, inherited honestly: the wall pass has no self-shadowing, so
 the silhouette lands on the far wall even when the beam's own light got there
-through the gap *beside* the caster rather than through it. Silent Hill spent
-its shadow volumes on exactly this class of correctness; here four slots and a
+through the gap *beside* the caster rather than through it. The era spent its
+shadow volumes on exactly this class of correctness; here four slots and a
 64×64 silhouette are the whole budget.
 
 ## What is still on the model, and what to do about it

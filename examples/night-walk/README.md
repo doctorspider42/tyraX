@@ -57,7 +57,10 @@ stick, look with the right, and **Circle** switches the torch off and on.
 ## Things worth trying
 
 - *Preferences > Rendering > Flashlight shadow volumes* — flip it and rebuild;
-  same yard, same casters, two philosophies of shadow.
+  same yard, same casters, two philosophies of shadow. In volume mode a model
+  caster shadows with its **real mesh** (the street lamp throws a pole-and-arm
+  shadow, not a slab), stencil-counted per pixel in a dedicated GS buffer —
+  docs/flashlight.md "The shadow" has the whole arrangement.
 - The torch's **Reach** and **Cone half-angle** (Properties on the player)
   size the pool as well as the light.
 - Replace `res/hud/flashlight-gobo.png` with your own gobo — a cross, a

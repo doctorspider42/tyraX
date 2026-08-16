@@ -16,6 +16,46 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.43.0 (a caster's shadow IS its mesh now): the flashlight's shadow
+// volumes stop being cut from boxes - a model caster classifies its REAL
+// triangles against the torch, extrudes the silhouette edges to the light's
+// range (caps from the lit faces, pushed 0.05, plus their far projection;
+// open edges - these models are not watertight - silhouette whenever their
+// one face is lit), and the volume is COUNTED per pixel the way the era
+// actually did it: the GS cannot count in 1-bit destination alpha (blending
+// never writes A), so camera-front faces ADD +32 and back faces SUBTRACT it
+// (new PipelineInfoBag::subtractiveBlendFix, the additive qword's twin) in
+// a dedicated raster-sized PSMCT16 target that shares the scene's z buffer
+// (FRAME and ZBUF are independent addresses on one pixel grid), and ONE
+// resolve per caster samples that target with TEXA.AEM = 1 (all-zero texel
+// = alpha 0, anything else = 0x80) and ORs count>0 into the mask through
+// ATEST != 0 - RendererCoreAlphaMask::allocateCount/countBegin/countResolve.
+// Counting also retires the sub-box overlap sliver: a caster's whole set of
+// pieces goes through ONE bracket. Two decisions that took derivation
+// rather than code: the volumes extrude from a VIRTUAL torch pushed
+// 0.05 x range (clamped 0.5..2) down the beam, because the real torch sits
+// exactly in the eye and a light in the eye casts shadows exactly hidden
+// behind their casters (the proud BOXES were the only reason anything was
+// ever visible); and the interleave (light before its own volume) STAYS -
+// the exact mesh removes the proud-proxy black hole, but a pushed cap can
+// still win a grazing depth tie on a big face up close, and the interleave
+// makes that class impossible rather than rare. Face orientation for the
+// front/back split is GEOMETRIC (caps toward/away from the light, side
+// quads via an interior sample), never winding-trusted - a globally flipped
+// mesh degrades to casting from its back faces, whose silhouette is the
+// same. Sub-boxes remain for models past 1200 triangles and, per convex
+// piece with the old 1-bit brackets, for the graceful fallback when the
+// count target's 448 KB of VRAM is refused (allocateBuffer returns -1; the
+// generated init claims it right after the shadow-map slots, and
+// project::tripleBufferingFit subtracts it like the upscaler's low-res
+// target). VRAM cost is the one number worth stating twice: 512x448 CT16 =
+// 448 KB, opt-in with the technique itself. The count value 32 rides above
+// the 16-bit channel's 8-step quantization plus dithering's +-4, so DTHE
+// needs no save/restore; and the resolve restores CLAMP to REPEAT itself,
+// because emitRasterRestore does not know about texture state. Docs:
+// docs/flashlight.md "The shadow" rewritten around the counting
+// arrangement; no format change (the technique flag is v27's).
+//
 // 1.42.0 (the editor stops flattering you about lights): three preview
 // gaps, all reported with a screenshot. The bulb gizmo is a small constant
 // MARKER now instead of a unit-sized glow that hid the very point it marks;
@@ -61,9 +101,9 @@
 // pole-plus-arm slab of air that blotted out a facade. Each sub-box gets
 // its own mask bracket because set/clear is only sound inside one CONVEX
 // volume - the GS cannot count like a stencil, which is also why true
-// mesh-shaped volumes (SH2's bed slats) need the era's full arrangement
+// mesh-shaped volumes (a bed's slats) need the era's full arrangement
 // (count in a spare color channel with add/sub blending + a resolve pass)
-// and are left as the named next step.
+// and are left as the named next step (landed in 1.43.0, one entry up).
 //
 // 1.39.3 (thin things are transparent to the torch, in all three systems):
 // stand exactly on the street lamp's axis and the light died completely -
@@ -303,7 +343,7 @@
 // caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
 // shadow-map slot, the ground patch samples it as always, and the wall behind
 // the caster is re-rendered with the silhouette through the light's view-proj,
-// per pixel: the Silent Hill composition, on the machinery that was already
+// per pixel: the survival-horror composition, on the machinery that was already
 // there. Three findings paid for it: the torch needed a laxer elevation bar
 // than fixed lights (it is carried level with everything, and its shadow's
 // whole point is the WALL - the ground patch is simply skipped when the ray is
@@ -319,8 +359,9 @@
 //
 // 1.35.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
 // renumbered on the merge below - main took 1.32.0 with #230 while this branch
-// was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
-// Hill had textured models and it looked fine", which is a fair objection to
+// was away, so both entries here move up one, the standing arrive-second
+// rule): the answer to "the era's games had textured models and it looked
+// fine", which is a fair objection to
 // everything the flashlight work had said up to then. The engine's lightmap
 // route is per texel and refuses textured surfaces, and that refusal is
 // hardware: the GS blend unit computes (A - B) * C + D with C always an ALPHA,
@@ -1065,7 +1106,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 42
+#define TYRAX_VERSION_MINOR 43
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
