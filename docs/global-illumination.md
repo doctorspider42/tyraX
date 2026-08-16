@@ -247,14 +247,44 @@ at those defaults.
 
 ---
 
+## Where the time goes
+
+Almost all of it is the **lightmap texel pass**: one hemisphere gather per
+sub-sample per texel, over a 256² atlas and a terrain map of up to 256². The
+bounce solve and the whole probe grid together are a rounding error beside it —
+a 12×4×12 grid is 576 gathers against a quarter of a million.
+
+That pass runs across every core (`bakepar::parallelFor`), and the unit of work
+is one **(region, row)** rather than one region: region sizes span two orders of
+magnitude, so scheduling whole regions leaves one thread holding the biggest
+wall in the scene while the rest idle, and a scene with fewer regions than cores
+barely divides at all. The schedule is dynamic for the same reason — threads
+pull the next chunk instead of taking a fixed slice up front.
+
+Measured on this repo's own examples, 8 cores:
+
+| Example | Before | After |
+| --- | --- | --- |
+| [global-illumination](../examples/global-illumination) | 17.2 s (98% CPU) | **3.7 s** (493%) |
+| [gi-showcase](../examples/gi-showcase) | 34.9 s (100%) | **8.2 s** (488%) |
+
+The ceiling is not the schedule. What is left sequential is the scene
+tessellation, the atlas dilation and writing the cache — Amdahl, not idle cores.
+
+---
+
 ## Determinism
 
 Inherited from [matbake](material-baking.md), and load-bearing: the sample
 spiral is rotated by a hash of a per-element seed (the texel's atlas
 coordinate, the triangle's index, the probe's index) — never by shared RNG
-state. Threads partition by element range. **The same inputs give bit-identical
-bytes at any core count**, which is the only thing that makes an A/B comparison
-possible at all.
+state, and never by which thread or which chunk reached the element first.
+**The same inputs give bit-identical bytes at any core count**, which is the
+only thing that makes an A/B comparison possible at all.
+
+That is a property to *check*, not to trust: baking twice at different core
+counts and comparing `.res-baked/gi/scene<N>.gi` with `cmp` is what verified the
+parallel texel pass above, and it is the cheapest regression this feature has.
 
 ---
 

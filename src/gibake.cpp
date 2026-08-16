@@ -13,6 +13,7 @@
 
 #include <stb_image.h>  // implementation lives in app.cpp
 
+#include "bakepar.hpp"
 #include "objparser.hpp"
 #include "primmesh.hpp"
 #include "wire.hpp"   // fnv1a64/hashFile - the bake signature hashes CONTENT
@@ -216,33 +217,7 @@ float heightAtWorld(const std::vector<float>& heights, int w, int d,
     return t * (1 - fz) + b * fz;
 }
 
-// Splits [0, count) across the hardware threads and runs `body(i)`. Every
-// element's result depends only on the inputs, so the partition never changes
-// the answer - only the wall clock.
-void parallelFor(int count, const std::atomic<bool>* cancel,
-                 const std::function<void(int, int)>& bodyRange) {
-    if (count <= 0) return;
-    int threads = (int)std::thread::hardware_concurrency();
-    if (threads < 1) threads = 1;
-    if (threads > 16) threads = 16;
-    if (count < threads * 8) threads = 1;
-    if (threads == 1) {
-        bodyRange(0, count);
-        return;
-    }
-    std::vector<std::thread> pool;
-    const int chunk = (count + threads - 1) / threads;
-    for (int t = 0; t < threads; ++t) {
-        const int lo = t * chunk;
-        const int hi = std::min(count, lo + chunk);
-        if (lo >= hi) break;
-        pool.emplace_back([&, lo, hi] {
-            if (cancel && cancel->load()) return;
-            bodyRange(lo, hi);
-        });
-    }
-    for (std::thread& th : pool) th.join();
-}
+using bakepar::parallelFor;
 
 }  // namespace
 
