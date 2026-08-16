@@ -1164,7 +1164,8 @@ StaleReport bakeStale(const Project& p,
 // --- the whole bake for one scene -------------------------------------------
 
 Bake bakeScene(const Project& p, int sceneIndex,
-               const std::atomic<bool>* cancel, const ProgressFn& progress) {
+               const std::atomic<bool>* cancel, const ProgressFn& progress,
+               Timings* timings) {
     Bake out;
     if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return out;
     const SceneData& sc = p.scenes[sceneIndex];
@@ -1181,11 +1182,23 @@ Bake bakeScene(const Project& p, int sceneIndex,
     auto step = [&](float base, float span, float t) {
         if (progress) progress(base + span * t);
     };
+    // One clock per phase, into `timings` when the caller asked for it.
+    auto clock = [] { return std::chrono::steady_clock::now(); };
+    auto since = [&](std::chrono::steady_clock::time_point t0) {
+        return std::chrono::duration<double>(clock() - t0).count();
+    };
+    auto phase = [&](double* slot, std::chrono::steady_clock::time_point t0) {
+        if (timings && slot) *slot += since(t0);
+    };
 
+    auto tPhase = clock();
     Scene s = build(p, sc, st);
+    phase(timings ? &timings->build : nullptr, tPhase);
     if (cancel && cancel->load()) return Bake();
     step(0.0f, 0.0f, 0.0f);
+    tPhase = clock();
     solve(s, st, cancel, [&](float t) { step(0.05f, 0.35f, t); });
+    phase(timings ? &timings->solve : nullptr, tPhase);
     if (cancel && cancel->load()) return Bake();
 
     // The light source the lightmap bakes: one final gather per texel against
@@ -1196,7 +1209,9 @@ Bake bakeScene(const Project& p, int sceneIndex,
                                   uint32_t seed, float outRgb[3]) {
         gather(s, wp, n, seed, st.rays, outRgb);
     };
+    tPhase = clock();
     out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight);
+    phase(timings ? &timings->atlas : nullptr, tPhase);
     step(0.40f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
     // A TEXTURED terrain cannot take a lightmap for the same reason a textured
@@ -1219,6 +1234,7 @@ Bake bakeScene(const Project& p, int sceneIndex,
     }
     // No terrain, no terrain lightmap - the image is what the ground pass
     // samples, and there is no ground pass (docs/terrain.md).
+    tPhase = clock();
     out.terrain =
         sc.terrain.enabled
             ? aobake::terrainAOMap(
@@ -1230,9 +1246,12 @@ Bake bakeScene(const Project& p, int sceneIndex,
                   rs.aoRadius, rs.aoStrength, rs.aoEnabled,
                   terrainTextured ? nullptr : &giLight)
             : aobake::AoImage();
+    phase(timings ? &timings->terrain : nullptr, tPhase);
     step(0.70f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
+    tPhase = clock();
     out.probes = bakeProbes(s, st, cancel, [&](float t) { step(0.70f, 0.3f, t); });
+    phase(timings ? &timings->probes : nullptr, tPhase);
     if (cancel && cancel->load()) return Bake();
     out.valid = true;
     if (progress) progress(1.0f);

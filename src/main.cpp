@@ -1001,7 +1001,8 @@ static int bakeGiFromCli(int argc, char** argv) {
     const std::atomic<bool> never{false};
     for (int si = 0; si < (int)p.scenes.size(); ++si) {
         const auto t0 = std::chrono::steady_clock::now();
-        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr);
+        gibake::Timings tm;
+        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr, &tm);
         if (!b.valid) {
             std::fprintf(stderr, "error: bake failed for scene %d\n", si);
             return 1;
@@ -1016,6 +1017,16 @@ static int bakeGiFromCli(int argc, char** argv) {
         std::printf("baked GI: %s (atlas %d, terrain %d, probes %dx%dx%d) %.1fs\n",
                     p.scenes[si].name.c_str(), b.atlas.size, b.terrain.size,
                     b.probes.dim[0], b.probes.dim[1], b.probes.dim[2], secs);
+        // The phase split, because the total alone hid a whole pass running on
+        // one core for years (docs/global-illumination.md, "Where the time
+        // goes"). The remainder is what bakeScene does outside the phases -
+        // resolving settings, reading the terrain material, writing the cache.
+        const double other = secs - tm.total();
+        std::printf(
+            "  build %.2fs  solve %.2fs  atlas %.2fs  terrain %.2fs  "
+            "probes %.2fs  other %.2fs\n",
+            tm.build, tm.solve, tm.atlas, tm.terrain, tm.probes,
+            other > 0.0 ? other : 0.0);
     }
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());

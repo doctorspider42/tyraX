@@ -261,15 +261,30 @@ wall in the scene while the rest idle, and a scene with fewer regions than cores
 barely divides at all. The schedule is dynamic for the same reason — threads
 pull the next chunk instead of taking a fixed slice up front.
 
-Measured on this repo's own examples, 8 cores:
+Measured on this repo's own examples, 8 cores, best of three interleaved runs:
 
 | Example | Before | After |
 | --- | --- | --- |
-| [global-illumination](../examples/global-illumination) | 17.2 s (98% CPU) | **3.7 s** (493%) |
-| [gi-showcase](../examples/gi-showcase) | 34.9 s (100%) | **8.2 s** (488%) |
+| [global-illumination](../examples/global-illumination) | 16.4 s (98% CPU) | **3.7 s** (475%) |
+| [gi-showcase](../examples/gi-showcase) | 34.2 s (100%) | **8.0 s** (493%) |
 
-The ceiling is not the schedule. What is left sequential is the scene
-tessellation, the atlas dilation and writing the cache — Amdahl, not idle cores.
+`--bake-gi` prints the split per scene, so this is a claim you can re-run rather
+than one to take on trust:
+
+```
+baked GI: main (atlas 256, terrain 256, probes 25x5x71) 7.8s
+  build 0.01s  solve 0.05s  atlas 3.63s  terrain 3.97s  probes 0.16s  other 0.00s
+```
+
+The two lightmap passes are **98%** of it. The bounce solve, the probe grid and
+the tessellation together are hundredths of a second — so "make the bake faster"
+means those two passes and nothing else, and parallelising anything else would
+be effort spent where there is no time to save.
+
+Do not measure this on a loaded machine. The old code was one thread and got its
+core whatever else was running; the new code wants eight and does not. A desktop
+session eating two cores in the background is most of the gap between the 475%
+above and the 800% the box can give.
 
 ---
 

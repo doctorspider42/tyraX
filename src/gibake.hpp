@@ -190,10 +190,26 @@ bool read(const std::string& path, Bake& b);
 // model. valid == false means "absent or stale" - never "empty".
 Bake load(const Project& p, int sceneIndex);
 
+// Seconds per phase of one bakeScene call. Not decoration: this bake ran at
+// 98% CPU on eight cores for its whole wall clock and nobody noticed, because
+// the only number anyone could see was the total. `--bake-gi` prints this, so
+// "which phase is slow" is a question with a re-runnable answer rather than an
+// estimate. A phase that did not run reads 0.
+struct Timings {
+    double build = 0;    // tessellate the scene into the BVH
+    double solve = 0;    // interreflection passes over the triangle set
+    double atlas = 0;    // the primitive lightmap atlas (importance + texels)
+    double terrain = 0;  // the terrain lightmap
+    double probes = 0;   // the L1 probe grid
+    double total() const { return build + solve + atlas + terrain + probes; }
+};
+
 // The whole bake for one scene: tessellate -> bounce -> lightmap atlas ->
-// terrain map -> probes.
+// terrain map -> probes. `timings` is optional and costs a clock read per
+// phase.
 Bake bakeScene(const Project& p, int sceneIndex,
-               const std::atomic<bool>* cancel, const ProgressFn& progress);
+               const std::atomic<bool>* cancel, const ProgressFn& progress,
+               Timings* timings = nullptr);
 
 // The managed bake, synchronous: every scene whose cache is absent or STALE is
 // re-baked and written, the fresh ones are left alone and said so. Nothing
