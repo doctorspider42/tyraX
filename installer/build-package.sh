@@ -286,6 +286,15 @@ if [ "$WANT_RPM" = 1 ]; then
 %global _build_id_links none
 %global __os_install_post %{nil}
 %global debug_package %{nil}
+# STATE THE PAYLOAD COMPRESSOR, because the default is the BUILDER's and not
+# the package's: Ubuntu 22.04's rpmbuild (which is what CI runs) defaults to
+# gzip, so v1.52.0 shipped a 31 MB rpm of the same tree a local rpm 6 packed
+# into 15 MB with zstd - a payload nobody chose, twice the download for
+# nothing. xz rather than zstd: it needs only rpm 4.8 (2010) on the machine
+# INSTALLING, packs the same 15 MB, and - the reason that decides it - Debian
+# and Ubuntu's rpm links liblzma for certain while its zstd support is not
+# something to bet a release job on.
+%define _binary_payload w7.xzdio
 
 Name:           $NAME
 Version:        $VERSION

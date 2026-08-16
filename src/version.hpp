@@ -16,6 +16,24 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.52.1 (the .rpm stops being twice its own size): v1.52.0 shipped a 31 MB
+// rpm of a tree that packs into 13, because a spec that says nothing about its
+// payload gets the BUILDER's default - and the CI runner's rpmbuild (Ubuntu
+// 22.04, rpm 4.17) reaches for gzip where a modern one reaches for zstd. It is
+// stated now, as xz: rpm 4.8 (2010) on the installing machine rather than zstd's
+// 4.14, and Debian-family rpm links liblzma for certain, which is not something
+// to bet a release job on. Verified by packing the same tree both ways and
+// reading %{PAYLOADCOMPRESSOR} back off the result - and the shrunken rpm's
+// payload was extracted and its editor run (--vu-check) out of it.
+//
+// Also here: the repository was renamed tyra-editor -> tyraX, so the four
+// tracked strings that still named the old one follow (the generated
+// THIRD-PARTY-NOTICES, the VS Code extension's README, package.json and its
+// packager). GitHub redirects the old URL, so nothing was broken - it was
+// merely lying about where this comes from. The committed .vsix still carries
+// the old URL in its manifest and is deliberately NOT repackaged for a metadata
+// string; the next real extension change picks it up.
+//
 // 1.52.0 (Linux gets packages of its own, and one of them updates itself):
 // docs/updates.md. `installer/build-package.sh` is the POSIX twin of
 // build-installer.ps1 - it stages the repo-shaped tree ONCE (bin/, vendor/tyra,
@@ -1429,7 +1447,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 52
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
