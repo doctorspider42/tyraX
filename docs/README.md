@@ -186,6 +186,9 @@ for people building games with it. Internals live in code comments, the git log
   four themes (three of them PS2 nods), and why the choice is machine-global.
 - [Project format versioning & migrations](format-versioning.md) — what happens
   when you open an older or newer project, `--migrate`, and the bump rules.
+- [Installing TyraX and keeping it up to date](updates.md) — the Windows
+  installer and the layout it lays down, the startup update check and how to
+  switch it off, and how every push to `main` becomes a release.
 
 Developer design docs (internals, not user guides):
 

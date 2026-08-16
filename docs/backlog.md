@@ -153,6 +153,29 @@ from the defaults too. The honest fix is per-object bake parameters stored
 beside `prelitSig`, which is also what would let one hero wall be 256 while the
 rest of the scene is 128 — worth doing the first time somebody mixes sizes.
 
+### Package TyraX for Linux
+
+The installer and the self-update path are Windows only (docs/updates.md):
+`installer/tyrax.iss` is Inno Setup, and `update::runInstaller` refuses
+elsewhere, so a Linux user is told a new version exists and sent to the release
+page. The check, the version comparison and the release workflow are all
+platform-blind already, so this is one packaging step plus one branch: an
+AppImage or a `.tar.gz` with the same repo-shaped layout (`bin/`, `vendor/tyra`,
+`tools/`, `src/`) built by the same release job, and an asset picker in
+`update::parseRelease` that chooses by platform instead of by `.exe`. Deliberately
+NOT a stub twin of the `.iss` in the meantime — a packaging script that cannot
+work is worse than an honest refusal.
+
+### Sign the Windows installer
+
+The released `TyraX-Setup-<version>.exe` is unsigned, so Windows SmartScreen
+warns on first run and the in-editor updater installs a binary whose only
+provenance is the URL it came from. A code-signing certificate plus a signing
+step in the release workflow fixes both; until then, the honest mitigation would
+be publishing the installer's SHA-256 with the release and having
+`update::download` check it (the release JSON already carries the asset's size,
+but not its digest).
+
 ## Medium
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing

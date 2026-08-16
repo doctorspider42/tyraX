@@ -50,7 +50,12 @@ for me to create it without the AI. Please give it a chance :)
 
 ## Quickstart
 
-**Windows**
+**Windows — just use it:** grab `TyraX-Setup-<version>.exe` from the
+[latest release](https://github.com/doctorspider42/tyraX/releases). It installs
+per user (no admin), brings the engine and the PS2 tools with it, and the editor
+tells you when a newer build is out — [Installing and updating](docs/updates.md).
+
+**Windows — build it**
 
 ```powershell
 scoop install mingw cmake ninja      # editor toolchain (+ optional: scoop install ccache)
@@ -232,6 +237,8 @@ build that provably carries none of it
 - The [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`,
   [interface themes](docs/editor-theme.md), and
   [format versioning and migrations](docs/format-versioning.md).
+- A [Windows installer, released on every push, with an update check](docs/updates.md)
+  the editor makes itself (and one checkbox turns off).
 
 ## Shortcuts
 

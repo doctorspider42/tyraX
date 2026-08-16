@@ -843,6 +843,18 @@ bool confirmBox(const std::string& title, const std::string& message) {
 #endif
 }
 
+void openUrl(const std::string& url) {
+    // Only http(s), and that is a security decision rather than tidiness: this
+    // is handed URLs that came off the network (a release's html_url), and the
+    // shells below would just as happily launch a "file:" or an executable.
+    if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return;
+#ifdef _WIN32
+    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+    Process::startDetached("xdg-open " + shQuote(url) + " >/dev/null 2>&1");
+#endif
+}
+
 void revealInFileManager(const std::string& path) {
     if (path.empty()) return;
     std::error_code ec;

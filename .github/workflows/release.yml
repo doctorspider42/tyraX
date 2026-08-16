@@ -1,0 +1,173 @@
+# Every push to main becomes a released, installable build.
+#
+# THE VERSION IS src/version.hpp AND NOTHING ELSE. Three jobs, in this order:
+#
+#   version  read TYRAX_VERSION_MAJOR/MINOR/PATCH. If that version is already
+#            tagged, bump PATCH, commit the header back to main and use the new
+#            number. Then tag - here, not at the end - so two pushes landing a
+#            minute apart cannot both claim one version.
+#   build    Windows: build the editor, package installer\tyrax.iss with Inno
+#            Setup 7 into dist\TyraX-Setup-<version>.exe.
+#   release  publish the tag as a GitHub release with that installer attached.
+#
+# The bump commit says [skip ci], which GitHub honours for push events - without
+# it the bump would trigger this workflow again, find its own tag already there,
+# bump once more, and never stop.
+#
+# So a human bumping MINOR in version.hpp (with the changelog paragraph the file
+# expects, per docs/format-versioning.md) is what SHOULD happen for a feature;
+# the automatic PATCH bump is the floor under everything else, so that no push
+# to main can leave main unreleased. The editor's own update check reads these
+# releases (docs/updates.md) - the asset name is not hardcoded anywhere, it is
+# taken from the release's asset list, so renaming the installer breaks nothing.
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialised on purpose. The version job both decides and CLAIMS a version by
+# pushing its tag; running two of those at once is the one way to get a
+# duplicate release.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pick.outputs.version }}
+      sha: ${{ steps.pick.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide the version, bump it if it is already taken, and tag it
+        id: pick
+        run: |
+          set -euo pipefail
+          read_part() {
+            sed -n "s/^#define TYRAX_VERSION_$1[[:space:]]\+\([0-9]\+\)[[:space:]]*$/\1/p" \
+              src/version.hpp | head -n1
+          }
+          major=$(read_part MAJOR); minor=$(read_part MINOR); patch=$(read_part PATCH)
+          test -n "$major" -a -n "$minor" -a -n "$patch" \
+            || { echo "FAIL: src/version.hpp has no TYRAX_VERSION_* macros"; exit 1; }
+          version="$major.$minor.$patch"
+
+          git fetch --tags --quiet
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            patch=$((patch + 1))
+            version="$major.$minor.$patch"
+            echo "v$major.$minor.$((patch - 1)) is already released - bumping to v$version"
+            sed -i "s/^#define TYRAX_VERSION_PATCH .*/#define TYRAX_VERSION_PATCH $patch/" \
+              src/version.hpp
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore(release): v$version [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "v$version is not released yet - releasing this tree as it stands"
+          fi
+
+          git tag "v$version"
+          git push origin "v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "## TyraX v$version" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit the version job settled on - which is NOT github.sha when
+          # it had to bump the header.
+          ref: ${{ needs.version.outputs.sha }}
+
+      # MinGW-w64, and deliberately not whatever `gcc` resolves to: the runner
+      # image also has Strawberry Perl's ancient GCC on PATH, and this project
+      # is C++20 with source files far past what it can chew.
+      - name: MinGW-w64 on PATH
+        shell: pwsh
+        run: |
+          $bin = 'C:\msys64\mingw64\bin'
+          if (-not (Test-Path "$bin\g++.exe")) {
+            choco install mingw -y --no-progress
+            $bin = (Get-Command g++.exe).Source | Split-Path
+          }
+          "$bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & "$bin\g++.exe" --version
+
+      - name: Ninja and ccache
+        shell: pwsh
+        run: |
+          foreach ($tool in 'ninja', 'ccache') {
+            if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+              choco install $tool -y --no-progress
+            }
+          }
+
+      # A cold build of this repo is dominated by -O3 on a handful of very large
+      # translation units; a warm ccache turns a release into a few minutes.
+      - name: ccache store
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/ccache
+          key: release-ccache-${{ needs.version.outputs.sha }}
+          restore-keys: release-ccache-
+
+      # Clones the pinned vendor libraries (deps.ps1 is the one list). build.ps1
+      # would run this itself; doing it as its own step keeps a fetch failure
+      # legible in the log.
+      - name: Dependencies
+        shell: pwsh
+        run: ./setup.ps1
+
+      - name: Build the editor
+        shell: pwsh
+        run: ./build.ps1
+
+      # The .iss refuses to compile under Inno Setup 6, so an old package here
+      # fails loudly instead of silently producing a different installer.
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Package the installer
+        shell: pwsh
+        run: ./installer/build-installer.ps1 -SkipBuild -Version ${{ needs.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer
+          path: dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
+          if-no-files-found: error
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: installer
+          path: dist
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "v${{ needs.version.outputs.version }}" \
+            --repo "${{ github.repository }}" \
+            --title "TyraX ${{ needs.version.outputs.version }}" \
+            --generate-notes \
+            --target "${{ needs.version.outputs.sha }}" \
+            dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
