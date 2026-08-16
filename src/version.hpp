@@ -16,6 +16,46 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.49.0 (a textured ground takes its GI as a MULTIPLY): the last third of the
+// black-hills report - the peaks stopped being black in 1.47.1, the grid
+// stopped clipping them in 1.48.0, and what was left was a ground that BANDED
+// along contour lines because a volume probe grid was being asked to light a
+// surface. A probe sample crosses a level as the terrain rises, and the probe
+// just above the grass sees mostly ground bounce where the next one up sees
+// sky. No amount of grid tuning fixes that; the surface wants a surface answer.
+//
+// It could not have one, because the ground's per-texel light is an ADDITIVE
+// pass and a flat add over a texture blows out its dark texels. The way
+// through is a frequency split, and its shape is forced by the hardware:
+// GS_SET_ALPHA(A,B,C,D,FIX) computes (A-B)*C>>7 + D, and C may only be As, Ad
+// or FIX - never a colour - so Cs*Cd is inexpressible and no pass can multiply
+// the frame buffer by a coloured lightmap. But the OCCLUSION pass already
+// multiplies by an alpha. So the bake writes the gathered light's luminance
+// into that alpha (AoImage::giLumAlpha) and the terrain keeps its ordinary
+// directional shade for colour: intensity per pixel, colour per vertex, no new
+// table, no new pass, no pixels on the EE. SCENE_AO_MAP_GILUM says which
+// meaning the channel carries, and it opens the occlusion pass on its own -
+// the pass must run even with ambient occlusion switched off, because there
+// the channel is light.
+//
+// THE TWO ROUTES ARE EXCLUSIVE, and the flags are where that is enforced
+// (mapLit/mapGi are written off `&& !giLumAlpha`). Shipping both at once is not
+// a subtle bug: LIT still on runs the additive pass over the texture and washes
+// the ground to a flat wash with no texture left in it, which is exactly what
+// the first console boot of this route showed. On the multiply route the map's
+// RGB is never read, the emitters are not collected per chunk, and the point
+// lights and emissive pools are skipped - the gather already contains them.
+// The terrain's own AO goes with them, in the viewport too: that alpha channel
+// is the light now, and the gather answered the sky-visibility question AO
+// approximates.
+//
+// Verified on the reporter's saved showcase, rebaked: viewport and PCSX2 agree,
+// the ground is textured and softly shaded across an eight-frame turn-and-walk,
+// no black patch, no banding, 50.0/50 FPS held, VRAM 3.11/4 MB (+0.23 MB - the
+// AO map, now uploaded in a scene whose ambient occlusion is off). The two GI
+// examples are untextured ground and take the RGB route unchanged; their bakes
+// are re-run only because the cache version moved 4 -> 5.
+//
 // 1.48.0 (the probe grid reaches the top of its terrain, and every bake is in
 // one tab): the black hills, and the AO controls' new home.
 //
@@ -40,7 +80,8 @@
 // left as a surprise: a volume probe grid lighting a SURFACE bands along
 // contour lines. The ground sample crosses a probe level as the terrain rises,
 // and a probe just above the grass sees mostly ground bounce where the next
-// one up sees sky. The black is gone; the banding is not.
+// one up sees sky. The black is gone; the banding is not. (Fixed in 1.49.0 -
+// by taking the ground off the probe grid entirely, not by tuning it.)
 //
 // 1.47.1 (the ground never takes probe light): reported as "with GI on the
 // peaks are pitch black", and it was the editor preview alone - the generated
@@ -1263,7 +1304,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 48
+#define TYRAX_VERSION_MINOR 49
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

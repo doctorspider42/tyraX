@@ -25,7 +25,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 4;
+constexpr uint32_t kCacheVersion = 5;  // + AoImage::giLumAlpha
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.
@@ -1091,6 +1091,7 @@ bool write(const std::string& path, const Bake& b) {
     // renders the scene twice as bright as it was baked.
     wr(f, (uint8_t)(b.atlas.gi ? 1 : 0));
     wr(f, (uint8_t)(b.terrain.gi ? 1 : 0));
+    wr(f, (uint8_t)(b.terrain.giLumAlpha ? 1 : 0));
     wr(f, (int32_t)b.atlas.size);
     wrVec(f, b.atlas.alpha);
     wrVec(f, b.atlas.light);
@@ -1125,6 +1126,8 @@ bool read(const std::string& path, Bake& b) {
     b.atlas.gi = gi8 != 0;
     if (!rd(f, gi8)) return false;
     b.terrain.gi = gi8 != 0;
+    if (!rd(f, gi8)) return false;
+    b.terrain.giLumAlpha = gi8 != 0;
     int32_t v32 = 0;
     if (!rd(f, v32)) return false;
     b.atlas.size = v32;
@@ -1279,8 +1282,8 @@ Bake bakeScene(const Project& p, int sceneIndex,
                   aobake::collectOccluders(sc.objects, aabbFn),
                   terrainTextured ? std::vector<aobake::Emitter>()
                                   : aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-                  rs.aoRadius, rs.aoStrength, rs.aoEnabled,
-                  terrainTextured ? nullptr : &giLight)
+                  rs.aoRadius, rs.aoStrength, rs.aoEnabled, &giLight,
+                  terrainTextured)
             : aobake::AoImage();
     step(0.70f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();

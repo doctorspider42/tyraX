@@ -1921,7 +1921,15 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
     // same image per PIXEL through an additive pass, so a preview on the
     // render grid is the one place these two differ, and it is a resolution
     // difference rather than a different answer.
-    const bool giGround = giTerrSize_ > 0 && !giTerrLight_.empty();
+    // Two GI routes for the ground, exactly as the console has them. An
+    // UNTEXTURED terrain replaces its shade with the map's RGB (giGround). A
+    // TEXTURED one cannot - the console applies the map's ALPHA as a per-pixel
+    // multiply over its ordinary shade instead, so the preview does the same
+    // per VERTEX, which is a resolution difference and not a different answer.
+    const bool giGround =
+        giTerrSize_ > 0 && !giTerrLight_.empty() && !giTerrLum_;
+    const bool giGroundMul =
+        giTerrSize_ > 0 && giTerrLum_ && !giTerrAlpha_.empty();
     auto giGroundAt = [&](float wx, float wz) -> Vec3 {
         const float u = (wx - x0) / w * (giTerrSize_ - 1);
         const float v = (wz - z0) / d * (giTerrSize_ - 1);
@@ -1941,15 +1949,31 @@ void Viewport::buildTerrainChunkMesh(int cx, int cz) {
                    (texel(u0, v1, c) * (1 - fu) + texel(u1, v1, c) * fu) * fv;
         return out;
     };
+    auto giMulAt = [&](float wx, float wz) -> float {
+        const float u = (wx - x0) / w * (giTerrSize_ - 1);
+        const float v = (wz - z0) / d * (giTerrSize_ - 1);
+        const int a = (int)(u < 0 ? 0 : (u > giTerrSize_ - 1 ? giTerrSize_ - 1 : u));
+        const int b = (int)(v < 0 ? 0 : (v > giTerrSize_ - 1 ? giTerrSize_ - 1 : v));
+        return 1.0f - giTerrAlpha_[(size_t)b * giTerrSize_ + a] / 255.0f;
+    };
     auto shadeAt = [&](int ix, int iz) -> Vec3 {
         Vec3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0f * (sx < sz ? sx : sz),
                   hAt(ix, iz - 1) - hAt(ix, iz + 1)};
         Vec3 s = giGround ? giGroundAt(x0 + ix * sx, z0 + iz * sz)
                           : shadeOf(normalize(n));
-        // Terrain self-AO: the same host-baked grid the game ships as
-        // TERRAIN_AO_TABLES, multiplied before everything else (the occluder
-        // contact term arrives per fragment in the shader).
-        if (aoOn_ && (int)aoGrid_.size() == hmW_ * hmD_) {
+        // The multiply route: the ordinary shade, scaled by the gathered
+        // intensity the console applies per pixel.
+        if (giGroundMul) {
+            const float m = giMulAt(x0 + ix * sx, z0 + iz * sz);
+            s.x *= m, s.y *= m, s.z *= m;
+        }
+        // Terrain self-AO: the same host-baked grid the game ships in the AO
+        // map's alpha, multiplied before everything else (the occluder contact
+        // term arrives per fragment in the shader). Skipped on the multiply
+        // route, where that alpha channel carries the gathered light instead -
+        // the console cannot apply both, and the gather already answered the
+        // sky-visibility question ambient occlusion approximates.
+        if (aoOn_ && !giGroundMul && (int)aoGrid_.size() == hmW_ * hmD_) {
             const int ax = ix < 0 ? 0 : (ix > hmW_ - 1 ? hmW_ - 1 : ix);
             const int az = iz < 0 ? 0 : (iz > hmD_ - 1 ? hmD_ - 1 : iz);
             const float aoM =
@@ -2974,18 +2998,31 @@ void Viewport::setTerrainLayers(const std::vector<TerrainLayerDraw>& layers,
 }
 
 void Viewport::setGiTerrain(const aobake::AoImage& img) {
-    const bool on = img.size > 0 && img.hasLight && img.gi &&
-                    (int)img.light.size() == img.size * img.size * 3;
+    // Two routes, and the flag on the image says which (aobake::giLumAlpha):
+    // RGB replaces the shade for an untextured ground, ALPHA multiplies it for
+    // a textured one. Either way the answer is baked into the vertices here.
+    const bool lum = img.giLumAlpha &&
+                     (int)img.alpha.size() == img.size * img.size;
+    const bool on = img.size > 0 && img.gi &&
+                    (lum || (img.hasLight &&
+                             (int)img.light.size() == img.size * img.size * 3));
     if (!on) {
-        if (giTerrSize_ == 0 && giTerrLight_.empty()) return;
+        if (giTerrSize_ == 0 && giTerrLight_.empty() && giTerrAlpha_.empty())
+            return;
         giTerrSize_ = 0;
         giTerrLight_.clear();
+        giTerrAlpha_.clear();
+        giTerrLum_ = false;
         if (program_) buildTerrainMesh();
         return;
     }
-    if (giTerrSize_ == img.size && giTerrLight_ == img.light) return;
+    if (giTerrSize_ == img.size && giTerrLum_ == lum &&
+        giTerrLight_ == img.light && giTerrAlpha_ == img.alpha)
+        return;
     giTerrSize_ = img.size;
+    giTerrLum_ = lum;
     giTerrLight_ = img.light;
+    giTerrAlpha_ = img.alpha;
     if (program_) buildTerrainMesh();  // the shade is baked into the vertices
 }
 

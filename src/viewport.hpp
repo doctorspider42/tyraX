@@ -859,6 +859,11 @@ private:
     // for those draws.
     int uGiSkipProbe_ = -1;
     std::vector<uint8_t> giTerrLight_;  // size*size*3, empty = no lit map
+    // The MULTIPLY route (aobake::AoImage::giLumAlpha): a textured ground
+    // takes the light as a per-pixel attenuation in the alpha channel
+    // instead of an additive RGB pass it would blow out.
+    std::vector<uint8_t> giTerrAlpha_;
+    bool giTerrLum_ = false;  // size*size*3, empty = no lit map
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();

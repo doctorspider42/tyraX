@@ -64,6 +64,17 @@ lamps and no baked occlusion still ships them, with an empty alpha channel and
 only the additive pass drawn. The occlusion pass, in turn, is drawn only when
 the alpha channel has content.
 
+**One route repurposes that alpha channel**: a *textured* terrain under global
+illumination cannot take an additive light pass without blowing out its dark
+texels, so its map carries the gathered light's **luminance** in alpha instead
+of occlusion and the same multiply becomes the light
+(`AoImage::giLumAlpha`, `SCENE_AO_MAP_GILUM` — see
+[global-illumination.md](global-illumination.md)). There the pass runs even
+with ambient occlusion switched off, the map's RGB is never read, and the
+terrain's own occlusion is *not* applied on top: the gather already answered
+the sky-visibility question AO approximates, and the channel can only hold one
+of the two.
+
 Codegen and `texbake` call the **same deterministic bake**, so the pixels and
 the emitted UV rects cannot drift.
 

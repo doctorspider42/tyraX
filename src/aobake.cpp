@@ -905,10 +905,18 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn, const LightFn* gi) {
+                     float strength, bool aoOn, const LightFn* gi,
+                     bool giTextured) {
     AoImage out;
     if (width <= 0 || depth <= 0) return out;
     const bool bakeOcc = aoOn && strength > 0.0f;
+    // The GI multiply route (see AoImage::giLumAlpha): the light's INTENSITY
+    // takes the alpha channel and is multiplied per pixel by the pass that
+    // already exists, instead of being added over a texture it would blow out.
+    // It replaces the occlusion in that channel rather than sharing it -
+    // under GI the occlusion is already inside the gathered answer.
+    const bool giLum = gi != nullptr && giTextured;
+    out.giLumAlpha = giLum;
     // With a GI light source the RGB channel always has content - "no
     // emitters" no longer means "no light", it means daylight.
     const bool bakeLight = gi != nullptr || !ems.empty();
@@ -922,7 +930,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
     if (size < 64) size = 64;
     if (size > 256) size = 256;
     out.size = size;
-    if (bakeOcc) out.alpha.assign((size_t)size * size, 0);
+    if (bakeOcc || giLum) out.alpha.assign((size_t)size * size, 0);
     if (bakeLight) out.light.assign((size_t)size * size * 3, 0);
 
     // Shadow casters per emitter, pruned ONCE. Every shadow ray for emitter e
@@ -1069,7 +1077,7 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                 p[1] = h0;
                 p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
             };
-            if (bakeOcc) {
+            if (bakeOcc && !giLum) {
                 // Product-combined per sub-sample, then AVERAGED over the
                 // footprint - combining first and averaging second is what
                 // keeps the supersample an antialiasing pass rather than a
@@ -1126,6 +1134,20 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                         for (int k = 0; k < 3; ++k) add[k] += l[k] * invSup;
                     }
                 }
+            if (giLum) {
+                // Rec.709 luminance of the gathered light, stored as the
+                // ATTENUATION the alpha-over pass applies: 0 = full light,
+                // 255 = black. Floored like every lightmap alpha, because the
+                // GS alpha test discards a zero (aobake::kMinLightmapAlpha).
+                float lum = 0.2126f * add[0] + 0.7152f * add[1] + 0.0722f * add[2];
+                if (lum < 0.0f) lum = 0.0f;
+                if (lum > 1.0f) lum = 1.0f;
+                float av = 255.0f * (1.0f - lum) + bayerDither(i, j);
+                if (av < (float)kMinLightmapAlpha) av = (float)kMinLightmapAlpha;
+                if (av > 255.0f) av = 255.0f;
+                out.alpha[texel] = (uint8_t)(av + 0.5f);
+                anyOcc = true;
+            }
             const float dz = bayerDither(i, j);
             for (int k = 0; k < 3; ++k) {
                 float v = 255.0f * add[k] + dz;

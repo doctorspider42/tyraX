@@ -228,6 +228,26 @@ struct AoImage {
     // must then drop its own ambient + directional + point-light shade, or
     // the scene is lit twice.
     bool gi = false;
+    // TEXTURED-TERRAIN GI, and the reason it looks like this. The GS cannot
+    // multiply the framebuffer by a COLOUR: GS_SET_ALPHA computes
+    // (A - B) * C + D and C is an alpha or a constant, never a colour channel.
+    // So per-pixel coloured light on a textured surface is not expressible in
+    // one pass - which is why the light channel is ADDITIVE, and why a
+    // textured terrain could not use it at all (a flat add over a texture
+    // blows out its dark texels) and fell to the probe grid instead, where a
+    // volume grid lighting a surface bands along contour lines.
+    //
+    // The way through is to split the signal by frequency. INTENSITY is the
+    // high-frequency half - it is what draws contact and self-shadowing - and
+    // it rides `alpha`, multiplied per pixel by the occlusion pass that
+    // already computes exactly Cd*(1-a). COLOUR is low-frequency and rides
+    // `light`, read PER VERTEX by the terrain builders, where one sample per
+    // terrain cell is honest.
+    //
+    // With this set, `alpha` is NOT ambient occlusion: under GI the occlusion
+    // is already inside the gathered answer, so the channel is free, and
+    // reusing it costs no VRAM and no new blend.
+    bool giLumAlpha = false;
 };
 
 // Terrain lightmap covering the full terrain extent: per-texel heightmap
@@ -241,7 +261,8 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
                      float width, float depth,
                      const std::vector<Occluder>& occs,
                      const std::vector<Emitter>& ems, float radiusWorld,
-                     float strength, bool aoOn, const LightFn* gi = nullptr);
+                     float strength, bool aoOn, const LightFn* gi = nullptr,
+                     bool giTextured = false);
 
 // One atlas region: normalized UV rect (inset by half a texel against
 // bilinear bleed). A primitive's base-texture UVs map into it 1:1.
