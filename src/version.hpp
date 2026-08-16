@@ -16,6 +16,38 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.51.0 (TyraX ships as an installer, and tells you when there is a newer
+// one): three pieces that only make sense together - docs/updates.md.
+//
+// AN INNO SETUP 7 INSTALLER (installer/tyrax.iss + build-installer.ps1). What
+// it packages is not just the .exe: the editor resolves the Tyra engine, the
+// PS2 tools, the VS Code extension and the VU framework sources RELATIVE TO
+// ITS OWN BINARY, one directory up, so the installed layout reproduces the
+// shape a development checkout has (bin/tyrax-editor.exe beside vendor/, tools/
+// and src/) - a bare .exe would install an editor that cannot compile a game.
+// Per-user by default (%LOCALAPPDATA%\Programs\TyraX), which is what lets an
+// update install itself without a UAC prompt.
+//
+// EVERY PUSH TO main IS A RELEASE (.github/workflows/release.yml). The version
+// still lives in this file and nowhere else: CI reads these three macros, and
+// if that version is already tagged it bumps PATCH, commits the header back
+// with [skip ci] and uses the new number - so a human bumping MINOR for a
+// feature (with the paragraph above it, as here) is what SHOULD happen, and the
+// automatic bump is only the floor that stops main from sitting unreleased.
+//
+// AND THE EDITOR CHECKS FOR ITSELF (update.cpp / update_ui.cpp, Help > Check
+// for updates). One HTTPS request to the repository's releases at startup, on a
+// worker thread, through curl the way aigen.cpp already reaches the OpenAI API;
+// a modal only appears when there IS something newer, "Download and install"
+// runs the new installer silently and comes back, and the whole thing is one
+// checkbox away from off in Edit > Preferences. The failure of a startup check
+// is deliberately silent - an editor that opens a dialog because the machine is
+// offline is an editor people turn the check off in.
+//
+// MINOR by this file's own rule: three capabilities appear, nothing changes
+// shape for an existing project (both new settings are editor.ini, not the
+// .tyra - kFormatVersion is untouched).
+//
 // 1.50.0 (the ground bake stops shadowing itself, and three switches start
 // doing what they say): a round of reports off the 1.49.0 build.
 //
@@ -1354,7 +1386,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 50
+#define TYRAX_VERSION_MINOR 51
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
