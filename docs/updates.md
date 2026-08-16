@@ -111,6 +111,13 @@ The same tree, the same `/opt/tyrax` layout, the same reasoning. It needs
 rpm 4.13+ for its `(zenity or kdialog)` dependency, which is every distribution
 new enough to run the binary anyway.
 
+Its payload is **xz**, stated in the spec rather than left to the machine
+doing the packaging — that default is the *builder's*, not the package's, and
+v1.52.0 duly shipped a 31 MB rpm because the CI runner's `rpmbuild` reaches for
+gzip. The same tree is 13 MB compressed properly. xz rather than zstd because
+it asks only rpm 4.8 of whoever installs, and because Debian-family `rpm` links
+liblzma for certain.
+
 ### Which distributions
 
 The packages are built on Ubuntu 22.04 (glibc 2.35), so they run on anything

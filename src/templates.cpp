@@ -23063,7 +23063,7 @@ L/R panning.
 TyraX (the editor and its code templates)
 -----------------------------------------
 Copyright 2026 doctorspider42.
-https://github.com/doctorspider42/tyra-editor
+https://github.com/doctorspider42/tyraX
 
 The generated C++ in this project came from TyraX's templates. TyraX grants
 those generated files to you with NO conditions attached - no attribution, no
