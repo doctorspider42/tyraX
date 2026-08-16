@@ -247,14 +247,169 @@ at those defaults.
 
 ---
 
+## Where the time goes
+
+Almost all of it is the **lightmap texel pass**: one hemisphere gather per
+sub-sample per texel, over a 256² atlas and a terrain map of up to 256². The
+bounce solve and the whole probe grid together are a rounding error beside it —
+a 12×4×12 grid is 576 gathers against a quarter of a million.
+
+That pass runs across every core (`bakepar::parallelFor`), and the unit of work
+is one **(region, row)** rather than one region: region sizes span two orders of
+magnitude, so scheduling whole regions leaves one thread holding the biggest
+wall in the scene while the rest idle, and a scene with fewer regions than cores
+barely divides at all. The schedule is dynamic for the same reason — threads
+pull the next chunk instead of taking a fixed slice up front.
+
+Measured on this repo's own examples, 8 cores, best of three interleaved runs:
+
+| Example | Before | After |
+| --- | --- | --- |
+| [global-illumination](../examples/global-illumination) | 16.4 s (98% CPU) | **3.7 s** (475%) |
+| [gi-showcase](../examples/gi-showcase) | 34.2 s (100%) | **8.0 s** (493%) |
+
+`--bake-gi` prints the split per scene, so this is a claim you can re-run rather
+than one to take on trust:
+
+```
+baked GI: main (atlas 256, terrain 256, probes 25x5x71) 7.8s
+  build 0.01s  solve 0.05s  atlas 3.63s  terrain 3.97s  probes 0.16s  other 0.00s
+```
+
+The two lightmap passes are **98%** of it. The bounce solve, the probe grid and
+the tessellation together are hundredths of a second — so "make the bake faster"
+means those two passes and nothing else, and parallelising anything else would
+be effort spent where there is no time to save.
+
+Do not measure this on a loaded machine. The old code was one thread and got its
+core whatever else was running; the new code wants eight and does not. A desktop
+session eating two cores in the background is most of the gap between the 475%
+above and the 800% the box can give.
+
+---
+
+## The GPU backend
+
+The hemisphere gather also exists as a **GL 4.3 compute kernel** (`src/gigpu.cpp`),
+a twin of `gibake::gather` + `directAt` + `skyRadiance` + `bvh::trace`.
+
+It is an accelerator **with a reference**, not a replacement, and that is
+structural rather than cautious: `--bake-gi` runs headless on build servers and
+inside the Docker build, where there is no display and no GL context at all. So
+the CPU integrator can never be deleted, and every path has to survive
+`gigpu::available()` answering false. The context is a hidden GLFW window rather
+than EGL, because GLFW is already a dependency on both platforms and a
+per-OS pair would be a file that exists twice (see "Platform parity" in the
+`tyra-editor-dev` skill).
+
+**It does not promise bit-identity, and cannot.** Every other bake here is
+bit-identical at any core count, but that holds because one implementation runs
+everywhere. A GPU has its own transcendental units, its own FMA contraction and
+its own rounding, so `sin` and `pow` in the kernel are simply not the host's. A
+GPU bake and a CPU bake are therefore compared with a **tolerance, never with
+`cmp`**, and a cache has to record which one produced it.
+
+### The oracle
+
+The kernel is the fourth twin in a codebase that already tracks host / EE /
+viewport-shader triplets — but it is the only one that can be checked by
+machine, because a bake is a pure function. `--gi-gpu-check <projectDir>` builds
+and solves a scene exactly as a bake does, gathers the same deterministic sample
+set both ways, and reports the disagreement and the cost:
+
+```
+scene 0: 2716 triangles, 173824 sample points, 128 rays each
+  cpu 15.557s   gpu 0.233s   speedup 66.8x
+  mean |gpu-cpu| 0.000019   max 0.006315   (mean |cpu| 0.641016)
+  relative mean error 0.0030%  -> AGREE
+```
+
+Run it after touching **either** side. A relative mean error in the thousandths
+of a percent is float divergence between two transcendental implementations;
+anything above 1% is a kernel that stopped being a twin, and the verb exits
+non-zero on it.
+
+### What it is actually worth
+
+Measured on this repo's examples, against a **single** CPU core, at the batch
+size a real atlas pass hands over (~170k points):
+
+| Example | CPU, 1 core | GPU | vs 1 core | vs 8 cores |
+| --- | --- | --- | --- | --- |
+| [global-illumination](../examples/global-illumination) | 11.1 s | 0.21 s | 54× | ~7× |
+| [gi-showcase](../examples/gi-showcase) | 15.6 s | 0.23 s | 67× | ~8× |
+
+**Quote the 8-core column.** The CPU bake is parallel now, so the per-core ratio
+flatters the GPU by a factor of eight and is the wrong number to plan with.
+
+### Baking with it
+
+In the editor it is a tick box beside the Bake buttons — *Tools > Ambience
+Editor > Global illumination > **Bake on the GPU***. It is greyed out with the
+reason on hover when the machine has no usable GPU, and it is **machine-global**
+(editor.ini), not a project setting: whether this box has a GPU is a fact about
+the box. Headless it is `--bake-gi <projectDir> --gpu`.
+
+Opt-in in both, because the two backends agree to a tolerance and not
+bit-for-bit, so flipping it silently would change every existing project's
+cached bytes — and this repo's own GI examples ship that cache. End to end,
+8 cores:
+
+| Example | CPU | GPU | atlas | terrain |
+| --- | --- | --- | --- | --- |
+| global-illumination | 3.9 s | **1.4 s** | 2.97 → 0.37 s | 0.84 → 0.11 s |
+| gi-showcase | 8.0 s | **2.0 s** | 3.51 → 0.55 s | 4.21 → 0.40 s |
+
+The two lightmap passes go **~8–10×** against all eight cores. The totals do not,
+because **0.86 s of every run is starting the backend** — creating the GL context
+— and that is paid once per process, not per scene. So a one-scene project sees
+2.8×, and a twenty-scene project, which is the case this exists for, sees close
+to the per-pass number.
+
+**What the two backends agree on**, measured by re-baking both ways and
+comparing the cache:
+
+| | atlas rects / lit / firstRegion | light channels | occlusion |
+| --- | --- | --- | --- |
+| result | **identical** | 0.3–0.4% of bytes differ, **max 2 levels of 255** | **identical** |
+
+Two levels, in an image that is dithered and then drawn into a 16-bit
+framebuffer with 32 levels per channel. The occlusion channel is identical
+because it is analytic and never leaves the CPU.
+
+**The layout is identical on purpose, and that took a fix.** The importance
+pre-pass turns a continuous measurement into a *discrete* decision — how many
+texels each region gets, and from that how everything packs — so a difference far
+below one output level can tip a bisection and re-pack the whole atlas. Baked on
+the GPU it did exactly that: `rects` differed, and with them 13–34% of the atlas
+bytes, which made the two bakes incomparable and looked like a broken kernel. The
+pre-pass is therefore pinned to the CPU whatever the gather backend is
+(`aobake::bakeSceneLightAtlas`'s `giLayout`), which costs ~3% of the pass — 36
+probes a region against a quarter of a million texel samples — and buys a layout
+that is a property of the scene rather than of the machine. **Generalise the
+rule: a discrete decision must not ride on a tolerance.**
+
+**Batch size is most of the result**, which is why the gather takes a batch and
+not a point. The same scenes measured at 21k points read 20–50× against one core
+and as low as 9× cold; at 170k they read 41–67× and stop moving. A per-point
+entry point would lose all of it — the dispatch latency alone exceeds the CPU
+cost of one gather. The first measurement of all, taken on 2.6k points with no
+warm-up, read **1.2×**, which is what measuring driver start-up looks like.
+
+---
+
 ## Determinism
 
 Inherited from [matbake](material-baking.md), and load-bearing: the sample
 spiral is rotated by a hash of a per-element seed (the texel's atlas
 coordinate, the triangle's index, the probe's index) — never by shared RNG
-state. Threads partition by element range. **The same inputs give bit-identical
-bytes at any core count**, which is the only thing that makes an A/B comparison
-possible at all.
+state, and never by which thread or which chunk reached the element first.
+**The same inputs give bit-identical bytes at any core count**, which is the
+only thing that makes an A/B comparison possible at all.
+
+That is a property to *check*, not to trust: baking twice at different core
+counts and comparing `.res-baked/gi/scene<N>.gi` with `cmp` is what verified the
+parallel texel pass above, and it is the cheapest regression this feature has.
 
 ---
 

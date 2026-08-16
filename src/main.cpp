@@ -24,6 +24,7 @@
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
+#include "gigpu.hpp"
 #include "litbake.hpp"
 #include "modelao.hpp"
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
@@ -906,6 +907,71 @@ static int bakePrelitFromCli(int argc, char** argv) {
     return rep.failed ? 1 : 0;
 }
 
+// tyrax-editor --gi-gpu-check <projectDir> [sceneIndex]
+//
+// The oracle for the GPU gather (docs/global-illumination.md, "The GPU
+// backend"). It builds and SOLVES one scene exactly as a bake does, then
+// gathers the same deterministic sample set both ways and reports how far apart
+// they are plus what each cost.
+//
+// It exists because the GLSL kernel is the fourth twin of gibake::gather, and
+// the only one that can be checked by machine: a bake is a pure function, so a
+// disagreement is a number rather than an opinion. Run it after touching either
+// side.
+static int giGpuCheckFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --gi-gpu-check <projectDir> "
+                     "[sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::string why;
+    if (!gigpu::available(&why)) {
+        std::printf("gpu: unavailable - %s\n", why.c_str());
+        std::printf("     the CPU integrator is what a bake would use here.\n");
+        return 0;  // not a failure: headless machines are an expected state
+    }
+    const int si = argc > 3 ? std::atoi(argv[3]) : 0;
+    if (si < 0 || si >= (int)p.scenes.size()) {
+        std::fprintf(stderr, "error: no scene %d\n", si);
+        return 1;
+    }
+    const gibake::Settings st = gibake::settingsOf(p.settings);
+    gibake::Scene s = gibake::build(p, p.scenes[si], st);
+    if (s.empty()) {
+        std::fprintf(stderr, "error: scene %d tessellates to nothing\n", si);
+        return 1;
+    }
+    const std::atomic<bool> never{false};
+    gibake::solve(s, st, &never, nullptr);
+    // 262144 is the batch the atlas pass actually hands over (256^2
+    // texels x the GI sub-grid), so this measures the kernel rather
+    // than dispatch latency.
+    const gigpu::Compare c = gigpu::compare(s, st.rays, 262144);
+    if (!c.ran) {
+        std::printf("gpu: did not run - %s\n", c.note.c_str());
+        return 1;
+    }
+    std::printf("scene %d: %d triangles, %d sample points, %d rays each\n", si,
+                s.tree.triCount(), c.points, st.rays);
+    std::printf("  cpu %.3fs   gpu %.3fs   speedup %.1fx\n", c.cpuSeconds,
+                c.gpuSeconds,
+                c.gpuSeconds > 0.0 ? c.cpuSeconds / c.gpuSeconds : 0.0);
+    std::printf("  mean |gpu-cpu| %.6f   max %.6f   (mean |cpu| %.6f)\n",
+                c.meanAbs, c.maxAbs, c.meanRef);
+    // A relative mean this small is float divergence between two transcendental
+    // implementations; anything larger is a kernel that stopped being a twin.
+    const double rel = c.meanRef > 1e-9 ? c.meanAbs / c.meanRef : 0.0;
+    std::printf("  relative mean error %.4f%%  -> %s\n", rel * 100.0,
+                rel < 0.01 ? "AGREE" : "DIVERGED, the kernel is not a twin");
+    return rel < 0.01 ? 0 : 1;
+}
+
 // tyrax-editor --bake-model-ao <projectDir> [--texbake]
 //
 // Bakes every eligible model asset's own ambient occlusion into
@@ -984,7 +1050,7 @@ static int bakeModelAoFromCli(int argc, char** argv) {
 // how the bake gets verified without clicking anything.
 static int bakeGiFromCli(int argc, char** argv) {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir>\n");
+        std::fprintf(stderr, "usage: tyrax-editor --bake-gi <projectDir> [--gpu]\n");
         return 2;
     }
     Project p;
@@ -998,10 +1064,19 @@ static int bakeGiFromCli(int argc, char** argv) {
                      "(Preferences > Lighting)\n");
         return 1;
     }
+    // --gpu ASKS for the compute backend (docs/global-illumination.md, "The GPU
+    // backend"). It is opt-in rather than default because the two backends
+    // agree to a tolerance and not bit-for-bit, so flipping it silently would
+    // change every existing project's cached bytes.
+    bool useGpu = false;
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--gpu") == 0) useGpu = true;
     const std::atomic<bool> never{false};
     for (int si = 0; si < (int)p.scenes.size(); ++si) {
         const auto t0 = std::chrono::steady_clock::now();
-        const gibake::Bake b = gibake::bakeScene(p, si, &never, nullptr);
+        gibake::Timings tm;
+        const gibake::Bake b =
+            gibake::bakeScene(p, si, &never, nullptr, &tm, useGpu);
         if (!b.valid) {
             std::fprintf(stderr, "error: bake failed for scene %d\n", si);
             return 1;
@@ -1016,6 +1091,20 @@ static int bakeGiFromCli(int argc, char** argv) {
         std::printf("baked GI: %s (atlas %d, terrain %d, probes %dx%dx%d) %.1fs\n",
                     p.scenes[si].name.c_str(), b.atlas.size, b.terrain.size,
                     b.probes.dim[0], b.probes.dim[1], b.probes.dim[2], secs);
+        // The phase split, because the total alone hid a whole pass running on
+        // one core for years (docs/global-illumination.md, "Where the time
+        // goes"). The remainder is what bakeScene does outside the phases -
+        // resolving settings, reading the terrain material, writing the cache.
+        const double other = secs - tm.total();
+        std::printf(
+            "  build %.2fs  solve %.2fs  atlas %.2fs  terrain %.2fs  "
+            "probes %.2fs  other %.2fs\n",
+            tm.build, tm.solve, tm.atlas, tm.terrain, tm.probes,
+            other > 0.0 ? other : 0.0);
+        // Which backend ran is part of the measurement, not a footnote: the
+        // two do not produce the same bytes.
+        std::printf("  gather: %s%s%s\n", tm.gpu ? "GPU" : "CPU",
+                    tm.gpuNote.empty() ? "" : " - ", tm.gpuNote.c_str());
     }
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
@@ -3419,6 +3508,8 @@ int main(int argc, char** argv) {
         return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--gi-gpu-check") == 0)
+        return giGpuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
         return bakeModelAoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)

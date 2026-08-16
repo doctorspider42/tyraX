@@ -190,10 +190,38 @@ bool read(const std::string& path, Bake& b);
 // model. valid == false means "absent or stale" - never "empty".
 Bake load(const Project& p, int sceneIndex);
 
+// Seconds per phase of one bakeScene call. Not decoration: this bake ran at
+// 98% CPU on eight cores for its whole wall clock and nobody noticed, because
+// the only number anyone could see was the total. `--bake-gi` prints this, so
+// "which phase is slow" is a question with a re-runnable answer rather than an
+// estimate. A phase that did not run reads 0.
+struct Timings {
+    double build = 0;    // tessellate the scene into the BVH
+    double solve = 0;    // interreflection passes over the triangle set
+    double atlas = 0;    // the primitive lightmap atlas (importance + texels)
+    double terrain = 0;  // the terrain lightmap
+    double probes = 0;   // the L1 probe grid
+    // Which gather backend actually ran. A bake's bytes depend on it - the GPU
+    // agrees with the CPU to a tolerance, never bit-for-bit - so a measurement
+    // quoted without this says nothing.
+    bool gpu = false;
+    std::string gpuNote;  // why the GPU was not used, when it was asked for
+    double total() const { return build + solve + atlas + terrain + probes; }
+};
+
 // The whole bake for one scene: tessellate -> bounce -> lightmap atlas ->
-// terrain map -> probes.
+// terrain map -> probes. `timings` is optional and costs a clock read per
+// phase.
+// `useGpu` ASKS for the compute backend; it is not a promise. A machine with no
+// display server (a build server, the Docker build) silently gets the CPU
+// integrator and says so through Timings::gpuNote, because that is an expected
+// state and not a failure. It deliberately does NOT enter the bake signature or
+// the cache format: the two backends differ by ~2 levels out of 255 at worst,
+// which is under the dither of the 8-bit image this ships as, so a cache from
+// either is a valid cache of the same scene.
 Bake bakeScene(const Project& p, int sceneIndex,
-               const std::atomic<bool>* cancel, const ProgressFn& progress);
+               const std::atomic<bool>* cancel, const ProgressFn& progress,
+               Timings* timings = nullptr, bool useGpu = false);
 
 // The managed bake, synchronous: every scene whose cache is absent or STALE is
 // re-baked and written, the fresh ones are left alone and said so. Nothing
@@ -219,7 +247,11 @@ class Baker {
 public:
     ~Baker() { cancel(); }
     // scenes: indices to bake; empty = every scene in the project.
-    void start(const Project& p, std::vector<int> scenes);
+    // useGpu asks for the compute backend, exactly as bakeScene's flag does.
+    // start() is a MAIN-THREAD call and primes the GPU context there before
+    // the worker begins - GLFW creates windows on the main thread only, and
+    // the bake itself runs on the worker (see gigpu::available).
+    void start(const Project& p, std::vector<int> scenes, bool useGpu = false);
     void cancel();
     bool running() const { return running_.load(); }
     float progress() const { return progress_.load(); }
@@ -229,7 +261,7 @@ public:
     uint64_t version() const { return version_.load(); }
 
 private:
-    void run(Project p, std::vector<int> scenes);
+    void run(Project p, std::vector<int> scenes, bool useGpu);
 
     std::thread worker_;
     std::atomic<bool> cancel_{false};

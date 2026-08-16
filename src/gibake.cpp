@@ -10,9 +10,12 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <memory>
 
 #include <stb_image.h>  // implementation lives in app.cpp
 
+#include "bakepar.hpp"
+#include "gigpu.hpp"
 #include "objparser.hpp"
 #include "primmesh.hpp"
 #include "wire.hpp"   // fnv1a64/hashFile - the bake signature hashes CONTENT
@@ -216,33 +219,7 @@ float heightAtWorld(const std::vector<float>& heights, int w, int d,
     return t * (1 - fz) + b * fz;
 }
 
-// Splits [0, count) across the hardware threads and runs `body(i)`. Every
-// element's result depends only on the inputs, so the partition never changes
-// the answer - only the wall clock.
-void parallelFor(int count, const std::atomic<bool>* cancel,
-                 const std::function<void(int, int)>& bodyRange) {
-    if (count <= 0) return;
-    int threads = (int)std::thread::hardware_concurrency();
-    if (threads < 1) threads = 1;
-    if (threads > 16) threads = 16;
-    if (count < threads * 8) threads = 1;
-    if (threads == 1) {
-        bodyRange(0, count);
-        return;
-    }
-    std::vector<std::thread> pool;
-    const int chunk = (count + threads - 1) / threads;
-    for (int t = 0; t < threads; ++t) {
-        const int lo = t * chunk;
-        const int hi = std::min(count, lo + chunk);
-        if (lo >= hi) break;
-        pool.emplace_back([&, lo, hi] {
-            if (cancel && cancel->load()) return;
-            bodyRange(lo, hi);
-        });
-    }
-    for (std::thread& th : pool) th.join();
-}
+using bakepar::parallelFor;
 
 }  // namespace
 
@@ -1189,7 +1166,8 @@ StaleReport bakeStale(const Project& p,
 // --- the whole bake for one scene -------------------------------------------
 
 Bake bakeScene(const Project& p, int sceneIndex,
-               const std::atomic<bool>* cancel, const ProgressFn& progress) {
+               const std::atomic<bool>* cancel, const ProgressFn& progress,
+               Timings* timings, bool useGpu) {
     Bake out;
     if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return out;
     const SceneData& sc = p.scenes[sceneIndex];
@@ -1206,22 +1184,77 @@ Bake bakeScene(const Project& p, int sceneIndex,
     auto step = [&](float base, float span, float t) {
         if (progress) progress(base + span * t);
     };
+    // One clock per phase, into `timings` when the caller asked for it.
+    auto clock = [] { return std::chrono::steady_clock::now(); };
+    auto since = [&](std::chrono::steady_clock::time_point t0) {
+        return std::chrono::duration<double>(clock() - t0).count();
+    };
+    auto phase = [&](double* slot, std::chrono::steady_clock::time_point t0) {
+        if (timings && slot) *slot += since(t0);
+    };
 
+    auto tPhase = clock();
     Scene s = build(p, sc, st);
+    phase(timings ? &timings->build : nullptr, tPhase);
     if (cancel && cancel->load()) return Bake();
     step(0.0f, 0.0f, 0.0f);
+    tPhase = clock();
     solve(s, st, cancel, [&](float t) { step(0.05f, 0.35f, t); });
+    phase(timings ? &timings->solve : nullptr, tPhase);
     if (cancel && cancel->load()) return Bake();
 
     // The light source the lightmap bakes: one final gather per texel against
     // the solved scene. The seed is the texel's own atlas coordinate, handed
     // in by aobake - so a texel's sample set never depends on which thread or
     // which region reached it first.
-    aobake::LightFn giLight = [&](const float wp[3], const float n[3],
-                                  uint32_t seed, float outRgb[3]) {
-        gather(s, wp, n, seed, st.rays, outRgb);
+    // The GPU backend, when this machine has one. It is chosen ONCE per bake
+    // and reported, because a bake's bytes depend on which one ran: a GPU has
+    // its own transcendentals and rounding, so the two agree to a tolerance and
+    // never bit-for-bit (docs/global-illumination.md, "The GPU backend"). Every
+    // failure falls back to the CPU rather than failing the bake - a headless
+    // build server is an expected state, not an error.
+    std::unique_ptr<gigpu::Gather> gpu;
+    if (useGpu) {
+        std::string err;
+        if (!gigpu::available(&err)) {
+            if (timings) timings->gpuNote = err;
+        } else {
+            auto g = std::make_unique<gigpu::Gather>();
+            if (g->upload(s, &err))
+                gpu = std::move(g);
+            else if (timings)
+                timings->gpuNote = err;
+        }
+    }
+    if (timings) timings->gpu = gpu != nullptr;
+
+    aobake::LightFn giLight = [&](const float* wp, const float* n,
+                                  const uint32_t* seed, int count,
+                                  float* outRgb) {
+        if (gpu && gpu->run(wp, n, seed, count, st.rays, outRgb)) return;
+        // The reference. Also the fallback: a dispatch that failed mid-bake
+        // must not leave half an image gathered.
+        bakepar::parallelFor(count, cancel, [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i)
+                gather(s, &wp[(size_t)i * 3], &n[(size_t)i * 3], seed[i],
+                       st.rays, &outRgb[(size_t)i * 3]);
+        });
     };
-    out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight);
+    tPhase = clock();
+    // The pre-pass runs on the CPU whatever the gather backend is, so the atlas
+    // LAYOUT is a property of the scene and not of the machine that baked it
+    // (see aobake.hpp on giLayout). ~3% of the pass.
+    aobake::LightFn giLayout = [&](const float* wp, const float* n,
+                                   const uint32_t* seed, int count,
+                                   float* outRgb) {
+        bakepar::parallelFor(count, cancel, [&](int lo, int hi) {
+            for (int i = lo; i < hi; ++i)
+                gather(s, &wp[(size_t)i * 3], &n[(size_t)i * 3], seed[i],
+                       st.rays, &outRgb[(size_t)i * 3]);
+        });
+    };
+    out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight, &giLayout);
+    phase(timings ? &timings->atlas : nullptr, tPhase);
     step(0.40f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
     // A TEXTURED terrain cannot take a lightmap for the same reason a textured
@@ -1244,6 +1277,7 @@ Bake bakeScene(const Project& p, int sceneIndex,
     }
     // No terrain, no terrain lightmap - the image is what the ground pass
     // samples, and there is no ground pass (docs/terrain.md).
+    tPhase = clock();
     out.terrain =
         sc.terrain.enabled
             ? aobake::terrainAOMap(
@@ -1255,9 +1289,12 @@ Bake bakeScene(const Project& p, int sceneIndex,
                   rs.aoRadius, rs.aoStrength, rs.aoEnabled,
                   terrainTextured ? nullptr : &giLight)
             : aobake::AoImage();
+    phase(timings ? &timings->terrain : nullptr, tPhase);
     step(0.70f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
+    tPhase = clock();
     out.probes = bakeProbes(s, st, cancel, [&](float t) { step(0.70f, 0.3f, t); });
+    phase(timings ? &timings->probes : nullptr, tPhase);
     if (cancel && cancel->load()) return Bake();
     out.valid = true;
     if (progress) progress(1.0f);
@@ -1266,8 +1303,13 @@ Bake bakeScene(const Project& p, int sceneIndex,
 
 // --- the progressive baker ---------------------------------------------------
 
-void Baker::start(const Project& p, std::vector<int> scenes) {
+void Baker::start(const Project& p, std::vector<int> scenes, bool useGpu) {
     cancel();
+    // Prime the GPU context HERE, on the main thread. GLFW creates windows on
+    // the main thread only, and run() is a worker - asking for the backend from
+    // there is what would fail (gigpu::available). Priming it costs nothing when
+    // the machine has no GPU: the answer is cached and negative.
+    if (useGpu) gigpu::available(nullptr);
     if (scenes.empty())
         for (int i = 0; i < (int)p.scenes.size(); ++i) scenes.push_back(i);
     cancel_ = false;
@@ -1277,7 +1319,7 @@ void Baker::start(const Project& p, std::vector<int> scenes) {
         std::lock_guard<std::mutex> lk(mutex_);
         status_ = "Preparing...";
     }
-    worker_ = std::thread(&Baker::run, this, p, scenes);
+    worker_ = std::thread(&Baker::run, this, p, scenes, useGpu);
 }
 
 void Baker::cancel() {
@@ -1291,7 +1333,7 @@ std::string Baker::status() const {
     return status_;
 }
 
-void Baker::run(Project p, std::vector<int> scenes) {
+void Baker::run(Project p, std::vector<int> scenes, bool useGpu) {
     const int n = (int)scenes.size();
     for (int i = 0; i < n && !cancel_.load(); ++i) {
         const int si = scenes[i];
@@ -1302,9 +1344,9 @@ void Baker::run(Project p, std::vector<int> scenes) {
                                                  : std::to_string(si)) +
                       " (" + std::to_string(i + 1) + "/" + std::to_string(n) + ")";
         }
-        const Bake b = bakeScene(p, si, &cancel_, [&](float t) {
-            progress_ = (i + t) / n;
-        });
+        const Bake b = bakeScene(
+            p, si, &cancel_, [&](float t) { progress_ = (i + t) / n; }, nullptr,
+            useGpu);
         if (cancel_.load()) break;
         if (b.valid) write(cachePath(p, si), b);
         version_.fetch_add(1);

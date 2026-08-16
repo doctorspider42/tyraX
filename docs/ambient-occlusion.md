@@ -112,7 +112,11 @@ anything the bake reads) need a rebuild — the LIVE chip flips amber.
   [docs/reflective-materials.md](reflective-materials.md) for the mechanism
   and the measured cost.
 - **Build time**: a few hundred ms per scene, re-run on every build
-  (deterministic, no caching needed).
+  (deterministic, no caching needed). The two per-texel bakes run across every
+  core, scheduled per (region, row) — see
+  [global-illumination.md](global-illumination.md), "Where the time goes", which
+  is where that split actually earns its keep: with GI on, the same loops fire a
+  hemisphere gather per sub-sample instead of a handful of slab tests.
 
 ## Model AO
 
