@@ -1523,6 +1523,7 @@ pair without its twin, in the same commit, is a bug — not a follow-up.**
 | `setup.ps1` | `setup.sh` | how the lists are fetched |
 | `build.ps1` | `build.sh` | flags (`-Run`/`--run`, `-Clean`/`--clean`), the dep guard, the toolchain check |
 | `build.cmd`, `setup.cmd` | — | **nothing**: they are thin wrappers that shell out to the `.ps1`. Keep them that way. |
+| `installer/build-installer.ps1` + `tyrax.iss` | `installer/build-package.sh` | WHAT IS IN THE PACKAGE, not the code: the binary, engine, tools, VU sources, examples and licence files in one exe-relative shape. The tools differ (Inno Setup vs tar/dpkg-deb/rpmbuild) and the scripts share no lines. |
 | `CMakeLists.txt` `if(WIN32)` | its `else()` | link libraries, compile options |
 | `platform.cpp` `#ifdef _WIN32` | its `#else` | every function in `platform.hpp` |
 
@@ -1827,16 +1828,21 @@ them.
 ### Packaging and releasing
 
 `installer/tyrax.iss` (Inno Setup 7) + `installer/build-installer.ps1` package a
-built editor, and `.github/workflows/release.yml` does it on every push to main
-(docs/updates.md). Two things bind them to the code:
+built editor on Windows, `installer/build-package.sh` does the Linux half (one
+staged tree -> `.tar.gz` + `.deb` + `.rpm`), and `.github/workflows/release.yml`
+runs both on every push to main (docs/updates.md). Four things bind them to the
+code:
 
 - **The installed layout is the repo layout.** The editor resolves the engine,
   the PS2 tools, the `.vsix` and the VU framework sources from `<exe>/../`, so
-  the installer puts the binary in `bin\` and those four beside it. **A new
-  exe-relative lookup is a new `[Files]` entry** in the same commit, or the
-  feature works in a checkout and is missing for everyone who installed.
+  every package puts the binary in `bin/` and those four beside it. **A new
+  exe-relative lookup is a new `[Files]` entry in tyrax.iss AND a line in
+  build-package.sh's `stage_tree`** in the same commit, or the feature works in
+  a checkout and is missing for everyone who installed. The two scripts are a
+  platform pair in PURPOSE, not line for line - what must not drift is the
+  CONTENT of the tree.
 - **`src/version.hpp` is where the version is AUTHORED, and the TAGS say which
-  patches are spent.** The PowerShell script and the workflow read the same
+  patches are spent.** Both packaging scripts and the workflow read the same
   three macros with the same regex; CI releases them as they stand when
   `v<that>` is untagged, else goes one PATCH past the highest
   `v<MAJOR>.<MINOR>.*` tag - and stamps that number into a WORKSPACE copy of the
@@ -1847,11 +1853,29 @@ built editor, and `.github/workflows/release.yml` does it on every push to main
   ruleset requires a pull request, which is what killed the commit-back design
   with a GH013 on its first real run; tag pushes are exempt. Bump MINOR by hand
   for a feature - the automatic patch exists so that no push leaves main
-  unreleased, not as the normal path.
+  unreleased, not as the normal path. **The Linux job must stamp it too**: a
+  build that skipped that step would ship a tarball whose editor reports the
+  file's patch while its release carries the tag's, and every tarball install
+  would offer itself an update for ever.
+- **Not every install can update itself, and ONE function decides.** The whole
+  reason the Windows installer can install its own update is that it installs
+  PER USER, with no UAC prompt; a `.deb`/`.rpm` is root's and a checkout is the
+  developer's. So `installer/build-package.sh` stages a one-word
+  `.tyrax-package` marker (`tarball`/`deb`/`rpm`; absent = source checkout),
+  `update::installKind` reads it and `update::selfInstallBlocked` returns either
+  "" or the ONE sentence naming what to do instead - which is what the modal
+  shows in place of the button. A new distribution channel is a marker word and
+  a case there, never a second `#ifdef` at a call site.
+- **The Linux job's runner image is a compatibility floor.** glibc is backward
+  but not forward compatible, so `runs-on: ubuntu-22.04` in `build-linux` is
+  what says "Ubuntu 22.04+, Debian 12+, Fedora 36+". Bumping that line drops
+  distributions silently - nothing fails, the packages just stop installing for
+  people who never report it.
 
-There is deliberately no `build-installer.sh` twin (the platform-parity rule
-does not apply to a Windows-only tool with no Linux counterpart yet); Linux
-packaging is an entry in docs/backlog.md.
+The release's asset NAMES are not a contract but their SUFFIXES are:
+`update::platformAssetSuffix` matches `.exe` and `-linux-x86_64.tar.gz` by tail,
+so a version moving inside a file name costs nothing while renaming the format
+breaks the update check for every installed editor.
 
 **Keep the translation units splittable.** `-O3` is about two thirds of this
 project's compile time and it scales worse than linearly with TU size, so a

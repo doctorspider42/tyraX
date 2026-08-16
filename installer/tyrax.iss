@@ -18,7 +18,9 @@
 ;
 ; Shipping a bare .exe compiles nothing: the first game build would report a
 ; missing engine. If you add a new exe-relative lookup to the editor, add its
-; files here in the same commit.
+; files here AND to stage_tree in installer/build-package.sh - the Linux
+; packaging script, which stages the same shape into a .tar.gz, a .deb and an
+; .rpm - in the same commit.
 ;
 ; Build it with installer\build-installer.ps1 (that script is where the version
 ; comes from - src/version.hpp is the single source of truth for it, here and in

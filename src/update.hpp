@@ -34,15 +34,27 @@ struct Release {
     std::string tag;
     std::string notes;      // the release body, as markdown
     std::string pageUrl;    // html_url: where "What's new" goes
-    std::string assetUrl;   // the Windows installer, "" when there is none
+    std::string assetUrl;   // this platform's package, "" when there is none
     std::string assetName;
     long long assetBytes = 0;
 };
 
+// Which asset of a release THIS build installs, matched by file-name suffix
+// rather than by a name pattern: the release workflow stamps the version into
+// every asset's name, so matching the whole name here would have to be kept in
+// step with a string in a YAML file for no gain. A release carries all of them
+// (docs/updates.md) - the Windows installer, the Linux tarball, the .deb and
+// the .rpm - and this picks the one the running install can actually apply.
+// That is the TARBALL on Linux even for a .deb or .rpm install: those are
+// updated by the package manager, and `selfInstallBlocked` is what says so.
+const char* platformAssetSuffix();
+
 // Parses a GitHub /releases/latest response body. False + `error` on anything
 // that is not one - including the {"message": "Not Found"} a repository with no
-// releases yet answers with, which is a state and not a bug.
-bool parseRelease(const std::string& body, Release& out, std::string& error);
+// releases yet answers with, which is a state and not a bug. The suffix is a
+// parameter so the parser stays a pure function of two strings.
+bool parseRelease(const std::string& body, Release& out, std::string& error,
+                  const std::string& assetSuffix = platformAssetSuffix());
 
 // Asks GitHub for the latest release. Blocking (call it from a worker thread) -
 // runs curl with a hard timeout, so the worst case is bounded.
@@ -66,10 +78,39 @@ bool download(const std::string& url, const std::filesystem::path& dest,
 // then returns false with "cancelled". Terminal - nothing re-arms after it.
 void cancel();
 
-// Starts the downloaded installer and returns immediately; the caller then
-// closes the editor so the installer can replace the files it is running from.
-// Silent + relaunching on Windows (see installer/tyrax.iss); elsewhere there is
-// no installer to run and this reports so.
+// HOW THIS COPY OF TYRAX GOT ONTO THE MACHINE - the question the install half
+// of the feature turns on, because only some of the answers can be updated
+// from inside the editor. On Linux it is one word in a `.tyrax-package` marker
+// file at the install root, written by installer/build-package.sh; its absence
+// means a development checkout, which is the right answer for a repo built
+// with ./build.sh.
+enum class InstallKind {
+    Source,   // a checkout: git pull + ./build.sh
+    Windows,  // installer/tyrax.iss - updates itself silently, per user
+    Tarball,  // the Linux tar.gz - updates itself by unpacking over its own tree
+    Deb,      // /opt/tyrax owned by dpkg - the package manager's job
+    Rpm,      // /opt/tyrax owned by rpm  - the package manager's job
+};
+InstallKind installKind();
+
+// The directory the install's tree starts at: the editor's own binary lives in
+// <root>/bin, and the engine, tools and VU sources beside it. Empty when the
+// executable's path cannot be resolved.
+std::filesystem::path installRoot();
+
+// "" when this install can replace itself, otherwise ONE SENTENCE saying what
+// to do instead (update through apt/dnf, rebuild the checkout). The UI offers
+// the install button exactly when this is empty and prints it when it is not -
+// so a refusal always comes with the alternative, and there is one place that
+// decides.
+std::string selfInstallBlocked();
+
+// Applies the downloaded package and returns immediately; the caller then
+// closes the editor so the update can replace the files it is running from.
+// Windows runs the installer silently and it relaunches us (installer/
+// tyrax.iss); Linux hands a detached shell script the tarball, which waits for
+// this process to exit, unpacks over the install root and starts the editor
+// again. Refuses with `selfInstallBlocked`'s sentence anywhere else.
 bool runInstaller(const std::filesystem::path& file, std::string& error);
 
 }  // namespace update

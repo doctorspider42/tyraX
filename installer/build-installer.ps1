@@ -10,9 +10,13 @@
 # .github/workflows/release.yml), so "which version is this" has one answer on a
 # developer's machine and in CI.
 #
-# There is deliberately no build-installer.sh twin: this packages a Windows
-# installer with a Windows-only tool. Linux packaging is its own job and is in
-# docs/backlog.md - do not "restore parity" by adding a stub that cannot work.
+# THE TWIN IS installer/build-package.sh, and it is a twin in purpose rather
+# than line for line: this drives a Windows-only tool (Inno Setup) to produce
+# one .exe, that one stages a tree and produces a .tar.gz, a .deb and an .rpm.
+# What the two MUST keep in step is the CONTENT of the install - the same
+# binary, engine, tools, VU sources, examples and licence files in the same
+# exe-relative shape - so a new exe-relative lookup in the editor is an entry
+# in tyrax.iss AND in build-package.sh's stage_tree, in the same commit.
 param(
     [string]$Version,
     [switch]$SkipBuild,

@@ -16,6 +16,43 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.52.0 (Linux gets packages of its own, and one of them updates itself):
+// docs/updates.md. `installer/build-package.sh` is the POSIX twin of
+// build-installer.ps1 - it stages the repo-shaped tree ONCE (bin/, vendor/tyra,
+// tools/, the nine VU sources, examples, the licence files) and emits three
+// formats from it, so they cannot disagree about their contents:
+// `tyrax-<v>-linux-x86_64.tar.gz`, `tyrax_<v>_amd64.deb` and
+// `tyrax-<v>-1.x86_64.rpm`. The release workflow gained a build-linux job that
+// attaches all three - stamping the released PATCH into this file's workspace
+// copy exactly as the Windows job does, or a tarball install would report the
+// file's number, disagree with its own release and offer itself an update for
+// ever. It runs on ubuntu-22.04 ON PURPOSE, because a binary runs
+// on a newer glibc than it was built against and never an older one, so the
+// runner image IS the compatibility floor.
+//
+// THE TARBALL IS THE PRIMARY FORMAT AND THE OTHER TWO ARE A CONVENIENCE LAYER,
+// which is a statement about what made the Windows installer good: not that it
+// is an installer, but that it installs PER USER, without root - which is the
+// only reason an update can install itself with nothing to authenticate
+// against. A .deb or .rpm cannot do that, so those are handed to the package
+// manager, out loud: `update::installKind` reads a one-word `.tyrax-package`
+// marker at the install root (absent = a source checkout) and
+// `selfInstallBlocked` turns each answer into either the install button or ONE
+// sentence naming what to do instead. `update::parseRelease` now picks its
+// asset by `platformAssetSuffix()` rather than by `.exe`, and the Linux half of
+// `runInstaller` writes a small detached script that waits for the editor to
+// exit, unpacks over the install root and starts it again - the same overlay
+// semantics tyrax.iss has always had.
+//
+// The .deb/.rpm live in /opt/tyrax with a /usr/bin symlink, which works because
+// platform::exePath resolves /proc/self/exe through canonical() - so the
+// editor's four exe-relative lookups land in the real tree. Verified: all three
+// packages built and inspected, a project created by the unpacked tarball's
+// binary bind-mounts ITS OWN vendor/tyra, and a full self-update (refuse for
+// deb/rpm/checkout/read-only, unpack, relaunch) driven from a harness.
+//
+// MINOR: a capability appears, nothing changes shape for an existing project.
+//
 // 1.51.0 (TyraX ships as an installer, and tells you when there is a newer
 // one): three pieces that only make sense together - docs/updates.md.
 //
@@ -1391,7 +1428,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 51
+#define TYRAX_VERSION_MINOR 52
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

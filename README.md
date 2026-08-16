@@ -50,10 +50,14 @@ for me to create it without the AI. Please give it a chance :)
 
 ## Quickstart
 
-**Windows — just use it:** grab `TyraX-Setup-<version>.exe` from the
-[latest release](https://github.com/doctorspider42/tyraX/releases). It installs
-per user (no admin), brings the engine and the PS2 tools with it, and the editor
+**Just use it:** grab a package from the
+[latest release](https://github.com/doctorspider42/tyraX/releases) — the
+`TyraX-Setup-<version>.exe` installer on Windows, or on Linux the
+`tyrax-<version>-linux-x86_64.tar.gz` (unpack anywhere, no root) or the `.deb` /
+`.rpm`. All of them bring the engine and the PS2 tools with them, and the editor
 tells you when a newer build is out — [Installing and updating](docs/updates.md).
+The installer and the tarball update themselves; a `.deb` or `.rpm` is your
+package manager's to update.
 
 **Windows — build it**
 
@@ -237,8 +241,8 @@ build that provably carries none of it
 - The [VS Code extension](docs/vscode-extension.md) for `.flownode`/`.screenfx`,
   [interface themes](docs/editor-theme.md), and
   [format versioning and migrations](docs/format-versioning.md).
-- A [Windows installer, released on every push, with an update check](docs/updates.md)
-  the editor makes itself (and one checkbox turns off).
+- [Windows installer and Linux tarball/`.deb`/`.rpm`, released on every push](docs/updates.md),
+  with an update check the editor makes itself (and one checkbox turns off).
 
 ## Shortcuts
 

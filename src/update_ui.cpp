@@ -178,6 +178,15 @@ void App::drawUpdateModal() {
             ImGui::PopTextWrapPos();
             ImGui::EndChild();
         }
+        // Said HERE rather than on a disabled button, because it is the answer
+        // to "so how do I get it" and not an excuse: a package-managed or
+        // source install is updated by the thing that installed it.
+        if (const std::string blocked = update::selfInstallBlocked(); !blocked.empty()) {
+            ImGui::Spacing();
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextDisabled("%s", blocked.c_str());
+            ImGui::PopTextWrapPos();
+        }
     }
 
     if (updateDownloading_) {
@@ -196,14 +205,11 @@ void App::drawUpdateModal() {
     ImGui::BeginDisabled(updateDownloading_);
     if (haveUpdate && !failed) {
         const bool installable = !updateRelease_.assetUrl.empty();
-#ifndef _WIN32
-        // There is no Linux package yet (docs/backlog.md); offering a button
-        // that downloads a Windows installer would be worse than not offering
-        // one at all.
-        const bool canInstall = false;
-#else
-        const bool canInstall = installable;
-#endif
+        // ONE place decides whether this install can replace itself - a .deb,
+        // an .rpm and a source checkout are all updated by something other
+        // than us, and each gets the sentence saying by what (printed above,
+        // beside the release notes) instead of a button that cannot work.
+        const bool canInstall = installable && update::selfInstallBlocked().empty();
         if (canInstall) {
             const std::string label =
                 "Download and install" +
@@ -213,7 +219,7 @@ void App::drawUpdateModal() {
             if (ImGui::Button(label.c_str())) updateDownload();
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Downloads the installer and runs it. TyraX closes first -\n"
+                    "Downloads the update and applies it. TyraX closes first -\n"
                     "you will be asked about unsaved work - and comes back\n"
                     "when the update is in.");
             ImGui::SameLine();
