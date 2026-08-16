@@ -3199,6 +3199,12 @@ struct Project {
     float viewCamPitch = 0.6f;
     float viewCamDist = 90.0f;
     float viewCamTarget[3] = {0.0f, 0.0f, 0.0f};
+    // View > Distance fog: the viewport's own fog switch, which is NOT the
+    // scene's fogEnabled - it suppresses the preview of a fog the game still
+    // has, so you can see past it while authoring. Persisted for the same
+    // reason as the camera above: it is where you left the viewport, and a
+    // view setting that resets on every open reads as one that was not saved.
+    bool viewShowFog = true;
     // Live Debugger breakpoints (docs/live-debugger.md), as
     // "<objectId>:<nodeId>" - the owning object's stable id and the flow-graph
     // node id, so they survive renames, reorders and rebuilds. Personal

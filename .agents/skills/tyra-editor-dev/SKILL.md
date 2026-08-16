@@ -850,6 +850,24 @@ twice; a new setting has to land inside it rather than beside it.
   widget is neither active nor just-committed - so undo and a scene switch
   still show through. Any future setting whose apply is destructive wants that
   shape, not a modal.
+- **A CHECKBOX NEVER REPORTS `IsItemDeactivatedAfterEdit()`.** It activates on
+  mouse-down and both edits and deactivates on mouse-up, so the "was edited
+  while active in a PREVIOUS frame" test that call makes can never be true -
+  the edit silently never commits. Use the return value
+  (`if (ImGui::Checkbox(...)) commitChange();`). Three shipped checkboxes were
+  asking (`Fog enabled`, `Gradient sky dome`, a VU stage's `Enabled`); two of
+  them survived only because the Ambience window ALSO compares its section JSON
+  before and after, which is a backstop and not the contract. The rule of
+  thumb: `IsItemDeactivatedAfterEdit` is for widgets you DRAG (sliders, drags,
+  colour edits, text fields); anything that commits on the click itself reports
+  through its return value.
+- **`commitChange()` does not touch the viewport.** It pushes undo and marks
+  dirty; nothing more. A setting that changes the PICTURE rather than the next
+  build must call `applyProjectToViewport()` itself - the GI switch did not, so
+  unticking it left the baked light on screen until the scene changed, and read
+  as a preference that does nothing. Settings that only change what a future
+  bake would produce must NOT call it (a per-frame terrain rebuild while a
+  slider is held), which is the distinction to make before adding the call.
 - **The viewport refresh is deferred to the end of the interaction.**
   `applyProjectToViewport()` rebuilds the terrain mesh and re-reads the GI
   cache, which cannot happen sixty times a second while a slider is held: the

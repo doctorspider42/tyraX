@@ -426,6 +426,16 @@ Scene build(const Project& p, const SceneData& sc, const Settings& st) {
             return heightAtWorld(sc.heights, sc.hmW, sc.hmD, s.hmWidth,
                                  s.hmDepth, x, z);
         };
+        // Keep the decimated corner heights: they are the ground the rays
+        // actually meet, and groundSurfaceY reads them back so a gather origin
+        // can be snapped onto the same surface (see Scene::coarseH).
+        s.coarseCells = cells;
+        s.coarseH.resize((size_t)(cells + 1) * (cells + 1));
+        for (int j = 0; j <= cells; ++j)
+            for (int i = 0; i <= cells; ++i)
+                s.coarseH[(size_t)j * (cells + 1) + i] =
+                    hAt(s.terrainMinX + s.hmWidth * i / cells,
+                        s.terrainMinZ + s.hmDepth * j / cells);
         for (int j = 0; j < cells; ++j) {
             for (int i = 0; i < cells; ++i) {
                 const float x0 = s.terrainMinX + s.hmWidth * i / cells;
@@ -593,6 +603,28 @@ void directAt(const Scene& s, const float o[3], const float n[3],
 }
 
 }  // namespace
+
+// The height of the ground AS TRACED, i.e. of the decimated triangle pair the
+// BVH holds, reproducing `build`'s split (corners 0,3,2 then 0,2,1 - the
+// diagonal runs from (x0,z0) to (x1,z1)). Returns -inf off the terrain.
+float groundSurfaceY(const Scene& s, float x, float z) {
+    const int cells = s.coarseCells;
+    if (cells <= 0 || s.coarseH.empty()) return -1e30f;
+    const float u = (x - s.terrainMinX) / s.hmWidth * cells;
+    const float v = (z - s.terrainMinZ) / s.hmDepth * cells;
+    if (u < 0 || v < 0 || u > cells || v > cells) return -1e30f;
+    int i = (int)u, j = (int)v;
+    if (i >= cells) i = cells - 1;
+    if (j >= cells) j = cells - 1;
+    const float fu = u - i, fv = v - j;
+    const int st = cells + 1;
+    const float h00 = s.coarseH[(size_t)j * st + i];
+    const float h10 = s.coarseH[(size_t)j * st + i + 1];
+    const float h01 = s.coarseH[(size_t)(j + 1) * st + i];
+    const float h11 = s.coarseH[(size_t)(j + 1) * st + i + 1];
+    return fu <= fv ? h00 + (h01 - h00) * fv + (h11 - h01) * fu
+                    : h00 + (h10 - h00) * fu + (h11 - h10) * fv;
+}
 
 void gather(const Scene& s, const float wp[3], const float n[3], uint32_t seed,
             int rays, float out[3]) {
@@ -1251,6 +1283,20 @@ Bake bakeScene(const Project& p, int sceneIndex,
                                   uint32_t seed, float outRgb[3]) {
         gather(s, wp, n, seed, st.rays, outRgb);
     };
+    // The GROUND's own light function. Same gather, but the origin is first
+    // snapped onto the surface the BVH actually holds: aobake hands out points
+    // on the fine bilinear heightfield the game walks on, and the traced
+    // ground is a decimated triangle mesh, so wherever the decimation cut a
+    // bump the point sits UNDER it, the whole hemisphere hits the ground and
+    // the texel bakes black. It showed up as a lattice of dark specks along
+    // the coarse cells' diagonals - the split direction is the giveaway.
+    aobake::LightFn giGroundLight = [&](const float wp[3], const float n[3],
+                                        uint32_t seed, float outRgb[3]) {
+        float p3[3] = {wp[0], wp[1], wp[2]};
+        const float gy = groundSurfaceY(s, p3[0], p3[2]);
+        if (gy > -1e29f && p3[1] < gy) p3[1] = gy;
+        gather(s, p3, n, seed, st.rays, outRgb);
+    };
     out.atlas = aobake::bakeSceneLightAtlas(p, sc, aabbFn, &giLight);
     step(0.40f, 0.0f, 0.0f);
     if (cancel && cancel->load()) return Bake();
@@ -1282,7 +1328,7 @@ Bake bakeScene(const Project& p, int sceneIndex,
                   aobake::collectOccluders(sc.objects, aabbFn),
                   terrainTextured ? std::vector<aobake::Emitter>()
                                   : aobake::collectEmitters(p.dir, sc.objects, aabbFn),
-                  rs.aoRadius, rs.aoStrength, rs.aoEnabled, &giLight,
+                  rs.aoRadius, rs.aoStrength, rs.aoEnabled, &giGroundLight,
                   terrainTextured)
             : aobake::AoImage();
     step(0.70f, 0.0f, 0.0f);

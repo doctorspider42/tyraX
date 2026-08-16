@@ -5088,7 +5088,10 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoMapTexPath = SCENE_AO_MAP_PATH;
     aoMapTexture = acquireTexture(aoMapTexPath);
   }
-  terrainMapOcc = aoMapTexture && SCENE_AO_ENABLED && SCENE_AO_MAP_OCC;
+  // ...and for the GI multiply route regardless of the AO preference: on
+  // that route the alpha channel is the LIGHT, not ambient occlusion.
+  terrainMapOcc = aoMapTexture && SCENE_AO_MAP_OCC &&
+                  (SCENE_AO_ENABLED || SCENE_AO_MAP_GILUM);
   // A failed load falls the light back to the per-vertex path rather than
   // dropping it: the chunk shade below reads this flag.
   terrainMapLit = aoMapTexture && SCENE_AO_MAP_LIT;
@@ -16497,12 +16500,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         if (h > ch.maxY) ch.maxY = h;
       }
   }
+  // The MULTIPLY route for a TEXTURED ground (docs/global-illumination.md):
+  // the map's alpha carries the gathered light's INTENSITY and the occlusion
+  // pass applies it per pixel, so the vertex shade carries only its COLOUR.
+  // That is the frequency split the GS forces - it cannot multiply the frame
+  // buffer by a colour - and it is what replaced reading the probe grid here,
+  // which banded along contour lines because a volume grid was being asked to
+  // light a surface. On this route the map's RGB is never read, so the scene
+  // ships SCENE_AO_MAP_LIT and SCENE_AO_MAP_GI OFF and the additive pass below
+  // never runs; the light is already in the alpha, emitters included.
+  const bool terrainGiLum = aoMapTexture && SCENE_AO_MAP_GILUM;
   // Emitters reaching this chunk, collected ONCE (the point-light dcache
   // lesson: never scan the whole table per vertex). The chunk's bounding
   // sphere spans its cells horizontally and its height extent vertically.
   // Skipped entirely when the terrain lightmap carries the light: it then
-  // lands per pixel through the additive pass below.
-  if (!terrainMapLit) {
+  // lands per pixel through the additive pass below (or, on the multiply
+  // route, through the occlusion pass).
+  if (!terrainMapLit && !terrainGiLum) {
     const float cw = TERRAIN_CHUNK_CELLS * stepX;
     const float cd = TERRAIN_CHUNK_CELLS * stepZ;
     const float chx = startX + (cx * TERRAIN_CHUNK_CELLS + TERRAIN_CHUNK_CELLS * 0.5F) * stepX;
@@ -16521,7 +16535,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // terrain grid is dense enough (one sample per cell) that probes look right
   // on it, which is not true of a two-triangle box face.
   const bool terrainGi = terrainMapLit && SCENE_AO_MAP_GI;
-  const bool terrainProbeGi = !terrainGi && SCENE_PROBES != nullptr;
+  const bool terrainProbeGi =
+      !terrainGi && !terrainGiLum && SCENE_PROBES != nullptr;
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -16529,10 +16544,17 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     V3 s;
-    bool giHere = terrainGi;
+    // giHere means "the baked answer already contains every source", so the
+    // point lights and the emissive pools below must not land a second time.
+    // It is TRUE on the multiply route even though the shade is the ordinary
+    // one: what that shade contributes there is colour, and the intensity that
+    // multiplies it was gathered with the emitters in it.
+    bool giHere = terrainGi || terrainGiLum;
     GiSample gs;
     if (terrainGi) {
       s = {0.0F, 0.0F, 0.0F};
+    } else if (terrainGiLum) {
+      s = shadeOf(n);
     } else if (terrainProbeGi && giProbeAt(wp.x, wp.y, wp.z, gs)) {
       s = giShade(gs, n);
       giHere = true;

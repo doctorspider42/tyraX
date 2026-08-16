@@ -4335,6 +4335,7 @@ void App::saveProject() {
     project_.viewProjection = (int)viewport_.projection();
     viewport_.camState(project_.viewCamYaw, project_.viewCamPitch,
                        project_.viewCamDist, project_.viewCamTarget);
+    project_.viewShowFog = showFog_;  // View > Distance fog
     // Fold the live docking arrangement + open windows into the active layout.
     // While a switch is still settling (load or rebuild pending) the on-screen
     // layout doesn't yet belong to the active layout - keep the stored one
@@ -6227,6 +6228,7 @@ void App::attachProject() {
     // it always did.
     viewport_.setCamState(project_.viewCamYaw, project_.viewCamPitch,
                           project_.viewCamDist, project_.viewCamTarget);
+    showFog_ = project_.viewShowFog;
     // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
     // set (hand-edited or very old file), then apply the active one. Applying is
     // deferred to a frame boundary: loading ImGui settings mid-frame is
@@ -10235,8 +10237,12 @@ void App::drawAmbiencePresets(bool& changed) {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::ColorEdit3("Sky zenith color", a.skyTopColor);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::Checkbox("Gradient sky dome", &a.skyDome);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    // A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit. It activates on
+    // mouse-down and both edits and deactivates on mouse-up, so the
+    // "was edited while active in a PREVIOUS frame" test it runs can never
+    // be true - the edit silently never reached the project, and the change
+    // survived only until the next reload. Use the return value.
+    if (ImGui::Checkbox("Gradient sky dome", &a.skyDome)) changed = true;
     ImGui::BeginDisabled(!a.skyDome);
     ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -10261,15 +10267,10 @@ void App::drawAmbiencePresets(bool& changed) {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
     // Scene AO lives in the Baked lighting tab now, beside model AO and
-    // pre-lit: it is still one of THIS preset's settings, but it is a bake and
-    // every other bake is over there.
-    ImGui::SeparatorText("Ambient occlusion");
-    ImGui::TextDisabled("%s - edit it in the Baked lighting tab",
-                        a.aoEnabled ? "On" : "Off");
-
+    // pre-lit - moved, not mirrored. A read-only echo of a setting that is
+    // edited elsewhere is a second place to look for one answer.
     ImGui::SeparatorText("Distance fog");
-    ImGui::Checkbox("Fog enabled", &a.fogEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::Checkbox("Fog enabled", &a.fogEnabled)) changed = true;
     if (a.fogEnabled) {
         ImGui::ColorEdit3("Fog color", a.fogColor);
         changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -13317,10 +13318,12 @@ void App::applyProjectToViewport() {
     // per-frame cost.
     if (giViewScene_ != project_.activeScene ||
         giViewSerial_ != modelEditSerial_ ||
-        giViewVersion_ != giBaker_.version()) {
+        giViewVersion_ != giBaker_.version() ||
+        giViewEnabled_ != (rs.giEnabled ? 1 : 0)) {
         giViewScene_ = project_.activeScene;
         giViewSerial_ = modelEditSerial_;
         giViewVersion_ = giBaker_.version();
+        giViewEnabled_ = rs.giEnabled ? 1 : 0;
         const gibake::Bake b = gibake::load(project_, project_.activeScene);
         viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
         // The ground takes the baked terrain lightmap instead of the probes -

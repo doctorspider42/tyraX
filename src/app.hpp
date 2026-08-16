@@ -1912,6 +1912,11 @@ private:
     int giViewScene_ = -1;
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
+    // ...and when the GI switch itself moves. Without it the preference was
+    // the one GI setting the viewport ignored: gibake::load already refuses
+    // to answer while GI is off, but nothing asked it again, so unticking the
+    // box left the baked light on screen until the scene changed.
+    int giViewEnabled_ = -1;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
 
     // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). The bake is

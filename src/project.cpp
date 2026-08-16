@@ -3128,6 +3128,7 @@ static std::string manifestJson(const Project& p) {
          << ", \"gizmo\": " << p.gizmoOp << ", \"gizmoSpace\": " << p.gizmoSpace
          << ", \"viewMode\": " << p.viewMode
          << ", \"viewProjection\": " << p.viewProjection
+         << ", \"showFog\": " << (p.viewShowFog ? "true" : "false")
          << ", \"cam\": [" << fmtFloat(p.viewCamYaw) << ", "
          << fmtFloat(p.viewCamPitch) << ", " << fmtFloat(p.viewCamDist) << ", "
          << fmtFloat(p.viewCamTarget[0]) << ", " << fmtFloat(p.viewCamTarget[1])
@@ -6565,6 +6566,7 @@ std::string load(Project& out, const std::string& projectDir) {
         }
         if (const auto* v = ed->find("viewProjection"))
             out.viewProjection = (int)v->numberOr(0);
+        if (const auto* v = ed->find("showFog")) out.viewShowFog = v->boolOr(true);
         if (const auto* v = ed->find("breakpoints");
             v && v->type == json::Value::Type::Array)
             for (const auto& jb : v->arr)

@@ -16,6 +16,56 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.50.0 (the ground bake stops shadowing itself, and three switches start
+// doing what they say): a round of reports off the 1.49.0 build.
+//
+// THE GROUND WAS SHADOWING ITSELF, in a lattice of dark blotches nobody could
+// place. Two causes, both the same mistake - a gather ray fired from a point
+// that is not on the surface the rays are traced against.
+//   1. The terrain map's SUB-SAMPLES inherited the texel centre's height while
+//      moving up to half a texel horizontally. On any slope that puts the
+//      sample under the ground; the whole hemisphere hits terrain and the texel
+//      bakes black. Re-sampled now (aobake::terrainAOMap).
+//   2. The traced ground is a DECIMATED mesh (gibake caps it at 96x96 cells)
+//      while the bake hands out points on the fine bilinear heightfield the
+//      game walks on. Wherever the decimation cuts a bump, the point sits under
+//      the triangles - and the residue showed up along the coarse cells'
+//      DIAGONALS, which is what named the cause. Scene::coarseH keeps those
+//      corner heights and gibake::groundSurfaceY reads the traced height back,
+//      so the ground's light function snaps its origin onto the surface the
+//      BVH actually has.
+// Measured on the reporter's showcase: texels under 8/255 went 0.1% -> 0.5% ->
+// 0.0% across the two fixes (the middle number is fix 1 alone uncovering the
+// second cause), map alpha mean 95.5 -> 86.7, and the map now reads as relief
+// shading plus real tree and village shadows with no lattice in it.
+//
+// A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit, and three of them were
+// asking. A checkbox activates on mouse-down and both edits and deactivates on
+// mouse-up, so "was edited while active in a previous frame" can never be true.
+// Fog enabled, Gradient sky dome and the VU stage's Enabled were all relying on
+// it. The Ambience window's section-JSON comparison happened to catch the first
+// two, so nothing was lost - but that is a backstop, not the contract.
+//
+// GI OFF NOW LOOKS LIKE GI OFF. gibake::load already refuses to answer while
+// the switch is off, but nothing asked it again: the viewport's cache key had
+// scene / model-edit / bake-version in it and not the preference, and
+// commitChange does not touch the viewport. Unticking the box left the baked
+// light on screen until the scene changed. Measured: 66.7% of the viewport
+// changes across the toggle now, 0.08% before.
+//
+// AND View > DISTANCE FOG IS PROJECT STATE, like the camera in 1.47.0 - the
+// same report, and the same answer. It is the VIEWPORT's fog switch, not the
+// scene's fogEnabled: it suppresses the preview of a fog the game still has, so
+// you can author past it. Resetting it on every open reads exactly like a
+// setting that was not saved. kFormatVersion 30 -> 31, purely additive.
+//
+// The Ambience Editor also loses two paragraphs it should not have had: the
+// "What this does not do" wall in the GI tab (five lines of routing caveats
+// that went stale the day the ground's route changed - that story lives in
+// docs/global-illumination.md, which the in-editor assistant reads), and the
+// read-only "Ambient occlusion - edit it in the Baked lighting tab" echo left
+// behind by the 1.48.0 move. Moved is moved.
+//
 // 1.49.0 (a textured ground takes its GI as a MULTIPLY): the last third of the
 // black-hills report - the peaks stopped being black in 1.47.1, the grid
 // stopped clipping them in 1.48.0, and what was left was a ground that BANDED
@@ -1304,7 +1354,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 49
+#define TYRAX_VERSION_MINOR 50
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1585,7 +1635,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 30;
+inline constexpr int kFormatVersion = 31;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

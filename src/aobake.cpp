@@ -1072,10 +1072,17 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             // reconstructs (see kSuper).
             const float sxStep = width / size, szStep = depth / size;
             const float invSuper = 1.0f / (kSuper * kSuper);
+            // The height is RE-SAMPLED, never inherited from the texel centre.
+            // A sub-sample is offset up to half a texel horizontally, and on
+            // any slope that is more height error than a ray-origin bias can
+            // absorb - the sample lands under the ground, its whole hemisphere
+            // hits the terrain's own triangles, and the texel bakes dark. That
+            // is what put a lattice of cell-sized blotches across the GI
+            // ground map: acne, quantised to the heightmap's cells.
             auto subPoint = [&](int sx, int sy, float p[3]) {
                 p[0] = x + ((sx + 0.5f) / kSuper - 0.5f) * sxStep;
-                p[1] = h0;
                 p[2] = z + ((sy + 0.5f) / kSuper - 0.5f) * szStep;
+                p[1] = heightAtWorld(heights, w, d, width, depth, p[0], p[2]);
             };
             if (bakeOcc && !giLum) {
                 // Product-combined per sub-sample, then AVERAGED over the
@@ -1113,10 +1120,13 @@ AoImage terrainAOMap(const std::vector<float>& heights, int w, int d,
             for (int sy = 0; sy < sup; ++sy)
                 for (int sx = 0; sx < sup; ++sx) {
                     float sp[3];
-                    // subPoint divides by kSuper; re-derive for `sup`.
+                    // subPoint divides by kSuper; re-derive for `sup`. The
+                    // height is re-sampled for the reason written there - a
+                    // gather ray fired from under the ground bakes black.
                     sp[0] = x + ((sx + 0.5f) / sup - 0.5f) * sxStep;
-                    sp[1] = h0;
                     sp[2] = z + ((sy + 0.5f) / sup - 0.5f) * szStep;
+                    sp[1] = heightAtWorld(heights, w, d, width, depth, sp[0],
+                                          sp[2]);
                     if (gi) {
                         // Seeded by the texel AND its sub-sample, so the
                         // sub-samples of one texel do not share a ray set and

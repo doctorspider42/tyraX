@@ -1094,8 +1094,9 @@ void App::drawGiBakeSection() {
     ProjectSettings& st = project_.settings;
     bool changed = false;
 
+    bool giSwitched = false;
     if (ImGui::Checkbox("Enable baked global illumination", &st.giEnabled))
-        changed = true;
+        changed = giSwitched = true;
     prefHelp(
         "Static geometry gets a baked multi-bounce lightmap; everything that "
         "moves gets its light from a probe grid. Off = the classic ambient + "
@@ -1153,6 +1154,13 @@ void App::drawGiBakeSection() {
     ImGui::EndDisabled();
 
     if (changed) commitChange();
+    // The switch is the one setting here that changes the PICTURE rather than
+    // the next bake, and commitChange does not touch the viewport - so
+    // unticking the box used to leave the baked light on screen until the
+    // scene changed, which reads as the preference doing nothing at all. The
+    // rays/bounces sliders deliberately do not refresh: they alter what a
+    // re-bake would produce, not what is on screen now.
+    if (giSwitched) applyProjectToViewport();
 
     ImGui::SeparatorText("Scenes");
     const gibake::Settings gst = gibake::settingsOf(st);
@@ -1230,23 +1238,10 @@ void App::drawGiBakeSection() {
     prefHelp("Only the scenes whose cache no longer matches them; a changed big "
              "scene can cost minutes. Also in Project > Preferences > Build.");
 
-    ImGui::Spacing();
-    ImGui::SeparatorText("What this does not do");
-    // Said out loud in the UI rather than in a changelog - every one of these
-    // is a question someone would otherwise file as a bug.
-    ImGui::TextWrapped(
-        "Nothing here is real time. Moving a crate does not move its light "
-        "until the next bake.\n"
-        "GI does not buy more dynamic lights: the flashlight and live point "
-        "lights are unchanged.\n"
-        "Textured surfaces and imported models take their light from the "
-        "probe grid, not the lightmap - a flat additive term over a texture "
-        "would blow out its dark texels. For a per-PIXEL answer on one of "
-        "those, bake the light into its texture instead (Properties > Bake "
-        "lighting into texture, docs/prelit-models.md).\n"
-        "The editor preview evaluates the probe grid per pixel, so the "
-        "console's per-texel contact shadows are sharper than what you see "
-        "here.");
+    // No "what this does not do" wall here. It was five lines of routing
+    // caveats in a settings tab, it went stale the moment the ground's route
+    // changed, and docs/global-illumination.md is where that story belongs -
+    // the in-editor assistant reads it from there.
 }
 
 // --- Baked lighting tab ------------------------------------------------------

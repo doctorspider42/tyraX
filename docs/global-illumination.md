@@ -287,6 +287,23 @@ Said out loud in the Bake window too, not just here:
 
 ## Traps, for whoever touches this next
 
+- **A gather ray must start on the surface the rays are TRACED against, and for
+  the ground those are two different surfaces.** The bake works on the fine
+  bilinear heightfield the game walks on; the BVH holds a *decimated* ground
+  (`build` caps it at 96×96 cells). Wherever the decimation cuts a bump the
+  bake's point sits **under** the traced triangles, the whole hemisphere hits
+  terrain, and the texel comes out black. It is not subtle at scale — it painted
+  a lattice of dark blotches across a scene with a dozen props in it, and the
+  residue lay along the coarse cells' **diagonals**, which is the tell: an
+  artefact that follows the triangulation is about the mesh, not about the
+  light. `Scene::coarseH` + `gibake::groundSurfaceY` re-derive the traced height
+  and the ground's own light function (`giGroundLight`) snaps its origin onto
+  it. The same mistake in miniature: `terrainAOMap`'s sub-samples used to
+  inherit the texel centre's height while moving half a texel sideways, which
+  on any slope is more error than a ray-origin bias can absorb. Both are
+  re-sampled now. If dark specks ever come back, check the origin before you
+  touch the ray count.
+
 - **A TEXTURED terrain takes its light as a MULTIPLY, not as an added pass, and
   that took three wrong answers to arrive at.** The ground pass is additive and
   would blow out a texture's dark texels, so the first arrangement gave a
