@@ -9401,6 +9401,7 @@ void TerrainGame::updateUseTarget() {
     // up on the same press (a grab sound wired in the graph, for instance).
     if (runtimeObjects[useTargetIndex].data.usable)
       scriptCtx.usedObject = useTargetIndex;
+{{VEHICLE_USE}}
     if (runtimeObjects[useTargetIndex].data.pickable) {
       carryIndex = useTargetIndex;
       carryGrabbed = true;  // don't read this same press as "drop"
@@ -23307,8 +23308,14 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.physFriction) << ", " << (o.physTumble ? 1 : 0) << ", "
         << floatLit(o.physSleep) << ", " << modelIndexOf(p, o) << ", "
         << materialIndexOf(p, o) << ", "
-        // save points are always usable - USE is how they open
-        << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0) << ", "
+        // Save points are always usable - USE is how they open - and so is a
+        // driveable vehicle: getting in IS a use, so the prompt, the target
+        // scan and On Used all apply with no new mechanism.
+        << ((o.usable || o.type == PrimitiveType::SavePoint ||
+             (o.type == PrimitiveType::Vehicle && o.vehicleDriveable))
+                ? 1
+                : 0)
+        << ", "
         << (o.pickable ? 1 : 0) << ", " << (o.pickThrow ? 1 : 0) << ", "
         << o.emitterKind << ", " << o.emitterCount << ", "
         << floatLit(o.emitterSize) << ", " << (o.emitterEnabled ? 1 : 0) << ", "
@@ -27670,6 +27677,32 @@ void TerrainGame::renderVehicleWheels() {
 )";
 }
 
+static std::string vehicleUseCall(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    // Getting in is an ordinary USE on the vehicle's own object, so the prompt
+    // and the target scan need no vehicle case at all.
+    return R"(    for (int vi = 0; vi < vehicleCount_; ++vi)
+      if (vehicles_[vi].object == useTargetIndex && vehicles_[vi].driveable) {
+        if (vehicleDriver_ == vi) {
+          // Out, at the driver's door: the exit offset is in the car's own
+          // frame, so it follows the car around instead of being a world
+          // direction that puts the player inside a wall on half the map.
+          const VehicleRt& v = vehicles_[vi];
+          const VehicleDefData& s = VEHICLE_DEFS[v.def];
+          const float c = cosf(v.yaw * 3.14159265F / 180.0F);
+          const float sn = sinf(v.yaw * 3.14159265F / 180.0F);
+          players[0].x = v.pos[0] + s.exitOffset[0] * c + s.exitOffset[2] * sn;
+          players[0].z = v.pos[2] - s.exitOffset[0] * sn + s.exitOffset[2] * c;
+          players[0].y = v.pos[1] + s.exitOffset[1];
+          vehicleDriver_ = -1;
+        } else {
+          vehicleDriver_ = vi;
+        }
+        break;
+      }
+)";
+}
+
 static std::string vehicleSetupCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     return "  setupVehicles(sceneIndex);\n";
@@ -27988,6 +28021,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
+    s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
