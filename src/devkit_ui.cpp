@@ -382,19 +382,26 @@ void App::dbgReadFrameShot() {
     const auto wt = fs::last_write_time(path, wec);
     const long long stamp = wec ? 0 : (long long)wt.time_since_epoch().count();
     if (size == dbgShotSize_ && stamp == dbgShotStamp_) return;
-    if (!size) {  // the Runner deleted it before this run
+    if (!size) {  // the Runner deleted it, or the game has just truncated it
         dbgShotSize_ = 0;
         dbgShotStamp_ = stamp;
         dbgShotTorn_ = 0;
+        dbgShotPartial_ = 0;
         return;
     }
     // The game writes the header and then ~900 KB of pixels, a line at a time,
     // over host: - so a poll lands mid-write often, not rarely. The file is
     // exactly 18 + w*h*4 bytes and its header says w and h, which makes "is
-    // this file finished" answerable before reading any of it. A file that
-    // stays short is a truncated write rather than a race, and after a few
-    // tries it is committed so the failure is visible instead of retried
-    // forever.
+    // this file finished" answerable before reading any of it.
+    //
+    // WAITING IS DECIDED BY PROGRESS, NOT BY A NUMBER OF TRIES. A short file
+    // that is still GROWING is a write in flight and the wait restarts; only a
+    // short file that has stopped growing for six polls (~2.4 s) is a truncated
+    // write, and that is what gets reported. The count alone was an emulator
+    // assumption: PCSX2 finishes the megabyte between two polls, while over
+    // ps2link it is a network round trip per 1.4 KB and takes about three
+    // seconds - so the six tries ran out DURING a perfectly good capture and
+    // the panel called it malformed.
     std::ifstream f(path, std::ios::binary);
     if (!f) return;
     unsigned char head[18] = {};
@@ -404,11 +411,19 @@ void App::dbgReadFrameShot() {
     const int h = (int)head[14] | ((int)head[15] << 8);
     const bool shaped = head[2] == 2 && head[16] == 32 && w > 0 && h > 0;
     const size_t want = 18 + (size_t)w * (size_t)h * 4;
-    if (shaped && size < want && ++dbgShotTorn_ < 6) return;
+    if (shaped && size < want) {
+        if (size != dbgShotPartial_) {  // it grew: the game is still writing
+            dbgShotPartial_ = size;
+            dbgShotTorn_ = 0;
+            return;
+        }
+        if (++dbgShotTorn_ < 6) return;
+    }
 
     dbgShotSize_ = size;
     dbgShotStamp_ = stamp;
     dbgShotTorn_ = 0;
+    dbgShotPartial_ = 0;
     dbgShotWaiting_ = false;
     if (!shaped || size < want) {
         dbgShotError_ =
@@ -445,8 +460,34 @@ void App::dbgReadFrameShot() {
     dbgShotW_ = w;
     dbgShotH_ = h;
     dbgShotError_.clear();
+
+    // KEEP THE PICTURE. bin/frame.tga is a CHANNEL, not an album: one file,
+    // overwritten by the next capture and deleted by every launch (a stale
+    // shot is a perfectly valid-looking answer to the next session's first
+    // one). So a decoded capture is also written out as an ordinary PNG under
+    // the project's own screenshots/ - one file per capture, named by the
+    // clock so the folder sorts itself, outside bin/ so a Clean does not take
+    // the lot, and in a format anything can open. Nothing new is linked for
+    // it: stb_image_write is already here.
+    dbgShotFile_.clear();
+    const fs::path shots = fs::path(project_.dir) / "screenshots";
+    std::error_code sec;
+    fs::create_directories(shots, sec);
+    const std::string when = platform::fileTimeStamp();
+    fs::path png = shots / ("frame-" + when + ".png");
+    for (int n = 2; n < 100 && fs::exists(png, sec); ++n)  // twice in a second
+        png = shots / ("frame-" + when + "-" + std::to_string(n) + ".png");
+    if (stbi_write_png(png.string().c_str(), w, h, 4, rgba.data(), w * 4))
+        dbgShotFile_ = png.string();
+    else
+        dbgShotError_ = "could not write " + png.string();
+
     statusMessage_ = "Frame capture: " + std::to_string(w) + "x" +
-                     std::to_string(h) + " from the running game";
+                     std::to_string(h) + " from the running game" +
+                     (dbgShotFile_.empty()
+                          ? std::string()
+                          : " - saved as screenshots/" +
+                                fs::path(dbgShotFile_).filename().string());
 }
 
 void App::dbgReadCrashReport() {
@@ -1985,34 +2026,59 @@ void App::drawDebuggerWindow() {
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
-                "Asks the game to read its last finished frame out of GS VRAM "
-                "and write\nbin/frame.tga. Works on a real PlayStation 2, and "
-                "on a locked or\nremote desktop where the emulator's own "
-                "screenshot key cannot.\n\nOne shot: ~900 KB over host:, so it "
-                "costs the game a visible hitch.");
+                "Asks the game to read its last finished frame out of GS VRAM. "
+                "Works on a\nreal PlayStation 2, and on a locked or remote "
+                "desktop where the emulator's\nown screenshot key cannot.\n\n"
+                "Kept as a PNG in the project's screenshots/ folder.\n\n"
+                "One shot: ~900 KB over host:, so it costs the game a visible "
+                "hitch -\nabout three seconds of it over ps2link.");
         if (dbgShotWaiting_) {
             ImGui::SameLine();
             ImGui::TextDisabled("waiting for the game...");
         }
         if (dbgShotTex_) {
             ImGui::SameLine();
-            if (ImGui::Button("Show file"))
-                platform::revealInFileManager(
-                    (std::filesystem::path(project_.dir) / "bin" / "frame.tga")
-                        .string());
+            // This reveals the SAVED PNG rather than bin/frame.tga: the
+            // channel file is overwritten by the next capture and deleted by
+            // every launch, so pointing the file manager at it opened a path
+            // that was usually gone - and a missing path is answered by
+            // explorer with the user's Documents folder, which reads as a
+            // broken button. The PNG is the copy that lasts.
+            if (ImGui::Button("Show file")) {
+                std::error_code ec;
+                if (!dbgShotFile_.empty() &&
+                    std::filesystem::exists(dbgShotFile_, ec)) {
+                    dbgShotError_.clear();
+                    platform::revealInFileManager(dbgShotFile_);
+                } else {
+                    dbgShotError_ =
+                        "the saved PNG is gone - capture again to write one.";
+                }
+            }
         }
 
-        if (!dbgShotError_.empty())
+        if (!dbgShotError_.empty()) {
+            // Wrapped: this panel is a narrow dock column and an unwrapped
+            // line simply runs off its right edge, taking the half of the
+            // sentence that says what to do about it.
+            ImGui::PushTextWrapPos(0.0f);
             ImGui::TextColored(ImVec4(0.94f, 0.55f, 0.45f, 1.0f), "%s",
                                dbgShotError_.c_str());
+            ImGui::PopTextWrapPos();
+        }
         if (!dbgShotTex_) {
             ImGui::TextWrapped(
-                "No capture yet. The frame comes back as bin/frame.tga - the "
-                "same host: channel everything else here rides on, so it works "
-                "over ps2link too.");
+                "No capture yet. The frame comes back over the same host: "
+                "channel everything else here rides on - a real PlayStation 2 "
+                "included - and is kept as a PNG in the project's "
+                "screenshots/ folder.");
         } else {
             ImGui::TextDisabled("%dx%d - the frame buffer as the GS holds it",
                                 dbgShotW_, dbgShotH_);
+            if (!dbgShotFile_.empty())
+                ImGui::TextDisabled(
+                    "screenshots/%s",
+                    std::filesystem::path(dbgShotFile_).filename().string().c_str());
             // Fit the width and keep the buffer's own aspect: this is the
             // GS RASTER, not the television picture, so a 512x448 frame is
             // shown as 512x448 rather than stretched to 4:3 - the point of
