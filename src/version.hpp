@@ -16,6 +16,35 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
+// scene with Point Light > Beam used to look materially different in the
+// editor than in PCSX2, because the editor drew neither half of it. It draws
+// both now, from the game's own numbers: the additive corona billboard with
+// the camera pull (a quarter of the light radius, capped at three quarters of
+// the camera distance, size-compensated - without the pull the editor shows
+// the very z-fight seam 1.53.1 removed from the console), and the eight-
+// segment apex-to-black cone shaft for Beam: corona + shaft. One sprite bake
+// serves the beams, the ground pools and the night sky's star dot
+// (Viewport::coronaTex, at menubake::kCoronaSpriteSize - the pools were still
+// uploading it at the flare size after 1.53.1 moved kind 2 to 128, i.e. a
+// quarter of the image). Beams draw in EVERY shading mode, unlike the ground
+// pools: a beam is geometry the game submits, not a simulation of how the
+// console shades. The runtime LEVEL is deliberately not reproduced - flicker,
+// Set Light and a streamed-out light are runtime state, and a glow pulsing
+// over a rock-steady pool of light would be a new lie rather than less of one.
+// Verified against PCSX2 on examples/night-walk's street lamp by differencing
+// beam-on against beam-off in each renderer (which cancels the editor's
+// gizmos and every shading difference) at a matched eye/aim/FOV from three
+// vantages: the added light lands within 0.17 % of picture width and 0.64 % of
+// height, its area agrees to 8 %, and the editor's amplitude tracks the
+// sprite's own alpha curve to 3 % at two brightnesses. Behind a wall both add
+// exactly zero, so the depth test still hides a glow the way it should. Also
+// corrected on the way through: the console capped the pull at HALF the camera
+// distance while its own commit message, docs and this file all said three
+// quarters - the measurement that picked the value is in 1.53.1's entry, and
+// the code kept the value it rejected. MINOR: the viewport gains a capability,
+// nothing changes shape on disk.
+//
 // 1.53.1 (a lamp's glow stops sawing its own pole): reported from
 // examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
 // boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
@@ -1497,8 +1526,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 53
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 54
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

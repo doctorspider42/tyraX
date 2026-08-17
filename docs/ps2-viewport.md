@@ -164,6 +164,14 @@ the preview adds them all, and a dynamic **spot** light's gobo projection is
 not reproduced (its pool is skipped; the per-vertex cone still lands on
 objects).
 
+A light's visible **beam** (*Properties > Point light > Beam*) is not part of
+this mode and never was: the corona billboard and the cone shaft are geometry
+the game submits whatever it shades with, so the viewport draws them in every
+mode, from the same sprite bake and the same numbers — see
+[flashlight](flashlight.md) for the pull that keeps the corona off its own
+lamp post, and for the one thing the preview leaves out (the runtime level:
+flicker and *Set Light*).
+
 What to expect with it on: faceted spheres, light pools that follow the
 terrain grid, banded cylinders — the console's look, verified A/B against a
 PCSX2 frame of the same scene. The editor's gizmos, outlines and grid stay

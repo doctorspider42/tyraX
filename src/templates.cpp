@@ -13902,10 +13902,13 @@ void TerrainGame::updateAndRenderLightBeams() {
     // CAMERA far enough to clear its own fixture, and shrunk by the same
     // fraction so its apparent size does not move - a glow is not a surface,
     // and in a real lens it blooms OVER the thin thing that carries it.
-    // Capped at half the camera distance, so walking into the lamp cannot
-    // drag the sprite through the near plane. The cone shaft below stays at
-    // the true position on purpose: it is world geometry, and sliding it
-    // would visibly detach it from the lamp head.
+    // Capped at THREE QUARTERS of the camera distance, so walking into the
+    // lamp cannot drag the sprite through the near plane. Half was tried
+    // first and measurably parked the seam at the pole's base when looking
+    // steeply up (which is how the value was chosen) - the editor viewport's
+    // twin, Viewport::drawLightBeams, reads the same 0.75. The cone shaft
+    // below stays at the true position on purpose: it is world geometry, and
+    // sliding it would visibly detach it from the lamp head.
     float pcx = cx, pcy = cy, pcz = cz, chalf = half;
     {
       const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
@@ -13913,7 +13916,7 @@ void TerrainGame::updateAndRenderLightBeams() {
       const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
       if (vl > 0.0001F) {
         float pull = d.lightRadius * 0.25F;
-        if (pull > vl * 0.5F) pull = vl * 0.5F;
+        if (pull > vl * 0.75F) pull = vl * 0.75F;
         pcx += vx2 / vl * pull;
         pcy += vy2 / vl * pull;
         pcz += vz2 / vl * pull;

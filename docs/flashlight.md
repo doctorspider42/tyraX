@@ -99,6 +99,18 @@ while a wall between you and the lamp still hides it. And it bakes at
 cover a third of the screen, and a 64-texel radial gradient contours in
 visible steps at that magnification.
 
+**The editor viewport draws both halves of a beam** — the corona with that
+same pull, and *Beam: corona + shaft*'s eight-segment cone — from the same
+sprite bake and the same numbers, so a lamp is placed against the picture the
+console will draw rather than against an unlit marker. It draws in every
+shading mode, because a beam is geometry the game submits and not a
+simulation of how the console shades. One thing it deliberately leaves out:
+the runtime **level** the console multiplies the beam by. Flicker, *Set
+Light* and a streamed-out light are all runtime state, so the viewport
+previews a beam at its authored brightness, exactly as it previews the light
+itself — a glow pulsing over a rock-steady pool of light would be a new lie
+rather than less of one.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the

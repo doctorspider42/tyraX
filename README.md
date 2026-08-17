@@ -128,7 +128,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [orthographic and axis views](docs/orthographic-views.md), and a viewport that
   can rasterize, shade and colour the way
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
-  lighting, 16-bit colour with the GS dither.
+  lighting, 16-bit colour with the GS dither, and the lights' own
+  [visible beams](docs/flashlight.md) drawn the game's way.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
 - **Models** — `.obj` compiled into a binary
