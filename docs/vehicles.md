@@ -329,6 +329,28 @@ One trap this cost: the model table's four parallel arrays emit a placeholder
 vehicle that placeholder pushed `MODEL_COUNT` one short of the rows actually
 written. The emptiness test has to consider the appended vehicle slots too.
 
+## Three bugs a screenshot found
+
+Worth recording, because each looked like a different feature failing:
+
+**The wheels drove off and left the body behind.** The transform was only handed
+on with `updateObjMat` *when the object was already on the matrix path* - but
+that promotion happens in `renderScene` and only once the object is eligible, so
+on the early frames the write went nowhere. The wheels are built straight from
+the sim's position and moved regardless. A `dirty` fallback makes the car one
+object again.
+
+**You could not get in.** The block that parks the player on the boom and points
+the camera never reached the generated code at all: it was lost when the method
+bodies were moved out of the game header into the `.cpp`. USE set the driver and
+nothing else happened, which reads exactly like "it teleports me a little and I
+still walk".
+
+**The car ignored its own scale.** The body is an ordinary model row, so scaling
+the object scaled the body - and nothing else. Every geometric term the sim and
+the wheel bag use now carries the instance's uniform scale, or a scaled car grows
+a body around wheels that stayed where they were.
+
 ## Not built yet
 
 Honest state, so nobody looks for these: **nothing reaches the PS2** — there is no codegen and no runtime, so a project

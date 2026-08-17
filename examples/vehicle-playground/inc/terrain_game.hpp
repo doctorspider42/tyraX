@@ -661,6 +661,10 @@ class TerrainGame : public Tyra::Game {
     float yaw = 0.0F, pitch = 0.0F, roll = 0.0F;
     float speed = 0.0F, lateral = 0.0F, velY = 0.0F, steerAngle = 0.0F;
     int grounded = 0;
+    // The instance's uniform scale. The BODY gets it for free (it is an
+    // ordinary model row), so the wheels and the handling geometry have to
+    // take it too or a scaled car grows a body around wheels that stayed put.
+    float scale = 1.0F;
     float wheelSpin = 0.0F;                       // degrees, shared by all four
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
   };

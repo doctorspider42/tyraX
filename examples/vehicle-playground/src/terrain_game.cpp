@@ -12997,6 +12997,7 @@ void TerrainGame::updateVehicles(float dt) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;  // the instance scale (see VehicleRt::scale)
 
     // Input. Only the vehicle the player is driving reads the pad; every
     // other one coasts, which is what leaves room for an AI controller to
@@ -13041,7 +13042,7 @@ void TerrainGame::updateVehicles(float dt) {
     // Ground: four height samples under the wheel anchors. They give the
     // ride height, the pitch and the roll from one query each.
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
-    const float hx = 0.5F * s.track, hz = 0.5F * s.wheelBase;
+    const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
     float gy[4];
@@ -13053,7 +13054,7 @@ void TerrainGame::updateVehicles(float dt) {
       sum += gy[w];
     }
     const float planeY = sum * 0.25F;
-    const float restY = planeY + s.rideHeight;
+    const float restY = planeY + s.rideHeight * SC;
     v.grounded = (v.pos[1] <= restY + 0.02F) ? 1 : 0;
 
     if (v.grounded) {
@@ -13064,8 +13065,8 @@ void TerrainGame::updateVehicles(float dt) {
       v.velY = 0.0F;
       const float fY = 0.5F * (gy[0] + gy[1]), rY = 0.5F * (gy[2] + gy[3]);
       const float lY = 0.5F * (gy[0] + gy[2]), rrY = 0.5F * (gy[1] + gy[3]);
-      v.pitch = atan2f(fY - rY, s.wheelBase > 0.01F ? s.wheelBase : 0.01F) * kRad;
-      v.roll = atan2f(rrY - lY, s.track > 0.01F ? s.track : 0.01F) * kRad;
+      v.pitch = atan2f(fY - rY, s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) * kRad;
+      v.roll = atan2f(rrY - lY, s.track * SC > 0.01F ? s.track * SC : 0.01F) * kRad;
       // Compression is the residual against the TILTED plane, so flat
       // ground at any angle reads neutral and only bumps move a wheel.
       const float dP = 0.5F * (fY - rY), dR = 0.5F * (rrY - lY);
@@ -13121,7 +13122,7 @@ void TerrainGame::updateVehicles(float dt) {
     float dYaw = 0.0F;
     const float absSp = v.speed < 0.0F ? -v.speed : v.speed;
     if (v.grounded && absSp > 0.05F) {
-      const float yr = (v.speed / (s.wheelBase > 0.01F ? s.wheelBase : 0.01F)) *
+      const float yr = (v.speed / (s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F)) *
                        tanf(v.steerAngle * kDeg);
       dYaw = yr * dt * kRad;
       v.yaw += dYaw;
@@ -13153,10 +13154,10 @@ void TerrainGame::updateVehicles(float dt) {
     // refuses the whole move - resolving per corner would rotate the body, and
     // a kinematic chassis has no way to represent that.
     {
-      const float hx2 = 0.5F * s.track, hz2 = 0.5F * s.wheelBase;
+      const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
       const float cx[4] = {-hx2, hx2, -hx2, hx2};
       const float cz[4] = {hz2, hz2, -hz2, -hz2};
-      const float feet = v.pos[1] - s.rideHeight;
+      const float feet = v.pos[1] - s.rideHeight * SC;
       int blocked = 0;
       for (int k = 0; k < 4 && !blocked; ++k) {
         const float p0x = prevX + cx[k] * c2 + cz[k] * s2;
@@ -13178,13 +13179,12 @@ void TerrainGame::updateVehicles(float dt) {
         v.lateral = 0.0F;
       }
     }
-    v.wheelSpin += (v.speed / (s.wheelRadius > 0.001F ? s.wheelRadius : 0.001F)) *
+    v.wheelSpin += (v.speed / (s.wheelRadius * SC > 0.001F ? s.wheelRadius * SC : 0.001F)) *
                    dt * kRad;
     if (v.wheelSpin > 360.0F) v.wheelSpin -= 360.0F;
     if (v.wheelSpin < 0.0F) v.wheelSpin += 360.0F;
 
-    // Write the body's transform. No `dirty`: the object is on the matrix
-    // path, so this is four floats VU1 reads - not a vertex rebuild.
+    // Write the body's transform.
     if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
       RuntimeObject& o = runtimeObjects[v.object];
       o.data.position[0] = v.pos[0];
@@ -13193,7 +13193,36 @@ void TerrainGame::updateVehicles(float dt) {
       o.data.rotation[0] = v.pitch;
       o.data.rotation[1] = v.yaw;
       o.data.rotation[2] = -v.roll;
-      if (o.onMatrixPath) updateObjMat(v.object);
+      // The promotion to the matrix path happens in renderScene and only once
+      // the object is eligible, so it is NOT true on the first frames. Writing
+      // the transform without telling anything about it left the BODY standing
+      // still while the wheels - built straight from v.pos - drove off across
+      // the map on their own. The dirty rebuild costs a re-bake on those few
+      // frames and is the only thing that makes the car ONE object.
+      if (o.onMatrixPath)
+        updateObjMat(v.object);
+      else
+        o.dirty = true;
+    }
+
+    // Driving: park the player on a boom behind the car and point the camera
+    // at it. There is no second camera rig - the walker's own view IS the
+    // driving view - and writing this after updatePlayerEntity has run is what
+    // suppresses the walker's input without it needing to know cars exist.
+    //
+    // The camera is set DIRECTLY as well: it was built from the player's old
+    // position earlier this frame, so leaving it to follow would trail one
+    // frame behind everything it is following.
+    if (vi == vehicleDriver_) {
+      players[0].x = v.pos[0] - s2 * s.camDist * SC;
+      players[0].z = v.pos[2] - c2 * s.camDist * SC;
+      players[0].y = v.pos[1] + s.camHeight * SC;
+      players[0].yaw = v.yaw;
+      players[0].velY = 0.0F;
+      cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
+      cameraLookAt.set(v.pos[0], v.pos[1] + s.camHeight * 0.35F, v.pos[2], 1.0F);
+      engine->renderer.core.renderer3D.update(
+          Tyra::CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     }
   }
 }
@@ -13218,8 +13247,9 @@ void TerrainGame::renderVehicleWheels() {
     const GameModelPart& part = gameModels[wm].parts[0];
     if (part.verts.size() < 24) continue;
     src = &part;
+    const float SC = v.scale;
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
-    const float hx = 0.5F * s.track, hz = 0.5F * s.wheelBase;
+    const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
     for (int w = 0; w < 4; ++w) {
@@ -13242,7 +13272,7 @@ void TerrainGame::renderVehicleWheels() {
         const float z2 = -q[0] * ss + z * cs;
         const float wx = x2 * cy + z2 * sy;
         const float wz = -x2 * sy + z2 * cy;
-        wheelVerts_.push_back(Tyra::Vec4(ax + wx, ay + y, az + wz));
+        wheelVerts_.push_back(Tyra::Vec4(ax + wx * SC, ay + y * SC, az + wz * SC));
         // Flat mid grey: the wheel's colour comes from its palette TEXEL,
         // and 128 is the modulate identity the textured path expects.
         wheelCols_.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
