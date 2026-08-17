@@ -935,6 +935,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawVehicleWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
@@ -1700,6 +1701,13 @@ void App::drawMenuBar() {
                     "Reusable groups of objects - a hut, a room, a lamp post\n"
                     "with its light and its script. Stamp them by hand, scatter\n"
                     "them with a procedural graph, or spawn them at runtime.");
+            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Driveable cars. Define one - model, wheels, how it drives -\n"
+                    "and place it in as many scenes as you like. The wheels are\n"
+                    "found in the model by their geometry, so their names in\n"
+                    "Blender do not matter.");
             if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
             if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
             if (ImGui::IsItemHovered())
@@ -4533,6 +4541,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "vehicles") return &showVehicles_;
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
@@ -4570,7 +4579,9 @@ static const char* const kLayoutWindowKeys[] = {
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
-    "projectprefs"};
+    "projectprefs",
+    // Tools > Vehicle Editor (docs/vehicles.md).
+    "vehicles"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -6136,6 +6147,9 @@ void App::pasteObject() {
 
 aobake::ModelAabbFn App::placementModelAabb() {
     return [this](const SceneObject& o, float mn[3], float mx[3]) {
+        // A Vehicle's bounds come from its DEFINITION's baked body, which only
+        // the App can resolve - the viewport knows models, not definitions.
+        if (o.type == PrimitiveType::Vehicle) return vehicleBodyBounds(o, mn, mx);
         return viewport_.modelLocalBounds(o, mn, mx);
     };
 }
@@ -7865,6 +7879,15 @@ void App::drawAddObjectMenu() {
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // A driveable car. The object is only the placement - what the vehicle
+        // IS lives in a definition (Tools > Vehicle Editor, docs/vehicles.md),
+        // and a fresh instance adopts the first one so it is never nameless.
+        if (ImGui::MenuItem("Vehicle")) {
+            addObject(PrimitiveType::Vehicle, /*commit=*/false);
+            if (!project_.vehicles.empty())
+                project_.objects().back().vehicleDef = project_.vehicles.front().name;
+            commitChange();
+        }
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (ImGui::MenuItem("Portal")) addPortal();

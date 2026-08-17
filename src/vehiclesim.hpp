@@ -50,6 +50,10 @@ struct MeshNode {
 
 struct Wheel {
     int node = -1;  // index into the MeshNode vector handed to detectWheels
+    // That node's authored name. The index is only meaningful against the
+    // vector this detection ran on, and the editor has to store a wheel's
+    // identity in the .tyra across re-imports - so the NAME travels with it.
+    std::string nodeName;
     float centre[3] = {0.0f, 0.0f, 0.0f};  // anchor: the node's own AABB centre
     float radius = 0.0f;
     float width = 0.0f;

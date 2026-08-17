@@ -162,12 +162,66 @@ from the Input Map today; a nav-driven AI controller fills the identical struct
 later. The boundary costs nothing now and would be a rewrite of every control
 path if it were added afterwards.
 
+## The Vehicle Editor
+
+*Tools > Vehicle Editor.* A definition list on the left, four tabs on the right.
+
+A definition is **project-wide data** (`Project::vehicles`, `Section::Vehicles`)
+and an instance names it. That is the same shape as an `AmbiencePreset` or a
+`Prefab`, and it is data in the `.tyra` rather than a file in `res/` because the
+file route (`.mtl`, `.flownode`, `.screenfx`, `.drone`) is for things that honour
+someone else's format or carry C++. Being a Section buys the collaboration wire,
+the AI Assistant's `get_section`/`set_section` and the `sectionJson` edit guard
+with no code of its own.
+
+- **Model** — the asset, then every line the importer decided, verbatim. The
+  wheel table lists what was found; **Steered** and **Driven** are per wheel, so
+  a rear-steer forklift and a 4WD are the same asset with different boxes
+  ticked. When the front end was assumed rather than read, the tab says so and
+  offers the flip.
+- **Driving** — the tunables. The widgets are **derived from
+  `vehiclesim::specFields()`**, so a tunable added to `DriveSpec` becomes
+  editable, saveable, loadable and documented by appearing in that one list.
+- **Driver** — the camera rig while driving, and the exit offset (the driver's
+  door).
+- **Cost** — the number that decides whether a scene can afford this vehicle:
+  submits per vehicle, triangles, what the source was, and what the placed
+  instances would total if they were all on screen. Measured on the reference
+  car: *submits 2 (~2.0 ms), body 1072 + 4 wheels 1664 = 2736 triangles, source
+  was 18 parts and 5312 triangles.*
+
+Two things the window does deliberately:
+
+**It keeps its own undo stack.** Definitions are project-wide, so
+`commitChange()` dirties and syncs to session peers but pushes no undo step —
+`History` carries the scenes alone. A window that is mostly sliders needs an
+undo, and the Material Editor and the Menu Editor's Style tab already made that
+call.
+
+**Deleting a definition does not touch the scenes.** Instances keep their name
+reference and their Properties row reports it in red. A delete that silently
+edited every scene that used the thing would be far worse than a dangling name
+somebody can see.
+
+Renaming, on the other hand, **does** follow into every instance in every scene
+and every prefab (`App::renameVehicleDef`, the `renameFont` rule) — a reference
+stores the name, so it has to.
+
 ## Where the code lives
 
 | File | What it is |
 |---|---|
 | [`src/vehiclesim.hpp/.cpp`](../src/vehiclesim.cpp) | Wheel detection + the drive model. Host-only — no GL, no ImGui, no `App`, no `project.hpp` — the `scrollsim`/`placement` shape, so the whole thing runs from a 40-line harness against a real `.fbx`. It is the single source of truth for **two** consumers that must never disagree: the editor's test drive and the generated runtime, which is its per-frame twin. |
 | [`src/vehbake.hpp/.cpp`](../src/vehbake.cpp) | The import bake: one `.glb`/`.fbx` in, a body `.tmdl`, a wheel `.tmdl` and a palette PNG out. Deliberately a *vehicle* importer rather than a general static-`.glb` one — a vehicle has to be cut up, re-framed and re-materialised regardless, and none of those steps mean anything for an ordinary prop. What it emits is an ordinary `.tmdl`, so it touches neither model classification, texbake nor codegen. |
+| [`src/vehicle_ui.cpp`](../src/vehicle_ui.cpp) | The Vehicle Editor window. `App::` methods declared in `app.hpp`, own TU (the `prefab_ui.cpp` precedent). The import bake is cached per definition and keyed on everything it depends on — it parses a `.glb`/`.fbx` and decimates it, which cannot happen per frame. |
+
+## Not built yet
+
+Honest state, so nobody looks for these: the viewport does not draw a placed
+vehicle yet, there is no in-editor test drive, and **nothing reaches the PS2** —
+there is no codegen and no runtime, so a project with vehicles builds and runs
+exactly as it did without them. Collision against world objects is also still
+outside the drive model, which samples terrain height only.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,

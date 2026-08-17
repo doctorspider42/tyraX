@@ -290,6 +290,7 @@ Detection detectWheels(const std::vector<MeshNode>& nodes) {
     for (int m : best->members) {
         Wheel w;
         w.node = m;
+        w.nodeName = nodes[m].name;
         for (int a = 0; a < 3; ++a) w.centre[a] = nodes[m].centre(a);
         const int o1 = (det.axleAxis + 1) % 3, o2 = (det.axleAxis + 2) % 3;
         w.radius = 0.25f * (nodes[m].extent(o1) + nodes[m].extent(o2));

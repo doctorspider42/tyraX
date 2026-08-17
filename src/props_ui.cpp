@@ -338,6 +338,43 @@ void App::drawPropertiesWindow() {
                     "then triangles nothing shades.");
         }
     }
+    if (o.type == PrimitiveType::Vehicle) {
+        // An instance names its definition; everything else about the vehicle
+        // lives there (docs/vehicles.md). A dangling name is REPORTED here
+        // rather than repaired, because deleting a definition must not
+        // silently edit scenes.
+        const std::string current = o.vehicleDef.empty() ? "<none>" : o.vehicleDef;
+        if (ImGui::BeginCombo("Vehicle", current.c_str())) {
+            for (size_t i = 0; i < project_.vehicles.size(); ++i) {
+                const std::string& n = project_.vehicles[i].name;
+                // Explicit ##id: a Selectable's LABEL is its ImGui id, and a
+                // definition being renamed can momentarily collide.
+                if (ImGui::Selectable((n + "##vehpick" + std::to_string(i)).c_str(),
+                                      n == o.vehicleDef) &&
+                    n != o.vehicleDef) {
+                    o.vehicleDef = n;
+                    committed = true;
+                }
+            }
+            if (project_.vehicles.empty())
+                ImGui::TextDisabled("None - make one in Tools > Vehicle Editor.");
+            ImGui::EndCombo();
+        }
+        bool known = o.vehicleDef.empty();
+        for (const VehicleDef& v : project_.vehicles)
+            if (v.name == o.vehicleDef) known = true;
+        if (!known) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().danger);
+            ImGui::TextWrapped("No vehicle called \"%s\" - pick another.",
+                               o.vehicleDef.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::Checkbox("Player can drive it", &o.vehicleDriveable))
+            committed = true;
+        prefHelp(
+            "Off makes it scenery that still collides and can still be moved by\n"
+            "a script - what parked traffic wants.");
+    }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
         const std::string current = o.modelPath.empty()
