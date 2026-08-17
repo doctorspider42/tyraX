@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 
 #include "app.hpp"
 #include "app_internal.hpp"
@@ -84,8 +86,66 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.bodyTriBudget = v.bodyTriBudget;
     opt.wheelTriBudget = v.wheelTriBudget;
     opt.mergeUntextured = v.mergeUntextured;
-    opt.paletteTexture = "models/veh-" + v.id + "-palette.png";
+    // The palette is baked into the merged part's texture field, so the name
+    // here has to be the path the game will actually open. Everything the bake
+    // produces is a derived artifact and lives under .res-baked/ with the
+    // other bakes; the build copies it next to the ELF.
+    const std::string rel = "vehicles/veh-" + v.id;
+    opt.paletteTexture = rel + "-palette.png";
     c.ok = vehbake::build(project_.filePath(v.modelPath), opt, c.result, c.error);
+    if (!c.ok) return;
+
+    // Write the three files. A viewport preview causing a disk write reads
+    // oddly until you notice that the console needs exactly these bytes: one
+    // bake, two consumers, so there is no second answer to what this car is.
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path(project_.dir) / ".res-baked" / "vehicles";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    auto put = [&](const std::string& name, const std::string& bytes) {
+        const fs::path p = dir / name;
+        // Compare before writing: this runs whenever a budget slider settles,
+        // and a fresh mtime on an asset the build reads is a rebuild nobody
+        // asked for (the refreshGenerated rule).
+        std::ifstream in(p, std::ios::binary);
+        if (in) {
+            const std::string old((std::istreambuf_iterator<char>(in)),
+                                  std::istreambuf_iterator<char>());
+            if (old == bytes) return;
+        }
+        in.close();
+        std::ofstream(p, std::ios::binary).write(bytes.data(), (std::streamsize)bytes.size());
+    };
+    put("veh-" + v.id + "-body.tmdl", tmdl::write(c.result.body));
+    put("veh-" + v.id + "-wheel.tmdl", tmdl::write(c.result.wheel));
+    if (!c.result.palettePng.empty())
+        put("veh-" + v.id + "-palette.png",
+            std::string((const char*)c.result.palettePng.data(),
+                        c.result.palettePng.size()));
+
+    // Hand the geometry to the viewport so a placed instance draws. The
+    // viewport gets the IN-MEMORY bake rather than re-reading the files: one
+    // bake, and no .tmdl reader on the host that would have to agree with it.
+    viewport_.setVehicleDraw(v.name, c.result.body, c.result.wheel,
+                             ".res-baked/" + rel + "-palette.png", v.drive.wheelBase,
+                             v.drive.track, v.drive.wheelRadius, v.drive.rideHeight);
+}
+
+// Keeps every definition's bake current, one per frame at most. Called from
+// drawUI, NOT from the window body (the giBakerPoll rule): a placed vehicle
+// has to draw whether or not the Vehicle Editor is open, and on a project with
+// several cars baking them all in one frame would stall the editor for as long
+// as parsing that many .fbx files takes.
+void App::vehicleTick() {
+    if (!hasProject_) return;
+    for (int i = 0; i < (int)project_.vehicles.size(); ++i) {
+        const VehicleDef& v = project_.vehicles[i];
+        if (v.modelPath.empty()) continue;
+        auto it = vehicleBakes_.find(v.id);
+        if (it != vehicleBakes_.end() && it->second.key == bakeKey(v)) continue;
+        vehicleRefreshBake(i, false);
+        return;  // one per frame
+    }
 }
 
 void App::renameVehicleDef(int index, const std::string& newName) {

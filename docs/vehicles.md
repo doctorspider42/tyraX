@@ -80,11 +80,17 @@ bake collects every untextured material of a model into ONE part, writes each
 distinct colour into a generated **palette texture**, and points that material's
 vertices at its own cell.
 
-Cells are 8×8-pixel blocks, not single texels, because the GS quantises texture
-coordinates to 12.4 fixed point and filters bilinearly: a one-pixel cell would
-bleed its neighbours' colours into the model at some camera distances. A block
-makes that impossible rather than unlikely. Cells are keyed on the **colour**,
-not the material name, so twelve materials sharing six colours cost six cells.
+The palette is a **one-dimensional strip**: each colour owns a full-height
+column 8 px wide, and every UV sits at `v = 0.5`. It began as a 2-D grid of
+blocks and that was a mistake worth recording, because a grid makes the colour
+depend on the V coordinate — and V's origin is a *convention*, top-left in the
+image file, bottom-left in GL, flipped again somewhere in the console path. A
+strip has no row to be off by, so no V convention can select the wrong colour.
+The columns are 8 px rather than 1 because the GS quantises texture coordinates
+to 12.4 fixed point and filters bilinearly, which would bleed a one-pixel cell's
+neighbours into the model at some camera distances. Cells are keyed on the
+**colour**, not the material name, so twelve materials sharing six colours cost
+six columns; 16 colours still fit in a 128×8 strip, i.e. 4 KB.
 
 Textured materials always keep their own part — they have real UVs that cannot
 be rewritten.
@@ -215,13 +221,44 @@ stores the name, so it has to.
 | [`src/vehbake.hpp/.cpp`](../src/vehbake.cpp) | The import bake: one `.glb`/`.fbx` in, a body `.tmdl`, a wheel `.tmdl` and a palette PNG out. Deliberately a *vehicle* importer rather than a general static-`.glb` one — a vehicle has to be cut up, re-framed and re-materialised regardless, and none of those steps mean anything for an ordinary prop. What it emits is an ordinary `.tmdl`, so it touches neither model classification, texbake nor codegen. |
 | [`src/vehicle_ui.cpp`](../src/vehicle_ui.cpp) | The Vehicle Editor window. `App::` methods declared in `app.hpp`, own TU (the `prefab_ui.cpp` precedent). The import bake is cached per definition and keyed on everything it depends on — it parses a `.glb`/`.fbx` and decimates it, which cannot happen per frame. |
 
+## In the viewport
+
+A placed vehicle draws as **two things**: the body under the object's own
+matrix, and one wheel mesh repeated at the four anchors — the same split, with
+the same numbers, that the console will use. The wheels ride in the vehicle's
+own frame (the object matrix times a local offset), never a second world-space
+computation that could disagree with it. A vehicle whose definition has not
+been imported yet falls through to the placeholder box, so it is visible and
+selectable rather than an invisible hole in the scene.
+
+The import bake is cached per definition and refreshed by `App::vehicleTick`,
+which runs every frame from `drawUI` and does **at most one bake per frame** —
+a placed vehicle has to draw whether or not the Vehicle Editor is open, and
+baking a project's worth of cars in one frame would stall the editor for as
+long as parsing that many `.fbx` files takes.
+
+Everything the bake produces (`-body.tmdl`, `-wheel.tmdl`, `-palette.png`) is
+written under `.res-baked/vehicles/` with the other derived artifacts, content-
+compared before writing so a settled slider does not hand the build a fresh
+mtime. The viewport is handed the **in-memory** bake rather than re-reading
+those files: one bake, and no host-side `.tmdl` reader that would have to agree
+with it.
+
+**Never cache a GL texture id in a draw structure.** `invalidateAssets()` wipes
+`texCache_` *and deletes the texture objects in it*, and the asset scan calls it
+whenever anything on disk moves — so a stored id goes dangling and every sampler
+reading it returns black. That cost a long hunt: the car rendered pure black
+against a palette that decoded correctly, UVs that pointed at exactly the right
+cells and a `.tmdl` that was provably right, and disabling the texture brought
+the body back grey. The palette is resolved from its **path** at draw time.
+
 ## Not built yet
 
-Honest state, so nobody looks for these: the viewport does not draw a placed
-vehicle yet, there is no in-editor test drive, and **nothing reaches the PS2** —
-there is no codegen and no runtime, so a project with vehicles builds and runs
-exactly as it did without them. Collision against world objects is also still
-outside the drive model, which samples terrain height only.
+Honest state, so nobody looks for these: there is no in-editor test drive, and
+**nothing reaches the PS2** — there is no codegen and no runtime, so a project
+with vehicles builds and runs exactly as it did without them. Collision against
+world objects is also still outside the drive model, which samples terrain
+height only.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,

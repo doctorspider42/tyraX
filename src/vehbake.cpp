@@ -221,38 +221,47 @@ struct Merge {
     }
 };
 
-// Palette geometry. Each colour owns a BLOCK of pixels rather than a single
-// texel, and the UV lands in the middle of it: the GS quantises texture
-// coordinates to 12.4 fixed point and filters bilinearly, so a one-pixel cell
-// would bleed its neighbours' colours into every triangle at some camera
-// distances. A block makes that impossible instead of unlikely.
+// Palette geometry: a ONE-DIMENSIONAL strip. Each colour owns a full-height
+// COLUMN kCellPx wide, and every UV sits at v = 0.5.
+//
+// It started as a 2-D grid of blocks and that was a mistake worth recording,
+// because the failure is invisible: a grid makes the colour depend on the V
+// coordinate, and V's origin is a CONVENTION - top-left in the image file,
+// bottom-left in GL, and the console's own flip is resolved somewhere else
+// again. With the grid, an entire car rendered pure black against a palette
+// that decoded perfectly and UVs that pointed at exactly the right cell
+// centres, because the sampler read v = 0.125 from the other end and landed in
+// the unwritten bottom of the image. Flipping V fixed some cells and not
+// others, which is the sound of guessing.
+//
+// A strip cannot have that bug: there is no row to be off by, so no V
+// convention - present, future, editor or GS - can select the wrong colour.
+// The width is the only thing that grows, and 8 px per colour still leaves a
+// 16-colour palette at 128x8, i.e. 4 KB.
 constexpr int kCellPx = 8;
+constexpr int kPaletteH = 8;  // POT, and the engine asserts POT sides
 
-int paletteSide(int cells) {
-    int grid = 1;
-    while (grid * grid < std::max(cells, 1)) ++grid;
-    int side = grid * kCellPx;
+int paletteWidth(int cells) {
+    int need = std::max(1, cells) * kCellPx;
     int pow2 = 8;
-    while (pow2 < side) pow2 *= 2;  // the engine asserts power-of-two sides
+    while (pow2 < need && pow2 < 512) pow2 *= 2;
     return pow2;
 }
 
-void paletteUv(int cell, int side, float& u, float& v) {
-    const int perRow = std::max(1, side / kCellPx);
-    const int cx = cell % perRow, cy = cell / perRow;
-    u = (cx * kCellPx + kCellPx * 0.5f) / (float)side;
-    v = (cy * kCellPx + kCellPx * 0.5f) / (float)side;
+void paletteUv(int cell, int width, float& u, float& v) {
+    u = (cell * kCellPx + kCellPx * 0.5f) / (float)width;
+    v = 0.5f;  // deliberately mid-strip: V carries no information at all
 }
 
-std::vector<unsigned char> paletteImage(const Merge& mg, int side) {
-    std::vector<unsigned char> rgba((size_t)side * side * 4, 0);
-    const int perRow = std::max(1, side / kCellPx);
+std::vector<unsigned char> paletteImage(const Merge& mg, int width) {
+    std::vector<unsigned char> rgba((size_t)width * kPaletteH * 4, 0);
     for (size_t i = 0; i < mg.colours.size(); ++i) {
         const uint32_t c = mg.colours[i];
-        const int cx = (int)i % perRow, cy = (int)i / perRow;
-        for (int y = 0; y < kCellPx; ++y)
+        for (int y = 0; y < kPaletteH; ++y)
             for (int x = 0; x < kCellPx; ++x) {
-                const size_t o = ((size_t)(cy * kCellPx + y) * side + (cx * kCellPx + x)) * 4;
+                const size_t px = (size_t)i * kCellPx + x;
+                if ((int)px >= width) continue;
+                const size_t o = ((size_t)y * width + px) * 4;
                 if (o + 3 >= rgba.size()) continue;
                 rgba[o + 0] = (unsigned char)((c >> 16) & 0xff);
                 rgba[o + 1] = (unsigned char)((c >> 8) & 0xff);
@@ -265,14 +274,14 @@ std::vector<unsigned char> paletteImage(const Merge& mg, int side) {
     return rgba;
 }
 
-std::vector<unsigned char> encodePng(const std::vector<unsigned char>& rgba, int side) {
+std::vector<unsigned char> encodePng(const std::vector<unsigned char>& rgba, int width) {
     std::vector<unsigned char> out;
     stbi_write_png_to_func(
         [](void* ctx, void* data, int len) {
             auto* v = (std::vector<unsigned char>*)ctx;
             v->insert(v->end(), (unsigned char*)data, (unsigned char*)data + len);
         },
-        &out, side, side, 4, rgba.data(), side * 4);
+        &out, width, kPaletteH, 4, rgba.data(), width * 4);
     return out;
 }
 
@@ -356,13 +365,13 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
     for (auto& kv : textured) out.parts.push_back(std::move(kv.second));
 }
 
-void resolvePaletteUvs(tmdl::Model& m, int side) {
+void resolvePaletteUvs(tmdl::Model& m, int width) {
     for (tmdl::Part& p : m.parts) {
         if (p.texture.empty()) continue;
         for (size_t v = 0; v + 7 < p.verts.size(); v += 8) {
             if (p.verts[v + 7] != -1.0f) continue;  // not a palette placeholder
             float u = 0.0f, vv = 0.0f;
-            paletteUv((int)std::lround(p.verts[v + 6]), side, u, vv);
+            paletteUv((int)std::lround(p.verts[v + 6]), width, u, vv);
             p.verts[v + 6] = u;
             p.verts[v + 7] = vv;
         }
@@ -427,15 +436,15 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     }
 
     if (!mg.colours.empty()) {
-        out.paletteSize = paletteSide((int)mg.colours.size());
+        out.paletteSize = paletteWidth((int)mg.colours.size());
         resolvePaletteUvs(out.body, out.paletteSize);
         resolvePaletteUvs(out.wheel, out.paletteSize);
         out.palettePng = encodePng(paletteImage(mg, out.paletteSize), out.paletteSize);
         char buf[180];
         std::snprintf(buf, sizeof(buf),
                       "Merged %d untextured materials into %zu palette colours "
-                      "(%dx%d texture).",
-                      out.srcParts, mg.colours.size(), out.paletteSize, out.paletteSize);
+                      "(%dx%d strip).",
+                      out.srcParts, mg.colours.size(), out.paletteSize, kPaletteH);
         out.notes.push_back(buf);
     }
 

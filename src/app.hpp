@@ -762,6 +762,9 @@ private:
     // Runs the import bake for one definition and caches the result. Called
     // when the model or a budget changes, never per frame - it parses a .fbx.
     void vehicleRefreshBake(int index, bool force);
+    // Per-frame, from drawUI: keeps definitions baked so placed instances draw
+    // even with the window shut (the giBakerPoll rule).
+    void vehicleTick();
     // Renaming a definition retargets every instance in every scene. The
     // renameFont precedent: a reference stores the NAME, so it has to follow.
     void renameVehicleDef(int index, const std::string& newName);
