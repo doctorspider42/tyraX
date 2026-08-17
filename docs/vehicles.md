@@ -293,12 +293,18 @@ no `res/` source, so without the exemption a build silently deletes the geometry
 the game is about to load. Same reason `stoch/`, `aomap/`, `aoatlas/`, `gi/` and
 `modelao/` are exempt.
 
-**The bake currently runs only in the editor**, from `App::vehicleTick`. A
-headless `--build` therefore ships no vehicle geometry — measured: the directory
-comes back empty. Before the runtime can be relied on, the bake has to move into
-the build path (where texbake and the AO bakes already run), with the editor
-tick left as the preview accelerator. That is the first job of the runtime work,
-not an afterthought.
+**The bake runs in the BUILD**, from `vehbake::bakeProject` — the `texbake::bake`
+shape, called from the Runner right before texbake (which owns the `.res-baked`
+sweep). The editor's per-frame tick calls the same import for its preview, but
+the build no longer depends on the editor having done so: it used to, and a
+headless `--build` therefore shipped a game with no vehicle geometry at all
+(measured — the directory came back empty). One function called by both is what
+stops the console and the preview from being able to disagree about what a car
+is. A build logs what it produced:
+
+```
+[vehicle] CC96: body 1072 tris / 1 part(s), wheel 416 tris, 2 submit(s) per vehicle
+```
 
 ## Not built yet
 

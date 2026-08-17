@@ -7,6 +7,7 @@
 #include "platform.hpp"
 #include "templates.hpp"
 #include "texbake.hpp"
+#include "vehbake.hpp"
 #include "wavconvert.hpp"
 
 #include <cstdlib>
@@ -964,6 +965,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                 fs::remove(fs::path(p.dir) / "bin" / "livelink.sig", ec);
             }
         }
+
+        // Vehicle bake: the .glb/.fbx of every definition -> body + wheel
+        // .tmdl + colour palette in .res-baked/vehicles/ (docs/vehicles.md).
+        // Before texbake, because texbake owns the .res-baked sweep.
+        if (auto err = vehbake::bakeProject(
+                p, [this](const std::string& l) { appendLine(l); });
+            !err.empty())
+            appendLine("[editor] Warning: " + err);
 
         // Texture bake: res/ -> .res-baked/ (PNG quantization per the project
         // policy; the generated Makefile copies .res-baked next to the ELF).

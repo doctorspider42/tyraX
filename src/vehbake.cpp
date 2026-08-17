@@ -4,6 +4,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 
 #include "fbxparser.hpp"  // animimport::parseSkel - .glb and .fbx alike
@@ -506,6 +509,79 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     if (out.spec.wheelRadius > 0.0f)
         out.spec.rideHeight = out.spec.wheelRadius;  // hub height off the ground
     return true;
+}
+
+// --- the build-path bake ----------------------------------------------------
+
+BakedPaths pathsFor(const VehicleDef& v) {
+    BakedPaths b;
+    if (v.id.empty()) return b;
+    const std::string stem = "vehicles/veh-" + v.id;
+    b.body = stem + "-body.tmdl";
+    b.wheel = stem + "-wheel.tmdl";
+    b.palette = stem + "-palette.png";
+    return b;
+}
+
+std::string bakeProject(const Project& p,
+                        const std::function<void(const std::string&)>& log) {
+    namespace fs = std::filesystem;
+    std::string firstError;
+    if (p.vehicles.empty()) return firstError;
+
+    const fs::path dir = fs::path(p.dir) / ".res-baked" / "vehicles";
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+
+    // Content-compared: this runs on every build, and a fresh mtime on an asset
+    // the compiler reads is a rebuild nobody asked for (the refreshGenerated
+    // rule, which the binary bakes are held to as well).
+    auto put = [&](const std::string& binRel, const std::string& bytes) {
+        const fs::path out = fs::path(p.dir) / ".res-baked" / binRel;
+        std::ifstream in(out, std::ios::binary);
+        if (in) {
+            const std::string old((std::istreambuf_iterator<char>(in)),
+                                  std::istreambuf_iterator<char>());
+            if (old == bytes) return;
+        }
+        in.close();
+        std::ofstream(out, std::ios::binary)
+            .write(bytes.data(), (std::streamsize)bytes.size());
+    };
+
+    for (const VehicleDef& v : p.vehicles) {
+        if (v.modelPath.empty() || v.id.empty()) continue;
+        const BakedPaths bp = pathsFor(v);
+        Options opt;
+        opt.bodyTriBudget = v.bodyTriBudget;
+        opt.wheelTriBudget = v.wheelTriBudget;
+        opt.mergeUntextured = v.mergeUntextured;
+        opt.paletteTexture = bp.palette;
+        Result r;
+        std::string err;
+        if (!build(p.filePath(v.modelPath), opt, r, err)) {
+            const std::string line =
+                "[vehicle] " + v.name + ": import failed - " + err;
+            if (log) log(line);
+            if (firstError.empty()) firstError = line;
+            continue;
+        }
+        put(bp.body, tmdl::write(r.body));
+        put(bp.wheel, tmdl::write(r.wheel));
+        if (!r.palettePng.empty())
+            put(bp.palette, std::string((const char*)r.palettePng.data(),
+                                        r.palettePng.size()));
+        if (log) {
+            char buf[220];
+            std::snprintf(buf, sizeof(buf),
+                          "[vehicle] %s: body %d tris / %d part(s), wheel %d tris, "
+                          "%d submit(s) per vehicle",
+                          v.name.c_str(), r.bodyTris, r.bodyParts, r.wheelTris,
+                          r.bodyParts + r.wheelParts);
+            log(buf);
+        }
+    }
+    return firstError;
 }
 
 }  // namespace vehbake

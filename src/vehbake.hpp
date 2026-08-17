@@ -1,18 +1,21 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <vector>
 
 #include "glbparser.hpp"
+#include "project.hpp"
 #include "tmdl.hpp"
 #include "vehiclesim.hpp"
 
 // The vehicle import bake (docs/vehicles.md): one authored .glb/.fbx in, a
 // body .tmdl plus one wheel .tmdl out.
 //
-// Host-only, no GL, no ImGui, no project.hpp - the aobake/matbake shape, so
-// the whole thing runs from a harness against a real car before any of it is
-// wired to a window.
+// Host-only, no GL, no ImGui - the aobake/texbake shape, so the whole thing
+// runs from a harness against a real car before any of it is wired to a
+// window. Everything above the build-path section at the bottom is free of
+// project.hpp as well, which is what makes that harness a 40-line main().
 //
 // This is deliberately a VEHICLE importer and not a general "static .glb"
 // importer. A vehicle has to be cut up (body vs wheels), re-framed (into the
@@ -105,5 +108,33 @@ bool inspect(const std::string& modelPath, vehiclesim::Detection& out,
 // The full bake.
 bool build(const std::string& modelPath, const Options& opt, Result& out,
            std::string& error);
+
+// --- the build-path bake ----------------------------------------------------
+//
+// Bakes EVERY definition in a project into `.res-baked/vehicles/`, which the
+// generated Makefile's `RESDIR` copies next to the ELF. The texbake::bake
+// shape, and called from the same two places: the Runner's build and the
+// headless CLI.
+//
+// This exists because the bake used to run only from the editor's per-frame
+// tick, which meant a headless `--build` shipped a game with no vehicle
+// geometry at all - measured, the directory came back empty. One function,
+// called by the build AND by the editor, is what stops the console and the
+// preview from being able to disagree about what a car is.
+//
+// Files are content-compared before writing, so a build that changed nothing
+// hands the compiler no fresh mtimes.
+struct BakedPaths {
+    std::string body, wheel, palette;  // bin-relative, "" if not produced
+};
+
+// Bin-relative paths for one definition. Pure string arithmetic, so codegen can
+// name the files without running the bake.
+BakedPaths pathsFor(const VehicleDef& v);
+
+// Returns "" on success, else the first error. Definitions with no model are
+// skipped silently - an author part-way through setting one up is not an error.
+std::string bakeProject(const Project& p,
+                        const std::function<void(const std::string&)>& log);
 
 }  // namespace vehbake
