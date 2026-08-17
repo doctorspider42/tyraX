@@ -199,8 +199,10 @@ Developer design docs (internals, not user guides):
   generate both sides, run it in the host simulator with no PS2.
 - [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
   kernels out of stages, no assembly.
-- [VU1 clipping plan](vu1-clipping-plan.md) — measured EE-clipper cost and the
-  milestones for moving StaPip clipping onto VU1.
+- [VU1 clipping and the guard band](vu1-clipping.md) — how the static pipeline
+  routes geometry between the cull and clip programs, why edge-of-screen
+  geometry needs no clipping at all (the GS scissor crops it), and the measured
+  cost of getting that decision wrong.
 - [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
   and dithering, what a texture really costs, the texture heap and its eviction
   policy, measured before/after numbers.

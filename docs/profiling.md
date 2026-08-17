@@ -148,6 +148,12 @@ const float vuWaitMs = sample.vu1WaitTicks / 294912.0F;
 const float swapWaitMs = sample.programSetWaitTicks / 294912.0F;
 ```
 
+**The frame-timing rig is its first shipped reader**, and the only one: under
+`TYRA_FRAME_PROFILE` the generated game enables the counters at init, drains
+them **every frame** (`takeTelemetry` clears as it reads, so a skipped frame is
+a lost frame) and prints the `FTCLIP` line below beside `FRAMETIME`. Nothing
+outside that `#if` switches them on.
+
 `takeTelemetry()` returns the accumulated interval and clears every counter.
 `activePlanePopcount[0..6]` is a histogram for clip-routed packages. With VU1
 clipping enabled this is the exact mask that the clip program consumes, derived
@@ -379,6 +385,24 @@ FRAMETIME n=50 f=1200 work=17.42/16.98/21.30 submit=11.20 drain=2.11 blss=3.02/0
 - `over20` — frames in the window past the 20 ms PAL budget.
 - `cam` — camera heading, the independent confirmation that frame `f` of run A
   really was looking where frame `f` of run B was.
+
+A second line comes off the same window — the static pipeline's ROUTING, which
+is what usually explains a `work` figure that moved without any BLSS number
+moving (docs/vu1-clipping.md):
+
+```
+FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 vuwait=0.01
+```
+
+- `cull` / `clip` / `guard` — `packages/triangles` over the window. `guard` is
+  the SUBSET of `cull` that took that route only because the package stayed
+  inside the VU1 guard band, i.e. what the clipper no longer sees.
+- `out` — packages dropped on the EE; `flush` — qbuffer flushes; `vuwait` — ms
+  the EE spent waiting on VIF1/VU1.
+
+Counts, never milliseconds: `work` above is the milliseconds and this line says
+why it moved. In an A/B the two arms' `cull + clip` totals must stay comparable,
+or the arms are not looking at the same scene.
 
 Every 512 frames it also dumps the raw per-frame `work` ticks as `FTRAW <first>
 <64 hex values>` × 8 lines — same I/O cost, 512× the data, and the only way to
@@ -1630,5 +1654,6 @@ check the contact sheet against what your fixture is supposed to look like.
 
 - `.claude/skills/tyra-testing` — building, booting PCSX2, the screenshot
   script, and the layered verification story.
-- [VU1 clipping plan](vu1-clipping-plan.md) — real-hardware EE-clipper cost
-  measurements and the clipping-to-VU1 design.
+- [VU1 clipping and the guard band](vu1-clipping.md) — the cull/clip routing,
+  the guard band the GS scissor finishes, and the measured cost of clipping
+  what did not need it.

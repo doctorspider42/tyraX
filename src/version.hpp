@@ -1650,9 +1650,47 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.55.2 (the clipper stops clipping what the scissor would crop -
+// docs/vu1-clipping.md): the static pipeline classified a package against the
+// VIEW frustum and read PARTIALLY_IN_FRUSTUM as "needs clipping", which it is
+// not. VU1 cuts against the near/far pair and an X/Y band at 0.9 of w, and the
+// projection divides by projectionScale 4096, so the screen edge is at 0.125 of
+// w and the band is SEVEN times that - a triangle may hang ~1590 px past either
+// edge of a 512x448 picture before anything is cut, and the GS scissor crops
+// the raster during DDA. So a package straddling the screen border crossed no
+// clip plane at all, and it was still split into thirds (3x the DMA chains and
+// VU1 kicks), memcpy-ed stream by stream where the cull route hands VU1 a
+// POINTER, and run through Sutherland-Hodgman with an empty plane mask.
+//
+// The packager already computed that mask; it now answers the routing question
+// in the same pass (StaPipBagPackage::guardBandOnly) and such a package is
+// culled whole and by pointer. Over EIGHT planes, not six: the cull programs'
+// fcand 0x3FFFF tests z against +/-w too, while the guard band's near constant
+// is deliberately looser (PlanesClipAlgorithm::clipMargin), and that gap is a
+// thin shell in front of the near plane where the clipper draws a triangle the
+// cull program would ADC away - a hole at point-blank range. The two exact
+// near/far half-spaces live at indices 6..7, on the EE only, never uploaded.
+//
+// MEASURED on examples/large-terrain (2048x2048 terrain, 1181 props), PCSX2
+// software renderer, a frame-indexed script camera, one line differing between
+// the arms, 2922 PAIRED frames: work 6.887 -> 4.670 ms, d = -2.217 ms, 95% CI
+// [-2.258, -2.175], 1.475x, 2864/2922 frames faster. Clip-routed packages
+// 11 164 -> 2 127 per 50-frame window, clipped triangles 68 456 -> 13 264,
+// qbuffer flushes 1 287 -> 756 - five sixths of the clipper's load was geometry
+// that needed no clipping. The picture is unchanged, and the CONTROL is what
+// says so: two boots of the same build differ on this fixture (it streams
+// terrain chunks), and an A-arm boot and a B-arm boot came back BYTE-IDENTICAL
+// over four parked poses - the arm is not what sorts the images.
+//
+// Also here: StaPipTelemetry gets its first reader after a year with none. The
+// generated game enables it and prints an FTCLIP line beside FRAMETIME, but
+// only under TYRA_FRAME_PROFILE (default 0), so a shipped build carries none of
+// it. PATCH: no capability appears, frames get shorter, nothing on disk changes
+// shape.
+
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 55
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
