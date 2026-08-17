@@ -99,8 +99,9 @@ Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
 clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,
 **the default** clipping mode for new projects since M4; the EE clipper stays
 selectable as "Precise clipping on EE (legacy)" and remains the load-time
-default for pre-M4 `.tyra` files without a `clipping` key — design + status
-in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
+default for pre-M4 `.tyra` files without a `clipping` key — the routing, the
+guard band and the measured numbers are in `docs/vu1-clipping.md`), static
+pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
 blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
@@ -1698,7 +1699,45 @@ classification, mind the AABB invariant: every CoreBBox the packager sees is
 axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
 matrix-transform constructor breaks that, and it must never feed the AABB
 test. VU1 clipping is now the default; the EE clipper remains available as the
-legacy compatibility mode. See docs/vu1-clipping-plan.md.
+legacy compatibility mode. See docs/vu1-clipping.md.
+- **`PARTIALLY_IN_FRUSTUM` does NOT mean "needs clipping", and treating it that
+  way was worth 2.2 ms a frame** (docs/vu1-clipping.md). A package is classified
+  against the VIEW frustum — the screen edge — while VU1 cuts against the near/far
+  pair and an X/Y band at `VU1_CLIP_XY_BAND` (0.9) of w. The projection divides
+  by `projectionScale` 4096, so the screen edge is at `width/4096` of w — **0.125**
+  at 512 px — and the band is about SEVEN times that: a triangle may hang ~1590 px
+  past either edge before anything is cut, and the GS scissor crops the raster
+  (it acts during DDA, so unseen pixels cost no fill). So a package straddling the
+  screen border typically crosses no VU clip plane at all, and it used to be split
+  into thirds, `memcpy`-ed stream by stream and run through Sutherland-Hodgman with
+  an empty plane mask. `StaPipBagPackage::guardBandOnly` (set by the packager,
+  read by `StaPipCore::isGuardBandOnly`) routes it to **cull**, whole and by
+  pointer. Measured on `examples/large-terrain`, 2922 paired frames: clip-routed
+  packages 11 164 -> 2 127 per 50-frame window, qbuffer flushes 1 287 -> 756, work
+  6.887 -> 4.670 ms (**1.475x**, CI [-2.258, -2.175]); the picture is unchanged
+  (an A-arm and a B-arm boot came back byte-identical over four parked poses,
+  while two boots of the SAME build did not — this fixture's chunk streaming is
+  the noise floor, so ALWAYS capture a same-build control here).
+  **The trap inside it, and the reason the mask is tested over EIGHT planes:** the
+  cull programs' `fcand 0x3FFFF` covers all six clip flags of all three vertices,
+  `z` against `+/-w` included, while the guard band's near constant is
+  deliberately looser (`PlanesClipAlgorithm::clipMargin`). That leaves a thin
+  shell in front of the near plane where the clipper draws a triangle the cull
+  program would ADC away — a hole at point-blank range.
+  `computeClipObjectSpacePlanes` therefore builds the six VU planes PLUS the exact
+  near (`z <= w`) and far (`z >= -w`) pair at indices 6..7; those two are EE-only,
+  never uploaded, and `clipPlaneMask` is masked back to six bits before VU1 sees
+  it. If you add a plane here, decide first which side of that line it is on.
+  Note the trade: the whole package is now submitted where the split would have
+  dropped some thirds as OUTSIDE — ~7 % more triangles in 54 % fewer packages,
+  because the cost on this pipeline is per PACKAGE (a DMA chain, a kick, a copy),
+  not per triangle.
+- **`StaPipTelemetry` finally has a reader: the `FTCLIP` line.** The counter block
+  existed for a year with nothing calling `takeTelemetry()`. Under
+  `TYRA_FRAME_PROFILE` the generated game now enables it and prints
+  `cull=P/T clip=P/T guard=P/T out=... flush=... vuwait=...` once a second beside
+  `FRAMETIME` (docs/profiling.md). Drain it EVERY frame — `takeTelemetry` clears
+  as it reads, so a skipped frame is a lost frame.
 - **`Info::getFps()` is NOT a clock you may add a constant to, and it was one
   for years.** It divided a hardcoded `15625.0` into a single frame's delta of
   **EE Timer 3**, which the kernel clocks from **H-BLNK** - i.e. it counts

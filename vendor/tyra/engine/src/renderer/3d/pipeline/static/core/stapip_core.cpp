@@ -100,17 +100,26 @@ void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
                       (-PlanesClipAlgorithm::clipMargin);
   const float farZ = -rendererCore->getSettings().getFar();
   const float b = VU1_CLIP_XY_BAND;
-  const float planes[6][5] = {
+  const float planes[8][5] = {
       {0.0F, 0.0F, -1.0F, 0.0F, nearZ},  // near
       {0.0F, 0.0F, 1.0F, 0.0F, -farZ},   // far
       {-1.0F, 0.0F, 0.0F, b, 0.0F},      // right
       {1.0F, 0.0F, 0.0F, b, 0.0F},       // left
       {0.0F, -1.0F, 0.0F, b, 0.0F},      // bottom (projection flips Y)
       {0.0F, 1.0F, 0.0F, b, 0.0F},       // top
+      // Modified by TyraX: EE-only, never uploaded. The cull program's clipw
+      // tests |z| < |w| on top of x and y, so a package may only take that
+      // path when it is inside the exact near (z <= w) and far (z >= -w)
+      // planes too. The guard band's own near constant is DELIBERATELY looser
+      // (PlanesClipAlgorithm::clipMargin), which leaves a thin shell in front
+      // of the near plane where the clipper draws a triangle the cull program
+      // would ADC away - a hole at point blank range.
+      {0.0F, 0.0F, -1.0F, 1.0F, 0.0F},  // exact near
+      {0.0F, 0.0F, 1.0F, 1.0F, 0.0F},   // exact far
   };
 
   const float* m = mvp.data;
-  for (u8 i = 0; i < 6; ++i) {
+  for (u8 i = 0; i < 8; ++i) {
     const float* p = planes[i];
     Plane& out = clipObjectSpacePlanes[i];
     out.normal.x = p[0] * m[0] + p[1] * m[1] + p[2] * m[2] + p[3] * m[3];
@@ -120,6 +129,31 @@ void StaPipCore::computeClipObjectSpacePlanes(const M4x4& mvp) {
     out.distance = p[4] + p[0] * m[12] + p[1] * m[13] + p[2] * m[14] +
                    p[3] * m[15];
   }
+}
+
+// Modified by TyraX: guard-band routing (docs/vu1-clipping.md).
+//
+// A package is classified against the VIEW frustum (the screen edge), but the
+// VU1 clip planes are the near/far pair plus an X/Y band at
+// VU1_CLIP_XY_BAND * w - about seven times the screen's half extent, still
+// inside the GS raster window. So a package that merely straddles the screen
+// border crosses no VU clip plane at all, and the packager says so:
+// `activePlaneMaskAABB` sets a bit when the box crosses OR lies outside a
+// plane, hence an all-clear over its eight planes means the whole box is
+// inside every one of them - including w > 0, because for a negative w the
+// two side half-spaces are contradictory and at least one bit would be set.
+//
+// Such a package needs no cutting: every vertex passes the cull program's own
+// clipw judgement and the GS scissor crops the raster. Sending it to the
+// clipper anyway cost a 1/3-size split (3x the VU1 kicks), a memcpy of every
+// vertex stream instead of a DMA by reference, and the clip program's scratch
+// stores - all to run a plane loop with nothing active.
+//
+// The flag is only ever set with VU1 clipping on: with the EE clipper the
+// packager has no clip planes to test and fills clipPlaneMask with the
+// VIEW-plane crossing mask for telemetry instead.
+bool StaPipCore::isGuardBandOnly(const StaPipBagPackage& package) const {
+  return package.guardBandOnly;
 }
 
 void StaPipCore::recordPackage(const StaPipBagPackage& package,
@@ -144,6 +178,16 @@ void StaPipCore::recordPackage(const StaPipBagPackage& package,
     ++telemetry.packagesOutside;
     telemetry.trianglesOutside += triangles;
   }
+}
+
+// Modified by TyraX: the subset of packagesCull that took the cull path ONLY
+// because of the guard band - i.e. what the clipper no longer sees. Recorded
+// at the routing sites rather than inside recordPackage, so a bag that culls
+// everything anyway (fullClipChecks off) is not counted.
+void StaPipCore::recordGuardBandPackage(const StaPipBagPackage& package) {
+  if (!telemetryEnabled) return;
+  ++telemetry.packagesGuardBand;
+  telemetry.trianglesGuardBand += package.size / 3;
 }
 
 void StaPipCore::recordOutsideBag(const StaPipBag* bag) {
@@ -574,12 +618,18 @@ void StaPipCore::render(StaPipBag* bag) {
 void StaPipCore::renderPkgs(StaPipBagPackage* packages, const bool& doClip,
                             u16 count) {
   for (u16 i = 0; i < count; i++) {
-    auto cull = (doClip && packages[i].isInFrustum == IN_FRUSTUM) || !doClip;
-    auto doSubpkgs = doClip && packages[i].isInFrustum == PARTIALLY_IN_FRUSTUM;
+    // Modified by TyraX: a package that only leaves the screen, not the guard
+    // band, is culled whole and by POINTER - no 1/3 split, no copy, no clipper.
+    const bool guardBandOnly = doClip && isGuardBandOnly(packages[i]);
+    auto cull = (doClip && packages[i].isInFrustum == IN_FRUSTUM) || !doClip ||
+                guardBandOnly;
+    auto doSubpkgs = doClip && !guardBandOnly &&
+                     packages[i].isInFrustum == PARTIALLY_IN_FRUSTUM;
 
     if (cull) {
       Verbose(i, " - package in frustum -> cull");
       recordPackage(packages[i], IN_FRUSTUM);
+      if (guardBandOnly) recordGuardBandPackage(packages[i]);
       auto buffer = qbufferRenderer.getBuffer();
       buffer->fillByPointer(packages[i]);
       qbufferRenderer.cull(buffer);
@@ -607,9 +657,12 @@ void StaPipCore::renderSubpkgs(StaPipBagPackage* subpkgs, u16 count) {
   loadedIndexes.clear();
 
   // Check if some subpkgs are full in frustum
+  // Modified by TyraX: a subpackage inside the guard band joins them - it needs
+  // no cutting either, so it batches into the same cull buffers.
   for (u16 i = 0; i < count; i++) {
-    if (subpkgs[i].isInFrustum == IN_FRUSTUM) {
+    if (subpkgs[i].isInFrustum == IN_FRUSTUM || isGuardBandOnly(subpkgs[i])) {
       recordPackage(subpkgs[i], IN_FRUSTUM);
+      if (isGuardBandOnly(subpkgs[i])) recordGuardBandPackage(subpkgs[i]);
       if (loadedIndexes.size() <= 1) {
         Verbose(i, " - subpackage in frustum -> load");
         loadedIndexes.push_back(i);
