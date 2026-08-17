@@ -86,6 +86,31 @@ torch's shadow machinery: no receivers, no volumes - one torch is the
 per-pixel protagonist, a scene spot is set dressing that finally lights its
 own street.
 
+The corona itself is a depth-tested additive billboard, and two details keep
+it clean on the fixture that carries it. It is drawn **pulled toward the
+camera** (a quarter of the light's radius, capped at three quarters of the
+camera distance, its size scaled down by the same fraction so the picture
+does not move): a sprite centred exactly on the bulb slices through the
+lamp's own pole and arm, and the GS's fixed-point z cuts the soft glow on a
+jagged, stair-stepped seam that wanders as you move. Pulled clear, the glow
+blooms **over** the thin fixture - which is what a glow does in a real lens -
+while a wall between you and the lamp still hides it. And it bakes at
+**128x128** (the 2D lens-flare sprites stay 64): up close the billboard can
+cover a third of the screen, and a 64-texel radial gradient contours in
+visible steps at that magnification.
+
+**The editor viewport draws both halves of a beam** — the corona with that
+same pull, and *Beam: corona + shaft*'s eight-segment cone — from the same
+sprite bake and the same numbers, so a lamp is placed against the picture the
+console will draw rather than against an unlit marker. It draws in every
+shading mode, because a beam is geometry the game submits and not a
+simulation of how the console shades. One thing it deliberately leaves out:
+the runtime **level** the console multiplies the beam by. Flicker, *Set
+Light* and a streamed-out light are all runtime state, so the viewport
+previews a beam at its authored brightness, exactly as it previews the light
+itself — a glow pulsing over a rock-steady pool of light would be a new lie
+rather than less of one.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the

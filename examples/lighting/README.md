@@ -45,7 +45,9 @@ Run it like every example: open `lighting.tyra` in TyraX and press **F5**
 ## How it's authored
 
 Plain editor authoring, no scripts: per-light *Dynamic (live)* / *Flicker* /
-*Beam* in Properties, *Cast shadow (projected)* on the three hero objects,
+*Beam* in Properties — the editor viewport draws both halves of a beam, the
+corona and the cone shaft, so the torches can be placed against the picture the
+console will draw — *Cast shadow (projected)* on the three hero objects,
 blob shadows in *Project > Preferences > Shadows*, flare and god rays in
 *Tools > UI Editor* (per-scene overridable in *Scene > Post effects*), the
 flashlight on the Player object. The crystal's pulse is the only logic, and

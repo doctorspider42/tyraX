@@ -183,6 +183,28 @@ be publishing the installer's SHA-256 with the release and having
 `update::download` check it (the release JSON already carries the asset's size,
 but not its digest).
 
+### Find the corona's missing 1.3x on the console
+
+Measured while bringing the beams into the viewport: a PCSX2 frame's beam
+corona adds **1.26-1.31x** what its own sprite implies, while the editor's twin
+adds 0.97-1.00x of it. The instrument is beam-on minus beam-off in each
+renderer, sampled straight up from the light and fitted against the bake's own
+alpha curve (`t^2 (0.3 + 0.7 t)` from `menubake::bakeFlareRGBA` kind 2) times
+the light colour. It is a pure AMPLITUDE factor, not a size one: fitting a free
+radius instead gives rms 12.5 against 2.4, and the fitted radius scale would
+have to be 1.18 while the glow demonstrably dies at the same radius on both
+sides. It is also independent of everything tried - the same factor at
+`lightBright` 1.3 and 0.4 (so not the `min(k, 1)` FIX clamp), in interlaced and
+progressive display modes (so not field rendering), at every radius from 20 to
+55 % of the sprite (so not a texel offset), and the shipped
+`res/hud/flare-corona.png` is byte-for-byte the bake. The sky's authored colour
+reads the same in both captures, so it is not a global capture gain either.
+Candidates left: the GS texture function or the `GS_SET_ALPHA(0,2,2,1,FIX)`
+path in `StaPipQBufferRenderer` doing something other than `Cs*FIX/128 + Cd`,
+PCSX2's software blending of a 16-bit target, or a second draw of the same
+quad. Settle it before making either side match the other - the viewport
+currently reproduces the sprite exactly, which is the defensible half.
+
 ## Medium
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
@@ -543,3 +565,15 @@ interface, preferably using an optional tunnel rather than exposing a raw
 listening port. Define authentication, session lifetime and failure UI before
 shipping it. LAN and mesh-VPN sessions must keep working unchanged. See
 [collaboration](collaboration.md).
+
+### A devkit self-screenshot command (works on locked desktops and real hardware)
+
+The 2026-08-17 corona session proved the game can dump its own framebuffer
+through `host:` (ps2sdk libdebug's `ps2_screenshot_file`, VIF1 reverse FIFO;
+pass the framebuffer address in BLOCKS - `fb->address / 64` - or SBP's 14 bits
+overflow and the pages scramble). Productize it as a devkit channel: a command
+bit in `livedbg.cmd` (the VU capture is the precedent), a debug-only generated
+runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
+`kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
+is the only capture path that survives a locked desktop, and the only one that
+exists at all on a real console. See [live-debugger](live-debugger.md).
