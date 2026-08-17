@@ -306,6 +306,29 @@ is. A build logs what it produced:
 [vehicle] CC96: body 1072 tris / 1 part(s), wheel 416 tris, 2 submit(s) per vehicle
 ```
 
+## What reaches the console today
+
+A vehicle's row is emitted as an **ordinary type-5 Model** pointing at its baked
+body `.tmdl`, and its body and wheel slots are **appended after every ordinary
+model** so no existing index moves (the scroller's baked-clone rule, applied to
+the model table). That single decision buys the body its entire rendering for
+free — loading, the GeoPart build, the LOD tiers, and the one that matters, the
+**matrix fast path**: `physFastPathEligible` accepts type 5, so VU1 applies the
+car's motion and the EE touches not one vertex. What makes it a *vehicle* is the
+side table, not its type — the same way a Mirror's reflected set lives outside
+`SceneObjectData`.
+
+Verified on real hardware emulation: the game builds, boots and runs at 37 FPS,
+and `emulog` shows it opening
+`host:.../bin/vehicles/veh-<id>-body.tmdl` and its palette `.png` with no
+assert — so the whole chain, `.fbx` → import bake → `.res-baked` → `bin/` →
+console loader, is closed.
+
+One trap this cost: the model table's four parallel arrays emit a placeholder
+`""` row when the model list is empty, and with no ordinary models but one
+vehicle that placeholder pushed `MODEL_COUNT` one short of the rows actually
+written. The emptiness test has to consider the appended vehicle slots too.
+
 ## Not built yet
 
 Honest state, so nobody looks for these: **nothing reaches the PS2** — there is no codegen and no runtime, so a project
