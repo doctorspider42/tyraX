@@ -48,6 +48,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_DYNAMIC_DRAW 0x88E8
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_VERTEX_SHADER 0x8B31
+// PS2-shading viewport mode: the per-vertex lighting pass runs in a geometry
+// shader (docs/ps2-viewport.md) - core since GL 3.2, no extension needed.
+#define GL_GEOMETRY_SHADER 0x8DD9
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84

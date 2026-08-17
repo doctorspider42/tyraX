@@ -648,6 +648,24 @@ public:
     void setPs2Output(const Ps2Output& o) { ps2_ = o; }
     const Ps2Output& ps2Output() const { return ps2_; }
 
+    // PS2 shading simulation (docs/ps2-viewport.md): shade the scene the way
+    // the console does - every lighting term (GI probes, AO, point lights,
+    // emissive lights, flashlight, fog) evaluated per VERTEX with the
+    // triangle's own flat normal, and static geometry flat-shaded (one corner
+    // colour per triangle, TyraShadingFlat). Independent of the Ps2Output
+    // resolution mode - triangle shading is visible at any raster.
+    void setPs2Shading(bool on) { ps2Shade_ = on; }
+    bool ps2Shading() const { return ps2Shade_; }
+
+    // GS colour depth simulation (docs/ps2-viewport.md): show the picture at
+    // the 5 bits per channel a PSMCT16 framebuffer keeps, optionally through
+    // the GS's 4x4 ordered dither (the DIMX matrix the engine programs). The
+    // app resolves "match project" against ProjectSettings before calling.
+    void setGsColorSim(bool quantize, bool dither) {
+        gsQuant_ = quantize;
+        gsDither_ = quantize && dither;
+    }
+
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
     int pick(float u, float v, const std::vector<SceneObject>& objects);
@@ -803,6 +821,35 @@ private:
     }
 
     uint32_t program_ = 0;
+    // PS2 shading simulation: the same vertex + fragment sources with a
+    // geometry stage between them that runs the whole lighting stack per
+    // triangle corner (the console's per-vertex shading). The u*_ location
+    // members below are re-queried against whichever of the two programs is
+    // active (useSceneProgram), so every existing uniform-setting site works
+    // unchanged for both.
+    uint32_t vtxProgram_ = 0;
+    uint32_t sceneProgActive_ = 0;  // program_ or vtxProgram_
+    bool ps2Shade_ = false;
+    void querySceneLocations(uint32_t prog);
+    void useSceneProgram(bool ps2Vertex);
+    int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
+    int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
+    // GL_LINES cannot pass through a triangles geometry shader, so when the
+    // vtx program is active the draw helpers detour lines through program_
+    // with this small location set (unlit geometry reads nothing else).
+    struct LineLocs {
+        int mvp = -1, model = -1, tint = -1, lit = -1, useTex = -1, alpha = -1,
+            opacity = -1, emissive = -1, reflOn = -1;
+    } lineLocs_;
+    // GS colour depth simulation (setGsColorSim) - applied in the grade pass.
+    bool gsQuant_ = false, gsDither_ = false;
+    // Dynamic lights' ground pools, PS2-shading mode only: the console's
+    // terrain-conforming additive corona patch under every dynamic point
+    // light (the generated game's updateAndRenderLightPools). poolTex_ holds
+    // the same pixels the game ships as hud/flare-corona.png.
+    void drawLightPools(const std::vector<SceneObject>& objects,
+                        const float* viewProj);
+    uint32_t poolTex_ = 0;
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
@@ -1222,7 +1269,8 @@ private:
     CompiledGrading grading_;
     uint32_t gradeProgram_ = 0, gradeFbo_ = 0, gradeTex_ = 0, gradeVao_ = 0;
     int uGradeSrc_ = -1, uGradeGain_ = -1, uGradeLiftPos_ = -1,
-        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1;
+        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1,
+        uGradeQuant_ = -1, uGradeDither_ = -1;
 
     float viewM_[16] = {};
     float projM_[16] = {};

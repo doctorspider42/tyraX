@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.52.3 (the shadow sub-boxes work again, so the lamp's torch shadow is its
+// 1.53.2 (the shadow sub-boxes work again, so the lamp's torch shadow is its
 // pole and not a slab): reported as "the shadow this lamp casts is square,
 // looks like an AABB, only shows when I shine the torch" - which is exactly
 // the state 1.40's sub-boxes were built to end, so this is a regression that
@@ -39,7 +39,9 @@
 // the wall lights continuously and the pole keeps its honest thin stripe.
 // PATCH: a defect goes away; no capability appears; the format is untouched.
 //
-// 1.52.2 (a lamp's glow stops sawing its own pole): reported from
+// 1.53.1 (a lamp's glow stops sawing its own pole; this and 1.53.2 were
+// authored as 1.52.2/1.52.3 - main took 1.53.0 while the branch was open, so
+// the arrive-second rule renumbers both): reported from
 // examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
 // boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
 // at the reporter's own vantage (torch toggled: unchanged; light removed:
@@ -75,7 +77,22 @@
 // off, identical at 64 and 128, present with the beam entirely removed once
 // the contrast is matched - and would need AA or a higher raster, not a pass
 // change. PATCH: no capability appears, a defect goes away; the format is
-// untouched.
+// untouched. (This and the corona entry below were authored as 1.52.3/1.52.2;
+// main took 1.53.0 while the branch was open, so the arrive-second rule
+// renumbers both above it.)
+//
+// 1.53.0 (the viewport learns to lie less - docs/ps2-viewport.md): two new
+// look simulations beside the PS2 output mode, both machine-global. "PS2
+// shading" re-runs the viewport's ONE lighting chunk per triangle corner in a
+// geometry stage - the console's per-vertex shading, with TyraShadingFlat
+// mirrored per draw, dynamic lights on the VU1 slot formula (radial, no N.L),
+// the terrain's dynamic light drawn as the console's ground POOL (same corona
+// pixels, same FIX scale) and the flashlight kept per-pixel like its projected
+// pool. "GS colour" quantizes the picture to PSMCT16's 5 bits through the
+// engine's own DIMX dither matrix, following the project's Colour depth by
+// default. Verified A/B against a PCSX2 frame of a lamp + sphere fixture
+// (savestate-embedded screenshot; the pool, the lit ball and the banding
+// match). MINOR: two capabilities appear, nothing changes shape on disk.
 //
 // 1.52.1 (the .rpm stops being twice its own size): v1.52.0 shipped a 31 MB
 // rpm of a tree that packs into 13, because a spec that says nothing about its
@@ -1507,8 +1524,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 52
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 53
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
