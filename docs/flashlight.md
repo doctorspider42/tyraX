@@ -287,16 +287,23 @@ lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
 and the torch genuinely does not reach you.
 
 A model caster casts from up to three TIGHT sub-boxes fitted to its
-triangles (a split at the SPATIAL middle of the longest axis, twice, then
-leaves merge back wherever splitting bought nothing), never from its one
-AABB - a lamp post's AABB is a slab of mostly air, and a slab's shadow is a
-lie. Two details in that fit were bugs first: the split must cut space, not
-the triangle COUNT (triangles cluster in a model's detailed end - the lamp's
-head - so a count median cut inside the cluster and the other leaf spanned
-pole plus arm, the slab again), and the merge test's volume padding is a
-fraction of the model's own diagonal, never an absolute (the verts are
-model-local units, and a kit authored small and placed at scale had every
-leaf's volume read as padding, so everything merged back to the AABB). Each sub-box is convex, which is what the
+triangles (a split at the SPATIAL middle of the longest axis, three levels
+deep, then leaves merge back wherever splitting bought nothing), never from
+its one AABB - a lamp post's AABB is a slab of mostly air, and a slab's
+shadow is a lie. Four details in that fit were bugs first: the split must
+cut space, not the triangle COUNT (triangles cluster in a model's detailed
+end - the lamp's head - so a count median cut inside the cluster and the
+other leaf spanned pole plus arm, the slab again); the merge test's volume
+padding is a fraction of the model's own diagonal, never an absolute (the
+verts are model-local units, and a kit authored small and placed at scale
+had every leaf's volume read as padding, so everything merged back to the
+AABB); the partition duplicates a triangle that SPANS the cut and clamps
+each leaf's box to its recursion cell (a long triangle has its centroid at
+one end and its extent across the whole arm, and one of them dragged a
+centroid-partitioned leaf back into the slab - the doubled mask coverage is
+idempotent); and it takes the third level, because two cuts both go to a
+lamp's Y and a vertical cut can never separate a horizontal arm from the
+pole it hangs on. Each sub-box is convex, which is what the
 1-bit destination-alpha trick genuinely requires: the GS cannot COUNT like a
 stencil, so a non-convex volume's set/clear order lies. (True mesh-shaped
 volumes - the hospital-bed slats - need the era's full arrangement: count in

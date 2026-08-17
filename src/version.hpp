@@ -22,22 +22,31 @@
 // the state 1.40's sub-boxes were built to end, so this is a regression that
 // turned out to be two latent defects in buildShadowSubBoxes, found by
 // logging the fit inside the running game (every model in night-walk came
-// out as ONE box). (1) The median split cut the triangle COUNT, not space:
-// triangles cluster in a model's detailed end - the lamp's head carries most
-// of its 136 - so the cut landed inside the head and the other leaf spanned
-// pole plus arm, the very slab the sub-boxes exist to prevent. It cuts at
-// the spatial middle of the longest axis now, with a count-median fallback
-// when a degenerate cut leaves one side empty. (2) The merge test's volume
+// out as ONE box). Three, in the order the bisection peeled them: (1) the
+// median split cut the triangle COUNT, not space - triangles cluster in a
+// model's detailed end (the lamp's head carries most of its 136), so the cut
+// landed inside the head and the other leaf spanned pole plus arm. It cuts
+// at the spatial middle of the longest axis now. (2) The merge test's volume
 // padding was an absolute 0.05 in model-LOCAL units, and a kit authored
 // small and placed at scale (Kenney's runs ~0.1..1.0 units at scale 3.2) had
 // every leaf volume read as padding - every union looked nearly free and
 // everything merged back to the AABB. The pad is 2% of the model's own
-// diagonal now. Verified in PCSX2 with game-side captures: the lamp
-// decomposes to pole + arm (logged out=2, the pole sub-box 0.14 x 0.39 x
-// 0.14 world), solid buildings still collapse to one box, and the rectangular
-// dark void the torch used to carve around the lamp on the facade is gone -
-// the wall lights continuously and the pole keeps its honest thin stripe.
-// PATCH: a defect goes away; no capability appears; the format is untouched.
+// diagonal now. (3) The partition went by CENTROID at depth two, and both
+// survived it: a long triangle (the arm's underside is two of them) has its
+// centroid at one end and its extent across the whole arm, so one triangle
+// dragged its leaf's box back into the slab - and two cuts both go to Y on a
+// lamp, which can never separate a horizontal arm from the pole it hangs on.
+// The split runs THREE levels now, partitions by extent overlap WITH
+// DUPLICATION (a spanning triangle lands on both sides; the mask bracket
+// sets a doubly-covered pixel twice, which is idempotent), and each leaf's
+// box is clamped to its recursion cell, so the cells tile space and no leaf
+// can outgrow its cut. Verified in PCSX2 with game-side captures at two
+// vantages: the lamp decomposes to a true thin pole column (logged out=2,
+// box 0 = 0.14 x 0.96 x 0.14 world - thin in BOTH horizontal axes) plus the
+// arm band, solid buildings still collapse to one box, and the torch now
+// carves the pole's honest thin stripe instead of a rectangular void around
+// the whole fixture. PATCH: a defect goes away; no capability appears; the
+// format is untouched.
 //
 // 1.53.1 (a lamp's glow stops sawing its own pole; this and 1.53.2 were
 // authored as 1.52.2/1.52.3 - main took 1.53.0 while the branch was open, so

@@ -11596,7 +11596,7 @@ static void buildShadowSubBoxes(
   // Median split on the longest axis, applied twice -> up to four leaves.
   // Iterative on purpose (no std::function in the game TU).
   auto halve = [&](const std::vector<int>& idx, std::vector<int>& lo,
-                   std::vector<int>& hi) {
+                   std::vector<int>& hi, int& axOut, float& midOut) {
     ShadowSubBox b;
     boxOf(idx, b);
     int ax = 0;
@@ -11607,48 +11607,84 @@ static void buildShadowSubBoxes(
     // cluster in a model's detailed end (a street lamp's head carries most
     // of its 136), so the count median landed the cut INSIDE that cluster
     // and the other leaf spanned everything else - pole plus arm, the very
-    // AABB slab the sub-boxes exist to prevent (logged on night-walk: leaf 2
-    // was y 0.245..0.96 across the full arm reach, and every model in the
-    // scene came out as ONE box). The spatial middle separates parts by
-    // where they ARE; a degenerate cut with everything on one side falls
-    // back to the count median so the recursion always makes progress.
+    // AABB slab the sub-boxes exist to prevent (logged on night-walk: every
+    // model in the scene came out as ONE box). And the partition goes by
+    // EXTENT OVERLAP with DUPLICATION, not by centroid: a long triangle (the
+    // arm's underside is two of them) has its centroid at one end and its
+    // extent across the whole arm, and a centroid partition let one such
+    // triangle drag a leaf's box back into the slab. A spanning triangle
+    // lands on both sides instead, and the leaf boxes are CLAMPED to the
+    // recursion's cells below, so the cells tile space and no leaf can
+    // outgrow its cell - the mask bracket sets a doubly-covered pixel twice,
+    // which is idempotent.
     const float mid = 0.5F * (b.mn[ax] + b.mx[ax]);
     lo.clear();
     hi.clear();
-    for (int i : idx) (tris[i].cen[ax] < mid ? lo : hi).push_back(i);
-    if (lo.empty() || hi.empty()) {
-      std::vector<int> srt = idx;
-      std::sort(srt.begin(), srt.end(), [&](int l, int r) {
-        return tris[l].cen[ax] < tris[r].cen[ax];
-      });
-      lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
-      hi.assign(srt.begin() + srt.size() / 2, srt.end());
+    for (int i : idx) {
+      if (tris[i].mn[ax] < mid) lo.push_back(i);
+      if (tris[i].mx[ax] >= mid) hi.push_back(i);
     }
+    axOut = ax;
+    midOut = mid;
   };
-  std::vector<std::vector<int>> leaves;
-  if (all.size() < 8) {
-    leaves.push_back(all);
-  } else {
-    std::vector<int> lo, hi;
-    halve(all, lo, hi);
-    std::vector<std::vector<int>> level = {lo, hi};
-    for (std::vector<int>& half : level) {
-      if (half.size() < 8) {
-        leaves.push_back(half);
-        continue;
-      }
-      std::vector<int> l2, h2;
-      halve(half, l2, h2);
-      leaves.push_back(l2);
-      leaves.push_back(h2);
-    }
-  }
+  // THREE split levels, not two. Two cuts both go to the longest axis - a
+  // street lamp's is Y both times - and a vertical cut can never separate a
+  // horizontal ARM from the pole it hangs on: the top band always keeps
+  // pole-top plus arm, which is a slab again (measured: out=2 with box 0 the
+  // base pedestal and box 1 the pole-plus-arm slab). The third level cuts
+  // that band on ITS longest axis - Z, along the arm - and the L finally
+  // falls apart. Up to eight leaves; the merge pass and the cap of three
+  // bound the output exactly as before. Each node carries its CELL (the
+  // slab of space its cuts carved), and a leaf's box is the tight triangle
+  // box clamped to it - with the duplicated spanning triangles that is what
+  // keeps one long triangle from dragging a leaf's box across the arm.
+  struct SplitNode {
+    std::vector<int> idx;
+    float cmn[3], cmx[3];
+  };
   std::vector<ShadowSubBox> boxes;
-  for (std::vector<int>& lf : leaves) {
-    if (lf.empty()) continue;
-    ShadowSubBox b;
-    boxOf(lf, b);
-    boxes.push_back(b);
+  {
+    SplitNode root;
+    root.idx = all;
+    ShadowSubBox rb;
+    boxOf(all, rb);
+    for (int a = 0; a < 3; ++a) root.cmn[a] = rb.mn[a], root.cmx[a] = rb.mx[a];
+    std::vector<SplitNode> level = {root};
+    std::vector<SplitNode> leaves;
+    for (int depth = 0; depth < 3; ++depth) {
+      std::vector<SplitNode> next;
+      for (SplitNode& nd : level) {
+        if (nd.idx.size() < 8) {
+          leaves.push_back(nd);
+          continue;
+        }
+        SplitNode lo = nd, hi = nd;
+        int ax = 0;
+        float mid = 0.0F;
+        halve(nd.idx, lo.idx, hi.idx, ax, mid);
+        // No progress (every triangle spans the cut): stop splitting here.
+        if (lo.idx.size() >= nd.idx.size() && hi.idx.size() >= nd.idx.size()) {
+          leaves.push_back(nd);
+          continue;
+        }
+        lo.cmx[ax] = mid;
+        hi.cmn[ax] = mid;
+        next.push_back(lo);
+        next.push_back(hi);
+      }
+      level.swap(next);
+    }
+    for (SplitNode& nd : level) leaves.push_back(nd);
+    for (SplitNode& nd : leaves) {
+      if (nd.idx.empty()) continue;
+      ShadowSubBox b;
+      boxOf(nd.idx, b);
+      for (int a = 0; a < 3; ++a) {
+        if (b.mn[a] < nd.cmn[a]) b.mn[a] = nd.cmn[a];
+        if (b.mx[a] > nd.cmx[a]) b.mx[a] = nd.cmx[a];
+      }
+      boxes.push_back(b);
+    }
   }
   // Greedy merge: whenever a union costs little more than its parts, the
   // split bought nothing - a solid model collapses back to one box.
