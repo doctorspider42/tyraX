@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
+// both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
+// dev checkout's build leftovers are not content" - and
+// vendor/tyra/audsrv/bin/libaudsrv.a is not a leftover. It is a COMMITTED
+// artifact of the in-tree audsrv fork (the per-channel L/R panning sound
+// emitters need), which runner.cpp overlays onto the build image's PS2SDK
+// together with audsrv.irx and audsrv.h. Those two matched no pattern and
+// travelled, so the hole was exactly one file wide and the failure wore
+// somebody else's face: the overlay is a `cp a && cp b && cp c`, it died on the
+// missing lib BEFORE reaching the header, the game then compiled against the
+// image's stock PS2SDK copy, and every build ended
+//
+//     md5sum: /engine-src/audsrv/bin/libaudsrv.a: No such file or directory
+//     inc/audio/audio_adpcm.hpp:108:5: error:
+//         'audsrv_adpcm_set_volume_and_pan' was not declared
+//
+// on EVERY project, for everyone who installed the editor and for nobody who
+// built it from a checkout - where the file is present and the same build is
+// clean. That asymmetry is why it survived two releases: the only people who
+// could reproduce it were the ones who could not debug it.
+//
+// Both packagers now exclude by DIRECTORY, and the list is exactly what
+// .gitignore drops under vendor/tyra (engine/obj, engine/bin, audsrv/.work):
+// what git keeps, the package ships. runner.cpp additionally checks the three
+// overlay files before it starts and names the missing one, because an editor
+// packaged before this fix stays broken until it updates - and the message it
+// used to give pointed at the engine's audio code, which was never wrong.
+//
+// Verified on both halves of the pair. Linux: stage_tree's find expression over
+// this tree stages 402 files where the old one staged 401, and the difference
+// is libaudsrv.a. Windows: ISCC compiles tyrax.iss with all three
+// audsrv/bin files in its "Compressing:" list and zero paths under engine/obj,
+// engine/bin or audsrv/.work. PATCH: no capability appears, nothing changes
+// shape on disk, a build that could not run starts running.
+//
 // 1.55.1 (the self-screenshot reaches the console it was built for -
 // docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
 // nothing said so. On hardware the picture never came back, deterministically,
@@ -1690,7 +1725,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 55
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

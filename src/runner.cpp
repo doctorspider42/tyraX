@@ -1031,6 +1031,28 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                        "if docker-compose.yml just changed.");
             ok = false;
         }
+        // The audsrv overlay below copies three files as one `&&` chain, so a
+        // missing one aborts it *silently* and the damage only surfaces two
+        // minutes later, wearing someone else's face: the header never gets
+        // copied either, the game compiles against the image's stock PS2SDK one
+        // and the build dies on "'audsrv_adpcm_set_volume_and_pan' was not
+        // declared" - which reads like an engine bug and is not. Every TyraX
+        // PACKAGED before 1.55.3 has exactly that hole (both packagers excluded
+        // '*.a' from vendor/tyra and took the committed libaudsrv.a along with
+        // the build leftovers), and a checkout has none of it, so the report
+        // always came from a user the developer could not reproduce. Name it.
+        if (ok && exec(dc + platform::shellArg(
+                           "test -f /engine-src/audsrv/bin/audsrv.irx && "
+                           "test -f /engine-src/audsrv/bin/libaudsrv.a && "
+                           "test -f /engine-src/audsrv/bin/audsrv.h"),
+                       p.dir) != 0) {
+            appendLine("[editor] The vendored audsrv overlay is incomplete at "
+                       "vendor/tyra/audsrv/bin - it needs audsrv.irx, libaudsrv.a and "
+                       "audsrv.h. A TyraX installed before 1.55.3 is missing "
+                       "libaudsrv.a: update the editor, or copy that one file into "
+                       "the install's vendor/tyra/audsrv/bin from the repo.");
+            ok = false;
+        }
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "mkdir -p /tyra/engine && "
