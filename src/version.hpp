@@ -16,6 +16,80 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.53.2 (the shadow sub-boxes work again, so the lamp's torch shadow is its
+// pole and not a slab): reported as "the shadow this lamp casts is square,
+// looks like an AABB, only shows when I shine the torch" - which is exactly
+// the state 1.40's sub-boxes were built to end, so this is a regression that
+// turned out to be two latent defects in buildShadowSubBoxes, found by
+// logging the fit inside the running game (every model in night-walk came
+// out as ONE box). Three, in the order the bisection peeled them: (1) the
+// median split cut the triangle COUNT, not space - triangles cluster in a
+// model's detailed end (the lamp's head carries most of its 136), so the cut
+// landed inside the head and the other leaf spanned pole plus arm. It cuts
+// at the spatial middle of the longest axis now. (2) The merge test's volume
+// padding was an absolute 0.05 in model-LOCAL units, and a kit authored
+// small and placed at scale (Kenney's runs ~0.1..1.0 units at scale 3.2) had
+// every leaf volume read as padding - every union looked nearly free and
+// everything merged back to the AABB. The pad is 2% of the model's own
+// diagonal now. (3) The partition went by CENTROID at depth two, and both
+// survived it: a long triangle (the arm's underside is two of them) has its
+// centroid at one end and its extent across the whole arm, so one triangle
+// dragged its leaf's box back into the slab - and two cuts both go to Y on a
+// lamp, which can never separate a horizontal arm from the pole it hangs on.
+// The split runs THREE levels now, partitions by extent overlap WITH
+// DUPLICATION (a spanning triangle lands on both sides; the mask bracket
+// sets a doubly-covered pixel twice, which is idempotent), and each leaf's
+// box is clamped to its recursion cell, so the cells tile space and no leaf
+// can outgrow its cut. Verified in PCSX2 with game-side captures at two
+// vantages: the lamp decomposes to a true thin pole column (logged out=2,
+// box 0 = 0.14 x 0.96 x 0.14 world - thin in BOTH horizontal axes) plus the
+// arm band, solid buildings still collapse to one box, and the torch now
+// carves the pole's honest thin stripe instead of a rectangular void around
+// the whole fixture. PATCH: a defect goes away; no capability appears; the
+// format is untouched.
+//
+// 1.53.1 (a lamp's glow stops sawing its own pole; this and 1.53.2 were
+// authored as 1.52.2/1.52.3 - main took 1.53.0 while the branch was open, so
+// the arrive-second rule renumbers both): reported from
+// examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
+// boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
+// at the reporter's own vantage (torch toggled: unchanged; light removed:
+// gone; Beam set to 0: gone - so the corona), with every capture taken by the
+// GAME ITSELF (ps2sdk's ps2_screenshot_file into host:, VIF1 reverse FIFO),
+// because the desktop was locked all night and no host-side capture can see a
+// window there. Two causes, two fixes, both in the generated
+// updateAndRenderLightBeams/menubake pair:
+//
+// THE SEAM IS A Z-FIGHT WITH ITS OWN FIXTURE. The corona is a depth-tested
+// additive billboard centred exactly on the bulb, so it slices through the
+// lamp's own pole and arm, and the GS's fixed-point z cuts the soft sprite on
+// a chunky seam that wanders as the camera moves. The sprite is now PULLED
+// toward the camera (a quarter of the light radius, capped at three quarters
+// of the camera distance - a half-distance cap measurably parked the seam at
+// the pole's base when looking steeply up, which is how the cap value was
+// chosen) and shrunk by the same fraction, so its apparent size is untouched:
+// the glow blooms OVER the thin fixture the way a real lens does, and a wall
+// between camera and lamp still occludes it. The cone shaft (Beam: shaft)
+// stays at the true position - it is world geometry.
+//
+// AND THE CORONA WAS 64 TEXELS ACROSS A THIRD OF THE SCREEN. Up close the
+// radial gradient's texels are ~4 px, so its rim contours in visible steps
+// whatever the z does. Kind 2 - the beam corona, which the star field also
+// draws through - bakes at 128 now (menubake::kCoronaSpriteSize; the 2D
+// lens-flare sprites stay 64, they draw small). The file is rewritten on
+// every refreshGenerated, so existing projects pick it up on their next
+// build; the editor viewport's star-dot upload follows the same constant.
+//
+// What this deliberately does NOT fix, measured so it is not re-chased: the
+// few-pixel stepping that remains at the pole's base is the pole model's own
+// edge aliasing at native resolution - identical with the corona's z-test
+// off, identical at 64 and 128, present with the beam entirely removed once
+// the contrast is matched - and would need AA or a higher raster, not a pass
+// change. PATCH: no capability appears, a defect goes away; the format is
+// untouched. (This and the corona entry below were authored as 1.52.3/1.52.2;
+// main took 1.53.0 while the branch was open, so the arrive-second rule
+// renumbers both above it.)
+//
 // 1.53.0 (the viewport learns to lie less - docs/ps2-viewport.md): two new
 // look simulations beside the PS2 output mode, both machine-global. "PS2
 // shading" re-runs the viewport's ONE lighting chunk per triangle corner in a
@@ -1460,7 +1534,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 53
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -86,6 +86,19 @@ torch's shadow machinery: no receivers, no volumes - one torch is the
 per-pixel protagonist, a scene spot is set dressing that finally lights its
 own street.
 
+The corona itself is a depth-tested additive billboard, and two details keep
+it clean on the fixture that carries it. It is drawn **pulled toward the
+camera** (a quarter of the light's radius, capped at three quarters of the
+camera distance, its size scaled down by the same fraction so the picture
+does not move): a sprite centred exactly on the bulb slices through the
+lamp's own pole and arm, and the GS's fixed-point z cuts the soft glow on a
+jagged, stair-stepped seam that wanders as you move. Pulled clear, the glow
+blooms **over** the thin fixture - which is what a glow does in a real lens -
+while a wall between you and the lamp still hides it. And it bakes at
+**128x128** (the 2D lens-flare sprites stay 64): up close the billboard can
+cover a third of the screen, and a 64-texel radial gradient contours in
+visible steps at that magnification.
+
 ## What the pool does
 
 - **Follows the beam.** The patch is laid out along the beam's run across the
@@ -274,9 +287,23 @@ lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
 and the torch genuinely does not reach you.
 
 A model caster casts from up to three TIGHT sub-boxes fitted to its
-triangles (median split, then leaves merge back wherever splitting bought
-nothing), never from its one AABB - a lamp post's AABB is a slab of mostly
-air, and a slab's shadow is a lie. Each sub-box is convex, which is what the
+triangles (a split at the SPATIAL middle of the longest axis, three levels
+deep, then leaves merge back wherever splitting bought nothing), never from
+its one AABB - a lamp post's AABB is a slab of mostly air, and a slab's
+shadow is a lie. Four details in that fit were bugs first: the split must
+cut space, not the triangle COUNT (triangles cluster in a model's detailed
+end - the lamp's head - so a count median cut inside the cluster and the
+other leaf spanned pole plus arm, the slab again); the merge test's volume
+padding is a fraction of the model's own diagonal, never an absolute (the
+verts are model-local units, and a kit authored small and placed at scale
+had every leaf's volume read as padding, so everything merged back to the
+AABB); the partition duplicates a triangle that SPANS the cut and clamps
+each leaf's box to its recursion cell (a long triangle has its centroid at
+one end and its extent across the whole arm, and one of them dragged a
+centroid-partitioned leaf back into the slab - the doubled mask coverage is
+idempotent); and it takes the third level, because two cuts both go to a
+lamp's Y and a vertical cut can never separate a horizontal arm from the
+pole it hangs on. Each sub-box is convex, which is what the
 1-bit destination-alpha trick genuinely requires: the GS cannot COUNT like a
 stencil, so a non-convex volume's set/clear order lies. (True mesh-shaped
 volumes - the hospital-bed slats - need the era's full arrangement: count in

@@ -11563,56 +11563,128 @@ static void buildShadowSubBoxes(
         if (tris[i].mx[a] > b.mx[a]) b.mx[a] = tris[i].mx[a];
       }
   };
-  // A padded volume, so flat boxes still compare meaningfully.
-  auto volOf = [](const ShadowSubBox& b) {
-    return (b.mx[0] - b.mn[0] + 0.05F) * (b.mx[1] - b.mn[1] + 0.05F) *
-           (b.mx[2] - b.mn[2] + 0.05F);
-  };
   out.clear();
   if (tris.empty()) return;
   std::vector<int> all(tris.size());
   for (size_t i = 0; i < tris.size(); ++i) all[i] = (int)i;
+  // A padded volume, so flat boxes still compare meaningfully. The pad is a
+  // FRACTION OF THE MODEL'S OWN DIAGONAL, never an absolute: these verts are
+  // model-LOCAL units, and an asset kit authored small and placed at scale
+  // (Kenney's runs ~0.1..1.0 units, placed at 3.2) made a fixed 0.05 pad
+  // dominate every thin dimension - all four leaves' volumes read as
+  // padding, every union looked nearly free, and tryMerge collapsed EVERY
+  // model back to its AABB. The street lamp then cast the pole-plus-arm slab
+  // of air the sub-boxes exist to prevent (reported as "the lamp's shadow is
+  // square"; the log showed out=1 for every model in the scene).
+  float pad;
+  {
+    float dmn[3] = {1e30F, 1e30F, 1e30F}, dmx[3] = {-1e30F, -1e30F, -1e30F};
+    for (const Tri& t : tris)
+      for (int a = 0; a < 3; ++a) {
+        if (t.mn[a] < dmn[a]) dmn[a] = t.mn[a];
+        if (t.mx[a] > dmx[a]) dmx[a] = t.mx[a];
+      }
+    const float dx2 = dmx[0] - dmn[0], dy2 = dmx[1] - dmn[1],
+                dz2 = dmx[2] - dmn[2];
+    pad = 0.02F * sqrtf(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
+    if (pad < 0.0001F) pad = 0.0001F;
+  }
+  auto volOf = [pad](const ShadowSubBox& b) {
+    return (b.mx[0] - b.mn[0] + pad) * (b.mx[1] - b.mn[1] + pad) *
+           (b.mx[2] - b.mn[2] + pad);
+  };
   // Median split on the longest axis, applied twice -> up to four leaves.
   // Iterative on purpose (no std::function in the game TU).
   auto halve = [&](const std::vector<int>& idx, std::vector<int>& lo,
-                   std::vector<int>& hi) {
+                   std::vector<int>& hi, int& axOut, float& midOut) {
     ShadowSubBox b;
     boxOf(idx, b);
     int ax = 0;
     float best = b.mx[0] - b.mn[0];
     for (int a = 1; a < 3; ++a)
       if (b.mx[a] - b.mn[a] > best) best = b.mx[a] - b.mn[a], ax = a;
-    std::vector<int> srt = idx;
-    std::sort(srt.begin(), srt.end(), [&](int l, int r) {
-      return tris[l].cen[ax] < tris[r].cen[ax];
-    });
-    lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
-    hi.assign(srt.begin() + srt.size() / 2, srt.end());
-  };
-  std::vector<std::vector<int>> leaves;
-  if (all.size() < 8) {
-    leaves.push_back(all);
-  } else {
-    std::vector<int> lo, hi;
-    halve(all, lo, hi);
-    std::vector<std::vector<int>> level = {lo, hi};
-    for (std::vector<int>& half : level) {
-      if (half.size() < 8) {
-        leaves.push_back(half);
-        continue;
-      }
-      std::vector<int> l2, h2;
-      halve(half, l2, h2);
-      leaves.push_back(l2);
-      leaves.push_back(h2);
+    // Cut at the SPATIAL midpoint, not the triangle-count median: triangles
+    // cluster in a model's detailed end (a street lamp's head carries most
+    // of its 136), so the count median landed the cut INSIDE that cluster
+    // and the other leaf spanned everything else - pole plus arm, the very
+    // AABB slab the sub-boxes exist to prevent (logged on night-walk: every
+    // model in the scene came out as ONE box). And the partition goes by
+    // EXTENT OVERLAP with DUPLICATION, not by centroid: a long triangle (the
+    // arm's underside is two of them) has its centroid at one end and its
+    // extent across the whole arm, and a centroid partition let one such
+    // triangle drag a leaf's box back into the slab. A spanning triangle
+    // lands on both sides instead, and the leaf boxes are CLAMPED to the
+    // recursion's cells below, so the cells tile space and no leaf can
+    // outgrow its cell - the mask bracket sets a doubly-covered pixel twice,
+    // which is idempotent.
+    const float mid = 0.5F * (b.mn[ax] + b.mx[ax]);
+    lo.clear();
+    hi.clear();
+    for (int i : idx) {
+      if (tris[i].mn[ax] < mid) lo.push_back(i);
+      if (tris[i].mx[ax] >= mid) hi.push_back(i);
     }
-  }
+    axOut = ax;
+    midOut = mid;
+  };
+  // THREE split levels, not two. Two cuts both go to the longest axis - a
+  // street lamp's is Y both times - and a vertical cut can never separate a
+  // horizontal ARM from the pole it hangs on: the top band always keeps
+  // pole-top plus arm, which is a slab again (measured: out=2 with box 0 the
+  // base pedestal and box 1 the pole-plus-arm slab). The third level cuts
+  // that band on ITS longest axis - Z, along the arm - and the L finally
+  // falls apart. Up to eight leaves; the merge pass and the cap of three
+  // bound the output exactly as before. Each node carries its CELL (the
+  // slab of space its cuts carved), and a leaf's box is the tight triangle
+  // box clamped to it - with the duplicated spanning triangles that is what
+  // keeps one long triangle from dragging a leaf's box across the arm.
+  struct SplitNode {
+    std::vector<int> idx;
+    float cmn[3], cmx[3];
+  };
   std::vector<ShadowSubBox> boxes;
-  for (std::vector<int>& lf : leaves) {
-    if (lf.empty()) continue;
-    ShadowSubBox b;
-    boxOf(lf, b);
-    boxes.push_back(b);
+  {
+    SplitNode root;
+    root.idx = all;
+    ShadowSubBox rb;
+    boxOf(all, rb);
+    for (int a = 0; a < 3; ++a) root.cmn[a] = rb.mn[a], root.cmx[a] = rb.mx[a];
+    std::vector<SplitNode> level = {root};
+    std::vector<SplitNode> leaves;
+    for (int depth = 0; depth < 3; ++depth) {
+      std::vector<SplitNode> next;
+      for (SplitNode& nd : level) {
+        if (nd.idx.size() < 8) {
+          leaves.push_back(nd);
+          continue;
+        }
+        SplitNode lo = nd, hi = nd;
+        int ax = 0;
+        float mid = 0.0F;
+        halve(nd.idx, lo.idx, hi.idx, ax, mid);
+        // No progress (every triangle spans the cut): stop splitting here.
+        if (lo.idx.size() >= nd.idx.size() && hi.idx.size() >= nd.idx.size()) {
+          leaves.push_back(nd);
+          continue;
+        }
+        lo.cmx[ax] = mid;
+        hi.cmn[ax] = mid;
+        next.push_back(lo);
+        next.push_back(hi);
+      }
+      level.swap(next);
+    }
+    for (SplitNode& nd : level) leaves.push_back(nd);
+    for (SplitNode& nd : leaves) {
+      if (nd.idx.empty()) continue;
+      ShadowSubBox b;
+      boxOf(nd.idx, b);
+      for (int a = 0; a < 3; ++a) {
+        if (b.mn[a] < nd.cmn[a]) b.mn[a] = nd.cmn[a];
+        if (b.mx[a] > nd.cmx[a]) b.mx[a] = nd.cmx[a];
+      }
+      boxes.push_back(b);
+    }
   }
   // Greedy merge: whenever a union costs little more than its parts, the
   // split bought nothing - a solid model collapses back to one box.
@@ -13893,15 +13965,42 @@ void TerrainGame::updateAndRenderLightBeams() {
 
     const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
     const float half = d.lightRadius * 0.14F;
+    // The corona is depth-TESTED so a wall in front of the lamp still hides
+    // it - but a billboard centred exactly on the bulb SLICES THROUGH the
+    // fixture that carries it (the pole, the arm), and the GS's fixed-point z
+    // interpolation cuts the soft sprite on a jagged, stair-stepped seam
+    // (reported from night-walk's street lamp: a hard staircase running up
+    // the pole where the glow met it). So the sprite is pulled toward the
+    // CAMERA far enough to clear its own fixture, and shrunk by the same
+    // fraction so its apparent size does not move - a glow is not a surface,
+    // and in a real lens it blooms OVER the thin thing that carries it.
+    // Capped at half the camera distance, so walking into the lamp cannot
+    // drag the sprite through the near plane. The cone shaft below stays at
+    // the true position on purpose: it is world geometry, and sliding it
+    // would visibly detach it from the lamp head.
+    float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    {
+      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
+                  vz2 = cameraPosition.z - cz;
+      const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      if (vl > 0.0001F) {
+        float pull = d.lightRadius * 0.25F;
+        if (pull > vl * 0.5F) pull = vl * 0.5F;
+        pcx += vx2 / vl * pull;
+        pcy += vy2 / vl * pull;
+        pcz += vz2 / vl * pull;
+        chalf = half * (vl - pull) / vl;
+      }
+    }
     const Vec4 corners[4] = {
-        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
-             cz + (-rz - uz) * half, 1.0F),
-        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
-             cz + (rz - uz) * half, 1.0F),
-        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
-             cz + (rz + uz) * half, 1.0F),
-        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
-             cz + (-rz + uz) * half, 1.0F)};
+        Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
+             pcz + (-rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx - ux) * chalf, pcy + (ry - uy) * chalf,
+             pcz + (rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx + ux) * chalf, pcy + (ry + uy) * chalf,
+             pcz + (rz + uz) * chalf, 1.0F),
+        Vec4(pcx + (-rx + ux) * chalf, pcy + (-ry + uy) * chalf,
+             pcz + (-rz + uz) * chalf, 1.0F)};
     b.coronaVerts[0] = corners[0];
     b.coronaVerts[1] = corners[1];
     b.coronaVerts[2] = corners[2];
