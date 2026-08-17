@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.52.3 (the shadow sub-boxes work again, so the lamp's torch shadow is its
+// pole and not a slab): reported as "the shadow this lamp casts is square,
+// looks like an AABB, only shows when I shine the torch" - which is exactly
+// the state 1.40's sub-boxes were built to end, so this is a regression that
+// turned out to be two latent defects in buildShadowSubBoxes, found by
+// logging the fit inside the running game (every model in night-walk came
+// out as ONE box). (1) The median split cut the triangle COUNT, not space:
+// triangles cluster in a model's detailed end - the lamp's head carries most
+// of its 136 - so the cut landed inside the head and the other leaf spanned
+// pole plus arm, the very slab the sub-boxes exist to prevent. It cuts at
+// the spatial middle of the longest axis now, with a count-median fallback
+// when a degenerate cut leaves one side empty. (2) The merge test's volume
+// padding was an absolute 0.05 in model-LOCAL units, and a kit authored
+// small and placed at scale (Kenney's runs ~0.1..1.0 units at scale 3.2) had
+// every leaf volume read as padding - every union looked nearly free and
+// everything merged back to the AABB. The pad is 2% of the model's own
+// diagonal now. Verified in PCSX2 with game-side captures: the lamp
+// decomposes to pole + arm (logged out=2, the pole sub-box 0.14 x 0.39 x
+// 0.14 world), solid buildings still collapse to one box, and the rectangular
+// dark void the torch used to carve around the lamp on the facade is gone -
+// the wall lights continuously and the pole keeps its honest thin stripe.
+// PATCH: a defect goes away; no capability appears; the format is untouched.
+//
 // 1.52.2 (a lamp's glow stops sawing its own pole): reported from
 // examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
 // boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
@@ -1485,7 +1508,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 52
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -11563,15 +11563,36 @@ static void buildShadowSubBoxes(
         if (tris[i].mx[a] > b.mx[a]) b.mx[a] = tris[i].mx[a];
       }
   };
-  // A padded volume, so flat boxes still compare meaningfully.
-  auto volOf = [](const ShadowSubBox& b) {
-    return (b.mx[0] - b.mn[0] + 0.05F) * (b.mx[1] - b.mn[1] + 0.05F) *
-           (b.mx[2] - b.mn[2] + 0.05F);
-  };
   out.clear();
   if (tris.empty()) return;
   std::vector<int> all(tris.size());
   for (size_t i = 0; i < tris.size(); ++i) all[i] = (int)i;
+  // A padded volume, so flat boxes still compare meaningfully. The pad is a
+  // FRACTION OF THE MODEL'S OWN DIAGONAL, never an absolute: these verts are
+  // model-LOCAL units, and an asset kit authored small and placed at scale
+  // (Kenney's runs ~0.1..1.0 units, placed at 3.2) made a fixed 0.05 pad
+  // dominate every thin dimension - all four leaves' volumes read as
+  // padding, every union looked nearly free, and tryMerge collapsed EVERY
+  // model back to its AABB. The street lamp then cast the pole-plus-arm slab
+  // of air the sub-boxes exist to prevent (reported as "the lamp's shadow is
+  // square"; the log showed out=1 for every model in the scene).
+  float pad;
+  {
+    float dmn[3] = {1e30F, 1e30F, 1e30F}, dmx[3] = {-1e30F, -1e30F, -1e30F};
+    for (const Tri& t : tris)
+      for (int a = 0; a < 3; ++a) {
+        if (t.mn[a] < dmn[a]) dmn[a] = t.mn[a];
+        if (t.mx[a] > dmx[a]) dmx[a] = t.mx[a];
+      }
+    const float dx2 = dmx[0] - dmn[0], dy2 = dmx[1] - dmn[1],
+                dz2 = dmx[2] - dmn[2];
+    pad = 0.02F * sqrtf(dx2 * dx2 + dy2 * dy2 + dz2 * dz2);
+    if (pad < 0.0001F) pad = 0.0001F;
+  }
+  auto volOf = [pad](const ShadowSubBox& b) {
+    return (b.mx[0] - b.mn[0] + pad) * (b.mx[1] - b.mn[1] + pad) *
+           (b.mx[2] - b.mn[2] + pad);
+  };
   // Median split on the longest axis, applied twice -> up to four leaves.
   // Iterative on purpose (no std::function in the game TU).
   auto halve = [&](const std::vector<int>& idx, std::vector<int>& lo,
@@ -11582,12 +11603,27 @@ static void buildShadowSubBoxes(
     float best = b.mx[0] - b.mn[0];
     for (int a = 1; a < 3; ++a)
       if (b.mx[a] - b.mn[a] > best) best = b.mx[a] - b.mn[a], ax = a;
-    std::vector<int> srt = idx;
-    std::sort(srt.begin(), srt.end(), [&](int l, int r) {
-      return tris[l].cen[ax] < tris[r].cen[ax];
-    });
-    lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
-    hi.assign(srt.begin() + srt.size() / 2, srt.end());
+    // Cut at the SPATIAL midpoint, not the triangle-count median: triangles
+    // cluster in a model's detailed end (a street lamp's head carries most
+    // of its 136), so the count median landed the cut INSIDE that cluster
+    // and the other leaf spanned everything else - pole plus arm, the very
+    // AABB slab the sub-boxes exist to prevent (logged on night-walk: leaf 2
+    // was y 0.245..0.96 across the full arm reach, and every model in the
+    // scene came out as ONE box). The spatial middle separates parts by
+    // where they ARE; a degenerate cut with everything on one side falls
+    // back to the count median so the recursion always makes progress.
+    const float mid = 0.5F * (b.mn[ax] + b.mx[ax]);
+    lo.clear();
+    hi.clear();
+    for (int i : idx) (tris[i].cen[ax] < mid ? lo : hi).push_back(i);
+    if (lo.empty() || hi.empty()) {
+      std::vector<int> srt = idx;
+      std::sort(srt.begin(), srt.end(), [&](int l, int r) {
+        return tris[l].cen[ax] < tris[r].cen[ax];
+      });
+      lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
+      hi.assign(srt.begin() + srt.size() / 2, srt.end());
+    }
   };
   std::vector<std::vector<int>> leaves;
   if (all.size() < 8) {
