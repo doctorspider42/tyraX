@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.55.0 (cars you can drive - docs/vehicles.md): a Vehicle object type, a
+// project-wide VehicleDef the instances name, and an importer that takes one
+// authored .glb/.fbx and finds the wheels in it.
+//
+// The wheels are found by GEOMETRY, not by node name. The reference asset
+// (CC96/car1.fbx, CC0) names its nodes Cube and Cylinder.001..003 - Blender
+// defaults - so a name-matching importer fails on the first real model. Mesh
+// nodes are clustered by shape and clusters of 2/4/6 scored on roundness,
+// thinness, height in the model and size; names and materials are a bonus
+// only. The vehicle's own frame falls out of the cluster (the axle is the axis
+// a wheel is thinnest along; of the rest, the one the centres barely spread
+// along is up), so no exporter axis metadata is read anywhere. What the
+// importer CANNOT decide is which end is the nose, and it says so rather than
+// guessing quietly - there is a flip in the panel.
+//
+// The reference car is 40 materials and 36 mesh parts, and a .tmdl part is one
+// bag at ~1 ms of fixed EE time: 36 submits is nearly two PAL frames for one
+// parked car. Because pushVert folds a material's kd into the vertex colours,
+// untextured materials merge losslessly - they become one part whose vertices
+// point at cells of a generated palette texture. 36 parts -> 2 submits.
+//
+// kFormatVersion 31 -> 32, purely additive: PrimitiveType::Vehicle (20), the
+// per-object "vehicle" block and Section::Vehicles, all of which an existing
+// project simply does not carry - a project with no vehicles resaves byte for
+// byte. MINOR by this file's own rule.
+//
 // 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
 // scene with Point Light > Beam used to look materially different in the
 // editor than in PCSX2, because the editor drew neither half of it. It draws
@@ -1526,7 +1552,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 54
+#define TYRAX_VERSION_MINOR 55
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -1807,7 +1833,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 31;
+inline constexpr int kFormatVersion = 32;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

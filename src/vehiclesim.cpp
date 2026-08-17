@@ -354,6 +354,51 @@ Detection detectWheels(const std::vector<MeshNode>& nodes) {
     return det;
 }
 
+std::vector<SpecField> specFields(DriveSpec& s) {
+    // Ranges are what the editor's sliders offer, so they bound what an author
+    // can reach with the mouse - not what the sim tolerates. Keys are format.
+    return {
+        {"wheelBase", &s.wheelBase, 0.5f, 12.0f, "Wheelbase",
+         "Front axle to rear axle. The turn radius follows from it, so a longer "
+         "vehicle turns wider on its own."},
+        {"track", &s.track, 0.4f, 6.0f, "Track", "Left wheel to right wheel."},
+        {"wheelRadius", &s.wheelRadius, 0.05f, 2.0f, "Wheel radius",
+         "Measured off the baked wheel; drives ride height and how fast the "
+         "wheels appear to spin."},
+        {"topSpeed", &s.topSpeed, 1.0f, 80.0f, "Top speed", "Units per second, forward."},
+        {"reverseTopSpeed", &s.reverseTopSpeed, 0.5f, 30.0f, "Reverse top speed", ""},
+        {"accel", &s.accel, 0.5f, 40.0f, "Acceleration", "Units per second squared at full throttle."},
+        {"brakeDecel", &s.brakeDecel, 1.0f, 60.0f, "Braking", "Units per second squared."},
+        {"engineBraking", &s.engineBraking, 0.0f, 20.0f, "Engine braking",
+         "How fast it slows with no throttle and no brake."},
+        {"drag", &s.drag, 0.0f, 0.02f, "Drag",
+         "Quadratic air resistance - what actually caps the top speed on a downhill."},
+        {"maxSteerDeg", &s.maxSteerDeg, 5.0f, 60.0f, "Steering lock", "Degrees at a standstill."},
+        {"highSpeedSteerDeg", &s.highSpeedSteerDeg, 2.0f, 60.0f, "Lock at top speed",
+         "The lock shrinks to this as the car reaches top speed. Without the "
+         "taper a full-lock flick at speed spins the car on the spot."},
+        {"steerRateDeg", &s.steerRateDeg, 20.0f, 900.0f, "Steering rate",
+         "How fast the wheels turn, degrees per second."},
+        {"steerReturnDeg", &s.steerReturnDeg, 20.0f, 900.0f, "Self-centring",
+         "How fast the wheels straighten with no steering input."},
+        {"grip", &s.grip, 0.5f, 80.0f, "Grip",
+         "The cap on how fast the tyres kill sideways slip. Low slides, high is on rails."},
+        {"handbrakeGrip", &s.handbrakeGrip, 0.0f, 40.0f, "Handbrake grip",
+         "Replaces grip while the handbrake is held - this is the drift knob."},
+        {"gravity", &s.gravity, 1.0f, 80.0f, "Gravity", "Units per second squared."},
+        {"rideHeight", &s.rideHeight, 0.0f, 3.0f, "Ride height",
+         "Chassis origin above the contact plane. Seeded from the wheel radius."},
+        {"suspensionTravel", &s.suspensionTravel, 0.0f, 1.0f, "Suspension travel",
+         "How far a wheel moves against the body over bumps. Visual only."},
+        {"suspensionRate", &s.suspensionRate, 0.5f, 40.0f, "Suspension rate",
+         "How quickly the wheels follow the ground. Visual only."},
+        {"maxSlopeCos", &s.maxSlopeCos, 0.0f, 1.0f, "Slope grip limit",
+         "Past this steepness the tyres start losing grip instead of climbing."},
+        {"mass", &s.mass, 0.1f, 200.0f, "Mass",
+         "Relative, and only used where the vehicle shoves a physics body."},
+    };
+}
+
 // ---------------------------------------------------------------------------
 // The drive model
 // ---------------------------------------------------------------------------

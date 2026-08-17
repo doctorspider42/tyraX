@@ -147,6 +147,22 @@ struct DriveSpec {
     float mass = 12.0f;
 };
 
+// One tunable of a DriveSpec, with everything a serializer or a widget needs.
+struct SpecField {
+    const char* key;    // the .tyra JSON key - never rename one, it is format
+    float* value;
+    float min, max;
+    const char* label;  // what the editor calls it
+    const char* tip;    // one line, the panel's tooltip
+};
+
+// THE field list, and the only one. The .tyra writer, the reader, the Vehicle
+// Editor's widget table and its tooltips all walk this, so a tunable added to
+// DriveSpec is saved, loaded, editable and documented by appearing here once -
+// and a field added to the struct and NOT here is silently never saved, which
+// is the trap dronegen::visitParams exists to have already paid for.
+std::vector<SpecField> specFields(DriveSpec& s);
+
 // Everything a controller may say to a vehicle in one frame. The player
 // controller and (later) the AI controller both fill exactly this.
 struct DriveInput {

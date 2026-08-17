@@ -48,6 +48,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Area: return "area";
         case PrimitiveType::Scatter: return "scatter";
         case PrimitiveType::Scroller: return "scroller";
+        case PrimitiveType::Vehicle: return "vehicle";
     }
     return "box";
 }
@@ -72,6 +73,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "area") return PrimitiveType::Area;
     if (s == "scatter") return PrimitiveType::Scatter;
     if (s == "scroller") return PrimitiveType::Scroller;
+    if (s == "vehicle") return PrimitiveType::Vehicle;
     return PrimitiveType::Box;
 }
 
@@ -866,6 +868,10 @@ std::string objectJson(const SceneObject& o) {
         for (size_t i = 0; i < o.portalObjects.size(); ++i)
             json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
         json += "] }";
+    }
+    if (o.type == PrimitiveType::Vehicle) {
+        json += ", \"vehicle\": { \"def\": \"" + jsonEscape(o.vehicleDef) +
+                "\", \"driveable\": " + (o.vehicleDriveable ? "true" : "false") + " }";
     }
     if (o.type == PrimitiveType::Scroller) {
         json += ", \"scroller\": { \"speed\": " + fmtFloat(o.scrollSpeed) +
@@ -2432,6 +2438,95 @@ static void readPrefabsSection(const json::Value& root, Project& out) {
     }
 }
 
+// Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Conditional:
+// a project with no vehicles emits nothing, so every existing .tyra resaves
+// byte for byte.
+//
+// The drive spec goes out through vehiclesim::specFields, which is the ONE list
+// of what a spec contains - so a tunable added there is saved and loaded by
+// existing here, and cannot be the field somebody forgot to write.
+static void writeVehiclesSection(std::ostream& json, const Project& p) {
+    if (p.vehicles.empty()) return;
+    json << "\"vehicles\": [";
+    for (size_t i = 0; i < p.vehicles.size(); ++i) {
+        const VehicleDef& v = p.vehicles[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(v.id)
+             << "\", \"name\": \"" << jsonEscape(v.name) << "\"";
+        if (!v.notes.empty()) json << ", \"notes\": \"" << jsonEscape(v.notes) << "\"";
+        if (!v.modelPath.empty())
+            json << ", \"model\": \"" << jsonEscape(v.modelPath) << "\"";
+        json << ", \"bodyTris\": " << v.bodyTriBudget
+             << ", \"wheelTris\": " << v.wheelTriBudget;
+        if (!v.mergeUntextured) json << ", \"merge\": false";
+        if (v.flipFront) json << ", \"flipFront\": true";
+        json << ", \"cam\": [" << fmtFloat(v.camDist) << ", " << fmtFloat(v.camHeight)
+             << ", " << fmtFloat(v.camPitch) << "]";
+        json << ", \"exit\": [" << fmtFloat(v.exitOffset[0]) << ", "
+             << fmtFloat(v.exitOffset[1]) << ", " << fmtFloat(v.exitOffset[2]) << "]";
+        if (!v.wheels.empty()) {
+            json << ", \"wheels\": [";
+            for (size_t k = 0; k < v.wheels.size(); ++k)
+                json << (k ? ", " : "") << "{ \"node\": \"" << jsonEscape(v.wheels[k].node)
+                     << "\", \"steered\": " << (v.wheels[k].steered ? "true" : "false")
+                     << ", \"driven\": " << (v.wheels[k].driven ? "true" : "false") << " }";
+            json << "]";
+        }
+        vehiclesim::DriveSpec spec = v.drive;
+        json << ", \"drive\": {";
+        const std::vector<vehiclesim::SpecField> fields = vehiclesim::specFields(spec);
+        for (size_t k = 0; k < fields.size(); ++k)
+            json << (k ? ", " : "") << "\"" << fields[k].key << "\": "
+                 << fmtFloat(*fields[k].value);
+        json << " } }";
+    }
+    json << "\n  ]";
+}
+
+static void readVehiclesSection(const json::Value& root, Project& out) {
+    out.vehicles.clear();
+    const json::Value* arr = root.find("vehicles");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        VehicleDef v;
+        if (const json::Value* x = e.find("id")) v.id = x->stringOr("");
+        if (const json::Value* x = e.find("name")) v.name = x->stringOr("");
+        if (const json::Value* x = e.find("notes")) v.notes = x->stringOr("");
+        if (const json::Value* x = e.find("model")) v.modelPath = x->stringOr("");
+        if (v.name.empty()) continue;
+        if (v.id.empty()) v.id = project::newObjectId();
+        if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(1500);
+        if (const json::Value* x = e.find("wheelTris")) v.wheelTriBudget = (int)x->numberOr(700);
+        if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
+        if (const json::Value* x = e.find("flipFront")) v.flipFront = x->boolOr(false);
+        if (const json::Value* x = e.find("cam"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
+                v.camDist = (float)x->arr[0].numberOr(v.camDist);
+                v.camHeight = (float)x->arr[1].numberOr(v.camHeight);
+                v.camPitch = (float)x->arr[2].numberOr(v.camPitch);
+            }
+        if (const json::Value* x = e.find("exit"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3)
+                for (int a = 0; a < 3; ++a)
+                    v.exitOffset[a] = (float)x->arr[a].numberOr(v.exitOffset[a]);
+        if (const json::Value* ws = e.find("wheels"))
+            if (ws->type == json::Value::Type::Array)
+                for (const json::Value& w : ws->arr) {
+                    VehicleWheel vw;
+                    if (const json::Value* x = w.find("node")) vw.node = x->stringOr("");
+                    if (const json::Value* x = w.find("steered")) vw.steered = x->boolOr(false);
+                    if (const json::Value* x = w.find("driven")) vw.driven = x->boolOr(false);
+                    if (!vw.node.empty()) v.wheels.push_back(std::move(vw));
+                }
+        if (const json::Value* d = e.find("drive")) {
+            const std::vector<vehiclesim::SpecField> fields = vehiclesim::specFields(v.drive);
+            for (const vehiclesim::SpecField& f : fields)
+                if (const json::Value* x = d->find(f.key))
+                    *f.value = (float)x->numberOr(*f.value);
+        }
+        out.vehicles.push_back(std::move(v));
+    }
+}
+
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
 // untouched project emits nothing, so the key only appears once the user has
 // actually changed a clip.
@@ -3055,6 +3150,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::Vehicles: writeVehiclesSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
         case Section::Facts: writeFactsSection(ss, p); break;
         case Section::BlssShots: writeBlssShotsSection(ss, p); break;
@@ -3084,6 +3180,7 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::Vehicles: return "vehicles";
         case Section::VuPrograms: return "vu";
         case Section::Facts: return "facts";
         case Section::BlssShots: return "blssShots";
@@ -4490,6 +4587,8 @@ std::set<std::string> runtimeRefNames(const Project& p,
 
 bool objectRuntimeMovable(const SceneObject& o,
                           const std::set<std::string>& refs) {
+    // A vehicle is the most movable thing in a scene - somebody drives it.
+    if (o.type == PrimitiveType::Vehicle) return true;
     if (o.physics) return true;    // gravity, bounces, gets pushed
     if (o.pickable) return true;   // carried in front of the camera, thrown
     if (o.usable) return true;     // the highlight defers and re-submits it
@@ -4799,6 +4898,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     if (s.type == json::Value::Type::String && !s.str.empty())
                         o.mirrorObjects.push_back(s.str);
             }
+        }
+        if (const auto* vh = jo.find("vehicle")) {
+            if (const auto* v = vh->find("def")) o.vehicleDef = v->stringOr("");
+            if (const auto* v = vh->find("driveable")) o.vehicleDriveable = v->boolOr(true);
         }
         if (const auto* sr = jo.find("scroller")) {
             if (const auto* v = sr->find("speed")) o.scrollSpeed = (float)v->numberOr(6.0);
@@ -6343,6 +6446,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::Vehicles: readVehiclesSection(root, p); break;
         case Section::VuPrograms: readVuSection(root, p); break;
         // A peer's catalog arrives whole; a fact that reached them without an
         // id (hand-edited .tyra, an older editor) must get one here or the
@@ -6507,6 +6611,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAnimImportsSection(root, out);
 
     readPrefabsSection(root, out);
+    readVehiclesSection(root, out);
     readVuSection(root, out);
     readFactsSection(root, out);
     // A fact's id is what a player's save file is keyed by, so a

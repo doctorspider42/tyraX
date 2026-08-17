@@ -97,7 +97,11 @@ CollisionBox collisionBox(const SceneObject& o,
     // A model authored standing on its origin has a box sitting entirely above
     // it, and the unit cube around that origin is its ankles.
     float lmn[3] = {-0.5f, -0.5f, -0.5f}, lmx[3] = {0.5f, 0.5f, 0.5f};
-    if (o.type == PrimitiveType::Model && modelAabb) {
+    // A Vehicle asks the same callback as a Model, and for the same reason: the
+    // unit cube around a car's origin is a box in the middle of the cabin. The
+    // caller's ModelAabbFn resolves a Vehicle through its definition (only the
+    // App knows those), so this needs no wider signature.
+    if ((o.type == PrimitiveType::Model || o.type == PrimitiveType::Vehicle) && modelAabb) {
         float mn[3], mx[3];
         if (modelAabb(o, mn, mx))
             for (int k = 0; k < 3; ++k) lmn[k] = mn[k], lmx[k] = mx[k];

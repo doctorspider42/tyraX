@@ -84,6 +84,7 @@ static const char* typeLabel(PrimitiveType t) {
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Vehicle: return "Vehicle";
     }
     return "Object";
 }

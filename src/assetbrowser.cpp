@@ -373,6 +373,13 @@ void App::rebuildAssetUsage() {
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
         }
 
+    // A vehicle definition's model is a real reference for the same reason a
+    // prefab member's is: it ships because the definition names it, whether or
+    // not any scene has an instance placed today.
+    for (const VehicleDef& v : project_.vehicles)
+        if (!v.modelPath.empty())
+            note(v.modelPath, 0, "vehicle \"" + v.name + "\" (model)");
+
     auto noteHud = [&](const HudImage& h, const std::string& where) {
         if (!h.imagePath.empty()) note(h.imagePath, 2, where);
     };
@@ -633,6 +640,10 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             swap(o.prelitSource);
             swap(o.soundPath);
         }
+
+    // A vehicle definition names the one .glb/.fbx its body and wheels are
+    // baked out of (docs/vehicles.md).
+    for (VehicleDef& v : project_.vehicles) swap(v.modelPath);
 
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);
