@@ -1,0 +1,1 @@
+{ "id": "cc96ramp000000011", "name": "ramp", "type": "box", "position": [0, 0.8, 22], "rotation": [-9, 0, 0], "scale": [10, 0.6, 12], "color": [0.55, 0.55, 0.58], "physics": false }

@@ -27448,7 +27448,10 @@ void TerrainGame::updateVehicles(float dt) {
       const float fwd = -((float)joy.v - 128.0F) / 128.0F;
       if (fwd > 0.15F || fwd < -0.15F) inThrottle = fwd;
       if (engine->pad.getPressed().Cross) inThrottle = 1.0F;
-      if (engine->pad.getPressed().Square) inBrake = 1.0F;
+      // L1, NOT Square: Square is the USE action's default binding, so a
+      // brake there would also throw the driver out on the same press.
+      // Getting in and slowing down cannot share a button.
+      if (engine->pad.getPressed().L1) inBrake = 1.0F;
       if (engine->pad.getPressed().Circle) inHand = 1;
       if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
     }
@@ -27578,8 +27581,42 @@ void TerrainGame::updateVehicles(float dt) {
     }
 
     const float c2 = cosf(v.yaw * kDeg), s2 = sinf(v.yaw * kDeg);
+    const float prevX = v.pos[0], prevZ = v.pos[2];
     v.pos[0] += (v.speed * s2 + v.lateral * c2) * dt;
     v.pos[2] += (v.speed * c2 - v.lateral * s2) * dt;
+
+    // Walls. The car is tested at its FOUR CORNERS through the walker's own
+    // resolver, not at its centre: a centre test lets a car put half its width
+    // through a wall before anything notices, and collidePlayer is already the
+    // one place that knows what a collider is. Any corner that gets pushed
+    // refuses the whole move - resolving per corner would rotate the body, and
+    // a kinematic chassis has no way to represent that.
+    {
+      const float hx2 = 0.5F * s.track, hz2 = 0.5F * s.wheelBase;
+      const float cx[4] = {-hx2, hx2, -hx2, hx2};
+      const float cz[4] = {hz2, hz2, -hz2, -hz2};
+      const float feet = v.pos[1] - s.rideHeight;
+      int blocked = 0;
+      for (int k = 0; k < 4 && !blocked; ++k) {
+        const float p0x = prevX + cx[k] * c2 + cz[k] * s2;
+        const float p0z = prevZ - cx[k] * s2 + cz[k] * c2;
+        float nx = v.pos[0] + cx[k] * c2 + cz[k] * s2;
+        float nz = v.pos[2] - cx[k] * s2 + cz[k] * c2;
+        const float wantX = nx, wantZ = nz;
+        float gr = 0.0F, ce = 0.0F;
+        collidePlayer(p0x, p0z, &nx, &nz, feet, 0.6F, &gr, &ce);
+        const float dx = nx - wantX, dz = nz - wantZ;
+        if (dx * dx + dz * dz > 0.0004F) blocked = 1;
+      }
+      if (blocked) {
+        v.pos[0] = prevX;
+        v.pos[2] = prevZ;
+        // The impact takes the speed with it, so a car pinned against a wall
+        // stops instead of grinding along it at full throttle.
+        v.speed *= 0.25F;
+        v.lateral = 0.0F;
+      }
+    }
     v.wheelSpin += (v.speed / (s.wheelRadius > 0.001F ? s.wheelRadius : 0.001F)) *
                    dt * kRad;
     if (v.wheelSpin > 360.0F) v.wheelSpin -= 360.0F;
