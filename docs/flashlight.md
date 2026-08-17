@@ -354,14 +354,16 @@ orientation is geometric, never winding-trusted**: caps orient toward/away
 from the light, side walls away from an interior sample — a model with flipped
 winding degrades to casting from its back faces, whose silhouette is the same.
 
-**The counting path needs a 32-bit framebuffer.** On a 16-bit-colour project it
-refuses itself and the volumes fall back to the convex sub-boxes: measured, the
-counting passes make a torch-lit surface come back hue-shifted there (a warm
-cream lamp post read (208, 56, 144), each channel wrapping) while the same
-project in silhouette mode is pixel-clean. It reproduces in the emulator, so it
-is a different mechanism from the page-geometry trap above, and the cause is not
-found yet - COLCLAMP was the obvious suspect and is measurably not it. Until it
-is, 16-bit projects get boxes rather than wrong colour.
+**It works at either colour depth, and getting there cost one more GS rule.**
+The mask writes have to touch alpha and nothing else, and `FBMSK`'s bit
+positions are **always 32-bit RGBA8** - R 0..7, G 8..15, B 16..23, A 24..31 -
+whatever PSM the framebuffer is in; the GS maps them onto a 16-bit target's
+5551 layout itself. Reasoning from the 16-bit PIXEL layout instead (two pixels
+per word, alpha at bit 15 of each half) gives `0x7FFF7FFF`, which exposes bit
+15 - the top bit of GREEN - so every "alpha only" write also halved green
+wherever the torch lit something and a 16-bit project came back magenta,
+(208, 56, 144) measured on a warm cream lamp post. One constant, `0x00FFFFFF`,
+is correct at both depths.
 
 If the count target's VRAM is refused (it is claimed at boot, right after the
 projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the

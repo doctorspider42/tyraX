@@ -63,17 +63,23 @@
 // the 16-bit channel's 8-step quantization plus dithering's +-4, so DTHE
 // needs no save/restore; and the resolve restores CLAMP to REPEAT itself,
 // because emitRasterRestore does not know about texture state. Docs:
-// AND THE COUNTING PATH IS GATED TO 32-BIT FRAMEBUFFERS, which is a measured
-// limit and not a precaution: on a PSMCT16 framebuffer these passes make a
-// torch-lit surface come back HUE-SHIFTED - (208, 56, 144) measured on a warm
-// cream lamp post, every channel wrapping - while the SAME 16-bit project in
-// silhouette mode is pixel-clean (0 such pixels). It reproduces in PCSX2, so
-// it is a different mechanism from the page-geometry trap above, and the cause
-// is NOT found; COLCLAMP was the obvious suspect and programming
-// COLOR_CLAMP_ENABLE changed nothing, so that guess was reverted rather than
-// shipped. allocateCount() refuses on a 16-bit framebuffer and such a project
-// keeps the convex sub-boxes, which are correct there. Verified: 16-bit +
-// volumes on + the gate reads 0 hue-shifted pixels.
+// AND THE SECOND GS RULE THIS COST: FBMSK's bit positions are ALWAYS 32-bit
+// RGBA8 - R 0..7, G 8..15, B 16..23, A 24..31 - whatever PSM the framebuffer
+// is in, because the GS maps them onto a 16-bit target's 5551 layout itself.
+// The mask passes reasoned from the 16-bit PIXEL layout instead (two pixels
+// per word, alpha at bit 15 of each half) and used 0x7FFF7FFF there, which
+// exposes bit 15 - the TOP BIT OF GREEN - so every "alpha only" write also
+// halved green wherever the torch lit something: a 16-bit project came back
+// magenta, (208, 56, 144) measured on a warm cream lamp post, while the same
+// project in silhouette mode was pixel-clean. One constant (0x00FFFFFF) is
+// right at both depths, and the engine's own post-fx passes were the evidence
+// (kKeepAlpha = 0xFF000000 and per-channel BYTE masks, used on work buffers
+// that are PSMCT16 in a 16-bit project). Verified in PCSX2 on a 16-bit copy of
+// night-walk: 0 hue-shifted pixels against 4115 before, the torch's light back
+// (5.2% of the frame changes when it is toggled) and no checkerboard; the
+// briefly-shipped 32-bit-only gate is gone with the cause. COLCLAMP was the
+// obvious suspect on the way and measurably was NOT it - that speculative
+// register write was reverted rather than left in.
 //
 // docs/flashlight.md "The shadow" rewritten around the counting
 // arrangement; no format change (the technique flag is v27's).
