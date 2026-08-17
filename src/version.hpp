@@ -63,6 +63,18 @@
 // the 16-bit channel's 8-step quantization plus dithering's +-4, so DTHE
 // needs no save/restore; and the resolve restores CLAMP to REPEAT itself,
 // because emitRasterRestore does not know about texture state. Docs:
+// AND THE COUNTING PATH IS GATED TO 32-BIT FRAMEBUFFERS, which is a measured
+// limit and not a precaution: on a PSMCT16 framebuffer these passes make a
+// torch-lit surface come back HUE-SHIFTED - (208, 56, 144) measured on a warm
+// cream lamp post, every channel wrapping - while the SAME 16-bit project in
+// silhouette mode is pixel-clean (0 such pixels). It reproduces in PCSX2, so
+// it is a different mechanism from the page-geometry trap above, and the cause
+// is NOT found; COLCLAMP was the obvious suspect and programming
+// COLOR_CLAMP_ENABLE changed nothing, so that guess was reverted rather than
+// shipped. allocateCount() refuses on a 16-bit framebuffer and such a project
+// keeps the convex sub-boxes, which are correct there. Verified: 16-bit +
+// volumes on + the gate reads 0 hue-shifted pixels.
+//
 // docs/flashlight.md "The shadow" rewritten around the counting
 // arrangement; no format change (the technique flag is v27's).
 //

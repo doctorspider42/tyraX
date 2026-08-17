@@ -74,6 +74,22 @@ void RendererCoreAlphaMask::allocateCount() {
   // rows to move it over the rect. Permanent-region discipline like the
   // shadow-map slots: below every texture, so the heap can never rewind past
   // it. Refusal is graceful - the caller keeps the convex 1-bit path.
+  // 32-BIT FRAMEBUFFERS ONLY, for now, and this is a MEASURED limit rather
+  // than a precaution. On a PSMCT16 framebuffer the counting path makes a
+  // torch-lit surface come back HUE-SHIFTED - measured (208, 56, 144) on a
+  // warm cream lamp post, i.e. each channel wrapping - while the same 16-bit
+  // project in silhouette mode is pixel-clean. It reproduces in PCSX2, so it
+  // is not the page-geometry trap above, and the cause is not yet found;
+  // refusing here keeps a 16-bit project on the convex sub-box path, which
+  // is correct there, instead of shipping wrong colour. (COLCLAMP was the
+  // obvious suspect and is NOT it - programming COLOR_CLAMP_ENABLE around
+  // the frame changed nothing.)
+  if (settings->getFrameBufferPsm() != GS_PSM_32) {
+    TYRA_WARN("Shadow-volume counting needs a 32-bit framebuffer (this ",
+              "project is 16-bit); mesh volumes fall back to convex ",
+              "sub-boxes.");
+    return;
+  }
   countW = static_cast<int>(settings->getWidth());
   const int rasterH = static_cast<int>(settings->getRenderHeightF());
   countH = rasterH < kCountBandRows ? rasterH : kCountBandRows;

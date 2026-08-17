@@ -354,6 +354,15 @@ orientation is geometric, never winding-trusted**: caps orient toward/away
 from the light, side walls away from an interior sample — a model with flipped
 winding degrades to casting from its back faces, whose silhouette is the same.
 
+**The counting path needs a 32-bit framebuffer.** On a 16-bit-colour project it
+refuses itself and the volumes fall back to the convex sub-boxes: measured, the
+counting passes make a torch-lit surface come back hue-shifted there (a warm
+cream lamp post read (208, 56, 144), each channel wrapping) while the same
+project in silhouette mode is pixel-clean. It reproduces in the emulator, so it
+is a different mechanism from the page-geometry trap above, and the cause is not
+found yet - COLCLAMP was the obvious suspect and is measurably not it. Until it
+is, 16-bit projects get boxes rather than wrong colour.
+
 If the count target's VRAM is refused (it is claimed at boot, right after the
 projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the
 volumes fall back to the convex sub-boxes with the old 1-bit set/clear — one
