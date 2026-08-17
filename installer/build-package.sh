@@ -136,8 +136,22 @@ stage_tree() {  # stage_tree <marker word>
 
     # The engine the editor compiles every game against, as sources - the build
     # container bind-mounts this directory read-only.
+    #
+    # PRUNE BY DIRECTORY HERE, NEVER BY EXTENSION, and the three below are
+    # exactly what .gitignore drops under vendor/tyra: what is not in git is
+    # build leftovers a dev checkout happens to carry, and everything else is
+    # CONTENT. This list was once "*.o -o -name '*.a' -o -name '*.elf'", which
+    # is the same intent spelled as a file type - and it silently dropped
+    # vendor/tyra/audsrv/bin/libaudsrv.a, a committed artifact of the audsrv
+    # fork that runner.cpp overlays onto the container's PS2SDK. Its two
+    # siblings (audsrv.irx, audsrv.h) matched no pattern and travelled, so the
+    # overlay's `cp a && cp b && cp c` died on the missing lib BEFORE copying
+    # the header, every game then compiled against stock PS2SDK headers, and
+    # the build ended in "'audsrv_adpcm_set_volume_and_pan' was not declared" -
+    # for everyone who installed TyraX and for nobody who built from a checkout.
     copy_tree "$REPO/vendor/tyra" "$STAGE/vendor/tyra" \
-        \( -name .git -o -name '*.o' -o -name '*.a' -o -name '*.elf' \) -prune -o -type f
+        \( -name .git -o -path './engine/obj' -o -path './engine/bin' \
+           -o -path './audsrv/.work' \) -prune -o -type f
 
     # ps2client (network deploy), the ps2link build scripts and the VS Code
     # extension package the editor installs on request. ps2client is fetched

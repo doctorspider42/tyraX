@@ -1886,6 +1886,20 @@ code:
   a checkout and is missing for everyone who installed. The two scripts are a
   platform pair in PURPOSE, not line for line - what must not drift is the
   CONTENT of the tree.
+- **A package carries the repo's CONTENT, so exclude by DIRECTORY - never by
+  file type.** Both packagers once dropped `*.o`, `*.a` and `*.elf` from
+  `vendor/tyra` to keep a dev checkout's build leftovers out, and took
+  `vendor/tyra/audsrv/bin/libaudsrv.a` with them - a COMMITTED artifact of the
+  in-tree audsrv fork that `runner.cpp` overlays onto the container's PS2SDK.
+  Its two siblings (audsrv.irx, audsrv.h) matched no pattern and travelled, so
+  the overlay's `cp a && cp b && cp c` died on the missing lib BEFORE copying
+  the header, and every game build ended in "'audsrv_adpcm_set_volume_and_pan'
+  was not declared" - on INSTALLED copies only, which is why no checkout could
+  reproduce it and it survived two releases (fixed 1.55.3). The exclusion list
+  is now exactly what `.gitignore` drops under that directory, and that is the
+  rule: **if git keeps it, the package ships it.** `runner.cpp` also checks the
+  three overlay files exist and says so by name, because an editor packaged
+  before the fix stays broken until it updates.
 - **`src/version.hpp` is where the version is AUTHORED, and the TAGS say which
   patches are spent.** Both packaging scripts and the workflow read the same
   three macros with the same regex; CI releases them as they stand when
