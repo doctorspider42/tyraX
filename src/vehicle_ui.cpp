@@ -29,6 +29,12 @@
 
 namespace {
 
+// A measured value, or the fallback when the bake could not produce one (a
+// two-wheeled vehicle has no track, a wheel-less one no radius).
+float r_geom(float measured, float fallback) {
+    return measured > 1e-4f ? measured : fallback;
+}
+
 std::string bakeKey(const VehicleDef& v) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "|%d|%d|%d", v.bodyTriBudget, v.wheelTriBudget,
@@ -76,7 +82,7 @@ bool App::vehicleBodyBounds(const SceneObject& o, float* mn, float* mx) {
 
 void App::vehicleRefreshBake(int index, bool force) {
     if (index < 0 || index >= (int)project_.vehicles.size()) return;
-    const VehicleDef& v = project_.vehicles[index];
+    VehicleDef& v = project_.vehicles[index];
     if (v.modelPath.empty()) return;
     VehicleBakeCache& c = vehicleBakes_[v.id];
     const std::string key = bakeKey(v);
@@ -123,6 +129,23 @@ void App::vehicleRefreshBake(int index, bool force) {
         put("veh-" + v.id + "-palette.png",
             std::string((const char*)c.result.palettePng.data(),
                         c.result.palettePng.size()));
+
+    // Adopt the model's OWN measurements - but only while the definition still
+    // carries the untouched defaults, so an author who set a wider track keeps
+    // it across re-imports. Without this the console drives a 0.32 wheel on a
+    // car whose baked wheel is 0.19: the numbers are measured by the bake and
+    // then nothing carries them into the definition codegen reads.
+    {
+        const vehiclesim::DriveSpec def{};
+        if (v.drive.wheelBase == def.wheelBase && v.drive.track == def.track &&
+            v.drive.wheelRadius == def.wheelRadius) {
+            v.drive.wheelBase = r_geom(c.result.spec.wheelBase, def.wheelBase);
+            v.drive.track = r_geom(c.result.spec.track, def.track);
+            v.drive.wheelRadius = r_geom(c.result.spec.wheelRadius, def.wheelRadius);
+            v.drive.rideHeight = r_geom(c.result.spec.rideHeight, def.rideHeight);
+            setDirty(true);
+        }
+    }
 
     // Hand the geometry to the viewport so a placed instance draws. The
     // viewport gets the IN-MEMORY bake rather than re-reading the files: one

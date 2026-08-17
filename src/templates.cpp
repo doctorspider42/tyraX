@@ -1365,6 +1365,7 @@ class TerrainGame : public Tyra::Game {
   // RuntimeObject::spinRate and promotes spinners onto the per-object
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
+{{VEHICLE_MEMBERS}}
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -2733,6 +2734,7 @@ class TerrainGame : public Tyra::Game {
   // RuntimeObject::spinRate and promotes spinners onto the per-object
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
+{{VEHICLE_MEMBERS}}
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -5975,6 +5977,7 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+{{VEHICLE_UPDATE}}
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -8617,7 +8620,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
-{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+{{VEHICLE_SETUP}}{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
@@ -16317,6 +16320,7 @@ void TerrainGame::procFinishChunks() {
   }
 }
 
+{{VEHICLE_IMPL}}
 void TerrainGame::renderProcChunks() {
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
@@ -17434,6 +17438,7 @@ void TerrainGame::renderScene() {
   // same deal one step further: the game built these bags itself, so they need
   // no per-object bookkeeping at all, only a distance test and a submit.
   renderProcChunks();
+{{VEHICLE_RENDER}}
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
   renderCollisionBoxes();
@@ -21118,6 +21123,7 @@ void TerrainGame::loop() {
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+{{VEHICLE_UPDATE}}
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -24783,6 +24789,81 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             << (hiddenMembers.empty() ? "{0, -1}" : hrecs.str()) << "};\n\n";
     }
 
+    // Vehicles (docs/vehicles.md). Two tables, and the split is the feature:
+    // VEHICLE_DEFS is per DEFINITION - the shared geometry and how the thing
+    // drives - while VEHICLES maps each placed object to one. Twenty cars of a
+    // kind cost one definition's assets and twenty rows here.
+    //
+    // The struct's tunables AND their values are both generated from
+    // vehiclesim::specFields(), which is the one list the .tyra writer, the
+    // reader, the editor's widgets and the equality test already walk. So a
+    // tunable added there reaches the console by existing, and cannot be the
+    // field somebody forgot to plumb through codegen.
+    {
+        std::vector<const VehicleDef*> defs;
+        for (const VehicleDef& v : p.vehicles)
+            if (!v.modelPath.empty() && !v.id.empty()) defs.push_back(&v);
+
+        vehiclesim::DriveSpec probe;
+        const std::vector<vehiclesim::SpecField> fields = vehiclesim::specFields(probe);
+
+        out << "// Vehicles (docs/vehicles.md): VEHICLE_DEFS is per definition\n"
+               "// (shared geometry + handling), VEHICLES maps a placed object to\n"
+               "// one. bodyModel/wheelModel are MODEL_PATHS slots; the body is\n"
+               "// also the object's own model, so it renders through the ordinary\n"
+               "// static path with the matrix fast path applying its motion.\n"
+               "struct VehicleDefData {\n"
+               "  int bodyModel; int wheelModel;\n";
+        for (const vehiclesim::SpecField& f : fields)
+            out << "  float " << f.key << ";\n";
+        out << "  float camDist; float camHeight; float camPitch;\n"
+               "  float exitOffset[3];\n"
+               "};\n"
+               "struct VehicleInstData { int scene; int object; int def; int driveable; };\n";
+
+        out << "constexpr int VEHICLE_DEF_COUNT = " << defs.size() << ";\n"
+            << "constexpr VehicleDefData VEHICLE_DEFS["
+            << (defs.empty() ? 1 : defs.size()) << "] = {\n";
+        if (defs.empty()) {
+            out << "    {-1, -1";
+            for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
+            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}}\n";
+        } else {
+            for (const VehicleDef* v : defs) {
+                const int base = vehicleBodyModel(p, v->name);
+                vehiclesim::DriveSpec spec = v->drive;
+                const std::vector<vehiclesim::SpecField> vf =
+                    vehiclesim::specFields(spec);
+                out << "    {" << base << ", " << (base < 0 ? -1 : base + 1);
+                for (const vehiclesim::SpecField& f : vf)
+                    out << ", " << floatLit(*f.value);
+                out << ", " << floatLit(v->camDist) << ", " << floatLit(v->camHeight)
+                    << ", " << floatLit(v->camPitch) << ", "
+                    << vec3Init(v->exitOffset) << "},  // " << escapeCString(v->name)
+                    << "\n";
+            }
+        }
+        out << "};\n";
+
+        std::ostringstream irecs;
+        int instCount = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si)
+            for (size_t oi = 0; oi < p.scenes[si].objects.size(); ++oi) {
+                const SceneObject& o = p.scenes[si].objects[oi];
+                if (o.type != PrimitiveType::Vehicle) continue;
+                const int di = vehicleDefIndex(p, o.vehicleDef);
+                if (di < 0) continue;  // no definition, or it carries no model
+                irecs << (instCount ? ",\n" : "") << "    {" << (int)si << ", "
+                      << (int)oi << ", " << di << ", "
+                      << (o.vehicleDriveable ? 1 : 0) << "}";
+                ++instCount;
+            }
+        out << "constexpr int VEHICLE_COUNT = " << instCount << ";\n"
+            << "constexpr VehicleInstData VEHICLES[" << (instCount ? instCount : 1)
+            << "] = {\n"
+            << (instCount ? irecs.str() : "    {0, -1, -1, 0}") << "\n};\n\n";
+    }
+
     // Streaming layers: per-scene layer count and which layers start resident
     // (rows padded to SCENE_MAX_LAYERS with true). SceneObjectData.layer
     // indexes these; the Load/Unload Layer flow nodes flip residency at
@@ -27246,6 +27327,364 @@ static std::string blssNetHeader(const Project& p) {
 // would ship - and a plain boot log would announce - a net it never loads. The
 // FILE is still generated (blssNetHeader is emitted whenever the upscaler is
 // on), so which files a BLSS project has stays a function of blssEnabled alone.
+
+// --- vehicles (docs/vehicles.md) --------------------------------------------
+//
+// The generated half of a driveable car. Three things go into the game, and
+// only when the project HAS a vehicle - a project without one regenerates byte
+// for byte, which is the property every optional feature here is held to.
+//
+// The body needs no code at all: its row is an ordinary type-5 Model on the
+// matrix fast path, so VU1 already applies whatever transform this writes.
+// What is emitted is the SIM (a per-frame twin of vehiclesim::step - change one
+// and the editor's test drive and the console disagree about how a car drives)
+// and the MERGED WHEEL BAG, which is the second of the two submits: four wheels
+// rebuilt in world space each frame into one bag, because a second submit costs
+// ~1 ms of fixed EE time and transforming a few hundred vertices on VU0 costs
+// microseconds.
+static bool projectHasVehicles(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Vehicle && !o.vehicleDef.empty() &&
+                !o.modelPath.empty() == false)
+                return true;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Vehicle) return true;
+    return false;
+}
+
+static std::string vehicleMembers(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return R"(  // --- vehicles (docs/vehicles.md) ---
+  struct VehicleRt {
+    int object = -1;      // index into this scene's object table
+    int def = -1;         // VEHICLE_DEFS row
+    int driveable = 0;
+    int active = 0;
+    float pos[3] = {0, 0, 0};
+    float yaw = 0.0F, pitch = 0.0F, roll = 0.0F;
+    float speed = 0.0F, lateral = 0.0F, velY = 0.0F, steerAngle = 0.0F;
+    int grounded = 0;
+    float wheelSpin = 0.0F;                       // degrees, shared by all four
+    float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
+  };
+  VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
+  int vehicleCount_ = 0;
+  int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
+  // ONE bag for every wheel of every vehicle in the scene: the wheels move
+  // independently, so they cannot ride a matrix like the body - but they CAN
+  // share a submit, and that is the whole 2-submits-per-car design.
+  std::vector<Tyra::Vec4> wheelVerts_;
+  std::vector<Tyra::Color> wheelCols_;
+  std::vector<Tyra::Vec4> wheelSts_;
+  std::unique_ptr<Tyra::StaPipBag> wheelBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> wheelColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> wheelTexBag_;
+  void setupVehicles(int scene);
+  void updateVehicles(float dt);
+  void renderVehicleWheels();
+)";
+}
+
+
+static std::string vehicleImpl(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return R"(
+void TerrainGame::setupVehicles(int scene) {
+  vehicleCount_ = 0;
+  vehicleDriver_ = -1;
+  for (int i = 0; i < VEHICLE_COUNT; ++i) {
+    if (VEHICLES[i].scene != scene) continue;
+    VehicleRt& v = vehicles_[vehicleCount_++];
+    v.object = VEHICLES[i].object;
+    v.def = VEHICLES[i].def;
+    v.driveable = VEHICLES[i].driveable;
+    v.active = 1;
+    if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
+      const SceneObjectData& d = runtimeObjects[v.object].data;
+      v.pos[0] = d.position[0];
+      v.pos[1] = d.position[1];
+      v.pos[2] = d.position[2];
+      v.yaw = d.rotation[1];
+      // The body rides VU1: ask for the matrix path once and the per-frame
+      // cost of moving a car becomes four floats, not a vertex rebuild.
+      runtimeObjects[v.object].wantsMatrixPath = true;
+    }
+    // The wheel mesh has to be resident, and nothing in the scene table
+    // references it - the lazy per-object load would never touch it.
+    if (v.def >= 0 && VEHICLE_DEFS[v.def].wheelModel >= 0)
+      loadModelAsset(VEHICLE_DEFS[v.def].wheelModel);
+  }
+}
+
+// Per-frame twin of vehiclesim::step (src/vehiclesim.cpp). CHANGE ONE AND
+// CHANGE BOTH: the editor's test drive runs the host copy, and a car that
+// handles differently there than here makes the preview a lie.
+void TerrainGame::updateVehicles(float dt) {
+  if (dt <= 0.0F) return;
+  if (dt > 0.05F) dt = 0.05F;
+  const float kDeg = 3.14159265F / 180.0F, kRad = 180.0F / 3.14159265F;
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+
+    // Input. Only the vehicle the player is driving reads the pad; every
+    // other one coasts, which is what leaves room for an AI controller to
+    // fill the same four numbers later.
+    float inThrottle = 0.0F, inBrake = 0.0F, inSteer = 0.0F;
+    int inHand = 0;
+    if (vi == vehicleDriver_) {
+      const auto& joy = engine->pad.getLeftJoyPad();
+      inSteer = ((float)joy.h - 128.0F) / 128.0F;
+      const float fwd = -((float)joy.v - 128.0F) / 128.0F;
+      if (fwd > 0.15F || fwd < -0.15F) inThrottle = fwd;
+      if (engine->pad.getPressed().Cross) inThrottle = 1.0F;
+      if (engine->pad.getPressed().Square) inBrake = 1.0F;
+      if (engine->pad.getPressed().Circle) inHand = 1;
+      if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
+    }
+
+    // Steering, with the lock shrinking toward top speed: without the taper
+    // a full-lock flick at speed spins the car on the spot, and a d-pad is
+    // always full deflection.
+    float sp = v.speed < 0.0F ? -v.speed : v.speed;
+    float frac = s.topSpeed > 0.001F ? sp / s.topSpeed : 0.0F;
+    if (frac > 1.0F) frac = 1.0F;
+    const float lock = s.maxSteerDeg + (s.highSpeedSteerDeg - s.maxSteerDeg) * frac;
+    const float want = inSteer * lock;
+    float rate = (inSteer > 0.02F || inSteer < -0.02F) ? s.steerRateDeg
+                                                       : s.steerReturnDeg;
+    const float target = (inSteer > 0.02F || inSteer < -0.02F) ? want : 0.0F;
+    if (v.steerAngle < target) {
+      v.steerAngle += rate * dt;
+      if (v.steerAngle > target) v.steerAngle = target;
+    } else {
+      v.steerAngle -= rate * dt;
+      if (v.steerAngle < target) v.steerAngle = target;
+    }
+    if (v.steerAngle > lock) v.steerAngle = lock;
+    if (v.steerAngle < -lock) v.steerAngle = -lock;
+
+    // Ground: four height samples under the wheel anchors. They give the
+    // ride height, the pitch and the roll from one query each.
+    const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+    const float hx = 0.5F * s.track, hz = 0.5F * s.wheelBase;
+    const float lx[4] = {-hx, hx, -hx, hx};
+    const float lz[4] = {hz, hz, -hz, -hz};
+    float gy[4];
+    float sum = 0.0F;
+    for (int w = 0; w < 4; ++w) {
+      const float wx = v.pos[0] + lx[w] * cy + lz[w] * sy;
+      const float wz = v.pos[2] - lx[w] * sy + lz[w] * cy;
+      gy[w] = terrainHeightAt(wx, wz);
+      sum += gy[w];
+    }
+    const float planeY = sum * 0.25F;
+    const float restY = planeY + s.rideHeight;
+    v.grounded = (v.pos[1] <= restY + 0.02F) ? 1 : 0;
+
+    if (v.grounded) {
+      // The chassis RIDES the plane, unlimited: rate-limiting this looks
+      // like suspension and is not - a climb outruns any authored rate and
+      // the body sinks through the ground for the whole hill.
+      v.pos[1] = restY;
+      v.velY = 0.0F;
+      const float fY = 0.5F * (gy[0] + gy[1]), rY = 0.5F * (gy[2] + gy[3]);
+      const float lY = 0.5F * (gy[0] + gy[2]), rrY = 0.5F * (gy[1] + gy[3]);
+      v.pitch = atan2f(fY - rY, s.wheelBase > 0.01F ? s.wheelBase : 0.01F) * kRad;
+      v.roll = atan2f(rrY - lY, s.track > 0.01F ? s.track : 0.01F) * kRad;
+      // Compression is the residual against the TILTED plane, so flat
+      // ground at any angle reads neutral and only bumps move a wheel.
+      const float dP = 0.5F * (fY - rY), dR = 0.5F * (rrY - lY);
+      const float sz[4] = {1.0F, 1.0F, -1.0F, -1.0F};
+      const float sx[4] = {-1.0F, 1.0F, -1.0F, 1.0F};
+      for (int w = 0; w < 4; ++w) {
+        const float at = planeY + sz[w] * dP + sx[w] * dR;
+        float r = (gy[w] - at) / (s.suspensionTravel > 0.001F ? s.suspensionTravel : 0.001F);
+        if (r > 1.0F) r = 1.0F;
+        if (r < -1.0F) r = -1.0F;
+        float t = 0.5F + r * 0.5F;
+        const float step = s.suspensionRate * dt;
+        if (v.compress[w] < t) {
+          v.compress[w] += step;
+          if (v.compress[w] > t) v.compress[w] = t;
+        } else {
+          v.compress[w] -= step;
+          if (v.compress[w] < t) v.compress[w] = t;
+        }
+      }
+    } else {
+      v.velY -= s.gravity * dt;
+      v.pos[1] += v.velY * dt;
+      if (v.pos[1] < restY) {
+        v.pos[1] = restY;
+        v.velY = 0.0F;
+        v.grounded = 1;
+      }
+    }
+
+    // Longitudinal
+    if (v.grounded) {
+      if (inBrake > 0.01F) {
+        const float d = s.brakeDecel * inBrake * dt;
+        if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
+        else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
+      } else if (inThrottle > 0.01F) {
+        v.speed += s.accel * inThrottle * dt;
+        if (v.speed > s.topSpeed) v.speed = s.topSpeed;
+      } else if (inThrottle < -0.01F) {
+        v.speed += s.accel * inThrottle * dt;
+        if (v.speed < -s.reverseTopSpeed) v.speed = -s.reverseTopSpeed;
+      } else {
+        const float d = s.engineBraking * dt;
+        if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
+        else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
+      }
+      v.speed -= s.gravity * sinf(v.pitch * kDeg) * dt;
+    }
+    v.speed -= s.drag * v.speed * (v.speed < 0.0F ? -v.speed : v.speed) * dt;
+
+    // Yaw from the bicycle model, then the slip it injects.
+    float dYaw = 0.0F;
+    const float absSp = v.speed < 0.0F ? -v.speed : v.speed;
+    if (v.grounded && absSp > 0.05F) {
+      const float yr = (v.speed / (s.wheelBase > 0.01F ? s.wheelBase : 0.01F)) *
+                       tanf(v.steerAngle * kDeg);
+      dYaw = yr * dt * kRad;
+      v.yaw += dYaw;
+    }
+    if (dYaw != 0.0F) {
+      const float r = dYaw * kDeg, c = cosf(r), sn = sinf(r);
+      const float f = v.speed * c + v.lateral * sn;
+      const float l = -v.speed * sn + v.lateral * c;
+      v.speed = f;
+      v.lateral = l;
+    }
+    {
+      float grip = inHand ? s.handbrakeGrip : s.grip;
+      if (!v.grounded) grip = 0.0F;
+      const float g = grip * dt;
+      if (v.lateral > 0.0F) { v.lateral -= g; if (v.lateral < 0.0F) v.lateral = 0.0F; }
+      else { v.lateral += g; if (v.lateral > 0.0F) v.lateral = 0.0F; }
+    }
+
+    const float c2 = cosf(v.yaw * kDeg), s2 = sinf(v.yaw * kDeg);
+    v.pos[0] += (v.speed * s2 + v.lateral * c2) * dt;
+    v.pos[2] += (v.speed * c2 - v.lateral * s2) * dt;
+    v.wheelSpin += (v.speed / (s.wheelRadius > 0.001F ? s.wheelRadius : 0.001F)) *
+                   dt * kRad;
+    if (v.wheelSpin > 360.0F) v.wheelSpin -= 360.0F;
+    if (v.wheelSpin < 0.0F) v.wheelSpin += 360.0F;
+
+    // Write the body's transform. No `dirty`: the object is on the matrix
+    // path, so this is four floats VU1 reads - not a vertex rebuild.
+    if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
+      RuntimeObject& o = runtimeObjects[v.object];
+      o.data.position[0] = v.pos[0];
+      o.data.position[1] = v.pos[1];
+      o.data.position[2] = v.pos[2];
+      o.data.rotation[0] = v.pitch;
+      o.data.rotation[1] = v.yaw;
+      o.data.rotation[2] = -v.roll;
+      if (o.onMatrixPath) updateObjMat(v.object);
+    }
+  }
+}
+
+// The second submit: every wheel of every vehicle, transformed into world
+// space and concatenated into ONE bag. Four wheels is a few hundred
+// vertices of VU0 work against the ~1 ms a second submit would cost.
+void TerrainGame::renderVehicleWheels() {
+  if (vehicleCount_ <= 0) return;
+  const float kDeg = 3.14159265F / 180.0F;
+  wheelVerts_.clear();
+  wheelCols_.clear();
+  wheelSts_.clear();
+  const GameModelPart* src = nullptr;
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const int wm = s.wheelModel;
+    if (wm < 0 || wm >= (int)gameModels.size() || gameModels[wm].parts.empty())
+      continue;
+    const GameModelPart& part = gameModels[wm].parts[0];
+    if (part.verts.size() < 24) continue;
+    src = &part;
+    const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+    const float hx = 0.5F * s.track, hz = 0.5F * s.wheelBase;
+    const float lx[4] = {-hx, hx, -hx, hx};
+    const float lz[4] = {hz, hz, -hz, -hz};
+    for (int w = 0; w < 4; ++w) {
+      // Steer the front pair, spin all four. Both are rotations about the
+      // wheel's own hub, which is why the bake centres it there.
+      const float st = (w < 2 ? v.steerAngle : 0.0F) * kDeg;
+      const float cs = cosf(st), ss = sinf(st);
+      const float sp = v.wheelSpin * kDeg;
+      const float cp = cosf(sp), spn = sinf(sp);
+      const float ax = v.pos[0] + lx[w] * cy + lz[w] * sy;
+      const float az = v.pos[2] - lx[w] * sy + lz[w] * cy;
+      const float ay = v.pos[1];
+      const u32 nv = (u32)(part.verts.size() / 8);
+      for (u32 i = 0; i < nv; ++i) {
+        const float* q = &part.verts[(size_t)i * 8];
+        // spin about X (the axle), then steer about Y, then the car's yaw
+        const float y = q[1] * cp - q[2] * spn;
+        const float z = q[1] * spn + q[2] * cp;
+        const float x2 = q[0] * cs + z * ss;
+        const float z2 = -q[0] * ss + z * cs;
+        const float wx = x2 * cy + z2 * sy;
+        const float wz = -x2 * sy + z2 * cy;
+        wheelVerts_.push_back(Tyra::Vec4(ax + wx, ay + y, az + wz));
+        // Flat mid grey: the wheel's colour comes from its palette TEXEL,
+        // and 128 is the modulate identity the textured path expects.
+        wheelCols_.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+        wheelSts_.push_back(Tyra::Vec4(q[6], q[7], 1.0F, 0.0F));
+      }
+    }
+  }
+  if (wheelVerts_.empty() || !src) return;
+  if (!wheelBag_) {
+    wheelColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
+    wheelBag_ = std::make_unique<Tyra::StaPipBag>();
+    wheelBag_->color = wheelColorBag_.get();
+    wheelBag_->lighting = nullptr;
+  }
+  wheelBag_->info = batchInfoBag.get();
+  wheelColorBag_->many = wheelCols_.data();
+  wheelBag_->vertices = wheelVerts_.data();
+  wheelBag_->count = static_cast<u32>(wheelVerts_.size());
+  wheelBag_->bboxVersion = ++g_bboxStamp;
+  if (src->texture && wheelSts_.size() == wheelVerts_.size()) {
+    if (!wheelTexBag_) wheelTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
+    wheelTexBag_->texture = const_cast<Tyra::Texture*>(src->texture);
+    wheelTexBag_->coordinates = wheelSts_.data();
+    wheelBag_->texture = wheelTexBag_.get();
+  } else {
+    wheelBag_->texture = nullptr;
+  }
+  stapip.core.render(wheelBag_.get());
+}
+)";
+}
+
+static std::string vehicleSetupCall(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return "  setupVehicles(sceneIndex);\n";
+}
+
+static std::string vehicleUpdateCall(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return "  if (!menuActive) updateVehicles(g_frameScale * (1.0F / 50.0F));\n";
+}
+
+static std::string vehicleRenderCall(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return "  renderVehicleWheels();\n";
+}
+
 static std::string blssInclude(const Project& p) {
     const project::BlssUse u = project::blssUse(p);
     if (!u.any || !u.anyNetwork) return "";
@@ -27546,6 +27985,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // sources byte-identical: the baked net's include, the init that configures
     // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
     // the plain renderScene() call the loop always had).
+    s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
+    s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
+    s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
+    s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
+    s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));
     s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
     s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
