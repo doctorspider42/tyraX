@@ -280,6 +280,26 @@ the throttle off entirely (the car sat at 0.00 with the key held). And
 mouse button), so the keyboard path is not machine-verifiable; the panel
 controls are, which is how the chain was checked end to end.
 
+## How the geometry reaches the console
+
+The bake writes into `.res-baked/vehicles/`, and the generated Makefile's
+`RESDIR := .res-baked` copies that whole tree into `bin/` — so the game opens
+`vehicles/veh-<id>-body.tmdl` and its siblings with no new copy step. Verified
+end to end: after a build the three files are in `bin/vehicles/`.
+
+**`vehicles/` is exempt from texbake's vanished-source sweep.** That sweep drops
+anything under `.res-baked` whose `res/` source is gone — and a vehicle bake has
+no `res/` source, so without the exemption a build silently deletes the geometry
+the game is about to load. Same reason `stoch/`, `aomap/`, `aoatlas/`, `gi/` and
+`modelao/` are exempt.
+
+**The bake currently runs only in the editor**, from `App::vehicleTick`. A
+headless `--build` therefore ships no vehicle geometry — measured: the directory
+comes back empty. Before the runtime can be relied on, the bake has to move into
+the build path (where texbake and the AO bakes already run), with the editor
+tick left as the preview accelerator. That is the first job of the runtime work,
+not an afterthought.
+
 ## Not built yet
 
 Honest state, so nobody looks for these: **nothing reaches the PS2** — there is no codegen and no runtime, so a project
