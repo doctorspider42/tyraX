@@ -141,6 +141,16 @@ struct EditorConfig {
     // A way of looking at the scene, like the safe areas and the axis gizmo,
     // so it belongs to the installation rather than to the project.
     bool viewportPs2 = false;
+    // PS2 shading in the viewport (docs/ps2-viewport.md): the console's
+    // per-vertex lighting and flat-shaded triangles instead of the editor's
+    // per-pixel preview. A way of looking, like viewportPs2, and independent
+    // of it - triangle shading is visible at any raster.
+    bool viewportPs2Shade = false;
+    // GS colour simulation (docs/ps2-viewport.md): 0 = follow the project's
+    // Preferences > Colour depth + dithering, 1 = force full 32-bit, 2 =
+    // force 16-bit, 3 = force 16-bit + dithering. Follow-project is the
+    // default so the viewport shows the truth with nothing configured.
+    int viewportGsColor = 0;
     // Toolbar run target: false = the emulator (PCSX2), true = a real console
     // over ps2link. Which machine is on the desk is a property of this PC, not
     // of the game, so it lives here rather than in the .tyra.
@@ -245,6 +255,13 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
         else if (match("theme", v)) cfg.theme = v;
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
+        else if (match("viewportPs2Shade", v))
+            cfg.viewportPs2Shade = toI(v, 0) != 0;
+        else if (match("viewportGsColor", v)) {
+            cfg.viewportGsColor = toI(v, 0);
+            if (cfg.viewportGsColor < 0 || cfg.viewportGsColor > 3)
+                cfg.viewportGsColor = 0;
+        }
         else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
         else if (match("timeMachineBudgetMb", v))
             cfg.timeMachineBudgetMb = toI(v, 128);
@@ -325,6 +342,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeOpacity=" << cfg.safeOpacity << "\n"
       << "theme=" << cfg.theme << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
+      << "viewportPs2Shade=" << (cfg.viewportPs2Shade ? 1 : 0) << "\n"
+      << "viewportGsColor=" << cfg.viewportGsColor << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n"
@@ -578,6 +597,8 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
+        viewportPs2Shade_ = cfg.viewportPs2Shade;
+        viewportGsColor_ = cfg.viewportGsColor;
         runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
         logOut_.mask = cfg.logMaskOutput;
@@ -1099,7 +1120,8 @@ void App::saveGlobalConfig() {
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_,
-                      theme::info(theme_).key, viewportPs2_, runOnPs2_,
+                      theme::info(theme_).key, viewportPs2_,
+                      viewportPs2Shade_, viewportGsColor_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
                       globalUpdateCheck_, globalUpdateSkip_,
@@ -1319,6 +1341,39 @@ void App::drawMenuBar() {
                     ImGui::TextDisabled("  %dx%d, %s", o.bufW, o.bufH,
                                         project_.settings.widescreen ? "16:9" : "4:3");
                 }
+                // The two look simulations compose with either output mode:
+                // triangle shading and 16-bit banding are visible (and true)
+                // at any raster.
+                if (ImGui::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
+                                    hasProject_)) {
+                    viewportPs2Shade_ = !viewportPs2Shade_;
+                    saveGlobalConfig();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Shade the way the console does: lights, occlusion and\n"
+                        "fog per VERTEX, most surfaces flat-shaded - one colour\n"
+                        "per triangle. Off = the editor's smooth per-pixel look.");
+                if (ImGui::BeginMenu("GS colour", hasProject_)) {
+                    static const char* kGsColorNames[] = {
+                        "Match project", "Full 32-bit", "16-bit",
+                        "16-bit + dithering"};
+                    for (int i = 0; i < 4; ++i) {
+                        if (ImGui::MenuItem(kGsColorNames[i], nullptr,
+                                            viewportGsColor_ == i) &&
+                            viewportGsColor_ != i) {
+                            viewportGsColor_ = i;
+                            saveGlobalConfig();
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The framebuffer depth the picture is shown at. Match\n"
+                        "project follows Preferences > Colour depth (and its\n"
+                        "dithering); the forced modes answer \"what if\" without\n"
+                        "touching the project.");
             }
 
             ImGui::Separator();
@@ -2728,6 +2783,23 @@ void App::drawViewportWindow() {
         // project's display settings, which the Preferences dialog can change
         // under us, and resolving it is a handful of comparisons.
         viewport_.setPs2Output(ps2ViewportOutput());
+        viewport_.setPs2Shading(viewportPs2Shade_);
+        // GS colour: resolve "match project" against the project's own
+        // Preferences here, so the viewport stays settings-blind and a
+        // colour-depth edit shows the moment it is made.
+        {
+            bool quant = false, dith = false;
+            switch (viewportGsColor_) {
+                case 0:
+                    quant = project_.settings.colorDepth == "16bit";
+                    dith = project_.settings.dither;
+                    break;
+                case 2: quant = true; break;
+                case 3: quant = dith = true; break;
+                default: break;  // 1 = full 32-bit
+            }
+            viewport_.setGsColorSim(quant, dith);
+        }
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
         // Phone camera link: stream THIS frame to the connected device, so the
@@ -4013,6 +4085,28 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
             const Viewport::Ps2Output o = ps2ViewportOutput();
             ImGui::TextDisabled("%dx%d into %s", o.bufW, o.bufH,
                                 project_.settings.widescreen ? "16:9" : "4:3");
+        }
+        if (ImGui::Checkbox("PS2 shading", &viewportPs2Shade_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Shade the way the console does: lights, occlusion\n"
+                              "and fog per VERTEX, most surfaces flat-shaded -\n"
+                              "one colour per triangle. Off = the editor's\n"
+                              "smooth per-pixel look.");
+        {
+            static const char* kGsColorNames[] = {"Match project", "Full 32-bit",
+                                                  "16-bit", "16-bit + dithering"};
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            int gc = viewportGsColor_;
+            if (ImGui::Combo("GS colour", &gc, kGsColorNames, 4) &&
+                gc != viewportGsColor_) {
+                viewportGsColor_ = gc;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The framebuffer depth the picture is shown at.\n"
+                                  "Match project follows Preferences > Colour\n"
+                                  "depth (and its dithering); the forced modes\n"
+                                  "answer \"what if\" without touching the project.");
         }
 
         ImGui::SeparatorText("TV safe areas");
