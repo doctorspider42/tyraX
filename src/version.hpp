@@ -93,6 +93,24 @@
 // the 16-bit channel's 8-step quantization plus dithering's +-4, so DTHE
 // needs no save/restore; and the resolve restores CLAMP to REPEAT itself,
 // because emitRasterRestore does not know about texture state. Docs:
+// TWO MORE GS RULES CAME OUT OF 16-BIT, and the first was reported from the
+// console as "the flashlight's sprite is not visible where it falls on objects
+// or the ground". It was: `FBA` - the GS's alpha correction - forces the MSB of
+// every written alpha to 1 when set, which is a convenience for 1-bit-alpha
+// targets and death to a mask that lives in that bit. The per-frame clear wrote
+// alpha 0, the GS stored 1, DATE read SHADOW over the whole raster and every
+// DATE-gated torch pass was discarded, so a 16-bit project drew no pool at all.
+// Nothing else in the engine programs FBA, so maskClear re-asserts 0 once per
+// frame (the Path3::clearScreen REPEAT-contract pattern). MEASURED, not
+// guessed: the pool came back with DATM flipped to 1, which said the
+// destination alpha was 1 where the clear should have left 0; and a probe
+// exposing only BLUE proved FBMSK does map per RGBA8 channel on a 16-bit
+// target, which is what ruled the mask itself out. Two of my own experiments
+// on the way were WRONG and are recorded so nobody repeats them: skipping
+// countResolve also skips the raster restore in the same packet (so the rest
+// of the frame drew into the count band and the result meant nothing), and
+// COLCLAMP was never involved.
+//
 // AND THE SECOND GS RULE THIS COST: FBMSK's bit positions are ALWAYS 32-bit
 // RGBA8 - R 0..7, G 8..15, B 16..23, A 24..31 - whatever PSM the framebuffer
 // is in, because the GS maps them onto a 16-bit target's 5551 layout itself.

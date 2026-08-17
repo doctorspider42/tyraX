@@ -358,7 +358,17 @@ orientation is geometric, never winding-trusted**: caps orient toward/away
 from the light, side walls away from an interior sample — a model with flipped
 winding degrades to casting from its back faces, whose silhouette is the same.
 
-**It works at either colour depth, and getting there cost one more GS rule.**
+**It works at either colour depth, and getting there cost two more GS rules.**
+The first is `FBA`, the GS's "alpha correction": with `FBA = 1` the hardware
+forces the **MSB of every alpha it writes to 1**. That is a convenience for
+1-bit-alpha targets and death to a mask that lives in exactly that bit - the
+per-frame clear wrote alpha 0, the GS stored 1, `TEST.DATE` read *shadow* over
+the whole raster, and every DATE-gated torch pass was discarded: in a 16-bit
+project the projected pool simply did not draw. Nothing else in this engine
+programs `FBA`, so the mask clear re-asserts 0 once per frame, the way
+`Path3::clearScreen` re-asserts the REPEAT wrap contract.
+
+The second:
 The mask writes have to touch alpha and nothing else, and `FBMSK`'s bit
 positions are **always 32-bit RGBA8** - R 0..7, G 8..15, B 16..23, A 24..31 -
 whatever PSM the framebuffer is in; the GS maps them onto a 16-bit target's

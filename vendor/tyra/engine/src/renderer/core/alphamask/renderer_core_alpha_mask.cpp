@@ -178,8 +178,19 @@ void RendererCoreAlphaMask::maskClear() {
 
   packet2_reset(maskClearPacket, false);
   qword_t* q = maskClearPacket->next;
-  // Rows: FRAME, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2 = 7.
-  PACK_GIFTAG(q, GIF_SET_TAG(7, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Rows: FBA, FRAME, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2 = 8.
+  PACK_GIFTAG(q, GIF_SET_TAG(8, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  // FBA = 0, and this line is the whole reason the mask works on a 16-bit
+  // framebuffer. FBA ("alpha correction") makes the GS force the MSB of every
+  // alpha it writes to 1 - a convenience for 1-bit-alpha targets, and death to
+  // a mask that lives in that very bit: the clear below writes alpha 0 and the
+  // GS stored 1, so DATE read SHADOW over the whole raster and every
+  // DATE-gated torch pass was discarded. The projected pool simply did not
+  // draw in a 16-bit project. Nothing else in this engine programs FBA, so
+  // re-asserting 0 here (once per frame, the way Path3::clearScreen re-asserts
+  // the REPEAT wrap contract) is enough and cannot be undone behind our back.
+  PACK_GIFTAG(q, GS_SET_FBA(0), GS_REG_FBA_1);
   q++;
   PACK_GIFTAG(q,
               GS_SET_FRAME(t.frameAddress >> 11, t.frameWidth >> 6, psm,
