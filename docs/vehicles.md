@@ -363,6 +363,14 @@ VEH pos -24 28 spd10 219 yaw -104 mtx 1   ← 120° of arc across the map
 VEH pos -27 26 spd10 9   yaw -121 mtx 1   ← the WEST wall, mid-turn
 ```
 
+And the drift has one too. The same left turn twice — once on grip (26), once
+with the handbrake's grip (6) — is the whole story of the one knob:
+
+```
+grip 26:       VEH pos -4 21  spd10 219 lat10 0   yaw -40    ← on rails
+handbrake 6:   VEH pos -2 23  spd10 170 lat10 130 yaw -55    ← 13 u/s sideways
+```
+
 A screenshot cannot say who moved; this can. It caught three of the four bugs
 below inside one session.
 
@@ -387,6 +395,11 @@ still walk".
 the object scaled the body - and nothing else. Every geometric term the sim and
 the wheel bag use now carries the instance's uniform scale, or a scaled car grows
 a body around wheels that stayed where they were.
+
+One authoring note: a **third-person** player's avatar stays parked at the
+camera boom while driving (the walker that would move it is gated). The example
+is FPP, where there is no body to see; a TPP project wants the avatar hidden on
+enter, which is not built yet.
 
 ## Not built yet
 

@@ -27752,7 +27752,8 @@ void TerrainGame::updateVehicles(float dt) {
       if (++vehLog >= 25) {
         vehLog = 0;
         TYRA_LOG("VEH pos ", (int)v.pos[0], " ", (int)v.pos[2], " spd10 ",
-                 (int)(v.speed * 10.0F), " yaw ", (int)v.yaw, " mtx ",
+                 (int)(v.speed * 10.0F), " lat10 ", (int)(v.lateral * 10.0F),
+                 " yaw ", (int)v.yaw, " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
       }
