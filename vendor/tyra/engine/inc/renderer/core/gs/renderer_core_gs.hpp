@@ -14,6 +14,7 @@
 #include "renderer/renderer_settings.hpp"
 #include "./renderer_core_gs_vram.hpp"
 #include "../renderer_core_sync.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 

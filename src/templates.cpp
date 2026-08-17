@@ -18512,9 +18512,14 @@ bool TerrainGame::renderOnePortalView(int pi) {
         if (sx > maxX) maxX = sx;
         if (sy < minY) minY = sy;
         if (sy > maxY) maxY = sy;
-        float zf = (poly[i].z * inv + 1.0F) * 8388607.5F;
+        // The GS depth range is the ENGINE's (RendererCoreDepth): 24 bits
+        // normally, 16 in a 16-bit-colour project, whose z buffer must be
+        // PSMZ16 for page geometry. Hardcoding 0xFFFFFF here put the portal
+        // mask at wrong depths in such a project.
+        const float zMax = (float)RendererCoreDepth::maxZ;
+        float zf = (poly[i].z * inv + 1.0F) * RendererCoreDepth::scale;
         if (zf < 0.0F) zf = 0.0F;
-        if (zf > 16777215.0F) zf = 16777215.0F;
+        if (zf > zMax) zf = zMax;
         zz[i] = (u32)zf;
       }
       bx0 = (int)minX;
@@ -18545,7 +18550,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     xy[5] = fbH;
     xy[6] = 0.0F;
     xy[7] = fbH;
-    for (int i = 0; i < 4; ++i) zz[i] = 0xFFFFFFu;
+    for (int i = 0; i < 4; ++i) zz[i] = RendererCoreDepth::maxZ;
     bx0 = 0;
     by0 = 0;
     bx1 = (int)fbW;

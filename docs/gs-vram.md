@@ -88,11 +88,44 @@ VRAM.
   taller scan modes practical: 1080i at 32bpp leaves *less* texture VRAM than
   plain 480i does, and at 16bpp it leaves more than twice as much.
 
-The **z buffer stays 32-bit either way**. A 16-bit z would save another
-229 376 words, but at the projection's near/far ratio (0.1 / 51200) its
-resolution collapses with distance — roughly 1.5 world units at 100 units out —
-and terrain and baked shadows start z-fighting. That is a separate decision
-with a real quality cost, not a free saving.
+**The z buffer follows the colour depth, and it is not a choice.** On real
+hardware a colour buffer and the z buffer it is depth-tested against must share
+**page geometry**: 32- and 24-bit pages are 64×32 pixels, 16-bit pages are
+64×64. A `PSMCT16` frame over a `PSMZ32` z is a pair the GS cannot address
+consistently, and it shows as **banded depth errors across the whole scene** —
+dark parallelogram bars over ground and walls, on a console, while PCSX2
+(which addresses each buffer from its own PSM) renders it perfectly. So 16-bit
+colour runs a `PSMZ16` z, which also hands back another 229 376 words.
+
+The vertex path scales to match: packed `XYZF2` carries a **24-bit** Z field,
+so a 32-bit z buffer is only ever filled to 24 bits and a 16-bit one needs the
+scale dropped to 16 — sending 24-bit Z into a 16-bit buffer wraps, and models
+read INSIDE-OUT (back faces winning the test). That range lives in exactly one
+place now, `RendererCoreDepth`, which the StaPip and DynPip packet builders,
+the depth-of-field solve and the generated portal mask all read; it used to be
+five copies of `0xFFFFFF`.
+
+**The price of 16-bit colour is therefore depth precision**, and it is worth
+stating in units. The world-space step at distance `d` is `d² / (maxZ × near)`
+(`far` barely enters it):
+
+| | d = 10 | d = 100 | d = 450 |
+| --- | --- | --- | --- |
+| 24-bit z, near 0.1 (32-bit colour) | 0.000 | 0.006 | 0.12 |
+| 16-bit z, near 0.1 | 0.015 | **1.53** | **30.9** |
+| 16-bit z, near 0.5 | 0.003 | 0.31 | 6.2 |
+| 16-bit z, near 1.0 | 0.002 | 0.15 | 3.1 |
+
+Measured on a console at `near` 0.1: the scene is band-free and correctly
+sorted, and fine geometry at middle distance z-fights — `examples/night-walk`'s
+procedural trees show a bright wedge across the crown where a tier's own cone
+faces fight. Raising `near` buys that back linearly, but not freely: the
+generated walker's `clipMargin` is `-(near + 0.15)` because it only guarantees
+`playerRadius` 0.35 and `EYE_CLEARANCE` 0.2 of clearance, so a `near` past
+~0.3 lets a wall the player leans on fall in front of the clip plane and open a
+see-through hole. **16-bit colour therefore suits chunky geometry and a short
+view distance**, and a project-declared near/far is the next step, not a
+setting that exists today.
 
 The cost of 16-bit colour is 32 levels per channel instead of 256, i.e.
 banding in anything smooth — skies, fog, the post-fx blur. **GS ordered

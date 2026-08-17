@@ -20,6 +20,7 @@
 #include "debug/debug.hpp"
 #include "info/info.hpp"  // Modified by TyraX: the presented-frame counter
 #include "renderer/core/gs/renderer_core_gs.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -156,7 +157,17 @@ void RendererCoreGS::allocateVramBuffers() {
   zBuffer.enable = DRAW_ENABLE;
   zBuffer.mask = 0;
   zBuffer.method = ZTEST_METHOD_GREATER_EQUAL;
-  zBuffer.zsm = GS_ZBUF_32;
+  // Modified by TyraX: the z FORMAT follows the colour depth, because on real
+  // hardware a colour buffer and the z buffer it is tested against must share
+  // PAGE GEOMETRY - 32/24-bit pages are 64x32 pixels, 16-bit ones 64x64. A
+  // PSMCT16 frame over a PSMZ32 z put banded depth errors across the whole
+  // scene on a console while PCSX2 (which addresses each buffer from its own
+  // PSM) showed nothing at all. The vertex path's Z scale has to follow, or a
+  // 24-bit Z lands in a 16-bit buffer and models read inside-out - which is
+  // what RendererCoreDepth exists to keep in one place.
+  const bool halfDepthColor = frameBuffers[0].psm == GS_PSM_16;
+  zBuffer.zsm = halfDepthColor ? GS_ZBUF_16 : GS_ZBUF_32;
+  RendererCoreDepth::setBits(halfDepthColor ? 16 : 24);
   // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
   // RASTER, not the display buffer. With the raster scale on, nothing ever
   // renders 3D at display resolution - the whole scene is bracketed into the
