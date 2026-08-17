@@ -1630,7 +1630,7 @@ void Viewport::shutdown() {
     if (vtxProgram_) glDeleteProgram(vtxProgram_);
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
-    if (poolTex_) glDeleteTextures(1, &poolTex_);
+    if (coronaTex_) glDeleteTextures(1, &coronaTex_);
     if (particleVao_) glDeleteVertexArrays(1, &particleVao_);
     if (aoHmTex_) {
         glDeleteTextures(1, &aoHmTex_);
@@ -5654,6 +5654,11 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // Particle emitters last - alpha blended over the scene (same order as
     // the generated game's renderScene()).
     drawEmitterPreviews(objects, viewProj.m, &eye.x, &camFwd.x);
+    // ...and the visible light beams after them, which is the console's order
+    // too (updateAndRenderLightBeams closes renderScene, after the emitters'
+    // bags): additive over the finished picture, z-tested so a wall in front
+    // of a lamp still hides its glow.
+    drawLightBeams(objects, viewProj.m, &camFwd.x, &eye.x);
 
     glBindVertexArray(0);
 
@@ -6655,10 +6660,23 @@ bool Viewport::materialPreviewProject(const float world[3], float& outU,
     return true;
 }
 
-// Live preview of every enabled particle emitter. The per-kind spawn /
-// velocity / size / color-ramp formulas are copied from the generated game's
-// updateParticles() (templates.cpp, TPL_GAME_CPP_SCENE) with the PS2's 0-128
-// color scale mapped to 0-1 - when you change one side, change the other.
+// The corona sprite, uploaded once and shared by the ground pools and the
+// beams - one bake, so the two cannot disagree about what a lamp's glow looks
+// like. kCoronaSpriteSize (128), not kFlareSpriteSize: kind 2 bakes larger
+// than the 2D lens-flare sprites (see the note in menubake.hpp), and reading
+// the wrong constant here would upload a quarter of the image.
+uint32_t Viewport::coronaTex() {
+    if (!coronaTex_) {
+        std::vector<unsigned char> rgba;
+        menubake::bakeFlareRGBA(2, rgba);
+        glGenTextures(1, &coronaTex_);
+        glBindTexture(GL_TEXTURE_2D, coronaTex_);
+        glUploadTexRgba(menubake::kCoronaSpriteSize, menubake::kCoronaSpriteSize,
+                        rgba.data());
+    }
+    return coronaTex_;
+}
+
 // Dynamic lights' ground pools - PS2-shading mode only (docs/ps2-viewport.md).
 // The console drops a terrain-conforming additive patch under every dynamic
 // point light (updateAndRenderLightPools in the generated game): per-vertex
@@ -6680,14 +6698,7 @@ void Viewport::drawLightPools(const std::vector<SceneObject>& objects,
                !o.lightSpot && !hiddenAt(oi);
     }
     if (!any) return;
-    if (!poolTex_) {
-        std::vector<unsigned char> rgba;
-        menubake::bakeFlareRGBA(2, rgba);
-        glGenTextures(1, &poolTex_);
-        glBindTexture(GL_TEXTURE_2D, poolTex_);
-        glUploadTexRgba(menubake::kFlareSpriteSize, menubake::kFlareSpriteSize,
-                        rgba.data());
-    }
+    const uint32_t tex = coronaTex();
     std::vector<float> buf;
     constexpr int kCells = 4;  // buildPoolPatch's grid
     for (size_t oi = 0; oi < objects.size(); ++oi) {
@@ -6731,7 +6742,7 @@ void Viewport::drawLightPools(const std::vector<SceneObject>& objects,
     glUseProgram(particleProgram_);
     glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
     glUniform1i(uPartUseTex_, 1);
-    glBindTexture(GL_TEXTURE_2D, poolTex_);
+    glBindTexture(GL_TEXTURE_2D, tex);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);  // the GS additive bag: Cs*FIX + Cd
     glDepthMask(GL_FALSE);        // zTestType TestOnly - never writes z
@@ -6747,6 +6758,154 @@ void Viewport::drawLightPools(const std::vector<SceneObject>& objects,
     glUseProgram(sceneProgActive_);
 }
 
+// Visible light beams (Point Light > Beam) - the editor twin of the generated
+// game's TerrainGame::updateAndRenderLightBeams (templates.cpp). Every number
+// here is that function's: the corona's half size (0.14 * radius), its pull
+// toward the camera (0.25 * radius, capped at 0.75 of the camera distance,
+// shrunk by the same fraction so its apparent size does not move - reproduce
+// the pull or the editor shows the very z-fight seam the console's pull fixes,
+// the corona slicing through its own lamp post), the additive scale over 128
+// (128 for the corona, 52 for the shaft, which covers far more pixels), and
+// the shaft's 8 segments running down WORLD -Y from an apex in the light's
+// colour to a black rim. Change one side, change the other.
+//
+// What the editor deliberately does not reproduce is the LEVEL the console
+// multiplies by: flicker, Set Light and a streamed-out light are runtime
+// state, so a beam previews at its authored brightness the way every other
+// light preview here does (the pool above, the per-pixel point lights, the
+// bakes). A glow pulsing over a rock-steady pool would be a new lie, not less
+// of one. Unlike those, this draws in EVERY shading mode: the beam is geometry
+// the game submits, not a simulation of how the console shades.
+void Viewport::drawLightBeams(const std::vector<SceneObject>& objects,
+                              const float* viewProj, const float* fwdP,
+                              const float* eyeP) {
+    if (!particleProgram_) return;
+    bool any = false;
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        any |= o.type == PrimitiveType::PointLight && o.lightBeam != 0 &&
+               !hiddenAt(oi);
+    }
+    if (!any) return;
+
+    // The billboard basis, built the console's way: from the view direction
+    // and WORLD up, so a rolled cutscene camera spins the corona exactly as
+    // little as it does on the PS2 (the sprite is radial, the shaft is world
+    // geometry).
+    float fx = fwdP[0], fy = fwdP[1], fz = fwdP[2];
+    const float fl = std::sqrt(fx * fx + fy * fy + fz * fz);
+    if (fl < 0.0001f) return;
+    fx /= fl, fy /= fl, fz /= fl;
+    float rx = -fz, rz = fx;  // cross(fwd, worldUp)
+    const float rl = std::sqrt(rx * rx + rz * rz);
+    if (rl < 0.0001f) return;
+    rx /= rl, rz /= rl;
+    const float ux = -rz * fy, uy = rz * fx - rx * fz,
+                uz = rx * fy;  // cross(right, fwd), ry = 0
+
+    std::vector<float> corona, shaft;  // 9 floats per vertex: pos rgba uv
+    for (size_t oi = 0; oi < objects.size(); ++oi) {
+        const SceneObject& o = objects[oi];
+        if (o.type != PrimitiveType::PointLight || o.lightBeam == 0 ||
+            hiddenAt(oi))
+            continue;
+        const float k = o.lightBright;  // level 1: no runtime, see above
+        if (k <= 0.01f) continue;
+        const float kc = k > 1.0f ? 1.0f : k;  // the FIX byte saturates at 128
+        const float radius = o.lightRadius > 0.01f ? o.lightRadius : 0.01f;
+        const float cx = o.position[0], cy = o.position[1], cz = o.position[2];
+
+        // Corona: pulled toward the camera, size-compensated.
+        float pcx = cx, pcy = cy, pcz = cz, half = radius * 0.14f;
+        const float vx = eyeP[0] - cx, vy = eyeP[1] - cy, vz = eyeP[2] - cz;
+        const float vl = std::sqrt(vx * vx + vy * vy + vz * vz);
+        if (vl > 0.0001f) {
+            float pull = radius * 0.25f;
+            if (pull > vl * 0.75f) pull = vl * 0.75f;
+            pcx += vx / vl * pull;
+            pcy += vy / vl * pull;
+            pcz += vz / vl * pull;
+            half *= (vl - pull) / vl;
+        }
+        const float cr = o.color[0] * kc, cg = o.color[1] * kc,
+                    cb = o.color[2] * kc;
+        auto quad = [&](float su, float sv, float u, float v) {
+            const float vert[9] = {pcx + (su * rx + sv * ux) * half,
+                                   pcy + (sv * uy) * half,
+                                   pcz + (su * rz + sv * uz) * half,
+                                   cr,
+                                   cg,
+                                   cb,
+                                   1.0f,
+                                   u,
+                                   v};
+            corona.insert(corona.end(), vert, vert + 9);
+        };
+        quad(-1.0f, -1.0f, 0.0f, 1.0f);
+        quad(1.0f, -1.0f, 1.0f, 1.0f);
+        quad(1.0f, 1.0f, 1.0f, 0.0f);
+        quad(-1.0f, -1.0f, 0.0f, 1.0f);
+        quad(1.0f, 1.0f, 1.0f, 0.0f);
+        quad(-1.0f, 1.0f, 0.0f, 0.0f);
+
+        if (o.lightBeam != 2) continue;
+        // Shaft: an 8-segment fan at the light's TRUE position (world
+        // geometry - sliding it would visibly detach it from the lamp head),
+        // apex in the light colour, rim black, straight down world -Y.
+        const float len = radius * 0.7f, rad = radius * 0.3f;
+        const float sc = 52.0f / 128.0f * kc;  // the shaft's additive FIX
+        const float ar = o.color[0] * sc, ag = o.color[1] * sc,
+                    ab = o.color[2] * sc;
+        for (int s = 0; s < 8; ++s) {
+            const float a0 = (float)s * (3.14159265f / 4.0f);
+            const float a1 = (float)(s + 1) * (3.14159265f / 4.0f);
+            const float tri[27] = {
+                cx, cy, cz, ar, ag, ab, 1.0f, 0.5f, 0.5f,
+                cx + std::cos(a0) * rad, cy - len, cz + std::sin(a0) * rad,
+                0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f,
+                cx + std::cos(a1) * rad, cy - len, cz + std::sin(a1) * rad,
+                0.0f, 0.0f, 0.0f, 1.0f, 0.5f, 0.5f};
+            shaft.insert(shaft.end(), tri, tri + 27);
+        }
+    }
+    if (corona.empty() && shaft.empty()) return;
+
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);  // the GS additive bag: Cs*FIX + Cd
+    glDepthMask(GL_FALSE);        // zTestType TestOnly - never writes z
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    // The shaft first: untextured, and on the console it is submitted after
+    // its own corona but before the next light's, so with additive blending
+    // (commutative) one pass each is the same picture and two draws instead
+    // of two per light.
+    if (!shaft.empty()) {
+        glUniform1i(uPartUseTex_, 0);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(shaft.size() * sizeof(float)),
+                     shaft.data(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(shaft.size() / 9));
+    }
+    if (!corona.empty()) {
+        glUniform1i(uPartUseTex_, 1);
+        glBindTexture(GL_TEXTURE_2D, coronaTex());
+        glBufferData(GL_ARRAY_BUFFER,
+                     (GLsizeiptr)(corona.size() * sizeof(float)), corona.data(),
+                     GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(corona.size() / 9));
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glUseProgram(sceneProgActive_);
+}
+
+// Live preview of every enabled particle emitter. The per-kind spawn /
+// velocity / size / color-ramp formulas are copied from the generated game's
+// updateParticles() (templates.cpp, TPL_GAME_CPP_SCENE) with the PS2's 0-128
+// color scale mapped to 0-1 - when you change one side, change the other.
 void Viewport::drawEmitterPreviews(const std::vector<SceneObject>& objects,
                                    const float* viewProj, const float* eyeP,
                                    const float* fwdP) {

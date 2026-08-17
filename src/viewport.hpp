@@ -845,11 +845,21 @@ private:
     bool gsQuant_ = false, gsDither_ = false;
     // Dynamic lights' ground pools, PS2-shading mode only: the console's
     // terrain-conforming additive corona patch under every dynamic point
-    // light (the generated game's updateAndRenderLightPools). poolTex_ holds
-    // the same pixels the game ships as hud/flare-corona.png.
+    // light (the generated game's updateAndRenderLightPools).
     void drawLightPools(const std::vector<SceneObject>& objects,
                         const float* viewProj);
-    uint32_t poolTex_ = 0;
+    // Visible light beams (Point Light > Beam): the console's additive corona
+    // billboard and, for kind 2, its cone shaft - the twin of the generated
+    // game's updateAndRenderLightBeams. Drawn whatever the shading mode: a
+    // beam is scene CONTENT the game always renders, not a shading simulation.
+    void drawLightBeams(const std::vector<SceneObject>& objects,
+                        const float* viewProj, const float* fwdP,
+                        const float* eyeP);
+    // The corona pixels both of those draw through - the same bake the game
+    // ships as hud/flare-corona.png (menubake::bakeFlareRGBA kind 2, at
+    // kCoronaSpriteSize). Uploaded once, on the first frame that needs it.
+    uint32_t coronaTex();
+    uint32_t coronaTex_ = 0;
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;

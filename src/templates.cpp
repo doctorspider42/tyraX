@@ -13893,15 +13893,45 @@ void TerrainGame::updateAndRenderLightBeams() {
 
     const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
     const float half = d.lightRadius * 0.14F;
+    // The corona is depth-TESTED so a wall in front of the lamp still hides
+    // it - but a billboard centred exactly on the bulb SLICES THROUGH the
+    // fixture that carries it (the pole, the arm), and the GS's fixed-point z
+    // interpolation cuts the soft sprite on a jagged, stair-stepped seam
+    // (reported from night-walk's street lamp: a hard staircase running up
+    // the pole where the glow met it). So the sprite is pulled toward the
+    // CAMERA far enough to clear its own fixture, and shrunk by the same
+    // fraction so its apparent size does not move - a glow is not a surface,
+    // and in a real lens it blooms OVER the thin thing that carries it.
+    // Capped at THREE QUARTERS of the camera distance, so walking into the
+    // lamp cannot drag the sprite through the near plane. Half was tried
+    // first and measurably parked the seam at the pole's base when looking
+    // steeply up (which is how the value was chosen) - the editor viewport's
+    // twin, Viewport::drawLightBeams, reads the same 0.75. The cone shaft
+    // below stays at the true position on purpose: it is world geometry, and
+    // sliding it would visibly detach it from the lamp head.
+    float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    {
+      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
+                  vz2 = cameraPosition.z - cz;
+      const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      if (vl > 0.0001F) {
+        float pull = d.lightRadius * 0.25F;
+        if (pull > vl * 0.75F) pull = vl * 0.75F;
+        pcx += vx2 / vl * pull;
+        pcy += vy2 / vl * pull;
+        pcz += vz2 / vl * pull;
+        chalf = half * (vl - pull) / vl;
+      }
+    }
     const Vec4 corners[4] = {
-        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
-             cz + (-rz - uz) * half, 1.0F),
-        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
-             cz + (rz - uz) * half, 1.0F),
-        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
-             cz + (rz + uz) * half, 1.0F),
-        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
-             cz + (-rz + uz) * half, 1.0F)};
+        Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
+             pcz + (-rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx - ux) * chalf, pcy + (ry - uy) * chalf,
+             pcz + (rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx + ux) * chalf, pcy + (ry + uy) * chalf,
+             pcz + (rz + uz) * chalf, 1.0F),
+        Vec4(pcx + (-rx + ux) * chalf, pcy + (-ry + uy) * chalf,
+             pcz + (-rz + uz) * chalf, 1.0F)};
     b.coronaVerts[0] = corners[0];
     b.coronaVerts[1] = corners[1];
     b.coronaVerts[2] = corners[2];
