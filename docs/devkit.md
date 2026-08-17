@@ -41,6 +41,7 @@ but do not write "compiles out" about a `TYRA_*` macro without checking.
 | [Time Machine](time-machine.md) | Captures and restores recent game state |
 | [Remote Pad](remote-pad.md) | Drives pad 1 or 2 without window focus |
 | Debug window | Shows game logs, frame statistics, crashes and VU1 captures |
+| Debugger > Screen | Makes the game photograph its own frame buffer |
 
 Turn off channels you are not using when measuring performance. Debug file
 polling is real work and can distort small timings. On real hardware it is not
@@ -99,6 +100,38 @@ kill a release game too, and `--audit-release` stays clean either way (verified
 in both directions). The mechanism, the measured teardown A/B, and the fact that
 the fault has **never been reproduced** are in
 [ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
+
+## The game's own screenshot
+
+In **Debugger > Screen**, press **Capture frame**. The game reads its last
+finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
+`host:` channel every other devkit file uses, and the panel shows it.
+
+This is the only capture path that does not need a desktop. Every host-side one
+— the emulator's F8 key, a GDI grab of the window, `PrintWindow` — needs the
+window present and, in practice, unoccluded and on an unlocked session; none of
+them exists at all on a real PlayStation 2. So this is how you get a picture
+from hardware, from a locked or disconnected machine, and from an unattended
+script that must not depend on which window happens to be in front.
+
+What comes back is the **frame buffer as the GS holds it**, not the television
+picture: the raster the game rendered at, with no aspect correction and no
+letterbox. A 512x448 project answers 512x448.
+
+It costs the game a visible hitch, which is why it is one shot per press rather
+than anything continuous — around a megabyte read back a scan line at a time and
+written the same way. Over ps2link that is a network round trip per line, so
+expect a second or two there.
+
+The picture is the **previous real frame**: the last one the scene rendered, so
+never a half-composed image and never a synthesised
+[extrapolated](frame-extrapolation.md) one.
+
+Two things that will look like bugs and are not. The capture is taken between
+frames, so it can be one frame older than what you were looking at when you
+pressed the button. And a frame buffer's alpha channel is a working channel
+rather than coverage — the panel forces it opaque, and so should anything else
+that reads the file.
 
 ## Inspecting VU1 input
 

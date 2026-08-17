@@ -3361,6 +3361,19 @@ private:
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
     int dbgVuFlushWanted_ = 0;    // ...which one
+    // The game's own screenshot (docs/devkit.md): the running game reads its
+    // last finished frame out of GS VRAM and writes bin/frame.tga, which this
+    // decodes into a GL texture for the Debugger's Screen tab. The only capture
+    // path that works on real hardware - and the only one that survives a
+    // locked desktop, where PCSX2's F8 and every host-side grab go blind.
+    unsigned int dbgShotTex_ = 0;   // GL texture, or 0 when nothing decoded
+    int dbgShotW_ = 0, dbgShotH_ = 0;
+    long long dbgShotStamp_ = 0;    // last_write_time of the file we decoded
+    size_t dbgShotSize_ = 0;
+    int dbgShotTorn_ = 0;           // consecutive unreadable polls of that file
+    bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    std::string dbgShotError_;
+    void dbgReadFrameShot();
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();

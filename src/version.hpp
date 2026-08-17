@@ -16,6 +16,51 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.54.0 (the game photographs itself - docs/devkit.md, "The game's own
+// screenshot"): a sixth one-shot on the Live Debugger's command channel (flags
+// bit 6, beside the VU1 capture and the RAM measurement). The game reads its
+// last finished frame out of GS VRAM through ps2sdk libdebug's VIF1 reverse
+// FIFO, writes bin/frame.tga over the same host: channel every other devkit
+// file uses, and the Debugger's new Screen tab decodes and shows it.
+//
+// IT IS THE ONLY CAPTURE PATH THAT DOES NOT NEED A DESKTOP, which is the whole
+// argument for it: the emulator's F8 key, a GDI grab and PrintWindow all need
+// the window present and unoccluded on an unlocked session, and none of them
+// exists on a console at all. This one answers from hardware, from a locked
+// machine and from an unattended script.
+//
+// Four traps, each of which fails silently and three of which were found by
+// measuring rather than by reading. `fb->address` is in GS WORDS while the API
+// wants BLOCKS, so a missing /64 overflows SBP's 14 bits and reads buffer 0 with
+// its pages scrambled. The buffer must be getPreviousRealFrameBuffer(), never
+// the current one (half-composed) or getPreviousFrameBuffer() (which can be a
+// synthesised extrapolated frame). libdebug opens the file O_CREAT|O_WRONLY with
+// NO O_TRUNC, so a shorter capture over a longer one leaves the previous
+// picture's tail behind and still decodes - the runtime deletes first. And
+// ps2_screenshot_file's RETURN VALUE IS NOT A VERDICT: upstream returns 0 both
+// when open() fails and when everything worked, so the first version logged
+// "capture failed" over a perfectly good 1 MB picture. The check is the file's
+// own size against 18 + w*h*4.
+//
+// The panel decodes the TGA by hand rather than through stbi_load, and that is
+// deliberate: the editor's stb_image is built STBI_ONLY_PNG + STBI_ONLY_JPEG and
+// answers "unknown image type" to every TGA (which is how this was caught, on
+// screen, in the honest-failure text). Adding TGA would widen what every other
+// stbi_load in the editor accepts - the asset importer above all - for one debug
+// preview, where the format has exactly one writer whose source is known.
+//
+// Verified end to end in PCSX2 on an fpp fixture: the self-capture agrees with
+// PrintWindow's grab of the emulator's own render area to **0.91/255 mean
+// absolute difference** with the horizon at the same fraction (0.531 vs 0.530),
+// which is what says the address, the row order and the channel order are all
+// right. The Runner's stale-delete was checked by looking for the file after a
+// relaunch, and the whole loop - tab, button, command, capture, preview - was
+// driven with --ui-script and no human. --audit-release fails on the debug ELF
+// naming `frame.tga` among six findings and comes back clean on the release one,
+// whose devkit TU is three lines.
+//
+// MINOR: a capability appears, nothing changes shape on disk.
+//
 // 1.53.0 (the viewport learns to lie less - docs/ps2-viewport.md): two new
 // look simulations beside the PS2 output mode, both machine-global. "PS2
 // shading" re-runs the viewport's ONE lighting chunk per triangle corner in a
@@ -1459,7 +1504,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 53
+#define TYRAX_VERSION_MINOR 54
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
