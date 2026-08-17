@@ -25,6 +25,15 @@ struct StaPipTelemetry {
   u32 trianglesClip = 0;
   u32 trianglesOutside = 0;
 
+  /**
+   * Modified by TyraX: packages that leave the VIEW frustum but cross no VU1
+   * clip plane, so the GS scissor crops them and they take the cull path.
+   * A subset of packagesCull/trianglesCull - these would have been clipped
+   * before StaPipCore::isGuardBandOnly existed.
+   */
+  u32 packagesGuardBand = 0;
+  u32 trianglesGuardBand = 0;
+
   /** Clip-routed packages by conservative active-plane mask population. */
   u32 activePlanePopcount[7] = {};
 

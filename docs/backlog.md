@@ -15,6 +15,24 @@ git log -p --follow -- PROGRESS.md
 
 ## Small
 
+### The guard band, on the other two routes
+
+`docs/vu1-clipping.md` moved screen-edge packages off the clipper and onto the
+cull path; two smaller cases were left alone deliberately and are worth
+measuring before touching:
+
+- **The small-bag branch.** `StaPipCore::render` sends a bag with fewer than
+  `maxVertCount * 2` vertices straight to `renderSubpkgs` at 1/3 package size,
+  so a guard-band-only bag is batched back together by `fillByCopyMax` - a COPY
+  where the full-package path hands VU1 a pointer. Routing that branch through
+  `renderPkgs` instead would give it the pointer path; the reason it exists is
+  to skip a double classification, so the question is which costs more.
+- **A bag-level guard-band test.** The main bbox is classified before any
+  package is created. A bag entirely inside the guard band could skip package
+  classification altogether, at the price of no longer dropping its OUTSIDE
+  packages - the same trade the routing already makes one level down, but over
+  a much bigger box. Measure on a scene of large objects, not on a terrain.
+
 ### Ship the baked HUD sprites of the nine repaired examples
 
 Nine example projects (`custom-nodes`, `cutscene-demo`, `large-terrain`,

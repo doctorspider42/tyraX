@@ -213,6 +213,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   doubles the texture budget; a texture is charged the GS blocks it really
   spans instead of a flat pad; and the env-map and camera-feed render targets
   are reserved only for the projects that read them.
+- **[VU1 clipping and the guard band](docs/vu1-clipping.md)** — geometry that
+  merely leaves the screen is not clipped at all: it is drawn ~7× wider than the
+  picture and the GS scissor crops it, so only near-plane crossings pay for a
+  real cut.
 - The in-game [frame profiler](docs/profiling.md).
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —
