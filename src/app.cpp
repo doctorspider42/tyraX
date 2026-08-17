@@ -5324,7 +5324,9 @@ void App::closeProject() {
     dbgShotSize_ = 0;
     dbgShotStamp_ = 0;
     dbgShotTorn_ = 0;
+    dbgShotPartial_ = 0;
     dbgShotWaiting_ = false;
+    dbgShotFile_.clear();
     dbgShotError_.clear();
     if (dbgShotTex_) {
         glDeleteTextures(1, &dbgShotTex_);

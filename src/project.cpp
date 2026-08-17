@@ -7407,6 +7407,7 @@ std::string refreshGenerated(const Project& p) {
             content << in.rdbuf();
             in.close();
             std::string text = content.str();
+            bool grew = false;
             if (text.find("_backup/") == std::string::npos) {
                 if (!text.empty() && text.back() != '\n') text += '\n';
                 text +=
@@ -7415,6 +7416,21 @@ std::string refreshGenerated(const Project& p) {
                     "(docs/format-versioning.md). Local safety copies, not "
                     "source: the\n# history that matters is already in git.\n"
                     "_backup/\n";
+                grew = true;
+            }
+            // Same again for the Debugger's saved captures: the game's own
+            // screenshots land in screenshots/ as PNGs (docs/devkit.md), one
+            // per capture, and a project made before that would offer every
+            // one of them for commit.
+            if (text.find("screenshots/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# Pictures the running game took of itself, kept by the "
+                    "Debugger's Screen tab\n# (docs/devkit.md). Yours to look "
+                    "at and to throw away.\nscreenshots/\n";
+                grew = true;
+            }
+            if (grew) {
                 if (auto err = writeFile(ignore, text); !err.empty()) return err;
             }
         }

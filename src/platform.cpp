@@ -215,6 +215,21 @@ std::string logTimeStamp() {
     return stamp;
 }
 
+std::string fileTimeStamp() {
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    ::localtime_r(&t, &tm);
+#endif
+    char stamp[24];
+    std::snprintf(stamp, sizeof(stamp), "%04d%02d%02d-%02d%02d%02d",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
+                  tm.tm_min, tm.tm_sec);
+    return stamp;
+}
+
 // ---------------------------------------------------------------------------
 // Shell command fragments
 // ---------------------------------------------------------------------------
@@ -858,11 +873,25 @@ void openUrl(const std::string& url) {
 void revealInFileManager(const std::string& path) {
     if (path.empty()) return;
     std::error_code ec;
-    const bool isFile = fs::is_regular_file(path, ec);
+    // A path that does not exist must never reach the file manager. explorer
+    // answers one by opening the user's DEFAULT folder - Documents - which
+    // reads as the button having gone somewhere random rather than as "what
+    // you asked for is not there any more" (reported against the Debugger's
+    // *Show file*, whose frame.tga the Runner deletes on every launch). Walk up
+    // to the nearest ancestor that does exist and open THAT instead; a caller
+    // that wants to say more should check the file itself first.
+    fs::path target(path);
+    for (int guard = 0; guard < 64 && !fs::exists(target, ec); ++guard) {
+        const fs::path up = target.parent_path();
+        if (up.empty() || up == target) return;
+        target = up;
+    }
+    if (!fs::exists(target, ec)) return;
+    const bool isFile = fs::is_regular_file(target, ec);
 #ifdef _WIN32
     // explorer.exe wants '\' - it silently opens the default folder instead of
     // selecting anything when handed a mixed path the file APIs accept.
-    const std::string native = fs::path(path).make_preferred().string();
+    const std::string native = target.make_preferred().string();
     const std::string arg =
         isFile ? "/select,\"" + native + "\"" : "\"" + native + "\"";
     ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
@@ -871,13 +900,14 @@ void revealInFileManager(const std::string& path) {
     // (Nautilus, Dolphin, Nemo and Thunar all implement it). Fall back to
     // xdg-open on the containing folder when nothing answers on the bus - the
     // folder still opens, just without the file highlighted.
-    const std::string uri = "file://" + path;
+    const std::string uri = "file://" + target.string();
     std::string cmd =
         "dbus-send --session --print-reply --dest=org.freedesktop.FileManager1 "
         "/org/freedesktop/FileManager1 org.freedesktop.FileManager1.ShowItems "
         "array:string:" + shQuote(uri) + " string:'' >/dev/null 2>&1 || "
         "xdg-open " +
-        shQuote(isFile ? fs::path(path).parent_path().string() : path) + " >/dev/null 2>&1";
+        shQuote(isFile ? target.parent_path().string() : target.string()) +
+        " >/dev/null 2>&1";
     Process::startDetached(cmd);
 #endif
 }

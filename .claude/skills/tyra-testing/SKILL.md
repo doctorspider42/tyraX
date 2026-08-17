@@ -723,10 +723,22 @@ Notes:
   debug build with *Live Debugger* on takes a one-shot on the same command
   channel as the VU1 capture — **flags bit 6** of `bin/livedbg.cmd`, or
   *Debugger > Screen > Capture frame* — reads its last finished frame out of GS
-  VRAM and writes `bin/frame.tga`. No desktop, no window, no focus, and it is
-  the ONLY one that exists on real hardware. Reach for it whenever a host-side
-  grab is in doubt: an occluded window, a locked or disconnected session, a
-  parallel worktree's emulator, or a console.
+  VRAM and writes `bin/frame.tga`; the editor decodes that and keeps the picture
+  as `screenshots/frame-<date>-<time>.png` in the project, which is what *Show
+  file* opens. No desktop, no window, no focus, and it is the ONLY one that
+  exists on real hardware. Reach for it whenever a host-side grab is in doubt:
+  an occluded window, a locked or disconnected session, a parallel worktree's
+  emulator, or a console.
+
+  **It works on a console since 1.55.1 and did not before**, which is worth
+  knowing when reading anything measured with it earlier: ps2sdk's
+  `ps2_screenshot_file()` creates its output with `open(O_CREAT|O_WRONLY)`, and
+  over ps2link that create arrives at the `host:` server as a **mkdir of the
+  target name** - the host gets a DIRECTORY called `frame.tga`, the open fails,
+  and the function has no failure path to report it with. The runtime writes the
+  file itself now (docs/devkit.md, "Why the file is written by the game rather
+  than by libdebug"). Over ps2link one capture freezes the game for about three
+  seconds; in PCSX2 it lands between two frames.
 
   Scripted, through the editor's own encoder (the `livedbg.cpp` probe recipe
   below), it is ~10 lines: `Command c; c.seq = n; c.captureFrame = true;
@@ -734,9 +746,11 @@ Notes:
   read it. The file is an uncompressed 32-bit TGA, **BGRA, bottom row first**,
   exactly `18 + w*h*4` bytes — PIL opens it directly, and that size is also how
   you tell a finished write from a poll that landed mid-transfer (it is written
-  a scan line at a time over `host:`, so mid-write reads are common, not rare).
-  Force the alpha opaque before looking at it: a frame buffer's alpha is a
-  working channel, not coverage.
+  a scan line at a time over `host:`, so mid-write reads are common, not rare —
+  and over ps2link the write takes SECONDS, so decide "still writing" from the
+  size still GROWING rather than from a number of tries). Its alpha is already
+  opaque; a frame buffer's alpha is a working channel rather than coverage, so
+  the game writes 255 instead of handing over a half-transparent picture.
 
   What comes back is the **GS raster**, not the television picture — no aspect
   correction, no letterbox — which is why it is also the cheapest way to read
