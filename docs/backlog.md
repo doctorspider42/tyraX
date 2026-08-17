@@ -191,6 +191,22 @@ that copy-out step designed.
 carries it) — but the PS2 toolchain image would have to run under emulation on
 that host, so measure a game build there before promising anything.
 
+### Make the packagers prove they shipped what git tracks
+
+1.55.3 fixed one tracked file going missing from every package — an exclusion
+written as `*.a` took `vendor/tyra/audsrv/bin/libaudsrv.a` with the build
+leftovers, and every installed editor then failed every game build
+(docs/updates.md). Nothing would have caught it: both packagers describe what to
+LEAVE OUT, so a new exclusion is only ever tested by somebody installing the
+result and trying to build a game — which is the slowest feedback loop in this
+repo and the one a developer never runs. A cheap assertion closes it: take
+`git ls-files vendor/tyra tools`, drop the ignored directories, and fail the
+release job if any of it is absent from the staged tree. The awkward half is
+Windows, where the staged tree only exists inside the compiled Setup — either
+parse ISCC's `Compressing:` lines (it lists every file it packs, which is how
+the 1.55.3 fix was verified) or run the installer into a temp directory in CI
+and diff that.
+
 ### Sign the Windows installer
 
 The released `TyraX-Setup-<version>.exe` is unsigned, so Windows SmartScreen
