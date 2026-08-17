@@ -305,10 +305,29 @@ the alpha channel — blending never writes A — so a set/clear order over a
 concave volume lies. The era's answer, reproduced here: the GS *can* add and
 subtract in **color** channels. The volume's camera-front faces add +32 and
 its back faces subtract it, both plain TestOnly z against the scene's depth,
-into a dedicated raster-sized 16-bit count target that shares the scene's own
-z buffer (`FRAME` and `ZBUF` are independent addresses over one pixel grid).
+into a dedicated 32-bit count target that shares the scene's own z buffer.
 Any pixel the light cannot reach ends net-positive; everything else returns to
-exact zero, whatever the overlap count. Then **one resolve pass per frame**
+exact zero, whatever the overlap count.
+
+**Why that target is 32-bit, and why it is a BAND** — the most expensive thing
+this feature knows, and it was found on a physical console after every
+emulator test had passed. A GS colour buffer and the z buffer it is
+depth-tested against must share **page geometry**: 32- and 24-bit pages are
+64×32 pixels, 16-bit pages are 64×64. The count target started out PSMCT16
+(to fit VRAM) over the scene's 32-bit z, and on hardware the depth comparison
+then read shifted words for half of every page — the torch's light landed in a
+**checkerboard of 32-pixel tiles** wherever a volume was counted. PCSX2
+addresses each buffer from its own PSM, so it showed nothing at all, at any
+vantage, ever.
+
+A full raster at 32 bits is 1 MB, which no project can spare, so the target is
+a **band** (256 rows × the raster width = 512 KB, exactly what the broken
+16-bit full-raster target cost) and `FRAME.FBP` is slid by whole page *rows* so
+the band covers the volumes' screen rect. `ZBP` never moves, which is what
+keeps the 1:1 correspondence with the scene's depth exact; the band's first row
+must be a multiple of 32 for the slide to be expressible. A shadow region
+taller than the band is counted band by band — the mask is an OR, so the bands
+compose and a tall shadow costs fill, not coverage. Then **one resolve pass per frame**
 samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
 expands to alpha 0, anything else to 0x80 — and ORs *count > 0* into the
 framebuffer's destination-alpha MSB through an alpha test. Counting is exact

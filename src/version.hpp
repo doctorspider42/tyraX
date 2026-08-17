@@ -65,6 +65,29 @@
 // because emitRasterRestore does not know about texture state. Docs:
 // docs/flashlight.md "The shadow" rewritten around the counting
 // arrangement; no format change (the technique flag is v27's).
+//
+// VERIFIED ON A PHYSICAL CONSOLE and CORRECTED there, which is the part of
+// this entry worth reading. The count target was PSMCT16 to fit VRAM, and a
+// GS colour buffer must share PAGE GEOMETRY with the z buffer it is
+// depth-tested against - 32/24-bit pages are 64x32 pixels, 16-bit ones 64x64.
+// Over the scene's 32-bit z the depth comparison therefore read shifted words
+// for half of every page, and the torch's light landed in a CHECKERBOARD of
+// 32-pixel screen-aligned tiles wherever a volume was counted. PCSX2
+// addresses each buffer from its own PSM and showed nothing - a 12-toggle
+// F8 histogram, a 63:63 codegen check and five merges' worth of emulator
+// runs all passed on a build that was broken on every console. The target is
+// PSMCT32 now, and because a full raster at 32 bits is 1 MB it is a BAND
+// (kCountBandRows = 256 rows = 512 KB, exactly what the broken target cost)
+// that FRAME.FBP slides over the rect by whole page ROWS while ZBP stays put,
+// so the 1:1 correspondence with the scene depth is exact; a taller shadow
+// region is counted band by band, and since the mask is an OR the bands
+// compose. The alpha clear moved out of countBegin into maskClear() for the
+// same reason - it must happen once per frame, not once per band.
+// Re-verified on the console at the exact composition that produced the
+// artefact (torch on the truck's side at close range, wall behind): smooth
+// pool, parity-contrast 2.0% against 7.8% before, and 22.0 FPS with the torch
+// on against 24.1 with it off at the same parked vantage - the scene's own
+// ~24 FPS is the ceiling there, not the volumes.
 // 1.55.1 (the self-screenshot reaches the console it was built for -
 // docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
 // nothing said so. On hardware the picture never came back, deterministically,

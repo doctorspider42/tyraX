@@ -12814,27 +12814,39 @@ void TerrainGame::updateAndRenderLightPools() {
           if (bWhole) {
             bx0 = 0.0F, by0 = 0.0F, bx1 = volW, by1 = volH;
           }
-          const int rx0 = (int)(bx0 - 4.0F), ry0 = (int)(by0 - 4.0F);
+          int rx0 = (int)(bx0 - 4.0F), ry0 = (int)(by0 - 4.0F);
           const int rx1 = (int)(bx1 + 5.0F), ry1 = (int)(by1 + 5.0F);
-          // countBegin clears the FB alpha AND the count rect in one drain,
-          // the volumes count, the resolve ORs count>0 into the mask.
-          // Front faces FIRST: along any ray the entries outnumber the
-          // exits at every prefix, so the running sum never dips below
-          // zero and the GS's clamp-at-0 never eats a legitimate count.
-          rc.alphaMask.countBegin(rx0, ry0, rx1, ry1);
-          if (!b.volFront.empty()) {
-            b.volSetBag->vertices = b.volFront.data();
-            b.volSetBag->count = (u32)b.volFront.size();
-            b.volSetBag->bboxVersion = ++g_bboxStamp;
-            stapip.core.render(b.volSetBag.get());
+          if (rx0 < 0) rx0 = 0;
+          if (ry0 < 0) ry0 = 0;
+          // The mask's alpha is cleared ONCE per frame ("everything lit"),
+          // then the rect is counted BAND BY BAND. The count target is
+          // 32-bit for page-geometry parity with the scene z it tests
+          // against (a 16-bit one put a 32-pixel checkerboard of wrong
+          // depth comparisons on real hardware while PCSX2 showed nothing),
+          // and a full raster at 32 bits does not fit in VRAM - so it is a
+          // band that FRAME.FBP slides over the rect. The mask is an OR, so
+          // the bands compose and a tall shadow costs fill, not coverage.
+          rc.alphaMask.maskClear();
+          const int bandRows = rc.alphaMask.countBandRows();
+          for (int by = ry0 / bandRows * bandRows; by < ry1; by += bandRows) {
+            // Front faces FIRST: along any ray the entries outnumber the
+            // exits at every prefix, so the running sum never dips below
+            // zero and the GS's clamp-at-0 never eats a legitimate count.
+            rc.alphaMask.countBegin(rx0, ry0, rx1, ry1, by);
+            if (!b.volFront.empty()) {
+              b.volSetBag->vertices = b.volFront.data();
+              b.volSetBag->count = (u32)b.volFront.size();
+              b.volSetBag->bboxVersion = ++g_bboxStamp;
+              stapip.core.render(b.volSetBag.get());
+            }
+            if (!b.volBack.empty()) {
+              b.volClrBag->vertices = b.volBack.data();
+              b.volClrBag->count = (u32)b.volBack.size();
+              b.volClrBag->bboxVersion = ++g_bboxStamp;
+              stapip.core.render(b.volClrBag.get());
+            }
+            rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
           }
-          if (!b.volBack.empty()) {
-            b.volClrBag->vertices = b.volBack.data();
-            b.volClrBag->count = (u32)b.volBack.size();
-            b.volClrBag->bboxVersion = ++g_bboxStamp;
-            stapip.core.render(b.volClrBag.get());
-          }
-          rc.alphaMask.countResolve(rx0, ry0, rx1, ry1);
           volMask = true;
         }
         for (int ri = 0; ri < recvN; ++ri) renderSlice(ri);
