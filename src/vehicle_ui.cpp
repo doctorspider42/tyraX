@@ -16,6 +16,7 @@
 //     moves.
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -146,6 +147,83 @@ void App::vehicleTick() {
         vehicleRefreshBake(i, false);
         return;  // one per frame
     }
+}
+
+void App::vehicleDriveStart(int objectIndex) {
+    if (!hasProject_) return;
+    std::vector<SceneObject>& objs = project_.objects();
+    if (objectIndex < 0 || objectIndex >= (int)objs.size()) return;
+    if (objs[objectIndex].type != PrimitiveType::Vehicle) return;
+    vehicleDriveStop();
+    const SceneObject& o = objs[objectIndex];
+    for (int a = 0; a < 3; ++a) {
+        vehicleDriveHome_[a] = o.position[a];
+        vehicleDriveHome_[3 + a] = o.rotation[a];
+    }
+    vehicleDriveState_ = vehiclesim::DriveState{};
+    for (int a = 0; a < 3; ++a) vehicleDriveState_.pos[a] = o.position[a];
+    vehicleDriveState_.yaw = o.rotation[1];
+    vehicleDriveObj_ = objectIndex;
+}
+
+void App::vehicleDriveStop() {
+    if (vehicleDriveObj_ < 0) return;
+    std::vector<SceneObject>& objs = project_.objects();
+    if (vehicleDriveObj_ < (int)objs.size()) {
+        SceneObject& o = objs[vehicleDriveObj_];
+        for (int a = 0; a < 3; ++a) {
+            o.position[a] = vehicleDriveHome_[a];
+            o.rotation[a] = vehicleDriveHome_[3 + a];
+        }
+    }
+    vehicleDriveObj_ = -1;
+}
+
+// One step of the test drive. Deliberately NOT a commitChange path: the object
+// is moved in place and put back when the drive ends, so a drive leaves the
+// project exactly as it found it and never enters undo.
+void App::vehicleDriveTick() {
+    if (!hasProject_ || vehicleDriveObj_ < 0) return;
+    std::vector<SceneObject>& objs = project_.objects();
+    if (vehicleDriveObj_ >= (int)objs.size()) {
+        vehicleDriveObj_ = -1;
+        return;
+    }
+    SceneObject& o = objs[vehicleDriveObj_];
+    const VehicleDef* def = nullptr;
+    for (const VehicleDef& v : project_.vehicles)
+        if (v.name == o.vehicleDef) def = &v;
+    if (!def) return;
+
+    // WantTextInput, not WantCaptureKeyboard: the latter is true whenever any
+    // window has focus, which is always while the Vehicle Editor is open - it
+    // gated the throttle off entirely and the car sat at 0.00 with the key
+    // held. What must not steal a keystroke is an ACTIVE TEXT FIELD (typing a
+    // top speed must not also floor the throttle), and that is what this asks.
+    vehiclesim::DriveInput in;
+    if (vehicleDriveHoldThrottle_) in.throttle += 1.0f;
+    in.steer += vehicleDriveSteer_;
+    if (!ImGui::GetIO().WantTextInput) {
+        if (ImGui::IsKeyDown(ImGuiKey_W)) in.throttle += 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_S)) in.throttle -= 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_A)) in.steer -= 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_D)) in.steer += 1.0f;
+        if (ImGui::IsKeyDown(ImGuiKey_Space)) in.handbrake = true;
+        if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) in.brake = 1.0f;
+    }
+
+    // The SAME sampler the placement snap uses, so the car drives on exactly
+    // the heightfield the editor draws - and the console walks.
+    const vehiclesim::HeightFn ground = [this](float x, float z) {
+        return project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
+    };
+    vehiclesim::step(def->drive, in, ImGui::GetIO().DeltaTime, ground,
+                     vehicleDriveState_);
+
+    for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
+    o.rotation[0] = vehicleDriveState_.pitch;
+    o.rotation[1] = vehicleDriveState_.yaw;
+    o.rotation[2] = -vehicleDriveState_.roll;
 }
 
 void App::renameVehicleDef(int index, const std::string& newName) {
@@ -361,6 +439,56 @@ void App::drawVehicleWindow() {
                 ImGui::SetNextItemWidth(scaled(220));
                 ImGui::SliderFloat(f.label, f.value, f.min, f.max, "%.4g");
                 if (f.tip && f.tip[0]) prefHelp(f.tip);
+            }
+            ImGui::EndTabItem();
+        }
+
+        // --- Test drive -------------------------------------------------------
+        // The reason vehiclesim is host-only: the same step() the console will
+        // run, driven from the keyboard against the real scene's terrain, so
+        // grip and acceleration are tuned in a "slider, feel, slider" loop
+        // instead of "slider, four minutes of Docker, PCSX2".
+        if (ImGui::BeginTabItem("Test drive")) {
+            // Which placed instance to drive - the first one of this
+            // definition in the active scene.
+            int inst = -1;
+            const std::vector<SceneObject>& objs = project_.objects();
+            for (int i = 0; i < (int)objs.size(); ++i)
+                if (objs[i].type == PrimitiveType::Vehicle && objs[i].vehicleDef == v.name) {
+                    inst = i;
+                    break;
+                }
+            if (inst < 0) {
+                ImGui::TextDisabled(
+                    "Place one in this scene first (Add object > Gameplay > Vehicle).");
+            } else if (vehicleDriveObj_ == inst) {
+                if (ImGui::Button("Stop driving")) vehicleDriveStop();
+                ImGui::SameLine();
+                ImGui::TextDisabled("W/S throttle, A/D steer, Shift brake, Space handbrake");
+                ImGui::Separator();
+                const vehiclesim::DriveState& st = vehicleDriveState_;
+                ImGui::Checkbox("Hold throttle", &vehicleDriveHoldThrottle_);
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("Steer", &vehicleDriveSteer_, -1.0f, 1.0f, "%.2f");
+                ImGui::Separator();
+                ImGui::Text("Speed %.2f u/s   slip %.2f   steer %.1f deg", st.speed,
+                            st.lateral, st.steerAngle);
+                ImGui::Text("Pitch %.1f  roll %.1f  %s", st.pitch, st.roll,
+                            st.grounded ? "on the ground" : "airborne");
+                // Slip against speed is the number that says whether the grip
+                // setting is doing anything - a car that never slips is on
+                // rails whatever the slider says.
+                const float mag = std::fabs(st.speed) + std::fabs(st.lateral);
+                ImGui::Text("Sideways fraction of travel: %.0f%%",
+                            mag > 0.01f ? 100.0f * std::fabs(st.lateral) / mag : 0.0f);
+            } else {
+                if (ImGui::Button("Drive it")) {
+                    vehicleDriveHoldThrottle_ = false;
+                    vehicleDriveSteer_ = 0.0f;
+                    vehicleDriveStart(inst);
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("Puts the car back where it was when you stop.");
             }
             ImGui::EndTabItem();
         }

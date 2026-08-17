@@ -936,6 +936,7 @@ void App::drawUI() {
     drawProceduralWindow();
     drawPrefabsWindow();
     vehicleTick();
+    vehicleDriveTick();
     drawVehicleWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();

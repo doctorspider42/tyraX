@@ -96,7 +96,7 @@ Textured materials always keep their own part — they have real UVs that cannot
 be rewritten.
 
 Measured on the reference car: **36 parts → 2, and 40 materials → 10 palette
-colours in a 32×32 texture.**
+colours in a 128×8 strip.**
 
 ### Triangle budgets
 
@@ -252,10 +252,37 @@ against a palette that decoded correctly, UVs that pointed at exactly the right
 cells and a `.tmdl` that was provably right, and disabling the texture brought
 the body back grey. The palette is resolved from its **path** at draw time.
 
+## Test drive
+
+*Vehicle Editor > Test drive > Drive it.* Runs `vehiclesim::step` — the same
+function the console's runtime will be a twin of — on a placed vehicle, in the
+real scene, against the terrain sampler the editor already draws with. W/S
+throttle, A/D steer, Shift brake, Space handbrake, plus a **Hold throttle**
+toggle and a **Steer** slider so the car keeps going while both hands are on
+the tuning sliders.
+
+This is the whole reason `vehiclesim` is host-only. Grip and acceleration get
+tuned in a *slider → feel → slider* loop instead of *slider → four minutes of
+Docker → PCSX2*, and the readout states speed, slip, steering angle, pitch,
+roll and the sideways fraction of travel — the last of which is what says
+whether the grip setting is doing anything at all.
+
+**A test drive is a way of LOOKING at a vehicle, never an edit.** The object is
+moved in place and put back exactly where the author left it when the drive
+stops; nothing enters undo and nothing is committed (the procedural
+seed-sweep rule).
+
+Two things worth knowing if you touch it. The input is gated on
+`io.WantTextInput`, **not** `WantCaptureKeyboard` — the latter is true whenever
+any window has focus, which is always while this window is open, and it gated
+the throttle off entirely (the car sat at 0.00 with the key held). And
+`--ui-script` cannot HOLD a key (its `Key` step is a chord press and `hold` is a
+mouse button), so the keyboard path is not machine-verifiable; the panel
+controls are, which is how the chain was checked end to end.
+
 ## Not built yet
 
-Honest state, so nobody looks for these: there is no in-editor test drive, and
-**nothing reaches the PS2** — there is no codegen and no runtime, so a project
+Honest state, so nobody looks for these: **nothing reaches the PS2** — there is no codegen and no runtime, so a project
 with vehicles builds and runs exactly as it did without them. Collision against
 world objects is also still outside the drive model, which samples terrain
 height only.

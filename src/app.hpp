@@ -765,6 +765,25 @@ private:
     // Per-frame, from drawUI: keeps definitions baked so placed instances draw
     // even with the window shut (the giBakerPoll rule).
     void vehicleTick();
+    // Test drive (docs/vehicles.md): runs vehiclesim::step on a placed vehicle
+    // straight in the viewport, against the real scene's terrain. The whole
+    // point of vehiclesim being host-only - tuning grip and acceleration in a
+    // "slider, feel, slider" loop instead of "slider, four minutes, PCSX2".
+    void vehicleDriveTick();
+    void vehicleDriveStart(int objectIndex);
+    void vehicleDriveStop();
+    // Scene-object index being test-driven, -1 = nobody.
+    int vehicleDriveObj_ = -1;
+    vehiclesim::DriveState vehicleDriveState_;
+    // The transform the object had before the drive. A test drive is a way of
+    // LOOKING at a vehicle, never an edit - it must put the car back exactly
+    // where the author left it (the procedural seed-sweep rule).
+    float vehicleDriveHome_[6] = {0, 0, 0, 0, 0, 0};
+    // Panel-driven controls, alongside the keyboard. Not a testing hook: when
+    // you are tuning grip you want the car to keep going while both hands are
+    // on the sliders, and a held key cannot do that.
+    bool vehicleDriveHoldThrottle_ = false;
+    float vehicleDriveSteer_ = 0.0f;
     // Renaming a definition retargets every instance in every scene. The
     // renameFont precedent: a reference stores the NAME, so it has to follow.
     void renameVehicleDef(int index, const std::string& newName);
