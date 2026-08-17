@@ -32,3 +32,7 @@ bin/*.tmp
 # them next to the sources), so they are artifacts, not source.
 src/gen/livedbg.sym
 src/gen/livelogic.built
+
+# Pictures the running game took of itself, kept by the Debugger's Screen tab
+# (docs/devkit.md). Yours to look at and to throw away.
+screenshots/

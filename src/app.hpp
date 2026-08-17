@@ -3370,8 +3370,10 @@ private:
     int dbgShotW_ = 0, dbgShotH_ = 0;
     long long dbgShotStamp_ = 0;    // last_write_time of the file we decoded
     size_t dbgShotSize_ = 0;
-    int dbgShotTorn_ = 0;           // consecutive unreadable polls of that file
+    int dbgShotTorn_ = 0;           // consecutive polls that saw NO progress
+    size_t dbgShotPartial_ = 0;     // size of the last short read - see below
     bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    std::string dbgShotFile_;       // the PNG this capture was kept as
     std::string dbgShotError_;
     void dbgReadFrameShot();
     void dbgReadVuCapture();

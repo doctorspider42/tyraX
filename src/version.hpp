@@ -65,6 +65,64 @@
 // because emitRasterRestore does not know about texture state. Docs:
 // docs/flashlight.md "The shadow" rewritten around the counting
 // arrangement; no format change (the technique flag is v27's).
+// 1.55.1 (the self-screenshot reaches the console it was built for -
+// docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
+// nothing said so. On hardware the picture never came back, deterministically,
+// and the cause is one call inside ps2sdk's libdebug: `ps2_screenshot_file()`
+// creates its output with `open(name, O_CREAT|O_WRONLY)`, and over ps2link that
+// create arrives at the `host:` server as a MKDIR OF THE TARGET NAME. The host
+// ends up with a DIRECTORY called frame.tga, the open that follows returns -1,
+// and the function reports nothing at all - it has no failure path. Measured on
+// a real PS2, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// while livedbg.bin, livetime.bin and every other devkit file - all written
+// through fopen(name, "wb"), flags 0x602 on the wire - succeeded in the same
+// session over the same server. So the runtime keeps the half of libdebug that
+// carries the value (ps2_screenshot, the VRAM readback) and writes the file
+// itself. PCSX2's own host: server accepts libdebug's spelling, which is
+// exactly why this could ship as emulator-only without anybody noticing.
+//
+// Two hardware-only traps came with owning the write, and both are guarded:
+// the readback lands in RAM BEHIND THE EE'S DATA CACHE (each line is flushed
+// after its transfer, or the picture repeats rows - invisible in an emulator
+// that emulates no cache), and ps2_screenshot REFUSES to run while VIF1's DMA
+// channel is busy, saying so only through its return value, so refusals are
+// counted and reported rather than written out as picture. A third bug was on
+// the EDITOR side and needed no console to be wrong: the panel gave a capture
+// six polls (~2.4 s) to finish before calling the file malformed, which PCSX2
+// meets between two frames and ps2link cannot - one capture is ~900 KB at a
+// network round trip per 1.4 KB, measured at about three seconds. It now waits
+// on PROGRESS (the file still growing) and reports only a write that has
+// stalled.
+//
+// Also here, from the same session: every capture is kept as a PNG under the
+// project's screenshots/ folder, and *Show file* reveals THAT rather than
+// bin/frame.tga - the channel file is overwritten by the next capture and
+// deleted by every launch, and explorer answers a path that does not exist by
+// opening the user's Documents folder, which reads as a broken button (it was
+// reported as one). platform::revealInFileManager now walks up to the nearest
+// ancestor that exists, so no caller can reproduce that. The picture is written
+// opaque, so nothing downstream has to know that a frame buffer's alpha is a
+// working channel rather than coverage.
+//
+// VERIFIED on the user's PlayStation 2 over ps2link, unattended: the capture
+// comes back 512x512, 1048594 bytes = 18 + 512*512*4, exactly the expected
+// size, with 0 repeated rows and no VIF1 refusals; it agrees with the same
+// scene captured in PCSX2 to 2.0/255 mean absolute difference; a second capture
+// after a --pad camera turn shows the turned view, so it is live rather than a
+// stale buffer; and the whole user-facing loop (menu > Run on PS2 > Debugger >
+// Screen > Capture frame > the picture on screen) was driven with --ui-script
+// and asserted with expect, exit 0. The PNG that lands in screenshots/ is
+// pixel-identical to the TGA it came from.
+//
+// PATCH: a fix. The generated devkit runtime changes, so a project must be
+// rebuilt to get it; nothing on disk changes shape.
+
 // 1.55.0 (the game photographs itself - docs/devkit.md, "The game's own
 // screenshot"): a sixth one-shot on the Live Debugger's command channel (flags
 // bit 6, beside the VU1 capture and the RAM measurement). The game reads its

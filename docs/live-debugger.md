@@ -163,7 +163,7 @@ the ps2link file server on a console):
 |---|---|---|
 | `bin/livedbg.bin` | the game, every 6 frames (25 under ps2link) | cumulative hit count per node, a ring of the ~192 most recent fires with their age in frames, the watch values, the halted flag, the node that stopped it, the symbol-table hash |
 | `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire, and the one-shot asks: a VU1 capture, a free-RAM measurement, a screenshot |
-| `bin/frame.tga` | the game, once per *Capture frame* | its own frame buffer, read back out of GS VRAM (see [devkit.md](devkit.md)) |
+| `bin/frame.tga` | the game, once per *Capture frame* | its own frame buffer, read back out of GS VRAM. A transport file: the editor decodes it and keeps the picture as `screenshots/frame-<date>-<time>.png` (see [devkit.md](devkit.md)) |
 
 The first two are validated by an exact-size + footer-echo check on both ends, so
 a torn write is skipped rather than half-applied, and a command is applied only

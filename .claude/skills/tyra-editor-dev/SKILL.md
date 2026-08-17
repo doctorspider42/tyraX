@@ -1366,7 +1366,12 @@ poll of the fresh boot, which for the Remote Pad meant a game that starts walkin
 before anyone touches anything. That applies to a file the game WRITES as much as
 to one it reads: `bin/frame.tga` is deleted too, because the last session's
 picture is a perfectly valid answer to this session's first capture and two runs
-of one scene look alike.
+of one scene look alike. That deletion is also why the Debugger keeps every
+capture as a PNG under the project's `screenshots/` - a channel file is not an
+album, and *Show file* pointing at a path the Runner had removed opened the
+user's Documents folder (explorer's answer to a missing path), which reads as a
+broken button. `platform::revealInFileManager` now walks up to the nearest
+ancestor that exists, so no caller can reproduce that.
 
 **A new one-shot ASK does not need a channel of its own.** The Live Debugger's
 command carries five besides the breakpoints - force-fire, a VU1 capture, its
@@ -1387,11 +1392,20 @@ templates.cpp): `framebuffer_t::address` is in GS WORDS while libdebug wants
 BLOCKS, so a missing `/64` overflows SBP's 14 bits and reads buffer 0 with its
 pages scrambled; the buffer has to be `getPreviousRealFrameBuffer()`, never the
 current one nor `getPreviousFrameBuffer()` (which can be a synthesised
-extrapolated frame); `ps2_screenshot_file` opens `O_CREAT|O_WRONLY` with **no
-`O_TRUNC`**, so a shorter capture leaves the previous picture's tail behind and
-still decodes; and its RETURN VALUE IS NOT A VERDICT - upstream returns 0 both
-when `open()` fails and when it all worked, so the honest check is the written
-file's own size. On the editor side, note that stb_image here is built
+extrapolated frame); the readback lands in RAM **behind the EE's data cache**,
+so a line has to be flushed after every transfer or the picture repeats rows on
+hardware (PCSX2 emulates no cache and shows nothing); and `ps2_screenshot`
+REFUSES to run while VIF1's DMA channel is busy, reporting that only through its
+return value, so a refusal must be counted rather than written out as picture.
+**The FILE is written by our own `fopen`/`fwrite` and libdebug's
+`ps2_screenshot_file` must not come back**: it creates its output with
+`open(O_CREAT|O_WRONLY)`, which over ps2link arrives at the `host:` server as a
+**mkdir of the target name** - the host gets a directory called `frame.tga`, the
+open returns -1, and the function has no failure path at all, so it returns 0 as
+though it had worked. That is what made this an emulator-only feature for its
+first release; PCSX2's host: server accepts the same spelling. The verdict is
+the byte count actually written, never a return value. On the editor side, note
+that stb_image here is built
 `STBI_ONLY_PNG` + `STBI_ONLY_JPEG` and answers *unknown image type* to every
 TGA: `dbgReadFrameShot` decodes by hand rather than widening what every other
 `stbi_load` in the editor accepts.

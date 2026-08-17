@@ -143,6 +143,13 @@ In **Debugger > Screen**, press **Capture frame**. The game reads its last
 finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
 `host:` channel every other devkit file uses, and the panel shows it.
 
+Every capture is then **kept as a PNG in the project's `screenshots/` folder**,
+named by the clock (`frame-20260817-164501.png`), and **Show file** reveals that
+copy. `bin/frame.tga` is a *channel*, not an album — one file, overwritten by
+the next capture and deleted at every launch — so the PNG is the one that lasts:
+it sits outside `bin/`, survives a *Clean*, opens in anything, and is
+git-ignored. Delete the ones you do not want; nothing reads them.
+
 This is the only capture path that does not need a desktop. Every host-side one
 — the emulator's F8 key, a GDI grab of the window, `PrintWindow` — needs the
 window present and, in practice, unoccluded and on an unlocked session; none of
@@ -156,18 +163,47 @@ letterbox. A 512x448 project answers 512x448.
 
 It costs the game a visible hitch, which is why it is one shot per press rather
 than anything continuous — around a megabyte read back a scan line at a time and
-written the same way. Over ps2link that is a network round trip per line, so
-expect a second or two there.
+written the same way. In PCSX2 that is over between two frames; **over ps2link
+it is a network round trip per 1.4 KB, measured at about three seconds** on a
+512x512 buffer, and the game is frozen for all of it.
 
 The picture is the **previous real frame**: the last one the scene rendered, so
 never a half-composed image and never a synthesised
 [extrapolated](frame-extrapolation.md) one.
 
-Two things that will look like bugs and are not. The capture is taken between
+One thing that will look like a bug and is not: the capture is taken between
 frames, so it can be one frame older than what you were looking at when you
-pressed the button. And a frame buffer's alpha channel is a working channel
-rather than coverage — the panel forces it opaque, and so should anything else
-that reads the file.
+pressed the button. The alpha channel needs no care — a frame buffer's alpha is
+a working channel rather than coverage, so the game writes the file **opaque**
+and both the panel and the PNG show a picture rather than a half-transparent
+one.
+
+### Why the file is written by the game rather than by libdebug
+
+Worth knowing before touching that code, because the failure is silent and it
+made this an **emulator-only feature for its first release**. ps2sdk's
+`ps2_screenshot_file()` creates its output with `open(name, O_CREAT|O_WRONLY)`,
+and over ps2link that create arrives at the `host:` server as a **mkdir of the
+target name**: the host ends up with a *directory* called `frame.tga`, the open
+that follows returns -1, and the function reports nothing at all — it has no
+failure path. On hardware the log reads
+
+```text
+remove file host:frame.tga
+mkdir name host:frame.tga
+mkdir wrong mode, using fallback value 493
+open name host:frame.tga flag 202  ->  open fd = -1
+```
+
+while every other devkit channel, writing through `fopen(name, "wb")` (flags
+`0x602` on the wire), succeeds in the same session over the same server. So the
+runtime keeps the half of libdebug that carries the value — `ps2_screenshot()`,
+the VRAM readback — and writes the file through the same stdio path everything
+else here uses. Two hardware-only traps come with that: the readback lands in
+RAM **behind the EE's data cache** (the line is flushed after every transfer, or
+rows repeat), and `ps2_screenshot()` refuses to run while VIF1's DMA channel is
+busy and says so only through its return value, so refusals are counted and
+reported instead of being written out as picture.
 
 ## Inspecting VU1 input
 
