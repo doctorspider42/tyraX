@@ -24,6 +24,7 @@
 
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "placement.hpp"
 #include "imgui.h"
 #include "theme.hpp"
 
@@ -240,8 +241,29 @@ void App::vehicleDriveTick() {
     const vehiclesim::HeightFn ground = [this](float x, float z) {
         return project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
     };
+    // Walls, from placement's own boxes - approximate (world AABBs rather
+    // than the console's slide resolver), but the same four corners and the
+    // same refusal, so a pillar stops the test drive the way it stops the
+    // game. Rebuilt per tick: a test drive is one car in an authored scene.
+    std::vector<placement::Aabb> solids;
+    {
+        const aobake::ModelAabbFn aabbFn = placementModelAabb();
+        const std::vector<SceneObject>& all = project_.objects();
+        for (int i = 0; i < (int)all.size(); ++i) {
+            if (i == vehicleDriveObj_) continue;
+            if (!placement::collides(all[i])) continue;
+            solids.push_back(placement::worldAabb(all[i], aabbFn));
+        }
+    }
+    const vehiclesim::SolidFn solid = [&](float x, float z, float feetY) {
+        for (const placement::Aabb& b : solids)
+            if (x > b.mn[0] && x < b.mx[0] && z > b.mn[2] && z < b.mx[2] &&
+                feetY + 1.0f > b.mn[1] && feetY < b.mx[1])
+                return true;
+        return false;
+    };
     vehiclesim::step(def->drive, in, ImGui::GetIO().DeltaTime, ground,
-                     vehicleDriveState_);
+                     vehicleDriveState_, solid);
 
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
     o.rotation[0] = vehicleDriveState_.pitch;

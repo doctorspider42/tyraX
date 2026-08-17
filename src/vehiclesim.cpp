@@ -435,7 +435,7 @@ void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3
 }
 
 void step(const DriveSpec& spec, const DriveInput& in, float dt,
-          const HeightFn& height, DriveState& state) {
+          const HeightFn& height, DriveState& state, const SolidFn& solid) {
     // A stalled frame or a paused editor must not tunnel the car through the
     // world; the sim would rather run slow than teleport.
     dt = clampf(dt, 0.0f, 0.05f);
@@ -594,6 +594,27 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     const float vz = state.speed * c - state.lateral * s;
     state.pos[0] += vx * dt;
     state.pos[2] += vz * dt;
+
+    // Walls: the four-corner refuse, the PS2 runtime's twin (updateVehicles in
+    // templates.cpp - change one, change both). Any corner in something solid
+    // refuses the whole move; a per-corner slide would rotate the body, which
+    // a kinematic chassis has no way to represent.
+    if (solid) {
+        const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
+        const float lx[4] = {-hx, hx, -hx, hx};
+        const float lz[4] = {hz, hz, -hz, -hz};
+        const float feet = state.pos[1] - spec.rideHeight;
+        bool blocked = false;
+        for (int k = 0; k < 4 && !blocked; ++k)
+            blocked = solid(state.pos[0] + lx[k] * c + lz[k] * s,
+                            state.pos[2] - lx[k] * s + lz[k] * c, feet);
+        if (blocked) {
+            state.pos[0] -= vx * dt;
+            state.pos[2] -= vz * dt;
+            state.speed *= 0.25f;  // the impact takes the speed with it
+            state.lateral = 0.0f;
+        }
+    }
 
     // --- presentation -------------------------------------------------------
     // Derived, never simulated: the wheels cost the sim nothing.

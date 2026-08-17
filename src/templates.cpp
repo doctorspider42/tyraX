@@ -6245,8 +6245,9 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) {
-      const bool pick = runtimeObjects[useTargetIndex].data.pickable;
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
+      const bool pick =
+          useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
       // The prompt's button glyphs are NOT in that sprite: the bake left a
@@ -21406,8 +21407,9 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0) {
-      const bool pick = runtimeObjects[useTargetIndex].data.pickable;
+{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
+      const bool pick =
+          useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
       // The prompt's button glyphs are NOT in that sprite: the bake left a
@@ -27386,6 +27388,7 @@ static std::string vehicleMembers(const Project& p) {
   int vehicleCount_ = 0;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
+  int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
   // ONE bag for every wheel of every vehicle in the scene: the wheels move
   // independently, so they cannot ride a matrix like the body - but they CAN
   // share a submit, and that is the whole 2-submits-per-car design.
@@ -27450,11 +27453,20 @@ void TerrainGame::updateVehicles(float dt) {
   // left the click edge still true when the loop reached vehicle 1, and the
   // player teleported from one car straight into the next.
   int useHandled = 0;
+  vehiclePrompt_ = 0;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;  // the instance scale (see VehicleRt::scale)
+    // ONE radius decides both the prompt and the click - two formulas here
+    // would show a prompt for a car you cannot enter, or the reverse.
+    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
+    if (vehicleDriver_ < 0 && v.driveable && PLAYER_INDEX >= 0) {
+      const float pdx = players[0].x - v.pos[0];
+      const float pdz = players[0].z - v.pos[2];
+      if (pdx * pdx + pdz * pdz < useRadius * useRadius) vehiclePrompt_ = 1;
+    }
 
     // Enter and exit, by PROXIMITY - not through the usable machinery, which
     // costs the matrix fast path (see the scene-row emitter). The price is
@@ -27483,8 +27495,7 @@ void TerrainGame::updateVehicles(float dt) {
       } else if (vehicleDriver_ < 0 && v.driveable) {
         const float ddx = players[0].x - v.pos[0];
         const float ddz = players[0].z - v.pos[2];
-        const float er = s.wheelBase * SC * 1.2F + 2.0F;
-        if (ddx * ddx + ddz * ddz < er * er) {
+        if (ddx * ddx + ddz * ddz < useRadius * useRadius) {
           vehicleDriver_ = vi;
           vehCamYaw_ = v.yaw;
           useHandled = 1;
@@ -27741,7 +27752,7 @@ void TerrainGame::updateVehicles(float dt) {
       if (++vehLog >= 25) {
         vehLog = 0;
         TYRA_LOG("VEH pos ", (int)v.pos[0], " ", (int)v.pos[2], " spd10 ",
-                 (int)(v.speed * 10.0F), " mtx ",
+                 (int)(v.speed * 10.0F), " yaw ", (int)v.yaw, " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
       }
@@ -27837,6 +27848,14 @@ static std::string vehicleWalkerGate(const Project& p) {
   // seat. A driver is not a pedestrian.
   if (pi == 0 && vehicleDriver_ >= 0) return;
 )";
+}
+
+// The prompt condition's extra clause. A vehicle cannot be `usable` (it
+// would lose the matrix fast path), so the prompt machinery never targets it -
+// this OR is how the same sprite still appears when you walk up to a car.
+static std::string vehiclePromptOr(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return " || vehiclePrompt_ != 0";
 }
 
 static std::string vehicleUseCall(const Project& p) {
@@ -28168,6 +28187,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
     s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));
     s = replaceAll(s, "{{VEHICLE_WALKER_GATE}}", vehicleWalkerGate(p));
+    s = replaceAll(s, "{{VEHICLE_PROMPT_OR}}", vehiclePromptOr(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));

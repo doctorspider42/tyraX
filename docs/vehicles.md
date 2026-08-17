@@ -353,6 +353,16 @@ VEH pos 0 32 spd10 0 mtx 1        ← the wall at z=34, minus half a car
 VEH exit at -2 32                 ← out at the scaled driver's door
 ```
 
+And steering has its own acceptance line — hold throttle, then push the stick
+left, and the story continues:
+
+```
+VEH pos 0 12   spd10 188 yaw -5   mtx 1   ← stick goes left
+VEH pos -4 21  spd10 219 yaw -40  mtx 1   ← carving at top speed
+VEH pos -24 28 spd10 219 yaw -104 mtx 1   ← 120° of arc across the map
+VEH pos -27 26 spd10 9   yaw -121 mtx 1   ← the WEST wall, mid-turn
+```
+
 A screenshot cannot say who moved; this can. It caught three of the four bugs
 below inside one session.
 

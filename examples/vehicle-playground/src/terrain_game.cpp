@@ -2865,8 +2865,9 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0) {
-      const bool pick = runtimeObjects[useTargetIndex].data.pickable;
+    if (useTargetIndex >= 0 || vehiclePrompt_ != 0) {
+      const bool pick =
+          useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
       // The prompt's button glyphs are NOT in that sprite: the bake left a
@@ -12999,11 +13000,20 @@ void TerrainGame::updateVehicles(float dt) {
   // left the click edge still true when the loop reached vehicle 1, and the
   // player teleported from one car straight into the next.
   int useHandled = 0;
+  vehiclePrompt_ = 0;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;  // the instance scale (see VehicleRt::scale)
+    // ONE radius decides both the prompt and the click - two formulas here
+    // would show a prompt for a car you cannot enter, or the reverse.
+    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
+    if (vehicleDriver_ < 0 && v.driveable && PLAYER_INDEX >= 0) {
+      const float pdx = players[0].x - v.pos[0];
+      const float pdz = players[0].z - v.pos[2];
+      if (pdx * pdx + pdz * pdz < useRadius * useRadius) vehiclePrompt_ = 1;
+    }
 
     // Enter and exit, by PROXIMITY - not through the usable machinery, which
     // costs the matrix fast path (see the scene-row emitter). The price is
@@ -13032,8 +13042,7 @@ void TerrainGame::updateVehicles(float dt) {
       } else if (vehicleDriver_ < 0 && v.driveable) {
         const float ddx = players[0].x - v.pos[0];
         const float ddz = players[0].z - v.pos[2];
-        const float er = s.wheelBase * SC * 1.2F + 2.0F;
-        if (ddx * ddx + ddz * ddz < er * er) {
+        if (ddx * ddx + ddz * ddz < useRadius * useRadius) {
           vehicleDriver_ = vi;
           vehCamYaw_ = v.yaw;
           useHandled = 1;
@@ -13290,7 +13299,7 @@ void TerrainGame::updateVehicles(float dt) {
       if (++vehLog >= 25) {
         vehLog = 0;
         TYRA_LOG("VEH pos ", (int)v.pos[0], " ", (int)v.pos[2], " spd10 ",
-                 (int)(v.speed * 10.0F), " mtx ",
+                 (int)(v.speed * 10.0F), " yaw ", (int)v.yaw, " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
       }

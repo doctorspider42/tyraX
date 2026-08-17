@@ -202,10 +202,22 @@ struct DriveState {
 // is what lets "no terrain in this scene" need no branch of its own here.
 using HeightFn = std::function<float(float x, float z)>;
 
+// Is there something solid at this point (a wall, a pillar, another car)?
+// `feetY` is the chassis underside, so a caller can ignore what the car
+// clears. Optional: an empty function is open ground everywhere, which is
+// what the harness and any caller that only cares about handling want.
+using SolidFn = std::function<bool(float x, float z, float feetY)>;
+
 // Advances one vehicle by `dt` seconds. `dt` is clamped internally so a paused
 // editor or a stalled frame cannot tunnel the car through the world.
+//
+// Wall collision is the same rule the generated runtime runs (its resolver is
+// collidePlayer, this one is the caller's `solid` - approximate on the editor
+// side, but the same four corners and the same refusal): any corner landing in
+// something solid refuses the WHOLE move and takes most of the speed, because
+// resolving per corner would rotate a body a kinematic chassis cannot rotate.
 void step(const DriveSpec& spec, const DriveInput& in, float dt,
-          const HeightFn& height, DriveState& state);
+          const HeightFn& height, DriveState& state, const SolidFn& solid = {});
 
 // The four wheel anchors in WORLD space for the current state, in the same
 // order as Detection::wheels. The viewport preview and the generated runtime
