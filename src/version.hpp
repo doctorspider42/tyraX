@@ -16,6 +16,36 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.57.0 (16-bit colour stops being broken on hardware - docs/gs-vram.md): a
+// project switched to 16-bit colour rendered dark parallelogram BANDS across
+// ground and walls on a console while PCSX2 showed it perfectly. The rule
+// behind it applies to every render target this engine will ever depth-test: a
+// colour buffer and its z buffer must share PAGE GEOMETRY (32/24-bit pages are
+// 64x32 pixels, 16-bit ones 64x64), so a PSMCT16 frame over the PSMZ32 z was a
+// pair the GS cannot address consistently. The z format follows the colour
+// depth now, which also hands back 229 376 words.
+//
+// The vertex path had to follow, and that turned out to be the reason a first
+// attempt made models read INSIDE-OUT: packed XYZF2 carries a 24-BIT Z field,
+// so the scale is 24-bit whatever the buffer holds, and 24-bit Z sent into a
+// 16-bit buffer wraps. That range was FIVE hardcoded copies of 0xFFFFFF
+// (StaPip, DynPip, the depth-of-field solve, the generated portal mask, plus
+// two stale /32 ones in the Minecraft pipeline and the debug draw that predate
+// the XYZF2 switch and still sit in the bottom sixteenth of the range). It is
+// one place now - RendererCoreDepth - and the four live sites read it.
+//
+// The price is precision, stated in units because it decides whether a project
+// may use the mode at all: the world step at distance d is d^2/(maxZ*near), so
+// 16 bits at near 0.1 resolves 1.53 units at d=100 against 0.006 for 24. On a
+// console at near 0.1 the scene is band-free and correctly sorted, and fine
+// geometry at middle distance z-fights - night-walk's procedural trees show a
+// bright wedge across the crown where a tier's own cone faces fight. Raising
+// near buys it back linearly but is capped near 0.3 by the walker's own
+// clearance (clipMargin is -(near + 0.15) against playerRadius 0.35), so a
+// project-declared near/far is the next step and deliberately NOT in this
+// change. Measured VRAM on the fixture: 1.93 MB used at 16-bit against 3.95 at
+// 32-bit.
+//
 // 1.56.0 (a caster's shadow IS its mesh now): the flashlight's shadow
 // volumes stop being cut from boxes - a model caster classifies its REAL
 // triangles against the torch, extrudes the silhouette edges to the light's
@@ -1742,7 +1772,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 56
+#define TYRAX_VERSION_MINOR 57
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

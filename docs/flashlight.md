@@ -325,7 +325,11 @@ a **band** (256 rows × the raster width = 512 KB, exactly what the broken
 16-bit full-raster target cost) and `FRAME.FBP` is slid by whole page *rows* so
 the band covers the volumes' screen rect. `ZBP` never moves, which is what
 keeps the 1:1 correspondence with the scene's depth exact; the band's first row
-must be a multiple of 32 for the slide to be expressible. A shadow region
+must be a multiple of its own page-row height for the slide to be expressible.
+And the band's FORMAT follows the project's colour depth for the same reason
+the z buffer's does (docs/gs-vram.md): a 16-bit project runs a `PSMZ16` z whose
+pages are 64x64, so its count band is `PSMCT16` - a 32-bit band there would
+reintroduce the very mismatch this section is about, one buffer along. A shadow region
 taller than the band is counted band by band — the mask is an OR, so the bands
 compose and a tall shadow costs fill, not coverage. Then **one resolve pass per frame**
 samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel

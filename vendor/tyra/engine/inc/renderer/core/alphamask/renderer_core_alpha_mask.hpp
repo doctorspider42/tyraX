@@ -112,7 +112,8 @@ class RendererCoreAlphaMask {
    * has - so it is allocated as a BAND (kCountBandRows) and FRAME.FBP is slid
    * by whole page ROWS so the band covers the requested rect. ZBP never
    * moves, so the 1:1 x/y correspondence with the scene z holds exactly; the
-   * band's y origin must be a multiple of 32 (a page row) for the slide to be
+   * band's y origin must be a multiple of its own page-row height (32 rows
+   * at 32 bits, 64 at 16) for the slide to be
    * expressible. A rect taller than the band is counted band by band: the
    * mask is an OR, so the bands compose and nothing is lost but the fill.
    *
@@ -127,7 +128,8 @@ class RendererCoreAlphaMask {
 
   /** How many raster rows one count band covers. 256 rows x the raster
    * width at 32 bits is 512 KB - the same VRAM the (broken) 16-bit
-   * full-raster target used to take. Must be a multiple of 32, the page
+   * full-raster target used to take. Rounded down to a whole number of the
+   * band format's page rows in allocateCount; the page
    * row height of a 32-bit buffer. */
   static constexpr int kCountBandRows = 256;
 
@@ -190,7 +192,18 @@ class RendererCoreAlphaMask {
    * lands on the target's own row 0. Negative means the slide would leave
    * VRAM, which allocateCount() refuses up front. */
   int slidBase(int bandY0, int frameWidth) const;
-  static int slidBaseFor(int base, int bandY0, int frameWidth);
+  static int slidBaseFor(int base, int bandY0, int frameWidth, int pageRows);
+
+  /** The band's own PSM, which must have the SAME page geometry as the z
+   * buffer it is depth-tested against - so it follows the colour depth
+   * exactly as the z format does (RendererCoreDepth): PSMCT32 over a 32-bit
+   * z, PSMCT16 over a PSMZ16 one. Getting this wrong is the 32-pixel
+   * checkerboard the header opens with, one buffer further along. */
+  int countPsm = 0;
+
+  /** Pixel rows per GS page in countPsm: 32 for the 32-bit formats, 64 for
+   * the 16-bit ones. The band's height and every slide are multiples of it. */
+  int countPageRows = 32;
 };
 
 }  // namespace Tyra

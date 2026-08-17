@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include "renderer/core/postfx/renderer_core_postfx.hpp"
 #include "debug/debug.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -514,11 +515,15 @@ void RendererCorePostFx::apply(int passes) {
     // the pass's GEQUAL z-test exactly where the scene is d or farther.
     const float zn = settings->getNear();
     const float zf = settings->getFar();
+    // The range is RendererCoreDepth's, not a literal: a 16-bit-colour
+    // project runs a PSMZ16 z and these sprites must land on the same scale
+    // the vertex path used, or the whole DoF composite sits at wrong depths.
+    const float zMax = static_cast<float>(RendererCoreDepth::maxZ);
     auto zAt = [&](float d) -> u32 {
-      if (d <= zn) return 0xFFFFFFu;
+      if (d <= zn) return RendererCoreDepth::maxZ;
       if (d >= zf) return 0u;
-      const float z = 16777215.0F * zn * (zf - d) / (d * (zf - zn));
-      return z <= 0.0F ? 0u : (z >= 16777215.0F ? 0xFFFFFFu : (u32)z);
+      const float z = zMax * zn * (zf - d) / (d * (zf - zn));
+      return z <= 0.0F ? 0u : (z >= zMax ? RendererCoreDepth::maxZ : (u32)z);
     };
 
     // Three z-tested layers step the blur in between dofFocus and

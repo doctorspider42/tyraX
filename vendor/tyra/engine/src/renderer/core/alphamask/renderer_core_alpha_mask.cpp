@@ -91,18 +91,29 @@ void RendererCoreAlphaMask::allocateCount() {
   // rows to move it over the rect. Permanent-region discipline like the
   // shadow-map slots: below every texture, so the heap can never rewind past
   // it. Refusal is graceful - the caller keeps the convex 1-bit path.
+  // The band's format follows the COLOUR depth, because the z buffer it is
+  // depth-tested against does (RendererCoreDepth / RendererCoreGS): a 16-bit
+  // project runs a PSMZ16 z whose pages are 64x64, so a PSMCT32 band would
+  // reintroduce exactly the page-geometry mismatch this class documents - one
+  // buffer further along. PSMCT16 also halves the band, and counting survives
+  // 5-bit channels: N = 32 stores as 4, so seven overlapping front faces fit
+  // before saturation, and a +N/-N pair still cancels at both extremes of the
+  // dither matrix because the GS clamps at zero.
+  const bool halfDepth = settings->getFrameBufferPsm() == GS_PSM_16;
+  countPsm = halfDepth ? GS_PSM_16 : GS_PSM_32;
+  countPageRows = halfDepth ? 64 : 32;
   countW = static_cast<int>(settings->getWidth());
   const int rasterH = static_cast<int>(settings->getRenderHeightF());
   countH = rasterH < kCountBandRows ? rasterH : kCountBandRows;
   // The band height must be a whole number of page rows, or the last page row
   // of the band would be addressed past the allocation.
-  countH = countH / 32 * 32;
+  countH = countH / countPageRows * countPageRows;
   if (countH <= 0) {
     TYRA_WARN("Shadow-volume count band too short for a page row; ",
               "mesh volumes fall back to convex sub-boxes.");
     return;
   }
-  const int addr = gs->vram.allocateBuffer(countW, countH, GS_PSM_32);
+  const int addr = gs->vram.allocateBuffer(countW, countH, countPsm);
   if (addr < 0) {
     TYRA_WARN("Shadow-volume count target refused (VRAM); ",
               "mesh volumes fall back to convex sub-boxes.");
@@ -112,7 +123,7 @@ void RendererCoreAlphaMask::allocateCount() {
   // can ask for must still leave a non-negative address. Checked once here
   // rather than per frame, so countReady() answers the whole question.
   const int lastBand = (rasterH - 1) / countH * countH;
-  if (slidBaseFor(addr, lastBand, countW) < 0) {
+  if (slidBaseFor(addr, lastBand, countW, countPageRows) < 0) {
     // The permanent region is a bump allocator, so there is nothing to give
     // back - free() deliberately does not know these addresses. It costs the
     // band's words in a layout the engine's own init order cannot produce
@@ -131,23 +142,26 @@ void RendererCoreAlphaMask::allocateCount() {
   if (!maskClearPacket)
     maskClearPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   TYRA_LOG("Shadow-volume count band at ", countAddress, " (", countW, "x",
-           countH, " CT32, ", (countW * countH * 4) / 1024, " KB)");
+           countH, halfDepth ? " CT16, " : " CT32, ",
+           (countW * countH * (halfDepth ? 2 : 4)) / 1024, " KB)");
 }
 
-// The page-row slide. A 32-bit page is 64x32 pixels = 2048 words, and a page
-// ROW of the raster is (frameWidth / 64) pages, laid out linearly - so a band
-// whose first row is bandY0 is addressed through the base minus
-// (bandY0 / 32) row-strides, and pixel (x, bandY0) then lands on the target's
-// own row 0. ZBP is never slid, which is what keeps the depth test reading
-// the scene's own depth for the true (x, y).
-int RendererCoreAlphaMask::slidBaseFor(int base, int bandY0, int frameWidth) {
+// The page-row slide. A GS page is 2048 words whatever the format - what
+// changes is its SHAPE: 64x32 pixels at 32 bits, 64x64 at 16 - and a page ROW
+// of the raster is (frameWidth / 64) pages laid out linearly. So a band whose
+// first row is bandY0 is addressed through the base minus (bandY0 / pageRows)
+// row-strides, and pixel (x, bandY0) then lands on the target's own row 0.
+// ZBP is never slid, which is what keeps the depth test reading the scene's
+// own depth for the true (x, y).
+int RendererCoreAlphaMask::slidBaseFor(int base, int bandY0, int frameWidth,
+                                       int pageRows) {
   const int pagesPerRow = frameWidth / 64;
   const int wordsPerPageRow = pagesPerRow * 2048;
-  return base - (bandY0 / 32) * wordsPerPageRow;
+  return base - (bandY0 / pageRows) * wordsPerPageRow;
 }
 
 int RendererCoreAlphaMask::slidBase(int bandY0, int frameWidth) const {
-  return slidBaseFor(countAddress, bandY0, frameWidth);
+  return slidBaseFor(countAddress, bandY0, frameWidth, countPageRows);
 }
 
 void RendererCoreAlphaMask::maskClear() {
@@ -229,7 +243,7 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
   // stride must be the scene's because z addressing walks FRAME.FBW.
   PACK_GIFTAG(q,
               GS_SET_FRAME(slidBase(bandY0, t.frameWidth) >> 11,
-                           t.frameWidth >> 6, GS_PSM_32, 0),
+                           t.frameWidth >> 6, countPsm, 0),
               GS_REG_FRAME_1);
   q++;
   // XYOFFSET is left exactly as the raster set it, which is what keeps pixel
@@ -303,7 +317,7 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // pages, hence the different shifts of one address.
   PACK_GIFTAG(q,
               GS_SET_TEX0(slidBase(bandY0, t.frameWidth) >> 6,
-                          t.frameWidth >> 6, GS_PSM_32, lg2up(countW),
+                          t.frameWidth >> 6, countPsm, lg2up(countW),
                           lg2up(countH), 1 /* tcc */, 1 /* decal */, 0, 0, 0,
                           0, 0),
               GS_REG_TEX0_1);
