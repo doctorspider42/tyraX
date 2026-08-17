@@ -1761,10 +1761,11 @@ bool bakeTextPNG(const HudText& text, const Project& p,
 }
 
 void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba) {
-    // 64x64 pow2 (PS2 texture rule), white RGB, shape in alpha. The game
-    // draws them additively (Sprite::additive) tinted by the light color,
-    // so alpha IS the brightness profile.
-    constexpr int N = 64;
+    // pow2 (PS2 texture rule), white RGB, shape in alpha. The game draws
+    // them additively (Sprite::additive) tinted by the light color, so
+    // alpha IS the brightness profile. Kind 2 bakes larger - see the size
+    // note in menubake.hpp.
+    const int N = flareSpriteSize(kind);
     rgba.assign(N * N * 4, 0);
     for (int y = 0; y < N; ++y) {
         for (int x = 0; x < N; ++x) {
@@ -1804,8 +1805,9 @@ bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
     std::vector<unsigned char> rgba;
     bakeFlareRGBA(kind, rgba);
     png.clear();
-    return stbi_write_png_to_func(pngWriteCallback, &png, 64, 64, 4, rgba.data(),
-                                  64 * 4) != 0;
+    const int n = flareSpriteSize(kind);
+    return stbi_write_png_to_func(pngWriteCallback, &png, n, n, 4, rgba.data(),
+                                  n * 4) != 0;
 }
 
 std::string flareFileName(int kind) {

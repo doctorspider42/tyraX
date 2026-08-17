@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.52.0 (a caster's shadow IS its mesh now): the flashlight's shadow
+// 1.55.0 (a caster's shadow IS its mesh now): the flashlight's shadow
 // volumes stop being cut from boxes - a model caster classifies its REAL
 // triangles against the torch, extrudes the silhouette edges to the light's
 // range (caps from the lit faces, pushed 0.05, plus their far projection;
@@ -65,6 +65,141 @@
 // because emitRasterRestore does not know about texture state. Docs:
 // docs/flashlight.md "The shadow" rewritten around the counting
 // arrangement; no format change (the technique flag is v27's).
+// 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
+// scene with Point Light > Beam used to look materially different in the
+// editor than in PCSX2, because the editor drew neither half of it. It draws
+// both now, from the game's own numbers: the additive corona billboard with
+// the camera pull (a quarter of the light radius, capped at three quarters of
+// the camera distance, size-compensated - without the pull the editor shows
+// the very z-fight seam 1.53.1 removed from the console), and the eight-
+// segment apex-to-black cone shaft for Beam: corona + shaft. One sprite bake
+// serves the beams, the ground pools and the night sky's star dot
+// (Viewport::coronaTex, at menubake::kCoronaSpriteSize - the pools were still
+// uploading it at the flare size after 1.53.1 moved kind 2 to 128, i.e. a
+// quarter of the image). Beams draw in EVERY shading mode, unlike the ground
+// pools: a beam is geometry the game submits, not a simulation of how the
+// console shades. The runtime LEVEL is deliberately not reproduced - flicker,
+// Set Light and a streamed-out light are runtime state, and a glow pulsing
+// over a rock-steady pool of light would be a new lie rather than less of one.
+// Verified against PCSX2 on examples/night-walk's street lamp by differencing
+// beam-on against beam-off in each renderer (which cancels the editor's
+// gizmos and every shading difference) at a matched eye/aim/FOV from three
+// vantages: the added light lands within 0.17 % of picture width and 0.64 % of
+// height, its area agrees to 8 %, and the editor's amplitude tracks the
+// sprite's own alpha curve to 3 % at two brightnesses. Behind a wall both add
+// exactly zero, so the depth test still hides a glow the way it should. Also
+// corrected on the way through: the console capped the pull at HALF the camera
+// distance while its own commit message, docs and this file all said three
+// quarters - the measurement that picked the value is in 1.53.1's entry, and
+// the code kept the value it rejected. MINOR: the viewport gains a capability,
+// nothing changes shape on disk.
+//
+// 1.53.1 (a lamp's glow stops sawing its own pole): reported from
+// examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
+// boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
+// at the reporter's own vantage (torch toggled: unchanged; light removed:
+// gone; Beam set to 0: gone - so the corona), with every capture taken by the
+// GAME ITSELF (ps2sdk's ps2_screenshot_file into host:, VIF1 reverse FIFO),
+// because the desktop was locked all night and no host-side capture can see a
+// window there. Two causes, two fixes, both in the generated
+// updateAndRenderLightBeams/menubake pair:
+//
+// THE SEAM IS A Z-FIGHT WITH ITS OWN FIXTURE. The corona is a depth-tested
+// additive billboard centred exactly on the bulb, so it slices through the
+// lamp's own pole and arm, and the GS's fixed-point z cuts the soft sprite on
+// a chunky seam that wanders as the camera moves. The sprite is now PULLED
+// toward the camera (a quarter of the light radius, capped at three quarters
+// of the camera distance - a half-distance cap measurably parked the seam at
+// the pole's base when looking steeply up, which is how the cap value was
+// chosen) and shrunk by the same fraction, so its apparent size is untouched:
+// the glow blooms OVER the thin fixture the way a real lens does, and a wall
+// between camera and lamp still occludes it. The cone shaft (Beam: shaft)
+// stays at the true position - it is world geometry.
+//
+// AND THE CORONA WAS 64 TEXELS ACROSS A THIRD OF THE SCREEN. Up close the
+// radial gradient's texels are ~4 px, so its rim contours in visible steps
+// whatever the z does. Kind 2 - the beam corona, which the star field also
+// draws through - bakes at 128 now (menubake::kCoronaSpriteSize; the 2D
+// lens-flare sprites stay 64, they draw small). The file is rewritten on
+// every refreshGenerated, so existing projects pick it up on their next
+// build; the editor viewport's star-dot upload follows the same constant.
+//
+// What this deliberately does NOT fix, measured so it is not re-chased: the
+// few-pixel stepping that remains at the pole's base is the pole model's own
+// edge aliasing at native resolution - identical with the corona's z-test
+// off, identical at 64 and 128, present with the beam entirely removed once
+// the contrast is matched - and would need AA or a higher raster, not a pass
+// change. PATCH: no capability appears, a defect goes away; the format is
+// untouched.
+//
+// 1.53.0 (the viewport learns to lie less - docs/ps2-viewport.md): two new
+// look simulations beside the PS2 output mode, both machine-global. "PS2
+// shading" re-runs the viewport's ONE lighting chunk per triangle corner in a
+// geometry stage - the console's per-vertex shading, with TyraShadingFlat
+// mirrored per draw, dynamic lights on the VU1 slot formula (radial, no N.L),
+// the terrain's dynamic light drawn as the console's ground POOL (same corona
+// pixels, same FIX scale) and the flashlight kept per-pixel like its projected
+// pool. "GS colour" quantizes the picture to PSMCT16's 5 bits through the
+// engine's own DIMX dither matrix, following the project's Colour depth by
+// default. Verified A/B against a PCSX2 frame of a lamp + sphere fixture
+// (savestate-embedded screenshot; the pool, the lit ball and the banding
+// match). MINOR: two capabilities appear, nothing changes shape on disk.
+//
+// 1.52.1 (the .rpm stops being twice its own size): v1.52.0 shipped a 31 MB
+// rpm of a tree that packs into 13, because a spec that says nothing about its
+// payload gets the BUILDER's default - and the CI runner's rpmbuild (Ubuntu
+// 22.04, rpm 4.17) reaches for gzip where a modern one reaches for zstd. It is
+// stated now, as xz: rpm 4.8 (2010) on the installing machine rather than zstd's
+// 4.14, and Debian-family rpm links liblzma for certain, which is not something
+// to bet a release job on. Verified by packing the same tree both ways and
+// reading %{PAYLOADCOMPRESSOR} back off the result - and the shrunken rpm's
+// payload was extracted and its editor run (--vu-check) out of it.
+//
+// Also here: the repository was renamed tyra-editor -> tyraX, so the four
+// tracked strings that still named the old one follow (the generated
+// THIRD-PARTY-NOTICES, the VS Code extension's README, package.json and its
+// packager). GitHub redirects the old URL, so nothing was broken - it was
+// merely lying about where this comes from. The committed .vsix still carries
+// the old URL in its manifest and is deliberately NOT repackaged for a metadata
+// string; the next real extension change picks it up.
+//
+// 1.52.0 (Linux gets packages of its own, and one of them updates itself):
+// docs/updates.md. `installer/build-package.sh` is the POSIX twin of
+// build-installer.ps1 - it stages the repo-shaped tree ONCE (bin/, vendor/tyra,
+// tools/, the nine VU sources, examples, the licence files) and emits three
+// formats from it, so they cannot disagree about their contents:
+// `tyrax-<v>-linux-x86_64.tar.gz`, `tyrax_<v>_amd64.deb` and
+// `tyrax-<v>-1.x86_64.rpm`. The release workflow gained a build-linux job that
+// attaches all three - stamping the released PATCH into this file's workspace
+// copy exactly as the Windows job does, or a tarball install would report the
+// file's number, disagree with its own release and offer itself an update for
+// ever. It runs on ubuntu-22.04 ON PURPOSE, because a binary runs
+// on a newer glibc than it was built against and never an older one, so the
+// runner image IS the compatibility floor.
+//
+// THE TARBALL IS THE PRIMARY FORMAT AND THE OTHER TWO ARE A CONVENIENCE LAYER,
+// which is a statement about what made the Windows installer good: not that it
+// is an installer, but that it installs PER USER, without root - which is the
+// only reason an update can install itself with nothing to authenticate
+// against. A .deb or .rpm cannot do that, so those are handed to the package
+// manager, out loud: `update::installKind` reads a one-word `.tyrax-package`
+// marker at the install root (absent = a source checkout) and
+// `selfInstallBlocked` turns each answer into either the install button or ONE
+// sentence naming what to do instead. `update::parseRelease` now picks its
+// asset by `platformAssetSuffix()` rather than by `.exe`, and the Linux half of
+// `runInstaller` writes a small detached script that waits for the editor to
+// exit, unpacks over the install root and starts it again - the same overlay
+// semantics tyrax.iss has always had.
+//
+// The .deb/.rpm live in /opt/tyrax with a /usr/bin symlink, which works because
+// platform::exePath resolves /proc/self/exe through canonical() - so the
+// editor's four exe-relative lookups land in the real tree. Verified: all three
+// packages built and inspected, a project created by the unpacked tarball's
+// binary bind-mounts ITS OWN vendor/tyra, and a full self-update (refuse for
+// deb/rpm/checkout/read-only, unpack, relaunch) driven from a harness.
+//
+// MINOR: a capability appears, nothing changes shape for an existing project.
+//
 // 1.51.0 (TyraX ships as an installer, and tells you when there is a newer
 // one): three pieces that only make sense together - docs/updates.md.
 //
@@ -78,11 +213,16 @@
 // update install itself without a UAC prompt.
 //
 // EVERY PUSH TO main IS A RELEASE (.github/workflows/release.yml). The version
-// still lives in this file and nowhere else: CI reads these three macros, and
-// if that version is already tagged it bumps PATCH, commits the header back
-// with [skip ci] and uses the new number - so a human bumping MINOR for a
-// feature (with the paragraph above it, as here) is what SHOULD happen, and the
-// automatic bump is only the floor that stops main from sitting unreleased.
+// is authored HERE, and the TAGS record which patches are spent: CI reads these
+// three macros, releases them as they stand if v<that> is untagged, and
+// otherwise goes one PATCH past the highest v<MAJOR>.<MINOR>.* tag - stamping
+// that number into a workspace copy of this file before it compiles, so the
+// binary, the installer and the tag cannot disagree. It never writes to main
+// (the branch ruleset forbids it; tags are exempt), which means that between
+// releases the PATCH below is a FLOOR rather than a fact. A human bumping MINOR
+// for a feature (with the paragraph above it, as here) is what SHOULD happen
+// and resets that sequence; the automatic patch is only the floor that stops
+// main from sitting unreleased.
 //
 // AND THE EDITOR CHECKS FOR ITSELF (update.cpp / update_ui.cpp, Help > Check
 // for updates). One HTTPS request to the repository's releases at startup, on a
@@ -433,7 +573,7 @@
 // volume - the GS cannot count like a stencil, which is also why true
 // mesh-shaped volumes (a bed's slats) need the era's full arrangement
 // (count in a spare color channel with add/sub blending + a resolve pass)
-// and are left as the named next step (landed in 1.52.0, further up this file).
+// and are left as the named next step (landed in 1.55.0, further up this file).
 //
 // 1.39.3 (thin things are transparent to the torch, in all three systems):
 // stand exactly on the street lamp's axis and the light died completely -
@@ -1436,7 +1576,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 52
+#define TYRAX_VERSION_MINOR 55
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

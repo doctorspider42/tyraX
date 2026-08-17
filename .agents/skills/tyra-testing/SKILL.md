@@ -2059,7 +2059,7 @@ And the reply is consumed by `aiChatTick`, which runs from `drawUI` whether or n
 the window is open - so a `wait` long enough for N backend invocations is what a
 multi-step turn needs, and closing the window mid-turn does not strand it.
 
-## Verifying the installer and the update check (docs/updates.md)
+## Verifying the packages and the update check (docs/updates.md)
 
 Both halves are checkable on the machine you are on - neither needs CI, and
 neither should be believed without this.
@@ -2116,11 +2116,46 @@ Menu folder and the `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`
 key are all gone - an installer that cannot uninstall itself is a worse bug than
 one that cannot install.
 
+**The Linux packages are the same idea and cost less.** All three come out of
+one staged tree, so the tarball is the one to unpack and RUN - it proves the
+layout for the other two:
+
+```bash
+./installer/build-package.sh --skip-build --all --out-dir /tmp/pkg
+tar xzf /tmp/pkg/tyrax-<v>-linux-x86_64.tar.gz -C /tmp/pkg
+/tmp/pkg/tyrax-<v>/bin/tyrax-editor --new t /tmp/pkg   # then grep the engine path
+grep engine-src /tmp/pkg/t/docker-compose.yml          #   in the generated compose
+```
+
+That last line is the whole point: it must name the UNPACKED tree's
+`vendor/tyra` and not your checkout's. `--deb` needs `dpkg-deb`
+(`apt-get install dpkg-dev`), `--rpm` needs `rpmbuild` (`apt-get install rpm`);
+inspect what they declare rather than trusting the spec - `dpkg-deb -I`/`-c` and
+`rpm -qip`/`-qRp`/`-qlp` print the metadata, the dependency list and the file
+list, and a missing `zenity | kdialog` there is an editor whose Open button does
+nothing.
+
+**The self-update is testable without a release**, and it should be, because
+every branch of it is a refusal:
+
+```bash
+g++ -std=c++20 -I src harness.cpp src/update.cpp src/json.cpp src/platform.cpp -o uh
+```
+
+Put that binary at `<root>/bin/`, write a `.tyrax-package` marker beside it and
+call `update::installKind`/`selfInstallBlocked` for each word: `tarball` (empty
+= the button appears), `deb`, `rpm`, no file at all (source checkout), and
+`tarball` in a `chmod a-w` directory. Then drive the real thing - build a
+throwaway "new release" tarball of the same harness, call
+`update::runInstaller` on it, and check afterwards that the tree carries the new
+files, that a file the new release does NOT contain survived (the overlay is
+deliberate) and that the binary was relaunched.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
 |---|---|
-| The installer or the update check | The section above: a harness for the pure half, `--ui-script` for the modal, a real silent install + `--vu-check` from it for the layout, then uninstall |
+| A package or the update check | The section above: a harness for the pure half, `--ui-script` for the modal, a real install (silent on Windows, unpack the tarball on Linux) + `--vu-check`/`--new` FROM it for the layout, then uninstall / a driven self-update |
 | Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |

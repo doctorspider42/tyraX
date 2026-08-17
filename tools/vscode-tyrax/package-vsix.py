@@ -48,7 +48,7 @@ CONTENT_TYPES = (
     "</Types>"
 )
 
-REPO = "https://github.com/doctorspider42/tyra-editor"
+REPO = "https://github.com/doctorspider42/tyraX"
 
 
 def xml_escape(s):

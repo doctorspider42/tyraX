@@ -1,25 +1,59 @@
 # Every push to main becomes a released, installable build.
 #
-# THE VERSION IS src/version.hpp AND NOTHING ELSE. Three jobs, in this order:
+# THE VERSION IS src/version.hpp, AND THE TAGS SAY WHICH PART OF IT IS SPENT.
+# Four jobs, in this order:
 #
-#   version  read TYRAX_VERSION_MAJOR/MINOR/PATCH. If that version is already
-#            tagged, bump PATCH, commit the header back to main and use the new
-#            number. Then tag - here, not at the end - so two pushes landing a
-#            minute apart cannot both claim one version.
-#   build    Windows: build the editor, package installer\tyrax.iss with Inno
-#            Setup 7 into dist\TyraX-Setup-<version>.exe.
-#   release  publish the tag as a GitHub release with that installer attached.
+#   version  read TYRAX_VERSION_MAJOR/MINOR/PATCH. If v<that> is not tagged,
+#            release it as it stands; if it is, take the highest v<MAJOR>.<MINOR>.*
+#            tag and go one PATCH past it. Then tag - here, before anything is
+#            built - so two pushes a minute apart cannot both claim one version.
+#   build    Windows: stamp that PATCH into src/version.hpp IN THE WORKSPACE,
+#            build the editor, package installer\tyrax.iss with Inno Setup 7
+#            into dist\TyraX-Setup-<version>.exe.
+#   build-linux  Linux: the same stamp, then the editor, then
+#            installer/build-package.sh --all for the tarball, the .deb and the
+#            .rpm. It runs on the OLDEST runner image we support ON PURPOSE - a
+#            binary links against the glibc it was built on and runs on anything
+#            newer, never older, so that one line is the compatibility floor of
+#            every Linux package we ship.
+#   release  publish the tag as a GitHub release with all four packages attached.
 #
-# The bump commit says [skip ci], which GitHub honours for push events - without
-# it the bump would trigger this workflow again, find its own tag already there,
-# bump once more, and never stop.
+# NOTHING HERE WRITES TO main, AND THAT IS THE FIX FOR THIS REPOSITORY'S OWN
+# RULES. The first version of this workflow committed the bumped header back to
+# main with [skip ci]; main has a ruleset saying "changes must be made through a
+# pull request", so the push was rejected (GH013) and the release stopped there.
+# Rules apply to refs/heads/main only, so pushing a TAG is fine - which is what
+# makes the tag, rather than a commit, the thing that records a version as used.
 #
-# So a human bumping MINOR in version.hpp (with the changelog paragraph the file
-# expects, per docs/format-versioning.md) is what SHOULD happen for a feature;
-# the automatic PATCH bump is the floor under everything else, so that no push
-# to main can leave main unreleased. The editor's own update check reads these
-# releases (docs/updates.md) - the asset name is not hardcoded anywhere, it is
-# taken from the release's asset list, so renaming the installer breaks nothing.
+# The consequence, and it has to be said plainly: between releases the PATCH in
+# src/version.hpp is a FLOOR, not a fact. A build from a checkout reports the
+# number in the file; a RELEASE reports the number in its tag, because the build
+# job rewrites the file before compiling. That keeps the one thing that must not
+# drift in step - the binary, the installer and the release all say the same
+# version, so the editor's update check cannot decide it is permanently out of
+# date. MAJOR and MINOR are never touched by CI: bumping those (with the
+# changelog paragraph version.hpp expects) is a human's job and resets the patch
+# sequence.
+#
+# The editor's own update check reads these releases (docs/updates.md) - no
+# asset NAME is hardcoded anywhere, it picks the one from the release's asset
+# list whose name ENDS with its platform's suffix (update::platformAssetSuffix),
+# so a version moving inside a file name breaks nothing. The two SUFFIXES are
+# the contract: `.exe`, and `-linux-x86_64.tar.gz` for the one Linux format an
+# install can apply to itself (a .deb or .rpm belongs to the package manager,
+# and the editor says so instead of offering the button).
+#
+# THE ACTION VERSIONS BELOW ARE THE Node 24 MAJORS, and the numbers differ per
+# action on purpose - do not "tidy" them back into one. The first release run
+# warned that checkout@v4 targets the deprecated Node 20 and was being forced
+# onto Node 24; each action fixed that in a different major, and for the two
+# artifact actions the FIRST major to claim Node 24 still defaulted to Node 20
+# (their own release notes say so - upload v5 and download v5/v6 are
+# "preliminary"), so v5 would have left the warning in place. Hence checkout@v7,
+# cache@v6, upload-artifact@v7, download-artifact@v8: the newest major of each,
+# whose only breaking change that touches this workflow is download-artifact v8
+# failing on a digest mismatch instead of warning - which is what we want from
+# the job that publishes an installer other people will run.
 name: release
 
 on:
@@ -42,13 +76,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.pick.outputs.version }}
+      patch: ${{ steps.pick.outputs.patch }}
       sha: ${{ steps.pick.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Decide the version, bump it if it is already taken, and tag it
+      - name: Decide the version from the file and the tags, and claim it
         id: pick
         run: |
           set -euo pipefail
@@ -59,26 +94,30 @@ jobs:
           major=$(read_part MAJOR); minor=$(read_part MINOR); patch=$(read_part PATCH)
           test -n "$major" -a -n "$minor" -a -n "$patch" \
             || { echo "FAIL: src/version.hpp has no TYRAX_VERSION_* macros"; exit 1; }
-          version="$major.$minor.$patch"
 
           git fetch --tags --quiet
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            patch=$((patch + 1))
-            version="$major.$minor.$patch"
-            echo "v$major.$minor.$((patch - 1)) is already released - bumping to v$version"
-            sed -i "s/^#define TYRAX_VERSION_PATCH .*/#define TYRAX_VERSION_PATCH $patch/" \
-              src/version.hpp
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git commit -am "chore(release): v$version [skip ci]"
-            git push origin HEAD:main
+          if git rev-parse -q --verify "refs/tags/v$major.$minor.$patch" >/dev/null; then
+            # The highest patch ALREADY RELEASED on this MAJOR.MINOR line, not
+            # merely the file's + 1: a series of pushes must not keep proposing
+            # the same number, and a hand-bumped file that is behind the tags
+            # must not go backwards either. `sort -n` so .10 beats .9.
+            highest=$(git tag -l "v$major.$minor.*" \
+                      | sed "s/^v$major\.$minor\.//" \
+                      | grep -E '^[0-9]+$' | sort -n | tail -n1)
+            echo "v$major.$minor.$patch is already released (highest patch: $highest)"
+            patch=$((highest + 1))
           else
-            echo "v$version is not released yet - releasing this tree as it stands"
+            echo "v$major.$minor.$patch is not released yet - releasing this tree as it stands"
           fi
+          version="$major.$minor.$patch"
 
+          # The tag is the claim, and it is the ONLY thing this workflow writes
+          # to the repository. main's ruleset forbids a direct push to the
+          # branch; it says nothing about tags.
           git tag "v$version"
           git push origin "v$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "patch=$patch" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "## TyraX v$version" >> "$GITHUB_STEP_SUMMARY"
 
@@ -86,11 +125,34 @@ jobs:
     needs: version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
-          # The commit the version job settled on - which is NOT github.sha when
-          # it had to bump the header.
           ref: ${{ needs.version.outputs.sha }}
+
+      # STAMP THE RELEASED PATCH INTO THE WORKSPACE COPY of version.hpp. Never
+      # committed - see the note at the top. This is what keeps the binary, the
+      # installer's file name and the tag saying one number; without it a build
+      # released as v1.51.1 would introduce itself as 1.51.0 and then offer
+      # itself an update, for ever. MAJOR and MINOR are the file's own and are
+      # only asserted here.
+      - name: Stamp the version
+        shell: pwsh
+        run: |
+          $version = '${{ needs.version.outputs.version }}'
+          $patch = '${{ needs.version.outputs.patch }}'
+          $p = 'src/version.hpp'
+          $text = [IO.File]::ReadAllText($p)
+          $major = [regex]::Match($text, '(?m)^#define TYRAX_VERSION_MAJOR (\d+)\s*$').Groups[1].Value
+          $minor = [regex]::Match($text, '(?m)^#define TYRAX_VERSION_MINOR (\d+)\s*$').Groups[1].Value
+          if ("$major.$minor.$patch" -ne $version) {
+            throw "version.hpp says $major.$minor.* but the release is $version - CI only ever moves PATCH"
+          }
+          $text = [regex]::Replace($text, '(?m)^#define TYRAX_VERSION_PATCH .*$',
+                                   "#define TYRAX_VERSION_PATCH $patch")
+          # WriteAllText, not Set-Content: UTF-8 with no BOM, whatever shell
+          # this runs under.
+          [IO.File]::WriteAllText($p, $text)
+          Write-Host "building as $version"
 
       # MinGW-w64, and deliberately not whatever `gcc` resolves to: the runner
       # image also has Strawberry Perl's ancient GCC on PATH, and this project
@@ -118,7 +180,7 @@ jobs:
       # A cold build of this repo is dominated by -O3 on a handful of very large
       # translation units; a warm ccache turns a release into a few minutes.
       - name: ccache store
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/AppData/Local/ccache
           key: release-ccache-${{ needs.version.outputs.sha }}
@@ -135,29 +197,130 @@ jobs:
         shell: pwsh
         run: ./build.ps1
 
-      # The .iss refuses to compile under Inno Setup 6, so an old package here
-      # fails loudly instead of silently producing a different installer.
-      - name: Inno Setup
+      # INNO SETUP 7, FROM ITS OWN RELEASE, PINNED AND HASHED. Not
+      # `choco install innosetup`: that package is still the 6.x line, and the
+      # first release run duly installed 6.7.1 and died inside ISPP on the
+      # .iss's version guard - the guard doing its job, one step too late to be
+      # readable. Not winget either, which is not dependable in a non-
+      # interactive runner session. This is the vendor's own installer at a
+      # fixed version, checked against its SHA-256 before it is run: the file
+      # this step executes is the one that was reviewed, or the job stops.
+      # Bumping the version means re-recording the hash in the same commit.
+      - name: Inno Setup 7
         shell: pwsh
-        run: choco install innosetup -y --no-progress
+        run: |
+          $ver = '7.1.0'
+          $sha = '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F'
+          $url = "https://github.com/jrsoftware/issrc/releases/download/is-$($ver -replace '\.','_')/innosetup-$ver-x64.exe"
+          $exe = Join-Path $env:RUNNER_TEMP "innosetup-$ver-x64.exe"
+          Invoke-WebRequest -Uri $url -OutFile $exe
+          $got = (Get-FileHash $exe -Algorithm SHA256).Hash
+          if ($got -ne $sha) { throw "innosetup-$ver-x64.exe SHA-256 is $got, expected $sha" }
+          Start-Process $exe -Wait -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-'
+          # Fail here rather than in the packaging step if the install silently
+          # did nothing - build-installer.ps1 would then fall back to whatever
+          # older ISCC the image ships and say so, which is a worse place to
+          # find out.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "$env:ProgramFiles\Inno Setup 7\ISCC.exe" }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup 7 did not install where expected" }
+          Write-Host ((& $iscc /?) | Select-Object -First 1)
+          # ISCC exits 1 for /?, and the runner's pwsh epilogue exits the step
+          # with whatever $LASTEXITCODE holds - so a banner is the one thing
+          # that must not be the last command without this line.
+          $LASTEXITCODE = 0
 
       - name: Package the installer
         shell: pwsh
         run: ./installer/build-installer.ps1 -SkipBuild -Version ${{ needs.version.outputs.version }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: installer
           path: dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
           if-no-files-found: error
 
+  build-linux:
+    needs: version
+    # THE OLDEST IMAGE WE SUPPORT, NOT ubuntu-latest: glibc is backward but not
+    # forward compatible, so this line is the floor of every Linux package the
+    # release carries (22.04 = glibc 2.35, which covers Ubuntu 22.04+,
+    # Debian 12+, Fedora 36+). Bumping it drops distributions, and nothing here
+    # would fail - the packages simply stop installing for people who never
+    # report it.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      # The same stamp the Windows job makes, for the same reason and with the
+      # same assertion - see it for the argument. A Linux build that skipped
+      # this would report the file's PATCH while its tarball carried the tag's,
+      # and every tarball install would offer itself an update for ever.
+      - name: Stamp the version
+        run: |
+          set -euo pipefail
+          version='${{ needs.version.outputs.version }}'
+          patch='${{ needs.version.outputs.patch }}'
+          read_part() {
+            sed -n "s/^#define TYRAX_VERSION_$1[[:space:]]\+\([0-9]\+\)[[:space:]]*$/\1/p" \
+              src/version.hpp | head -n1
+          }
+          major=$(read_part MAJOR); minor=$(read_part MINOR)
+          test "$major.$minor.$patch" = "$version" \
+            || { echo "FAIL: version.hpp says $major.$minor.* but the release is $version - CI only ever moves PATCH"; exit 1; }
+          sed -i "s/^#define TYRAX_VERSION_PATCH .*/#define TYRAX_VERSION_PATCH $patch/" src/version.hpp
+          echo "building as $version"
+
+      # The editor's own toolchain and the X11/Wayland/GL headers come from
+      # deps.sh, which is the one list; dpkg-dev and rpm are what
+      # build-package.sh's two distro formats shell out to.
+      - name: Dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev rpm ccache
+          ./setup.sh --deps
+
+      - name: ccache store
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: release-linux-ccache-${{ needs.version.outputs.sha }}
+          restore-keys: release-linux-ccache-
+
+      - name: Build the editor
+        run: ./build.sh
+
+      # --all is the tarball + the .deb + the .rpm, all staged from ONE tree, so
+      # the three cannot disagree about what is inside them. The tarball is the
+      # one an install can apply to itself; the packages are for people who
+      # would rather their package manager owned the files (docs/updates.md).
+      - name: Package
+        run: ./installer/build-package.sh --skip-build --all --version ${{ needs.version.outputs.version }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-packages
+          path: |
+            dist/tyrax-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
+            dist/tyrax_${{ needs.version.outputs.version }}_amd64.deb
+            dist/tyrax-${{ needs.version.outputs.version }}-1.x86_64.rpm
+          if-no-files-found: error
+
   release:
-    needs: [version, build]
+    needs: [version, build, build-linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: installer
+          path: dist
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: linux-packages
           path: dist
 
       - name: Publish the release
@@ -170,4 +333,7 @@ jobs:
             --title "TyraX ${{ needs.version.outputs.version }}" \
             --generate-notes \
             --target "${{ needs.version.outputs.sha }}" \
-            dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe
+            dist/TyraX-Setup-${{ needs.version.outputs.version }}.exe \
+            dist/tyrax-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz \
+            dist/tyrax_${{ needs.version.outputs.version }}_amd64.deb \
+            dist/tyrax-${{ needs.version.outputs.version }}-1.x86_64.rpm

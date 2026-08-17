@@ -18,7 +18,9 @@
 ;
 ; Shipping a bare .exe compiles nothing: the first game build would report a
 ; missing engine. If you add a new exe-relative lookup to the editor, add its
-; files here in the same commit.
+; files here AND to stage_tree in installer/build-package.sh - the Linux
+; packaging script, which stages the same shape into a .tar.gz, a .deb and an
+; .rpm - in the same commit.
 ;
 ; Build it with installer\build-installer.ps1 (that script is where the version
 ; comes from - src/version.hpp is the single source of truth for it, here and in
@@ -66,10 +68,17 @@ OutputBaseFilename=TyraX-Setup-{#AppVersion}
 SetupIconFile={#SourceDir}\resources\icon.ico
 UninstallDisplayIcon={app}\bin\tyrax-editor.exe
 UninstallDisplayName={#AppName} {#AppVersion}
-WizardStyle=modern
+; Inno Setup 7's own look: the modern (white) wizard, following whatever
+; light/dark mode Windows is in. `dynamic` is a 7.x appearance mode - one of the
+; reasons this script requires 7 rather than merely tolerating it.
+WizardStyle=modern dynamic
 Compression=lzma2/max
 SolidCompression=yes
-; The editor is 64-bit (MinGW-w64) and there is no 32-bit build.
+; The editor is 64-bit (MinGW-w64) and there is no 32-bit build, so the
+; installer is 64-bit too (SetupArchitecture is 7.x; the default is still a
+; 32-bit Setup). Nothing here loads a DLL, which is the one thing a 64-bit
+; Setup cannot do with 32-bit code.
+SetupArchitecture=x64
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ; Windows 10 1809 or newer. Not an arbitrary floor: the update check shells out

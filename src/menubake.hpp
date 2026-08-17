@@ -185,7 +185,19 @@ std::string textFileName(const std::string& textName);
 // The RGBA form is the single bake; the PNG one wraps it. The editor viewport
 // uploads these pixels straight to GL (the night sky's soft dot is kind 2), so
 // there is no second, preview-quality sprite.
+//
+// Kind 2 - the 3D beam corona, which the star field also draws through -
+// bakes at 128, not 64: it is a world-space billboard that can fill a third
+// of the screen right next to its own lamp, and at 64 the radial gradient's
+// texels are ~4 px there, so the rim CONTOURS in visible steps (the second
+// half of the night-walk lamp staircase report; the first half was the
+// z-fight the corona pull in updateAndRenderLightBeams fixes). The 2D
+// lens-flare sprites stay at 64 - they draw small, alpha-shaped.
 constexpr int kFlareSpriteSize = 64;
+constexpr int kCoronaSpriteSize = 128;
+inline int flareSpriteSize(int kind) {
+    return kind == 2 ? kCoronaSpriteSize : kFlareSpriteSize;
+}
 void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba);
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
 std::string flareFileName(int kind);

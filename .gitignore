@@ -7,8 +7,8 @@ build/
 # files, which this pattern (directories only) cannot match.
 build-*/
 # Packaged installers (installer/build-installer.ps1 and the release workflow
-# both write here). The published copy of one of these is a GitHub release
-# asset, never a tracked file.
+# both write here, as does installer/build-package.sh). The published copy of
+# one of these is a GitHub release asset, never a tracked file.
 dist/
 .vs/
 *.user

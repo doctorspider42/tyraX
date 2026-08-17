@@ -187,7 +187,8 @@ for people building games with it. Internals live in code comments, the git log
 - [Project format versioning & migrations](format-versioning.md) — what happens
   when you open an older or newer project, `--migrate`, and the bump rules.
 - [Installing TyraX and keeping it up to date](updates.md) — the Windows
-  installer and the layout it lays down, the startup update check and how to
+  installer, the Linux tarball/`.deb`/`.rpm` and which of them can update
+  itself, the layout they all lay down, the startup update check and how to
   switch it off, and how every push to `main` becomes a release.
 
 Developer design docs (internals, not user guides):

@@ -153,18 +153,25 @@ from the defaults too. The honest fix is per-object bake parameters stored
 beside `prelitSig`, which is also what would let one hero wall be 256 while the
 rest of the scene is 128 — worth doing the first time somebody mixes sizes.
 
-### Package TyraX for Linux
+### Linux packaging: the two things it did not do
 
-The installer and the self-update path are Windows only (docs/updates.md):
-`installer/tyrax.iss` is Inno Setup, and `update::runInstaller` refuses
-elsewhere, so a Linux user is told a new version exists and sent to the release
-page. The check, the version comparison and the release workflow are all
-platform-blind already, so this is one packaging step plus one branch: an
-AppImage or a `.tar.gz` with the same repo-shaped layout (`bin/`, `vendor/tyra`,
-`tools/`, `src/`) built by the same release job, and an asset picker in
-`update::parseRelease` that chooses by platform instead of by `.exe`. Deliberately
-NOT a stub twin of the `.iss` in the meantime — a packaging script that cannot
-work is worse than an honest refusal.
+Done in 1.52.0 — `installer/build-package.sh` stages the repo-shaped tree once
+and emits a `.tar.gz`, a `.deb` and an `.rpm`; the tarball self-updates and the
+two packages are told to use the package manager (docs/updates.md). Two pieces
+were deliberately left out and are worth doing when somebody asks for them.
+
+**No AppImage**, and not for effort reasons: an AppImage's payload is a
+user-private FUSE mount under `/tmp/.mount_*`, and the game build bind-mounts
+`vendor/tyra` into a container whose daemon runs as root — which cannot traverse
+that mount. So the one format that looks tailor-made for this would ship an
+editor that cannot build a game, unless it first copied the engine out to a real
+directory, at which point the tarball is simpler and honest. Revisit only with
+that copy-out step designed.
+
+**x86_64 only.** An `aarch64` package is a runner and a second matrix row (plus
+`platformAssetSuffix` learning the architecture, which is why the suffix already
+carries it) — but the PS2 toolchain image would have to run under emulation on
+that host, so measure a game build there before promising anything.
 
 ### Sign the Windows installer
 
@@ -175,6 +182,28 @@ step in the release workflow fixes both; until then, the honest mitigation would
 be publishing the installer's SHA-256 with the release and having
 `update::download` check it (the release JSON already carries the asset's size,
 but not its digest).
+
+### Find the corona's missing 1.3x on the console
+
+Measured while bringing the beams into the viewport: a PCSX2 frame's beam
+corona adds **1.26-1.31x** what its own sprite implies, while the editor's twin
+adds 0.97-1.00x of it. The instrument is beam-on minus beam-off in each
+renderer, sampled straight up from the light and fitted against the bake's own
+alpha curve (`t^2 (0.3 + 0.7 t)` from `menubake::bakeFlareRGBA` kind 2) times
+the light colour. It is a pure AMPLITUDE factor, not a size one: fitting a free
+radius instead gives rms 12.5 against 2.4, and the fitted radius scale would
+have to be 1.18 while the glow demonstrably dies at the same radius on both
+sides. It is also independent of everything tried - the same factor at
+`lightBright` 1.3 and 0.4 (so not the `min(k, 1)` FIX clamp), in interlaced and
+progressive display modes (so not field rendering), at every radius from 20 to
+55 % of the sprite (so not a texel offset), and the shipped
+`res/hud/flare-corona.png` is byte-for-byte the bake. The sky's authored colour
+reads the same in both captures, so it is not a global capture gain either.
+Candidates left: the GS texture function or the `GS_SET_ALPHA(0,2,2,1,FIX)`
+path in `StaPipQBufferRenderer` doing something other than `Cs*FIX/128 + Cd`,
+PCSX2's software blending of a 16-bit target, or a second draw of the same
+quad. Settle it before making either side match the other - the viewport
+currently reproduces the sprite exactly, which is the defensible half.
 
 ## Medium
 
@@ -536,3 +565,15 @@ interface, preferably using an optional tunnel rather than exposing a raw
 listening port. Define authentication, session lifetime and failure UI before
 shipping it. LAN and mesh-VPN sessions must keep working unchanged. See
 [collaboration](collaboration.md).
+
+### A devkit self-screenshot command (works on locked desktops and real hardware)
+
+The 2026-08-17 corona session proved the game can dump its own framebuffer
+through `host:` (ps2sdk libdebug's `ps2_screenshot_file`, VIF1 reverse FIFO;
+pass the framebuffer address in BLOCKS - `fb->address / 64` - or SBP's 14 bits
+overflow and the pages scramble). Productize it as a devkit channel: a command
+bit in `livedbg.cmd` (the VU capture is the precedent), a debug-only generated
+runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
+`kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
+is the only capture path that survives a locked desktop, and the only one that
+exists at all on a real console. See [live-debugger](live-debugger.md).

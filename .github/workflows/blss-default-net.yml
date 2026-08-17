@@ -116,7 +116,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # setup.sh --deps installs the distro toolchain and dev headers from the
       # ONE dependency list (deps.sh) and clones the vendored libraries; it also
@@ -125,7 +125,7 @@ jobs:
         run: ./setup.sh --deps
 
       - name: ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: blss-ccache-${{ github.sha }}

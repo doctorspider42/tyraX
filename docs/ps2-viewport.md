@@ -18,6 +18,18 @@ Viewport output*. Machine-global (`editor.ini`, key `viewportPs2`) like the
 safe areas — a way of looking, not project data, so it never dirties the
 `.tyra` and never travels to a collaboration peer.
 
+Two more simulations live next to it, in the same gear and menu, and compose
+with either output mode — triangle shading and 16-bit banding are visible
+(and true) at any raster:
+
+- **PS2 shading** (`viewportPs2Shade`) — shade the way the console does:
+  every lighting term evaluated per **vertex**, most surfaces **flat-shaded**.
+  See [PS2 shading](#ps2-shading) below.
+- **GS colour** (`viewportGsColor`) — the framebuffer depth the picture is
+  shown at: *Match project* (default — follows *Preferences > Colour depth*
+  and its dithering), *Full 32-bit*, *16-bit*, or *16-bit + dithering*. See
+  [GS colour](#gs-colour-16-bit--dithering) below.
+
 ## Why
 
 The editor's viewport is a lie in three specific ways, and each costs real
@@ -112,13 +124,84 @@ until now the editor simply did not show it. Author against it: circular
 things authored to look circular in the editor will read slightly wide on the
 console.
 
+## PS2 shading
+
+The editor's viewport normally shades **per pixel**: point lights, emissive
+lights, ambient occlusion, GI probes, the flashlight and fog are all evaluated
+in the fragment shader, so a light pool is a smooth circle and a lit sphere a
+smooth blob. The console cannot do any of that — it evaluates the same
+formulas **per vertex** (the EE bake at scene load, VU1 for the dynamic
+terms) and interpolates across the triangle, and most static geometry is
+submitted **flat-shaded** (`TyraShadingFlat`: one corner's colour paints the
+whole triangle — terrain chunks, static primitives, models, batches; the sky
+dome, animated models and dyn-lit objects shade Gouraud). That difference is
+exactly the "it looked better in the editor" gap.
+
+*PS2 shading* closes it: the scene pass swaps to a shader variant with a
+geometry stage that runs the **identical** lighting stack once per triangle
+corner with the triangle's own winding normal — the console's flat normal,
+not the screen-space one — then flat- or Gouraud-interpolates per draw the
+way the game's bags do. One formula, two evaluation sites: the lighting
+functions live in a single GLSL chunk shared by both paths, so they cannot
+drift.
+
+**Dynamic lights change formula, not just evaluation site.** The editor's
+per-pixel preview draws a dynamic point light with an N·L term and a
+quantized shadow test; the console cannot — on **objects** a dynamic light
+rides the VU1 spot slot (the flashlight's), which is pure radial `1 − d²/r²`
+with a cone for spots, **no N·L and no shadow**, added on top of everything
+(baked GI included). The **terrain** never takes that slot at all
+(`dynLightPick = false`): its dynamic light is the **ground pool** — a
+terrain-conforming additive patch textured with the corona sprite
+(`updateAndRenderLightPools` in the generated game). With *PS2 shading* on
+the viewport does both, with the same numbers: the slot formula per vertex
+on objects, and the pool (same 4×4 patch over 0.9 × radius, the same corona
+pixels, the same additive FIX scale) on the ground. The camera flashlight
+stays per-pixel, because on the console its footprint is a projected pool —
+per pixel by construction. Two honest divergences stay: the console lights
+each mesh with its **strongest** dynamic light only (`pickDynLight`) while
+the preview adds them all, and a dynamic **spot** light's gobo projection is
+not reproduced (its pool is skipped; the per-vertex cone still lands on
+objects).
+
+A light's visible **beam** (*Properties > Point light > Beam*) is not part of
+this mode and never was: the corona billboard and the cone shaft are geometry
+the game submits whatever it shades with, so the viewport draws them in every
+mode, from the same sprite bake and the same numbers — see
+[flashlight](flashlight.md) for the pull that keeps the corona off its own
+lamp post, and for the one thing the preview leaves out (the runtime level:
+flicker and *Set Light*).
+
+What to expect with it on: faceted spheres, light pools that follow the
+terrain grid, banded cylinders — the console's look, verified A/B against a
+PCSX2 frame of the same scene. The editor's gizmos, outlines and grid stay
+per-pixel (they have no console twin), and the preview windows (Material
+Editor, Animation Editor, thumbnails) deliberately keep the smooth per-pixel
+look.
+
+## GS colour (16-bit + dithering)
+
+*Preferences > Display > Colour depth* can put the game's framebuffer in
+PSMCT16 — 5 bits per channel, half the GS memory, and the GS's 4×4 ordered
+dither (`DTHE` + the `DIMX` matrix) to break the banding up
+([gs-vram.md](gs-vram.md)). The viewport can now show it: the picture is
+quantized to 5 bits per channel after the grading pass — the console's own
+order, since the grading sprites are the last thing written into the
+framebuffer — with the **same sixteen DIMX offsets the engine programs**
+(`tyraxDitherMatrix` in the engine fork; the two matrices must stay
+identical), and scan-out expands the 5 bits back by bit replication so white
+stays white.
+
+*Match project* is the default: a project at 32-bit shows full colour, a
+project at 16-bit shows the banding (and, with dithering on, the pattern that
+hides it) with nothing configured. The forced modes answer "what would this
+scene look like at 16-bit" without touching the project.
+
 ## What it does not simulate
 
 Deliberately, because the engine does not do these things and inventing them
 would trade one lie for another:
 
-- **16-bit dithering.** The GS framebuffer here is `GS_PSM_32` — the engine
-  renders in full 32-bit colour, so there is no 4×4 dither pattern to show.
 - **Texture palettization.** *Preferences > Texture quantization* palettizes
   textures at build (4-bit by default), and the viewport still samples the
   full-colour source. The Material Editor's **PS2 CLUT** display mode answers
