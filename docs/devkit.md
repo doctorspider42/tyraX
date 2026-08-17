@@ -85,6 +85,42 @@ PCSX2 does not reproduce every EE exception, so a crash handler must ultimately
 be checked on real hardware. Assertions and soft errors are testable in the
 emulator.
 
+### A null pointer gets you no crash report at all
+
+The report above covers the faults the handler hooks — address errors, bus
+errors, reserved instructions, coprocessor-unusable, overflow and traps. The
+**TLB causes are deliberately handed straight back to the kernel** (the reason
+is in `crash_handler.cpp`: a hooked TLB refill with nothing to service it spins
+in the vector forever), and a wild pointer into unmapped memory is exactly a TLB
+refill. So the single most ordinary C++ bug there is produces **no
+`bin/crash.txt`, no TYRAX banner and nothing on the TV** — just ps2link's own
+register dump in the console log:
+
+```text
+Cause:7000800C   BadAddr:00000004   Status:70030C13   EPC:0013B988
+```
+
+Read it rather than skipping past it, because it is a complete diagnosis:
+
+- `Cause`'s ExcCode is bits 6:2 — `(0x7000800C >> 2) & 0x1F` = **3**, TLB refill
+  on store. 2 is the same thing on a load. Either one means *this address is not
+  mapped*, and a small `BadAddr` means the pointer was null.
+- `BadAddr` is the **offset of the field** that was written. `0x00000004` is a
+  store four bytes into a null object — with `StaPipInfoBag`, whose `model`
+  pointer is at 0 and `shadingType` at 4, that names the member outright.
+- `EPC` is the faulting instruction, so `--symbolize` finishes the job:
+
+```text
+tyrax-editor --symbolize <projectDir> 0x0013B988
+```
+
+That printed `TerrainGame::setupLightPools() src/terrain_game.cpp:8435` and the
+line was a bag field assigned before its `make_unique` (fixed in 1.54.1).
+**PCSX2 cannot show you any of this**: its main RAM starts at address 0, so a
+null store is an ordinary write there and the game runs on happily. A
+null-pointer bug on this platform is a hardware-only symptom, and the crash
+handler is not the thing that will report it.
+
 ### The SIF RPC completion guard
 
 Heavy `host:` polling makes the devkit path an unusually busy SIF RPC client,

@@ -8431,8 +8431,6 @@ void TerrainGame::setupLightPools() {
       b.colorBag->many = b.colors.data();
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
-      b.wColors.reserve(4096);
-      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -8456,10 +8454,20 @@ void TerrainGame::setupLightPools() {
       // so the per-frame clear/push never reallocates in the steady state.
       b.wVerts.reserve(4096);
       b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
-      b.wInfo->shadingType = TyraShadingFlat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
       b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;
@@ -10560,15 +10568,45 @@ void TerrainGame::updateAndRenderLightBeams() {
 
     const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
     const float half = d.lightRadius * 0.14F;
+    // The corona is depth-TESTED so a wall in front of the lamp still hides
+    // it - but a billboard centred exactly on the bulb SLICES THROUGH the
+    // fixture that carries it (the pole, the arm), and the GS's fixed-point z
+    // interpolation cuts the soft sprite on a jagged, stair-stepped seam
+    // (reported from night-walk's street lamp: a hard staircase running up
+    // the pole where the glow met it). So the sprite is pulled toward the
+    // CAMERA far enough to clear its own fixture, and shrunk by the same
+    // fraction so its apparent size does not move - a glow is not a surface,
+    // and in a real lens it blooms OVER the thin thing that carries it.
+    // Capped at THREE QUARTERS of the camera distance, so walking into the
+    // lamp cannot drag the sprite through the near plane. Half was tried
+    // first and measurably parked the seam at the pole's base when looking
+    // steeply up (which is how the value was chosen) - the editor viewport's
+    // twin, Viewport::drawLightBeams, reads the same 0.75. The cone shaft
+    // below stays at the true position on purpose: it is world geometry, and
+    // sliding it would visibly detach it from the lamp head.
+    float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    {
+      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
+                  vz2 = cameraPosition.z - cz;
+      const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      if (vl > 0.0001F) {
+        float pull = d.lightRadius * 0.25F;
+        if (pull > vl * 0.75F) pull = vl * 0.75F;
+        pcx += vx2 / vl * pull;
+        pcy += vy2 / vl * pull;
+        pcz += vz2 / vl * pull;
+        chalf = half * (vl - pull) / vl;
+      }
+    }
     const Vec4 corners[4] = {
-        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
-             cz + (-rz - uz) * half, 1.0F),
-        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
-             cz + (rz - uz) * half, 1.0F),
-        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
-             cz + (rz + uz) * half, 1.0F),
-        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
-             cz + (-rz + uz) * half, 1.0F)};
+        Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
+             pcz + (-rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx - ux) * chalf, pcy + (ry - uy) * chalf,
+             pcz + (rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx + ux) * chalf, pcy + (ry + uy) * chalf,
+             pcz + (rz + uz) * chalf, 1.0F),
+        Vec4(pcx + (-rx + ux) * chalf, pcy + (-ry + uy) * chalf,
+             pcz + (-rz + uz) * chalf, 1.0F)};
     b.coronaVerts[0] = corners[0];
     b.coronaVerts[1] = corners[1];
     b.coronaVerts[2] = corners[2];

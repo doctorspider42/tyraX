@@ -11764,8 +11764,6 @@ void TerrainGame::setupLightPools() {
       b.colorBag->many = b.colors.data();
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
-      b.wColors.reserve(4096);
-      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -11789,10 +11787,20 @@ void TerrainGame::setupLightPools() {
       // so the per-frame clear/push never reallocates in the steady state.
       b.wVerts.reserve(4096);
       b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
-      b.wInfo->shadingType = TyraShadingFlat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
       b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;

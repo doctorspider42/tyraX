@@ -190,9 +190,9 @@ namespace {
 constexpr float PI = 3.14159265358979F;
 
 // Display-mode option rows (bind 5): the engine mode an option drives, and
-// the option a mode shows as. Rows without an explicit optModes table keep
-// the positional mapping (option index == Tyra::DisplayMode); a table entry
-// of -1 is the "DEFAULT" option - the project-default boot mode.
+// the option a mode shows as. Every such row carries an optModes table (codegen
+// fills a short one in positionally); a table entry of -1 is the "DEFAULT"
+// option - the project-default boot mode.
 int displayOptionMode(const MenuEntryData& en, int idx) {
   if (en.optModes && idx >= 0 && idx < en.optionCount) {
     const int m = en.optModes[idx];
@@ -667,43 +667,94 @@ void occShapeAt(const Shape& oc, const V3& wp, float& dist, V3& toOcc) {
   }
 }
 
-/** Occlusion contribution of one occluder at a surface point (0..1). */
+/** The locality window every occlusion term closes with; occlusion past the
+ * AO radius is deliberately not counted. Twin of aobake::aoRangeWindow. */
+float aoRangeWindow(float dist, float range) {
+  if (dist >= range) return 0.0F;
+  float t = (range - dist) / (0.4F * range);
+  if (t >= 1.0F) return 1.0F;
+  if (t < 0.0F) t = 0.0F;
+  return t * t * (3.0F - 2.0F * t);
+}
+
+/** The one number between the geometry and the picture: a surface resting on a
+ * floor really does lose half its hemisphere, but there is no indirect light
+ * here to put back, so the finished occlusion is scaled once. Twin of
+ * aobake::kAoBounce - the two must not drift. */
+constexpr float kAoBounce = 0.7F;
+
+/** Radius of a disc with the same PROJECTED AREA as the shape, seen along
+ * `toOcc`. Twin of aobake::occProjRadius. */
+float aoProjRadius(const AoOccData& oc, const V3& toOcc) {
+  if (oc.sphere) return oc.half[0];
+  const float* ax[3] = {oc.ax, oc.ay, oc.az};
+  float a = 0.0F;
+  for (int k = 0; k < 3; ++k) {
+    float c = toOcc.x * ax[k][0] + toOcc.y * ax[k][1] + toOcc.z * ax[k][2];
+    if (c < 0.0F) c = -c;
+    a += c * 4.0F * oc.half[(k + 1) % 3] * oc.half[(k + 2) % 3];
+  }
+  return sqrtf(a * (1.0F / 3.14159265F));
+}
+
+/** Occlusion contribution of one occluder at a surface point (0..1) - how much
+ * of the surface's cosine-weighted hemisphere the shape covers, NOT how close
+ * it is. Twin of aobake::occluderOcclusionAt and of aoOcclusion in the
+ * viewport shader; the reasoning and the measurements are in aobake.cpp. */
 float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
   float dist;
   V3 toOcc;  // direction from the point toward the occluder surface
   occShapeAt(oc, wp, dist, toOcc);
   if (dist <= 0.0F) return 1.0F;  // touching / inside
-  float fade = 1.0F - dist / SCENE_AO_RADIUS;
-  if (fade <= 0.0F) return 0.0F;
-  fade *= fade;
-  // Facing weight: full occlusion facing the occluder, ~0.35 side-on (a wall
-  // still darkens the floor at its base), zero facing away.
-  float w = 0.35F + 0.65F * (n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z);
-  if (w <= 0.0F) return 0.0F;
-  if (w > 1.0F) w = 1.0F;
-  return fade * w;
+  if (dist >= SCENE_AO_RADIUS) return 0.0F;
+  const float cosT = n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z;
+  float r = aoProjRadius(oc, toOcc);
+  if (r > SCENE_AO_RADIUS) r = SCENE_AO_RADIUS;
+  if (r <= 0.00001F) return 0.0F;
+
+  // Two regimes, picked by the shape's angular radius. Far and small it is a
+  // disc taking cos(theta) of its solid angle; near and large it is a
+  // HALF-SPACE, which needs no aiming - what a plane blocks is the hemisphere
+  // behind its face, (1 + n.toOcc)/2. k = sin(alpha) carries the surface
+  // between them and k*k is the solid angle, and BOTH factors are needed: on k
+  // alone a crate 0.6 units away hands a horizontal surface the plane's 0.5,
+  // and a ring of neighbours then reads as half the sky gone on a crate top
+  // with nothing above it. See aobake.cpp for the measurements.
+  const float k = r / (r + dist);
+  const float lit = (cosT > 0.0F) ? cosT : 0.0F;
+  const float plane = (1.0F + cosT) * 0.5F;
+  float occ = k * k * (lit + (plane - lit) * k);
+  if (occ < 0.0F) occ = 0.0F;
+  if (occ > 1.0F) occ = 1.0F;
+  return occ * aoRangeWindow(dist, SCENE_AO_RADIUS);
 }
 
-/** Occlusion sum over the pruned local list (+ the terrain contact term for
- * object geometry) -> shade multiplier. groundTerm is off for the terrain
- * itself - the ground doesn't sit next to itself. */
+/** Occlusion over the pruned local list (+ the terrain contact term for object
+ * geometry) -> shade multiplier. groundTerm is off for the terrain itself -
+ * the ground doesn't sit next to itself.
+ *
+ * Blockers combine as VISIBILITY (the product of what each leaves open), not
+ * as a clamped sum: a sum saturates, which is what let a neighbouring box and
+ * the ground between them black out a surface each of them only half covers.
+ * Twin of aobake::aoAccumVis and of the viewport shader. */
 float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
   if (!SCENE_AO_ENABLED) return 1.0F;
-  float occ = 0.0F;
-  for (const AoOccData* oc : g_aoLocal) occ += aoOccluderAt(*oc, wp, n);
+  float vis = 1.0F;
+  for (const AoOccData* oc : g_aoLocal) vis *= 1.0F - aoOccluderAt(*oc, wp, n);
   if (groundTerm) {
     float dy = wp.y - terrainHeightAt(wp.x, wp.z);
     if (dy < 0.0F) dy = 0.0F;
     if (dy < SCENE_AO_RADIUS) {
-      float fade = 1.0F - dy / SCENE_AO_RADIUS;
-      fade *= fade;
-      // up-facing: open sky above; the 0.7 keeps wall bases from muddying
-      // (the ground is lit and bounces - full half-hemisphere reads too dark)
+      // The SAME half-space the occluder response falls back to: the ground
+      // is a plane whose toOcc points straight down, so (1 + n.toOcc)/2 is
+      // (1 - n.y)/2 - which is what this term always was, under its own
+      // constant. One shape, one spelling now.
       float horiz = 0.5F - 0.5F * n.y;
       if (horiz < 0.0F) horiz = 0.0F;
-      occ += 0.7F * fade * horiz;
+      vis *= 1.0F - horiz * aoRangeWindow(dy, SCENE_AO_RADIUS);
     }
   }
+  float occ = kAoBounce * (1.0F - vis);
   if (occ > 1.0F) occ = 1.0F;
   return 1.0F - SCENE_AO_STRENGTH * occ;
 }
@@ -5037,7 +5088,10 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoMapTexPath = SCENE_AO_MAP_PATH;
     aoMapTexture = acquireTexture(aoMapTexPath);
   }
-  terrainMapOcc = aoMapTexture && SCENE_AO_ENABLED && SCENE_AO_MAP_OCC;
+  // ...and for the GI multiply route regardless of the AO preference: on
+  // that route the alpha channel is the LIGHT, not ambient occlusion.
+  terrainMapOcc = aoMapTexture && SCENE_AO_MAP_OCC &&
+                  (SCENE_AO_ENABLED || SCENE_AO_MAP_GILUM);
   // A failed load falls the light back to the per-vertex path rather than
   // dropping it: the chunk shade below reads this flag.
   terrainMapLit = aoMapTexture && SCENE_AO_MAP_LIT;
@@ -5427,7 +5481,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
 // skipped while the channel is still busy, so the sample loops seamlessly.
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
-// "on the player" wherever they are (dialogs, narration). Hide Object mutes.
+// "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
@@ -8377,8 +8431,6 @@ void TerrainGame::setupLightPools() {
       b.colorBag->many = b.colors.data();
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
-      b.wColors.reserve(4096);
-      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -8402,10 +8454,20 @@ void TerrainGame::setupLightPools() {
       // so the per-frame clear/push never reallocates in the steady state.
       b.wVerts.reserve(4096);
       b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
-      b.wInfo->shadingType = TyraShadingFlat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
       b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;
@@ -10506,15 +10568,45 @@ void TerrainGame::updateAndRenderLightBeams() {
 
     const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
     const float half = d.lightRadius * 0.14F;
+    // The corona is depth-TESTED so a wall in front of the lamp still hides
+    // it - but a billboard centred exactly on the bulb SLICES THROUGH the
+    // fixture that carries it (the pole, the arm), and the GS's fixed-point z
+    // interpolation cuts the soft sprite on a jagged, stair-stepped seam
+    // (reported from night-walk's street lamp: a hard staircase running up
+    // the pole where the glow met it). So the sprite is pulled toward the
+    // CAMERA far enough to clear its own fixture, and shrunk by the same
+    // fraction so its apparent size does not move - a glow is not a surface,
+    // and in a real lens it blooms OVER the thin thing that carries it.
+    // Capped at THREE QUARTERS of the camera distance, so walking into the
+    // lamp cannot drag the sprite through the near plane. Half was tried
+    // first and measurably parked the seam at the pole's base when looking
+    // steeply up (which is how the value was chosen) - the editor viewport's
+    // twin, Viewport::drawLightBeams, reads the same 0.75. The cone shaft
+    // below stays at the true position on purpose: it is world geometry, and
+    // sliding it would visibly detach it from the lamp head.
+    float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    {
+      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
+                  vz2 = cameraPosition.z - cz;
+      const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      if (vl > 0.0001F) {
+        float pull = d.lightRadius * 0.25F;
+        if (pull > vl * 0.75F) pull = vl * 0.75F;
+        pcx += vx2 / vl * pull;
+        pcy += vy2 / vl * pull;
+        pcz += vz2 / vl * pull;
+        chalf = half * (vl - pull) / vl;
+      }
+    }
     const Vec4 corners[4] = {
-        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
-             cz + (-rz - uz) * half, 1.0F),
-        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
-             cz + (rz - uz) * half, 1.0F),
-        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
-             cz + (rz + uz) * half, 1.0F),
-        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
-             cz + (-rz + uz) * half, 1.0F)};
+        Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
+             pcz + (-rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx - ux) * chalf, pcy + (ry - uy) * chalf,
+             pcz + (rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx + ux) * chalf, pcy + (ry + uy) * chalf,
+             pcz + (rz + uz) * chalf, 1.0F),
+        Vec4(pcx + (-rx + ux) * chalf, pcy + (-ry + uy) * chalf,
+             pcz + (-rz + uz) * chalf, 1.0F)};
     b.coronaVerts[0] = corners[0];
     b.coronaVerts[1] = corners[1];
     b.coronaVerts[2] = corners[2];
@@ -11336,7 +11428,7 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // the planar speed as a fraction of full walk speed. The mapping is trivial -
 // idle / walk / run by speed, jump while airborne - and the avatar's playback
 // speed tracks the real speed so the feet don't slide. The escape hatch: if a
-// non-locomotion clip is currently playing (a script/flow "Play Animation"
+// non-locomotion clip is currently playing (a script or an Animation node
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
@@ -12530,6 +12622,96 @@ static bool modelSourceMatches(int m, const char* srcPath) {
   return m >= 0 && m < MODEL_COUNT && !strcmp(MODEL_SOURCES[m], srcPath);
 }
 
+// --- block ambient occlusion ------------------------------------------------
+// The block lattice is the one piece of runtime geometry that can occlude
+// ITSELF, and the only one that already knows how: Blocks Fill publishes a
+// collision field saying which cells are solid, so the corner darkening a
+// voxel world lives on costs a handful of bit tests per block at generation
+// time and nothing per frame. Everything else generated at runtime is lit
+// from the probe grid and the baked occluder table
+// (docs/ambient-occlusion.md), and neither of those can see geometry that did
+// not exist when the scene was baked.
+//
+// Face index is faceOfNormal's, which is also the bit order of Blocks Fill's
+// visible-face mask: 0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z, 5 = -Z. Both
+// read the ASSET's local axes, so a block asset placed with a rotation
+// mismatches the lattice here exactly as it already does for face culling.
+//   kProcFaceAxis/kProcFaceDir - the axis the face looks along, and which way
+//   kProcFaceU/kProcFaceV      - its two in-plane axes, in the order the
+//                                corner index counts them:
+//                                corner = (v > 0) * 2 + (u > 0).
+static const int kProcFaceAxis[6] = {0, 0, 1, 1, 2, 2};
+static const int kProcFaceDir[6] = {1, -1, 1, -1, 1, -1};
+static const int kProcFaceU[6] = {2, 2, 0, 0, 0, 0};
+static const int kProcFaceV[6] = {1, 1, 2, 2, 1, 1};
+
+/** One cell of the 3x3x3 neighbourhood word procBlockVertexAo builds. */
+static bool procNbSolid(unsigned int nb, int dx, int dy, int dz) {
+  return ((nb >> ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1))) & 1u) != 0u;
+}
+
+void TerrainGame::procBlockVertexAo(float x, float y, float z,
+                                    unsigned char faces,
+                                    unsigned char out[24]) const {
+  for (int i = 0; i < 24; ++i) out[i] = 255;  // 255 = open sky
+  if (!procBlocks.active || !SCENE_AO_ENABLED) return;
+  // Sample the whole neighbourhood once - 26 field lookups instead of the 72
+  // the corners would ask for separately, and each corner below is then three
+  // bit tests. Offsets are taken from the block's CENTRE, so a lattice cell
+  // can never be missed by a rounding edge.
+  const float c = procBlocks.cell;
+  unsigned int nb = 0u;
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx)
+        if (procBlockSolid(x + (float)dx * c, y + (float)dy * c,
+                           z + (float)dz * c))
+          nb |= 1u << ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1));
+
+  for (int f = 0; f < 6; ++f) {
+    if (!(faces & (1 << f))) continue;  // buried: nothing will read it
+    const int na = kProcFaceAxis[f], ua = kProcFaceU[f], va = kProcFaceV[f];
+    for (int corner = 0; corner < 4; ++corner) {
+      const int us = (corner & 1) ? 1 : -1;
+      const int vs = (corner & 2) ? 1 : -1;
+      // The three cells sharing this corner, in the plane just OUTSIDE the
+      // face: the two edge neighbours and the diagonal between them.
+      int s1[3] = {0, 0, 0}, s2[3] = {0, 0, 0}, dg[3] = {0, 0, 0};
+      s1[na] = s2[na] = dg[na] = kProcFaceDir[f];
+      s1[ua] = us;
+      s2[va] = vs;
+      dg[ua] = us;
+      dg[va] = vs;
+      const int a = procNbSolid(nb, s1[0], s1[1], s1[2]) ? 1 : 0;
+      const int b = procNbSolid(nb, s2[0], s2[1], s2[2]) ? 1 : 0;
+      const int g = procNbSolid(nb, dg[0], dg[1], dg[2]) ? 1 : 0;
+      // Two solid edge neighbours wall the corner in completely and the
+      // diagonal behind them cannot make it darker; otherwise each of the
+      // three takes it down one step of four.
+      const int t = (a && b) ? 0 : 3 - (a + b + g);
+      out[f * 4 + corner] = (unsigned char)(t * 85);
+    }
+  }
+}
+
+/** Which of a face's four corner levels a vertex sits on. A block asset is
+ * authored as a unit cube, so its two in-plane local coordinates land on
+ * +-0.5 and this picks a corner exactly; interpolating rather than snapping
+ * is what keeps a SUBDIVIDED block asset smooth instead of banded. */
+static unsigned char procBlockAoAt(const unsigned char* ao, int face,
+                                   const float* v) {
+  float fu = v[kProcFaceU[face]] + 0.5F;
+  float fv = v[kProcFaceV[face]] + 0.5F;
+  if (fu < 0.0F) fu = 0.0F;
+  else if (fu > 1.0F) fu = 1.0F;
+  if (fv < 0.0F) fv = 0.0F;
+  else if (fv > 1.0F) fv = 1.0F;
+  const unsigned char* q = ao + face * 4;
+  const float lo = (float)q[0] + ((float)q[1] - (float)q[0]) * fu;
+  const float hi = (float)q[2] + ((float)q[3] - (float)q[2]) * fu;
+  return (unsigned char)(lo + (hi - lo) * fv + 0.5F);
+}
+
 static int faceOfNormal(float nx, float ny, float nz) {
   const float t = 0.85F;
   if (nx > t) return 0;
@@ -12543,7 +12725,8 @@ static int faceOfNormal(float nx, float ny, float nz) {
 
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
-                                      unsigned char faces) {
+                                      unsigned char faces,
+                                      const unsigned char* blockAo) {
   const float cell =
       owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
   const int cx = (int)floorf(d.position[0] / cell);
@@ -12565,7 +12748,12 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   g_aoAtlas = false;
   g_emisAtlas = false;
   g_aoSts = nullptr;
-  g_aoOff = d.type == 5;
+  // Imported models take no per-vertex occlusion - on an authored low-poly
+  // mesh it reads as triangulated shading (docs/ambient-occlusion.md). A
+  // BLOCK is the exception the rule was never about: two triangles per flat
+  // square face is exactly the geometry a corner gradient resolves well, so a
+  // table from procBlockVertexAo is what turns the vertex path back on.
+  g_aoOff = d.type == 5 && !blockAo;
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
   g_litNormals = nullptr;
@@ -12594,13 +12782,23 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
     procColliders.push_back(b);
   }
 
+  // Per-vertex AO is only worth computing if the rasterizer reads it ACROSS
+  // the triangle - flat shading takes one corner and paints the whole triangle
+  // with it, which turns a corner gradient into a hard diagonal seam down every
+  // face. Measured before this existed: one block face came out as two flat
+  // plateaus 42 levels apart instead of a gradient.
+  const bool wantSmooth = blockAo != nullptr;
+
   auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
     for (ProcChunk& c : procChunks)
       if (c.owner == owner && c.instance == instance && c.model == model &&
-          c.part == part && c.material == material && c.cx == cx && c.cz == cz)
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
+        c.smooth = c.smooth || wantSmooth;
         return c;
+      }
     procChunks.emplace_back();
     ProcChunk& c = procChunks.back();
+    c.smooth = wantSmooth;
     c.owner = owner;
     c.instance = instance;
     c.model = model;
@@ -12623,16 +12821,25 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       // Whole triangles, so a dropped face takes all of its triangles with it.
       for (size_t i = 0; i + 23 < src.verts.size(); i += 24) {
-        if (faces != 63) {
-          const float* v0 = &src.verts[i];
-          const int f = faceOfNormal(v0[3], v0[4], v0[5]);
-          if (f >= 0 && !(faces & (1 << f))) continue;
-        }
+        // The face this triangle belongs to answers two questions at once -
+        // whether a neighbour covers it, and which four corner AO levels its
+        // vertices interpolate - so it is resolved once, and only when
+        // somebody is going to ask.
+        const float* v0 = &src.verts[i];
+        const int face = (faces != 63 || blockAo)
+                             ? faceOfNormal(v0[3], v0[4], v0[5])
+                             : -1;
+        if (faces != 63 && face >= 0 && !(faces & (1 << face))) continue;
         for (int k = 0; k < 3; ++k) {
           const float* v = &src.verts[i + k * 8];
+          unsigned char vao =
+              hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255;
+          // A block's own lattice wins over a baked .aov sidecar: the sidecar
+          // describes the cube in isolation, the lattice describes where this
+          // copy of it actually sits.
+          if (blockAo && face >= 0) vao = procBlockAoAt(blockAo, face, v);
           pushVert(c.vertices, c.colors, c.sts, d, {v[0], v[1], v[2]},
-                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
-                   hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255,
+                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured, vao,
                    src.ke);
         }
       }
@@ -12677,6 +12884,17 @@ void TerrainGame::procFinishChunks() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  // Its Gouraud twin, built only once a chunk asks for it - a project with no
+  // block world never allocates it.
+  for (const ProcChunk& c : procChunks)
+    if (c.smooth && !c.vertices.empty() && !procSmoothInfoBag) {
+      procSmoothInfoBag = std::make_unique<StaPipInfoBag>();
+      procSmoothInfoBag->model = &model;
+      procSmoothInfoBag->shadingType = TyraShadingGouraud;
+      procSmoothInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      procSmoothInfoBag->fullClipChecks = true;
+      break;
+    }
   for (ProcChunk& c : procChunks) {
     if (c.vertices.empty()) {
       c.bag.reset();
@@ -12685,10 +12903,12 @@ void TerrainGame::procFinishChunks() {
     if (!c.bag) {
       c.colorBag = std::make_unique<StaPipColorBag>();
       c.bag = std::make_unique<StaPipBag>();
-      c.bag->info = batchInfoBag.get();
       c.bag->color = c.colorBag.get();
       c.bag->lighting = nullptr;
     }
+    // Re-stated every pass, not only on creation: a regeneration reuses the
+    // chunk, and a world whose blocks moved may have gained or lost the AO.
+    c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
     c.colorBag->many = c.colors.data();
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
@@ -12936,6 +13156,10 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
   d.material = -1;
   d.color[0] = d.color[1] = d.color[2] = 1.0F;
   d.primDetail = 1;
+  // Blocks self-occlude off the field published just above; nothing else here
+  // can, and a scene with ambient occlusion switched off computes none of it.
+  unsigned char blockAo[24];
+  const bool aoBlocks = procBlocks.active && SCENE_AO_ENABLED;
   for (int i = 0; i < count; ++i) {
     const procrt::Pt& P = c.buf[i];
     if (P.prefab >= 0) {
@@ -12954,7 +13178,9 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     d.rotation[1] = P.ry;
     d.rotation[2] = P.rz;
     d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
-    procAddMergedObject(volume, -1, d, P.faces);
+    const bool isBlock = aoBlocks && P.block != 0;
+    if (isBlock) procBlockVertexAo(P.x, P.y, P.z, P.faces, blockAo);
+    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
   }
   procFinishChunks();
 }
@@ -16312,12 +16538,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         if (h > ch.maxY) ch.maxY = h;
       }
   }
+  // The MULTIPLY route for a TEXTURED ground (docs/global-illumination.md):
+  // the map's alpha carries the gathered light's INTENSITY and the occlusion
+  // pass applies it per pixel, so the vertex shade carries only its COLOUR.
+  // That is the frequency split the GS forces - it cannot multiply the frame
+  // buffer by a colour - and it is what replaced reading the probe grid here,
+  // which banded along contour lines because a volume grid was being asked to
+  // light a surface. On this route the map's RGB is never read, so the scene
+  // ships SCENE_AO_MAP_LIT and SCENE_AO_MAP_GI OFF and the additive pass below
+  // never runs; the light is already in the alpha, emitters included.
+  const bool terrainGiLum = aoMapTexture && SCENE_AO_MAP_GILUM;
   // Emitters reaching this chunk, collected ONCE (the point-light dcache
   // lesson: never scan the whole table per vertex). The chunk's bounding
   // sphere spans its cells horizontally and its height extent vertically.
   // Skipped entirely when the terrain lightmap carries the light: it then
-  // lands per pixel through the additive pass below.
-  if (!terrainMapLit) {
+  // lands per pixel through the additive pass below (or, on the multiply
+  // route, through the occlusion pass).
+  if (!terrainMapLit && !terrainGiLum) {
     const float cw = TERRAIN_CHUNK_CELLS * stepX;
     const float cd = TERRAIN_CHUNK_CELLS * stepZ;
     const float chx = startX + (cx * TERRAIN_CHUNK_CELLS + TERRAIN_CHUNK_CELLS * 0.5F) * stepX;
@@ -16336,7 +16573,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // terrain grid is dense enough (one sample per cell) that probes look right
   // on it, which is not true of a two-triangle box face.
   const bool terrainGi = terrainMapLit && SCENE_AO_MAP_GI;
-  const bool terrainProbeGi = !terrainGi && SCENE_PROBES != nullptr;
+  const bool terrainProbeGi =
+      !terrainGi && !terrainGiLum && SCENE_PROBES != nullptr;
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -16344,10 +16582,17 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     V3 s;
-    bool giHere = terrainGi;
+    // giHere means "the baked answer already contains every source", so the
+    // point lights and the emissive pools below must not land a second time.
+    // It is TRUE on the multiply route even though the shade is the ordinary
+    // one: what that shade contributes there is colour, and the intensity that
+    // multiplies it was gathered with the emitters in it.
+    bool giHere = terrainGi || terrainGiLum;
     GiSample gs;
     if (terrainGi) {
       s = {0.0F, 0.0F, 0.0F};
+    } else if (terrainGiLum) {
+      s = shadeOf(n);
     } else if (terrainProbeGi && giProbeAt(wp.x, wp.y, wp.z, gs)) {
       s = giShade(gs, n);
       giHere = true;
