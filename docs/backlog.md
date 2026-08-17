@@ -543,3 +543,27 @@ interface, preferably using an optional tunnel rather than exposing a raw
 listening port. Define authentication, session lifetime and failure UI before
 shipping it. LAN and mesh-VPN sessions must keep working unchanged. See
 [collaboration](collaboration.md).
+
+### A devkit self-screenshot command (works on locked desktops and real hardware)
+
+The 2026-08-17 corona session proved the game can dump its own framebuffer
+through `host:` (ps2sdk libdebug's `ps2_screenshot_file`, VIF1 reverse FIFO;
+pass the framebuffer address in BLOCKS - `fb->address / 64` - or SBP's 14 bits
+overflow and the pages scramble). Productize it as a devkit channel: a command
+bit in `livedbg.cmd` (the VU capture is the precedent), a debug-only generated
+runtime write into `bin/frame.tga`, a Debugger button, the TXDEVKIT marker +
+`kStringNeedles` entry, and stale-file cleanup in both Runner launch paths. It
+is the only capture path that survives a locked desktop, and the only one that
+exists at all on a real console. See [live-debugger](live-debugger.md).
+
+### Viewport: draw point-light beams the console's way
+
+The editor viewport draws neither the beam corona nor the cone shaft, so a
+scene with `Beam` looks materially different in the editor than in PCSX2
+(reported from night-walk's street lamp). Mirror `updateAndRenderLightBeams`:
+the additive corona billboard with the camera pull (quarter radius, capped at
+three quarters of the camera distance, size-compensated - reproduce the pull
+or the viewport shows the very z-fight seam it fixes), light-color tint,
+flicker on brightness, and the 8-segment apex-to-black cone for `Beam: shaft`.
+The corona pixels are already uploaded as the star dot
+(`menubake::kCoronaSpriteSize`). See [flashlight](flashlight.md).
