@@ -61,10 +61,27 @@
 //
 // MINOR: a capability appears, nothing changes shape on disk. (Authored as
 // 1.54.0 and RENUMBERED on the merge, this file's standing arrive-second rule -
-// main took 1.54.0 with #245 while this branch was open. Worth noting what that
-// entry's neighbour below says: 1.53.1 was diagnosed with every capture taken
-// by the GAME ITSELF, by hand, because the desktop was locked all night. That
-// is the technique this branch turns into a button.)
+// main took 1.54.0 with #245 while this branch was open. Two of the entries
+// below are the argument for this one: 1.53.1 was diagnosed with every capture
+// taken by the GAME ITSELF, by hand, because the desktop was locked all night;
+// and 1.54.1 is a fault PCSX2 structurally cannot show, which is the other half
+// of the same problem - when only the console can reproduce something, only the
+// console can photograph it.)
+//
+// 1.54.1 (the flashlight's wall patch stops killing the game on real
+// hardware): setupLightPools set the wall slice's shading type thirty lines
+// BEFORE it allocated the bag holding it - a store through a null unique_ptr
+// at offset +4, which is where StaPipInfoBag::shadingType sits. Every project
+// with a torch took it during scene setup, i.e. the instant the loading screen
+// ended. It was invisible for a release and a half because PCSX2 has main RAM
+// at address 0, so the write landed in low memory and every emulator test
+// passed; a console has nothing mapped there and raises a TLB refill on store
+// (cause 3, BadAddr 0x00000004). The write now happens after the make_unique,
+// which also makes the wall patch Gouraud as the surrounding code always
+// intended - the per-vertex reach falloff renderSlice has been feeding it all
+// along. Cause 3 is handed back to the kernel by the crash handler on purpose
+// (see crash_handler.cpp), so this class of fault produces ps2link's raw
+// register dump and no crash.txt - docs/devkit.md says so now.
 //
 // 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
 // scene with Point Light > Beam used to look materially different in the

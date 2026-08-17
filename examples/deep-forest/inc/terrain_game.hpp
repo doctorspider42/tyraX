@@ -462,6 +462,12 @@ class TerrainGame : public Tyra::Game {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  // ...and its Gouraud twin, for generated chunks whose vertex colours are
+  // meant to be READ ACROSS a triangle rather than picked from one corner
+  // (block ambient occlusion). Its own bag rather than a flag on the one
+  // above, because that one is shared with the static batcher, whose members
+  // are flat-shaded by design.
+  std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -496,6 +502,11 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Something in this chunk carries per-VERTEX colour that varies across a
+    // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
+    // equal corner colours is the flat result, so a chunk that mixes blocks
+    // with ordinary instances loses nothing.
+    bool smooth = false;
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -538,11 +549,19 @@ class TerrainGame : public Tyra::Game {
   float procBlockCeilAt(float x, float z, float minY) const;
   // Any solid block inside the vertical band [y0, y1] within `r` of (x, z)?
   bool procBlockBlocks(float x, float z, float y0, float y1, float r) const;
+  // Per-vertex ambient occlusion for one block of that field: its 3x3x3
+  // neighbourhood reduced to four corner levels per face, out[face * 4 +
+  // corner], 255 = open (docs/procedural-runtime.md, "Ambient occlusion").
+  void procBlockVertexAo(float x, float y, float z, unsigned char faces,
+                         unsigned char out[24]) const;
   void despawnPrefabInstance(int handle);
   // Merges a run of instances into procChunks. The two callers (a runtime
   // volume, a prefab instance) differ only in where the transforms come from.
+  // blockAo is the table procBlockVertexAo filled, and passing it is what
+  // makes an instance a self-occluding block rather than a scattered model.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
-                           unsigned char faces);
+                           unsigned char faces,
+                           const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
   GeoPart skyDome;

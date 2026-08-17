@@ -667,6 +667,22 @@ void occShapeAt(const Shape& oc, const V3& wp, float& dist, V3& toOcc) {
   }
 }
 
+/** The locality window every occlusion term closes with; occlusion past the
+ * AO radius is deliberately not counted. Twin of aobake::aoRangeWindow. */
+float aoRangeWindow(float dist, float range) {
+  if (dist >= range) return 0.0F;
+  float t = (range - dist) / (0.4F * range);
+  if (t >= 1.0F) return 1.0F;
+  if (t < 0.0F) t = 0.0F;
+  return t * t * (3.0F - 2.0F * t);
+}
+
+/** The one number between the geometry and the picture: a surface resting on a
+ * floor really does lose half its hemisphere, but there is no indirect light
+ * here to put back, so the finished occlusion is scaled once. Twin of
+ * aobake::kAoBounce - the two must not drift. */
+constexpr float kAoBounce = 0.7F;
+
 /** Radius of a disc with the same PROJECTED AREA as the shape, seen along
  * `toOcc`. Twin of aobake::occProjRadius. */
 float aoProjRadius(const AoOccData& oc, const V3& toOcc) {
@@ -691,30 +707,26 @@ float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
   occShapeAt(oc, wp, dist, toOcc);
   if (dist <= 0.0F) return 1.0F;  // touching / inside
   if (dist >= SCENE_AO_RADIUS) return 0.0F;
-
+  const float cosT = n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z;
   float r = aoProjRadius(oc, toOcc);
   if (r > SCENE_AO_RADIUS) r = SCENE_AO_RADIUS;
   if (r <= 0.00001F) return 0.0F;
 
-  // Aimed at the midpoint of the nearest surface point and the shape centre,
-  // so a wall beside a floor is aimed at its bulk rather than at its foot.
-  float ax = toOcc.x * dist * 0.5F + (oc.pos[0] - wp.x) * 0.5F;
-  float ay = toOcc.y * dist * 0.5F + (oc.pos[1] - wp.y) * 0.5F;
-  float az = toOcc.z * dist * 0.5F + (oc.pos[2] - wp.z) * 0.5F;
-  const float al = sqrtf(ax * ax + ay * ay + az * az);
-  if (al > 0.00001F) ax /= al, ay /= al, az /= al;
-  const float cosT = n.x * ax + n.y * ay + n.z * az;
-  if (cosT <= 0.0F) return 0.0F;  // wholly behind the surface
-
-  const float d = dist + r;
-  float occ = cosT * (r * r) / (d * d);
+  // Two regimes, picked by the shape's angular radius. Far and small it is a
+  // disc taking cos(theta) of its solid angle; near and large it is a
+  // HALF-SPACE, which needs no aiming - what a plane blocks is the hemisphere
+  // behind its face, (1 + n.toOcc)/2. k = sin(alpha) carries the surface
+  // between them and k*k is the solid angle, and BOTH factors are needed: on k
+  // alone a crate 0.6 units away hands a horizontal surface the plane's 0.5,
+  // and a ring of neighbours then reads as half the sky gone on a crate top
+  // with nothing above it. See aobake.cpp for the measurements.
+  const float k = r / (r + dist);
+  const float lit = (cosT > 0.0F) ? cosT : 0.0F;
+  const float plane = (1.0F + cosT) * 0.5F;
+  float occ = k * k * (lit + (plane - lit) * k);
+  if (occ < 0.0F) occ = 0.0F;
   if (occ > 1.0F) occ = 1.0F;
-  float t = (SCENE_AO_RADIUS - dist) / (0.4F * SCENE_AO_RADIUS);
-  if (t < 1.0F) {
-    if (t < 0.0F) t = 0.0F;
-    occ *= t * t * (3.0F - 2.0F * t);
-  }
-  return occ;
+  return occ * aoRangeWindow(dist, SCENE_AO_RADIUS);
 }
 
 /** Occlusion over the pruned local list (+ the terrain contact term for object
@@ -733,16 +745,16 @@ float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
     float dy = wp.y - terrainHeightAt(wp.x, wp.z);
     if (dy < 0.0F) dy = 0.0F;
     if (dy < SCENE_AO_RADIUS) {
-      float fade = 1.0F - dy / SCENE_AO_RADIUS;
-      fade *= fade;
-      // up-facing: open sky above; the 0.7 keeps wall bases from muddying
-      // (the ground is lit and bounces - full half-hemisphere reads too dark)
+      // The SAME half-space the occluder response falls back to: the ground
+      // is a plane whose toOcc points straight down, so (1 + n.toOcc)/2 is
+      // (1 - n.y)/2 - which is what this term always was, under its own
+      // constant. One shape, one spelling now.
       float horiz = 0.5F - 0.5F * n.y;
       if (horiz < 0.0F) horiz = 0.0F;
-      vis *= 1.0F - 0.7F * fade * horiz;
+      vis *= 1.0F - horiz * aoRangeWindow(dy, SCENE_AO_RADIUS);
     }
   }
-  float occ = 1.0F - vis;
+  float occ = kAoBounce * (1.0F - vis);
   if (occ > 1.0F) occ = 1.0F;
   return 1.0F - SCENE_AO_STRENGTH * occ;
 }
@@ -5076,7 +5088,10 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoMapTexPath = SCENE_AO_MAP_PATH;
     aoMapTexture = acquireTexture(aoMapTexPath);
   }
-  terrainMapOcc = aoMapTexture && SCENE_AO_ENABLED && SCENE_AO_MAP_OCC;
+  // ...and for the GI multiply route regardless of the AO preference: on
+  // that route the alpha channel is the LIGHT, not ambient occlusion.
+  terrainMapOcc = aoMapTexture && SCENE_AO_MAP_OCC &&
+                  (SCENE_AO_ENABLED || SCENE_AO_MAP_GILUM);
   // A failed load falls the light back to the per-vertex path rather than
   // dropping it: the chunk shade below reads this flag.
   terrainMapLit = aoMapTexture && SCENE_AO_MAP_LIT;
@@ -8416,8 +8431,6 @@ void TerrainGame::setupLightPools() {
       b.colorBag->many = b.colors.data();
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
-      b.wColors.reserve(4096);
-      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -8441,10 +8454,20 @@ void TerrainGame::setupLightPools() {
       // so the per-frame clear/push never reallocates in the steady state.
       b.wVerts.reserve(4096);
       b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
-      b.wInfo->shadingType = TyraShadingFlat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
       b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;
@@ -10545,15 +10568,45 @@ void TerrainGame::updateAndRenderLightBeams() {
 
     const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
     const float half = d.lightRadius * 0.14F;
+    // The corona is depth-TESTED so a wall in front of the lamp still hides
+    // it - but a billboard centred exactly on the bulb SLICES THROUGH the
+    // fixture that carries it (the pole, the arm), and the GS's fixed-point z
+    // interpolation cuts the soft sprite on a jagged, stair-stepped seam
+    // (reported from night-walk's street lamp: a hard staircase running up
+    // the pole where the glow met it). So the sprite is pulled toward the
+    // CAMERA far enough to clear its own fixture, and shrunk by the same
+    // fraction so its apparent size does not move - a glow is not a surface,
+    // and in a real lens it blooms OVER the thin thing that carries it.
+    // Capped at THREE QUARTERS of the camera distance, so walking into the
+    // lamp cannot drag the sprite through the near plane. Half was tried
+    // first and measurably parked the seam at the pole's base when looking
+    // steeply up (which is how the value was chosen) - the editor viewport's
+    // twin, Viewport::drawLightBeams, reads the same 0.75. The cone shaft
+    // below stays at the true position on purpose: it is world geometry, and
+    // sliding it would visibly detach it from the lamp head.
+    float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    {
+      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
+                  vz2 = cameraPosition.z - cz;
+      const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      if (vl > 0.0001F) {
+        float pull = d.lightRadius * 0.25F;
+        if (pull > vl * 0.75F) pull = vl * 0.75F;
+        pcx += vx2 / vl * pull;
+        pcy += vy2 / vl * pull;
+        pcz += vz2 / vl * pull;
+        chalf = half * (vl - pull) / vl;
+      }
+    }
     const Vec4 corners[4] = {
-        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
-             cz + (-rz - uz) * half, 1.0F),
-        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
-             cz + (rz - uz) * half, 1.0F),
-        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
-             cz + (rz + uz) * half, 1.0F),
-        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
-             cz + (-rz + uz) * half, 1.0F)};
+        Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
+             pcz + (-rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx - ux) * chalf, pcy + (ry - uy) * chalf,
+             pcz + (rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx + ux) * chalf, pcy + (ry + uy) * chalf,
+             pcz + (rz + uz) * chalf, 1.0F),
+        Vec4(pcx + (-rx + ux) * chalf, pcy + (-ry + uy) * chalf,
+             pcz + (-rz + uz) * chalf, 1.0F)};
     b.coronaVerts[0] = corners[0];
     b.coronaVerts[1] = corners[1];
     b.coronaVerts[2] = corners[2];
@@ -16485,12 +16538,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         if (h > ch.maxY) ch.maxY = h;
       }
   }
+  // The MULTIPLY route for a TEXTURED ground (docs/global-illumination.md):
+  // the map's alpha carries the gathered light's INTENSITY and the occlusion
+  // pass applies it per pixel, so the vertex shade carries only its COLOUR.
+  // That is the frequency split the GS forces - it cannot multiply the frame
+  // buffer by a colour - and it is what replaced reading the probe grid here,
+  // which banded along contour lines because a volume grid was being asked to
+  // light a surface. On this route the map's RGB is never read, so the scene
+  // ships SCENE_AO_MAP_LIT and SCENE_AO_MAP_GI OFF and the additive pass below
+  // never runs; the light is already in the alpha, emitters included.
+  const bool terrainGiLum = aoMapTexture && SCENE_AO_MAP_GILUM;
   // Emitters reaching this chunk, collected ONCE (the point-light dcache
   // lesson: never scan the whole table per vertex). The chunk's bounding
   // sphere spans its cells horizontally and its height extent vertically.
   // Skipped entirely when the terrain lightmap carries the light: it then
-  // lands per pixel through the additive pass below.
-  if (!terrainMapLit) {
+  // lands per pixel through the additive pass below (or, on the multiply
+  // route, through the occlusion pass).
+  if (!terrainMapLit && !terrainGiLum) {
     const float cw = TERRAIN_CHUNK_CELLS * stepX;
     const float cd = TERRAIN_CHUNK_CELLS * stepZ;
     const float chx = startX + (cx * TERRAIN_CHUNK_CELLS + TERRAIN_CHUNK_CELLS * 0.5F) * stepX;
@@ -16509,7 +16573,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // terrain grid is dense enough (one sample per cell) that probes look right
   // on it, which is not true of a two-triangle box face.
   const bool terrainGi = terrainMapLit && SCENE_AO_MAP_GI;
-  const bool terrainProbeGi = !terrainGi && SCENE_PROBES != nullptr;
+  const bool terrainProbeGi =
+      !terrainGi && !terrainGiLum && SCENE_PROBES != nullptr;
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -16517,10 +16582,17 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     V3 s;
-    bool giHere = terrainGi;
+    // giHere means "the baked answer already contains every source", so the
+    // point lights and the emissive pools below must not land a second time.
+    // It is TRUE on the multiply route even though the shade is the ordinary
+    // one: what that shade contributes there is colour, and the intensity that
+    // multiplies it was gathered with the emitters in it.
+    bool giHere = terrainGi || terrainGiLum;
     GiSample gs;
     if (terrainGi) {
       s = {0.0F, 0.0F, 0.0F};
+    } else if (terrainGiLum) {
+      s = shadeOf(n);
     } else if (terrainProbeGi && giProbeAt(wp.x, wp.y, wp.z, gs)) {
       s = giShade(gs, n);
       giHere = true;
