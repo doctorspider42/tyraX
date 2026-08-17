@@ -193,6 +193,9 @@ for people building games with it. Internals live in code comments, the git log
 
 Developer design docs (internals, not user guides):
 
+- [Physical PS2 test farm](physical-ps2-test-farm.md) — lease several real
+  consoles behind one host, multiplex ps2client safely, recover a wedged slot
+  through its real Power/Reset button and expose only an authenticated API.
 - [Profiling the generated game](profiling.md) — the built-in frame profiler,
   the COP0 deep-dive technique, and the frame-timing rig.
 - [The VU framework](vu-framework.md) — describe a microprogram in C++,
