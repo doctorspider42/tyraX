@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.55.0 (a caster's shadow IS its mesh now): the flashlight's shadow
+// 1.56.0 (a caster's shadow IS its mesh now): the flashlight's shadow
 // volumes stop being cut from boxes - a model caster classifies its REAL
 // triangles against the torch, extrudes the silhouette edges to the light's
 // range (caps from the lit faces, pushed 0.05, plus their far projection;
@@ -65,6 +65,73 @@
 // because emitRasterRestore does not know about texture state. Docs:
 // docs/flashlight.md "The shadow" rewritten around the counting
 // arrangement; no format change (the technique flag is v27's).
+// 1.55.0 (the game photographs itself - docs/devkit.md, "The game's own
+// screenshot"): a sixth one-shot on the Live Debugger's command channel (flags
+// bit 6, beside the VU1 capture and the RAM measurement). The game reads its
+// last finished frame out of GS VRAM through ps2sdk libdebug's VIF1 reverse
+// FIFO, writes bin/frame.tga over the same host: channel every other devkit
+// file uses, and the Debugger's new Screen tab decodes and shows it.
+//
+// IT IS THE ONLY CAPTURE PATH THAT DOES NOT NEED A DESKTOP, which is the whole
+// argument for it: the emulator's F8 key, a GDI grab and PrintWindow all need
+// the window present and unoccluded on an unlocked session, and none of them
+// exists on a console at all. This one answers from hardware, from a locked
+// machine and from an unattended script.
+//
+// Four traps, each of which fails silently and three of which were found by
+// measuring rather than by reading. `fb->address` is in GS WORDS while the API
+// wants BLOCKS, so a missing /64 overflows SBP's 14 bits and reads buffer 0 with
+// its pages scrambled. The buffer must be getPreviousRealFrameBuffer(), never
+// the current one (half-composed) or getPreviousFrameBuffer() (which can be a
+// synthesised extrapolated frame). libdebug opens the file O_CREAT|O_WRONLY with
+// NO O_TRUNC, so a shorter capture over a longer one leaves the previous
+// picture's tail behind and still decodes - the runtime deletes first. And
+// ps2_screenshot_file's RETURN VALUE IS NOT A VERDICT: upstream returns 0 both
+// when open() fails and when everything worked, so the first version logged
+// "capture failed" over a perfectly good 1 MB picture. The check is the file's
+// own size against 18 + w*h*4.
+//
+// The panel decodes the TGA by hand rather than through stbi_load, and that is
+// deliberate: the editor's stb_image is built STBI_ONLY_PNG + STBI_ONLY_JPEG and
+// answers "unknown image type" to every TGA (which is how this was caught, on
+// screen, in the honest-failure text). Adding TGA would widen what every other
+// stbi_load in the editor accepts - the asset importer above all - for one debug
+// preview, where the format has exactly one writer whose source is known.
+//
+// Verified end to end in PCSX2 on an fpp fixture: the self-capture agrees with
+// PrintWindow's grab of the emulator's own render area to **0.91/255 mean
+// absolute difference** with the horizon at the same fraction (0.531 vs 0.530),
+// which is what says the address, the row order and the channel order are all
+// right. The Runner's stale-delete was checked by looking for the file after a
+// relaunch, and the whole loop - tab, button, command, capture, preview - was
+// driven with --ui-script and no human. --audit-release fails on the debug ELF
+// naming `frame.tga` among six findings and comes back clean on the release one,
+// whose devkit TU is three lines.
+//
+// MINOR: a capability appears, nothing changes shape on disk. (Authored as
+// 1.54.0 and RENUMBERED on the merge, this file's standing arrive-second rule -
+// main took 1.54.0 with #245 while this branch was open. Two of the entries
+// below are the argument for this one: 1.53.1 was diagnosed with every capture
+// taken by the GAME ITSELF, by hand, because the desktop was locked all night;
+// and 1.54.1 is a fault PCSX2 structurally cannot show, which is the other half
+// of the same problem - when only the console can reproduce something, only the
+// console can photograph it.)
+//
+// 1.54.1 (the flashlight's wall patch stops killing the game on real
+// hardware): setupLightPools set the wall slice's shading type thirty lines
+// BEFORE it allocated the bag holding it - a store through a null unique_ptr
+// at offset +4, which is where StaPipInfoBag::shadingType sits. Every project
+// with a torch took it during scene setup, i.e. the instant the loading screen
+// ended. It was invisible for a release and a half because PCSX2 has main RAM
+// at address 0, so the write landed in low memory and every emulator test
+// passed; a console has nothing mapped there and raises a TLB refill on store
+// (cause 3, BadAddr 0x00000004). The write now happens after the make_unique,
+// which also makes the wall patch Gouraud as the surrounding code always
+// intended - the per-vertex reach falloff renderSlice has been feeding it all
+// along. Cause 3 is handed back to the kernel by the crash handler on purpose
+// (see crash_handler.cpp), so this class of fault produces ps2link's raw
+// register dump and no crash.txt - docs/devkit.md says so now.
+//
 // 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
 // scene with Point Light > Beam used to look materially different in the
 // editor than in PCSX2, because the editor drew neither half of it. It draws
@@ -573,7 +640,7 @@
 // volume - the GS cannot count like a stencil, which is also why true
 // mesh-shaped volumes (a bed's slats) need the era's full arrangement
 // (count in a spare color channel with add/sub blending + a resolve pass)
-// and are left as the named next step (landed in 1.55.0, further up this file).
+// and are left as the named next step (landed in 1.56.0, further up this file).
 //
 // 1.39.3 (thin things are transparent to the torch, in all three systems):
 // stand exactly on the street lamp's axis and the light died completely -
@@ -1576,7 +1643,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 55
+#define TYRAX_VERSION_MINOR 56
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

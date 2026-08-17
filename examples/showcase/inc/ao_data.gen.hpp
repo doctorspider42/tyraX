@@ -78,9 +78,9 @@ static const int SCENE_EMIS_COUNTS[] = {0, 0};
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
-static const AoAtlasRect S0_AO_RECTS[7] = {{0.0234375F, 0.867188F, 0.34375F, 0.03125F}, {0.632812F, 0.523438F, 0.15625F, 0.15625F}, {0.835938F, 0.523438F, 0.140625F, 0.140625F}, {0.0234375F, 0.523438F, 0.28125F, 0.296875F}, {0.0234375F, 0.0234375F, 0.453125F, 0.453125F}, {0.523438F, 0.0234375F, 0.34375F, 0.359375F}, {0.351562F, 0.523438F, 0.234375F, 0.25F}};
+static const AoAtlasRect S0_AO_RECTS[7] = {{0.226562F, 0.820312F, 0.375F, 0.03125F}, {0.648438F, 0.820312F, 0.015625F, 0.015625F}, {0.0234375F, 0.820312F, 0.15625F, 0.15625F}, {0.585938F, 0.0234375F, 0.171875F, 0.515625F}, {0.0234375F, 0.0234375F, 0.265625F, 0.75F}, {0.335938F, 0.0234375F, 0.203125F, 0.609375F}, {0.804688F, 0.0234375F, 0.140625F, 0.421875F}};
 static const int S0_AO_FIRST[60] = {-1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 3, 4, 5, 6, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-static const unsigned char S0_AO_LIT[60] = {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static const unsigned char S0_AO_LIT[60] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS, nullptr};
 static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST, nullptr};
 static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT, nullptr};
@@ -88,9 +88,9 @@ static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png", ""};
 static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png", ""};
 static const unsigned char SCENE_AO_MAP_OCCS[] = {1, 0};
 static const unsigned char SCENE_AO_MAP_LITS[] = {0, 0};
-static const unsigned char SCENE_AO_ATLAS_GIS[] = {1, 0};
+static const unsigned char SCENE_AO_ATLAS_GIS[] = {0, 0};
 static const unsigned char SCENE_AO_MAP_GIS[] = {0, 0};
-static const unsigned char SCENE_AO_MAP_GILUMS[] = {1, 0};
+static const unsigned char SCENE_AO_MAP_GILUMS[] = {0, 0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]

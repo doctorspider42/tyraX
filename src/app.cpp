@@ -5317,6 +5317,19 @@ void App::closeProject() {
     wavIssueCache_.clear();
     modelInfoCache_.clear();
     glbInfoCache_.clear();  // always invalidated with modelInfoCache_
+    // The devkit self-screenshot is a picture of THIS project's game; the next
+    // one must not open the Debugger on somebody else's frame. The texture is
+    // kept (uploading into it again is free) and only its content forgotten.
+    dbgShotW_ = dbgShotH_ = 0;
+    dbgShotSize_ = 0;
+    dbgShotStamp_ = 0;
+    dbgShotTorn_ = 0;
+    dbgShotWaiting_ = false;
+    dbgShotError_.clear();
+    if (dbgShotTex_) {
+        glDeleteTextures(1, &dbgShotTex_);
+        dbgShotTex_ = 0;
+    }
     // The error catcher tails the open project's logs; the next open baselines
     // it again (attachProject). The runner log survives the close, so its size
     // has to stay honest or the next poll reads a shrink that never happened.

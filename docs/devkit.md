@@ -41,6 +41,7 @@ but do not write "compiles out" about a `TYRA_*` macro without checking.
 | [Time Machine](time-machine.md) | Captures and restores recent game state |
 | [Remote Pad](remote-pad.md) | Drives pad 1 or 2 without window focus |
 | Debug window | Shows game logs, frame statistics, crashes and VU1 captures |
+| Debugger > Screen | Makes the game photograph its own frame buffer |
 
 Turn off channels you are not using when measuring performance. Debug file
 polling is real work and can distort small timings. On real hardware it is not
@@ -85,6 +86,42 @@ PCSX2 does not reproduce every EE exception, so a crash handler must ultimately
 be checked on real hardware. Assertions and soft errors are testable in the
 emulator.
 
+### A null pointer gets you no crash report at all
+
+The report above covers the faults the handler hooks — address errors, bus
+errors, reserved instructions, coprocessor-unusable, overflow and traps. The
+**TLB causes are deliberately handed straight back to the kernel** (the reason
+is in `crash_handler.cpp`: a hooked TLB refill with nothing to service it spins
+in the vector forever), and a wild pointer into unmapped memory is exactly a TLB
+refill. So the single most ordinary C++ bug there is produces **no
+`bin/crash.txt`, no TYRAX banner and nothing on the TV** — just ps2link's own
+register dump in the console log:
+
+```text
+Cause:7000800C   BadAddr:00000004   Status:70030C13   EPC:0013B988
+```
+
+Read it rather than skipping past it, because it is a complete diagnosis:
+
+- `Cause`'s ExcCode is bits 6:2 — `(0x7000800C >> 2) & 0x1F` = **3**, TLB refill
+  on store. 2 is the same thing on a load. Either one means *this address is not
+  mapped*, and a small `BadAddr` means the pointer was null.
+- `BadAddr` is the **offset of the field** that was written. `0x00000004` is a
+  store four bytes into a null object — with `StaPipInfoBag`, whose `model`
+  pointer is at 0 and `shadingType` at 4, that names the member outright.
+- `EPC` is the faulting instruction, so `--symbolize` finishes the job:
+
+```text
+tyrax-editor --symbolize <projectDir> 0x0013B988
+```
+
+That printed `TerrainGame::setupLightPools() src/terrain_game.cpp:8435` and the
+line was a bag field assigned before its `make_unique` (fixed in 1.54.1).
+**PCSX2 cannot show you any of this**: its main RAM starts at address 0, so a
+null store is an ordinary write there and the game runs on happily. A
+null-pointer bug on this platform is a hardware-only symptom, and the crash
+handler is not the thing that will report it.
+
 ### The SIF RPC completion guard
 
 Heavy `host:` polling makes the devkit path an unusually busy SIF RPC client,
@@ -99,6 +136,38 @@ kill a release game too, and `--audit-release` stays clean either way (verified
 in both directions). The mechanism, the measured teardown A/B, and the fact that
 the fault has **never been reproduced** are in
 [ps2link-setup.md](ps2link-setup.md#the-sif-rpc-completion-crash-and-the-guard-against-it).
+
+## The game's own screenshot
+
+In **Debugger > Screen**, press **Capture frame**. The game reads its last
+finished frame straight out of GS VRAM, writes `bin/frame.tga` over the same
+`host:` channel every other devkit file uses, and the panel shows it.
+
+This is the only capture path that does not need a desktop. Every host-side one
+— the emulator's F8 key, a GDI grab of the window, `PrintWindow` — needs the
+window present and, in practice, unoccluded and on an unlocked session; none of
+them exists at all on a real PlayStation 2. So this is how you get a picture
+from hardware, from a locked or disconnected machine, and from an unattended
+script that must not depend on which window happens to be in front.
+
+What comes back is the **frame buffer as the GS holds it**, not the television
+picture: the raster the game rendered at, with no aspect correction and no
+letterbox. A 512x448 project answers 512x448.
+
+It costs the game a visible hitch, which is why it is one shot per press rather
+than anything continuous — around a megabyte read back a scan line at a time and
+written the same way. Over ps2link that is a network round trip per line, so
+expect a second or two there.
+
+The picture is the **previous real frame**: the last one the scene rendered, so
+never a half-composed image and never a synthesised
+[extrapolated](frame-extrapolation.md) one.
+
+Two things that will look like bugs and are not. The capture is taken between
+frames, so it can be one frame older than what you were looking at when you
+pressed the button. And a frame buffer's alpha channel is a working channel
+rather than coverage — the panel forces it opaque, and so should anything else
+that reads the file.
 
 ## Inspecting VU1 input
 

@@ -356,6 +356,99 @@ void App::dbgReadVuCapture() {
                          std::to_string(dbgVuCap_.triangleCount()) + " triangles";
 }
 
+// bin/frame.tga: the picture the game took OF ITSELF (docs/devkit.md). Same
+// change-detection rule as the VU capture above - the timestamp, never the
+// size, because two shots of one scene are the same length to the byte.
+//
+// The TGA is decoded BY HAND rather than through stbi_load, and that is not
+// avoidance of a library: the editor's stb_image is built `STBI_ONLY_PNG` +
+// `STBI_ONLY_JPEG`, so it answers *unknown image type* to every TGA there is
+// (which is how this was found - on screen, in the error text below). Adding
+// TGA to it would widen what every OTHER stbi_load in the editor accepts - the
+// asset importer above all - for the sake of one debug preview, where the
+// format has exactly ONE writer whose source is known (ps2sdk libdebug): an
+// 18-byte header, image type 2, always 32 bits whatever the GS pixel format
+// was, uncompressed, BGRA, bottom row first. Two dozen lines, and they can be
+// exact about the two things a general decoder has to guess at - the row order
+// and the alpha.
+void App::dbgReadFrameShot() {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return;
+    const fs::path path = fs::path(project_.dir) / "bin" / "frame.tga";
+    std::error_code ec;
+    const auto sz = fs::file_size(path, ec);
+    const size_t size = ec ? 0 : (size_t)sz;
+    std::error_code wec;
+    const auto wt = fs::last_write_time(path, wec);
+    const long long stamp = wec ? 0 : (long long)wt.time_since_epoch().count();
+    if (size == dbgShotSize_ && stamp == dbgShotStamp_) return;
+    if (!size) {  // the Runner deleted it before this run
+        dbgShotSize_ = 0;
+        dbgShotStamp_ = stamp;
+        dbgShotTorn_ = 0;
+        return;
+    }
+    // The game writes the header and then ~900 KB of pixels, a line at a time,
+    // over host: - so a poll lands mid-write often, not rarely. The file is
+    // exactly 18 + w*h*4 bytes and its header says w and h, which makes "is
+    // this file finished" answerable before reading any of it. A file that
+    // stays short is a truncated write rather than a race, and after a few
+    // tries it is committed so the failure is visible instead of retried
+    // forever.
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return;
+    unsigned char head[18] = {};
+    f.read(reinterpret_cast<char*>(head), sizeof(head));
+    if (f.gcount() != (std::streamsize)sizeof(head)) return;
+    const int w = (int)head[12] | ((int)head[13] << 8);
+    const int h = (int)head[14] | ((int)head[15] << 8);
+    const bool shaped = head[2] == 2 && head[16] == 32 && w > 0 && h > 0;
+    const size_t want = 18 + (size_t)w * (size_t)h * 4;
+    if (shaped && size < want && ++dbgShotTorn_ < 6) return;
+
+    dbgShotSize_ = size;
+    dbgShotStamp_ = stamp;
+    dbgShotTorn_ = 0;
+    dbgShotWaiting_ = false;
+    if (!shaped || size < want) {
+        dbgShotError_ =
+            "bin/frame.tga is not the 32-bit TGA the game writes (" +
+            std::to_string(size) + " bytes, header says " + std::to_string(w) +
+            "x" + std::to_string(h) + " at " + std::to_string(head[16]) +
+            " bpp)";
+        return;
+    }
+    std::vector<unsigned char> src((size_t)w * (size_t)h * 4);
+    f.read(reinterpret_cast<char*>(src.data()), (std::streamsize)src.size());
+    if (f.gcount() != (std::streamsize)src.size()) return;  // lost the race
+
+    std::vector<unsigned char> rgba(src.size());
+    for (int y = 0; y < h; ++y) {
+        // Bottom row first (descriptor bit 5 clear), and BGRA - so the copy
+        // both flips and swizzles. Alpha is FORCED opaque: the GS stores it
+        // 0..128 and a frame buffer's alpha is a working channel, not
+        // coverage, so taken literally the preview comes out half transparent
+        // or (where the game left it at zero) invisible. Only the colour here
+        // is a picture.
+        const unsigned char* s = &src[(size_t)(h - 1 - y) * (size_t)w * 4];
+        unsigned char* d = &rgba[(size_t)y * (size_t)w * 4];
+        for (int x = 0; x < w; ++x, s += 4, d += 4) {
+            d[0] = s[2];
+            d[1] = s[1];
+            d[2] = s[0];
+            d[3] = 255;
+        }
+    }
+    if (!dbgShotTex_) glGenTextures(1, &dbgShotTex_);
+    glBindTexture(GL_TEXTURE_2D, dbgShotTex_);
+    glUploadTexRgba(w, h, rgba.data());
+    dbgShotW_ = w;
+    dbgShotH_ = h;
+    dbgShotError_.clear();
+    statusMessage_ = "Frame capture: " + std::to_string(w) + "x" +
+                     std::to_string(h) + " from the running game";
+}
+
 void App::dbgReadCrashReport() {
     namespace fs = std::filesystem;
     if (!hasProject_) return;
@@ -679,6 +772,7 @@ void App::livedbgTick() {
         dbgCrashNextRead_ = now + 0.4;
         dbgReadCrashReport();
         dbgReadVuCapture();
+        dbgReadFrameShot();
     }
 
     // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
@@ -846,6 +940,7 @@ void App::livedbgTick() {
             dbgCmd_.fireAndRun = false;
             dbgCmd_.captureVu = false;
             dbgCmd_.measureRam = false;
+            dbgCmd_.captureFrame = false;
         }
     }
 }
@@ -1871,6 +1966,63 @@ void App::drawDebuggerWindow() {
             ImGui::SeparatorText("Scene");
             ImGui::Text("%d objects: %d active, %d visible", st.objects,
                         st.objActive, st.objVisible);
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Screen: the picture the game took of ITSELF. Every host-side capture
+    // needs a desktop and a window on top of it, and none of them exists on a
+    // console - this one reads the frame buffer out of GS VRAM and hands over a
+    // TGA (docs/devkit.md, "The game's own screenshot").
+    if (ImGui::BeginTabItem("Screen")) {
+        if (!live) dbgShotWaiting_ = false;  // nobody left to answer
+        ImGui::BeginDisabled(!live);
+        if (ImGui::Button("Capture frame")) {
+            dbgCmd_.captureFrame = true;
+            dbgCmdWritten_ = false;
+            dbgShotWaiting_ = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Asks the game to read its last finished frame out of GS VRAM "
+                "and write\nbin/frame.tga. Works on a real PlayStation 2, and "
+                "on a locked or\nremote desktop where the emulator's own "
+                "screenshot key cannot.\n\nOne shot: ~900 KB over host:, so it "
+                "costs the game a visible hitch.");
+        if (dbgShotWaiting_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("waiting for the game...");
+        }
+        if (dbgShotTex_) {
+            ImGui::SameLine();
+            if (ImGui::Button("Show file"))
+                platform::revealInFileManager(
+                    (std::filesystem::path(project_.dir) / "bin" / "frame.tga")
+                        .string());
+        }
+
+        if (!dbgShotError_.empty())
+            ImGui::TextColored(ImVec4(0.94f, 0.55f, 0.45f, 1.0f), "%s",
+                               dbgShotError_.c_str());
+        if (!dbgShotTex_) {
+            ImGui::TextWrapped(
+                "No capture yet. The frame comes back as bin/frame.tga - the "
+                "same host: channel everything else here rides on, so it works "
+                "over ps2link too.");
+        } else {
+            ImGui::TextDisabled("%dx%d - the frame buffer as the GS holds it",
+                                dbgShotW_, dbgShotH_);
+            // Fit the width and keep the buffer's own aspect: this is the
+            // GS RASTER, not the television picture, so a 512x448 frame is
+            // shown as 512x448 rather than stretched to 4:3 - the point of
+            // looking at it here is to see what the console drew.
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float scale =
+                dbgShotW_ > 0 ? ImMin(1.0f, avail / (float)dbgShotW_) : 1.0f;
+            ImGui::Image((ImTextureID)(intptr_t)dbgShotTex_,
+                         ImVec2((float)dbgShotW_ * scale,
+                                (float)dbgShotH_ * scale));
         }
         ImGui::EndTabItem();
     }
