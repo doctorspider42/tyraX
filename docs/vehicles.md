@@ -329,7 +329,34 @@ One trap this cost: the model table's four parallel arrays emit a placeholder
 vehicle that placeholder pushed `MODEL_COUNT` one short of the rows actually
 written. The emptiness test has to consider the appended vehicle slots too.
 
-## Three bugs a screenshot found
+## Verifying a drive without eyes
+
+While driving, the game prints one `VEH` line every half second to
+`bin/log.txt`, plus one on enter/exit — position, speed×10 and whether the body
+is on the matrix path. That turns a `--pad` script into a machine-checkable
+drive:
+
+```
+tyrax-editor --pad examples/vehicle-playground \
+    "press square 0.3; wait 1.5; hold cross; wait 5; release all"
+grep VEH examples/vehicle-playground/bin/log.txt
+```
+
+A real run reads like a story, and this one is the feature's acceptance test:
+
+```
+VEH enter 0
+VEH pos 0 -8 spd10 0 mtx 1        ← in, matrix path on
+VEH pos 0 -3 spd10 84 mtx 1       ← accelerating
+VEH pos 0 29 spd10 219 mtx 1      ← top speed (22 u/s)
+VEH pos 0 32 spd10 0 mtx 1        ← the wall at z=34, minus half a car
+VEH exit at -2 32                 ← out at the scaled driver's door
+```
+
+A screenshot cannot say who moved; this can. It caught three of the four bugs
+below inside one session.
+
+## Bugs the telemetry and one screenshot found
 
 Worth recording, because each looked like a different feature failing:
 

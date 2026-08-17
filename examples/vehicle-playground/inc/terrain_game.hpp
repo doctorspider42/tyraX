@@ -671,6 +671,7 @@ class TerrainGame : public Tyra::Game {
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
+  float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
   // ONE bag for every wheel of every vehicle in the scene: the wheels move
   // independently, so they cannot ride a matrix like the body - but they CAN
   // share a submit, and that is the whole 2-submits-per-car design.

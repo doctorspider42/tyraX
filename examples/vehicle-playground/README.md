@@ -12,13 +12,13 @@ worked example for [vehicles](../../docs/vehicles.md).
 - **A walled box** to steer inside, so the wall collision has something to do.
 - **A slalom of pillars**, which are cylinders and therefore collide as boxes —
   a useful reminder that the collider is not the mesh.
-- **A ramp**, for the suspension and the airborne branch of the drive model.
 
 ## Driving it
 
-Walk up to the car and press **USE** (Square by default). The camera moves to a
-boom behind the car — there is no second camera rig; the walker's own camera
-becomes the chase cam. Press USE again to get out at the driver's door.
+Walk up to the car and press **USE** (Square by default) — there is no on-screen
+prompt yet, just get close. The camera moves to a lagged boom behind the car;
+while driving, the on-foot controls are fully off (no jumping from the driver's
+seat). Press USE again to get out at the driver's door.
 
 | | |
 |---|---|

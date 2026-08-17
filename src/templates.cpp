@@ -8620,7 +8620,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
   // Per-scene clipping override may flip the hidden VU1 clipping mode.
   stapip.core.setVU1Clipping(CLIP_VU1);
-{{VEHICLE_SETUP}}{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
+{{BLSS_SCENE_SETUP}}  // Per-scene sky color (the loop paints the clear screen from ctx.skyColor)
   // and post effects.
   scriptCtx.skyColor = Color(SKY_R, SKY_G, SKY_B);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
@@ -8682,6 +8682,13 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Animated models: fresh per-object mesh instances + playback defaults
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
+  // Vehicles seed AFTER the runtime objects: setupVehicles reads each
+  // instance's authored transform out of runtimeObjects[..].data, and placed
+  // before this loop it read zeros - the sim started every car at the world
+  // origin at scale 1 while the body rendered at its authored place, which is
+  // "the wheels drove off without the car" seen from another angle. Caught by
+  // the VEH use-click telemetry printing car=0,0 for a car authored at 0,-8.
+{{VEHICLE_SETUP}}
 
   // Static batching: group the batchStatic-flagged objects (material x
   // coarse world cell). The always-resident assets - materials included -
@@ -14433,7 +14440,7 @@ bool TerrainGame::updatePlayerEntity() {
 }
 
 void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
-  const auto& leftJoy = pad.getLeftJoyPad();
+{{VEHICLE_WALKER_GATE}}  const auto& leftJoy = pad.getLeftJoyPad();
   const auto& rightJoy = pad.getRightJoyPad();
   // stickAxis applies the per-stick deadzone (g_deadzoneL/R - Preferences, or a
   // menu "Deadzone" option block) and response curve (g_stickCurve*/g_stickExp*
@@ -23308,14 +23315,14 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.physFriction) << ", " << (o.physTumble ? 1 : 0) << ", "
         << floatLit(o.physSleep) << ", " << modelIndexOf(p, o) << ", "
         << materialIndexOf(p, o) << ", "
-        // Save points are always usable - USE is how they open - and so is a
-        // driveable vehicle: getting in IS a use, so the prompt, the target
-        // scan and On Used all apply with no new mechanism.
-        << ((o.usable || o.type == PrimitiveType::SavePoint ||
-             (o.type == PrimitiveType::Vehicle && o.vehicleDriveable))
-                ? 1
-                : 0)
-        << ", "
+        // Save points are always usable - USE is how they open. A vehicle is
+        // deliberately NOT, though it was for one release: data.usable
+        // disqualifies an object from the matrix fast path (the USE highlight
+        // re-submits world-space vertices), so a usable car paid a full
+        // 1072-triangle rebuild on every driven frame. Enter/exit is a
+        // proximity test in updateVehicles instead - the cost is that no
+        // "press USE" prompt appears yet, and docs/vehicles.md says so.
+        << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0) << ", "
         << (o.pickable ? 1 : 0) << ", " << (o.pickThrow ? 1 : 0) << ", "
         << o.emitterKind << ", " << o.emitterCount << ", "
         << floatLit(o.emitterSize) << ", " << (o.emitterEnabled ? 1 : 0) << ", "
@@ -27352,11 +27359,6 @@ static std::string blssNetHeader(const Project& p) {
 static bool projectHasVehicles(const Project& p) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
-            if (o.type == PrimitiveType::Vehicle && !o.vehicleDef.empty() &&
-                !o.modelPath.empty() == false)
-                return true;
-    for (const SceneData& sc : p.scenes)
-        for (const SceneObject& o : sc.objects)
             if (o.type == PrimitiveType::Vehicle) return true;
     return false;
 }
@@ -27383,6 +27385,7 @@ static std::string vehicleMembers(const Project& p) {
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
+  float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
   // ONE bag for every wheel of every vehicle in the scene: the wheels move
   // independently, so they cannot ride a matrix like the body - but they CAN
   // share a submit, and that is the whole 2-submits-per-car design.
@@ -27412,12 +27415,19 @@ void TerrainGame::setupVehicles(int scene) {
     v.def = VEHICLES[i].def;
     v.driveable = VEHICLES[i].driveable;
     v.active = 1;
+    TYRA_LOG("VEH setup obj ", v.object, " def ", v.def);
     if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
       const SceneObjectData& d = runtimeObjects[v.object].data;
       v.pos[0] = d.position[0];
       v.pos[1] = d.position[1];
       v.pos[2] = d.position[2];
       v.yaw = d.rotation[1];
+    // Everything geometric in the sim and the wheel bag multiplies by this.
+    // The line was ONCE lost to an indentation-mismatched replace with no
+    // assert - a silent no-op that left every car simulating at scale 1.0
+    // inside a body drawn at its real size. Caught by the use-click telemetry
+    // printing sc10 10 for an instance authored at 1.5.
+    v.scale = d.scale[0] > 0.001F ? d.scale[0] : 1.0F;
       // The body rides VU1: ask for the matrix path once and the per-frame
       // cost of moving a car becomes four floats, not a vertex rebuild.
       runtimeObjects[v.object].wantsMatrixPath = true;
@@ -27436,11 +27446,52 @@ void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
   const float kDeg = 3.14159265F / 180.0F, kRad = 180.0F / 3.14159265F;
+  // One USE press does one thing per frame: without this, exiting vehicle 0
+  // left the click edge still true when the loop reached vehicle 1, and the
+  // player teleported from one car straight into the next.
+  int useHandled = 0;
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;  // the instance scale (see VehicleRt::scale)
+
+    // Enter and exit, by PROXIMITY - not through the usable machinery, which
+    // costs the matrix fast path (see the scene-row emitter). The price is
+    // that no "press USE" prompt appears yet.
+    if (!useHandled && PLAYER_INDEX >= 0 &&
+        inputClicked(engine->pad, IA_ROLE_USE)) {
+      {
+        const float ddx0 = players[0].x - v.pos[0];
+        const float ddz0 = players[0].z - v.pos[2];
+        const float er0 = s.wheelBase * SC * 1.2F + 1.5F;
+        TYRA_LOG("VEH use-click d2x10 ", (int)((ddx0 * ddx0 + ddz0 * ddz0) * 10.0F),
+                 " er2x10 ", (int)(er0 * er0 * 10.0F), " drv ", vehicleDriver_,
+                 " drb ", v.driveable, " sc10 ", (int)(SC * 10.0F));
+      }
+      if (vi == vehicleDriver_) {
+        // Out, at the driver's door - the offset is in the car's own frame
+        // and scale, so it follows the car around.
+        const float ec = cosf(v.yaw * kDeg), es = sinf(v.yaw * kDeg);
+        players[0].x = v.pos[0] + (s.exitOffset[0] * ec + s.exitOffset[2] * es) * SC;
+        players[0].z = v.pos[2] + (-s.exitOffset[0] * es + s.exitOffset[2] * ec) * SC;
+        players[0].y = v.pos[1] + s.exitOffset[1] * SC;
+        players[0].velY = 0.0F;
+        vehicleDriver_ = -1;
+        useHandled = 1;
+        TYRA_LOG("VEH exit at ", (int)players[0].x, " ", (int)players[0].z);
+      } else if (vehicleDriver_ < 0 && v.driveable) {
+        const float ddx = players[0].x - v.pos[0];
+        const float ddz = players[0].z - v.pos[2];
+        const float er = s.wheelBase * SC * 1.2F + 2.0F;
+        if (ddx * ddx + ddz * ddz < er * er) {
+          vehicleDriver_ = vi;
+          vehCamYaw_ = v.yaw;
+          useHandled = 1;
+          TYRA_LOG("VEH enter ", vi);
+        }
+      }
+    }
 
     // Input. Only the vehicle the player is driving reads the pad; every
     // other one coasts, which is what leaves room for an AI controller to
@@ -27601,6 +27652,14 @@ void TerrainGame::updateVehicles(float dt) {
       const float cx[4] = {-hx2, hx2, -hx2, hx2};
       const float cz[4] = {hz2, hz2, -hz2, -hz2};
       const float feet = v.pos[1] - s.rideHeight * SC;
+      // The car must not collide with ITSELF: collidePlayer tests every solid
+      // object and the four corners sit inside the body's own collision box,
+      // so every moving frame read as blocked and the car crawled at a tenth
+      // of its speed (measured: spd10 oscillating 0..9 on open ground, with
+      // nothing within twenty units). Collision is flipped off for the test
+      // and restored after - the same trick the carry sweep plays.
+      const int ownCol = v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
+      if (v.object >= 0) runtimeObjects[v.object].data.collision = 2;
       int blocked = 0;
       for (int k = 0; k < 4 && !blocked; ++k) {
         const float p0x = prevX + cx[k] * c2 + cz[k] * s2;
@@ -27613,6 +27672,7 @@ void TerrainGame::updateVehicles(float dt) {
         const float dx = nx - wantX, dz = nz - wantZ;
         if (dx * dx + dz * dz > 0.0004F) blocked = 1;
       }
+      if (v.object >= 0) runtimeObjects[v.object].data.collision = ownCol;
       if (blocked) {
         v.pos[0] = prevX;
         v.pos[2] = prevZ;
@@ -27648,24 +27708,43 @@ void TerrainGame::updateVehicles(float dt) {
         o.dirty = true;
     }
 
-    // Driving: park the player on a boom behind the car and point the camera
-    // at it. There is no second camera rig - the walker's own view IS the
-    // driving view - and writing this after updatePlayerEntity has run is what
-    // suppresses the walker's input without it needing to know cars exist.
-    //
-    // The camera is set DIRECTLY as well: it was built from the player's old
-    // position earlier this frame, so leaving it to follow would trail one
-    // frame behind everything it is following.
+    // Driving: the camera. The walker is GATED while driving (the check at
+    // the top of updatePlayerWalker), so this is the ONLY writer - "the camera
+    // goes wherever it likes" was two writers fighting, the walker's look
+    // code against this block, and the winner changed with frame order. The
+    // boom yaw FOLLOWS the car through an exponential lag instead of being
+    // bolted to it: in a slide the body visibly rotates under the camera,
+    // which is the look this whole feature is chasing.
     if (vi == vehicleDriver_) {
-      players[0].x = v.pos[0] - s2 * s.camDist * SC;
-      players[0].z = v.pos[2] - c2 * s.camDist * SC;
+      float dyaw = v.yaw - vehCamYaw_;
+      while (dyaw > 180.0F) dyaw -= 360.0F;
+      while (dyaw < -180.0F) dyaw += 360.0F;
+      float k = dt * 5.0F;
+      if (k > 1.0F) k = 1.0F;
+      vehCamYaw_ += dyaw * k;
+      const float bc = cosf(vehCamYaw_ * kDeg), bs = sinf(vehCamYaw_ * kDeg);
+      players[0].x = v.pos[0] - bs * s.camDist * SC;
+      players[0].z = v.pos[2] - bc * s.camDist * SC;
       players[0].y = v.pos[1] + s.camHeight * SC;
-      players[0].yaw = v.yaw;
+      players[0].yaw = vehCamYaw_;
       players[0].velY = 0.0F;
       cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
-      cameraLookAt.set(v.pos[0], v.pos[1] + s.camHeight * 0.35F, v.pos[2], 1.0F);
+      cameraLookAt.set(v.pos[0], v.pos[1] + s.camHeight * SC * 0.35F, v.pos[2],
+                       1.0F);
       engine->renderer.core.renderer3D.update(
           Tyra::CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
+      // Telemetry (docs/vehicles.md, "Verifying it"): a driven car states its
+      // position, speed and whether the body is on the matrix path every half
+      // second, so a --pad script plus a grep of bin/log.txt PROVES a drive
+      // happened. A screenshot cannot say who moved; this can.
+      static int vehLog = 0;
+      if (++vehLog >= 25) {
+        vehLog = 0;
+        TYRA_LOG("VEH pos ", (int)v.pos[0], " ", (int)v.pos[2], " spd10 ",
+                 (int)(v.speed * 10.0F), " mtx ",
+                 (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
+                                     : 0));
+      }
     }
   }
 }
@@ -27748,30 +27827,25 @@ void TerrainGame::renderVehicleWheels() {
 )";
 }
 
-static std::string vehicleUseCall(const Project& p) {
+static std::string vehicleWalkerGate(const Project& p) {
     if (!projectHasVehicles(p)) return "";
-    // Getting in is an ordinary USE on the vehicle's own object, so the prompt
-    // and the target scan need no vehicle case at all.
-    return R"(    for (int vi = 0; vi < vehicleCount_; ++vi)
-      if (vehicles_[vi].object == useTargetIndex && vehicles_[vi].driveable) {
-        if (vehicleDriver_ == vi) {
-          // Out, at the driver's door: the exit offset is in the car's own
-          // frame, so it follows the car around instead of being a world
-          // direction that puts the player inside a wall on half the map.
-          const VehicleRt& v = vehicles_[vi];
-          const VehicleDefData& s = VEHICLE_DEFS[v.def];
-          const float c = cosf(v.yaw * 3.14159265F / 180.0F);
-          const float sn = sinf(v.yaw * 3.14159265F / 180.0F);
-          players[0].x = v.pos[0] + s.exitOffset[0] * c + s.exitOffset[2] * sn;
-          players[0].z = v.pos[2] - s.exitOffset[0] * sn + s.exitOffset[2] * c;
-          players[0].y = v.pos[1] + s.exitOffset[1];
-          vehicleDriver_ = -1;
-        } else {
-          vehicleDriver_ = vi;
-        }
-        break;
-      }
+    return R"(  // Driving: the vehicle update owns this player outright - position, yaw,
+  // camera. Letting the walker keep running "underneath" was the first review
+  // in one line: jump fired from inside the car (Cross is both jump and
+  // throttle), the right stick fought the boom for the yaw, and gravity,
+  // footsteps and the camera build all happened to somebody sitting in a
+  // seat. A driver is not a pedestrian.
+  if (pi == 0 && vehicleDriver_ >= 0) return;
 )";
+}
+
+static std::string vehicleUseCall(const Project& p) {
+    // Nothing: enter/exit moved into updateVehicles as a proximity test, since
+    // riding the usable machinery cost the matrix fast path (see the row
+    // emitter). The placeholder stays so growing this back needs no template
+    // edit.
+    (void)p;
+    return "";
 }
 
 static std::string vehicleSetupCall(const Project& p) {
@@ -28093,6 +28167,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
     s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));
+    s = replaceAll(s, "{{VEHICLE_WALKER_GATE}}", vehicleWalkerGate(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));
     s = replaceAll(s, "{{BLSS_INCLUDE}}", blssInclude(p));

@@ -113,7 +113,7 @@
     { "name": "main",
       "terrain": { "width": 120, "depth": 120 },
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
-      "objects": ["b632d92adecbb4e9", "cc96car000000001", "cc96wall000000001", "cc96wall000000002", "cc96wall000000003", "cc96wall000000004", "cc96pill000000005", "cc96pill000000006", "cc96pill000000007", "cc96pill000000008", "cc96pill000000009", "cc96pill000000010", "cc96ramp000000011"] }
+      "objects": ["b632d92adecbb4e9", "cc96car000000001", "cc96wall000000001", "cc96wall000000002", "cc96wall000000003", "cc96wall000000004", "cc96pill000000005", "cc96pill000000006", "cc96pill000000007", "cc96pill000000008", "cc96pill000000009", "cc96pill000000010"] }
   ],
   "fonts": [
     { "name": "Default", "path": "", "atlasSize": 16, "color": [1, 1, 1], "shadow": true, "quant": "4bit" }
