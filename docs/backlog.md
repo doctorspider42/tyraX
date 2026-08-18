@@ -290,13 +290,15 @@ gaps, each with a testable end:
   placement, not the console's slide resolver - a rotated wall blocks a wider
   footprint in the editor than on the console. Fine for tuning; worth one
   sentence of honesty in the panel if anyone reports it.
-- **No speedometer and no tacho.** The powertrain now supplies both inputs
-  (`DriveState::rpm`, `gear`, `speed`), so what is missing is only the drawing.
-  `drawFontText` over the menu font's glyph atlas is the existing runtime-text
-  path and the honest first cut - and note a PS2 sprite is axis-aligned, so a
-  swinging NEEDLE is not a sprite rotation but either a pre-baked sprite sheet per
-  angle or a small bag of geometry. Done when a driven frame shows the speed and
-  the gear, at the authored resolution, with the widescreen squeeze applied.
+- ~~**No speedometer.**~~ DONE - speed, gear and the nitrous tank through
+  `drawFontText`, verified on the console reading 88 / gear 5 / NOS 3. A TACHO is
+  still open, and the reason it is not a small addition is that a PS2 sprite is
+  AXIS-ALIGNED: a swinging needle is not a sprite rotation but either a pre-baked
+  sheet per angle or a small bag of geometry. Left here for the trap the first
+  version hit - the nitrous line sat at 0.945 of the frame height, where the
+  emulator's own picture already cut it in half and a CRT would have lost it
+  entirely. Anything added to that readout gets checked against
+  docs/safe-areas.md, from the bottom row up.
 - **The vehicle controls are RAW pad reads.** Only USE goes through the Input Map;
   throttle, brake, handbrake, nitrous and the camera cycle are
   `pad.getPressed().Cross` and friends, which is exactly what

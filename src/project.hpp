@@ -1027,6 +1027,19 @@ struct VehicleDef {
     float enginePitchRedline = 2.4f;
     float engineVolume = 70.0f;  // 0..100, audsrv's own scale
 
+    // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
+    // vehicle authored before it existed still shows nothing.
+    bool showHud = false;
+    // A font NAME, like every other font reference in the project ("" = the
+    // default entry). It needs a glyph ATLAS, which is why a vehicle with the
+    // HUD on joins Project::atlasFontIndices().
+    std::string hudFont;
+    // Speed is in world units per second, and a unit is whatever the project
+    // decided it is - so what the number should READ as is an authoring
+    // question, not one this code can answer. 3.6 turns metres per second into
+    // km/h, which is the common case.
+    float hudSpeedScale = 3.6f;
+
     bool valid() const { return !name.empty(); }
 };
 
@@ -1039,7 +1052,8 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.engineSound != b.engineSound ||
         a.enginePitchIdle != b.enginePitchIdle ||
         a.enginePitchRedline != b.enginePitchRedline ||
-        a.engineVolume != b.engineVolume)
+        a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
+        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;

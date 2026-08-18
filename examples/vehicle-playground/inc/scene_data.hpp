@@ -318,11 +318,14 @@ struct VehicleDefData {
   // multipliers at idle and at the redline.
   int engineSnd; float enginePitchIdle; float enginePitchRedline;
   int engineVolume;
+  // Driver readout: a FONTS slot (-1 = no HUD) and what a world
+  // unit per second should READ as on it.
+  int hudFont; float hudSpeedScale;
 };
 struct VehicleInstData { int scene; int object; int def; int driveable; };
 constexpr int VEHICLE_DEF_COUNT = 1;
 constexpr VehicleDefData VEHICLE_DEFS[1] = {
-    {0, 1, 2.0F, 1.4F, 0.32F, 22.0F, 6.0F, 9.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 26.0F, 6.0F, 24.0F, 0.35F, 0.18F, 8.0F, 0.5F, 12.0F, 5.0F, 1.52F, 800.0F, 7200.0F, 0.93F, 0.5F, 0.18F, 1.0F, 3.0F, 0.8F, 1.18F, 0.12F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70},  // CC96
+    {0, 1, 2.0F, 1.4F, 0.32F, 22.0F, 6.0F, 9.0F, 18.0F, 3.0F, 0.0016F, 34.0F, 11.0F, 220.0F, 300.0F, 26.0F, 6.0F, 24.0F, 0.35F, 0.18F, 8.0F, 0.5F, 12.0F, 5.0F, 1.52F, 800.0F, 7200.0F, 0.93F, 0.5F, 0.18F, 1.0F, 3.0F, 0.8F, 1.18F, 0.12F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.75F, 2.4F, 70, 0, 3.6F},  // CC96
 };
 constexpr int VEHICLE_COUNT = 1;
 constexpr VehicleInstData VEHICLES[1] = {

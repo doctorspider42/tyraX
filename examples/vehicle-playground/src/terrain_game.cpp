@@ -2917,6 +2917,7 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
+    renderVehicleHud();
     if (useTargetIndex >= 0 || vehiclePrompt_ != 0) {
       const bool pick =
           useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
@@ -13633,6 +13634,60 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   if (reg != v.enginePitchReg) {
     v.enginePitchReg = reg;
     engine->audio.adpcm.setPitch((s8)v.engineCh, (u16)reg);
+  }
+}
+
+// The driver's readout (docs/vehicles.md, "The HUD"): speed, gear and the
+// nitrous tank, drawn only while somebody is driving.
+//
+// It is RUNTIME text - the speed is not known until the game runs - so it goes
+// through drawFontText over the font's glyph atlas, which is why a vehicle with
+// the HUD on has to join Project::atlasFontIndices(); without that the font
+// ships no atlas and this draws nothing, which reads as a broken feature rather
+// than as a missing asset.
+//
+// Positions are FRACTIONS of the real framebuffer, and every horizontal one
+// carries the widescreen squeeze (the 4:3-over-window-aspect factor the menus
+// call uiAspectFix). Anamorphic widescreen keeps the framebuffer's shape and
+// lets the TV stretch it, so a readout that skips the factor is a third too wide
+// on exactly the displays people play on.
+void TerrainGame::renderVehicleHud() {
+  if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_) return;
+  VehicleRt& v = vehicles_[vehicleDriver_];
+  if (v.def < 0) return;
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  if (s.hudFont < 0 || s.hudFont >= FONT_COUNT) return;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  const float sx = (4.0F / 3.0F) / scr.getWindowAspect();
+
+  char buf[48];
+  // Speed, big, bottom right. The scale is authored because a world unit is
+  // whatever the project decided it is - 3.6 reads metres per second as km/h.
+  float spd = v.speed * s.hudSpeedScale;
+  if (spd < 0.0F) spd = -spd;
+  // The Y positions keep the whole readout inside the TITLE-SAFE area
+  // (docs/safe-areas.md): a CRT overscans, and the first version put the
+  // nitrous line at 0.945 of the height, where the emulator's own frame already
+  // cut it in half - on a television it would not have been there at all. The
+  // bottom-most row is the one to check whenever this moves.
+  snprintf(buf, sizeof(buf), "%d", (int)(spd + 0.5F));
+  drawFontText(engine, s.hudFont, buf, W * 0.84F, H * 0.80F, H * 0.085F, sx);
+
+  // Gear beside it. Reverse is its own gear and reads as R, not as "-1".
+  if (v.gear < 0)
+    snprintf(buf, sizeof(buf), "R");
+  else
+    snprintf(buf, sizeof(buf), "%d", v.gear + 1);
+  drawFontText(engine, s.hudFont, buf, W * 0.93F, H * 0.80F, H * 0.055F, sx);
+
+  // The nitrous tank, and only when the vehicle HAS one - a permanently full
+  // bar on a car with no bottle is worse than no bar.
+  if (s.nosCapacity > 0.001F) {
+    const int pct = (int)(v.nos * 100.0F + 0.5F);
+    snprintf(buf, sizeof(buf), "NOS %d", pct);
+    drawFontText(engine, s.hudFont, buf, W * 0.865F, H * 0.885F, H * 0.038F, sx);
   }
 }
 

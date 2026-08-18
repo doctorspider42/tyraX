@@ -553,6 +553,23 @@ void App::drawVehicleWindow() {
                 "Where the player is put down on getting out, relative to the\n"
                 "car: x right, y up, z forward. The driver's door.");
 
+            // --- The readout ---------------------------------------------------
+            ImGui::Separator();
+            ImGui::Checkbox("Show a driver's HUD", &v.showHud);
+            prefHelp(
+                "Speed, gear and the nitrous tank, while driving.\n"
+                "Drawn as runtime text, so the font gets a glyph atlas.");
+            if (v.showHud) {
+                fontCombo(v.hudFont);
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::DragFloat("Speed reads as", &v.hudSpeedScale, 0.05f, 0.0f,
+                                 100.0f, "%.2f x units/s");
+                prefHelp(
+                    "What one world unit per second should show as. A unit is\n"
+                    "whatever this project decided it is, so this cannot be\n"
+                    "guessed: 3.6 turns metres per second into km/h.");
+            }
+
             // --- Engine note --------------------------------------------------
             // The list is the project's own sounds, and only the LOOPING ones:
             // the loop lives in the encoded sample (adpenc -L over a

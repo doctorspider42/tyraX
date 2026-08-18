@@ -226,6 +226,32 @@ It only burns **on the throttle**. Holding the button against a wall used to emp
 the tank with the car stationary (measured on the console: `nos10` fell 7 to 5 at
 `spd10 0`), which is a way to lose a resource without ever seeing it do anything.
 
+### The HUD
+
+*Vehicle Editor > Driver > Show a driver's HUD.* Speed, gear and — only when the
+vehicle has a tank — the nitrous percentage, drawn while driving and nowhere else.
+
+Three things are worth knowing before moving it:
+
+- **It is runtime text**, so its font needs a glyph atlas. A vehicle with the HUD
+  on therefore joins `Project::atlasFontIndices()`; without that the font ships no
+  atlas and the readout draws *nothing*, which reads as a broken feature rather
+  than as a missing asset.
+- **Every horizontal position carries the widescreen squeeze** (the
+  4:3-over-window-aspect factor the menus call `uiAspectFix`). Anamorphic
+  widescreen keeps the framebuffer's shape and lets the television stretch it, so
+  a readout that skips the factor is a third too wide on exactly the displays
+  people play on.
+- **Keep it inside the title-safe area** ([safe areas](safe-areas.md)). The first
+  version put the nitrous line at 0.945 of the height, where the *emulator's own
+  frame* already cut it in half — on a CRT it would not have been there at all.
+  The bottom-most row is the one to re-check whenever this layout moves.
+
+`hudSpeedScale` is what a world unit per second should READ as, because a unit is
+whatever the project decided it is and no code here can guess: 3.6 turns metres
+per second into km/h. Measured on the console at top speed under nitrous, the
+readout shows **88** with the gear beside it and **NOS 3** below.
+
 ### Engine sound
 
 A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in

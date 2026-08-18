@@ -6303,7 +6303,7 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
+{{SCREEN_FX_TOP}}{{VEHICLE_HUD}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
       const bool pick =
           useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
@@ -21480,7 +21480,7 @@ void TerrainGame::loop() {
     }
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-{{SCREEN_FX_TOP}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
+{{SCREEN_FX_TOP}}{{VEHICLE_HUD}}    if (useTargetIndex >= 0{{VEHICLE_PROMPT_OR}}) {
       const bool pick =
           useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
@@ -24924,6 +24924,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // multipliers at idle and at the redline.\n"
                "  int engineSnd; float enginePitchIdle; float enginePitchRedline;\n"
                "  int engineVolume;\n"
+               "  // Driver readout: a FONTS slot (-1 = no HUD) and what a world\n"
+               "  // unit per second should READ as on it.\n"
+               "  int hudFont; float hudSpeedScale;\n"
                "};\n"
                "struct VehicleInstData { int scene; int object; int def; int driveable; };\n";
 
@@ -24933,7 +24936,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         if (defs.empty()) {
             out << "    {-1, -1";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
-            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0}\n";
+            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
+                   " -1, 1.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -24952,6 +24956,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 if (!v->engineSound.empty())
                     for (size_t k = 0; k < p.sounds.size(); ++k)
                         if (p.sounds[k] == v->engineSound) { snd = (int)k; break; }
+                // The HUD font resolves to a FONTS slot the same way every
+                // other font reference does. -1 means no readout at all, which
+                // is what an author who never turned it on gets.
+                int hudFont = -1;
+                if (v->showHud)
+                    if (const GameFont* gf = p.findFont(v->hudFont))
+                        hudFont = (int)(gf - p.fonts.data());
                 out << ", " << floatLit(v->camDist) << ", " << floatLit(v->camHeight)
                     << ", " << floatLit(v->camPitch) << ", "
                     << vec3Init(v->exitOffset) << ", " << snd << ", "
@@ -24960,6 +24971,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << (int)(v->engineVolume < 0.0f
                                  ? 0.0f
                                  : (v->engineVolume > 100.0f ? 100.0f : v->engineVolume))
+                    << ", " << hudFont << ", " << floatLit(v->hudSpeedScale)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
         }
@@ -27526,6 +27538,7 @@ static std::string vehicleMembers(const Project& p) {
   void updateVehicles(float dt);
   void renderVehicleWheels();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
+  void renderVehicleHud();
 )";
 }
 
@@ -28154,6 +28167,60 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   }
 }
 
+// The driver's readout (docs/vehicles.md, "The HUD"): speed, gear and the
+// nitrous tank, drawn only while somebody is driving.
+//
+// It is RUNTIME text - the speed is not known until the game runs - so it goes
+// through drawFontText over the font's glyph atlas, which is why a vehicle with
+// the HUD on has to join Project::atlasFontIndices(); without that the font
+// ships no atlas and this draws nothing, which reads as a broken feature rather
+// than as a missing asset.
+//
+// Positions are FRACTIONS of the real framebuffer, and every horizontal one
+// carries the widescreen squeeze (the 4:3-over-window-aspect factor the menus
+// call uiAspectFix). Anamorphic widescreen keeps the framebuffer's shape and
+// lets the TV stretch it, so a readout that skips the factor is a third too wide
+// on exactly the displays people play on.
+void TerrainGame::renderVehicleHud() {
+  if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_) return;
+  VehicleRt& v = vehicles_[vehicleDriver_];
+  if (v.def < 0) return;
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  if (s.hudFont < 0 || s.hudFont >= FONT_COUNT) return;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  const float sx = (4.0F / 3.0F) / scr.getWindowAspect();
+
+  char buf[48];
+  // Speed, big, bottom right. The scale is authored because a world unit is
+  // whatever the project decided it is - 3.6 reads metres per second as km/h.
+  float spd = v.speed * s.hudSpeedScale;
+  if (spd < 0.0F) spd = -spd;
+  // The Y positions keep the whole readout inside the TITLE-SAFE area
+  // (docs/safe-areas.md): a CRT overscans, and the first version put the
+  // nitrous line at 0.945 of the height, where the emulator's own frame already
+  // cut it in half - on a television it would not have been there at all. The
+  // bottom-most row is the one to check whenever this moves.
+  snprintf(buf, sizeof(buf), "%d", (int)(spd + 0.5F));
+  drawFontText(engine, s.hudFont, buf, W * 0.84F, H * 0.80F, H * 0.085F, sx);
+
+  // Gear beside it. Reverse is its own gear and reads as R, not as "-1".
+  if (v.gear < 0)
+    snprintf(buf, sizeof(buf), "R");
+  else
+    snprintf(buf, sizeof(buf), "%d", v.gear + 1);
+  drawFontText(engine, s.hudFont, buf, W * 0.93F, H * 0.80F, H * 0.055F, sx);
+
+  // The nitrous tank, and only when the vehicle HAS one - a permanently full
+  // bar on a car with no bottle is worse than no bar.
+  if (s.nosCapacity > 0.001F) {
+    const int pct = (int)(v.nos * 100.0F + 0.5F);
+    snprintf(buf, sizeof(buf), "NOS %d", pct);
+    drawFontText(engine, s.hudFont, buf, W * 0.865F, H * 0.885F, H * 0.038F, sx);
+  }
+}
+
 // The second submit: every wheel of every vehicle, transformed into world
 // space and concatenated into ONE bag. Four wheels is a few hundred
 // vertices of VU0 work against the ~1 ms a second submit would cost.
@@ -28265,6 +28332,13 @@ static std::string vehiclePromptOr(const Project& p) {
 static std::string vehicleDrivingAnd(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     return " && vehicleDriver_ < 0";
+}
+
+// The driver's readout, in the 2D pass. Placed just above the USE prompt so a
+// prompt (which appears only on foot) is never competing with it.
+static std::string vehicleHudCall(const Project& p) {
+    if (!projectHasVehicles(p)) return "";
+    return "    renderVehicleHud();\n";
 }
 
 static std::string vehicleUseCall(const Project& p) {
@@ -28597,6 +28671,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));
     s = replaceAll(s, "{{VEHICLE_WALKER_GATE}}", vehicleWalkerGate(p));
     s = replaceAll(s, "{{VEHICLE_PROMPT_OR}}", vehiclePromptOr(p));
+    s = replaceAll(s, "{{VEHICLE_HUD}}", vehicleHudCall(p));
     s = replaceAll(s, "{{VEHICLE_DRIVING_AND}}", vehicleDrivingAnd(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));

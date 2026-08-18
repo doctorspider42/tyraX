@@ -16,6 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.59.0 (the driver gets instruments - docs/vehicles.md, "The HUD"): speed,
+// gear and the nitrous tank on screen while driving. The powertrain already
+// supplied every input, so this is the drawing and nothing else.
+//
+// It is RUNTIME text, so a vehicle with the HUD on joins
+// Project::atlasFontIndices() - without that the font ships no glyph atlas and
+// the readout draws nothing at all, which reads as a broken feature rather than
+// as a missing asset. Horizontal positions carry the widescreen squeeze, the
+// same 4:3-over-window-aspect factor the menus use, because anamorphic
+// widescreen keeps the framebuffer's shape and lets the TV stretch it.
+//
+// The trap worth keeping: the first version put the nitrous line at 0.945 of the
+// frame height, where a screenshot showed the EMULATOR'S OWN picture cutting it
+// in half - on a CRT it would not have been there at all. Layout is title-safe
+// now (docs/safe-areas.md) and the bottom row is what to re-check. Verified on
+// PCSX2 reading 88 / gear 5 / NOS 3 at top speed under nitrous.
+//
+// kFormatVersion 34 -> 35: `hud`, `hudFont` and `hudSpeedScale`, written only
+// when a definition HAS the HUD on, so a project without it resaves byte for
+// byte. No migration step. MINOR.
+//
 // 1.58.0 (a drive is no longer silent - docs/vehicles.md, "Engine sound"): a
 // looping engine note whose SPU2 PITCH follows the engine speed the powertrain
 // computes. It closes the oldest entry on the vehicles backlog.
@@ -1814,7 +1835,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 58
+#define TYRAX_VERSION_MINOR 59
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2095,7 +2116,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 34;
+inline constexpr int kFormatVersion = 35;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

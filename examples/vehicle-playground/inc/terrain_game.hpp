@@ -706,6 +706,7 @@ class TerrainGame : public Tyra::Game {
   void updateVehicles(float dt);
   void renderVehicleWheels();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
+  void renderVehicleHud();
 
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so

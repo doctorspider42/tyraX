@@ -105,6 +105,12 @@ std::vector<int> Project::atlasFontIndices() const {
     // Without this its atlas would be missing and the rows would be blank.
     for (const GameMenu& m : menus)
         if (m.saveMenu) want(m.font);
+    // A vehicle's driver readout is runtime text - the speed is only known
+    // while the game runs - so its font needs an atlas too. Without this the
+    // HUD would draw nothing at all, which reads as a broken feature rather
+    // than as a missing asset (docs/vehicles.md).
+    for (const VehicleDef& v : vehicles)
+        if (v.showHud) want(v.hudFont);
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -2465,6 +2471,9 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
              << fmtFloat(v.exitOffset[1]) << ", " << fmtFloat(v.exitOffset[2]) << "]";
         // The engine note. Conditional on there BEING one, so a definition with
         // no sound resaves exactly as it did before the feature existed.
+        if (v.showHud)
+            json << ", \"hud\": true, \"hudFont\": \"" << jsonEscape(v.hudFont)
+                 << "\", \"hudSpeedScale\": " << fmtFloat(v.hudSpeedScale);
         if (!v.engineSound.empty())
             json << ", \"engineSound\": \"" << jsonEscape(v.engineSound)
                  << "\", \"enginePitch\": [" << fmtFloat(v.enginePitchIdle) << ", "
@@ -2515,6 +2524,10 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             if (x->type == json::Value::Type::Array && x->arr.size() >= 3)
                 for (int a = 0; a < 3; ++a)
                     v.exitOffset[a] = (float)x->arr[a].numberOr(v.exitOffset[a]);
+        if (const json::Value* x = e.find("hud")) v.showHud = x->boolOr(false);
+        if (const json::Value* x = e.find("hudFont")) v.hudFont = x->stringOr("");
+        if (const json::Value* x = e.find("hudSpeedScale"))
+            v.hudSpeedScale = (float)x->numberOr(v.hudSpeedScale);
         if (const json::Value* x = e.find("engineSound"))
             v.engineSound = x->stringOr("");
         if (const json::Value* x = e.find("enginePitch"))
