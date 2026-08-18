@@ -247,23 +247,21 @@ The feature drives - enter, steer, drift and wall collision are all
 machine-verified on the emulator via the VEH telemetry - and these are the
 gaps, each with a testable end:
 
-- **A drive is silent, and the blocker is now located.** Pitch IS reachable and
-  needs no new plumbing: `SD_VPARAM_PITCH` is `(0x02 << 8)` in ps2sdk's
-  `libsd-common.h`, the engine already links ps2snd and already READS that very
-  register (`logVoiceState` in `vendor/tyra/engine/src/audio/audio_adpcm.cpp`
-  prints `sceSdGetParam(voice | SD_VPARAM_PITCH)`), and `SD_VOICE(core, v)` plus
-  `AUDSRV_ADPCM_CH_CORE/CH_VOICE` already map an audsrv channel to an SPU2 voice.
-  So the write is `sceSdSetParam(SD_VOICE(core, v) | SD_VPARAM_PITCH, reg)`.
-  **Two things actually block it.** (1) `AudioAdpcm::load` hardcodes
-  `result->loop = 0`, so nothing can loop - an engine note needs a looping load
-  in the fork (`audsrv_adpcm_t` has the `loop` field already). (2) `sceSdSetParam`
-  is a **blocking `SifCallRpc`** (`ps2snd.c`), and the engine's own comment beside
-  `logVoiceState` says reading these costs an RPC each, "which is why this is once
-  per channel and debug-only". So write the pitch only when the quantised register
-  actually MOVES rather than every frame, and measure it - see the audsrv
-  blocking-work entry below. The powertrain already supplies the input
-  (`DriveState::rpm`, idle to redline). Done when a drive is audible and the pitch
-  tracks the telemetry's rpm.
+- ~~**A drive is silent.**~~ DONE, and the interesting part is that the blocker
+  was never the pitch. `SD_VPARAM_PITCH` was always reachable, libsd was already
+  linked and `logVoiceState` already READ that register - what was missing was
+  that nothing could LOOP, and looping turned out to live in the ENCODED sample
+  rather than in the play call (`adpenc -L` sets the SPU2 block loop flags). So
+  the build encodes any `res/sfx/*-loop.wav` that way, the engine fork gained one
+  function (`AudioAdpcm::setPitch`), and the runtime quantises the register to 32
+  steps because `sceSdSetParam` is a blocking `SifCallRpc`. Two instruments were
+  needed to call it done: the telemetry for the TRACKING (idle 800 rpm -> pitch
+  1408, 6585 -> 4192, dropping at every upshift) and a capture of PCSX2's own
+  audio output for the AUDIBILITY (spectral centroid 194 Hz idle -> 417 Hz at the
+  first-gear redline -> 243 Hz after changing up). Left here for the rule: a
+  sound feature needs both, because a correct register nobody can hear and an
+  audible noise that ignores the sim look identical in a log.
+
 - ~~**Hide a third-person avatar while driving.**~~ DONE. `vehicleDrivingAnd`
   ANDs `vehicleDriver_ < 0` into the line that already applies a cutscene's *Hide
   player*, so the condition is the driver state itself - no flag to clear, and

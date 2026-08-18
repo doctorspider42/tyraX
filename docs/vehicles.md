@@ -226,6 +226,57 @@ It only burns **on the throttle**. Holding the button against a wall used to emp
 the tank with the car stationary (measured on the console: `nos10` fell 7 to 5 at
 `spd10 0`), which is a way to lose a resource without ever seeing it do anything.
 
+### Engine sound
+
+A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in
+*Vehicle Editor > Driver*: a sound, a pitch multiplier at idle and one at the
+redline, and a volume.
+
+**The loop lives in the encoded sample, not in the play call.** The build runs
+`adpenc -L` over any `res/sfx/*-loop.wav`, which sets the SPU2 block loop flags;
+nothing at runtime can make a one-shot repeat, so a definition pointing at an
+ordinary WAV plays for a fifth of a second and stops. That is why the picker only
+offers `*-loop.wav` files — offering the rest would be offering a broken choice.
+The convention is in the *file name* because `adpenc` runs over `res/sfx` as a
+directory and has no access to the project model; it is the `*-lit.png`
+arrangement.
+
+The pitch itself needed no new plumbing: `SD_VPARAM_PITCH` is an ordinary libsd
+register, the engine already links libsd, and `logVoiceState` already *reads* it.
+The fork gains one function, `AudioAdpcm::setPitch`. Two costs shape the caller:
+
+- **Writing the pitch is a blocking IOP RPC** (`sceSdSetParam` → `SifCallRpc`
+  with no callback — the same cost that makes reading those registers debug-only
+  and once per channel). So the register is quantised to 32 steps and written
+  **only when it moves**: no calls at all at a steady cruise, a handful per second
+  under hard acceleration, instead of fifty.
+- **A looping voice cannot be stopped** (`AudioAdpcm`'s own doc comment says as
+  much). Getting out sets the volume to zero rather than stopping anything, and
+  forgets the channel so getting back in restarts the loop instead of inheriting a
+  stale pitch.
+
+The register is the sample's **own** encoded rate times the multiplier — not
+`0x1000`. A 22 kHz sample reports 1881, because the SPU2's reference is 48 kHz.
+
+Measured on the console, and the two halves of "it works" need two different
+instruments. The telemetry proves the **tracking**:
+
+```
+rpm  800 → pitch 1408      (1881 × 0.75, idle)
+rpm 6585 → pitch 4192
+rpm 5126 → pitch 3488      ← the upshift, and the note drops with it
+```
+
+and PCSX2's own audio output, captured and analysed, proves it is **audible** —
+the spectral centroid runs **194 Hz at idle → 417 Hz at the first-gear redline →
+243 Hz** once it has changed up. That is the RPM sawtooth, heard.
+
+`tools/engine-loop-wav.py` generates the example's sample. It is a script rather
+than a committed opaque asset so the waveform is arguable: every partial is an
+exact integer number of cycles in the loop, so the join carries no discontinuity
+by construction (measured at 7e-14), and it is deliberately dull and quiet because
+the runtime plays it at up to 2.4x its encoded rate.
+
 ### AI later, player now
 
 `vehiclesim::step` **never reads a pad**. Its input is a `DriveInput` — throttle,
@@ -527,16 +578,14 @@ never showed the bug.
 
 ## Not built yet
 
-Honest state, so nobody looks for these. **A drive is silent** — there is no
-engine sound yet, which is the largest single gap; the SPU2 *can* retune a voice
-(`sceSdSetParam(SD_VOICE(core, v) | SD_VPARAM_PITCH, ...)`, already linked and
-already read by the engine's own `logVoiceState`), but `AudioAdpcm::load` hardcodes
-`result->loop = 0`, so a looping engine note needs an engine-fork change first.
-There is **no HUD** — no speedometer and no tacho, though the powertrain now
-supplies both their inputs. **No AI drivers**, though `DriveInput` is the seam and
-nothing else has to move. **No tyre smoke**, though `DriveState::slip` is the one
-number it would read. And a vehicle does not trade momentum with physics crates or
-with another car. Every one of those has an entry in docs/backlog.md.
+Honest state, so nobody looks for these. There is **no HUD** — no speedometer and
+no tacho, though the powertrain now supplies both their inputs, and note that a PS2
+sprite is axis-aligned, so a swinging needle is not a sprite rotation. **No AI
+drivers**, though `DriveInput` is the seam and nothing else has to move. **No tyre
+smoke**, though `DriveState::slip` is the one number it would read. A vehicle does
+not trade momentum with physics crates or with another car. And the controls other
+than USE are **raw pad reads** rather than Input Map actions, so they cannot be
+rebound. Every one of those has an entry in docs/backlog.md.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,

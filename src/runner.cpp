@@ -1288,6 +1288,16 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // CONTAINER's shell - without it /bin/sh empties them on the host.)
         // Globs cover two levels of sfx subfolders (res/sfx/steps/wood.wav);
         // an unmatched glob stays a literal word, which the -e test skips.
+        //
+        // A WAV whose name ends in `-loop.wav` is encoded with adpenc's `-L`,
+        // which sets the SPU2 block loop flags so the voice REPEATS instead of
+        // ending (docs/sound.md, "Looping samples"). That is the only way to
+        // hold a continuous sound - an engine note, a siren - on this hardware:
+        // the loop is a property of the ENCODED sample and not of the play
+        // call, so nothing at runtime can turn a one-shot into a loop. The
+        // convention is in the file name rather than in the project because
+        // adpenc runs over `res/sfx` as a directory and has no access to the
+        // model; it is the `*-lit.png` arrangement.
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "cd /src && IFS= && for f in res/sfx/*.wav "
@@ -1295,8 +1305,10 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            "[ -e $f ] || continue; "
                            "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
                            "mkdir -p $(dirname $o); "
+                           "L= && case $f in *-loop.wav) L=-L;; esac; "
                            "if [ ! $o -nt $f ]; then "
-                           "echo [editor] adpenc $f && adpenc $f $o || exit 1; "
+                           "echo [editor] adpenc $L $f && "
+                           "adpenc $L $f $o || exit 1; "
                           "fi; done"),
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");

@@ -24920,6 +24920,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "  float " << f.key << ";\n";
         out << "  float camDist; float camHeight; float camPitch;\n"
                "  float exitOffset[3];\n"
+               "  // Engine note: a SND_PATHS slot (-1 = silent) and the pitch\n"
+               "  // multipliers at idle and at the redline.\n"
+               "  int engineSnd; float enginePitchIdle; float enginePitchRedline;\n"
+               "  int engineVolume;\n"
                "};\n"
                "struct VehicleInstData { int scene; int object; int def; int driveable; };\n";
 
@@ -24929,7 +24933,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         if (defs.empty()) {
             out << "    {-1, -1";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
-            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}}\n";
+            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -24939,10 +24943,24 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 out << "    {" << base << ", " << (base < 0 ? -1 : base + 1);
                 for (const vehiclesim::SpecField& f : vf)
                     out << ", " << floatLit(*f.value);
+                // The engine note resolves to a SND_PATHS slot. Stored as a
+                // PATH in the .tyra (an index would retarget itself the moment
+                // the Sounds panel was reordered), so this is where the two
+                // meet - and a path naming no listed sound is -1, i.e. silent,
+                // rather than a slot that would read some other sample.
+                int snd = -1;
+                if (!v->engineSound.empty())
+                    for (size_t k = 0; k < p.sounds.size(); ++k)
+                        if (p.sounds[k] == v->engineSound) { snd = (int)k; break; }
                 out << ", " << floatLit(v->camDist) << ", " << floatLit(v->camHeight)
                     << ", " << floatLit(v->camPitch) << ", "
-                    << vec3Init(v->exitOffset) << "},  // " << escapeCString(v->name)
-                    << "\n";
+                    << vec3Init(v->exitOffset) << ", " << snd << ", "
+                    << floatLit(v->enginePitchIdle) << ", "
+                    << floatLit(v->enginePitchRedline) << ", "
+                    << (int)(v->engineVolume < 0.0f
+                                 ? 0.0f
+                                 : (v->engineVolume > 100.0f ? 100.0f : v->engineVolume))
+                    << "},  // " << escapeCString(v->name) << "\n";
             }
         }
         out << "};\n";
@@ -27480,6 +27498,12 @@ static std::string vehicleMembers(const Project& p) {
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;
     float slip = 0.0F;         // 0..1, the ONE tyre-slip number
+    // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
+    // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
+    // is the LAST value written, because writing the pitch costs a blocking IOP
+    // RPC and must happen only on a real change.
+    int engineCh = -1;
+    int enginePitchReg = 0;
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -27501,6 +27525,7 @@ static std::string vehicleMembers(const Project& p) {
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   void renderVehicleWheels();
+  void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
 )";
 }
 
@@ -27978,6 +28003,11 @@ void TerrainGame::updateVehicles(float dt) {
         o.dirty = true;
     }
 
+    // The engine note. Called for EVERY vehicle, not only the driven one, so
+    // that leaving a car is what silences it - a `continue` above here would
+    // leave the loop running for ever on the channel.
+    updateVehicleEngineSound(v, s, vi == vehicleDriver_ ? 1 : 0);
+
     // Driving: the camera. The walker is GATED while driving (the check at
     // the top of updatePlayerWalker), so this is the ONLY writer - "the camera
     // goes wherever it likes" was two writers fighting, the walker's look
@@ -28040,11 +28070,87 @@ void TerrainGame::updateVehicles(float dt) {
                  (int)(v.speed * 10.0F), " lat10 ", (int)(v.lateral * 10.0F),
                  " yaw ", (int)v.yaw, " gear ", v.gear, " rpm ", (int)v.rpm,
                  " slip10 ", (int)(v.slip * 10.0F), " nos10 ",
-                 (int)(v.nos * 10.0F), " cam ", vehCamMode_, " mtx ",
+                 (int)(v.nos * 10.0F), " cam ", vehCamMode_, " pitch ",
+                 v.enginePitchReg, " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
       }
     }
+  }
+}
+
+// The engine note (docs/vehicles.md, "Engine sound"). One looping sample whose
+// SPU2 pitch register tracks the engine speed the powertrain computes.
+//
+// Three things decide the shape of this function.
+//
+// The LOOP is a property of the encoded sample, not of the play call: the build
+// runs `adpenc -L` over any `res/sfx/*-loop.wav`, which sets the SPU2 block loop
+// flags. Nothing here can make a one-shot repeat, which is why a definition
+// pointing at an ordinary WAV goes quiet after a fifth of a second instead of
+// misbehaving in some more interesting way.
+//
+// WRITING THE PITCH COSTS A BLOCKING IOP RPC (sceSdSetParam -> SifCallRpc with
+// no callback; the engine's own logVoiceState says as much, which is why READING
+// these registers is debug-only and once per channel). So the register is
+// quantised and written only when it actually MOVES - at a steady cruise that is
+// no calls at all, and under hard acceleration a handful per second instead of
+// fifty.
+//
+// And the voice CANNOT BE STOPPED (AudioAdpcm's own doc comment): a looping
+// sample never ends, so getting out sets the volume to zero rather than
+// stopping anything.
+void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s,
+                                          int driving) {
+  if (s.engineSnd < 0 || s.engineSnd >= (int)sndSamples.size() ||
+      !sndSamples[s.engineSnd]) {
+    return;
+  }
+  if (!driving) {
+    // Out of the car: silence the voice and forget the channel, so getting back
+    // in starts the loop again rather than inheriting a stale pitch.
+    if (v.engineCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
+      v.engineCh = -1;
+      v.enginePitchReg = 0;
+    }
+    return;
+  }
+
+  // The bus matters: a voice can only reach the reverb unit of its OWN SPU2
+  // core, so the channel has to be picked on the bus the listener's room is
+  // using (docs/reverb.md). Channel 23 / 47 is the top of each bank, which the
+  // emitter loop and the Play Sound node both allocate downward from.
+  const int ch = scriptCtx.reverbBusBase + 23;
+  if (v.engineCh != ch) {
+    v.engineCh = ch;
+    v.enginePitchReg = 0;  // force the first pitch write
+    engine->audio.adpcm.forcePlay(sndSamples[s.engineSnd], (s8)ch);
+    engine->audio.adpcm.setVolume((u8)s.engineVolume, (s8)ch);
+    TYRA_LOG("VEH engine sound on channel ", ch, " snd ", s.engineSnd);
+  }
+
+  // Pitch from the engine speed, between the two authored multipliers. The
+  // sample's own encoded rate is 0x1000 by audsrv's report, so the register is
+  // that times the multiplier.
+  const float idle = s.idleRpm;
+  const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
+  float f = (v.rpm - idle) / (red - idle);
+  if (f < 0.0F) f = 0.0F;
+  if (f > 1.0F) f = 1.0F;
+  const float mul = s.enginePitchIdle +
+                    (s.enginePitchRedline - s.enginePitchIdle) * f;
+  const u16 natural = Tyra::AudioAdpcm::naturalPitch(sndSamples[s.engineSnd]);
+  int reg = (int)((float)natural * mul);
+  if (reg < 0x80) reg = 0x80;
+  if (reg > 0x3FFF) reg = 0x3FFF;
+  // Quantise to 32 register steps: finer than the ear resolves at these rates,
+  // and it is what turns "an RPC every frame" into "an RPC when the note
+  // actually changes".
+  reg &= ~31;
+  if (reg != v.enginePitchReg) {
+    v.enginePitchReg = reg;
+    engine->audio.adpcm.setPitch((s8)v.engineCh, (u16)reg);
   }
 }
 

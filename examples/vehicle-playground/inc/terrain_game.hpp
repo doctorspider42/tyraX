@@ -678,6 +678,12 @@ class TerrainGame : public Tyra::Game {
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;
     float slip = 0.0F;         // 0..1, the ONE tyre-slip number
+    // Engine note (docs/vehicles.md). `engineCh` is the SPU2 channel the loop
+    // holds while this vehicle is being driven, -1 when silent; `enginePitchReg`
+    // is the LAST value written, because writing the pitch costs a blocking IOP
+    // RPC and must happen only on a real change.
+    int engineCh = -1;
+    int enginePitchReg = 0;
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -699,6 +705,7 @@ class TerrainGame : public Tyra::Game {
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   void renderVehicleWheels();
+  void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
 
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so

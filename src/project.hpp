@@ -1013,6 +1013,20 @@ struct VehicleDef {
     // the canonical frame (x = right, y = up, z = forward): the driver's door.
     float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
 
+    // The engine note (docs/vehicles.md, "Engine sound"). A path into the
+    // project's own sound list, NOT an index: an index would retarget itself
+    // the moment somebody reordered the Sounds panel. It must name a
+    // `*-loop.wav`, because the loop lives in the ENCODED sample (adpenc -L)
+    // and nothing at runtime can make a one-shot repeat. An asset path, so it
+    // belongs in App::retargetAssetPath and App::rebuildAssetUsage.
+    std::string engineSound;
+    // The pitch the sample plays at, as a multiple of its own encoded rate, at
+    // idle and at the redline. The runtime interpolates between them on the
+    // engine speed the powertrain already computes.
+    float enginePitchIdle = 0.75f;
+    float enginePitchRedline = 2.4f;
+    float engineVolume = 70.0f;  // 0..100, audsrv's own scale
+
     bool valid() const { return !name.empty(); }
 };
 
@@ -1021,7 +1035,11 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
         a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
         a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
-        a.camHeight != b.camHeight || a.camPitch != b.camPitch)
+        a.camHeight != b.camHeight || a.camPitch != b.camPitch ||
+        a.engineSound != b.engineSound ||
+        a.enginePitchIdle != b.enginePitchIdle ||
+        a.enginePitchRedline != b.enginePitchRedline ||
+        a.engineVolume != b.engineVolume)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;

@@ -2463,6 +2463,13 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
              << ", " << fmtFloat(v.camPitch) << "]";
         json << ", \"exit\": [" << fmtFloat(v.exitOffset[0]) << ", "
              << fmtFloat(v.exitOffset[1]) << ", " << fmtFloat(v.exitOffset[2]) << "]";
+        // The engine note. Conditional on there BEING one, so a definition with
+        // no sound resaves exactly as it did before the feature existed.
+        if (!v.engineSound.empty())
+            json << ", \"engineSound\": \"" << jsonEscape(v.engineSound)
+                 << "\", \"enginePitch\": [" << fmtFloat(v.enginePitchIdle) << ", "
+                 << fmtFloat(v.enginePitchRedline) << "], \"engineVolume\": "
+                 << fmtFloat(v.engineVolume);
         if (!v.wheels.empty()) {
             json << ", \"wheels\": [";
             for (size_t k = 0; k < v.wheels.size(); ++k)
@@ -2508,6 +2515,15 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             if (x->type == json::Value::Type::Array && x->arr.size() >= 3)
                 for (int a = 0; a < 3; ++a)
                     v.exitOffset[a] = (float)x->arr[a].numberOr(v.exitOffset[a]);
+        if (const json::Value* x = e.find("engineSound"))
+            v.engineSound = x->stringOr("");
+        if (const json::Value* x = e.find("enginePitch"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 2) {
+                v.enginePitchIdle = (float)x->arr[0].numberOr(v.enginePitchIdle);
+                v.enginePitchRedline = (float)x->arr[1].numberOr(v.enginePitchRedline);
+            }
+        if (const json::Value* x = e.find("engineVolume"))
+            v.engineVolume = (float)x->numberOr(v.engineVolume);
         if (const json::Value* ws = e.find("wheels"))
             if (ws->type == json::Value::Type::Array)
                 for (const json::Value& w : ws->arr) {

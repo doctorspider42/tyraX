@@ -552,6 +552,62 @@ void App::drawVehicleWindow() {
             prefHelp(
                 "Where the player is put down on getting out, relative to the\n"
                 "car: x right, y up, z forward. The driver's door.");
+
+            // --- Engine note --------------------------------------------------
+            // The list is the project's own sounds, and only the LOOPING ones:
+            // the loop lives in the encoded sample (adpenc -L over a
+            // *-loop.wav), so a one-shot picked here would play for a fifth of
+            // a second and stop. Offering it would be offering a broken choice.
+            ImGui::Separator();
+            ImGui::TextUnformatted("Engine sound");
+            prefHelp(
+                "A looping sample whose PITCH follows the engine speed.\n"
+                "Only *-loop.wav sounds appear: the loop is baked into the\n"
+                "sample by the build, so a one-shot cannot be held.");
+            std::vector<const std::string*> loops;
+            for (const std::string& snd : project_.sounds) {
+                const size_t slash = snd.rfind('/');
+                const std::string base = slash == std::string::npos
+                                             ? snd
+                                             : snd.substr(slash + 1);
+                if (base.size() >= 9 &&
+                    base.compare(base.size() - 9, 9, "-loop.wav") == 0)
+                    loops.push_back(&snd);
+            }
+            ImGui::SetNextItemWidth(scaled(300));
+            const std::string cur = v.engineSound.empty() ? "(silent)" : v.engineSound;
+            if (ImGui::BeginCombo("Sample", cur.c_str())) {
+                // No `changed` flag: this window compares Section::Vehicles'
+                // JSON across its whole body, which covers a widget added later
+                // by construction (the repo-wide sectionJson guard).
+                if (ImGui::Selectable("(silent)##vehsndnone", v.engineSound.empty()))
+                    v.engineSound.clear();
+                for (size_t k = 0; k < loops.size(); ++k) {
+                    const std::string label =
+                        *loops[k] + "##vehsnd" + std::to_string(k);
+                    if (ImGui::Selectable(label.c_str(), v.engineSound == *loops[k]))
+                        v.engineSound = *loops[k];
+                }
+                ImGui::EndCombo();
+            }
+            if (loops.empty())
+                ImGui::TextDisabled(
+                    "No looping sounds in the project. Add a WAV named "
+                    "*-loop.wav under res/sfx.");
+            if (!v.engineSound.empty()) {
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("Pitch at idle", &v.enginePitchIdle, 0.25f, 2.0f,
+                                   "%.2fx");
+                prefHelp("Playback rate at idle, as a multiple of the sample's own.");
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("Pitch at redline", &v.enginePitchRedline, 0.5f,
+                                   4.0f, "%.2fx");
+                prefHelp(
+                    "Playback rate at the redline. The SPU2 register saturates\n"
+                    "around 4x the sample's own rate.");
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("Volume", &v.engineVolume, 0.0f, 100.0f, "%.0f");
+            }
             ImGui::EndTabItem();
         }
 

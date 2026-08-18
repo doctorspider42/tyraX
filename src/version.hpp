@@ -16,6 +16,36 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.0 (a drive is no longer silent - docs/vehicles.md, "Engine sound"): a
+// looping engine note whose SPU2 PITCH follows the engine speed the powertrain
+// computes. It closes the oldest entry on the vehicles backlog.
+//
+// The blocker was never the pitch. SD_VPARAM_PITCH is reachable, libsd is
+// already linked into the engine and logVoiceState already READS that very
+// register - what was missing was that nothing could LOOP. The loop turns out
+// to live in the encoded sample rather than in the play call: `adpenc -L` sets
+// the SPU2 block loop flags, so the build now encodes any `res/sfx/*-loop.wav`
+// that way and the convention is in the file name because adpenc runs over a
+// directory and has no access to the model (the *-lit.png arrangement). The
+// engine fork gains exactly one function, AudioAdpcm::setPitch.
+//
+// Two costs shape the runtime. sceSdSetParam is a BLOCKING SifCallRpc, so the
+// register is quantised to 32 steps and written only when it moves - no calls
+// at all at a steady cruise. And a looping voice cannot be stopped (audsrv's
+// own doc comment), so getting out sets the volume to zero.
+//
+// Verified on PCSX2 two ways. The telemetry proves the tracking: idle 800 rpm
+// -> pitch 1408 (the sample's own 1881 times the authored 0.75), 6585 rpm ->
+// 4192, and the register DROPS at every upshift. And PCSX2's own audio output,
+// captured and analysed, proves it is audible: the spectral centroid runs
+// 194 Hz at idle -> 417 Hz at the first-gear redline -> 243 Hz once it has
+// changed up, i.e. the RPM sawtooth, heard.
+//
+// kFormatVersion 33 -> 34: `engineSound` plus its pitch pair and volume, all
+// written only when a definition HAS a sound, so a project without one resaves
+// byte for byte - the bump is so an older editor refuses a file carrying them
+// rather than dropping them on its next save. No migration step. MINOR.
+//
 // 1.57.0 (the powertrain - docs/vehicles.md, "The gearbox"): a driven car now
 // has a GEARBOX, an engine speed and nitrous, which is what everything an
 // arcade racer is made of hangs off - the engine sound's pitch, a tacho, and
@@ -1784,7 +1814,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 57
+#define TYRAX_VERSION_MINOR 58
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2065,7 +2095,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 33;
+inline constexpr int kFormatVersion = 34;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
