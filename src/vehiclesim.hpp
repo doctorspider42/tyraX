@@ -126,6 +126,36 @@ struct DriveSpec {
     float engineBraking = 3.0f;     // deceleration with no throttle and no brake
     float drag = 0.0016f;           // quadratic, units/s^2 per (units/s)^2
 
+    // The powertrain (docs/vehicles.md, "The gearbox is presentation until you
+    // ask it not to be"). It is DERIVED from the speed the model above already
+    // produces: a gear and an engine speed are computed from how fast the car
+    // is going, and by default they feed nothing back. That is deliberate -
+    // `accel` means exactly what it meant before this existed, so every vehicle
+    // authored without a gearbox accelerates identically with one. What it buys
+    // for free is everything that needs to KNOW the engine speed: the engine
+    // sound's pitch, the tacho, and the shift the player hears.
+    //
+    // Two knobs let it bite, and both default to OFF for that reason:
+    // `shiftTime` (a throttle cut between gears) and `gearTorque` (the ratio
+    // shaping acceleration).
+    float gears = 5.0f;            // forward gears; rounded, 1..8
+    float gearSpread = 1.52f;      // top-speed ratio between consecutive gears
+    float idleRpm = 800.0f;
+    float redlineRpm = 7200.0f;
+    float shiftUpFrac = 0.93f;     // of redline
+    float shiftDownFrac = 0.50f;   // of redline; clamped so the box cannot hunt
+    float shiftTime = 0.0f;        // seconds of throttle cut per shift, 0 = none
+    float gearTorque = 0.0f;       // 0 = flat accel (as before), 1 = fully geared
+
+    // Nitrous. `nosCapacity` is SECONDS of boost and defaults to zero, which is
+    // what makes a vehicle without nitrous behave exactly as it did before the
+    // feature existed - the tank is the switch, so there is no second flag to
+    // disagree with it.
+    float nosCapacity = 0.0f;      // seconds of full boost, 0 = the car has none
+    float nosBoost = 0.8f;         // extra acceleration, as a fraction
+    float nosTopSpeed = 1.18f;     // top-speed multiplier while boosting
+    float nosRefill = 0.12f;       // tank fractions per second, not boosting
+
     // Steering. maxSteer shrinks toward highSpeedSteer as the car approaches
     // topSpeed - without it a full-lock flick at speed spins the car instantly
     // and the vehicle is undriveable with a digital d-pad.
@@ -167,13 +197,34 @@ struct SpecField {
 // is the trap dronegen::visitParams exists to have already paid for.
 std::vector<SpecField> specFields(DriveSpec& s);
 
+// ---------------------------------------------------------------------------
+// The gearbox, as four pure functions
+// ---------------------------------------------------------------------------
+//
+// Every consumer asks these rather than re-deriving a ratio: the sim, the
+// Vehicle Editor's readout, and the generated runtime's twin. `gearSpread` is
+// the ratio between consecutive gears' top speeds, so the top gear reaches
+// `topSpeed` and each one below it reaches that divided by the spread - a
+// geometric progression, which is what a real gearbox is.
+int gearCount(const DriveSpec& s);
+// The speed at which `gear` (0-based) reaches the redline.
+float gearTopSpeed(const DriveSpec& s, int gear);
+// Torque multiplier for a gear, geometric and CENTRED so the middle gear is
+// 1.0 - which is what lets `gearTorque` change a car's character without
+// changing its overall performance. Already blended by `gearTorque`, so at 0 it
+// returns exactly 1.0 for every gear.
+float gearTorqueMul(const DriveSpec& s, int gear);
+// Engine speed for a driven-wheel surface speed in a gear. Never below idle.
+float rpmFor(const DriveSpec& s, float wheelSpeed, int gear);
+
 // Everything a controller may say to a vehicle in one frame. The player
-// controller and (later) the AI controller both fill exactly this.
+// controller and the AI controller both fill exactly this.
 struct DriveInput {
     float throttle = 0.0f;  // -1..1; negative reverses
     float brake = 0.0f;     // 0..1
     float steer = 0.0f;     // -1..1, positive = right
     bool handbrake = false;
+    bool nos = false;       // nitrous held
 };
 
 struct DriveState {
@@ -186,6 +237,26 @@ struct DriveState {
     float velY = 0.0f;                  // vertical, units/s
     float steerAngle = 0.0f;            // degrees, the wheels' actual angle
     bool grounded = false;
+
+    // The powertrain. `gear` is a 0-based forward gear, or -1 in reverse.
+    int gear = 0;
+    float rpm = 800.0f;                 // engine speed, never below spec.idleRpm
+    float shiftTimer = 0.0f;            // seconds left of the throttle cut
+    // The DRIVEN wheels' surface speed. Equal to `speed` while the tyres hold
+    // and larger while they are spinning, which is what makes the engine flare
+    // on a standing start instead of rising smoothly with the car - and what
+    // makes the wheels visibly spin faster than the ground.
+    float wheelSpeed = 0.0f;
+    // Nitrous, as a fraction of the tank. Starts FULL: a player who gets in and
+    // presses the button expects something to happen.
+    float nos = 1.0f;
+    bool nosActive = false;             // draining this frame
+
+    // How hard the tyres are slipping, 0..1 - the lateral slide and the
+    // wheelspin folded into one number. Presentation only, and the single input
+    // to the tyre smoke and the screech, so both cannot disagree about when a
+    // tyre is losing traction.
+    float slip = 0.0f;
 
     // Presentation only - derived from the sim, costing it nothing.
     float wheelSpin[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // degrees, accumulated

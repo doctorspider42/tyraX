@@ -17,6 +17,18 @@ constexpr float kRad2Deg = 180.0f / kPi;
 // been through them, and a rim swapped between axles is a legitimate vehicle.
 constexpr float kSizeTol = 0.10f;
 
+// How fast the driven wheels' surface speed chases what the drive asks for,
+// units/s per second. Presentation only - it shapes how quickly the engine note
+// flares and dies, and nothing the car does depends on it.
+constexpr float kWheelSpinRate = 40.0f;
+
+float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+float approach(float v, float target, float rate) {
+    if (v < target) return std::min(target, v + rate);
+    return std::max(target, v - rate);
+}
+
 std::string lower(std::string s) {
     for (char& c : s)
         if (c >= 'A' && c <= 'Z') c = char(c - 'A' + 'a');
@@ -397,8 +409,93 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Past this steepness the tyres start losing grip instead of climbing."},
         {"mass", &s.mass, 0.1f, 200.0f, "Mass",
          "Relative, and only used where the vehicle shoves a physics body."},
+        {"gears", &s.gears, 1.0f, 8.0f, "Gears",
+         "Forward gears. The top one reaches the top speed; each one below it "
+         "reaches that divided by the spread."},
+        {"gearSpread", &s.gearSpread, 1.1f, 2.5f, "Gear spread",
+         "The ratio between consecutive gears' top speeds. Wide spread = fewer, "
+         "longer gears."},
+        {"idleRpm", &s.idleRpm, 300.0f, 2000.0f, "Idle RPM",
+         "Where the engine sits at a standstill, and the pitch a drive starts at."},
+        {"redlineRpm", &s.redlineRpm, 2000.0f, 12000.0f, "Redline RPM",
+         "Reached at the top of every gear, so it is also the highest pitch the "
+         "engine sound plays at."},
+        {"shiftUpFrac", &s.shiftUpFrac, 0.5f, 1.0f, "Shift up at",
+         "Fraction of the redline where it changes up."},
+        {"shiftDownFrac", &s.shiftDownFrac, 0.1f, 0.9f, "Shift down at",
+         "Fraction of the redline where it changes down. Clamped below the "
+         "up-shift landing point, so the box cannot hunt between two gears."},
+        {"shiftTime", &s.shiftTime, 0.0f, 0.6f, "Shift time",
+         "Seconds of throttle cut per gear change - the audible gap. 0 keeps the "
+         "gearbox purely presentational."},
+        {"gearTorque", &s.gearTorque, 0.0f, 1.0f, "Gear torque",
+         "How much the gear shapes acceleration. 0 pulls the same in every gear; "
+         "1 is fully geared, normalised so the car's overall performance does not "
+         "change."},
+        {"nosCapacity", &s.nosCapacity, 0.0f, 20.0f, "Nitrous seconds",
+         "Seconds of full boost the tank holds. 0 means this vehicle has no "
+         "nitrous at all."},
+        {"nosBoost", &s.nosBoost, 0.0f, 3.0f, "Nitrous boost",
+         "Extra acceleration while boosting, as a fraction of the normal figure."},
+        {"nosTopSpeed", &s.nosTopSpeed, 1.0f, 2.0f, "Nitrous top speed",
+         "Top-speed multiplier while boosting."},
+        {"nosRefill", &s.nosRefill, 0.0f, 1.0f, "Nitrous refill",
+         "Tank fractions recovered per second while the button is not held."},
     };
 }
+
+// ---------------------------------------------------------------------------
+// The gearbox
+// ---------------------------------------------------------------------------
+
+int gearCount(const DriveSpec& s) {
+    int n = (int)(s.gears + 0.5f);
+    return n < 1 ? 1 : (n > 8 ? 8 : n);
+}
+
+float gearTopSpeed(const DriveSpec& s, int gear) {
+    const int n = gearCount(s);
+    if (gear < 0) return std::max(s.reverseTopSpeed, 0.001f);
+    if (gear > n - 1) gear = n - 1;
+    const float spread = clampf(s.gearSpread, 1.01f, 4.0f);
+    return std::max(s.topSpeed, 0.001f) / std::pow(spread, (float)(n - 1 - gear));
+}
+
+float gearTorqueMul(const DriveSpec& s, int gear) {
+    const int n = gearCount(s);
+    if (gear < 0) gear = 0;
+    if (gear > n - 1) gear = n - 1;
+    const float spread = clampf(s.gearSpread, 1.01f, 4.0f);
+    // Centred on the middle gear: the exponent runs +/- (n-1)/2, so the
+    // multipliers straddle 1.0 instead of all being >= 1. That is what makes
+    // `gearTorque` a character knob rather than a power knob.
+    const float e = (float)(n - 1 - gear) - 0.5f * (float)(n - 1);
+    const float mul = std::pow(spread, e);
+    return 1.0f + clampf(s.gearTorque, 0.0f, 1.0f) * (mul - 1.0f);
+}
+
+float rpmFor(const DriveSpec& s, float wheelSpeed, int gear) {
+    const float top = gearTopSpeed(s, gear);
+    const float f = clampf(std::fabs(wheelSpeed) / std::max(top, 0.001f), 0.0f, 1.0f);
+    const float idle = std::max(s.idleRpm, 0.0f);
+    const float red = std::max(s.redlineRpm, idle + 1.0f);
+    return idle + (red - idle) * f;
+}
+
+namespace {
+
+// The down-shift point, held below where an up-shift LANDS. An author is free
+// to dial the two thresholds into a gearbox that would change up and
+// immediately back down for ever; this is what stops it, and it is computed
+// rather than validated because a slider that silently misbehaves at one end of
+// its range is worse than one that quietly refuses to.
+float safeShiftDownFrac(const DriveSpec& s) {
+    const float spread = clampf(s.gearSpread, 1.01f, 4.0f);
+    const float lands = clampf(s.shiftUpFrac, 0.1f, 1.0f) / spread;
+    return std::min(clampf(s.shiftDownFrac, 0.05f, 0.95f), lands - 0.05f);
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // The drive model
@@ -409,17 +506,6 @@ std::vector<SpecField> specFields(DriveSpec& s) {
 // frame it was authored in and into this one exactly once (using Detection's
 // axes), so the sim, the viewport preview and the generated runtime never see
 // an exporter's opinion about axes again.
-
-namespace {
-
-float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
-
-float approach(float v, float target, float rate) {
-    if (v < target) return std::min(target, v + rate);
-    return std::max(target, v - rate);
-}
-
-}  // namespace
 
 void wheelAnchors(const DriveSpec& spec, const DriveState& state, float out[4][3]) {
     const float c = std::cos(state.yaw * kDeg2Rad), s = std::sin(state.yaw * kDeg2Rad);
@@ -532,14 +618,61 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
         state.roll = approach(state.roll, 0.0f, 40.0f * dt);
     }
 
+    // --- the powertrain, before the longitudinal step -----------------------
+    // The gear is resolved from the speed the car ALREADY has, which is what
+    // makes the gearbox derived rather than simulated (see DriveSpec). The two
+    // things it hands forward are a torque multiplier and, while a shift is in
+    // progress, a throttle cut.
+    const int nGears = gearCount(spec);
+    const float redline = std::max(spec.redlineRpm, spec.idleRpm + 1.0f);
+    if (state.gear > nGears - 1) state.gear = nGears - 1;
+    if (state.speed < -0.05f) {
+        state.gear = -1;  // reverse is its own gear and never shifts
+    } else {
+        if (state.gear < 0) state.gear = 0;
+        state.shiftTimer = std::max(0.0f, state.shiftTimer - dt);
+        if (state.shiftTimer <= 0.0f) {
+            const float f = rpmFor(spec, state.wheelSpeed, state.gear) / redline;
+            if (f > clampf(spec.shiftUpFrac, 0.1f, 1.0f) && state.gear < nGears - 1) {
+                ++state.gear;
+                state.shiftTimer = clampf(spec.shiftTime, 0.0f, 0.6f);
+            } else if (f < safeShiftDownFrac(spec) && state.gear > 0) {
+                --state.gear;
+                state.shiftTimer = clampf(spec.shiftTime, 0.0f, 0.6f);
+            }
+        }
+    }
+    const bool shifting = state.shiftTimer > 0.0f;
+
+    // Nitrous. The tank IS the switch (capacity 0 = the vehicle has none), so
+    // there is no second flag that could disagree with it.
+    state.nosActive = false;
+    if (spec.nosCapacity > 0.001f) {
+        // Only on the throttle: holding the button against a wall used to empty
+        // the tank with the car stationary (measured on the console - nos10 fell
+        // 7 to 5 at spd10 0), which is a way to lose a resource without ever
+        // seeing it do anything.
+        if (in.nos && state.nos > 0.0f && state.grounded && !shifting &&
+            in.throttle > 0.01f) {
+            state.nosActive = true;
+            state.nos = std::max(0.0f, state.nos - dt / spec.nosCapacity);
+        } else if (!in.nos) {
+            state.nos = std::min(1.0f, state.nos + clampf(spec.nosRefill, 0.0f, 1.0f) * dt);
+        }
+    }
+    const float accelMul = gearTorqueMul(spec, state.gear < 0 ? 0 : state.gear) *
+                           (state.nosActive ? 1.0f + std::max(spec.nosBoost, 0.0f) : 1.0f);
+    const float topMul = state.nosActive ? std::max(spec.nosTopSpeed, 1.0f) : 1.0f;
+
     // --- longitudinal -------------------------------------------------------
     if (state.grounded) {
-        const float throttle = clampf(in.throttle, -1.0f, 1.0f);
+        const float throttle = shifting ? 0.0f : clampf(in.throttle, -1.0f, 1.0f);
         const float brake = clampf(in.brake, 0.0f, 1.0f);
         if (brake > 0.01f) {
             state.speed = approach(state.speed, 0.0f, spec.brakeDecel * brake * dt);
         } else if (throttle > 0.01f) {
-            state.speed = std::min(state.speed + spec.accel * throttle * dt, spec.topSpeed);
+            state.speed = std::min(state.speed + spec.accel * accelMul * throttle * dt,
+                                   spec.topSpeed * topMul);
         } else if (throttle < -0.01f) {
             state.speed = std::max(state.speed + spec.accel * throttle * dt,
                                    -spec.reverseTopSpeed);
@@ -617,8 +750,42 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     }
 
     // --- presentation -------------------------------------------------------
-    // Derived, never simulated: the wheels cost the sim nothing.
-    const float spin = (state.speed / std::max(spec.wheelRadius, 0.001f)) * dt * kRad2Deg;
+    // Derived, never simulated: the wheels and the engine cost the sim nothing.
+    //
+    // The driven wheels' surface speed is the car's speed PLUS whatever drive
+    // the tyres could not lay down. `grip` is already this model's one tyre
+    // number, so the comparison is drive against grip and no new knob is
+    // needed - which is also why a stock car never spins its wheels (accel 9
+    // against grip 26) while one on nitrous does.
+    float demand = std::fabs(state.speed);
+    if (state.grounded && !shifting && in.throttle > 0.01f && in.brake < 0.01f) {
+        const float drive = spec.accel * accelMul * clampf(in.throttle, 0.0f, 1.0f);
+        demand += 0.5f * std::max(0.0f, drive - spec.grip);
+    }
+    // A sliding tyre is turning faster than the road under it.
+    demand += 0.5f * std::fabs(state.lateral);
+    state.wheelSpeed = approach(state.wheelSpeed, demand, kWheelSpinRate * dt);
+
+    // The engine follows the wheels, smoothed - which is what turns a gear
+    // change into an audible dip instead of a step in the pitch. While the
+    // clutch is out it falls toward idle instead.
+    const float rpmRate = (redline - spec.idleRpm) * dt;
+    state.rpm = shifting ? approach(state.rpm, spec.idleRpm, rpmRate * 2.5f)
+                         : approach(state.rpm, rpmFor(spec, state.wheelSpeed, state.gear),
+                                    rpmRate * 6.0f);
+
+    // ONE slip number for the smoke and the screech, so the two cannot
+    // disagree about when a tyre has let go.
+    const float slipRef = std::max(1.0f, spec.topSpeed * 0.25f);
+    state.slip = clampf((std::fabs(state.lateral) +
+                         std::max(0.0f, state.wheelSpeed - std::fabs(state.speed))) /
+                            slipRef,
+                        0.0f, 1.0f);
+
+    // The wheels turn at the WHEEL speed, not the car's, so a burnout spins
+    // them faster than the ground is moving.
+    const float rolled = state.speed < 0.0f ? -state.wheelSpeed : state.wheelSpeed;
+    const float spin = (rolled / std::max(spec.wheelRadius, 0.001f)) * dt * kRad2Deg;
     for (int i = 0; i < 4; ++i) {
         state.wheelSpin[i] = std::fmod(state.wheelSpin[i] + spin, 360.0f);
         if (state.wheelSpin[i] < 0.0f) state.wheelSpin[i] += 360.0f;

@@ -667,12 +667,26 @@ class TerrainGame : public Tyra::Game {
     float scale = 1.0F;
     float wheelSpin = 0.0F;                       // degrees, shared by all four
     float compress[4] = {0.5F, 0.5F, 0.5F, 0.5F}; // 0..1, visual only
+    // The powertrain (docs/vehicles.md). Derived from the speed the model
+    // already produces - the gear and the engine speed feed nothing back
+    // unless the author dials in shiftTime or gearTorque, which is what makes
+    // a vehicle authored before this existed drive identically with it.
+    int gear = 0;              // 0-based forward gear, -1 in reverse
+    float rpm = 800.0F;
+    float shiftTimer = 0.0F;   // seconds left of the throttle cut
+    float wheelSpeed = 0.0F;   // driven wheels' surface speed (> speed = spin)
+    float nos = 1.0F;          // tank, 0..1 - starts full
+    int nosActive = 0;
+    float slip = 0.0F;         // 0..1, the ONE tyre-slip number
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
   int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
+  // Which camera the driver is looking through, cycled with Triangle.
+  // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
+  int vehCamMode_ = 0;
   // ONE bag for every wheel of every vehicle in the scene: the wheels move
   // independently, so they cannot ride a matrix like the body - but they CAN
   // share a submit, and that is the whole 2-submits-per-car design.

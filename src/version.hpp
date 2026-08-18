@@ -16,6 +16,39 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.57.0 (the powertrain - docs/vehicles.md, "The gearbox"): a driven car now
+// has a GEARBOX, an engine speed and nitrous, which is what everything an
+// arcade racer is made of hangs off - the engine sound's pitch, a tacho, and
+// the shift the player hears.
+//
+// The load-bearing decision is that the gearbox is DERIVED, not simulated. The
+// gear and the RPM are computed from the speed the existing longitudinal model
+// already produces and feed nothing back, so `accel` means exactly what it
+// meant before and every vehicle authored without a gearbox accelerates
+// identically with one - checked by a harness that reproduces the
+// pre-powertrain arithmetic independently and reads a worst-case difference of
+// 0.000000000 over 14 s of full throttle. Two knobs let it bite and BOTH
+// default to off: `shiftTime` (a throttle cut between gears) and `gearTorque`
+// (the ratio shaping acceleration, geometric and centred on the middle gear so
+// it changes a car's character rather than its performance - the geometric mean
+// of the multipliers is 1.0000). Nitrous is gated on `nosCapacity`, seconds of
+// boost, defaulting to 0: the TANK is the switch, so there is no second flag
+// that could disagree with it.
+//
+// The down-shift threshold is COMPUTED rather than validated (`safeShiftDownFrac`
+// / `vehShiftDownFrac`): an author is free to dial shift-up and shift-down into
+// a contradiction, and the point is held below where an up-shift lands so the
+// box cannot hunt between two gears for ever. Measured with deliberately
+// contradictory thresholds: 4 gear changes over 14 s, which is a clean climb.
+//
+// kFormatVersion 32 -> 33, purely additive: twelve new keys inside a vehicle's
+// existing "drive" object. The writer emits every specFields() entry, so a
+// project WITH a vehicle gains those keys on its next save - which is the whole
+// reason for the bump, so an older editor refuses the file instead of silently
+// dropping them. The reader defaults each one to the struct's own value, so an
+// older file opens unchanged and needs no migration step. A project with no
+// vehicle still resaves byte for byte. MINOR by this file's own rule.
+//
 // 1.56.0 (cars you can drive - docs/vehicles.md): a Vehicle object type, a
 // project-wide VehicleDef the instances name, and an importer that takes one
 // authored .glb/.fbx and finds the wheels in it.
@@ -1751,7 +1784,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 56
+#define TYRAX_VERSION_MINOR 57
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2032,7 +2065,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 32;
+inline constexpr int kFormatVersion = 33;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

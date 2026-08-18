@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 32,
-  "editorVersion": "1.55.0",
+  "formatVersion": 33,
+  "editorVersion": "1.57.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -229,7 +229,7 @@
     ]
   },
   "vehicles": [
-    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 1500, "wheelTris": 700, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "drive": {"wheelBase": 2, "track": 1.4, "wheelRadius": 0.32, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.35, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12 } }
+    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 1500, "wheelTris": 700, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "drive": {"wheelBase": 2, "track": 1.4, "wheelRadius": 0.32, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.35, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "gears": 5, "gearSpread": 1.52, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.93, "shiftDownFrac": 0.5, "shiftTime": 0.18, "gearTorque": 1, "nosCapacity": 3, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } }
   ],
   "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,

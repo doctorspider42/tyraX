@@ -2791,7 +2791,7 @@ void TerrainGame::loop() {
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
-    runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer;
+    runtimeObjects[PLAYER_INDEX].visible = !scriptCtx.hidePlayer && vehicleDriver_ < 0;
   if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
     runtimeObjects[players[1].objIndex].visible =
         !scriptCtx.hidePlayer && playerTwoActive;
@@ -13015,6 +13015,63 @@ void TerrainGame::procFinishChunks() {
 }
 
 
+// The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
+// gearTorqueMul/rpmFor (src/vehiclesim.cpp). CHANGE ONE AND CHANGE BOTH: the
+// editor's test drive runs the host copy and the tacho, the engine pitch and
+// the shift the player hears all come off these four numbers.
+static int vehGearCount(const VehicleDefData& s) {
+  int n = (int)(s.gears + 0.5F);
+  return n < 1 ? 1 : (n > 8 ? 8 : n);
+}
+
+static float vehClamp(float v, float lo, float hi) {
+  return v < lo ? lo : (v > hi ? hi : v);
+}
+
+// Geometric: the top gear reaches topSpeed and each one below it reaches that
+// divided by the spread, which is what a real gearbox is.
+static float vehGearTopSpeed(const VehicleDefData& s, int gear) {
+  const int n = vehGearCount(s);
+  if (gear < 0) return s.reverseTopSpeed > 0.001F ? s.reverseTopSpeed : 0.001F;
+  if (gear > n - 1) gear = n - 1;
+  const float spread = vehClamp(s.gearSpread, 1.01F, 4.0F);
+  const float top = s.topSpeed > 0.001F ? s.topSpeed : 0.001F;
+  return top / powf(spread, (float)(n - 1 - gear));
+}
+
+// Centred on the middle gear, so gearTorque changes a car's CHARACTER and not
+// its overall performance - and returns exactly 1.0 at gearTorque 0, which is
+// what keeps an existing vehicle's acceleration bit-identical.
+static float vehGearTorqueMul(const VehicleDefData& s, int gear) {
+  const int n = vehGearCount(s);
+  if (gear < 0) gear = 0;
+  if (gear > n - 1) gear = n - 1;
+  const float spread = vehClamp(s.gearSpread, 1.01F, 4.0F);
+  const float e = (float)(n - 1 - gear) - 0.5F * (float)(n - 1);
+  return 1.0F + vehClamp(s.gearTorque, 0.0F, 1.0F) * (powf(spread, e) - 1.0F);
+}
+
+static float vehRpmFor(const VehicleDefData& s, float wheelSpeed, int gear) {
+  const float top = vehGearTopSpeed(s, gear);
+  const float a = wheelSpeed < 0.0F ? -wheelSpeed : wheelSpeed;
+  const float f = vehClamp(a / (top > 0.001F ? top : 0.001F), 0.0F, 1.0F);
+  const float idle = s.idleRpm > 0.0F ? s.idleRpm : 0.0F;
+  const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
+  return idle + (red - idle) * f;
+}
+
+// Held below where an up-shift LANDS, so a gearbox whose thresholds contradict
+// each other cannot change up and immediately back down for ever. Computed
+// rather than validated: a slider that misbehaves at one end of its range is
+// worse than one that quietly refuses to.
+static float vehShiftDownFrac(const VehicleDefData& s) {
+  const float spread = vehClamp(s.gearSpread, 1.01F, 4.0F);
+  const float lands = vehClamp(s.shiftUpFrac, 0.1F, 1.0F) / spread;
+  const float want = vehClamp(s.shiftDownFrac, 0.05F, 0.95F);
+  const float cap = lands - 0.05F;
+  return want < cap ? want : cap;
+}
+
 void TerrainGame::setupVehicles(int scene) {
   vehicleCount_ = 0;
   vehicleDriver_ = -1;
@@ -13115,7 +13172,7 @@ void TerrainGame::updateVehicles(float dt) {
     // other one coasts, which is what leaves room for an AI controller to
     // fill the same four numbers later.
     float inThrottle = 0.0F, inBrake = 0.0F, inSteer = 0.0F;
-    int inHand = 0;
+    int inHand = 0, inNos = 0;
     if (vi == vehicleDriver_) {
       const auto& joy = engine->pad.getLeftJoyPad();
       inSteer = ((float)joy.h - 128.0F) / 128.0F;
@@ -13127,6 +13184,7 @@ void TerrainGame::updateVehicles(float dt) {
       // Getting in and slowing down cannot share a button.
       if (engine->pad.getPressed().L1) inBrake = 1.0F;
       if (engine->pad.getPressed().Circle) inHand = 1;
+      if (engine->pad.getPressed().R1) inNos = 1;
       if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
     }
 
@@ -13209,6 +13267,55 @@ void TerrainGame::updateVehicles(float dt) {
       }
     }
 
+    // The powertrain, before the longitudinal step. The gear is resolved from
+    // the speed the car ALREADY has - derived, not simulated - and the two
+    // things it hands forward are a torque multiplier and, mid-shift, a
+    // throttle cut. Both are identities at the shipped defaults.
+    const int nGears = vehGearCount(s);
+    const float redline =
+        s.redlineRpm > s.idleRpm + 1.0F ? s.redlineRpm : s.idleRpm + 1.0F;
+    if (v.gear > nGears - 1) v.gear = nGears - 1;
+    if (v.speed < -0.05F) {
+      v.gear = -1;  // reverse is its own gear and never shifts
+    } else {
+      if (v.gear < 0) v.gear = 0;
+      v.shiftTimer -= dt;
+      if (v.shiftTimer < 0.0F) v.shiftTimer = 0.0F;
+      if (v.shiftTimer <= 0.0F) {
+        const float f = vehRpmFor(s, v.wheelSpeed, v.gear) / redline;
+        if (f > vehClamp(s.shiftUpFrac, 0.1F, 1.0F) && v.gear < nGears - 1) {
+          ++v.gear;
+          v.shiftTimer = vehClamp(s.shiftTime, 0.0F, 0.6F);
+        } else if (f < vehShiftDownFrac(s) && v.gear > 0) {
+          --v.gear;
+          v.shiftTimer = vehClamp(s.shiftTime, 0.0F, 0.6F);
+        }
+      }
+    }
+    const int shifting = v.shiftTimer > 0.0F ? 1 : 0;
+    if (shifting) inThrottle = 0.0F;
+
+    // Nitrous. The TANK is the switch (capacity 0 = this vehicle has none), so
+    // there is no second flag that could disagree with it.
+    v.nosActive = 0;
+    if (s.nosCapacity > 0.001F) {
+      // Only on the throttle: holding the button against a wall used to empty
+      // the tank with the car stationary (measured - nos10 fell 7 to 5 at
+      // spd10 0), which is a way to lose a resource without seeing it work.
+      if (inNos && v.nos > 0.0F && v.grounded && !shifting && inThrottle > 0.01F) {
+        v.nosActive = 1;
+        v.nos -= dt / s.nosCapacity;
+        if (v.nos < 0.0F) v.nos = 0.0F;
+      } else if (!inNos) {
+        v.nos += vehClamp(s.nosRefill, 0.0F, 1.0F) * dt;
+        if (v.nos > 1.0F) v.nos = 1.0F;
+      }
+    }
+    const float accelMul = vehGearTorqueMul(s, v.gear < 0 ? 0 : v.gear) *
+                           (v.nosActive ? 1.0F + (s.nosBoost > 0.0F ? s.nosBoost : 0.0F)
+                                        : 1.0F);
+    const float topMul = v.nosActive && s.nosTopSpeed > 1.0F ? s.nosTopSpeed : 1.0F;
+
     // Longitudinal
     if (v.grounded) {
       if (inBrake > 0.01F) {
@@ -13216,8 +13323,8 @@ void TerrainGame::updateVehicles(float dt) {
         if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
         else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
       } else if (inThrottle > 0.01F) {
-        v.speed += s.accel * inThrottle * dt;
-        if (v.speed > s.topSpeed) v.speed = s.topSpeed;
+        v.speed += s.accel * accelMul * inThrottle * dt;
+        if (v.speed > s.topSpeed * topMul) v.speed = s.topSpeed * topMul;
       } else if (inThrottle < -0.01F) {
         v.speed += s.accel * inThrottle * dt;
         if (v.speed < -s.reverseTopSpeed) v.speed = -s.reverseTopSpeed;
@@ -13300,8 +13407,60 @@ void TerrainGame::updateVehicles(float dt) {
         v.lateral = 0.0F;
       }
     }
-    v.wheelSpin += (v.speed / (s.wheelRadius * SC > 0.001F ? s.wheelRadius * SC : 0.001F)) *
-                   dt * kRad;
+    // Presentation, derived and costing the sim nothing: the driven wheels'
+    // surface speed is the car's speed PLUS whatever drive the tyres could not
+    // lay down. `grip` is already the one tyre number here, so the comparison
+    // is drive against grip and needs no new knob - which is also why a stock
+    // car never spins its wheels (accel 9 against grip 26) and one on nitrous
+    // does.
+    {
+      float demand = v.speed < 0.0F ? -v.speed : v.speed;
+      if (v.grounded && !shifting && inThrottle > 0.01F && inBrake < 0.01F) {
+        const float drive = s.accel * accelMul * vehClamp(inThrottle, 0.0F, 1.0F);
+        const float excess = drive - s.grip;
+        if (excess > 0.0F) demand += 0.5F * excess;
+      }
+      const float absLat = v.lateral < 0.0F ? -v.lateral : v.lateral;
+      demand += 0.5F * absLat;  // a sliding tyre turns faster than the road
+      const float wsRate = 40.0F * dt;
+      if (v.wheelSpeed < demand) {
+        v.wheelSpeed += wsRate;
+        if (v.wheelSpeed > demand) v.wheelSpeed = demand;
+      } else {
+        v.wheelSpeed -= wsRate;
+        if (v.wheelSpeed < demand) v.wheelSpeed = demand;
+      }
+
+      // The engine follows the wheels, SMOOTHED - which is what turns a gear
+      // change into an audible dip instead of a step in the pitch. While the
+      // clutch is out it falls toward idle instead.
+      const float rpmRate = (redline - s.idleRpm) * dt;
+      const float rpmTarget = shifting ? s.idleRpm : vehRpmFor(s, v.wheelSpeed, v.gear);
+      const float step = rpmRate * (shifting ? 2.5F : 6.0F);
+      if (v.rpm < rpmTarget) {
+        v.rpm += step;
+        if (v.rpm > rpmTarget) v.rpm = rpmTarget;
+      } else {
+        v.rpm -= step;
+        if (v.rpm < rpmTarget) v.rpm = rpmTarget;
+      }
+
+      // ONE slip number, so the smoke and the screech cannot disagree about
+      // when a tyre has let go.
+      const float absSpd = v.speed < 0.0F ? -v.speed : v.speed;
+      const float spinExcess = v.wheelSpeed - absSpd;
+      const float slipRef = s.topSpeed * 0.25F > 1.0F ? s.topSpeed * 0.25F : 1.0F;
+      v.slip = vehClamp((absLat + (spinExcess > 0.0F ? spinExcess : 0.0F)) / slipRef,
+                        0.0F, 1.0F);
+    }
+
+    // The wheels turn at the WHEEL speed, not the car's, so a burnout spins
+    // them faster than the ground is moving.
+    {
+      const float rolled = v.speed < 0.0F ? -v.wheelSpeed : v.wheelSpeed;
+      v.wheelSpin += (rolled / (s.wheelRadius * SC > 0.001F ? s.wheelRadius * SC : 0.001F)) *
+                     dt * kRad;
+    }
     if (v.wheelSpin > 360.0F) v.wheelSpin -= 360.0F;
     if (v.wheelSpin < 0.0F) v.wheelSpin += 360.0F;
 
@@ -13340,15 +13499,41 @@ void TerrainGame::updateVehicles(float dt) {
       float k = dt * 5.0F;
       if (k > 1.0F) k = 1.0F;
       vehCamYaw_ += dyaw * k;
+      if (engine->pad.getClicked().Triangle)
+        vehCamMode_ = (vehCamMode_ + 1) % 3;
+
+      // The three cameras. The chase pair ride the LAGGING boom yaw, which is
+      // what makes a slide visible - the body rotates under the camera. The
+      // bumper cam is the opposite on purpose: it takes the BODY yaw, so a
+      // drift throws the whole view sideways and the car feels like it has let
+      // go. Same rig, two opposite choices, and that contrast is the reason to
+      // have both.
+      const float bodyC = cosf(v.yaw * kDeg), bodyS = sinf(v.yaw * kDeg);
       const float bc = cosf(vehCamYaw_ * kDeg), bs = sinf(vehCamYaw_ * kDeg);
-      players[0].x = v.pos[0] - bs * s.camDist * SC;
-      players[0].z = v.pos[2] - bc * s.camDist * SC;
-      players[0].y = v.pos[1] + s.camHeight * SC;
-      players[0].yaw = vehCamYaw_;
+      float atY = v.pos[1] + s.camHeight * SC * 0.35F;
+      if (vehCamMode_ == 1) {
+        // Bumper: at the nose, low, looking where the CAR points. Pushed out
+        // past the front axle so the body it belongs to does not fill the view.
+        const float nose = (0.5F * s.wheelBase + s.wheelRadius * 1.5F) * SC;
+        players[0].x = v.pos[0] + bodyS * nose;
+        players[0].z = v.pos[2] + bodyC * nose;
+        players[0].y = v.pos[1] + s.camHeight * SC * 0.30F;
+        players[0].yaw = v.yaw;
+        cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
+        cameraLookAt.set(players[0].x + bodyS * 20.0F, players[0].y,
+                         players[0].z + bodyC * 20.0F, 1.0F);
+      } else {
+        // Chase (0) and far (2) differ only in how much rig there is.
+        const float dMul = vehCamMode_ == 2 ? 1.9F : 1.0F;
+        const float hMul = vehCamMode_ == 2 ? 1.6F : 1.0F;
+        players[0].x = v.pos[0] - bs * s.camDist * SC * dMul;
+        players[0].z = v.pos[2] - bc * s.camDist * SC * dMul;
+        players[0].y = v.pos[1] + s.camHeight * SC * hMul;
+        players[0].yaw = vehCamYaw_;
+        cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
+        cameraLookAt.set(v.pos[0], atY, v.pos[2], 1.0F);
+      }
       players[0].velY = 0.0F;
-      cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
-      cameraLookAt.set(v.pos[0], v.pos[1] + s.camHeight * SC * 0.35F, v.pos[2],
-                       1.0F);
       engine->renderer.core.renderer3D.update(
           Tyra::CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
       // Telemetry (docs/vehicles.md, "Verifying it"): a driven car states its
@@ -13360,7 +13545,9 @@ void TerrainGame::updateVehicles(float dt) {
         vehLog = 0;
         TYRA_LOG("VEH pos ", (int)v.pos[0], " ", (int)v.pos[2], " spd10 ",
                  (int)(v.speed * 10.0F), " lat10 ", (int)(v.lateral * 10.0F),
-                 " yaw ", (int)v.yaw, " mtx ",
+                 " yaw ", (int)v.yaw, " gear ", v.gear, " rpm ", (int)v.rpm,
+                 " slip10 ", (int)(v.slip * 10.0F), " nos10 ",
+                 (int)(v.nos * 10.0F), " cam ", vehCamMode_, " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
       }

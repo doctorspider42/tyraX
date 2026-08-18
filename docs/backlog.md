@@ -247,15 +247,30 @@ The feature drives - enter, steer, drift and wall collision are all
 machine-verified on the emulator via the VEH telemetry - and these are the
 gaps, each with a testable end:
 
-- **A "press USE" prompt exists, engine sound does not.** A drive is silent.
-  The Drone Generator can author a loop; what is missing is a per-vehicle
-  sound whose PITCH follows `v.speed` - the SPU2 can retune a voice, and the
-  Play Sound path already owns channel picking. Done when a drive is audible
-  and the pitch tracks the telemetry's spd10.
-- **Hide a third-person avatar while driving.** The walker is gated, so a TPP
-  player's avatar stays parked at the camera boom, visibly floating behind the
-  car. FPP has no body, which is why the example does not show it. Done when a
-  TPP project's avatar disappears on enter and returns at the door on exit.
+- **A drive is silent, and the blocker is now located.** Pitch IS reachable and
+  needs no new plumbing: `SD_VPARAM_PITCH` is `(0x02 << 8)` in ps2sdk's
+  `libsd-common.h`, the engine already links ps2snd and already READS that very
+  register (`logVoiceState` in `vendor/tyra/engine/src/audio/audio_adpcm.cpp`
+  prints `sceSdGetParam(voice | SD_VPARAM_PITCH)`), and `SD_VOICE(core, v)` plus
+  `AUDSRV_ADPCM_CH_CORE/CH_VOICE` already map an audsrv channel to an SPU2 voice.
+  So the write is `sceSdSetParam(SD_VOICE(core, v) | SD_VPARAM_PITCH, reg)`.
+  **Two things actually block it.** (1) `AudioAdpcm::load` hardcodes
+  `result->loop = 0`, so nothing can loop - an engine note needs a looping load
+  in the fork (`audsrv_adpcm_t` has the `loop` field already). (2) `sceSdSetParam`
+  is a **blocking `SifCallRpc`** (`ps2snd.c`), and the engine's own comment beside
+  `logVoiceState` says reading these costs an RPC each, "which is why this is once
+  per channel and debug-only". So write the pitch only when the quantised register
+  actually MOVES rather than every frame, and measure it - see the audsrv
+  blocking-work entry below. The powertrain already supplies the input
+  (`DriveState::rpm`, idle to redline). Done when a drive is audible and the pitch
+  tracks the telemetry's rpm.
+- ~~**Hide a third-person avatar while driving.**~~ DONE. `vehicleDrivingAnd`
+  ANDs `vehicleDriver_ < 0` into the line that already applies a cutscene's *Hide
+  player*, so the condition is the driver state itself - no flag to clear, and
+  getting out restores the avatar with no second writer. Left here for the fact
+  that produced it: that line exists TWICE, once per game-cpp head, and a
+  placeholder that reached only one of them would work in an orbit project and not
+  in an FPP one.
 - **The distant one-submit tier.** vehbake already produces a body with the
   wheels' geometry available; what is missing is a merged body+wheels bake and
   a distance switch in renderVehicleWheels/the body row, so a parked fleet far
@@ -277,6 +292,23 @@ gaps, each with a testable end:
   placement, not the console's slide resolver - a rotated wall blocks a wider
   footprint in the editor than on the console. Fine for tuning; worth one
   sentence of honesty in the panel if anyone reports it.
+- **No speedometer and no tacho.** The powertrain now supplies both inputs
+  (`DriveState::rpm`, `gear`, `speed`), so what is missing is only the drawing.
+  `drawFontText` over the menu font's glyph atlas is the existing runtime-text
+  path and the honest first cut - and note a PS2 sprite is axis-aligned, so a
+  swinging NEEDLE is not a sprite rotation but either a pre-baked sprite sheet per
+  angle or a small bag of geometry. Done when a driven frame shows the speed and
+  the gear, at the authored resolution, with the widescreen squeeze applied.
+- **The vehicle controls are RAW pad reads.** Only USE goes through the Input Map;
+  throttle, brake, handbrake, nitrous and the camera cycle are
+  `pad.getPressed().Cross` and friends, which is exactly what
+  docs/input-bindings.md says not to do. Five `InputAction::Role`s plus their
+  `kSeeds` and `kRoles` rows fixes it and makes a wheel or a rebind possible at
+  all. Done when a project can rebind the throttle.
+- **Tyre smoke.** `DriveState::slip` is already the ONE number for it (the
+  sideways slide and the wheelspin folded together, measured reading 0.9 at a wall
+  impact), so this is a particle question rather than a vehicle one: an emitter
+  that can be moved to a wheel anchor and burst from game code.
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 

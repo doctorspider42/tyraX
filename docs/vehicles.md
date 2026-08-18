@@ -160,13 +160,79 @@ skeleton and expecting model space makes all four wheels report the same
 unit-cube AABB at the origin, which is what happened before the node transforms
 were composed in.
 
+### The gearbox is presentation until you ask it not to be
+
+A car has five gears, an engine speed and a redline. **All of it is DERIVED from
+the speed the model above already produces** — the gear is resolved from how fast
+the car is going and feeds nothing back — which is the decision the whole feature
+rests on: `accel` means exactly what it meant before the gearbox existed, so
+every vehicle authored without one accelerates identically with one. Checked
+rather than asserted: a harness reproduces the pre-powertrain arithmetic
+independently and reads a worst-case difference of **0.000000000** over 14 s of
+full throttle.
+
+What that buys for free is everything that needs to *know* the engine speed — the
+engine sound's pitch, a tacho, and the shift the player hears.
+
+The ratios are **geometric**, because that is what a real gearbox is: the top gear
+reaches `topSpeed` and each one below it reaches that divided by `gearSpread`. At
+the defaults (5 gears, spread 1.52, top speed 22) that is 4.12 / 6.26 / 9.52 /
+14.47 / 22.00.
+
+Two knobs let the gearbox bite, and **both default to off**:
+
+- **`shiftTime`** cuts the throttle for that many seconds per change — the audible
+  gap between gears.
+- **`gearTorque`** lets the ratio shape acceleration. It is geometric and
+  **centred on the middle gear**, so it changes a car's *character* rather than
+  its performance: at 1.0 the five multipliers are 2.310 / 1.520 / 1.000 / 0.658 /
+  0.433 and their geometric mean is 1.0000. First gear pulls hard and top gear
+  runs out of breath, which is what a gearbox is *for*.
+
+**The down-shift threshold is computed, not validated.** An author can dial
+shift-up and shift-down into a contradiction, and `safeShiftDownFrac` (its runtime
+twin is `vehShiftDownFrac`) holds the point below where an up-shift *lands* so the
+box cannot change up and immediately back down for ever. Measured with
+deliberately contradictory thresholds — up at 0.55, down at 0.90 — a 14 s launch
+makes **4** gear changes, which is a clean climb. A slider that silently
+misbehaves at one end of its range is worse than one that quietly refuses to.
+
+Reverse is gear **-1**: its own ratio off `reverseTopSpeed`, and it never shifts.
+
+### Wheelspin, and why it needs no new knob
+
+The engine follows the **driven wheels**, not the car (`DriveState::wheelSpeed`),
+and the wheels are the car's speed plus whatever drive the tyres could not lay
+down. `grip` is already this model's one tyre number, so the comparison is drive
+against grip — no second knob — and the consequence falls out on its own: a stock
+car never spins its wheels (accel 9 against grip 26) and one on nitrous does.
+
+That is also what makes the engine *flare* on a launch instead of rising smoothly
+with the car, and what makes the wheels visibly turn faster than the ground.
+
+`DriveState::slip` (0..1) folds the sideways slide and the wheelspin into **one**
+number, so the tyre smoke and the screech cannot disagree about when a tyre has
+let go.
+
+### Nitrous
+
+`nosCapacity` is **seconds of boost, and it is the switch**: it defaults to 0, so a
+vehicle has no nitrous until somebody gives it a tank, and there is no second flag
+that could disagree with the first. While held it multiplies acceleration by
+`1 + nosBoost` and the top speed by `nosTopSpeed`; released, the tank refills at
+`nosRefill` per second.
+
+It only burns **on the throttle**. Holding the button against a wall used to empty
+the tank with the car stationary (measured on the console: `nos10` fell 7 to 5 at
+`spd10 0`), which is a way to lose a resource without ever seeing it do anything.
+
 ### AI later, player now
 
 `vehiclesim::step` **never reads a pad**. Its input is a `DriveInput` — throttle,
-brake, steer, handbrake — that a caller fills in. The player controller fills it
-from the Input Map today; a nav-driven AI controller fills the identical struct
-later. The boundary costs nothing now and would be a rewrite of every control
-path if it were added afterwards.
+brake, steer, handbrake, nitrous — that a caller fills in. The player controller
+fills it from the Input Map today; a nav-driven AI controller fills the identical
+struct later. The boundary costs nothing now and would be a rewrite of every
+control path if it were added afterwards.
 
 ## The Vehicle Editor
 
@@ -212,6 +278,34 @@ somebody can see.
 Renaming, on the other hand, **does** follow into every instance in every scene
 and every prefab (`App::renameVehicleDef`, the `renameFont` rule) — a reference
 stores the name, so it has to.
+
+## Driving it
+
+| Button | What it does |
+|---|---|
+| Square | the USE action — get in, and get out at the driver's door |
+| Cross | throttle (the left stick's Y works too, and reverses) |
+| L1 | brake — **not** Square, which is USE: getting in and slowing down cannot share a button |
+| Circle | handbrake, i.e. `handbrakeGrip` instead of `grip` — the drift |
+| R1 | nitrous, when the definition has a tank |
+| Triangle | cycle the camera |
+| left stick X | steer |
+
+These are **raw pad reads**, which is a known deviation from this repo's rule that
+gameplay goes through named Input Map actions (docs/input-bindings.md) — only USE
+does. The whole set wants to become `InputAction::Role`s; see docs/backlog.md.
+
+### The three cameras
+
+`vehCamMode_`, cycled with Triangle and kept across cars:
+
+- **0 chase** — the boom yaw *lags* the body through an exponential, so in a slide
+  the car visibly rotates under the camera.
+- **1 bumper** — at the nose, low, looking where the **car** points. This one takes
+  the *body* yaw on purpose: the opposite choice from the chase cam, so a drift
+  throws the whole view sideways and the car feels like it has let go. The same rig
+  with the two opposite decisions is the reason to have both.
+- **2 far** — the chase rig at 1.9x the distance and 1.6x the height.
 
 ## Where the code lives
 
@@ -371,6 +465,33 @@ grip 26:       VEH pos -4 21  spd10 219 lat10 0   yaw -40    ← on rails
 handbrake 6:   VEH pos -2 23  spd10 170 lat10 130 yaw -55    ← 13 u/s sideways
 ```
 
+**The gearbox has its own, and the RPM sawtooth IS the acceptance test** — one
+`hold cross` from a standstill on `examples/vehicle-playground` (which ships
+`gearTorque` 1 and `shiftTime` 0.18), measured on the emulator:
+
+```
+VEH ... spd10 0    gear 0 rpm  800   ← idle
+VEH ... spd10 41   gear 0 rpm 7200   ← first gear, on the redline
+VEH ... spd10 56   gear 2 rpm 5017   ← changed up, and the engine DROPPED
+VEH ... spd10 86   gear 3 rpm 6064
+VEH ... spd10 129  gear 3 rpm 6539
+VEH ... spd10 135  gear 4 rpm 4748   ← into top
+VEH ... spd10 170  gear 4 rpm 5770
+VEH ... spd10 0    gear 2 rpm  800   ← the wall: it downshifts on the way to a stop
+```
+
+Reverse, nitrous and the camera are the same one line. Reverse is `gear -1` on its
+own ratio; `nos10` drains while R1 is held and refills when it is not; `cam` is the
+Triangle cycle; and `slip10` reads non-zero exactly where the tyres let go:
+
+```
+VEH ... spd10 -59 gear -1 rpm 7198 nos10 10 cam 0   ← reverse, its own gear
+VEH ... spd10 -37 gear -1 rpm 4800 nos10 10 cam 1   ← Triangle: bumper cam
+VEH ... spd10 96  gear  3 rpm 5078 nos10 9  cam 1   ← R1 held, the tank draining
+VEH ... spd10 7   gear  3 rpm 3373 nos10 7  cam 1 slip10 9   ← the wall, tyres gone
+VEH ... spd10 0   gear  0 rpm  800 nos10 6  cam 1   ← refilling
+```
+
 A screenshot cannot say who moved; this can. It caught three of the four bugs
 below inside one session.
 
@@ -396,17 +517,26 @@ the object scaled the body - and nothing else. Every geometric term the sim and
 the wheel bag use now carries the instance's uniform scale, or a scaled car grows
 a body around wheels that stayed where they were.
 
-One authoring note: a **third-person** player's avatar stays parked at the
-camera boom while driving (the walker that would move it is gated). The example
-is FPP, where there is no body to see; a TPP project wants the avatar hidden on
-enter, which is not built yet.
+**A third-person player's avatar is hidden while driving.** The walker is gated, so
+it would otherwise stay parked at the camera boom, visibly floating along behind
+the car. The condition is the driver state itself (`vehicleDriver_ < 0`, ANDed into
+the line that already applies a cutscene's *Hide player*), so getting out restores
+the avatar with no second writer and no flag anybody has to remember to clear. FPP
+needs nothing — there is no body to see, which is exactly why the example project
+never showed the bug.
 
 ## Not built yet
 
-Honest state, so nobody looks for these: **nothing reaches the PS2** — there is no codegen and no runtime, so a project
-with vehicles builds and runs exactly as it did without them. Collision against
-world objects is also still outside the drive model, which samples terrain
-height only.
+Honest state, so nobody looks for these. **A drive is silent** — there is no
+engine sound yet, which is the largest single gap; the SPU2 *can* retune a voice
+(`sceSdSetParam(SD_VOICE(core, v) | SD_VPARAM_PITCH, ...)`, already linked and
+already read by the engine's own `logVoiceState`), but `AudioAdpcm::load` hardcodes
+`result->loop = 0`, so a looping engine note needs an engine-fork change first.
+There is **no HUD** — no speedometer and no tacho, though the powertrain now
+supplies both their inputs. **No AI drivers**, though `DriveInput` is the seam and
+nothing else has to move. **No tyre smoke**, though `DriveState::slip` is the one
+number it would read. And a vehicle does not trade momentum with physics crates or
+with another car. Every one of those has an entry in docs/backlog.md.
 
 The canonical vehicle frame is **forward +Z, up +Y, right +X**, and the bake is
 the one place an exporter's frame is discarded. Everything downstream — the sim,
