@@ -326,10 +326,7 @@ a **band** (256 rows × the raster width = 512 KB, exactly what the broken
 the band covers the volumes' screen rect. `ZBP` never moves, which is what
 keeps the 1:1 correspondence with the scene's depth exact; the band's first row
 must be a multiple of its own page-row height for the slide to be expressible.
-And the band's FORMAT follows the project's colour depth for the same reason
-the z buffer's does (docs/gs-vram.md): a 16-bit project runs a `PSMZ16` z whose
-pages are 64x64, so its count band is `PSMCT16` - a 32-bit band there would
-reintroduce the very mismatch this section is about, one buffer along. A shadow region
+A shadow region
 taller than the band is counted band by band — the mask is an OR, so the bands
 compose and a tall shadow costs fill, not coverage. Then **one resolve pass per frame**
 samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
@@ -383,6 +380,34 @@ If the count target's VRAM is refused (it is claimed at boot, right after the
 projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the
 volumes fall back to the convex sub-boxes with the old 1-bit set/clear — one
 bracket per convex piece, a sliver artifact where pieces overlap.
+
+**Counting is 32-bit-colour only, and that is a measured limit rather than a
+choice.** In a 16-bit project the resolve — an alpha-only masked sprite over
+the volumes' screen rect — is not colour-neutral at a `PSMCT16` destination: it
+laid **dashed green marks down two fixed screen columns**, the count values
+themselves reading as green, over whatever the torch had lit, standing still in
+screen space as the camera moved. Reported from the console, and reproducible
+in PCSX2 once the search was wide enough (a 24-vantage sweep scores 14–17 hits;
+pointing the camera at dark sky scores 0 and "proves" the bug is hardware-only).
+
+It was bisected to that one pass: forcing the resolve's alpha test to fail —
+same packet, same registers, same raster restore, everything else drawing —
+takes the sweep to **0 of 24**. Everything else was excluded by its own A/B and
+none of it is the cause: the silhouette draws, the count bracket's clear, the
+band's format and page slide, `DATE`, `FBA`, the per-channel `FBMSK` constant
+(`0x00FFFFFF` protects every colour bit in the RGBA8 positions `FBMSK` is
+always specified in; the 16-bit pixel-layout mask `0x7FFF7FFF` is far worse —
+115 893 flagged pixels against ~2 000), ordered dithering, protecting the
+colour with the blend equation instead of a mask, the interlaced flicker
+filter, and `PMODE.MMOD`.
+
+So `allocateCount()` refuses outright at 16-bit colour, `countReady()` answers
+false, and a 16-bit project takes the convex sub-box path above: real shadows
+from fitted boxes instead of silhouettes, no green, and the count band's VRAM
+(0.25 MB) back. 32-bit projects are untouched. The GS-level question — what a
+masked write actually does to a `PSMCT16` pixel, given that the console and
+PCSX2 disagree about `0x7FFF7FFF` — is open and worth its own investigation
+before mesh volumes can come back to 16-bit.
 
 Four rules keep the volumes honest, each paid for with a report from the
 yard. The occluder slots go to the four candidates NEAREST the torch, never

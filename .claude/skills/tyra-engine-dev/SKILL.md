@@ -198,7 +198,13 @@ packet restores CLAMP to REPEAT itself because emitRasterRestore does not
 know texture state. The GS cannot count in alpha - blending never writes A -
 which is why the count lives in color channels of a target that is never
 displayed; N=32 clears the 16-bit channel's 8-step quantization plus
-dithering's +-4, so DTHE needs no save/restore),
+dithering's +-4, so DTHE needs no save/restore. COUNTING IS REFUSED AT 16-BIT
+COLOUR: the resolve's alpha-only masked write is not colour-neutral at a
+PSMCT16 destination and dashes green marks down two fixed screen columns
+(bisected to that single pass - forcing its ATEST to fail scores 0 of 24
+vantages against 14-17 for the control; the mask constant, the band format,
+FBA, DATE, dithering, the flicker filter and PMODE were each excluded). A
+16-bit project takes the convex 1-bit path instead, docs/flashlight.md),
 `RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot

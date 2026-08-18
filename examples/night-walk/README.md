@@ -60,7 +60,10 @@ stick, look with the right, and **Circle** switches the torch off and on.
   same yard, same casters, two philosophies of shadow. In volume mode a model
   caster shadows with its **real mesh** (the street lamp throws a pole-and-arm
   shadow, not a slab), stencil-counted per pixel in a dedicated GS buffer —
-  docs/flashlight.md "The shadow" has the whole arrangement.
+  docs/flashlight.md "The shadow" has the whole arrangement. The mesh half of
+  that needs **32-bit colour**: at 16 bits the counting pass paints green marks
+  across the picture, so the volumes quietly fall back to fitted convex boxes
+  there (same section, "Counting is 32-bit-colour only").
 - The torch's **Reach** and **Cone half-angle** (Properties on the player)
   size the pool as well as the light.
 - Replace `res/hud/flashlight-gobo.png` with your own gobo — a cross, a

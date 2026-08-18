@@ -99,6 +99,33 @@ void RendererCoreAlphaMask::allocateCount() {
   // 5-bit channels: N = 32 stores as 4, so seven overlapping front faces fit
   // before saturation, and a +N/-N pair still cancels at both extremes of the
   // dither matrix because the GS clamps at zero.
+  // ...and at 16-bit colour the counting path is REFUSED outright, which is
+  // why the rest of this function never sees a PSMCT16 frame.
+  //
+  // The resolve is an alpha-only masked sprite, and at a PSMCT16 destination
+  // that write is not colour-neutral: it laid dashed green marks - the count
+  // values themselves, read as green - down two fixed screen columns, on the
+  // console and in PCSX2 alike, over whatever the torch had lit. Bisected to
+  // this pass and nothing else: with the resolve's ATEST forced to fail (same
+  // packet, same raster restore, same everything) a 24-vantage sweep scores
+  // 0 green against 14-17 hits for the control. It is not the mask constant -
+  // 0x00FFFFFF protects every colour bit in the RGBA8 positions FBMSK is
+  // always specified in, and the 16-bit PIXEL-layout mask (0x7FFF7FFF) is far
+  // worse: it exposes green's top bit and floods the frame (115 893 px against
+  // ~2 000). Nor the count band's format, the page slide, the volume draws,
+  // DATE, FBA, dithering, the flicker filter or PMODE - each excluded by its
+  // own A/B (docs/flashlight.md).
+  //
+  // So a 16-bit project keeps the 1-bit convex sub-box path, which predates
+  // this feature, needs no count target and has never shown the marks: real
+  // shadows, fitted boxes rather than silhouettes. countReady() answers false,
+  // the generated game reads that and takes the fallback branch on its own.
+  if (settings->getFrameBufferPsm() == GS_PSM_16) {
+    TYRA_LOG("Shadow-volume counting is off at 16-bit colour (the resolve's ",
+             "alpha-only write is not colour-neutral there); mesh volumes ",
+             "fall back to convex sub-boxes.");
+    return;
+  }
   const bool halfDepth = settings->getFrameBufferPsm() == GS_PSM_16;
   countPsm = halfDepth ? GS_PSM_16 : GS_PSM_32;
   countPageRows = halfDepth ? 64 : 32;

@@ -16,6 +16,32 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.0 (mesh shadow volumes are 32-bit-colour only): with 16-bit colour, the
+// flashlight's shadow-volume COUNT RESOLVE - an alpha-only masked sprite over
+// the volumes' screen rect - is not colour-neutral at a PSMCT16 destination. It
+// laid dashed green marks down two fixed screen columns over whatever the torch
+// lit, standing still in screen space as the camera moved; reported from a
+// console and reproducible in PCSX2 (a 24-vantage sweep scores 14-17 hits, and
+// a narrow sweep scores 0 and "proves" it is hardware-only).
+//
+// Bisected to that one pass: forcing its alpha test to fail - same packet, same
+// registers, same raster restore, everything else drawing - takes the sweep to
+// 0 of 24. Excluded by their own A/Bs and NOT the cause: the silhouette draws,
+// the count bracket's clear, the band's format and page slide, DATE, FBA, the
+// FBMSK constant (0x00FFFFFF protects every colour bit in the RGBA8 positions
+// FBMSK is always specified in; the 16-bit pixel-layout mask 0x7FFF7FFF floods
+// the frame instead - 115 893 pixels against ~2 000), ordered dithering,
+// protecting the colour with the blend equation instead of a mask, the
+// interlaced flicker filter and PMODE.MMOD.
+//
+// So allocateCount() refuses at 16-bit colour: countReady() answers false and
+// the generated game takes the convex sub-box path it already has - real
+// shadows from fitted boxes rather than silhouettes, no green, and the band's
+// 0.25 MB back (VRAM 1.93 against 2.18, measured on the console). 32-bit
+// projects are untouched. What a masked write actually does to a PSMCT16 pixel
+// - the console and PCSX2 disagree about 0x7FFF7FFF - is open, and mesh volumes
+// can come back to 16-bit once it is answered (docs/flashlight.md).
+//
 // 1.57.0 (16-bit colour stops being broken on hardware - docs/gs-vram.md): a
 // project switched to 16-bit colour rendered dark parallelogram BANDS across
 // ground and walls on a console while PCSX2 showed it perfectly. The rule
@@ -1862,7 +1888,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 57
+#define TYRAX_VERSION_MINOR 58
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
