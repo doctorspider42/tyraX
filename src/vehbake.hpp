@@ -62,14 +62,30 @@ struct Options {
     // a .tmdl naming a texture that is not there loads as untextured white.
     std::string paletteTexture;
 
-    // Paint shine, 0..1: every BODY part gets refl "@sky" at this strength -
-    // the engine's dynamic env map, the same statement an .obj's .mtl makes
-    // (docs/reflective-materials.md), riding fields tmdl already carries. The
-    // wheels stay matte: chrome rims tint the tyre with them, because a wheel
-    // is ONE part after the merge. 0 writes nothing, so an existing bake is
+    // Paint shine, 0..1: the BODY's paint gets a reflection pass at this
+    // strength, riding fields tmdl already carries (docs/reflective-materials.md).
+    // The untextured merge is split into paint and MATTE (rubber, near-black
+    // trim - see shinyMaterial), so tyres and bumpers stay dull the way real
+    // ones do; the split costs one extra submit and only happens when shine
+    // is on. The wheels never shine. 0 writes nothing, so an existing bake is
     // byte-identical.
     float bodyShine = 0.0f;
+
+    // What the paint MIRRORS: a bin-relative sphere map ("textures/x.png"),
+    // or empty for the engine's dynamic "@sky" env map. A static map is the
+    // era's own trick - Underground's wet lacquer is vertical light streaks
+    // in exactly such a texture - and it reads far stronger than a smooth
+    // sky gradient, whose reflection is nearly invisible by construction:
+    // a gradient has no features to see MOVE.
+    std::string bodyReflMap;
 };
+
+// A project-relative reflection-map path ("res/textures/x.png") as the
+// bin-relative path the tmdl must carry ("textures/x.png") - the Makefile's
+// resources step copies res/* to bin/, so stripping the prefix IS the mapping.
+// One function, because the editor's per-frame bake and the build's
+// bakeProject must not each spell it.
+std::string binReflPath(const std::string& resRel);
 
 struct Result {
     tmdl::Model body;

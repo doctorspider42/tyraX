@@ -118,6 +118,11 @@ struct Corner {
 
 }  // namespace
 
+std::string binReflPath(const std::string& resRel) {
+    if (resRel.rfind("res/", 0) == 0) return resRel.substr(4);
+    return resRel;
+}
+
 std::vector<vehiclesim::MeshNode> meshNodes(const glbparser::Skel& sk) {
     const std::vector<M4> g = globals(sk);
     std::vector<vehiclesim::MeshNode> out(sk.nodes.size());
@@ -288,14 +293,43 @@ std::vector<unsigned char> encodePng(const std::vector<unsigned char>& rgba, int
     return out;
 }
 
+// Is this source material PAINT (shiny) or RUBBER/TRIM (matte)? Name first -
+// an author who called something glass or rubber deserves to be obeyed - then
+// luminance: near-black is bumper rubber, tyre sidewall, arch liner, none of
+// which mirror the sky on a real car. The threshold is deliberately low
+// (0.12 of full scale) so dark PAINT still shines; glass forces shiny by name
+// because a deep-blue window would otherwise land under it.
+bool shinyMaterial(const glbparser::SkelPart& p) {
+    std::string n;
+    for (char c : p.material) n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    auto has = [&](const char* w) { return n.find(w) != std::string::npos; };
+    if (has("glass") || has("window") || has("windshield") || has("szyb") ||
+        has("chrome") || has("chrom") || has("mirror"))
+        return true;
+    if (has("rubber") || has("tyre") || has("tire") || has("guma") || has("trim"))
+        return false;
+    float lum = p.baseColor[0];
+    if (p.baseColor[1] > lum) lum = p.baseColor[1];
+    if (p.baseColor[2] > lum) lum = p.baseColor[2];
+    return lum >= 0.12f;
+}
+
 // Collects a set of nodes' parts into a tmdl::Model in the canonical frame.
 // `offset` is subtracted after the transform (the wheel bake puts its hub at
 // the origin so the runtime can spin it).
+//
+// With `shineSplit` the untextured merge lands in TWO parts - "merged" (the
+// paint and everything else that mirrors) and "merged-matte" (rubber and
+// near-black trim, per shinyMaterial) - so the reflection pass can attach to
+// one and not the other. tmdl reflection is PER PART, which is exactly what
+// permits matte tyres at all; the price is one more submit, paid only when
+// the definition actually asks for shine.
 void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& canon,
              const std::vector<int>& nodes, const float offset[3], bool merge,
              const std::string& paletteTex, Merge& mg, tmdl::Model& out,
-             int& srcParts, int& srcTris) {
+             int& srcParts, int& srcTris, bool shineSplit = false) {
     std::vector<float> mergedVerts;
+    std::vector<float> matteVerts;
     // Textured materials keep their own part - real UVs cannot be rewritten.
     std::map<std::string, tmdl::Part> textured;
 
@@ -329,7 +363,7 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             // once the palette's final size is known. The alternative is
             // walking every vertex of the car a second time to size the
             // palette before placing anything in it.
-            dst = &mergedVerts;
+            dst = (shineSplit && !shinyMaterial(p)) ? &matteVerts : &mergedVerts;
             (void)tp;
             u = (float)mg.cellFor(p.baseColor);
             v = -1.0f;
@@ -363,6 +397,14 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
         part.texture = paletteTex;
         part.kd[0] = part.kd[1] = part.kd[2] = 1.0f;  // the palette carries the colour
         part.verts.swap(mergedVerts);
+        out.parts.push_back(std::move(part));
+    }
+    if (!matteVerts.empty()) {
+        tmdl::Part part;
+        part.name = "merged-matte";  // build() leaves this one un-mirrored
+        part.texture = paletteTex;
+        part.kd[0] = part.kd[1] = part.kd[2] = 1.0f;
+        part.verts.swap(matteVerts);
         out.parts.push_back(std::move(part));
     }
     for (auto& kv : textured) out.parts.push_back(std::move(kv.second));
@@ -422,9 +464,28 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     Merge mg;
     const std::string paletteTex = opt.mergeUntextured ? opt.paletteTexture : "";
 
-    const float zero[3] = {0.0f, 0.0f, 0.0f};
-    collect(sk, g, canon, out.detection.bodyNodes, zero, opt.mergeUntextured, paletteTex,
-            mg, out.body, out.srcParts, out.srcTris);
+    // The body is re-origined to the AXLE CENTRE at HUB HEIGHT - the mean of
+    // the wheel centres in the canonical frame. The sim places the wheel
+    // anchors at +-wheelBase/2 and +-track/2 around the CHASSIS origin with
+    // the hubs at the origin's height, so a body that keeps the model's own
+    // origin puts every wheel wherever the exporter's pivot happened to be:
+    // the reference car's origin sat 0.25 behind the axle midpoint, and all
+    // four wheels rode visibly forward of their arches. With the origin at
+    // hub height, rideHeight = wheelRadius puts the tyres exactly on the
+    // ground and the arches line up vertically too.
+    float bodyOrigin[3] = {0.0f, 0.0f, 0.0f};
+    if (!out.detection.wheels.empty()) {
+        for (const vehiclesim::Wheel& w : out.detection.wheels) {
+            float h[3];
+            canon.point(w.centre, h);
+            for (int a = 0; a < 3; ++a) bodyOrigin[a] += h[a];
+        }
+        for (int a = 0; a < 3; ++a)
+            bodyOrigin[a] /= (float)out.detection.wheels.size();
+    }
+    collect(sk, g, canon, out.detection.bodyNodes, bodyOrigin, opt.mergeUntextured,
+            paletteTex, mg, out.body, out.srcParts, out.srcTris,
+            /*shineSplit=*/opt.bodyShine > 0.001f);
 
     if (!out.detection.wheels.empty()) {
         // One wheel is baked, hub at the origin. Which one does not matter for
@@ -451,17 +512,38 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         out.notes.push_back(buf);
     }
 
-    // The paint's shine: refl "@sky" on every body part (docs/vehicles.md,
-    // "A shiny body"). After the merge, before the decimation - the fields
-    // ride the part, not the vertices, so the order only matters for reading.
-    if (opt.bodyShine > 0.001f)
+    // The paint's shine (docs/vehicles.md, "A shiny body"): the authored
+    // sphere map, or the dynamic "@sky" when none is named. Applied to every
+    // body part EXCEPT the matte merge (rubber and near-black trim - tmdl
+    // reflection is per PART, which is what makes matte tyres possible at
+    // all) and any textured part whose name says rubber. After the merge,
+    // before the decimation - the fields ride the part, not the vertices.
+    if (opt.bodyShine > 0.001f) {
+        const std::string reflTex =
+            opt.bodyReflMap.empty() ? std::string("@sky") : opt.bodyReflMap;
         for (tmdl::Part& p : out.body.parts) {
-            p.reflTexture = "@sky";
+            if (p.name == "merged-matte") continue;
+            std::string n2;
+            for (char c : p.name)
+                n2 += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+            if (n2.find("rubber") != std::string::npos ||
+                n2.find("tyre") != std::string::npos ||
+                n2.find("tire") != std::string::npos)
+                continue;
+            p.reflTexture = reflTex;
             p.reflStrength = opt.bodyShine > 1.0f ? 1.0f : opt.bodyShine;
         }
+    }
 
     const int bodyBefore = modelTris(out.body), wheelBefore = modelTris(out.wheel);
-    for (tmdl::Part& p : out.body.parts) decimateTo(p.verts, opt.bodyTriBudget);
+    // The body budget covers the WHOLE body, split across its parts by their
+    // share of the source - the shine split made this visible: a per-part
+    // budget let a 2-part body carry 2002 triangles against an authored 1500.
+    if (bodyBefore > 0)
+        for (tmdl::Part& p : out.body.parts)
+            decimateTo(p.verts,
+                       (int)((long long)opt.bodyTriBudget * triCount(p.verts) /
+                             bodyBefore));
     for (tmdl::Part& p : out.wheel.parts) decimateTo(p.verts, opt.wheelTriBudget);
 
     computeBounds(out.body);
@@ -566,6 +648,7 @@ std::string bakeProject(const Project& p,
         opt.wheelTriBudget = v.wheelTriBudget;
         opt.mergeUntextured = v.mergeUntextured;
         opt.bodyShine = v.bodyShine;
+        opt.bodyReflMap = binReflPath(v.bodyReflMap);
         opt.paletteTexture = bp.palette;
         Result r;
         std::string err;

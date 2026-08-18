@@ -61,6 +61,14 @@ is only ever a bonus:
 That yields the wheelbase, the track and the wheel radius as measurements, so
 the author types no numbers to get a working vehicle.
 
+**The body is re-origined to the axle centre at hub height** — the mean of the
+detected wheel centres in the canonical frame. The sim places its wheel anchors
+at ±wheelBase/2 and ±track/2 around the *chassis origin*, so a body that kept
+the exporter's own pivot put every wheel wherever that pivot happened to be:
+the reference car's origin sat 0.25 behind the axle midpoint and all four
+wheels rode visibly forward of their arches. With the origin at hub height,
+`rideHeight = wheelRadius` puts the tyres exactly on the ground.
+
 **What it cannot decide is which end is the nose.** If a node or material says
 `front`/`rear` that wins; otherwise the shorter body overhang past an axle is
 assumed to be the front, the assumption is stated with both overhang figures,
@@ -325,12 +333,32 @@ the runtime plays it at up to 2.4x its encoded rate.
 
 ### A shiny body
 
-*Vehicle Editor > Model > Body shine.* The paint gets `refl "@sky"` — the
-engine's **dynamic env map**, so the car mirrors the sky the scene actually has —
-baked into the body's `.tmdl` parts (fields the format already carried; the
-wheels stay matte, because after the merge a wheel is ONE part and chrome rims
-would tint the tyre with them). The viewport preview reads the same fields, so
-the editor shows the shine the console draws.
+*Vehicle Editor > Model > Body shine* plus *Reflection map.* The paint gets a
+reflection pass baked into the body's `.tmdl` parts — fields the format already
+carried. What it mirrors is authored: a **static sphere map** (a `res/` image),
+or the dynamic `"@sky"` env map when the field is empty.
+
+**Prefer the static map.** The user's verdict on `"@sky"` was "I honestly don't
+see anything reflecting", and they were right for a structural reason: a smooth
+sky gradient has no features you can see move, so its reflection reads as a
+faint tint. The era knew this — Underground's wet lacquer is **vertical light
+streaks in a static texture** — and `tools/nfs-streak-map.py` generates exactly
+that (deterministic, no RNG, byte-identical re-runs). With it the paint carries
+faceted highlights that sweep as the car yaws, which IS the look.
+
+**Rubber and trim stay matte, and the engine allows it because `.tmdl`
+reflection is per PART.** The untextured merge splits into `merged` (paint) and
+`merged-matte` — by name first (*rubber/tyre/tire/guma/trim* force matte,
+*glass/window/chrome* force shiny, because a deep-blue window would otherwise
+fall to the luminance test), then by luminance under 0.12 of full scale. The
+reflection attaches to the paint alone; the wheels never shine. The split costs
+**one more submit** (3 per car with shine on — the Cost tab reports it), and the
+body triangle budget covers the whole body split proportionally across parts —
+a per-part budget let a 2-part body carry 2002 triangles against an authored
+1500 before that was caught.
+
+The viewport preview reads the same `.tmdl` fields (bin-relative texture paths
+mapped back through `res/`), so the editor shows the shine the console draws.
 
 What made this possible is an engine-side change worth knowing about:
 **reflective parts used to be banned from the matrix fast path**, because their
@@ -357,7 +385,10 @@ cosmetic lean in there would make the car accelerate downhill *because* it is
 accelerating), and the pitch target reads the frame's own longitudinal
 acceleration, so a wall hit dips the nose with no code of its own. The
 telemetry's `lean10` proves it on-console: 50 (5.0°) through a sustained
-top-speed turn, 0 on the straight.
+top-speed turn, 0 on the straight. `leanAmount` (*Driving > Body lean*) scales
+the whole response — 0 is a kart on rails, 2 an American sofa — and the follow
+rate is 35°/s, stiffened from 25 after the softer version read as a boat from
+the driver's seat.
 
 ### AI later, player now
 
@@ -420,6 +451,7 @@ stores the name, so it has to.
 | Cross | throttle (the left stick's Y works too, and reverses) |
 | L1 | brake — **not** Square, which is USE: getting in and slowing down cannot share a button |
 | R2 | throttle too — a stick at full lock has no vertical deflection left, so a stick-only driver loses the stick's gas exactly when steering hard |
+| D-pad | drives too (steer + throttle/reverse). A keyboard emulating a stick — PCSX2 in a VM above all — can drop chorded key events, and full-lock-plus-throttle is exactly a chord; the d-pad is independent booleans end to end, so it cannot ghost |
 | Circle | handbrake, i.e. `handbrakeGrip` instead of `grip` — the drift |
 | R1 | nitrous, when the definition has a tank |
 | Triangle | cycle the camera |

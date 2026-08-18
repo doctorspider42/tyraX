@@ -38,9 +38,9 @@ float r_geom(float measured, float fallback) {
 
 std::string bakeKey(const VehicleDef& v) {
     char buf[80];
-    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f", v.bodyTriBudget,
+    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|", v.bodyTriBudget,
                   v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine);
-    return v.modelPath + buf;
+    return v.modelPath + buf + v.bodyReflMap;
 }
 
 // Unique "Car 1", "Car 2", ... - a definition is referenced BY NAME, so two
@@ -95,6 +95,7 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.wheelTriBudget = v.wheelTriBudget;
     opt.mergeUntextured = v.mergeUntextured;
     opt.bodyShine = v.bodyShine;
+    opt.bodyReflMap = vehbake::binReflPath(v.bodyReflMap);
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
     // produces is a derived artifact and lives under .res-baked/ with the
@@ -666,10 +667,25 @@ void App::drawVehicleWindow() {
                 ImGui::SetNextItemWidth(scaled(200));
                 ImGui::SliderFloat("Body shine", &v.bodyShine, 0.0f, 1.0f, "%.2f");
                 prefHelp(
-                    "The paint's reflection: refl \"@sky\" on the baked body -\n"
-                    "the engine's dynamic env map, so the car mirrors the sky\n"
-                    "the scene actually has. Costs the env map's VRAM once per\n"
-                    "project, nothing per car. Wheels stay matte.");
+                    "The paint's reflection pass. Rubber and near-black trim\n"
+                    "stay MATTE (the bake splits them out - one extra submit),\n"
+                    "and the wheels never shine.");
+                if (v.bodyShine > 0.001f) {
+                    ImGui::SetNextItemWidth(scaled(300));
+                    // Plain buffer: imgui_stdlib is not in the build (the
+                    // facts_ui growString note).
+                    char rm[192];
+                    std::snprintf(rm, sizeof(rm), "%s", v.bodyReflMap.c_str());
+                    if (ImGui::InputText("Reflection map", rm, sizeof(rm)))
+                        v.bodyReflMap = rm;
+                    prefHelp(
+                        "A res/ image used as a SPHERE MAP - vertical light\n"
+                        "streaks are the era's wet-lacquer look\n"
+                        "(tools/nfs-streak-map.py generates one). Empty = the\n"
+                        "dynamic \"@sky\" env map, which mirrors the real sky\n"
+                        "but reads faint: a smooth gradient has no features\n"
+                        "you can see move.");
+                }
                 if (ImGui::Button("Re-import now")) vehicleRefreshBake(vehicleSel_, true);
 
                 // How many of these are placed, and what that totals.

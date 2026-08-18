@@ -27783,6 +27783,18 @@ void TerrainGame::updateVehicles(float dt) {
       // steering hard - "turning brakes the car to zero", reported from a
       // real pad. The era's racers put the gas on a button for this reason.
       if (engine->pad.getPressed().R2) inThrottle = 1.0F;
+      // The D-PAD drives too. The generated game's rule is "only the analog
+      // sticks", but a keyboard emulating a stick (PCSX2 in a VM above all)
+      // can drop chorded key events, and full-lock-plus-throttle is exactly
+      // a chord - reported as "I cannot steer and accelerate at once". The
+      // d-pad buttons are independent booleans end to end, so they cannot
+      // ghost against each other.
+      if (engine->pad.getPressed().DpadUp) inThrottle = 1.0F;
+      if (engine->pad.getPressed().DpadDown) inThrottle = -1.0F;
+      // Signs match the joy line above, where the negation already lives:
+      // left is joy.h = 0, i.e. inSteer = +1 in this local's convention.
+      if (engine->pad.getPressed().DpadLeft) inSteer = 1.0F;
+      if (engine->pad.getPressed().DpadRight) inSteer = -1.0F;
       // L1, NOT Square: Square is the USE action's default binding, so a
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
@@ -28148,13 +28160,17 @@ void TerrainGame::updateVehicles(float dt) {
     {
       const float accLong = (v.speed - spd0) / dt;
       const float aLat = v.grounded ? yawRateRad * v.speed : 0.0F;
+      const float la = vehClamp(s.leanAmount, 0.0F, 2.0F);
       float tp = v.grounded ? accLong * 0.30F : 0.0F;
       if (tp > 4.0F) tp = 4.0F;
       if (tp < -4.0F) tp = -4.0F;
+      tp *= la;
       float tr = v.grounded ? aLat * 0.35F : 0.0F;
       if (tr > 6.0F) tr = 6.0F;
       if (tr < -6.0F) tr = -6.0F;
-      const float lstep = 25.0F * dt;
+      tr *= la;
+      // 35 deg/s, the host twin's stiffer follow - 25 read as a boat.
+      const float lstep = 35.0F * dt;
       if (v.leanPitch < tp) { v.leanPitch += lstep; if (v.leanPitch > tp) v.leanPitch = tp; }
       else { v.leanPitch -= lstep; if (v.leanPitch < tp) v.leanPitch = tp; }
       if (v.leanRoll < tr) { v.leanRoll += lstep; if (v.leanRoll > tr) v.leanRoll = tr; }

@@ -16,6 +16,44 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.62.0 (the shine you can SEE - docs/vehicles.md, "A shiny body"): the
+// user's verdict on 1.60's reflection was "szczerze to nie widze, zeby sie
+// cokolwiek odbijalo", and they were right for a structural reason: the
+// "@sky" env map is a SMOOTH GRADIENT, and a gradient reflection is nearly
+// invisible by construction - there are no features to see move. The era's
+// answer was a static high-contrast sphere map (Underground's wet lacquer is
+// vertical light streaks in exactly such a texture), so a vehicle's paint
+// now mirrors an AUTHORED map: VehicleDef::bodyReflMap, a res/ image, with
+// tools/nfs-streak-map.py generating the classic streaks (deterministic, no
+// RNG - a re-run is byte-identical). Empty keeps "@sky".
+//
+// MATTE TYRES, because the user asked whether the engine even allows it: it
+// does - tmdl reflection is PER PART - and the bake now uses that. The
+// untextured merge splits into "merged" (paint) and "merged-matte" (rubber
+// and near-black trim, by name first and luminance under 0.12 second; glass
+// forces shiny by name, or a deep-blue window would land under the
+// threshold). The reflection pass attaches to the paint alone. One more
+// submit, paid only when shine is on, and the Cost tab reports it.
+//
+// THE WHEELS WERE OFF because the body kept the EXPORTER's origin: the sim
+// places wheel anchors at +-wheelBase/2 around the chassis origin, and the
+// reference car's pivot sat 0.25 behind the axle midpoint - every wheel rode
+// visibly forward of its arch. The bake re-origins the body to the AXLE
+// CENTRE at HUB HEIGHT (mean of the detected wheel centres in the canonical
+// frame), which also makes rideHeight = wheelRadius put the tyres exactly on
+// the ground.
+//
+// Also: the D-PAD drives (a keyboard emulating a stick - PCSX2 in a VM above
+// all - can drop chorded key events, and full-lock-plus-throttle is exactly a
+// chord; the d-pad is independent booleans end to end), and the body lean got
+// a knob (DriveSpec::leanAmount, a spec field, so it serializes and edits by
+// existing) plus a stiffer 35 deg/s follow - 25 read as a boat from the
+// driver's seat.
+//
+// kFormatVersion 36 -> 37: bodyReflMap plus leanAmount (which rides
+// specFields, the one list). Additive, readers default, no migration step.
+// MINOR.
+//
 // 1.61.0 (four reports from the driver's seat - docs/vehicles.md): the
 // steering was INVERTED, cornering killed the throttle, hills swallowed the
 // car, and the wheels rode outside the arches. All four were real.
@@ -1927,7 +1965,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 61
+#define TYRAX_VERSION_MINOR 62
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2208,7 +2246,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 36;
+inline constexpr int kFormatVersion = 37;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

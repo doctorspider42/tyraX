@@ -409,6 +409,9 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Past this steepness the tyres start losing grip instead of climbing."},
         {"mass", &s.mass, 0.1f, 200.0f, "Mass",
          "Relative, and only used where the vehicle shoves a physics body."},
+        {"leanAmount", &s.leanAmount, 0.0f, 2.0f, "Body lean",
+         "Weight transfer: squat, dive and corner roll. 0 is a kart on "
+         "rails, 2 an American sofa. Visual only."},
         {"gears", &s.gears, 1.0f, 8.0f, "Gears",
          "Forward gears. The top one reaches the top speed; each one below it "
          "reaches that divided by the spread."},
@@ -860,10 +863,16 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     {
         const float accLong = (state.speed - speed0) / dt;
         const float aLat = state.grounded ? yawRateRad * state.speed : 0.0f;
-        const float tp = state.grounded ? clampf(accLong * 0.30f, -4.0f, 4.0f) : 0.0f;
-        const float tr = state.grounded ? clampf(aLat * 0.35f, -6.0f, 6.0f) : 0.0f;
-        state.leanPitch = approach(state.leanPitch, tp, 25.0f * dt);
-        state.leanRoll = approach(state.leanRoll, tr, 25.0f * dt);
+        const float la = clampf(spec.leanAmount, 0.0f, 2.0f);
+        const float tp =
+            state.grounded ? clampf(accLong * 0.30f, -4.0f, 4.0f) * la : 0.0f;
+        const float tr =
+            state.grounded ? clampf(aLat * 0.35f, -6.0f, 6.0f) * la : 0.0f;
+        // 35 deg/s, up from 25: the slower follow read as a soft, boaty
+        // suspension - reported from the driver's seat, and leanAmount is
+        // the knob for anyone who wants the boat back.
+        state.leanPitch = approach(state.leanPitch, tp, 35.0f * dt);
+        state.leanRoll = approach(state.leanRoll, tr, 35.0f * dt);
     }
 
     // The wheels turn at the WHEEL speed, not the car's, so a burnout spins

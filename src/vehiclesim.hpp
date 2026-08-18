@@ -179,6 +179,11 @@ struct DriveSpec {
 
     // Relative mass, used when the vehicle shoves an existing physics body.
     float mass = 12.0f;
+
+    // How much the body LEANS - the weight-transfer squat/dive/corner roll,
+    // as a multiplier on the built-in response. 0 is a kart on rails, 1 the
+    // default, 2 an American sofa. Presentation only.
+    float leanAmount = 1.0f;
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.

@@ -311,22 +311,19 @@ gaps, each with a testable end:
   docs/input-bindings.md says not to do. Five `InputAction::Role`s plus their
   `kSeeds` and `kRoles` rows fixes it and makes a wheel or a rebind possible at
   all. Done when a project can rebind the throttle.
-- **The full NFS paint stack** - the wet-lacquer look is more than the env map
-  the body already has, and the era's recipe is known (per-vertex passes, all
-  VU1-computable): a WHITE SPECULAR from Blinn-Phong (N.H)^p written into the
-  vertex ALPHA and added via the GS's HIGHLIGHT/HIGHLIGHT2 texture functions
-  (their RGB is Texture*VertexRGB + VertexAlpha - the alpha lands as pure
-  white, which is exactly the era's burned-out highlight); a FAKE FRESNEL
-  (1 - N.V, optionally raised to a power) as the reflection pass's per-vertex
-  alpha, so the silhouette gets the silver rim while camera-facing paint keeps
-  its colour - that needs the env pass switched from the per-bag additiveBlendFix
-  constant to source-alpha additive blending; and optionally a STATIC sphere
-  map with vertical light streaks instead of "@sky" (the Underground night
-  look), which is just a per-vehicle refl texture choice plus a generator
-  script. All three want a dedicated VU1 program for cars (transform + N.L +
-  N.H + reflection UV + Fresnel into alpha, then two or three GIFTag sets for
-  the passes) - docs/vu-framework.md is the tooling, and the litany's own
-  estimate is right: very doable, not monstrous. Done when a driven car shows
+- **The NFS paint stack, the VU1 half.** The static streak sphere map and the
+  matte rubber/trim split shipped in 1.62.0; what remains is the per-vertex
+  pair: a WHITE SPECULAR from Blinn-Phong (N.H)^p written into the vertex
+  ALPHA and added via the GS's HIGHLIGHT/HIGHLIGHT2 texture functions (their
+  RGB is Texture*VertexRGB + VertexAlpha - the alpha lands as pure white, the
+  era's burned-out highlight), and a FAKE FRESNEL (1 - N.V, optionally raised
+  to a power) as the reflection pass's per-vertex alpha, so the silhouette
+  gets the silver rim while camera-facing paint keeps its colour - that
+  second one needs the env pass switched from the per-bag additiveBlendFix
+  constant to source-alpha additive blending. Both want a dedicated VU1
+  program for cars (transform + N.L + N.H + reflection UV + Fresnel into
+  alpha, then the GIFTag sets per pass) - docs/vu-framework.md is the
+  tooling, and it is very doable, not monstrous. Done when a driven car shows
   a moving white highlight and a silver rim, verified by the shine A/B method
   (crop the body, diff against the pass disabled).
 - **Tyre smoke.** `DriveState::slip` is already the ONE number for it (the

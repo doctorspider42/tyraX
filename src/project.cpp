@@ -2466,6 +2466,8 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
         if (!v.mergeUntextured) json << ", \"merge\": false";
         if (v.bodyShine != 0.0f)
             json << ", \"bodyShine\": " << fmtFloat(v.bodyShine);
+        if (!v.bodyReflMap.empty())
+            json << ", \"bodyReflMap\": \"" << jsonEscape(v.bodyReflMap) << "\"";
         if (v.flipFront) json << ", \"flipFront\": true";
         json << ", \"cam\": [" << fmtFloat(v.camDist) << ", " << fmtFloat(v.camHeight)
              << ", " << fmtFloat(v.camPitch) << "]";
@@ -2528,6 +2530,8 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
         if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
         if (const json::Value* x = e.find("bodyShine"))
             v.bodyShine = (float)x->numberOr(0.0);
+        if (const json::Value* x = e.find("bodyReflMap"))
+            v.bodyReflMap = x->stringOr("");
         if (const json::Value* x = e.find("flipFront")) v.flipFront = x->boolOr(false);
         if (const json::Value* x = e.find("cam"))
             if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {

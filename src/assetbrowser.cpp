@@ -381,6 +381,8 @@ void App::rebuildAssetUsage() {
             note(v.modelPath, 0, "vehicle \"" + v.name + "\" (model)");
         if (!v.engineSound.empty())
             note(v.engineSound, 2, "vehicle \"" + v.name + "\" (engine sound)");
+        if (!v.bodyReflMap.empty())
+            note(v.bodyReflMap, 2, "vehicle \"" + v.name + "\" (reflection map)");
     }
 
     auto noteHud = [&](const HudImage& h, const std::string& where) {
@@ -649,6 +651,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (VehicleDef& v : project_.vehicles) {
         swap(v.modelPath);
         swap(v.engineSound);
+        swap(v.bodyReflMap);
     }
 
     for (HudImage& h : project_.hud) swap(h.imagePath);

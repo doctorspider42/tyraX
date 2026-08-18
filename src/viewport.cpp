@@ -3844,7 +3844,11 @@ Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
         // draws - the matcap machinery is the model path's, reused.
         if (!sp.reflTexture.empty()) {
             part.reflSky = sp.reflTexture == "@sky";
-            if (!part.reflSky) part.reflTex = glTexture(sp.reflTexture);
+            // A tmdl carries BIN-relative texture paths ("textures/x.png");
+            // the editor's cache resolves project-relative ones, and the
+            // Makefile's resources step is what maps res/* onto bin/* - so
+            // the inverse mapping here is prepending "res/".
+            if (!part.reflSky) part.reflTex = glTexture("res/" + sp.reflTexture);
             part.reflStrength = sp.reflStrength;
             part.reflRounded = sp.reflRounded;
             const size_t n = sp.verts.size() / 8;
