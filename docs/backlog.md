@@ -241,6 +241,43 @@ currently reproduces the sprite exactly, which is the defensible half.
 
 ## Medium
 
+### Vehicles: what a drive still owes (docs/vehicles.md)
+
+The feature drives - enter, steer, drift and wall collision are all
+machine-verified on the emulator via the VEH telemetry - and these are the
+gaps, each with a testable end:
+
+- **A "press USE" prompt exists, engine sound does not.** A drive is silent.
+  The Drone Generator can author a loop; what is missing is a per-vehicle
+  sound whose PITCH follows `v.speed` - the SPU2 can retune a voice, and the
+  Play Sound path already owns channel picking. Done when a drive is audible
+  and the pitch tracks the telemetry's spd10.
+- **Hide a third-person avatar while driving.** The walker is gated, so a TPP
+  player's avatar stays parked at the camera boom, visibly floating behind the
+  car. FPP has no body, which is why the example does not show it. Done when a
+  TPP project's avatar disappears on enter and returns at the door on exit.
+- **The distant one-submit tier.** vehbake already produces a body with the
+  wheels' geometry available; what is missing is a merged body+wheels bake and
+  a distance switch in renderVehicleWheels/the body row, so a parked fleet far
+  away costs one submit per car instead of two. Done when the telemetry (or a
+  bag count in the Stats tab) shows the switch happening at the distance.
+- **Hardware frame cost.** The two submits are a design property, not a
+  measurement - nothing has timed a driven frame on a real PS2 (docs/profiling.md
+  has the method). Done when docs/vehicles.md quotes measured EE ms for one
+  car driving, the way the BLSS page quotes its fill numbers.
+- **Vehicle-vs-vehicle and vehicle-vs-physics.** A car stops at walls and
+  pillars; it does not yet trade momentum with physics crates (PHYS_PUSH is
+  the player's shove, unused here) or with another car. Done when driving into
+  the physics-playground crates scatters them.
+- **AI traffic.** The whole input path is already a struct (DriveInput /
+  the runtime's inThrottle..inHand locals) precisely so a controller other
+  than the pad can fill it; navigation.gen.cpp already runs A* for walkers.
+  Done when a second vehicle patrols waypoints with no pad attached.
+- **The editor test drive's walls are approximate.** World AABBs via
+  placement, not the console's slide resolver - a rotated wall blocks a wider
+  footprint in the editor than on the console. Fine for tuning; worth one
+  sentence of honesty in the panel if anyone reports it.
+
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 
 ```
