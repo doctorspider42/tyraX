@@ -1305,6 +1305,17 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // engine note would play for a fifth of a second and stop, with no
         // error anywhere. Reading the byte back asks the FILE what it is
         // instead of trusting the calendar.
+        // NO QUOTES OF ANY KIND may appear in this fragment. The block comment
+        // above already says double quotes cannot survive the cmd.exe /S +
+        // docker.exe argv unquoting - the first version of the loop-byte test
+        // used them anyway and every Windows build died with the shell's
+        // *Syntax error: end of file unexpected*: the quotes were stripped on
+        // the way in and the -c string stopped PARSING, so no build with a
+        // sound in it could succeed on that platform while Linux passed
+        // cleanly. Hence: x$L = x-L instead of [ -n "$L" ], and a case
+        // pattern over od's raw (space-padded) output instead of tr -d " " -
+        // case words are not field-split, so *1 matches however od pads, and
+        // the only values our own encoder writes are 0 and 1.
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "cd /src && IFS= && for f in res/sfx/*.wav "
@@ -1313,9 +1324,9 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
                            "mkdir -p $(dirname $o); "
                            "L= && case $f in *-loop.wav) L=-L;; esac; "
-                           "R=0; if [ -n \"$L\" ] && [ -e $o ]; then "
-                           "B=$(od -An -tu1 -j6 -N1 $o | tr -d \" \"); "
-                           "[ \"$B\" = \"1\" ] || R=1; fi; "
+                           "R=0; if [ x$L = x-L ] && [ -e $o ]; then "
+                           "B=$(od -An -tu1 -j6 -N1 $o); "
+                           "case $B in *1) R=0;; *) R=1;; esac; fi; "
                            "if [ ! $o -nt $f ] || [ $R = 1 ]; then "
                            "echo [editor] adpenc $L $f && "
                            "adpenc $L $f $o || exit 1; "
