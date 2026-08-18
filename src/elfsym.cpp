@@ -193,9 +193,12 @@ Audit auditRelease(const std::string& elfPath) {
     // (the PS2 toolchain strips the symbol table, so an incidental signal is
     // not enough); the file names are the second, independent signal - the
     // polling code cannot exist without them.
+    // "frame.tga" is the self-screenshot's output (docs/devkit.md). It rides
+    // the livedbg runtime, so the marker above already covers the layer - but
+    // the file name is the independent signal, exactly as for the others.
     static const char* const kStringNeedles[] = {
         "TXDEVKIT-", "livedbg.bin", "livedbg.cmd", "livelink.bin",
-        "livelogic.bin", "livepad.bin"};
+        "livelogic.bin", "livepad.bin", "frame.tga"};
     for (const char* sectionName : {".rodata", ".data", ".sdata"}) {
         const Section* s = img.section(sectionName);
         if (!s || !s->size || s->type == 8 /* SHT_NOBITS */) continue;

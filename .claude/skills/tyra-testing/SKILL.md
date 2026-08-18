@@ -718,6 +718,46 @@ Notes:
   stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
   the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
   EE's stdout was buffered and never flushed) — rebuild before believing silence.
+- **The game can photograph ITSELF, and that is the path that never lies about
+  which window it grabbed** (docs/devkit.md, "The game's own screenshot"). A
+  debug build with *Live Debugger* on takes a one-shot on the same command
+  channel as the VU1 capture — **flags bit 6** of `bin/livedbg.cmd`, or
+  *Debugger > Screen > Capture frame* — reads its last finished frame out of GS
+  VRAM and writes `bin/frame.tga`; the editor decodes that and keeps the picture
+  as `screenshots/frame-<date>-<time>.png` in the project, which is what *Show
+  file* opens. No desktop, no window, no focus, and it is the ONLY one that
+  exists on real hardware. Reach for it whenever a host-side grab is in doubt:
+  an occluded window, a locked or disconnected session, a parallel worktree's
+  emulator, or a console.
+
+  **It works on a console since 1.55.1 and did not before**, which is worth
+  knowing when reading anything measured with it earlier: ps2sdk's
+  `ps2_screenshot_file()` creates its output with `open(O_CREAT|O_WRONLY)`, and
+  over ps2link that create arrives at the `host:` server as a **mkdir of the
+  target name** - the host gets a DIRECTORY called `frame.tga`, the open fails,
+  and the function has no failure path to report it with. The runtime writes the
+  file itself now (docs/devkit.md, "Why the file is written by the game rather
+  than by libdebug"). Over ps2link one capture freezes the game for about three
+  seconds; in PCSX2 it lands between two frames.
+
+  Scripted, through the editor's own encoder (the `livedbg.cpp` probe recipe
+  below), it is ~10 lines: `Command c; c.seq = n; c.captureFrame = true;
+  livedbg::writeCommand(bin + "livedbg.cmd", c);` then wait for `frame.tga` and
+  read it. The file is an uncompressed 32-bit TGA, **BGRA, bottom row first**,
+  exactly `18 + w*h*4` bytes — PIL opens it directly, and that size is also how
+  you tell a finished write from a poll that landed mid-transfer (it is written
+  a scan line at a time over `host:`, so mid-write reads are common, not rare —
+  and over ps2link the write takes SECONDS, so decide "still writing" from the
+  size still GROWING rather than from a number of tries). Its alpha is already
+  opaque; a frame buffer's alpha is a working channel rather than coverage, so
+  the game writes 255 instead of handing over a half-transparent picture.
+
+  What comes back is the **GS raster**, not the television picture — no aspect
+  correction, no letterbox — which is why it is also the cheapest way to read
+  the real buffer geometry without touching `ScreenshotSize` in PCSX2.ini. To
+  cross-check it against the emulator, crop the PrintWindow grab to its
+  non-black columns and compare resized: measured **0.91/255** mean absolute
+  difference on an fpp fixture, which is what a correct capture looks like.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script, which has **two capture back-ends** — and picking the wrong one is how
   a whole run becomes fiction, so read this before the flags:

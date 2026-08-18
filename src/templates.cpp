@@ -5098,6 +5098,15 @@ u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
 u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
 bool pValid = false;
 
+// The static pipeline's routing counters (docs/vu1-clipping.md). Set at init
+// so tick() can drain them without threading a pipeline pointer through
+// drawDebugHud. StaPipTelemetry is opt-in and costs COP0 reads, so it is
+// enabled only inside this #if - a normal debug build still carries none.
+Tyra::StaPipCore* core = nullptr;
+u32 tCull = 0, tClip = 0, tGuard = 0, tOut = 0;
+u32 tTriCull = 0, tTriClip = 0, tTriGuard = 0;
+u32 tFlush = 0, tVuWait = 0;
+
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
 // wrapped and printed BELOW the median - which is how a 500 ms frame first
@@ -5165,6 +5174,20 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   pNet = FP::tBlssNet;
   pPkt = FP::tBlssPacket;
   pValid = true;
+  // Drained EVERY frame, not once a window: takeTelemetry() clears as it
+  // reads, so skipping frames would silently drop their packages.
+  if (core != nullptr) {
+    const Tyra::StaPipTelemetry t = core->takeTelemetry();
+    tCull += t.packagesCull;
+    tClip += t.packagesClip;
+    tGuard += t.packagesGuardBand;
+    tOut += t.packagesOutside;
+    tTriCull += t.trianglesCull;
+    tTriClip += t.trianglesClip;
+    tTriGuard += t.trianglesGuardBand;
+    tFlush += t.packetFlushes;
+    tVuWait += t.vu1WaitTicks;
+  }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
   frame++;
@@ -5226,6 +5249,28 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
            (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
   TYRA_LOG(line);
+  // The clipper routing line (docs/vu1-clipping.md). Packages and triangles
+  // per route over the window, plus the GUARD subset of cull - the packages
+  // that leave the screen but stay inside the guard band, which used to be
+  // clipped and are now culled whole. `clip` going down while `guard` goes up
+  // by the same amount is what a guard-band routing change looks like; the
+  // two totals must stay equal between two arms of an A/B, or the arms are
+  // not looking at the same scene. Counts, not milliseconds - `work` above is
+  // the milliseconds, and this line says WHY it moved.
+  if (core != nullptr) {
+    snprintf(line, sizeof(line),
+             "FTCLIP f=%lu cull=%lu/%lu clip=%lu/%lu guard=%lu/%lu out=%lu "
+             "flush=%lu vuwait=%.2f",
+             (unsigned long)(frame - kWindow), (unsigned long)tCull,
+             (unsigned long)tTriCull, (unsigned long)tClip,
+             (unsigned long)tTriClip, (unsigned long)tGuard,
+             (unsigned long)tTriGuard, (unsigned long)tOut,
+             (unsigned long)tFlush, (double)ms(tVuWait, kWindow));
+    TYRA_LOG(line);
+    tCull = tClip = tGuard = tOut = 0;
+    tTriCull = tTriClip = tTriGuard = 0;
+    tFlush = tVuWait = 0;
+  }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
   if (rawN >= kRaw) dumpRaw();
@@ -5683,6 +5728,13 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+#if TYRA_FRAME_PROFILE
+  // The frame-timing rig's FTCLIP line - the static pipeline's routing
+  // counters (docs/vu1-clipping.md). Opt-in because the counters cost COP0
+  // reads; nothing outside this #if enables them.
+  ftrig::core = &stapip.core;
+  stapip.core.setTelemetryEnabled(true);
+#endif
   // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
   // AFTER setVU1Clipping, which rebuilds the resident program cache: an
   // override installed first would be rebuilt away. Compiles to nothing when
@@ -11825,8 +11877,6 @@ void TerrainGame::setupLightPools() {
       b.colorBag->many = b.colors.data();
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
-      b.wColors.reserve(4096);
-      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -11850,10 +11900,20 @@ void TerrainGame::setupLightPools() {
       // so the per-frame clear/push never reallocates in the steady state.
       b.wVerts.reserve(4096);
       b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
-      b.wInfo->shadingType = TyraShadingFlat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
       b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;
@@ -20778,6 +20838,13 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+#if TYRA_FRAME_PROFILE
+  // The frame-timing rig's FTCLIP line - the static pipeline's routing
+  // counters (docs/vu1-clipping.md). Opt-in because the counters cost COP0
+  // reads; nothing outside this #if enables them.
+  ftrig::core = &stapip.core;
+  stapip.core.setTelemetryEnabled(true);
+#endif
   // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
   // AFTER setVU1Clipping, which rebuilds the resident program cache: an
   // override installed first would be rebuilt away. Compiles to nothing when
@@ -23076,6 +23143,10 @@ bin/*.tmp
 # them next to the sources), so they are artifacts, not source.
 src/gen/livedbg.sym
 src/gen/livelogic.built
+# Pictures the running game took of itself, kept by the Debugger's Screen tab
+# (docs/devkit.md). Yours to look at and to throw away - delete a few and the
+# folder is tidy again; nothing in the build reads them.
+screenshots/
 )";
 
 static const char* TPL_DIR_KEEP = "*\n!.gitignore\n";
@@ -35056,6 +35127,13 @@ static const char* TPL_LIVE_DEBUG_CPP = R"DBG(// Generated by TyraX. Do not edit
 #include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <string>
+// ps2sdk libdebug (already on every generated game's link line, -ldebug): reads
+// a GS frame buffer back over the VIF1 reverse FIFO. That readback is what lets
+// the game photograph ITSELF; the FILE is written by writeFrameCapture below,
+// which explains why libdebug's own writer cannot be used over ps2link.
+#include <screenshot.h>
+#include <kernel.h>  // FlushCache - the readback lands behind the data cache
 
 #include "debug/crash_handler.hpp"  // EE exception -> crash report
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
@@ -35192,6 +35270,10 @@ unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
 // the chain - honest, but a heap storm nobody wants once per frame.
 bool ramMeasureWanted = false;
 unsigned int ramFreeKB = 0, ramFrame = 0;
+// The game's own screenshot (docs/devkit.md). One-shot, like the VU capture:
+// reading a whole frame buffer back out of GS VRAM is a ~900 KB DMA plus a
+// ~900 KB host: write, which is not something to do on a timer.
+bool frameShotWanted = false;
 // __attribute__((unused)): the EE crash handler is opt-in (Preferences >
 // Build), and with it off nothing references this - it sits in an anonymous
 // namespace so the compiler drops it, but it would warn on the way past.
@@ -35199,6 +35281,7 @@ void writeCrashReport(const Tyra::CrashInfo& ci) __attribute__((unused));  // de
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
+void writeFrameCapture(ScriptContext& ctx);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
 int pollCooldown = 21;  // poll phase - see docs/devkit.md
@@ -35327,6 +35410,8 @@ void pollCommand() {
   // leaves the index at 0 - the behaviour they expect.
   // Bit 5: measure free EE RAM once (a heap storm - see ramMeasureWanted).
   if ((flags & 32U) != 0) ramMeasureWanted = true;
+  // Bit 6: photograph the last finished frame into frame.tga (one-shot).
+  if ((flags & 64U) != 0) frameShotWanted = true;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -35553,6 +35638,13 @@ void tickImpl(ScriptContext& ctx) {
     ramFrame = frameNo;
   }
   if (vuCapPending) writeVuCapture(ctx);
+  // The self-screenshot runs HERE for the same reason the VU capture's write
+  // does: the tick sits between frames, so the buffer it reads is finished and
+  // no renderer DMA is in flight to race the reverse FIFO.
+  if (frameShotWanted) {
+    frameShotWanted = false;
+    writeFrameCapture(ctx);
+  }
   forcedCount = 0;  // force-fires live for exactly one frame
 
   // Over ps2link every fopen is a network round-trip, so poll sparsely there.
@@ -35804,6 +35896,137 @@ void writeVuCapture(ScriptContext& ctx) {
   TYRA_LOG("VU capture: flush ", vuCapTookIndex, "/", vuFlushPrevFrame, ", ",
            vuCapQw, " qw chain + ", vuCapBlocks,
            " referenced block(s) written to vucap.bin");
+}
+
+// The game photographs ITSELF: ps2sdk's libdebug reads the frame buffer back
+// out of GS VRAM over the VIF1 reverse FIFO, and this writes what comes back as
+// an uncompressed 32-bit TGA. Every host-side capture path (PCSX2's F8, GDI,
+// PrintWindow) needs a desktop that is unlocked and a window that is on top,
+// and NONE of them exists on real hardware - this one works on both, which is
+// the whole point.
+//
+// THE FILE IS WRITTEN HERE RATHER THAN BY libdebug, AND THAT IS WHAT MAKES IT
+// WORK ON A CONSOLE. ps2_screenshot_file() creates its output with
+// open(name, O_CREAT|O_WRONLY) - no mode argument, no O_TRUNC - and over
+// ps2link that create arrives at the host: server as a MKDIR OF THE TARGET
+// NAME. The host ends up with a DIRECTORY called frame.tga, the open that
+// follows returns -1, and the function reports nothing, because it has no
+// failure path at all. Measured on hardware, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// Every other devkit channel writes through fopen(name, "wb") - flags 0x602,
+// WRONLY|CREAT|TRUNC on the wire - and none of them has ever had the problem,
+// in the same session, over the same server. So the fix is to keep the half of
+// libdebug that carries the value (ps2_screenshot, the VRAM readback) and hand
+// the bytes to the stdio path everything else here already uses. PCSX2's own
+// host: server accepts libdebug's spelling, which is exactly why this shipped
+// as an emulator-only feature without anybody noticing.
+//
+// Five more things decide whether it produces a picture at all, and each of
+// them fails SILENTLY - which is why they are written down rather than trusted:
+//
+//  * the buffer must be the PREVIOUS REAL one. getCurrentFrameBuffer() is the
+//    one the next frame draws into (a half-composed image, or the frame before
+//    last), and getPreviousFrameBuffer() can be a synthesised extrapolated
+//    frame - getPreviousRealFrameBuffer() is the last thing the SCENE drew.
+//  * `address` is in GS WORDS and the API wants BLOCKS. Handing it words
+//    overflows SBP's 14 bits, so the read silently lands on buffer 0 with its
+//    pages scrambled into bands - it looks like a corrupt renderer and is a
+//    missing division by 64.
+//  * the readback lands a LINE at a time in a static buffer, so a frame buffer
+//    wider than 1024 pixels would overrun it. No display mode this engine
+//    offers comes near that, but the guard costs one comparison.
+//  * THE DMA WRITES RAM BEHIND THE EE'S DATA CACHE. Nothing invalidates it for
+//    us, so the line is flushed after every transfer; without that a cached
+//    line hands over the PREVIOUS row and the picture comes out striped with
+//    repeats - on hardware only, since PCSX2 emulates no cache.
+//  * ps2_screenshot REFUSES to run while VIF1's DMA channel is busy, and says
+//    so only through its return value (0). The line is then whatever was in
+//    the buffer before, so the refusals are counted and reported rather than
+//    written out as if they were picture.
+//
+// The verdict is the byte count actually written - 18 bytes of TGA header plus
+// 4 bytes per pixel - and never a return value.
+void writeFrameCapture(ScriptContext& ctx) {
+  if (!ctx.engine) return;
+  framebuffer_t* fb = ctx.engine->renderer.core.gs.getPreviousRealFrameBuffer();
+  if (!fb || fb->width == 0 || fb->height == 0) return;
+  if (fb->width > 1024) {
+    TYRA_WARN("Frame capture: ", fb->width, " px is wider than the capture "
+              "line buffer - skipped");
+    return;
+  }
+  const unsigned int w = fb->width, h = fb->height;
+  const std::string path = Tyra::FileUtils::fromCwd("frame.tga");
+  FILE* f = fopen(path.c_str(), "wb");
+  if (!f) {
+    TYRA_WARN("Frame capture: cannot open frame.tga for writing");
+    return;
+  }
+  // Uncompressed true-colour TGA, bottom row first, 32 bpp - what the editor's
+  // Screen tab decodes (docs/devkit.md).
+  unsigned char header[18];
+  memset(header, 0, sizeof(header));
+  header[2] = 2;
+  header[12] = (unsigned char)(w & 255U);
+  header[13] = (unsigned char)((w >> 8) & 255U);
+  header[14] = (unsigned char)(h & 255U);
+  header[15] = (unsigned char)((h >> 8) & 255U);
+  header[16] = 32;
+  header[17] = 8;
+  unsigned int wrote = (unsigned int)fwrite(header, 1, sizeof(header), f);
+  // The DMA destination has to be quadword aligned; 1024 words covers the
+  // widest line the guard above lets through, at any of the three pixel
+  // formats a frame buffer can be in.
+  static unsigned int lineIn[1024] __attribute__((aligned(16)));
+  static unsigned int lineOut[1024];
+  unsigned int refused = 0;
+  for (unsigned int y = 0; y < h; ++y) {
+    // Bottom row first, so the TGA needs no flip on either side.
+    if (!ps2_screenshot(lineIn, fb->address / 64, 0, (h - 1U) - y, w, 1,
+                        fb->psm))
+      ++refused;
+    FlushCache(0);  // the line was written by DMA - see above
+    // Alpha is forced opaque: the GS keeps 0..128 there and a frame buffer's
+    // alpha is a working channel rather than coverage, so taken literally the
+    // picture reads as half transparent. Only the colour here is a picture.
+    if (fb->psm == 2) {  // PSMCT16
+      const unsigned short* in = (const unsigned short*)lineIn;
+      for (unsigned int x = 0; x < w; ++x) {
+        const unsigned int r = (unsigned int)((in[x] & 31U) << 3);
+        const unsigned int g = (unsigned int)(((in[x] >> 5) & 31U) << 3);
+        const unsigned int b = (unsigned int)(((in[x] >> 10) & 31U) << 3);
+        lineOut[x] = 0xFF000000U | (r << 16) | (g << 8) | b;
+      }
+    } else if (fb->psm == 1) {  // PSMCT24
+      const unsigned char* in = (const unsigned char*)lineIn;
+      for (unsigned int x = 0; x < w; ++x, in += 3)
+        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+                     ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+    } else {  // PSMCT32
+      const unsigned char* in = (const unsigned char*)lineIn;
+      for (unsigned int x = 0; x < w; ++x, in += 4)
+        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+                     ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+    }
+    wrote += (unsigned int)fwrite(lineOut, 1, w * 4U, f);
+  }
+  fclose(f);
+  const unsigned int want = 18U + w * h * 4U;
+  if (wrote != want)
+    TYRA_WARN("Frame capture: wrote ", wrote, " of ", want,
+              " bytes - the host: write did not complete");
+  else if (refused > 0)
+    TYRA_WARN("Frame capture: ", refused, " of ", h,
+              " lines came back while VIF1 was busy - the picture repeats "
+              "rows there");
+  else
+    TYRA_LOG("Frame capture: ", w, "x", h, " psm ", (unsigned int)fb->psm,
+             " at frame ", frameNo, " written to frame.tga");
 }
 
 // A real EE exception (bad pointer, address error, reserved instruction...) is

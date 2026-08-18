@@ -61,6 +61,10 @@ unsigned long long processId();
 // "HH:MM:SS " in local time - the Output panel stamps every line with it.
 std::string logTimeStamp();
 
+// "20260817-163544" in local time - the same clock, spelled for a FILE NAME:
+// no colons (Windows forbids them) and sorted by name = sorted by time.
+std::string fileTimeStamp();
+
 // --- shell command fragments -----------------------------------------------
 // Command lines are written once and handed to Process below, which runs them
 // through the platform shell. These cover the handful of spots where the two

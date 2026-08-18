@@ -471,6 +471,10 @@ bool Runner::launchPCSX2(const Project& p) {
     // a tick of the new game coming up.
     fs::remove(fs::path(p.dir) / "bin" / "livedbg.bin", logEc);
     fs::remove(fs::path(p.dir) / "bin" / "livedbg.cmd", logEc);
+    // The self-screenshot (docs/devkit.md): the last session's picture would
+    // read as an answer to the first capture of this one, and two runs of the
+    // same scene look alike enough that nobody would notice.
+    fs::remove(fs::path(p.dir) / "bin" / "frame.tga", logEc);
     // Live Logic: the fresh build compiles every graph natively again, so
     // a leftover patch would make the game interpret a stale program.
     fs::remove(fs::path(p.dir) / "bin" / "livelogic.bin", logEc);
@@ -830,6 +834,7 @@ bool Runner::deployToPs2(const Project& p) {
     fs::remove(fs::path(binDir) / "log.txt", logEc);
     fs::remove(fs::path(binDir) / "livedbg.bin", logEc);
     fs::remove(fs::path(binDir) / "livedbg.cmd", logEc);
+    fs::remove(fs::path(binDir) / "frame.tga", logEc);  // see the PCSX2 path
     fs::remove(fs::path(binDir) / "livelogic.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.bin", logEc);
     fs::remove(fs::path(binDir) / "livetime.rst", logEc);
@@ -1033,6 +1038,28 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             appendLine("[editor] Engine sources not mounted at /engine-src - the editor "
                        "must run from its repo (vendor/tyra). Recreate the container "
                        "if docker-compose.yml just changed.");
+            ok = false;
+        }
+        // The audsrv overlay below copies three files as one `&&` chain, so a
+        // missing one aborts it *silently* and the damage only surfaces two
+        // minutes later, wearing someone else's face: the header never gets
+        // copied either, the game compiles against the image's stock PS2SDK one
+        // and the build dies on "'audsrv_adpcm_set_volume_and_pan' was not
+        // declared" - which reads like an engine bug and is not. Every TyraX
+        // PACKAGED before 1.55.3 has exactly that hole (both packagers excluded
+        // '*.a' from vendor/tyra and took the committed libaudsrv.a along with
+        // the build leftovers), and a checkout has none of it, so the report
+        // always came from a user the developer could not reproduce. Name it.
+        if (ok && exec(dc + platform::shellArg(
+                           "test -f /engine-src/audsrv/bin/audsrv.irx && "
+                           "test -f /engine-src/audsrv/bin/libaudsrv.a && "
+                           "test -f /engine-src/audsrv/bin/audsrv.h"),
+                       p.dir) != 0) {
+            appendLine("[editor] The vendored audsrv overlay is incomplete at "
+                       "vendor/tyra/audsrv/bin - it needs audsrv.irx, libaudsrv.a and "
+                       "audsrv.h. A TyraX installed before 1.55.3 is missing "
+                       "libaudsrv.a: update the editor, or copy that one file into "
+                       "the install's vendor/tyra/audsrv/bin from the repo.");
             ok = false;
         }
         if (ok) {

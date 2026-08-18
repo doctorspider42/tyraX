@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.55.0 (cars you can drive - docs/vehicles.md): a Vehicle object type, a
+// 1.56.0 (cars you can drive - docs/vehicles.md): a Vehicle object type, a
 // project-wide VehicleDef the instances name, and an importer that takes one
 // authored .glb/.fbx and finds the wheels in it.
 //
@@ -40,7 +40,168 @@
 // kFormatVersion 31 -> 32, purely additive: PrimitiveType::Vehicle (20), the
 // per-object "vehicle" block and Section::Vehicles, all of which an existing
 // project simply does not carry - a project with no vehicles resaves byte for
-// byte. MINOR by this file's own rule.
+// byte. MINOR by this file's own rule. (Authored as 1.55.0; renumbered in the
+// merge - main had independently taken 1.55 for the packaging fixes below.)
+//
+// 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
+// both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
+// dev checkout's build leftovers are not content" - and
+// vendor/tyra/audsrv/bin/libaudsrv.a is not a leftover. It is a COMMITTED
+// artifact of the in-tree audsrv fork (the per-channel L/R panning sound
+// emitters need), which runner.cpp overlays onto the build image's PS2SDK
+// together with audsrv.irx and audsrv.h. Those two matched no pattern and
+// travelled, so the hole was exactly one file wide and the failure wore
+// somebody else's face: the overlay is a `cp a && cp b && cp c`, it died on the
+// missing lib BEFORE reaching the header, the game then compiled against the
+// image's stock PS2SDK copy, and every build ended
+//
+//     md5sum: /engine-src/audsrv/bin/libaudsrv.a: No such file or directory
+//     inc/audio/audio_adpcm.hpp:108:5: error:
+//         'audsrv_adpcm_set_volume_and_pan' was not declared
+//
+// on EVERY project, for everyone who installed the editor and for nobody who
+// built it from a checkout - where the file is present and the same build is
+// clean. That asymmetry is why it survived two releases: the only people who
+// could reproduce it were the ones who could not debug it.
+//
+// Both packagers now exclude by DIRECTORY, and the list is exactly what
+// .gitignore drops under vendor/tyra (engine/obj, engine/bin, audsrv/.work):
+// what git keeps, the package ships. runner.cpp additionally checks the three
+// overlay files before it starts and names the missing one, because an editor
+// packaged before this fix stays broken until it updates - and the message it
+// used to give pointed at the engine's audio code, which was never wrong.
+//
+// Verified on both halves of the pair. Linux: stage_tree's find expression over
+// this tree stages 402 files where the old one staged 401, and the difference
+// is libaudsrv.a. Windows: ISCC compiles tyrax.iss with all three
+// audsrv/bin files in its "Compressing:" list and zero paths under engine/obj,
+// engine/bin or audsrv/.work. PATCH: no capability appears, nothing changes
+// shape on disk, a build that could not run starts running.
+//
+// 1.55.1 (the self-screenshot reaches the console it was built for -
+// docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
+// nothing said so. On hardware the picture never came back, deterministically,
+// and the cause is one call inside ps2sdk's libdebug: `ps2_screenshot_file()`
+// creates its output with `open(name, O_CREAT|O_WRONLY)`, and over ps2link that
+// create arrives at the `host:` server as a MKDIR OF THE TARGET NAME. The host
+// ends up with a DIRECTORY called frame.tga, the open that follows returns -1,
+// and the function reports nothing at all - it has no failure path. Measured on
+// a real PS2, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// while livedbg.bin, livetime.bin and every other devkit file - all written
+// through fopen(name, "wb"), flags 0x602 on the wire - succeeded in the same
+// session over the same server. So the runtime keeps the half of libdebug that
+// carries the value (ps2_screenshot, the VRAM readback) and writes the file
+// itself. PCSX2's own host: server accepts libdebug's spelling, which is
+// exactly why this could ship as emulator-only without anybody noticing.
+//
+// Two hardware-only traps came with owning the write, and both are guarded:
+// the readback lands in RAM BEHIND THE EE'S DATA CACHE (each line is flushed
+// after its transfer, or the picture repeats rows - invisible in an emulator
+// that emulates no cache), and ps2_screenshot REFUSES to run while VIF1's DMA
+// channel is busy, saying so only through its return value, so refusals are
+// counted and reported rather than written out as picture. A third bug was on
+// the EDITOR side and needed no console to be wrong: the panel gave a capture
+// six polls (~2.4 s) to finish before calling the file malformed, which PCSX2
+// meets between two frames and ps2link cannot - one capture is ~900 KB at a
+// network round trip per 1.4 KB, measured at about three seconds. It now waits
+// on PROGRESS (the file still growing) and reports only a write that has
+// stalled.
+//
+// Also here, from the same session: every capture is kept as a PNG under the
+// project's screenshots/ folder, and *Show file* reveals THAT rather than
+// bin/frame.tga - the channel file is overwritten by the next capture and
+// deleted by every launch, and explorer answers a path that does not exist by
+// opening the user's Documents folder, which reads as a broken button (it was
+// reported as one). platform::revealInFileManager now walks up to the nearest
+// ancestor that exists, so no caller can reproduce that. The picture is written
+// opaque, so nothing downstream has to know that a frame buffer's alpha is a
+// working channel rather than coverage.
+//
+// VERIFIED on the user's PlayStation 2 over ps2link, unattended: the capture
+// comes back 512x512, 1048594 bytes = 18 + 512*512*4, exactly the expected
+// size, with 0 repeated rows and no VIF1 refusals; it agrees with the same
+// scene captured in PCSX2 to 2.0/255 mean absolute difference; a second capture
+// after a --pad camera turn shows the turned view, so it is live rather than a
+// stale buffer; and the whole user-facing loop (menu > Run on PS2 > Debugger >
+// Screen > Capture frame > the picture on screen) was driven with --ui-script
+// and asserted with expect, exit 0. The PNG that lands in screenshots/ is
+// pixel-identical to the TGA it came from.
+//
+// PATCH: a fix. The generated devkit runtime changes, so a project must be
+// rebuilt to get it; nothing on disk changes shape.
+
+// 1.55.0 (the game photographs itself - docs/devkit.md, "The game's own
+// screenshot"): a sixth one-shot on the Live Debugger's command channel (flags
+// bit 6, beside the VU1 capture and the RAM measurement). The game reads its
+// last finished frame out of GS VRAM through ps2sdk libdebug's VIF1 reverse
+// FIFO, writes bin/frame.tga over the same host: channel every other devkit
+// file uses, and the Debugger's new Screen tab decodes and shows it.
+//
+// IT IS THE ONLY CAPTURE PATH THAT DOES NOT NEED A DESKTOP, which is the whole
+// argument for it: the emulator's F8 key, a GDI grab and PrintWindow all need
+// the window present and unoccluded on an unlocked session, and none of them
+// exists on a console at all. This one answers from hardware, from a locked
+// machine and from an unattended script.
+//
+// Four traps, each of which fails silently and three of which were found by
+// measuring rather than by reading. `fb->address` is in GS WORDS while the API
+// wants BLOCKS, so a missing /64 overflows SBP's 14 bits and reads buffer 0 with
+// its pages scrambled. The buffer must be getPreviousRealFrameBuffer(), never
+// the current one (half-composed) or getPreviousFrameBuffer() (which can be a
+// synthesised extrapolated frame). libdebug opens the file O_CREAT|O_WRONLY with
+// NO O_TRUNC, so a shorter capture over a longer one leaves the previous
+// picture's tail behind and still decodes - the runtime deletes first. And
+// ps2_screenshot_file's RETURN VALUE IS NOT A VERDICT: upstream returns 0 both
+// when open() fails and when everything worked, so the first version logged
+// "capture failed" over a perfectly good 1 MB picture. The check is the file's
+// own size against 18 + w*h*4.
+//
+// The panel decodes the TGA by hand rather than through stbi_load, and that is
+// deliberate: the editor's stb_image is built STBI_ONLY_PNG + STBI_ONLY_JPEG and
+// answers "unknown image type" to every TGA (which is how this was caught, on
+// screen, in the honest-failure text). Adding TGA would widen what every other
+// stbi_load in the editor accepts - the asset importer above all - for one debug
+// preview, where the format has exactly one writer whose source is known.
+//
+// Verified end to end in PCSX2 on an fpp fixture: the self-capture agrees with
+// PrintWindow's grab of the emulator's own render area to **0.91/255 mean
+// absolute difference** with the horizon at the same fraction (0.531 vs 0.530),
+// which is what says the address, the row order and the channel order are all
+// right. The Runner's stale-delete was checked by looking for the file after a
+// relaunch, and the whole loop - tab, button, command, capture, preview - was
+// driven with --ui-script and no human. --audit-release fails on the debug ELF
+// naming `frame.tga` among six findings and comes back clean on the release one,
+// whose devkit TU is three lines.
+//
+// MINOR: a capability appears, nothing changes shape on disk. (Authored as
+// 1.54.0 and RENUMBERED on the merge, this file's standing arrive-second rule -
+// main took 1.54.0 with #245 while this branch was open. Two of the entries
+// below are the argument for this one: 1.53.1 was diagnosed with every capture
+// taken by the GAME ITSELF, by hand, because the desktop was locked all night;
+// and 1.54.1 is a fault PCSX2 structurally cannot show, which is the other half
+// of the same problem - when only the console can reproduce something, only the
+// console can photograph it.)
+//
+// 1.54.1 (the flashlight's wall patch stops killing the game on real
+// hardware): setupLightPools set the wall slice's shading type thirty lines
+// BEFORE it allocated the bag holding it - a store through a null unique_ptr
+// at offset +4, which is where StaPipInfoBag::shadingType sits. Every project
+// with a torch took it during scene setup, i.e. the instant the loading screen
+// ended. It was invisible for a release and a half because PCSX2 has main RAM
+// at address 0, so the write landed in low memory and every emulator test
+// passed; a console has nothing mapped there and raises a TLB refill on store
+// (cause 3, BadAddr 0x00000004). The write now happens after the make_unique,
+// which also makes the wall patch Gouraud as the surrounding code always
+// intended - the per-vertex reach falloff renderSlice has been feeding it all
+// along. Cause 3 is handed back to the kernel by the crash handler on purpose
+// (see crash_handler.cpp), so this class of fault produces ps2link's raw
+// register dump and no crash.txt - docs/devkit.md says so now.
 //
 // 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
 // scene with Point Light > Beam used to look materially different in the
@@ -1551,8 +1712,46 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.55.2 (the clipper stops clipping what the scissor would crop -
+// docs/vu1-clipping.md): the static pipeline classified a package against the
+// VIEW frustum and read PARTIALLY_IN_FRUSTUM as "needs clipping", which it is
+// not. VU1 cuts against the near/far pair and an X/Y band at 0.9 of w, and the
+// projection divides by projectionScale 4096, so the screen edge is at 0.125 of
+// w and the band is SEVEN times that - a triangle may hang ~1590 px past either
+// edge of a 512x448 picture before anything is cut, and the GS scissor crops
+// the raster during DDA. So a package straddling the screen border crossed no
+// clip plane at all, and it was still split into thirds (3x the DMA chains and
+// VU1 kicks), memcpy-ed stream by stream where the cull route hands VU1 a
+// POINTER, and run through Sutherland-Hodgman with an empty plane mask.
+//
+// The packager already computed that mask; it now answers the routing question
+// in the same pass (StaPipBagPackage::guardBandOnly) and such a package is
+// culled whole and by pointer. Over EIGHT planes, not six: the cull programs'
+// fcand 0x3FFFF tests z against +/-w too, while the guard band's near constant
+// is deliberately looser (PlanesClipAlgorithm::clipMargin), and that gap is a
+// thin shell in front of the near plane where the clipper draws a triangle the
+// cull program would ADC away - a hole at point-blank range. The two exact
+// near/far half-spaces live at indices 6..7, on the EE only, never uploaded.
+//
+// MEASURED on examples/large-terrain (2048x2048 terrain, 1181 props), PCSX2
+// software renderer, a frame-indexed script camera, one line differing between
+// the arms, 2922 PAIRED frames: work 6.887 -> 4.670 ms, d = -2.217 ms, 95% CI
+// [-2.258, -2.175], 1.475x, 2864/2922 frames faster. Clip-routed packages
+// 11 164 -> 2 127 per 50-frame window, clipped triangles 68 456 -> 13 264,
+// qbuffer flushes 1 287 -> 756 - five sixths of the clipper's load was geometry
+// that needed no clipping. The picture is unchanged, and the CONTROL is what
+// says so: two boots of the same build differ on this fixture (it streams
+// terrain chunks), and an A-arm boot and a B-arm boot came back BYTE-IDENTICAL
+// over four parked poses - the arm is not what sorts the images.
+//
+// Also here: StaPipTelemetry gets its first reader after a year with none. The
+// generated game enables it and prints an FTCLIP line beside FRAMETIME, but
+// only under TYRA_FRAME_PROFILE (default 0), so a shipped build carries none of
+// it. PATCH: no capability appears, frames get shorter, nothing on disk changes
+// shape.
+
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 55
+#define TYRAX_VERSION_MINOR 56
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

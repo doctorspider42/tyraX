@@ -808,6 +808,19 @@ Not fixed in r3, recorded so nobody re-discovers them:
   spin, but it would have to run inside the IOP exception handler, where the
   ps2sdk header explicitly warns you are in a bad state — not worth doing blind,
   without hardware to test it on.
+- **A `create` that carries no `O_TRUNC` arrives as a MKDIR.** Measured twice on
+  hardware, from ps2sdk libdebug's `ps2_screenshot_file()`, whose one call is
+  `open(name, O_CREAT|O_WRONLY)`: the console asks the `host:` server to make a
+  **directory of the target name**, `fsysMkdir` reports *mkdir wrong mode, using
+  fallback value 493*, and the `open` that follows returns -1 for the rest of
+  the session because the name is now a directory. `fopen(name, "wb")` — flags
+  `0x602`, `WRONLY|CREAT|TRUNC` on the wire — is unaffected, which is why every
+  other devkit channel has always worked. Nothing here is patched for it: the
+  rule is simply that **anything the game creates over `host:` goes through
+  stdio**, and code that cannot be changed to do so (a toolchain library) has to
+  be replaced at the call site — see docs/devkit.md, "Why the file is written by
+  the game rather than by libdebug". Where the mkdir is issued is still open;
+  the EE's `_open` makes exactly one device call, so it is below that.
 - **Throughput is protocol-bound, not code-bound.** Writes go out in
   ≤1446-byte chunks and each one waits for its own `WRITE_RLY`, so `host:` write
   bandwidth is one round-trip per 1.4 KB. Raising that means changing the packet

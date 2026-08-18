@@ -37,6 +37,18 @@ up, exactly as it does in a development checkout where the binary sits in
 `build/`. Ship only the executable and the first game build reports a missing
 engine, so if you package TyraX yourself, keep that shape.
 
+That tree is **content, not a build result**. What the packagers leave out of
+`vendor/tyra` is exactly the three directories `.gitignore` drops there —
+`engine/obj/`, `engine/bin/`, `audsrv/.work/` — and nothing else, because
+anything else in it is a file the editor needs. Up to 1.55.2 they excluded
+`*.o`, `*.a` and `*.elf` instead, which reads like the same rule and is not: it
+also took `vendor/tyra/audsrv/bin/libaudsrv.a`, a committed piece of the audsrv
+fork that the build container overlays onto its PS2SDK. An installed editor
+therefore failed **every game build** with
+`'audsrv_adpcm_set_volume_and_pan' was not declared`, while the same project
+built fine from a source checkout. On 1.55.2 or older, updating fixes it — or
+copy that one file into `<install>/vendor/tyra/audsrv/bin/` from a checkout.
+
 None of them bring Docker or PCSX2. Building a game needs Docker; running one
 needs PCSX2 or a real console.
 

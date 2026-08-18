@@ -41,6 +41,15 @@ class StaPipBagPackage {
   u8 clipPlaneMask;
 
   /**
+   * Modified by TyraX: this package leaves the VIEW frustum (it is
+   * PARTIALLY_IN_FRUSTUM) but crosses no VU1 clip plane and no exact near/far
+   * half-space, so nothing needs cutting - every vertex passes the cull
+   * program's clipw judgement and the GS scissor crops the raster.
+   * Only ever set with VU1 clipping on; see StaPipCore::isGuardBandOnly.
+   */
+  bool guardBandOnly;
+
+  /**
    * We are creating StaPipBagPackagesBBox which checks CoreBBox for every
    * maxVertCount / 3. So this variable is index of starting
    * StaPipBagPackagesBBox's CoreBBox. If package have <= maxVertCount / 3

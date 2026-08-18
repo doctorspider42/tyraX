@@ -15,6 +15,24 @@ git log -p --follow -- PROGRESS.md
 
 ## Small
 
+### The guard band, on the other two routes
+
+`docs/vu1-clipping.md` moved screen-edge packages off the clipper and onto the
+cull path; two smaller cases were left alone deliberately and are worth
+measuring before touching:
+
+- **The small-bag branch.** `StaPipCore::render` sends a bag with fewer than
+  `maxVertCount * 2` vertices straight to `renderSubpkgs` at 1/3 package size,
+  so a guard-band-only bag is batched back together by `fillByCopyMax` - a COPY
+  where the full-package path hands VU1 a pointer. Routing that branch through
+  `renderPkgs` instead would give it the pointer path; the reason it exists is
+  to skip a double classification, so the question is which costs more.
+- **A bag-level guard-band test.** The main bbox is classified before any
+  package is created. A bag entirely inside the guard band could skip package
+  classification altogether, at the price of no longer dropping its OUTSIDE
+  packages - the same trade the routing already makes one level down, but over
+  a much bigger box. Measure on a scene of large objects, not on a terrain.
+
 ### Ship the baked HUD sprites of the nine repaired examples
 
 Nine example projects (`custom-nodes`, `cutscene-demo`, `large-terrain`,
@@ -172,6 +190,22 @@ that copy-out step designed.
 `platformAssetSuffix` learning the architecture, which is why the suffix already
 carries it) — but the PS2 toolchain image would have to run under emulation on
 that host, so measure a game build there before promising anything.
+
+### Make the packagers prove they shipped what git tracks
+
+1.55.3 fixed one tracked file going missing from every package — an exclusion
+written as `*.a` took `vendor/tyra/audsrv/bin/libaudsrv.a` with the build
+leftovers, and every installed editor then failed every game build
+(docs/updates.md). Nothing would have caught it: both packagers describe what to
+LEAVE OUT, so a new exclusion is only ever tested by somebody installing the
+result and trying to build a game — which is the slowest feedback loop in this
+repo and the one a developer never runs. A cheap assertion closes it: take
+`git ls-files vendor/tyra tools`, drop the ignored directories, and fail the
+release job if any of it is absent from the staged tree. The awkward half is
+Windows, where the staged tree only exists inside the compiled Setup — either
+parse ISCC's `Compressing:` lines (it lists every file it packs, which is how
+the 1.55.3 fix was verified) or run the installer into a temp directory in CI
+and diff that.
 
 ### Sign the Windows installer
 

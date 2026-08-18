@@ -113,9 +113,21 @@ Name: "examples"; Description: "Example projects (~80 MB)"; Types: full
 Source: "{#EditorExe}"; DestDir: "{app}\bin"; Components: editor; Flags: ignoreversion
 ; The engine the editor compiles every game against, as sources - the build
 ; container bind-mounts this directory.
+;
+; EXCLUDE BY DIRECTORY HERE, NEVER BY EXTENSION, and the three below are exactly
+; what .gitignore drops under vendor\tyra: what is not in git is build leftovers
+; a dev checkout happens to carry, and everything else is CONTENT. This list was
+; once "*.o,*.a,*.elf", which is the same intent spelled as a file type - and it
+; silently dropped vendor\tyra\audsrv\bin\libaudsrv.a, a committed artifact of
+; the audsrv fork that runner.cpp overlays onto the container's PS2SDK. Its two
+; siblings (audsrv.irx, audsrv.h) matched no pattern and travelled, so the
+; overlay's `cp a && cp b && cp c` died on the missing lib BEFORE copying the
+; header, every game then compiled against stock PS2SDK headers, and the build
+; ended in "'audsrv_adpcm_set_volume_and_pan' was not declared" - for everyone
+; who installed TyraX and for nobody who built it from a checkout.
 Source: "{#SourceDir}\vendor\tyra\*"; DestDir: "{app}\vendor\tyra"; Components: editor; \
     Flags: ignoreversion recursesubdirs createallsubdirs; \
-    Excludes: "\.git\*,*.o,*.a,*.elf"
+    Excludes: "\.git\*,\engine\obj\*,\engine\bin\*,\audsrv\.work\*"
 ; ps2client.exe (network deploy), the ps2link build scripts and the VS Code
 ; extension package the editor installs on request.
 Source: "{#SourceDir}\tools\*"; DestDir: "{app}\tools"; Components: editor; \

@@ -1645,6 +1645,15 @@ u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
 u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
 bool pValid = false;
 
+// The static pipeline's routing counters (docs/vu1-clipping.md). Set at init
+// so tick() can drain them without threading a pipeline pointer through
+// drawDebugHud. StaPipTelemetry is opt-in and costs COP0 reads, so it is
+// enabled only inside this #if - a normal debug build still carries none.
+Tyra::StaPipCore* core = nullptr;
+u32 tCull = 0, tClip = 0, tGuard = 0, tOut = 0;
+u32 tTriCull = 0, tTriClip = 0, tTriGuard = 0;
+u32 tFlush = 0, tVuWait = 0;
+
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
 // wrapped and printed BELOW the median - which is how a 500 ms frame first
@@ -1712,6 +1721,20 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   pNet = FP::tBlssNet;
   pPkt = FP::tBlssPacket;
   pValid = true;
+  // Drained EVERY frame, not once a window: takeTelemetry() clears as it
+  // reads, so skipping frames would silently drop their packages.
+  if (core != nullptr) {
+    const Tyra::StaPipTelemetry t = core->takeTelemetry();
+    tCull += t.packagesCull;
+    tClip += t.packagesClip;
+    tGuard += t.packagesGuardBand;
+    tOut += t.packagesOutside;
+    tTriCull += t.trianglesCull;
+    tTriClip += t.trianglesClip;
+    tTriGuard += t.trianglesGuardBand;
+    tFlush += t.packetFlushes;
+    tVuWait += t.vu1WaitTicks;
+  }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
   frame++;
@@ -1773,6 +1796,28 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
            (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
   TYRA_LOG(line);
+  // The clipper routing line (docs/vu1-clipping.md). Packages and triangles
+  // per route over the window, plus the GUARD subset of cull - the packages
+  // that leave the screen but stay inside the guard band, which used to be
+  // clipped and are now culled whole. `clip` going down while `guard` goes up
+  // by the same amount is what a guard-band routing change looks like; the
+  // two totals must stay equal between two arms of an A/B, or the arms are
+  // not looking at the same scene. Counts, not milliseconds - `work` above is
+  // the milliseconds, and this line says WHY it moved.
+  if (core != nullptr) {
+    snprintf(line, sizeof(line),
+             "FTCLIP f=%lu cull=%lu/%lu clip=%lu/%lu guard=%lu/%lu out=%lu "
+             "flush=%lu vuwait=%.2f",
+             (unsigned long)(frame - kWindow), (unsigned long)tCull,
+             (unsigned long)tTriCull, (unsigned long)tClip,
+             (unsigned long)tTriClip, (unsigned long)tGuard,
+             (unsigned long)tTriGuard, (unsigned long)tOut,
+             (unsigned long)tFlush, (double)ms(tVuWait, kWindow));
+    TYRA_LOG(line);
+    tCull = tClip = tGuard = tOut = 0;
+    tTriCull = tTriClip = tTriGuard = 0;
+    tFlush = tVuWait = 0;
+  }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
   if (rawN >= kRaw) dumpRaw();
@@ -2234,6 +2279,13 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+#if TYRA_FRAME_PROFILE
+  // The frame-timing rig's FTCLIP line - the static pipeline's routing
+  // counters (docs/vu1-clipping.md). Opt-in because the counters cost COP0
+  // reads; nothing outside this #if enables them.
+  ftrig::core = &stapip.core;
+  stapip.core.setTelemetryEnabled(true);
+#endif
   // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
   // AFTER setVU1Clipping, which rebuilds the resident program cache: an
   // override installed first would be rebuilt away. Compiles to nothing when
@@ -8443,8 +8495,6 @@ void TerrainGame::setupLightPools() {
       b.colorBag->many = b.colors.data();
       b.colorBag->single = nullptr;
       b.info->shadingType = TyraShadingGouraud;
-      b.wColors.reserve(4096);
-      b.wInfo->shadingType = TyraShadingGouraud;
       // GS CLAMP, and only on this one texture: the pool's STs come out of a
       // projection, so the patch's outer ring genuinely lands outside 0..1 and
       // the default REPEAT would draw the beam a second time beside itself.
@@ -8468,10 +8518,20 @@ void TerrainGame::setupLightPools() {
       // so the per-frame clear/push never reallocates in the steady state.
       b.wVerts.reserve(4096);
       b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
       b.wColor = b.color;
       b.wInfo = std::make_unique<StaPipInfoBag>();
       b.wInfo->model = &b.mat;
-      b.wInfo->shadingType = TyraShadingFlat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
       b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
       b.wInfo->zTestType = PipelineZTest_TestOnly;
       b.wInfo->dynLightPick = false;
