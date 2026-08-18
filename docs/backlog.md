@@ -534,6 +534,25 @@ than returning a bare yes/no. See [runtime procedural generation](procedural-run
 
 ## Large
 
+### Build a lease-based physical PS2 test farm
+
+Put two or more real consoles behind one isolated host and let a remote human,
+CI job or agent reserve one for a bounded session. The public surface is an
+authenticated HTTPS lease API; ps2link, its static console addresses and the
+latency-sensitive `host:` filesystem remain on the private LAN.
+
+The first proof is two consoles, not one: separate each TCP file-server root,
+replace ps2client's conflicting per-process UDP 18194 listener with one
+source-IP-aware collector, and show that different games, overlapping filenames
+and logs never cross slots. Then add an isolated dry contact across each
+Power/Reset button plus an individually switched AC outlet, so recovery can
+escalate from ps2link `reset` through a real button press to a cold cycle followed
+by the power-on pulse that standby requires. A TTL expiry must run that same
+release/recovery path and a bounded failure must quarantine the slot.
+
+The complete topology, API sketch, state machine, trust boundary, phased build
+and acceptance criteria are in [Physical PS2 test farm](physical-ps2-test-farm.md).
+
 ### Add terrain mipmaps
 
 Build and upload an opt-in mip chain, terrain first, and use the GS LOD path to
