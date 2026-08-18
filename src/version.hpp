@@ -16,6 +16,30 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.65.0 (AI drivers - docs/vehicles.md, "AI drivers"): a second car drives
+// itself. The whole feature is proof of one architectural bet placed on day
+// one: `DriveInput` is a struct a CALLER fills, never a pad read - so the AI
+// is ~25 lines that fill the identical four numbers, and the gearbox, the
+// kickdown, the wall grind, the tyre smoke and the weight transfer all come
+// along for free, because the AI is just another caller of the same sim.
+//
+// Authoring is a NAME PREFIX (SceneObject::vehicleRoute): codegen collects
+// every object in the scene whose name starts with it, sorted by name, and
+// bakes their positions as the instance's waypoint loop - an Area per corner
+// is the natural marker (invisible at runtime, no collider), and the baked
+// table means no runtime name matching at all. The controller is pure
+// pursuit: steer from the heading error, throttle backed off in tight
+// corners, advance within a radius. A player can HIJACK a patrolling car -
+// the pad branch simply outranks the AI branch while they drive, and getting
+// out resumes the patrol where it stood.
+//
+// The acceptance line is VEHAI telemetry every ~2 s (position, waypoint,
+// speed), so `grep VEHAI` proves a patrol advanced its loop with no pad
+// attached - the backlog's own "done when" criterion, machine-checked.
+//
+// kFormatVersion 37 -> 38: "route" inside the object's vehicle block, written
+// only when non-empty. Additive, reader defaults, no migration step. MINOR.
+//
 // 1.64.0 (tyre smoke - docs/vehicles.md): DriveState::slip finally has its
 // consumer. Past 0.35 the rear anchors feed a 48-puff ring at a rate
 // proportional to the slip - burnouts, handbrake slides and wall grinds all
@@ -2003,7 +2027,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 64
+#define TYRAX_VERSION_MINOR 65
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2284,7 +2308,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 37;
+inline constexpr int kFormatVersion = 38;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

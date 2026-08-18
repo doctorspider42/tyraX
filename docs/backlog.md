@@ -282,10 +282,13 @@ gaps, each with a testable end:
   pillars; it does not yet trade momentum with physics crates (PHYS_PUSH is
   the player's shove, unused here) or with another car. Done when driving into
   the physics-playground crates scatters them.
-- **AI traffic.** The whole input path is already a struct (DriveInput /
-  the runtime's inThrottle..inHand locals) precisely so a controller other
-  than the pad can fill it; navigation.gen.cpp already runs A* for walkers.
-  Done when a second vehicle patrols waypoints with no pad attached.
+- ~~**AI traffic.**~~ DONE in 1.65.0 - a `rival` patrols the example's
+  four-Area circuit with no pad attached, proven by VEHAI telemetry. What
+  remains of the original idea is the A* half: the patrol is a baked waypoint
+  loop, not navigation - a car that ROUTES (avoids walls it did not author,
+  picks a path to a moving target) would go through navigation.gen.cpp the way
+  the walkers do, and that is its own feature. Also still open: several AI
+  cars avoiding EACH OTHER, which today they do not.
 - **The editor test drive ignores instance scale.** The runtime multiplies
   track, wheelbase, ride height and the camera rig by the placed object's
   uniform scale; the host sim drives the raw spec, so a car authored at scale

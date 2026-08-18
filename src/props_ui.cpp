@@ -374,6 +374,20 @@ void App::drawPropertiesWindow() {
         prefHelp(
             "Off makes it scenery that still collides and can still be moved by\n"
             "a script - what parked traffic wants.");
+        {
+            char rt[96];
+            std::snprintf(rt, sizeof(rt), "%s", o.vehicleRoute.c_str());
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::InputText("AI route prefix", rt, sizeof(rt))) {
+                o.vehicleRoute = rt;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            prefHelp(
+                "An AI drives this car around every object whose name starts\n"
+                "with this prefix, sorted by name - place Areas as the\n"
+                "corners (invisible, no collider). Empty = parked until the\n"
+                "player takes it. The player taking THIS car pauses its AI.");
+        }
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets

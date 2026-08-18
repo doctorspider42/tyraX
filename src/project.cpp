@@ -877,7 +877,10 @@ std::string objectJson(const SceneObject& o) {
     }
     if (o.type == PrimitiveType::Vehicle) {
         json += ", \"vehicle\": { \"def\": \"" + jsonEscape(o.vehicleDef) +
-                "\", \"driveable\": " + (o.vehicleDriveable ? "true" : "false") + " }";
+                "\", \"driveable\": " + (o.vehicleDriveable ? "true" : "false");
+        if (!o.vehicleRoute.empty())
+            json += ", \"route\": \"" + jsonEscape(o.vehicleRoute) + "\"";
+        json += " }";
     }
     if (o.type == PrimitiveType::Scroller) {
         json += ", \"scroller\": { \"speed\": " + fmtFloat(o.scrollSpeed) +
@@ -4950,6 +4953,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* vh = jo.find("vehicle")) {
             if (const auto* v = vh->find("def")) o.vehicleDef = v->stringOr("");
             if (const auto* v = vh->find("driveable")) o.vehicleDriveable = v->boolOr(true);
+            if (const auto* v = vh->find("route")) o.vehicleRoute = v->stringOr("");
         }
         if (const auto* sr = jo.find("scroller")) {
             if (const auto* v = sr->find("speed")) o.scrollSpeed = (float)v->numberOr(6.0);

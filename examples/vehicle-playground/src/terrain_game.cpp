@@ -13173,6 +13173,8 @@ void TerrainGame::setupVehicles(int scene) {
     v.object = VEHICLES[i].object;
     v.def = VEHICLES[i].def;
     v.driveable = VEHICLES[i].driveable;
+    v.wpFirst = VEHICLES[i].wpFirst;
+    v.wpCount = VEHICLES[i].wpCount;
     v.active = 1;
     TYRA_LOG("VEH setup obj ", v.object, " def ", v.def);
     if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
@@ -13303,6 +13305,31 @@ void TerrainGame::updateVehicles(float dt) {
       if (engine->pad.getPressed().Circle) inHand = 1;
       if (engine->pad.getPressed().R1) inNos = 1;
       if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
+    } else if (v.wpCount > 0) {
+      // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
+      // pad fills - the whole reason DriveInput is a struct and not a pad
+      // read. Pure pursuit of the current baked waypoint: steer from the
+      // heading error, throttle backed off in tight corners, advance within
+      // a radius. The gearbox, the walls, the smoke and the grind all come
+      // along for free, because the AI is a CALLER of the same sim.
+      const float* wp = &VEH_WAYPOINTS[(size_t)(v.wpFirst + v.wpCur) * 3];
+      const float dx = wp[0] - v.pos[0];
+      const float dz = wp[2] - v.pos[2];
+      const float dist2 = dx * dx + dz * dz;
+      const float adv = 7.0F * SC;
+      if (dist2 < adv * adv) v.wpCur = (v.wpCur + 1) % v.wpCount;
+      const float wantYaw = atan2f(dx, dz) * kRad;
+      float err = wantYaw - v.yaw;
+      while (err > 180.0F) err -= 360.0F;
+      while (err < -180.0F) err += 360.0F;
+      // Local convention: positive steers LEFT (+yaw), so a positive error
+      // (target to the left) maps straight through.
+      inSteer = err / 35.0F;
+      if (inSteer > 1.0F) inSteer = 1.0F;
+      if (inSteer < -1.0F) inSteer = -1.0F;
+      const float ae = err < 0.0F ? -err : err;
+      inThrottle = ae < 45.0F ? 1.0F : (ae < 100.0F ? 0.45F : 0.15F);
+      if (ae > 115.0F && v.speed > 7.0F) inBrake = 1.0F;
     }
 
     // Steering, with the lock shrinking toward top speed: without the taper
@@ -13802,6 +13829,19 @@ void TerrainGame::updateVehicles(float dt) {
                                      : 0));
       }
     }
+  }
+
+  // The AI acceptance line, driver or no driver: every patrolling car states
+  // its position, waypoint and speed every ~2 s, so `grep VEHAI` PROVES a
+  // patrol advanced its loop with no pad attached (docs/vehicles.md).
+  static int aiLog = 0;
+  if (++aiLog >= 100) {
+    aiLog = 0;
+    for (int ai = 0; ai < vehicleCount_; ++ai)
+      if (ai != vehicleDriver_ && vehicles_[ai].wpCount > 0)
+        TYRA_LOG("VEHAI ", ai, " pos ", (int)vehicles_[ai].pos[0], " ",
+                 (int)vehicles_[ai].pos[2], " wp ", vehicles_[ai].wpCur,
+                 " spd10 ", (int)(vehicles_[ai].speed * 10.0F));
   }
 }
 

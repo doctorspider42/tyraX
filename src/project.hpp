@@ -719,6 +719,12 @@ struct SceneObject {
     // be set in two places, two cars of one name drive differently and nobody
     // knows which is real.
     std::string vehicleDef;
+    // AI route: a NAME PREFIX. Codegen collects every object in the scene
+    // whose name starts with it, sorted by name, and bakes their positions as
+    // this instance's waypoint loop - an Area per corner is the natural
+    // authoring (invisible at runtime, no collider). Empty = parked until the
+    // player takes it.
+    std::string vehicleRoute;
     // Can the player get in? Off makes it scenery that still collides and can
     // still be driven by a script, which is what parked traffic wants.
     bool vehicleDriveable = true;
@@ -1185,6 +1191,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalViewAll == b.portalViewAll &&
            a.vehicleDef == b.vehicleDef &&
            a.vehicleDriveable == b.vehicleDriveable &&
+           a.vehicleRoute == b.vehicleRoute &&
            a.scrollSegments == b.scrollSegments &&
            a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
            a.scrollBehind == b.scrollBehind &&

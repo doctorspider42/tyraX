@@ -74,6 +74,14 @@ VEH ... spd10 56   gear 2 rpm 5017   ← changed up, and the engine dropped
 VEH ... spd10 170  gear 4 rpm 5770   ← top gear
 ```
 
+## The rival
+
+A second CC96 patrols a four-corner circuit (`circuit-a..d`, Areas at ±55) with
+no pad attached — the AI fills the same `DriveInput` the pad fills, so it shifts
+gears, grinds walls and smokes its tyres like you do. Get close and press USE to
+**hijack it**; getting out resumes the patrol. `grep VEHAI bin/log.txt` shows
+the loop advancing.
+
 ## What it costs
 
 The build says so on every run:

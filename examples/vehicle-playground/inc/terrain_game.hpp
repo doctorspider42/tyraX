@@ -695,6 +695,10 @@ class TerrainGame : public Tyra::Game {
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
     float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
+    // AI route (docs/vehicles.md, "AI drivers"): a slice of VEH_WAYPOINTS.
+    int wpFirst = -1;
+    int wpCount = 0;
+    int wpCur = 0;
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;

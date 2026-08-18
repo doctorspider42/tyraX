@@ -428,13 +428,29 @@ the whole response — 0 is a kart on rails, 2 an American sofa — and the foll
 rate is 35°/s, stiffened from 25 after the softer version read as a boat from
 the driver's seat.
 
-### AI later, player now
+### AI drivers
 
 `vehiclesim::step` **never reads a pad**. Its input is a `DriveInput` — throttle,
-brake, steer, handbrake, nitrous — that a caller fills in. The player controller
-fills it from the Input Map today; a nav-driven AI controller fills the identical
-struct later. The boundary costs nothing now and would be a rewrite of every
-control path if it were added afterwards.
+brake, steer, handbrake, nitrous — that a caller fills in, and the AI is the
+payoff of that day-one bet: **~25 lines that fill the identical four numbers**,
+after which the gearbox, the kickdown, the wall grind, the tyre smoke and the
+weight transfer all come along for free, because the AI is just another caller
+of the same sim.
+
+Authoring is a **name prefix** (*Properties > AI route prefix* on a placed
+vehicle): codegen collects every object in the scene whose name starts with it,
+sorted by name, and bakes their positions as the instance's waypoint loop — an
+**Area per corner** is the natural marker (invisible at runtime, no collider),
+and the baked `VEH_WAYPOINTS` table means no runtime name matching at all. The
+controller is pure pursuit: steer from the heading error, throttle backed off in
+tight corners, waypoint advanced within a radius.
+
+A player can **hijack** a patrolling car — the pad branch simply outranks the AI
+branch while they drive it, and getting out resumes the patrol where it stood.
+The acceptance line is `VEHAI` telemetry every ~2 s (position, waypoint, speed):
+`grep VEHAI bin/log.txt` proves a patrol advanced its loop with no pad attached,
+which is the backlog's own "done when", machine-checked. The example ships a
+`rival` on a four-Area `circuit-` loop.
 
 ## The Vehicle Editor
 
