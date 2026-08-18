@@ -694,6 +694,7 @@ class TerrainGame : public Tyra::Game {
     // chassis. Without it the wheels rode rigidly at chassis height and the
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -715,6 +716,26 @@ class TerrainGame : public Tyra::Game {
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   void renderVehicleWheels();
+  // Tyre smoke (docs/vehicles.md): a small pool of camera-facing puffs fed
+  // by the sim's ONE slip number, so the smoke and the screech-worthy moment
+  // can never disagree. Its own billboard bag - the particle system's exact
+  // shape, VU1 expanding each centre + 2x2 basis weights into a quad.
+  enum { kVehSmokeMax = 48 };
+  Tyra::Vec4 smokePos_[kVehSmokeMax];
+  Tyra::Vec4 smokeVel_[kVehSmokeMax];
+  float smokeLife_[kVehSmokeMax] = {};
+  float smokeMaxLife_[kVehSmokeMax] = {};
+  Tyra::Vec4 smokeParams_[kVehSmokeMax];
+  Tyra::Color smokeCols_[kVehSmokeMax];
+  int smokeNext_ = 0;
+  int smokeAlive_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> smokeBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> smokeInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> smokeColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> smokeTexBag_;
+  std::unique_ptr<Tyra::StaPipBillboardBag> smokeBillboardBag_;
+  void updateVehicleSmoke(float dt);
+  void renderVehicleSmoke();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();

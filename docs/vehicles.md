@@ -271,6 +271,19 @@ whatever the project decided it is and no code here can guess: 3.6 turns metres
 per second into km/h. Measured on the console at top speed under nitrous, the
 readout shows **88** with the gear beside it and **NOS 3** below.
 
+### Tyre smoke
+
+`DriveState::slip` finally has its consumer: past 0.35 the rear anchors feed a
+48-puff ring at a rate proportional to the slip, so burnouts, handbrake slides
+and wall grinds all smoke — because they all *are* slip, and one number feeding
+both the smoke and the telemetry is what keeps them from ever disagreeing. The
+puffs are camera-facing billboards in **one submit** (the particle system's
+exact shape: VU1 expands centre + 2×2 basis weights into a quad, the EE never
+touches a corner), untextured grey with per-puff alpha over standard blending,
+swirling and swelling as they fade — the fog puff's own recipe. A dead puff is
+a degenerate quad, and the bag is skipped outright when the pool is empty, so a
+clean drive pays nothing.
+
 ### Engine sound
 
 A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in

@@ -27628,6 +27628,7 @@ static std::string vehicleMembers(const Project& p) {
     // chassis. Without it the wheels rode rigidly at chassis height and the
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -27649,6 +27650,26 @@ static std::string vehicleMembers(const Project& p) {
   void setupVehicles(int scene);
   void updateVehicles(float dt);
   void renderVehicleWheels();
+  // Tyre smoke (docs/vehicles.md): a small pool of camera-facing puffs fed
+  // by the sim's ONE slip number, so the smoke and the screech-worthy moment
+  // can never disagree. Its own billboard bag - the particle system's exact
+  // shape, VU1 expanding each centre + 2x2 basis weights into a quad.
+  enum { kVehSmokeMax = 48 };
+  Tyra::Vec4 smokePos_[kVehSmokeMax];
+  Tyra::Vec4 smokeVel_[kVehSmokeMax];
+  float smokeLife_[kVehSmokeMax] = {};
+  float smokeMaxLife_[kVehSmokeMax] = {};
+  Tyra::Vec4 smokeParams_[kVehSmokeMax];
+  Tyra::Color smokeCols_[kVehSmokeMax];
+  int smokeNext_ = 0;
+  int smokeAlive_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> smokeBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> smokeInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> smokeColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> smokeTexBag_;
+  std::unique_ptr<Tyra::StaPipBillboardBag> smokeBillboardBag_;
+  void updateVehicleSmoke(float dt);
+  void renderVehicleSmoke();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
@@ -27661,6 +27682,77 @@ static std::string vehicleMembers(const Project& p) {
 static std::string vehicleImpl(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     return R"(
+// The smoke pool's integration + the quads' look. Swirl and grow are the fog
+// puff's own recipe (updateParticles kind 2) - a slowly rotating billboard,
+// alternating direction per puff, swelling as it fades.
+void TerrainGame::updateVehicleSmoke(float dt) {
+  smokeAlive_ = 0;
+  for (int i = 0; i < kVehSmokeMax; ++i) {
+    if (smokeLife_[i] <= 0.0F) {
+      smokeParams_[i].set(0.0F, 0.0F, 0.0F, 0.0F);  // degenerate quad
+      smokeCols_[i] = Tyra::Color(0.0F, 0.0F, 0.0F, 0.0F);
+      continue;
+    }
+    smokeLife_[i] -= dt;
+    smokePos_[i].x += smokeVel_[i].x * dt;
+    smokePos_[i].y += smokeVel_[i].y * dt;
+    smokePos_[i].z += smokeVel_[i].z * dt;
+    const float t = smokeLife_[i] > 0.0F ? smokeLife_[i] / smokeMaxLife_[i] : 0.0F;
+    const float size = (0.30F + (1.0F - t) * 0.95F);
+    const float age = smokeMaxLife_[i] - smokeLife_[i];
+    const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
+    const float ca = cosf(ang), sa = sinf(ang);
+    smokeParams_[i].set(ca * size, sa * size, -sa * size, ca * size);
+    // Grey-white, fading out: standard alpha-over blending, per-puff alpha.
+    const float a = 88.0F * t * t;
+    smokeCols_[i] = Tyra::Color(150.0F, 150.0F, 152.0F, a);
+    ++smokeAlive_;
+  }
+}
+
+// One submit for the whole pool, and only while anything is alive. The bag is
+// the particle system's shape: VU1 expands centre + 2x2 weights into a
+// camera-facing quad, so the EE never touches a corner.
+void TerrainGame::renderVehicleSmoke() {
+  if (smokeAlive_ <= 0) return;
+  if (!smokeBag_) {
+    smokeInfoBag_ = std::make_unique<StaPipInfoBag>();
+    smokeInfoBag_->model = &model;
+    smokeInfoBag_->shadingType = TyraShadingGouraud;
+    // None is safe for BILLBOARD bags only: the VU1 program ADCs any quad
+    // whose corner leaves the raster window (the emitters' own note).
+    smokeInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_None;
+    smokeInfoBag_->fullClipChecks = false;
+    smokeColorBag_ = std::make_unique<StaPipColorBag>();
+    smokeColorBag_->many = smokeCols_;
+    smokeBillboardBag_ = std::make_unique<StaPipBillboardBag>();
+    smokeTexBag_ = std::make_unique<StaPipTextureBag>();
+    smokeTexBag_->texture = nullptr;  // untextured puffs; the weights channel
+    smokeTexBag_->coordinates = smokeParams_;
+    smokeBag_ = std::make_unique<StaPipBag>();
+    smokeBag_->info = smokeInfoBag_.get();
+    smokeBag_->color = smokeColorBag_.get();
+    smokeBag_->lighting = nullptr;
+    smokeBag_->billboard = smokeBillboardBag_.get();
+    smokeBag_->texture = smokeTexBag_.get();
+    smokeBag_->vertices = smokePos_;
+  }
+  // Camera-plane basis, the particle pass's own arithmetic.
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  const float fl = sqrtf(fwd.x * fwd.x + fwd.y * fwd.y + fwd.z * fwd.z);
+  if (fl > 0.0001F) fwd.x /= fl, fwd.y /= fl, fwd.z /= fl;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  smokeBillboardBag_->right = Vec4(rx, 0.0F, rz, 0.0F);
+  smokeBillboardBag_->up =
+      Vec4(-rz * fwd.y, rz * fwd.x - rx * fwd.z, rx * fwd.y, 0.0F);
+  smokeBag_->count = (u32)kVehSmokeMax;
+  smokeBag_->bboxVersion = ++g_bboxStamp;  // centres move every frame
+  stapip.core.render(smokeBag_.get());
+}
+
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
 // gearTorqueMul/rpmFor (src/vehiclesim.cpp). CHANGE ONE AND CHANGE BOTH: the
 // editor's test drive runs the host copy and the tacho, the engine pitch and
@@ -28206,6 +28298,34 @@ void TerrainGame::updateVehicles(float dt) {
                         0.0F, 1.0F);
     }
 
+    // Tyre smoke: the slip number feeds a puff rate at the REAR anchors -
+    // burnouts, handbrake slides and wall grinds all smoke, because they all
+    // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
+    if (v.grounded && v.slip > 0.35F) {
+      v.smokeAcc += (v.slip - 0.25F) * dt * 30.0F;
+      const float cy2 = cosf(v.yaw * kDeg), sy2 = sinf(v.yaw * kDeg);
+      const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
+      int side = 0;
+      while (v.smokeAcc >= 1.0F) {
+        v.smokeAcc -= 1.0F;
+        const float lx2 = side ? hx2 : -hx2;
+        side ^= 1;
+        const int k = smokeNext_;
+        smokeNext_ = (smokeNext_ + 1) % kVehSmokeMax;
+        smokePos_[k].set(v.pos[0] + lx2 * cy2 - hz2 * sy2,
+                         v.wheelY[side ? 3 : 2] + 0.12F * SC,
+                         v.pos[2] - lx2 * sy2 - hz2 * cy2, 1.0F);
+        // Drift: up, a little backwards along travel, and outward.
+        smokeVel_[k].set(-sy2 * v.speed * 0.06F + lx2 * 0.4F,
+                         0.9F + 0.5F * v.slip,
+                         -cy2 * v.speed * 0.06F, 0.0F);
+        smokeMaxLife_[k] = 0.55F + 0.45F * v.slip;
+        smokeLife_[k] = smokeMaxLife_[k];
+      }
+    } else {
+      v.smokeAcc = 0.0F;
+    }
+
     // The wheels turn at the WHEEL speed, not the car's, so a burnout spins
     // them faster than the ground is moving.
     {
@@ -28652,13 +28772,16 @@ static std::string vehicleUpdateCall(const Project& p) {
     // The else matters: updateVehicles is the only writer of the engine
     // note's volume, so with the update gated on !menuActive an open pause
     // menu held the note at its last pitch for as long as the menu was up.
-    return "  if (!menuActive) updateVehicles(g_frameScale * (1.0F / 50.0F));\n"
+    // The smoke ticks with the same gate, so puffs hang frozen behind the
+    // menu exactly like the emitters' particles do.
+    return "  if (!menuActive) { updateVehicles(g_frameScale * (1.0F / 50.0F));"
+           " updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); }\n"
            "  else muteVehicleEngines();\n";
 }
 
 static std::string vehicleRenderCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
-    return "  renderVehicleWheels();\n";
+    return "  renderVehicleWheels();\n  renderVehicleSmoke();\n";
 }
 
 static std::string blssInclude(const Project& p) {

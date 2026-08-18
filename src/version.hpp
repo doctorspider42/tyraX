@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.64.0 (tyre smoke - docs/vehicles.md): DriveState::slip finally has its
+// consumer. Past 0.35 the rear anchors feed a 48-puff ring at a rate
+// proportional to the slip - burnouts, handbrake slides and wall grinds all
+// smoke, because they all ARE slip, and one number feeding both the smoke and
+// the telemetry is what keeps them from disagreeing. Camera-facing billboards
+// in ONE submit (the particle system's exact bag shape - VU1 expands centre +
+// 2x2 basis weights into a quad), untextured grey with per-puff alpha,
+// swirling and swelling as they fade (the fog puff's recipe). A dead puff is a
+// degenerate quad and the bag is skipped when the pool is empty, so a clean
+// drive pays nothing. Ticks under the same !menuActive gate as the emitters,
+// so puffs hang frozen behind the pause menu. Verified mid-handbrake-spin on
+// PCSX2: a grey trail behind the sliding car. No format change. MINOR.
+//
 // 1.63.0 (the wet lacquer - docs/vehicles.md, "A shiny body"): the NFS paint
 // pass, and WITHOUT the dedicated VU1 program everyone assumed it needed. A
 // fresnel rim (0.3 + 0.7*(1-|N.V|)) rides the env pass's per-vertex RGB and a
@@ -1990,7 +2003,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 63
+#define TYRAX_VERSION_MINOR 64
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

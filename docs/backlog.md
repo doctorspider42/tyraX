@@ -323,10 +323,12 @@ gaps, each with a testable end:
   micro-memory ceiling already at 962..1918 of 2042 - check Tools > VU
   Programs > Micro memory FIRST, and only bother once a measured frame says
   the EE loop matters.
-- **Tyre smoke.** `DriveState::slip` is already the ONE number for it (the
-  sideways slide and the wheelspin folded together, measured reading 0.9 at a wall
-  impact), so this is a particle question rather than a vehicle one: an emitter
-  that can be moved to a wheel anchor and burst from game code.
+- ~~**Tyre smoke.**~~ DONE in 1.64.0 - a 48-puff billboard ring fed by
+  `DriveState::slip` at the rear anchors, one submit, the particle system's
+  exact bag shape. It needed no emitter machinery at all, which is the lesson:
+  the vehicle already rebuilds a bag per frame (the wheels), and a second
+  small bag is cheaper than teaching the emitter system about runtime
+  positions.
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 
