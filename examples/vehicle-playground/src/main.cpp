@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
   // has something that reads them: a reflective "@sky" material for the env
   // map, a feed camera for the camera feed. Computed at build time - see
   // projectNeedsEnvMap / projectNeedsCamFeed in the editor's templates.cpp.
-  options.envMapTarget = false;
+  options.envMapTarget = true;
   options.camFeedTarget = false;
   // Triple buffering (Preferences > Display > Triple buffering, docs/
   // frame-pacing.md): present from a vblank interrupt instead of stalling

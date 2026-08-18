@@ -684,6 +684,11 @@ class TerrainGame : public Tyra::Game {
     // RPC and must happen only on a real change.
     int engineCh = -1;
     int enginePitchReg = 0;
+    // Weight transfer, presentation only - degrees ON TOP of the
+    // terrain-derived pitch/roll, never fed back (slope gravity reads the
+    // real pitch). Twin of DriveState::leanPitch/leanRoll.
+    float leanPitch = 0.0F;
+    float leanRoll = 0.0F;
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -706,6 +711,7 @@ class TerrainGame : public Tyra::Game {
   void updateVehicles(float dt);
   void renderVehicleWheels();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
+  void muteVehicleEngines();
   void renderVehicleHud();
 
   // Physics bodies in a walking player's path get shoved along the attempted

@@ -258,6 +258,14 @@ struct DriveState {
     // tyre is losing traction.
     float slip = 0.0f;
 
+    // Weight transfer, presentation only - the body's squat under power, dive
+    // under braking and lean out of a corner, in degrees ON TOP of the
+    // terrain-derived pitch/roll. Kept OUT of pitch/roll deliberately: the sim
+    // reads sin(pitch) for slope gravity, and folding a cosmetic lean into it
+    // would make the car accelerate downhill because it is accelerating.
+    float leanPitch = 0.0f;
+    float leanRoll = 0.0f;
+
     // Presentation only - derived from the sim, costing it nothing.
     float wheelSpin[4] = {0.0f, 0.0f, 0.0f, 0.0f};  // degrees, accumulated
     // 0..1 of suspensionTravel, 0.5 = neutral. It starts NEUTRAL, not at 0:
@@ -284,9 +292,12 @@ using SolidFn = std::function<bool(float x, float z, float feetY)>;
 //
 // Wall collision is the same rule the generated runtime runs (its resolver is
 // collidePlayer, this one is the caller's `solid` - approximate on the editor
-// side, but the same four corners and the same refusal): any corner landing in
-// something solid refuses the WHOLE move and takes most of the speed, because
-// resolving per corner would rotate a body a kinematic chassis cannot rotate.
+// side, but the same four corners and the same decisions). AXIS-SEPARATED: a
+// blocked move first tries keeping only its X, then only its Z, so a glancing
+// hit GRINDS along the wall with the speed scrubbed by impact angle, and only
+// a head-on refuses the whole move. A slide is only a slide when that axis
+// carries real motion; per-corner resolution stays off the table because it
+// would rotate a body a kinematic chassis cannot represent.
 void step(const DriveSpec& spec, const DriveInput& in, float dt,
           const HeightFn& height, DriveState& state, const SolidFn& solid = {});
 

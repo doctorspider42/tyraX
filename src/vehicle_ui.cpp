@@ -37,9 +37,9 @@ float r_geom(float measured, float fallback) {
 }
 
 std::string bakeKey(const VehicleDef& v) {
-    char buf[64];
-    std::snprintf(buf, sizeof(buf), "|%d|%d|%d", v.bodyTriBudget, v.wheelTriBudget,
-                  v.mergeUntextured ? 1 : 0);
+    char buf[80];
+    std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f", v.bodyTriBudget,
+                  v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine);
     return v.modelPath + buf;
 }
 
@@ -94,6 +94,7 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.bodyTriBudget = v.bodyTriBudget;
     opt.wheelTriBudget = v.wheelTriBudget;
     opt.mergeUntextured = v.mergeUntextured;
+    opt.bodyShine = v.bodyShine;
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
     // produces is a derived artifact and lives under .res-baked/ with the
@@ -234,6 +235,10 @@ void App::vehicleDriveTick() {
         if (ImGui::IsKeyDown(ImGuiKey_D)) in.steer += 1.0f;
         if (ImGui::IsKeyDown(ImGuiKey_Space)) in.handbrake = true;
         if (ImGui::IsKeyDown(ImGuiKey_LeftShift)) in.brake = 1.0f;
+        // E, so nitrous is testable at all: the two branches that change
+        // acceleration and top speed were unreachable in the host copy, and a
+        // divergence in them would have been invisible until it shipped.
+        if (ImGui::IsKeyDown(ImGuiKey_E)) in.nos = true;
     }
 
     // The SAME sampler the placement snap uses, so the car drives on exactly
@@ -266,9 +271,9 @@ void App::vehicleDriveTick() {
                      vehicleDriveState_, solid);
 
     for (int a = 0; a < 3; ++a) o.position[a] = vehicleDriveState_.pos[a];
-    o.rotation[0] = vehicleDriveState_.pitch;
+    o.rotation[0] = vehicleDriveState_.pitch + vehicleDriveState_.leanPitch;
     o.rotation[1] = vehicleDriveState_.yaw;
-    o.rotation[2] = -vehicleDriveState_.roll;
+    o.rotation[2] = -(vehicleDriveState_.roll + vehicleDriveState_.leanRoll);
 }
 
 void App::renameVehicleDef(int index, const std::string& newName) {
@@ -518,6 +523,10 @@ void App::drawVehicleWindow() {
                 ImGui::Separator();
                 ImGui::Text("Speed %.2f u/s   slip %.2f   steer %.1f deg", st.speed,
                             st.lateral, st.steerAngle);
+                ImGui::Text("Gear %s%d   rpm %.0f   nitrous %.0f%%%s",
+                            st.gear < 0 ? "R" : "", st.gear < 0 ? 1 : st.gear + 1,
+                            st.rpm, st.nos * 100.0f,
+                            st.nosActive ? "  (boosting - E)" : "  (E to boost)");
                 ImGui::Text("Pitch %.1f  roll %.1f  %s", st.pitch, st.roll,
                             st.grounded ? "on the ground" : "airborne");
                 // Slip against speed is the number that says whether the grip
@@ -654,6 +663,13 @@ void App::drawVehicleWindow() {
                     "colours in a generated palette texture. This is what takes a\n"
                     "36-part car down to two submits - turning it off is for\n"
                     "seeing what it costs, not for shipping.");
+                ImGui::SetNextItemWidth(scaled(200));
+                ImGui::SliderFloat("Body shine", &v.bodyShine, 0.0f, 1.0f, "%.2f");
+                prefHelp(
+                    "The paint's reflection: refl \"@sky\" on the baked body -\n"
+                    "the engine's dynamic env map, so the car mirrors the sky\n"
+                    "the scene actually has. Costs the env map's VRAM once per\n"
+                    "project, nothing per car. Wheels stay matte.");
                 if (ImGui::Button("Re-import now")) vehicleRefreshBake(vehicleSel_, true);
 
                 // How many of these are placed, and what that totals.

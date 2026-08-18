@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 35,
-  "editorVersion": "1.59.0",
+  "formatVersion": 36,
+  "editorVersion": "1.60.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -37,7 +37,7 @@
     "navMaxSlope": 40,
     "navAgentRadius": 0.4,
     "unitsPerMeter": 1,
-    "terrainDetail": 32,
+    "terrainDetail": 80,
     "terrainViewDistance": 0,
     "terrainLodDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
@@ -111,7 +111,7 @@
   },
   "scenes": [
     { "name": "main",
-      "terrain": { "width": 120, "depth": 120 },
+      "terrain": { "width": 320, "depth": 320 },
       "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["b632d92adecbb4e9", "cc96car000000001", "cc96wall000000001", "cc96wall000000002", "cc96wall000000003", "cc96wall000000004", "cc96pill000000005", "cc96pill000000006", "cc96pill000000007", "cc96pill000000008", "cc96pill000000009", "cc96pill000000010"] }
   ],
@@ -229,7 +229,7 @@
     ]
   },
   "vehicles": [
-    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 1500, "wheelTris": 700, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "drive": {"wheelBase": 2, "track": 1.4, "wheelRadius": 0.32, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.35, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "gears": 5, "gearSpread": 1.52, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.93, "shiftDownFrac": 0.5, "shiftTime": 0.18, "gearTorque": 1, "nosCapacity": 3, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } }
+    { "id": "cc96playground01", "name": "CC96", "notes": "CC0 coupe by its author - see res/models/car1-CC0-licence.txt", "model": "res/models/car1.fbx", "bodyTris": 1500, "wheelTris": 700, "bodyShine": 0.55, "cam": [6.5, 2.2, 12], "exit": [-1.4, 0, 0], "hud": true, "hudFont": "", "hudSpeedScale": 3.6, "engineSound": "res/sfx/engine-loop.wav", "enginePitch": [0.75, 2.4], "engineVolume": 70, "drive": {"wheelBase": 2, "track": 1.4, "wheelRadius": 0.32, "topSpeed": 22, "reverseTopSpeed": 6, "accel": 9, "brakeDecel": 18, "engineBraking": 3, "drag": 0.0016, "maxSteerDeg": 34, "highSpeedSteerDeg": 11, "steerRateDeg": 220, "steerReturnDeg": 300, "grip": 26, "handbrakeGrip": 6, "gravity": 24, "rideHeight": 0.35, "suspensionTravel": 0.18, "suspensionRate": 8, "maxSlopeCos": 0.5, "mass": 12, "gears": 5, "gearSpread": 1.52, "idleRpm": 800, "redlineRpm": 7200, "shiftUpFrac": 0.93, "shiftDownFrac": 0.5, "shiftTime": 0.18, "gearTorque": 1, "nosCapacity": 3, "nosBoost": 0.8, "nosTopSpeed": 1.18, "nosRefill": 0.12 } }
   ],
   "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,

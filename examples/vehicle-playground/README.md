@@ -9,7 +9,14 @@ worked example for [vehicles](../../docs/vehicles.md).
   that file was prepared for this: its nodes are called `Cube` and
   `Cylinder.001`–`.003` — Blender defaults — and the importer finds the four
   wheels by **geometry** rather than by name.
-- **A walled box** to steer inside, so the wall collision has something to do.
+- **A 320x320 sculpted playground** — a flat start box with the pillar slalom,
+  rolling dunes to the east, a banked bowl to the south-west to swing around,
+  and a jump ridge along the western half. Every slope stays under the ~22 deg
+  the car can climb at full power except the bowl's wall, which is meant to be
+  ridden around, not up.
+- **Perimeter walls** at ±152, so the wall collision has something to do — hit
+  one at an angle and the car GRINDS along it, scrubbing speed by impact angle;
+  head-on stops.
 - **A slalom of pillars**, which are cylinders and therefore collide as boxes —
   a useful reminder that the collider is not the mesh.
 
@@ -44,7 +51,8 @@ This car is set up to show the powertrain off rather than to stay neutral:
 runs out of breath), `shiftTime` 0.18 (an audible throttle cut between gears) and a
 three-second nitrous tank. Both of the first two default to **off** on a fresh
 vehicle, precisely so an existing car drives exactly as it did before gears
-existed; this example turns them on.
+existed; this example turns them on. The paint carries **Body shine 0.55** —
+`refl "@sky"` baked into the body, mirroring the scene's own sky.
 
 While driving you get a **readout** bottom-right: speed (in km/h — the car sets
 `hudSpeedScale` to 3.6, i.e. one world unit is one metre), the gear, and the

@@ -4577,7 +4577,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
                        g_primUvRect[1] + v * g_primUvRect[3], 1.0F, 0.0F));
   else
     sts.push_back(Vec4(u, v, 1.0F, 0.0F));
-  if (g_envNormals) g_envNormals->push_back(Vec4(n.x, n.y, n.z, 0.0F));
+  // LOCAL normal in a local-space bake: on the matrix path the object's
+  // rotation is applied per frame by folding it into the env pass's camera
+  // basis (renderEnvPass), so a world normal frozen at the promotion pose
+  // here would pin the reflection to wherever the car happened to point.
+  if (g_envNormals)
+    g_envNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
+                                        : Vec4(n.x, n.y, n.z, 0.0F));
 }
 
 void pushQuad(std::vector<Vec4>& verts, std::vector<Color>& cols,
@@ -8400,7 +8406,7 @@ static bool sndBeats(const SoundWant& a, const SoundWant& b, int margin) {
 static std::vector<SoundWant> sndWants;
 
 static bool sndHoldsSlot(int obj) {
-  for (int s = 0; s < 8; ++s)
+  for (int s = 0; s < {{SND_SLOTS}}; ++s)
     if (sndSlotOwner[s] == obj) return true;
   return false;
 }
@@ -8423,11 +8429,11 @@ static const SoundWant* sndWantOf(const std::vector<SoundWant>& wants, int obj) 
 // A channel that changes hands has its volume/pan cache invalidated here, at
 // the assignment - the same thing a bus switch does, and for the same reason.
 static void pickSoundSlots(const std::vector<SoundWant>& wants) {
-  for (int s = 0; s < 8; ++s)
+  for (int s = 0; s < {{SND_SLOTS}}; ++s)
     if (sndSlotOwner[s] >= 0 && !sndWantOf(wants, sndSlotOwner[s]))
       sndSlotOwner[s] = -1;
 
-  for (int s = 0; s < 8; ++s) {
+  for (int s = 0; s < {{SND_SLOTS}}; ++s) {
     if (sndSlotOwner[s] >= 0) continue;
     const SoundWant* best = 0;
     for (int k = 0; k < (int)wants.size(); ++k) {
@@ -8442,7 +8448,7 @@ static void pickSoundSlots(const std::vector<SoundWant>& wants) {
 
   // Bounded by the channel count: every pass moves exactly one emitter in and
   // one out, so eight is already more than can ever be useful.
-  for (int pass = 0; pass < 8; ++pass) {
+  for (int pass = 0; pass < {{SND_SLOTS}}; ++pass) {
     const SoundWant* cand = 0;
     for (int k = 0; k < (int)wants.size(); ++k) {
       if (sndHoldsSlot(wants[k].obj)) continue;
@@ -8451,7 +8457,7 @@ static void pickSoundSlots(const std::vector<SoundWant>& wants) {
     if (!cand) break;
     int worst = -1;
     const SoundWant* worstWant = 0;
-    for (int s = 0; s < 8; ++s) {
+    for (int s = 0; s < {{SND_SLOTS}}; ++s) {
       const SoundWant* w = sndWantOf(wants, sndSlotOwner[s]);
       if (!w) continue;
       if (!worstWant || sndBeats(*worstWant, *w, 0)) { worstWant = w; worst = s; }
@@ -9010,7 +9016,7 @@ void TerrainGame::updateSoundEmitters() {
   // BUS: +0 on core 1, +24 on core 0 (docs/reverb.md). A room change moves an
   // emitter to a different channel, and its next trigger is heard through the
   // incoming room while whatever it has in flight finishes in the outgoing one.
-  for (int s = 0; s < 8; ++s) {
+  for (int s = 0; s < {{SND_SLOTS}}; ++s) {
     const s8 ch = (s8)(scriptCtx.reverbBusBase + 16 + s);
     if (sndChBus[s] != scriptCtx.reverbBusBase) {
       // The cached volume/pan describe the channel on the bus we just left, so
@@ -15437,7 +15443,6 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
-        part.envInfoBag->model = &model;
         part.envInfoBag->shadingType = TyraShadingFlat;
         part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         part.envInfoBag->fullClipChecks = true;
@@ -15455,6 +15460,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.envBag->texture = part.envTexBag.get();
         part.envBag->lighting = nullptr;
       }
+      // The same matrix the BASE pass draws with, re-pointed on every
+      // rebuild: on the matrix path the vertices are LOCAL and VU1 applies
+      // objMat - the env bag used to keep the static `model` matrix, which
+      // rendered the whole reflection pass in local space around the world
+      // origin. Invisible, and measured as EXACTLY invisible: a bodyShine
+      // A/B read 0 changed pixels while the pass demonstrably ran.
+      part.envInfoBag->model = g.matrixMode ? &g.objMat : &model;
       // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
       const float fix = envStr * 128.0F + 0.5F;
       part.envInfoBag->additiveBlendFix =
@@ -15802,13 +15814,13 @@ bool TerrainGame::physFastPathEligible(int index) const {
     if (o.data.animModel >= 0) return false;
     if (o.data.model < 0 || o.data.model >= (int)gameModels.size())
       return false;
-    for (const GameModelPart& mp : gameModels[o.data.model].parts)
-      if (mp.reflTexture) return false;
-  } else if (o.data.material >= 0 &&
-             o.data.material < (int)gameMaterials.size() &&
-             gameMaterials[o.data.material].reflTexture) {
-    return false;
   }
+  // Reflective parts used to be excluded here, because their env normals
+  // were baked in WORLD space and froze the reflection at the promotion
+  // pose. The local bake captures LOCAL normals now and renderEnvPass folds
+  // the object's rotation into the env camera basis (dot(R n, e) =
+  // dot(n, R^T e)), so a mover with a refl part - a shiny car above all -
+  // keeps both the matrix path and a correct reflection.
   return true;
 }
 
@@ -17536,6 +17548,24 @@ void TerrainGame::renderScene() {
     } else {
       part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
       part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
+    }
+    if (og.matrixMode) {
+      // Matrix path: the env normals are LOCAL (pushVert's local capture), so
+      // the object's CURRENT rotation is folded into the camera basis instead
+      // of touching a vertex - dot(R n, e) = dot(n, R^T e), and updateObjMat
+      // keeps the basis unit-length (scale rides the local vertices). This is
+      // the whole reason reflective parts may ride the matrix path at all:
+      // a driven car yaws every frame, and a world-baked reflection would
+      // either pin to the bake pose or cost a full rebake per frame.
+      const M4x4& m = og.objMat;
+      auto fold = [&](Tyra::Vec4& e) {
+        const float x = m.data[0] * e.x + m.data[1] * e.y + m.data[2] * e.z;
+        const float y = m.data[4] * e.x + m.data[5] * e.y + m.data[6] * e.z;
+        const float z = m.data[8] * e.x + m.data[9] * e.y + m.data[10] * e.z;
+        e.set(x, y, z, 0.0F);
+      };
+      fold(part.envTexBag->envRight);
+      fold(part.envTexBag->envUp);
     }
     stapip.core.render(part.envBag.get());
   };
@@ -24959,10 +24989,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 // The HUD font resolves to a FONTS slot the same way every
                 // other font reference does. -1 means no readout at all, which
                 // is what an author who never turned it on gets.
+                // The remap matters: FONTS[] is indexed by position in
+                // atlasFontIndices(), NOT by Project::fonts index - the same
+                // remap Display Text and the rebind rows already do. Emitting
+                // the project index here worked only while the project had
+                // exactly one font; with three fonts and the HUD on the third,
+                // FONT_COUNT was 1, the emitted slot 2, and the guard in
+                // renderVehicleHud silently drew nothing.
                 int hudFont = -1;
                 if (v->showHud)
-                    if (const GameFont* gf = p.findFont(v->hudFont))
-                        hudFont = (int)(gf - p.fonts.data());
+                    if (const GameFont* gf = p.findFont(v->hudFont)) {
+                        const int projIdx = (int)(gf - p.fonts.data());
+                        const std::vector<int> af = p.atlasFontIndices();
+                        for (size_t k = 0; k < af.size(); ++k)
+                            if (af[k] == projIdx) { hudFont = (int)k; break; }
+                    }
                 out << ", " << floatLit(v->camDist) << ", " << floatLit(v->camHeight)
                     << ", " << floatLit(v->camPitch) << ", "
                     << vec3Init(v->exitOffset) << ", " << snd << ", "
@@ -26907,6 +26948,12 @@ static std::string screenFxSource(const Project& p) {
 // .mtl counts exactly like an editor-written one, and so does a material
 // that only a spawn-pool prefab ever uses.
 static bool projectNeedsEnvMap(const Project& p) {
+    // A shiny vehicle body IS a "@sky" user, but its .tmdl lives under
+    // .res-baked/vehicles/ where the res/ scan below never looks - the engine
+    // then boots with "Env map target disabled" and the paint stays matte.
+    // The model knows the answer without any file scan.
+    for (const VehicleDef& v : p.vehicles)
+        if (v.bodyShine > 0.001f && !v.modelPath.empty()) return true;
     if (p.dir.empty()) return true;  // nothing to inspect - keep the target
     namespace fs = std::filesystem;
     const fs::path res = fs::path(p.dir) / "res";
@@ -27516,6 +27563,11 @@ static std::string vehicleMembers(const Project& p) {
     // RPC and must happen only on a real change.
     int engineCh = -1;
     int enginePitchReg = 0;
+    // Weight transfer, presentation only - degrees ON TOP of the
+    // terrain-derived pitch/roll, never fed back (slope gravity reads the
+    // real pitch). Twin of DriveState::leanPitch/leanRoll.
+    float leanPitch = 0.0F;
+    float leanRoll = 0.0F;
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
@@ -27538,6 +27590,7 @@ static std::string vehicleMembers(const Project& p) {
   void updateVehicles(float dt);
   void renderVehicleWheels();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
+  void muteVehicleEngines();
   void renderVehicleHud();
 )";
 }
@@ -27609,6 +27662,13 @@ void TerrainGame::setupVehicles(int scene) {
   for (int i = 0; i < VEHICLE_COUNT; ++i) {
     if (VEHICLES[i].scene != scene) continue;
     VehicleRt& v = vehicles_[vehicleCount_++];
+    // A fresh slate, not a reused slot. Scene N+1 reuses the array positions
+    // scene N filled, and only the fields assigned below were being reset -
+    // so a car kept the PREVIOUS scene's gear, rpm, nitrous level and, worst,
+    // its engineCh: the scene-load mute had zeroed that voice's volume, the
+    // stale channel number then suppressed the re-forcePlay, and the engine
+    // note was silent for the whole revisit.
+    v = VehicleRt();
     v.object = VEHICLES[i].object;
     v.def = VEHICLES[i].def;
     v.driveable = VEHICLES[i].driveable;
@@ -27654,6 +27714,10 @@ void TerrainGame::updateVehicles(float dt) {
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
     const float SC = v.scale;  // the instance scale (see VehicleRt::scale)
+    // For the weight-transfer lean below: the speed the frame STARTED with,
+    // so the lean reads the acceleration this frame produces - wall hits
+    // included, which is what makes the nose dip on impact for free.
+    const float spd0 = v.speed;
     // ONE radius decides both the prompt and the click - two formulas here
     // would show a prompt for a car you cannot enter, or the reverse.
     const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
@@ -27766,8 +27830,21 @@ void TerrainGame::updateVehicles(float dt) {
       v.velY = 0.0F;
       const float fY = 0.5F * (gy[0] + gy[1]), rY = 0.5F * (gy[2] + gy[3]);
       const float lY = 0.5F * (gy[0] + gy[2]), rrY = 0.5F * (gy[1] + gy[3]);
-      v.pitch = atan2f(fY - rY, s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) * kRad;
-      v.roll = atan2f(rrY - lY, s.track * SC > 0.01F ? s.track * SC : 0.01F) * kRad;
+      // Smoothed at the host twin's 180 deg/s - and this is NOT cosmetic:
+      // the grounded branch reads sin(pitch) for slope gravity, so a raw
+      // atan2 write made longitudinal speed step over every bump the host
+      // rode smoothly.
+      {
+        const float tP =
+            atan2f(fY - rY, s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) * kRad;
+        const float tR =
+            atan2f(rrY - lY, s.track * SC > 0.01F ? s.track * SC : 0.01F) * kRad;
+        const float aStep = 180.0F * dt;
+        if (v.pitch < tP) { v.pitch += aStep; if (v.pitch > tP) v.pitch = tP; }
+        else { v.pitch -= aStep; if (v.pitch < tP) v.pitch = tP; }
+        if (v.roll < tR) { v.roll += aStep; if (v.roll > tR) v.roll = tR; }
+        else { v.roll -= aStep; if (v.roll < tR) v.roll = tR; }
+      }
       // Compression is the residual against the TILTED plane, so flat
       // ground at any angle reads neutral and only bumps move a wheel.
       const float dP = 0.5F * (fY - rY), dR = 0.5F * (rrY - lY);
@@ -27796,6 +27873,15 @@ void TerrainGame::updateVehicles(float dt) {
         v.velY = 0.0F;
         v.grounded = 1;
       }
+      // In the air the body settles toward level at the host twin's 40 deg/s
+      // (it used to keep the attitude it left the ground with for ever).
+      {
+        const float aStep = 40.0F * dt;
+        if (v.pitch < 0.0F) { v.pitch += aStep; if (v.pitch > 0.0F) v.pitch = 0.0F; }
+        else { v.pitch -= aStep; if (v.pitch < 0.0F) v.pitch = 0.0F; }
+        if (v.roll < 0.0F) { v.roll += aStep; if (v.roll > 0.0F) v.roll = 0.0F; }
+        else { v.roll -= aStep; if (v.roll < 0.0F) v.roll = 0.0F; }
+      }
     }
 
     // The powertrain, before the longitudinal step. The gear is resolved from
@@ -27806,12 +27892,15 @@ void TerrainGame::updateVehicles(float dt) {
     const float redline =
         s.redlineRpm > s.idleRpm + 1.0F ? s.redlineRpm : s.idleRpm + 1.0F;
     if (v.gear > nGears - 1) v.gear = nGears - 1;
+    // The shift clock runs whatever the direction (the host twin's rule): a
+    // car that rolls into reverse mid-shift must not keep the throttle cut
+    // for the whole reverse episode.
+    v.shiftTimer -= dt;
+    if (v.shiftTimer < 0.0F) v.shiftTimer = 0.0F;
     if (v.speed < -0.05F) {
       v.gear = -1;  // reverse is its own gear and never shifts
     } else {
       if (v.gear < 0) v.gear = 0;
-      v.shiftTimer -= dt;
-      if (v.shiftTimer < 0.0F) v.shiftTimer = 0.0F;
       if (v.shiftTimer <= 0.0F) {
         const float f = vehRpmFor(s, v.wheelSpeed, v.gear) / redline;
         if (f > vehClamp(s.shiftUpFrac, 0.1F, 1.0F) && v.gear < nGears - 1) {
@@ -27864,17 +27953,26 @@ void TerrainGame::updateVehicles(float dt) {
         if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
         else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
       }
+      // The handbrake also SLOWS the car (0.4x the brake, the host twin's
+      // number) - it used to only swap the grip here, making it a drift
+      // button that never scrubbed any speed on the console.
+      if (inHand) {
+        const float d = s.brakeDecel * 0.4F * dt;
+        if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
+        else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
+      }
       v.speed -= s.gravity * sinf(v.pitch * kDeg) * dt;
     }
     v.speed -= s.drag * v.speed * (v.speed < 0.0F ? -v.speed : v.speed) * dt;
 
     // Yaw from the bicycle model, then the slip it injects.
     float dYaw = 0.0F;
+    float yawRateRad = 0.0F;  // saved for the cornering lean below
     const float absSp = v.speed < 0.0F ? -v.speed : v.speed;
     if (v.grounded && absSp > 0.05F) {
-      const float yr = (v.speed / (s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F)) *
-                       tanf(v.steerAngle * kDeg);
-      dYaw = yr * dt * kRad;
+      yawRateRad = (v.speed / (s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F)) *
+                   tanf(v.steerAngle * kDeg);
+      dYaw = yawRateRad * dt * kRad;
       v.yaw += dYaw;
     }
     if (dYaw != 0.0F) {
@@ -27887,6 +27985,14 @@ void TerrainGame::updateVehicles(float dt) {
     {
       float grip = inHand ? s.handbrakeGrip : s.grip;
       if (!v.grounded) grip = 0.0F;
+      // A steep contact plane costs grip on the way to costing all of it -
+      // the host twin's tilt term; maxSlopeCos was an authored slider that
+      // did nothing on the console before this.
+      const float tilt = cosf((v.roll < 0.0F ? -v.roll : v.roll) * kDeg);
+      if (tilt < s.maxSlopeCos) {
+        const float mc = s.maxSlopeCos > 0.01F ? s.maxSlopeCos : 0.01F;
+        grip *= vehClamp(tilt / mc, 0.0F, 1.0F);
+      }
       const float g = grip * dt;
       if (v.lateral > 0.0F) { v.lateral -= g; if (v.lateral < 0.0F) v.lateral = 0.0F; }
       else { v.lateral += g; if (v.lateral > 0.0F) v.lateral = 0.0F; }
@@ -27897,12 +28003,14 @@ void TerrainGame::updateVehicles(float dt) {
     v.pos[0] += (v.speed * s2 + v.lateral * c2) * dt;
     v.pos[2] += (v.speed * c2 - v.lateral * s2) * dt;
 
-    // Walls. The car is tested at its FOUR CORNERS through the walker's own
-    // resolver, not at its centre: a centre test lets a car put half its width
-    // through a wall before anything notices, and collidePlayer is already the
-    // one place that knows what a collider is. Any corner that gets pushed
-    // refuses the whole move - resolving per corner would rotate the body, and
-    // a kinematic chassis has no way to represent that.
+    // Walls. Four corners through the walker's own resolver, not the centre
+    // (a centre test lets a car put half its width through a wall before
+    // anything notices), and AXIS-SEPARATED, the host twin's structure
+    // exactly (vehiclesim::step - change one, change both): a blocked move
+    // first tries keeping only its X, then only its Z, so a glancing hit
+    // GRINDS along the wall with the speed scrubbed per second, and only a
+    // head-on refuses the whole move. Per-corner resolution stays off the
+    // table - it would rotate a body a kinematic chassis cannot represent.
     {
       const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
       const float cx[4] = {-hx2, hx2, -hx2, hx2};
@@ -27916,27 +28024,48 @@ void TerrainGame::updateVehicles(float dt) {
       // and restored after - the same trick the carry sweep plays.
       const int ownCol = v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
       if (v.object >= 0) runtimeObjects[v.object].data.collision = 2;
-      int blocked = 0;
-      for (int k = 0; k < 4 && !blocked; ++k) {
-        const float p0x = prevX + cx[k] * c2 + cz[k] * s2;
-        const float p0z = prevZ - cx[k] * s2 + cz[k] * c2;
-        float nx = v.pos[0] + cx[k] * c2 + cz[k] * s2;
-        float nz = v.pos[2] - cx[k] * s2 + cz[k] * c2;
-        const float wantX = nx, wantZ = nz;
-        float gr = 0.0F, ce = 0.0F;
-        collidePlayer(p0x, p0z, &nx, &nz, feet, 0.6F, &gr, &ce);
-        const float dx = nx - wantX, dz = nz - wantZ;
-        if (dx * dx + dz * dz > 0.0004F) blocked = 1;
+      auto blockedAt = [&](float bx, float bz) {
+        for (int k = 0; k < 4; ++k) {
+          const float p0x = prevX + cx[k] * c2 + cz[k] * s2;
+          const float p0z = prevZ - cx[k] * s2 + cz[k] * c2;
+          float nx = bx + cx[k] * c2 + cz[k] * s2;
+          float nz = bz - cx[k] * s2 + cz[k] * c2;
+          const float wantX = nx, wantZ = nz;
+          float gr = 0.0F, ce = 0.0F;
+          collidePlayer(p0x, p0z, &nx, &nz, feet, 0.6F, &gr, &ce);
+          const float dx = nx - wantX, dz = nz - wantZ;
+          if (dx * dx + dz * dz > 0.0004F) return true;
+        }
+        return false;
+      };
+      if (blockedAt(v.pos[0], v.pos[2])) {
+        // A slide is only a slide if that axis carries REAL motion - a
+        // head-on has ~zero motion along the wall, and "keep only X" would be
+        // trivially free, grinding in place at a phantom 5 u/s (the host
+        // harness caught exactly that). And the grind scrubs by ANGLE: f is
+        // the fraction of the motion the wall lets through, so a shallow
+        // scrape barely slows and a steep one digs in.
+        const float wvx = v.pos[0] - prevX, wvz = v.pos[2] - prevZ;
+        const float wl = sqrtf(wvx * wvx + wvz * wvz);
+        const float fx = wl > 1e-6F ? (wvx < 0.0F ? -wvx : wvx) / wl : 0.0F;
+        const float fz = wl > 1e-6F ? (wvz < 0.0F ? -wvz : wvz) / wl : 0.0F;
+        const float latScrub = 1.0F - vehClamp(12.0F * dt, 0.0F, 0.9F);
+        if (fx > 0.3F && !blockedAt(v.pos[0], prevZ)) {
+          v.pos[2] = prevZ;  // slide along X
+          v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fx)) * dt, 0.0F, 0.6F);
+          v.lateral *= latScrub;
+        } else if (fz > 0.3F && !blockedAt(prevX, v.pos[2])) {
+          v.pos[0] = prevX;  // slide along Z
+          v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fz)) * dt, 0.0F, 0.6F);
+          v.lateral *= latScrub;
+        } else {
+          v.pos[0] = prevX;  // head-on: the impact takes the speed with it
+          v.pos[2] = prevZ;
+          v.speed *= 0.25F;
+          v.lateral = 0.0F;
+        }
       }
       if (v.object >= 0) runtimeObjects[v.object].data.collision = ownCol;
-      if (blocked) {
-        v.pos[0] = prevX;
-        v.pos[2] = prevZ;
-        // The impact takes the speed with it, so a car pinned against a wall
-        // stops instead of grinding along it at full throttle.
-        v.speed *= 0.25F;
-        v.lateral = 0.0F;
-      }
     }
     // Presentation, derived and costing the sim nothing: the driven wheels'
     // surface speed is the car's speed PLUS whatever drive the tyres could not
@@ -27992,8 +28121,28 @@ void TerrainGame::updateVehicles(float dt) {
       v.wheelSpin += (rolled / (s.wheelRadius * SC > 0.001F ? s.wheelRadius * SC : 0.001F)) *
                      dt * kRad;
     }
-    if (v.wheelSpin > 360.0F) v.wheelSpin -= 360.0F;
+    v.wheelSpin = fmodf(v.wheelSpin, 360.0F);
     if (v.wheelSpin < 0.0F) v.wheelSpin += 360.0F;
+
+    // Weight transfer - the arcade body language, the host twin's formula
+    // exactly (vehiclesim::step): squat under power, dive under braking (and
+    // on a wall hit, for free - the pitch target reads this frame's own
+    // acceleration), lean OUT of a corner from the centripetal term.
+    {
+      const float accLong = (v.speed - spd0) / dt;
+      const float aLat = v.grounded ? yawRateRad * v.speed : 0.0F;
+      float tp = v.grounded ? accLong * 0.30F : 0.0F;
+      if (tp > 4.0F) tp = 4.0F;
+      if (tp < -4.0F) tp = -4.0F;
+      float tr = v.grounded ? aLat * 0.35F : 0.0F;
+      if (tr > 6.0F) tr = 6.0F;
+      if (tr < -6.0F) tr = -6.0F;
+      const float lstep = 25.0F * dt;
+      if (v.leanPitch < tp) { v.leanPitch += lstep; if (v.leanPitch > tp) v.leanPitch = tp; }
+      else { v.leanPitch -= lstep; if (v.leanPitch < tp) v.leanPitch = tp; }
+      if (v.leanRoll < tr) { v.leanRoll += lstep; if (v.leanRoll > tr) v.leanRoll = tr; }
+      else { v.leanRoll -= lstep; if (v.leanRoll < tr) v.leanRoll = tr; }
+    }
 
     // Write the body's transform.
     if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
@@ -28001,9 +28150,9 @@ void TerrainGame::updateVehicles(float dt) {
       o.data.position[0] = v.pos[0];
       o.data.position[1] = v.pos[1];
       o.data.position[2] = v.pos[2];
-      o.data.rotation[0] = v.pitch;
+      o.data.rotation[0] = v.pitch + v.leanPitch;
       o.data.rotation[1] = v.yaw;
-      o.data.rotation[2] = -v.roll;
+      o.data.rotation[2] = -(v.roll + v.leanRoll);
       // The promotion to the matrix path happens in renderScene and only once
       // the object is eligible, so it is NOT true on the first frames. Writing
       // the transform without telling anything about it left the BODY standing
@@ -28084,7 +28233,8 @@ void TerrainGame::updateVehicles(float dt) {
                  " yaw ", (int)v.yaw, " gear ", v.gear, " rpm ", (int)v.rpm,
                  " slip10 ", (int)(v.slip * 10.0F), " nos10 ",
                  (int)(v.nos * 10.0F), " cam ", vehCamMode_, " pitch ",
-                 v.enginePitchReg, " mtx ",
+                 v.enginePitchReg, " lean10 ", (int)(v.leanRoll * 10.0F),
+                 " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
       }
@@ -28132,10 +28282,16 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
 
   // The bus matters: a voice can only reach the reverb unit of its OWN SPU2
   // core, so the channel has to be picked on the bus the listener's room is
-  // using (docs/reverb.md). Channel 23 / 47 is the top of each bank, which the
-  // emitter loop and the Play Sound node both allocate downward from.
+  // using (docs/reverb.md). Voice base+23 is the engine note's OWN - the
+  // emitter bank is generated one slot short in a project with vehicles
+  // ({{SND_SLOTS}} in templates.cpp) precisely so nothing else ever writes
+  // this channel's volume or steals its voice.
   const int ch = scriptCtx.reverbBusBase + 23;
   if (v.engineCh != ch) {
+    // A bus flip mid-drive moves the note to the other core's voice - and the
+    // OLD voice keeps looping (a loop never ends), so it must be silenced or
+    // the engine plays from both cores at once, one of them pitched stale.
+    if (v.engineCh >= 0) engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
     v.engineCh = ch;
     v.enginePitchReg = 0;  // force the first pitch write
     engine->audio.adpcm.forcePlay(sndSamples[s.engineSnd], (s8)ch);
@@ -28167,6 +28323,21 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   }
 }
 
+// The pause menu's mute. Forgetting the channel (engineCh = -1) is what makes
+// closing the menu RESTART the loop through the ordinary enter path instead of
+// resuming a voice whose volume something else may have touched meanwhile; the
+// one-frame retrigger of a continuous tone is inaudible. Runs once per menu
+// frame but writes the RPC only while a channel is still held.
+void TerrainGame::muteVehicleEngines() {
+  for (int i = 0; i < vehicleCount_; ++i) {
+    VehicleRt& v = vehicles_[i];
+    if (v.engineCh < 0) continue;
+    engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
+    v.engineCh = -1;
+    v.enginePitchReg = 0;
+  }
+}
+
 // The driver's readout (docs/vehicles.md, "The HUD"): speed, gear and the
 // nitrous tank, drawn only while somebody is driving.
 //
@@ -28182,6 +28353,10 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
 // lets the TV stretch it, so a readout that skips the factor is a third too wide
 // on exactly the displays people play on.
 void TerrainGame::renderVehicleHud() {
+  // The Show/Hide HUD flow node governs this readout like every other HUD
+  // layer - it is emitted OUTSIDE the hudVisible bracket (it sits next to the
+  // USE prompt, which deliberately ignores that flag), so the check is here.
+  if (!scriptCtx.hudVisible) return;
   if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_) return;
   VehicleRt& v = vehicles_[vehicleDriver_];
   if (v.def < 0) return;
@@ -28207,7 +28382,7 @@ void TerrainGame::renderVehicleHud() {
 
   // Gear beside it. Reverse is its own gear and reads as R, not as "-1".
   if (v.gear < 0)
-    snprintf(buf, sizeof(buf), "R");
+    snprintf(buf, sizeof(buf), "%s", "R");
   else
     snprintf(buf, sizeof(buf), "%d", v.gear + 1);
   drawFontText(engine, s.hudFont, buf, W * 0.93F, H * 0.80F, H * 0.055F, sx);
@@ -28357,7 +28532,11 @@ static std::string vehicleSetupCall(const Project& p) {
 
 static std::string vehicleUpdateCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
-    return "  if (!menuActive) updateVehicles(g_frameScale * (1.0F / 50.0F));\n";
+    // The else matters: updateVehicles is the only writer of the engine
+    // note's volume, so with the update gated on !menuActive an open pause
+    // menu held the note at its last pitch for as long as the menu was up.
+    return "  if (!menuActive) updateVehicles(g_frameScale * (1.0F / 50.0F));\n"
+           "  else muteVehicleEngines();\n";
 }
 
 static std::string vehicleRenderCall(const Project& p) {
@@ -28665,6 +28844,16 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // sources byte-identical: the baked net's include, the init that configures
     // the low-res target, and the frame loop's 3D bracket (whose "off" form IS
     // the plain renderScene() call the loop always had).
+    // Emitter slots: 8, exactly as it always was - unless the project has a
+    // vehicle, where the ENGINE NOTE owns voice base+23 outright and the
+    // emitter bank shrinks to 7. All 24 voices of a bus were spoken for
+    // (16 Play Sound + 8 emitters), so a continuous loop could only ever get a
+    // channel by taking one; an EMITTER slot rather than a Play Sound one
+    // because emitters are auto-ranked and degrade gracefully, while a pinned
+    // Play Sound channel is an authored reference that must keep meaning what
+    // the author said. Substituting the literal "8" back keeps a vehicle-less
+    // project byte-identical.
+    s = replaceAll(s, "{{SND_SLOTS}}", projectHasVehicles(p) ? "7" : "8");
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
@@ -32873,7 +33062,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     if (vol < 0) vol = 0;
                     if (vol > 100) vol = 100;
                     int ch = (int)n.num[1];
-                    if (ch > 23) ch = 23;
+                    // Voice 23 belongs to the vehicle engine note when the
+                    // project has one ({{SND_SLOTS}}); a pin there would
+                    // forcePlay over the loop and the engine's next setPitch
+                    // would retune THIS sound. Remapped, not refused - a pin
+                    // is an authored channel, and 22 is the nearest voice that
+                    // still means "my own channel".
+                    const int chMax = projectHasVehicles(p) ? 22 : 23;
+                    if (ch > chMax) ch = chMax;
                     // Channels are relative to the bus the CURRENT room runs
                     // on (docs/reverb.md): +0 on SPU2 core 1, +24 on core 0.
                     // A pinned channel is pinned WITHIN the room, so a sound

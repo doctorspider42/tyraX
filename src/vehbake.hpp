@@ -61,6 +61,14 @@ struct Options {
     // field, so it has to be the path the importer actually writes the PNG to -
     // a .tmdl naming a texture that is not there loads as untextured white.
     std::string paletteTexture;
+
+    // Paint shine, 0..1: every BODY part gets refl "@sky" at this strength -
+    // the engine's dynamic env map, the same statement an .obj's .mtl makes
+    // (docs/reflective-materials.md), riding fields tmdl already carries. The
+    // wheels stay matte: chrome rims tint the tyre with them, because a wheel
+    // is ONE part after the merge. 0 writes nothing, so an existing bake is
+    // byte-identical.
+    float bodyShine = 0.0f;
 };
 
 struct Result {

@@ -527,6 +527,11 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     dt = clampf(dt, 0.0f, 0.05f);
     if (dt <= 0.0f) return;
 
+    // For the weight-transfer lean at the bottom: the speed the frame STARTED
+    // with, so the lean reads the acceleration everything below produces -
+    // wall hits included, which is what makes the nose dip on impact for free.
+    const float speed0 = state.speed;
+
     // --- steering -----------------------------------------------------------
     // The lock shrinks with speed. Without it a full-lock flick at top speed
     // spins the car on the spot, and a d-pad (which is always full deflection)
@@ -626,11 +631,15 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     const int nGears = gearCount(spec);
     const float redline = std::max(spec.redlineRpm, spec.idleRpm + 1.0f);
     if (state.gear > nGears - 1) state.gear = nGears - 1;
+    // The shift clock runs whatever the direction: it used to tick only in
+    // the forward branch, so a car that rolled into reverse mid-shift (the
+    // throttle is cut and slope gravity can push speed negative) kept the
+    // throttle cut for the entire reverse episode.
+    state.shiftTimer = std::max(0.0f, state.shiftTimer - dt);
     if (state.speed < -0.05f) {
         state.gear = -1;  // reverse is its own gear and never shifts
     } else {
         if (state.gear < 0) state.gear = 0;
-        state.shiftTimer = std::max(0.0f, state.shiftTimer - dt);
         if (state.shiftTimer <= 0.0f) {
             const float f = rpmFor(spec, state.wheelSpeed, state.gear) / redline;
             if (f > clampf(spec.shiftUpFrac, 0.1f, 1.0f) && state.gear < nGears - 1) {
@@ -693,10 +702,11 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     // The bicycle model: the turn radius follows from the wheelbase and the
     // steering angle, so a long vehicle turns wide without a second knob.
     float dYaw = 0.0f;
+    float yawRateRad = 0.0f;  // saved for the cornering lean below
     if (state.grounded && std::fabs(state.speed) > 0.05f) {
-        const float yawRate = (state.speed / std::max(spec.wheelBase, 0.01f)) *
-                              std::tan(state.steerAngle * kDeg2Rad);
-        dYaw = yawRate * dt * kRad2Deg;
+        yawRateRad = (state.speed / std::max(spec.wheelBase, 0.01f)) *
+                     std::tan(state.steerAngle * kDeg2Rad);
+        dYaw = yawRateRad * dt * kRad2Deg;
         state.yaw += dYaw;
     }
 
@@ -728,24 +738,61 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     state.pos[0] += vx * dt;
     state.pos[2] += vz * dt;
 
-    // Walls: the four-corner refuse, the PS2 runtime's twin (updateVehicles in
-    // templates.cpp - change one, change both). Any corner in something solid
-    // refuses the whole move; a per-corner slide would rotate the body, which
-    // a kinematic chassis has no way to represent.
+    // Walls: four corners against the caller's solid test, the PS2 runtime's
+    // twin (updateVehicles in templates.cpp - change one, change both).
+    //
+    // AXIS-SEPARATED: a blocked move first tries keeping only its X, then only
+    // its Z. A glancing hit therefore GRINDS along the wall - speed scrubbed
+    // per second, not per hit - and only a head-on (both single axes blocked
+    // too) refuses the whole move and takes most of the speed. The old
+    // any-corner-refuses-everything rule made every wall touch a dead stop,
+    // which on a track whose walls are the racing line's edge reads as the car
+    // being glued to them. Per-corner resolution is still off the table: it
+    // would rotate a body a kinematic chassis has no way to represent.
     if (solid) {
         const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
         const float lx[4] = {-hx, hx, -hx, hx};
         const float lz[4] = {hz, hz, -hz, -hz};
         const float feet = state.pos[1] - spec.rideHeight;
-        bool blocked = false;
-        for (int k = 0; k < 4 && !blocked; ++k)
-            blocked = solid(state.pos[0] + lx[k] * c + lz[k] * s,
-                            state.pos[2] - lx[k] * s + lz[k] * c, feet);
-        if (blocked) {
-            state.pos[0] -= vx * dt;
-            state.pos[2] -= vz * dt;
-            state.speed *= 0.25f;  // the impact takes the speed with it
-            state.lateral = 0.0f;
+        auto blockedAt = [&](float bx, float bz) {
+            for (int k = 0; k < 4; ++k)
+                if (solid(bx + lx[k] * c + lz[k] * s, bz - lx[k] * s + lz[k] * c,
+                          feet))
+                    return true;
+            return false;
+        };
+        if (blockedAt(state.pos[0], state.pos[2])) {
+            const float prevX = state.pos[0] - vx * dt;
+            const float prevZ = state.pos[2] - vz * dt;
+            // A slide is only a slide if that axis carries REAL motion. A
+            // head-on has ~zero motion along the wall, so "keep only X" is
+            // trivially free - and the first version took that branch, ground
+            // in place and reported ~5 u/s while standing still (the harness
+            // caught it: end z 8.90, end speed 4.80 where a stop was owed).
+            const float wl = std::sqrt(vx * vx + vz * vz);
+            const float fx = wl > 1e-6f ? std::fabs(vx) / wl : 0.0f;
+            const float fz = wl > 1e-6f ? std::fabs(vz) / wl : 0.0f;
+            // The grind scrubs by ANGLE: a shallow scrape barely slows, a
+            // steep one digs in. f is the fraction of the motion the wall
+            // lets through.
+            auto grind = [&](float f) {
+                return 1.0f - clampf((0.3f + 2.5f * (1.0f - f)) * dt, 0.0f, 0.6f);
+            };
+            const float latScrub = 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
+            if (fx > 0.3f && !blockedAt(state.pos[0], prevZ)) {
+                state.pos[2] = prevZ;  // slide along X
+                state.speed *= grind(fx);
+                state.lateral *= latScrub;
+            } else if (fz > 0.3f && !blockedAt(prevX, state.pos[2])) {
+                state.pos[0] = prevX;  // slide along Z
+                state.speed *= grind(fz);
+                state.lateral *= latScrub;
+            } else {
+                state.pos[0] = prevX;  // head-on: the impact takes the speed
+                state.pos[2] = prevZ;
+                state.speed *= 0.25f;
+                state.lateral = 0.0f;
+            }
         }
     }
 
@@ -781,6 +828,24 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
                          std::max(0.0f, state.wheelSpeed - std::fabs(state.speed))) /
                             slipRef,
                         0.0f, 1.0f);
+
+    // Weight transfer - the arcade car's body language, on top of the
+    // terrain-derived attitude and deliberately never fed back into it (slope
+    // gravity reads sin(pitch), and a cosmetic lean in there would make the
+    // car accelerate downhill because it is accelerating). The pitch target
+    // reads the frame's own longitudinal acceleration - wall hits included,
+    // which is what makes the nose dip on impact with no code of its own -
+    // and the roll target the centripetal acceleration the bicycle model just
+    // produced. Signs: accelerating = nose up (squat), turning right = right
+    // side up (the body leans OUT of the corner).
+    {
+        const float accLong = (state.speed - speed0) / dt;
+        const float aLat = state.grounded ? yawRateRad * state.speed : 0.0f;
+        const float tp = state.grounded ? clampf(accLong * 0.30f, -4.0f, 4.0f) : 0.0f;
+        const float tr = state.grounded ? clampf(aLat * 0.35f, -6.0f, 6.0f) : 0.0f;
+        state.leanPitch = approach(state.leanPitch, tp, 25.0f * dt);
+        state.leanRoll = approach(state.leanRoll, tr, 25.0f * dt);
+    }
 
     // The wheels turn at the WHEEL speed, not the car's, so a burnout spins
     // them faster than the ground is moving.

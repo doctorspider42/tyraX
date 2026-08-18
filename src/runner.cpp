@@ -1298,6 +1298,13 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // convention is in the file name rather than in the project because
         // adpenc runs over `res/sfx` as a directory and has no access to the
         // model; it is the `*-lit.png` arrangement.
+        // The staleness test is mtime PLUS, for a loop file, the encoded
+        // header's own loop byte (offset 6 of the .adpcm): a project built
+        // before -L existed has a bin/sfx/x-loop.adpcm NEWER than its WAV,
+        // encoded as a one-shot - mtime alone would skip it for ever and the
+        // engine note would play for a fifth of a second and stop, with no
+        // error anywhere. Reading the byte back asks the FILE what it is
+        // instead of trusting the calendar.
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "cd /src && IFS= && for f in res/sfx/*.wav "
@@ -1306,7 +1313,10 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
                            "mkdir -p $(dirname $o); "
                            "L= && case $f in *-loop.wav) L=-L;; esac; "
-                           "if [ ! $o -nt $f ]; then "
+                           "R=0; if [ -n \"$L\" ] && [ -e $o ]; then "
+                           "B=$(od -An -tu1 -j6 -N1 $o | tr -d \" \"); "
+                           "[ \"$B\" = \"1\" ] || R=1; fi; "
+                           "if [ ! $o -nt $f ] || [ $R = 1 ]; then "
                            "echo [editor] adpenc $L $f && "
                            "adpenc $L $f $o || exit 1; "
                           "fi; done"),

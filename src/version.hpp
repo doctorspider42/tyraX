@@ -16,6 +16,55 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.60.0 (the drive, perfected - docs/vehicles.md): an adversarial review of
+// the whole vehicle branch plus the fixes it demanded, three physics upgrades,
+// a reflective paint option and a four-times-bigger playground.
+//
+// THE REVIEW (an agent told to refute, then everything verified here) found
+// ten real defects. The ones worth remembering: the engine note's voice
+// base+23 was EMITTER SLOT 7 - all 24 SPU2 voices of a bus were already spoken
+// for, so a continuous loop could only get a channel by taking one, and the
+// emitter bank is now generated one slot short in a vehicle project
+// ({{SND_SLOTS}}); the HUD font was emitted in the WRONG INDEX SPACE (project
+// fonts index where FONTS[] is indexed by atlas position - it worked only
+// because the example has one font); setupVehicles REUSED array slots across
+// scenes without a reset, so a revisited scene's car kept the previous
+// scene's gear, nitrous and - because the scene-load mute had zeroed that
+// voice - a stale engineCh that suppressed the re-play and left the engine
+// permanently silent; the pause menu froze the engine note at its last pitch
+// (updateVehicles is gated on !menuActive and was the only volume writer);
+// shiftTimer never ticked in reverse, so a car that rolled backwards
+// mid-shift kept its throttle cut; and the adpenc cache was mtime-only, so a
+// bin/sfx/x-loop.adpcm encoded BEFORE -L existed would never re-encode - the
+// staleness test now reads the encoded header's own loop byte back.
+//
+// PHYSICS: walls SLIDE now - axis-separated, the grind scrubbing speed by
+// impact angle, with "a slide is only a slide if that axis carries real
+// motion" (the first cut let a head-on grind in place at a phantom 5 u/s -
+// the harness caught it); weight transfer (squat/dive/lean, presentation-only
+// and deliberately never fed back into the pitch the slope gravity reads);
+// and five host/runtime divergences closed - the handbrake now actually
+// SLOWS the car on the console, maxSlopeCos stopped being a slider that did
+// nothing there, pitch/roll are rate-limited (they feed sin(pitch) gravity,
+// so this is longitudinal behaviour, not cosmetics), and airborne attitude
+// settles level.
+//
+// THE PAINT: VehicleDef::bodyShine bakes refl "@sky" into the body's .tmdl
+// parts - fields the format already carried. What made it POSSIBLE is an
+// engine-side change: reflective parts were banned from the matrix fast path
+// because their env normals were baked in world space, frozen at the
+// promotion pose. The local bake captures LOCAL normals now and renderEnvPass
+// folds the object's rotation into the env camera basis (dot(R n, e) =
+// dot(n, R^T e) - a constant per mesh per frame, zero per-vertex work), so a
+// shiny car keeps both its two submits and a correct reflection while
+// yawing. The viewport preview reads the same tmdl fields, so the editor
+// shows the shine the console draws.
+//
+// kFormatVersion 35 -> 36: "bodyShine" plus writers that no longer DROP
+// authored values when their switch is off (unticking the HUD used to reset
+// hudSpeedScale on the next load). All additive, readers default, no
+// migration step. MINOR.
+//
 // 1.59.0 (the driver gets instruments - docs/vehicles.md, "The HUD"): speed,
 // gear and the nitrous tank on screen while driving. The powertrain already
 // supplied every input, so this is the drawing and nothing else.
@@ -1835,7 +1884,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 59
+#define TYRAX_VERSION_MINOR 60
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2116,7 +2165,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 35;
+inline constexpr int kFormatVersion = 36;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -2464,6 +2464,8 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
         json << ", \"bodyTris\": " << v.bodyTriBudget
              << ", \"wheelTris\": " << v.wheelTriBudget;
         if (!v.mergeUntextured) json << ", \"merge\": false";
+        if (v.bodyShine != 0.0f)
+            json << ", \"bodyShine\": " << fmtFloat(v.bodyShine);
         if (v.flipFront) json << ", \"flipFront\": true";
         json << ", \"cam\": [" << fmtFloat(v.camDist) << ", " << fmtFloat(v.camHeight)
              << ", " << fmtFloat(v.camPitch) << "]";
@@ -2471,14 +2473,25 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
              << fmtFloat(v.exitOffset[1]) << ", " << fmtFloat(v.exitOffset[2]) << "]";
         // The engine note. Conditional on there BEING one, so a definition with
         // no sound resaves exactly as it did before the feature existed.
-        if (v.showHud)
-            json << ", \"hud\": true, \"hudFont\": \"" << jsonEscape(v.hudFont)
+        // Written when the switch is on OR any value differs from its
+        // default: unticking "Show a HUD" and saving used to silently reset
+        // an authored hudSpeedScale to 3.6 on the next load, because the
+        // whole block was gated on the switch alone. An untouched definition
+        // still writes nothing.
+        if (v.showHud || !v.hudFont.empty() || v.hudSpeedScale != 3.6f)
+            json << ", \"hud\": " << (v.showHud ? "true" : "false")
+                 << ", \"hudFont\": \"" << jsonEscape(v.hudFont)
                  << "\", \"hudSpeedScale\": " << fmtFloat(v.hudSpeedScale);
-        if (!v.engineSound.empty())
-            json << ", \"engineSound\": \"" << jsonEscape(v.engineSound)
-                 << "\", \"enginePitch\": [" << fmtFloat(v.enginePitchIdle) << ", "
+        const bool engineTuned = v.enginePitchIdle != 0.75f ||
+                                 v.enginePitchRedline != 2.4f ||
+                                 v.engineVolume != 70.0f;
+        if (!v.engineSound.empty() || engineTuned) {
+            if (!v.engineSound.empty())
+                json << ", \"engineSound\": \"" << jsonEscape(v.engineSound) << "\"";
+            json << ", \"enginePitch\": [" << fmtFloat(v.enginePitchIdle) << ", "
                  << fmtFloat(v.enginePitchRedline) << "], \"engineVolume\": "
                  << fmtFloat(v.engineVolume);
+        }
         if (!v.wheels.empty()) {
             json << ", \"wheels\": [";
             for (size_t k = 0; k < v.wheels.size(); ++k)
@@ -2513,6 +2526,8 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
         if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(1500);
         if (const json::Value* x = e.find("wheelTris")) v.wheelTriBudget = (int)x->numberOr(700);
         if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
+        if (const json::Value* x = e.find("bodyShine"))
+            v.bodyShine = (float)x->numberOr(0.0);
         if (const json::Value* x = e.find("flipFront")) v.flipFront = x->boolOr(false);
         if (const json::Value* x = e.find("cam"))
             if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {

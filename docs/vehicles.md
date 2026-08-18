@@ -279,7 +279,20 @@ The fork gains one function, `AudioAdpcm::setPitch`. Two costs shape the caller:
 - **A looping voice cannot be stopped** (`AudioAdpcm`'s own doc comment says as
   much). Getting out sets the volume to zero rather than stopping anything, and
   forgets the channel so getting back in restarts the loop instead of inheriting a
-  stale pitch.
+  stale pitch. The pause menu mutes the same way (`muteVehicleEngines` — the
+  update is gated on `!menuActive` and is the only volume writer, so without the
+  mute an open menu held the note at its last pitch), and so does a reverb bus
+  flip mid-drive, whose old-core voice would otherwise keep looping for ever.
+
+**The voice is reserved, not borrowed.** All 24 voices of a bus were spoken for
+(16 Play Sound + 8 emitters), so in a project with vehicles the emitter bank is
+generated one slot short (`{{SND_SLOTS}}` → 7) and voice `base+23` belongs to
+the engine note outright. An emitter slot rather than a Play Sound one because
+emitters are auto-ranked and degrade gracefully, while a pinned Play Sound
+channel is an authored reference; a Play Sound *pinned to 23* is remapped to 22
+at codegen for the same reason. And the `adpenc` staleness test reads the
+encoded header's own loop byte back, because a `-loop.adpcm` built before `-L`
+existed is newer than its WAV and mtime alone would skip it for ever.
 
 The register is the sample's **own** encoded rate times the multiplier — not
 `0x1000`. A 22 kHz sample reports 1881, because the SPU2's reference is 48 kHz.
@@ -302,6 +315,42 @@ than a committed opaque asset so the waveform is arguable: every partial is an
 exact integer number of cycles in the loop, so the join carries no discontinuity
 by construction (measured at 7e-14), and it is deliberately dull and quiet because
 the runtime plays it at up to 2.4x its encoded rate.
+
+### A shiny body
+
+*Vehicle Editor > Model > Body shine.* The paint gets `refl "@sky"` — the
+engine's **dynamic env map**, so the car mirrors the sky the scene actually has —
+baked into the body's `.tmdl` parts (fields the format already carried; the
+wheels stay matte, because after the merge a wheel is ONE part and chrome rims
+would tint the tyre with them). The viewport preview reads the same fields, so
+the editor shows the shine the console draws.
+
+What made this possible is an engine-side change worth knowing about:
+**reflective parts used to be banned from the matrix fast path**, because their
+env normals were baked in world space and froze the reflection at the promotion
+pose. The local-space bake captures LOCAL normals now, and the per-frame env
+pass folds the object's rotation into the env camera basis instead of touching
+a vertex — `dot(R·n, e) = dot(n, Rᵀ·e)`, a constant per mesh per frame. A car
+yaws every frame; without this it would have had to choose between its two
+submits and a correct reflection. The lift applies to every mover with a `refl`
+material, not just vehicles.
+
+One consequence for codegen: `projectNeedsEnvMap` scans `res/` for `"@sky"`,
+and a vehicle's `.tmdl` lives under `.res-baked/vehicles/` — so the check asks
+`Project::vehicles` directly, or the engine boots with *"Env map target
+disabled"* and the paint silently stays matte.
+
+### Weight transfer
+
+The body squats under power, dives under braking and leans OUT of a corner —
+`DriveState::leanPitch`/`leanRoll`, clamped at ±4°/±6° and rate-limited. Two
+rules hold it together: it is **presentation on top of the terrain-derived
+pitch/roll, never folded into them** (slope gravity reads `sin(pitch)`, and a
+cosmetic lean in there would make the car accelerate downhill *because* it is
+accelerating), and the pitch target reads the frame's own longitudinal
+acceleration, so a wall hit dips the nose with no code of its own. The
+telemetry's `lean10` proves it on-console: 50 (5.0°) through a sustained
+top-speed turn, 0 on the straight.
 
 ### AI later, player now
 

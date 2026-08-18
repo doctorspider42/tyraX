@@ -286,6 +286,12 @@ gaps, each with a testable end:
   the runtime's inThrottle..inHand locals) precisely so a controller other
   than the pad can fill it; navigation.gen.cpp already runs A* for walkers.
   Done when a second vehicle patrols waypoints with no pad attached.
+- **The editor test drive ignores instance scale.** The runtime multiplies
+  track, wheelbase, ride height and the camera rig by the placed object's
+  uniform scale; the host sim drives the raw spec, so a car authored at scale
+  1.5 handles differently in the two. The example's car IS scale 1.5. Done when
+  the test drive takes the instance's scale - probably a scale argument on
+  step() rather than pre-scaled spec copies, so specFields stays the one list.
 - **The editor test drive's walls are approximate.** World AABBs via
   placement, not the console's slide resolver - a rotated wall blocks a wider
   footprint in the editor than on the console. Fine for tuning; worth one

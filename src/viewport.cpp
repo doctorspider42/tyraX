@@ -3839,6 +3839,23 @@ Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
         ModelPart part;
         part.mesh = uploadMesh(interleaved);
         for (int k = 0; k < 3; ++k) part.ke[k] = sp.ke[k];
+        // Reflection travels in the .tmdl part (vehbake's bodyShine writes
+        // refl "@sky"), and the preview must show the same shine the console
+        // draws - the matcap machinery is the model path's, reused.
+        if (!sp.reflTexture.empty()) {
+            part.reflSky = sp.reflTexture == "@sky";
+            if (!part.reflSky) part.reflTex = glTexture(sp.reflTexture);
+            part.reflStrength = sp.reflStrength;
+            part.reflRounded = sp.reflRounded;
+            const size_t n = sp.verts.size() / 8;
+            for (size_t i = 0; i + 7 < sp.verts.size(); i += 8) {
+                part.centroid[0] += sp.verts[i];
+                part.centroid[1] += sp.verts[i + 1];
+                part.centroid[2] += sp.verts[i + 2];
+            }
+            if (n > 0)
+                for (float& c : part.centroid) c /= (float)n;
+        }
         // The palette is resolved AT DRAW TIME from its path, never cached as a
         // GL name here: invalidateAssets() wipes texCache_ and DELETES the
         // texture objects in it (the asset scan calls it whenever anything on
@@ -5208,9 +5225,21 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                             for (int a = 0; a < 3; ++a)
                                 emissive[a] =
                                     asLines ? 0.0f : o.color[a] * tintScale * part.ke[a];
+                            // World centroid for the rounded env normals -
+                            // the model path's own arithmetic.
+                            float c[3] = {0, 0, 0};
+                            if (part.reflRounded) {
+                                const float* m2 = mm.m;
+                                for (int a = 0; a < 3; ++a)
+                                    c[a] = m2[a] * part.centroid[0] +
+                                           m2[a + 4] * part.centroid[1] +
+                                           m2[a + 8] * part.centroid[2] + m2[a + 12];
+                            }
                             draw(part.mesh, GL_TRIANGLES, mvp2, o.color[0] * tintScale,
                                  o.color[1] * tintScale, o.color[2] * tintScale,
-                                 asLines ? 0 : palTex, lit ? &mm : nullptr, false);
+                                 asLines ? 0 : palTex, lit ? &mm : nullptr, false,
+                                 1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
+                                 asLines ? false : part.reflSky, part.reflRounded, c);
                         }
                     };
                     drawParts(vd.body, model);

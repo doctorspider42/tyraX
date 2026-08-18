@@ -990,6 +990,10 @@ struct VehicleDef {
     int bodyTriBudget = 1500;
     int wheelTriBudget = 700;
     bool mergeUntextured = true;
+    // Paint shine 0..1: refl "@sky" on the baked body parts - the dynamic env
+    // map, so the paint mirrors the sky the scene actually has. 0 = matte and
+    // writes nothing, so an existing definition resaves byte for byte.
+    float bodyShine = 0.0f;
     // The panel's answer when the importer could not tell which end is the
     // nose. Flips the resolved forward axis and nothing else.
     bool flipFront = false;
@@ -1047,6 +1051,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
     if (a.id != b.id || a.name != b.name || a.notes != b.notes ||
         a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
         a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
+        a.bodyShine != b.bodyShine ||
         a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
         a.camHeight != b.camHeight || a.camPitch != b.camPitch ||
         a.engineSound != b.engineSound ||

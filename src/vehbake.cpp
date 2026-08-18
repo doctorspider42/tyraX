@@ -451,6 +451,15 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
         out.notes.push_back(buf);
     }
 
+    // The paint's shine: refl "@sky" on every body part (docs/vehicles.md,
+    // "A shiny body"). After the merge, before the decimation - the fields
+    // ride the part, not the vertices, so the order only matters for reading.
+    if (opt.bodyShine > 0.001f)
+        for (tmdl::Part& p : out.body.parts) {
+            p.reflTexture = "@sky";
+            p.reflStrength = opt.bodyShine > 1.0f ? 1.0f : opt.bodyShine;
+        }
+
     const int bodyBefore = modelTris(out.body), wheelBefore = modelTris(out.wheel);
     for (tmdl::Part& p : out.body.parts) decimateTo(p.verts, opt.bodyTriBudget);
     for (tmdl::Part& p : out.wheel.parts) decimateTo(p.verts, opt.wheelTriBudget);
@@ -556,6 +565,7 @@ std::string bakeProject(const Project& p,
         opt.bodyTriBudget = v.bodyTriBudget;
         opt.wheelTriBudget = v.wheelTriBudget;
         opt.mergeUntextured = v.mergeUntextured;
+        opt.bodyShine = v.bodyShine;
         opt.paletteTexture = bp.palette;
         Result r;
         std::string err;
