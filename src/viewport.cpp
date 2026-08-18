@@ -254,6 +254,7 @@ uniform vec4 uEmisCol[8];        // rgb = light color, w = brightness
 uniform float uEmisRange[8];     // world units the light reaches
 uniform int uEmisObj[8];         // scene-object index (never lights itself)
 uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
+uniform int uPaintFx;            // vehicle paint: fresnel rim + white specular
 uniform sampler2D uRefl;         // sphere map, texture unit 1
 uniform float uReflStrength;     // additive gain, 1.0 = full chrome
 uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
@@ -760,7 +761,21 @@ void main() {
         vec3 n = uReflRounded != 0
             ? normalize(vWorld - uReflCenter)
             : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        color += uReflStrength * envColor(envSt(n));
+        // The vehicle paint pass (docs/vehicles.md): fresnel rim scaling the
+        // reflection + a white Blinn-Phong hot spot, the GLSL twin of the
+        // console's HIGHLIGHT2 env pass in renderEnvPass. Same 0.3 floor,
+        // same fixed key light, same p=8. The PS2-shading GS variant keeps
+        // the plain reflection - stated divergence, not an accident.
+        float pf = 1.0;
+        vec3 pspec = vec3(0.0);
+        if (uPaintFx != 0) {
+            pf = 0.30 + 0.70 * (1.0 - abs(dot(n, uFogFwd)));
+            vec3 h = normalize(vec3(0.35, 0.85, 0.35) - uFogFwd);
+            float sp = max(dot(n, h), 0.0);
+            sp = sp * sp; sp = sp * sp; sp = sp * sp;
+            pspec = vec3(uReflStrength * 220.0 * sp / 128.0);
+        }
+        color += uReflStrength * pf * envColor(envSt(n)) + pspec;
     }
     // Decals carry the texture's alpha (cutout above + blend here), mirror
     // glass a constant opacity; everything else outputs opaque.
@@ -1398,6 +1413,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uFlashCut2_ = glGetUniformLocation(prog, "uFlashCut2");
     uFlashSoft_ = glGetUniformLocation(prog, "uFlashSoft");
     uReflOn_ = glGetUniformLocation(prog, "uReflOn");
+    uPaintFx_ = glGetUniformLocation(prog, "uPaintFx");
     uRefl_ = glGetUniformLocation(prog, "uRefl");
     uReflStrength_ = glGetUniformLocation(prog, "uReflStrength");
     uReflSkyHorizon_ = glGetUniformLocation(prog, "uReflSkyHorizon");
@@ -5246,6 +5262,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                  asLines ? false : part.reflSky, part.reflRounded, c);
                         }
                     };
+                    // The paint pass is vehicles-only, like the console's.
+                    glUniform1i(uPaintFx_, 1);
                     drawParts(vd.body, model);
                     // The wheels ride in the vehicle's own frame, so they are
                     // the object matrix times a local offset - never a second
@@ -5265,6 +5283,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                                            model.m[12 + a];
                         drawParts(vd.wheel, wm);
                     }
+                    glUniform1i(uPaintFx_, 0);
                     continue;
                 }
                 // No definition (or none imported yet): fall through to the

@@ -311,21 +311,18 @@ gaps, each with a testable end:
   docs/input-bindings.md says not to do. Five `InputAction::Role`s plus their
   `kSeeds` and `kRoles` rows fixes it and makes a wheel or a rebind possible at
   all. Done when a project can rebind the throttle.
-- **The NFS paint stack, the VU1 half.** The static streak sphere map and the
-  matte rubber/trim split shipped in 1.62.0; what remains is the per-vertex
-  pair: a WHITE SPECULAR from Blinn-Phong (N.H)^p written into the vertex
-  ALPHA and added via the GS's HIGHLIGHT/HIGHLIGHT2 texture functions (their
-  RGB is Texture*VertexRGB + VertexAlpha - the alpha lands as pure white, the
-  era's burned-out highlight), and a FAKE FRESNEL (1 - N.V, optionally raised
-  to a power) as the reflection pass's per-vertex alpha, so the silhouette
-  gets the silver rim while camera-facing paint keeps its colour - that
-  second one needs the env pass switched from the per-bag additiveBlendFix
-  constant to source-alpha additive blending. Both want a dedicated VU1
-  program for cars (transform + N.L + N.H + reflection UV + Fresnel into
-  alpha, then the GIFTag sets per pass) - docs/vu-framework.md is the
-  tooling, and it is very doable, not monstrous. Done when a driven car shows
-  a moving white highlight and a silver rim, verified by the shine A/B method
-  (crop the body, diff against the pass disabled).
+- ~~**The NFS paint stack.**~~ DONE in 1.63.0, and WITHOUT the VU1 program the
+  plan assumed: fresnel rides the env pass's vertex RGB and the white specular
+  its ALPHA, computed per frame on the EE (the wheel-bag precedent, ~40-60 us
+  for a body), drawn with the GS's HIGHLIGHT2 texture function - which
+  resolves the "they cannot both have the alpha" conflict this entry used to
+  state, and needs no source-alpha blending at all. The remaining VU1 version
+  is an OFFLOAD, not a feature: a kMatcap-class script reconstructing the rim
+  from the matcap ST ((2s-1)^2 + (1-2t)^2) would move ~20 flops/vertex off the
+  EE, at the price of de-aliasing the TC/TCE shared clip image against a
+  micro-memory ceiling already at 962..1918 of 2042 - check Tools > VU
+  Programs > Micro memory FIRST, and only bother once a measured frame says
+  the EE loop matters.
 - **Tyre smoke.** `DriveState::slip` is already the ONE number for it (the
   sideways slide and the wheelspin folded together, measured reading 0.9 at a wall
   impact), so this is a particle question rather than a vehicle one: an emitter

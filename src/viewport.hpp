@@ -888,7 +888,7 @@ private:
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
     // Spherical environment map (refl) preview - matcap on texture unit 1;
     // "@sky" dynamic mode approximated by the analytic sky gradient
-    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1, uPaintFx_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
     int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint

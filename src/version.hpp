@@ -16,6 +16,31 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.63.0 (the wet lacquer - docs/vehicles.md, "A shiny body"): the NFS paint
+// pass, and WITHOUT the dedicated VU1 program everyone assumed it needed. A
+// fresnel rim (0.3 + 0.7*(1-|N.V|)) rides the env pass's per-vertex RGB and a
+// Blinn-Phong (N.H)^8 white specular rides the per-vertex ALPHA, drawn with
+// the GS's HIGHLIGHT2 texture function - RGB = Tex*Cv>>7 + Av - so both
+// effects share the ONE existing env submit and the additive FIX blend still
+// carries the authored Body shine. HIGHLIGHT2 was always in the GS; the
+// engine just never selected it. One new engine field
+// (StaPipTextureBag::textureFunction, per-bag TFX - safe on a shared texture
+// because TEX0 is re-emitted per bag) and a per-frame EE loop over the env
+// colours, the wheel-bag precedent, ~1100 vertices of a few flops each.
+//
+// Scoped to vehicles (vehiclePaintFor), so chrome and mirror balls elsewhere
+// keep their exact look. Three rules from the fields underneath: write through
+// envColorBag->many (LOD tiers re-aim it), never bump bboxVersion (the env
+// bag shares the base pass's frustum cache entry - worth 4-6% of frame rate),
+// and alpha >= 1, because the GS alpha test is NOTEQUAL 0 and a zero specular
+// would erase the reflection with it. Also --vehicle-check (the sim's
+// property tests as a CLI verb, CI-ready) and the suspension the wheels now
+// actually DRAW (each hub rides its own wheel's sampled ground within the
+// travel). Viewport per-pixel program mirrors the paint terms; the
+// PS2-shading GS variant keeps plain reflection, stated in the doc.
+//
+// No format change. MINOR.
+//
 // 1.62.0 (the shine you can SEE - docs/vehicles.md, "A shiny body"): the
 // user's verdict on 1.60's reflection was "szczerze to nie widze, zeby sie
 // cokolwiek odbijalo", and they were right for a structural reason: the
@@ -1965,7 +1990,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 62
+#define TYRAX_VERSION_MINOR 63
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

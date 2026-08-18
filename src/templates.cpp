@@ -17536,7 +17536,8 @@ void TerrainGame::renderScene() {
   // repaint - two exact-clip passes per frame). OVERLAY mode: the body draws
   // normally in the main pass and the shells are painted ON it afterwards, so
   // it stays in this list only for the shell pass.
-  auto renderEnvPass = [&](ObjectGeometry& og, GeoPart& part) {
+  auto renderEnvPass = [&](int oi, GeoPart& part) {
+    ObjectGeometry& og = objectGeometry[oi];
     if (!part.envBag) return;
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
     // per-mesh camera basis here. Reflected-probe objects sample with THEIR
@@ -17549,6 +17550,13 @@ void TerrainGame::renderScene() {
       part.envTexBag->envRight.set(envRight.x, envRight.y, envRight.z, 0.0F);
       part.envTexBag->envUp.set(envUp.x, envUp.y, envUp.z, 0.0F);
     }
+    const M4x4& m = og.objMat;
+    auto fold = [&](Tyra::Vec4& e) {
+      const float x = m.data[0] * e.x + m.data[1] * e.y + m.data[2] * e.z;
+      const float y = m.data[4] * e.x + m.data[5] * e.y + m.data[6] * e.z;
+      const float z = m.data[8] * e.x + m.data[9] * e.y + m.data[10] * e.z;
+      e.set(x, y, z, 0.0F);
+    };
     if (og.matrixMode) {
       // Matrix path: the env normals are LOCAL (pushVert's local capture), so
       // the object's CURRENT rotation is folded into the camera basis instead
@@ -17557,15 +17565,62 @@ void TerrainGame::renderScene() {
       // the whole reason reflective parts may ride the matrix path at all:
       // a driven car yaws every frame, and a world-baked reflection would
       // either pin to the bake pose or cost a full rebake per frame.
-      const M4x4& m = og.objMat;
-      auto fold = [&](Tyra::Vec4& e) {
-        const float x = m.data[0] * e.x + m.data[1] * e.y + m.data[2] * e.z;
-        const float y = m.data[4] * e.x + m.data[5] * e.y + m.data[6] * e.z;
-        const float z = m.data[8] * e.x + m.data[9] * e.y + m.data[10] * e.z;
-        e.set(x, y, z, 0.0F);
-      };
       fold(part.envTexBag->envRight);
       fold(part.envTexBag->envUp);
+    }
+
+    // THE PAINT PASS (docs/vehicles.md, "A shiny body") - vehicles only, so
+    // every other reflective material keeps its exact look. Per vertex, on
+    // the EE, the wheel-bag precedent: a fresnel rim in the vertex RGB and a
+    // white Blinn-Phong specular in the vertex ALPHA, drawn with the GS's
+    // HIGHLIGHT2 texture function (RGB = Tex*Cv>>7 + Av), so both ride the
+    // ONE existing env submit and the additive FIX blend still carries the
+    // authored Body shine. ~1100 vertices of a few flops each - the same
+    // order as the wheel rebuild the docs already price at microseconds.
+    //
+    // Three rules from the fields underneath: write through envColorBag->many
+    // (the LOD tiers re-aim it), NEVER bump bboxVersion (the env bag shares
+    // the base pass's cache entry), and keep alpha >= 1 - the GS alpha test
+    // is NOTEQUAL 0, and a specular of zero would erase the reflection with
+    // it.
+    const int paint = {{VEHICLE_PAINT_FOR}};
+    if (paint && part.envTexBag->coordinates && part.envColorBag->many) {
+      part.envTexBag->textureFunction = 3;  // TEXTURE_FUNCTION_HIGHLIGHT2
+      Tyra::Vec4 fwdL(envFwd.x, envFwd.y, envFwd.z, 0.0F);
+      // A fixed overhead-ish key light: arcade paint wants a stable hot spot,
+      // not the scene's lighting model. H = normalize(L + V), V = -forward.
+      Tyra::Vec4 hL(0.35F - fwdL.x, 0.85F - fwdL.y, 0.35F - fwdL.z, 0.0F);
+      if (og.matrixMode) {
+        fold(fwdL);
+        fold(hL);
+      }
+      const float hl = sqrtf(hL.x * hL.x + hL.y * hL.y + hL.z * hL.z);
+      if (hl > 1e-5F) {
+        hL.x /= hl;
+        hL.y /= hl;
+        hL.z /= hl;
+      }
+      Tyra::Color* dst = const_cast<Tyra::Color*>(part.envColorBag->many);
+      const Tyra::Vec4* nrm = part.envTexBag->coordinates;
+      const u32 n = part.envBag->count;
+      for (u32 k = 0; k < n; ++k) {
+        const float df = nrm[k].x * fwdL.x + nrm[k].y * fwdL.y + nrm[k].z * fwdL.z;
+        // 0.3 floor: pure fresnel dims the whole reflection (it is < 1
+        // almost everywhere) - the floor keeps the authored strength's
+        // overall level and spends the rest on the rim.
+        const float f = 0.30F + 0.70F * (1.0F - (df < 0.0F ? -df : df));
+        float sp = nrm[k].x * hL.x + nrm[k].y * hL.y + nrm[k].z * hL.z;
+        if (sp < 0.0F) sp = 0.0F;
+        sp *= sp;
+        sp *= sp;
+        sp *= sp;  // p = 8
+        float a = 1.0F + 220.0F * sp;
+        if (a > 255.0F) a = 255.0F;
+        dst[k].r = 128.0F * f;
+        dst[k].g = 128.0F * f;
+        dst[k].b = 128.0F * f;
+        dst[k].a = a;
+      }
     }
     stapip.core.render(part.envBag.get());
   };
@@ -17668,7 +17723,7 @@ void TerrainGame::renderScene() {
         // it), and then the additive env pass last.
         if (part.aoBag) stapip.core.render(part.aoBag.get());
         if (part.emisBag) stapip.core.render(part.emisBag.get());
-        renderEnvPass(objectGeometry[i], part);
+        renderEnvPass(i, part);
       }
     // Back to zero the moment this object's bags are out. The numbers are
     // RENDERER STATE, not a property of the bag, so everything drawn after an
@@ -17735,7 +17790,7 @@ void TerrainGame::renderScene() {
       for (GeoPart& part : objectGeometry[i].parts)
         if (part.bag) {
           stapip.core.render(part.bag.get());
-          renderEnvPass(objectGeometry[i], part);
+          renderEnvPass(i, part);
         }
       if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - pb;
     }
@@ -27597,6 +27652,8 @@ static std::string vehicleMembers(const Project& p) {
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
+  // Is this runtime object a placed vehicle? The paint pass asks per part.
+  int vehiclePaintFor(int objIdx);
 )";
 }
 
@@ -28362,6 +28419,17 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   }
 }
 
+// The paint pass's gate: only a VEHICLE's env bag gets the fresnel rim, the
+// white specular and the HIGHLIGHT2 texture function - a chrome sphere or a
+// mirror ball elsewhere in the scene keeps the exact reflection it always
+// had. Vehicles without shine have no env bag at all, so this never needs to
+// know the strength.
+int TerrainGame::vehiclePaintFor(int objIdx) {
+  for (int i = 0; i < vehicleCount_; ++i)
+    if (vehicles_[i].active && vehicles_[i].object == objIdx) return 1;
+  return 0;
+}
+
 // The pause menu's mute. Forgetting the channel (engineCh = -1) is what makes
 // closing the menu RESTART the loop through the ordinary enter path instead of
 // resuming a voice whose volume something else may have touched meanwhile; the
@@ -28910,6 +28978,11 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_WALKER_GATE}}", vehicleWalkerGate(p));
     s = replaceAll(s, "{{VEHICLE_PROMPT_OR}}", vehiclePromptOr(p));
     s = replaceAll(s, "{{VEHICLE_HUD}}", vehicleHudCall(p));
+    // The paint pass's per-object gate: a vehicle lookup where the project
+    // has vehicles, the constant 0 everywhere else - the compiler then folds
+    // the whole paint branch away.
+    s = replaceAll(s, "{{VEHICLE_PAINT_FOR}}",
+                   projectHasVehicles(p) ? "vehiclePaintFor(oi)" : "0");
     s = replaceAll(s, "{{VEHICLE_DRIVING_AND}}", vehicleDrivingAnd(p));
     s = replaceAll(s, "{{VEHICLE_UPDATE}}", vehicleUpdateCall(p));
     s = replaceAll(s, "{{VEHICLE_RENDER}}", vehicleRenderCall(p));

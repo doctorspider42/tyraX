@@ -364,6 +364,27 @@ a per-part budget let a 2-part body carry 2002 triangles against an authored
 The viewport preview reads the same `.tmdl` fields (bin-relative texture paths
 mapped back through `res/`), so the editor shows the shine the console draws.
 
+**Fresnel rim + white specular — the wet-lacquer pass, in the SAME submit.**
+Per frame, per vertex, on the EE (the wheel-bag precedent, ~1100 vertices of a
+few flops each): a fresnel term `0.3 + 0.7·(1 − |N·V|)` rides the env pass's
+vertex **RGB**, and a Blinn-Phong `(N·H)⁸` white specular rides the vertex
+**ALPHA** — drawn with the GS's **HIGHLIGHT2** texture function
+(`RGB = Tex·Cv≫7 + Av`), so the silhouette gets the silver rim, panels facing
+the key light get the burned-out white hot spot, camera-facing paint goes deep
+and dark, and the additive FIX blend still carries the authored *Body shine*.
+No new submit, no VU1 change — HIGHLIGHT2 was always in the GS, one line of
+TEX0 state away (`StaPipTextureBag::textureFunction`, per-bag because TEX0 is
+re-emitted per bag).
+
+Vehicles only: `vehiclePaintFor` gates it, so a chrome sphere or mirror ball
+elsewhere keeps its exact look. Three rules the loop lives by, each from a
+field underneath: write through `envColorBag->many` (the LOD tiers re-aim it),
+never bump `bboxVersion` (the env bag shares the base pass's frustum-box cache
+entry), and keep alpha ≥ 1 — the GS alpha test is NOTEQUAL 0, and a zero
+specular would erase the reflection with it. The editor's per-pixel program
+mirrors both terms; the PS2-shading GS variant keeps the plain reflection — a
+stated divergence.
+
 What made this possible is an engine-side change worth knowing about:
 **reflective parts used to be banned from the matrix fast path**, because their
 env normals were baked in world space and froze the reflection at the promotion

@@ -217,3 +217,13 @@ map). Off by default (existing projects keep their look).
 - Beware the GIF NLOOP pitfall hit while building this: an A+D giftag whose
   NLOOP undercounts its register writes stalls the GIF forever — the game
   hangs on the loading screen inside `draw_wait_finish()`.
+
+## The vehicle paint pass
+
+A placed vehicle's env bag is drawn with the GS **HIGHLIGHT2** texture function
+and per-frame per-vertex colours - a fresnel rim in the RGB, a white Blinn-Phong
+specular in the alpha (docs/vehicles.md, "A shiny body"). This is gated per
+OBJECT (`vehiclePaintFor`), so every other `refl` material keeps the exact
+MODULATE + constant-FIX look this page describes. The engine hook it rides is
+`StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
+because TEX0 is re-emitted per bag.

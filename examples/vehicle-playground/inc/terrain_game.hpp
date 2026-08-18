@@ -718,6 +718,8 @@ class TerrainGame : public Tyra::Game {
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
+  // Is this runtime object a placed vehicle? The paint pass asks per part.
+  int vehiclePaintFor(int objIdx);
 
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
