@@ -589,6 +589,22 @@ std::string bakeProject(const Project& p,
                           v.name.c_str(), r.bodyTris, r.bodyParts, r.wheelTris,
                           r.bodyParts + r.wheelParts);
             log(buf);
+            // The MEASURED geometry, stated wherever a build log is read: the
+            // numbers the definition should carry. The editor adopts them on
+            // import, but only in the GUI tick - a project authored headless
+            // keeps the struct defaults, and the reference example shipped
+            // with track 1.40 against a 1.41-wide body (wheels riding fully
+            // outside the arches) and a 0.32 radius against a 0.23 baked
+            // wheel (the car floated) with nothing anywhere saying so.
+            if (r.spec.track > 1e-4f || r.spec.wheelBase > 1e-4f) {
+                std::snprintf(buf, sizeof(buf),
+                              "[vehicle] %s: measured wheelBase %.3f track %.3f "
+                              "radius %.3f rideHeight %.3f - the definition's "
+                              "Driving tab should match",
+                              v.name.c_str(), r.spec.wheelBase, r.spec.track,
+                              r.spec.wheelRadius, r.spec.rideHeight);
+                log(buf);
+            }
         }
     }
     return firstError;

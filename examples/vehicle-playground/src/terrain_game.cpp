@@ -13200,10 +13200,19 @@ void TerrainGame::updateVehicles(float dt) {
     int inHand = 0, inNos = 0;
     if (vi == vehicleDriver_) {
       const auto& joy = engine->pad.getLeftJoyPad();
-      inSteer = ((float)joy.h - 128.0F) / 128.0F;
+      // NEGATED, the host twin's rule (vehiclesim.cpp): stick right must
+      // steer toward the body's right, which in the canonical frame is -X
+      // while positive steer turns toward +X. Found by a driver, not a
+      // harness - the acceptance test only proved yaw moved.
+      inSteer = -((float)joy.h - 128.0F) / 128.0F;
       const float fwd = -((float)joy.v - 128.0F) / 128.0F;
       if (fwd > 0.15F || fwd < -0.15F) inThrottle = fwd;
       if (engine->pad.getPressed().Cross) inThrottle = 1.0F;
+      // R2 too: a stick pushed to full lock has no vertical deflection left,
+      // so a stick-only driver loses the stick's throttle exactly when
+      // steering hard - "turning brakes the car to zero", reported from a
+      // real pad. The era's racers put the gas on a button for this reason.
+      if (engine->pad.getPressed().R2) inThrottle = 1.0F;
       // L1, NOT Square: Square is the USE action's default binding, so a
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
@@ -13336,7 +13345,15 @@ void TerrainGame::updateVehicles(float dt) {
         if (f > vehClamp(s.shiftUpFrac, 0.1F, 1.0F) && v.gear < nGears - 1) {
           ++v.gear;
           v.shiftTimer = vehClamp(s.shiftTime, 0.0F, 0.6F);
-        } else if (f < vehShiftDownFrac(s) && v.gear > 0) {
+        } else if (v.gear > 0 &&
+                   (f < vehShiftDownFrac(s) ||
+                    (inThrottle > 0.8F && f < 0.72F &&
+                     (v.speed < 0.0F ? -v.speed : v.speed) <
+                         vehGearTopSpeed(s, v.gear - 1) *
+                             (vehClamp(s.shiftUpFrac, 0.2F, 1.0F) - 0.15F)))) {
+          // KICKDOWN, the host twin's rule: flat out with the engine under
+          // 72% of redline means the gear is too tall for the grade - drop
+          // one now instead of wallowing to the passive threshold.
           --v.gear;
           v.shiftTimer = vehClamp(s.shiftTime, 0.0F, 0.6F);
         }

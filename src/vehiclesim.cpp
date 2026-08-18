@@ -539,7 +539,13 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     const float speedFrac = clampf(std::fabs(state.speed) / std::max(spec.topSpeed, 0.001f), 0.0f, 1.0f);
     const float lock = spec.maxSteerDeg +
                        (spec.highSpeedSteerDeg - spec.maxSteerDeg) * speedFrac;
-    const float steerIn = clampf(in.steer, -1.0f, 1.0f);
+    // NEGATED: DriveInput.steer is "positive = the driver's right", and in
+    // the canonical frame (forward +Z, up +Y, right-handed) the body's right
+    // is -X - while positive steerAngle/yaw turns toward +X, the LEFT. The
+    // original acceptance test verified that yaw CHANGED under stick input,
+    // not which way the car went on screen, which is how "stick left, car
+    // goes right" shipped and was found by a person, not a harness.
+    const float steerIn = clampf(-in.steer, -1.0f, 1.0f);
     if (std::fabs(steerIn) > 0.02f)
         state.steerAngle = approach(state.steerAngle, steerIn * lock,
                                     spec.steerRateDeg * dt);
@@ -645,7 +651,20 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
             if (f > clampf(spec.shiftUpFrac, 0.1f, 1.0f) && state.gear < nGears - 1) {
                 ++state.gear;
                 state.shiftTimer = clampf(spec.shiftTime, 0.0f, 0.6f);
-            } else if (f < safeShiftDownFrac(spec) && state.gear > 0) {
+            } else if (state.gear > 0 &&
+                       (f < safeShiftDownFrac(spec) ||
+                        (clampf(in.throttle, -1.0f, 1.0f) > 0.8f && f < 0.72f &&
+                         std::fabs(state.speed) <
+                             gearTopSpeed(spec, state.gear - 1) *
+                                 (clampf(spec.shiftUpFrac, 0.2f, 1.0f) - 0.15f)))) {
+                // The second arm is the KICKDOWN: flat out and the engine
+                // under 72% of redline means the gear is too tall for the
+                // grade - drop one now rather than wallowing to the passive
+                // threshold. The landing guard leaves 0.15 of headroom under
+                // the up-shift point - not 0.05, because the shift CUT itself
+                // decays the speed, and with the tighter margin the box
+                // kicked down into its own up-shift for ever and the harness
+                // car crawled 170 units in 50 seconds on the FLAT.
                 --state.gear;
                 state.shiftTimer = clampf(spec.shiftTime, 0.0f, 0.6f);
             }

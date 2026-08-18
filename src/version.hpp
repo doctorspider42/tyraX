@@ -16,6 +16,49 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.61.0 (four reports from the driver's seat - docs/vehicles.md): the
+// steering was INVERTED, cornering killed the throttle, hills swallowed the
+// car, and the wheels rode outside the arches. All four were real.
+//
+// THE STEERING: in the canonical frame (forward +Z, up +Y, right-handed) the
+// body's right is -X - cross(forward, up) - while positive steerAngle turns
+// the yaw toward +X, and screen X runs opposite world X besides. So "stick
+// left" turned the car screen-right, and the original acceptance test never
+// saw it because it only proved yaw MOVED under stick input, not which way
+// the car went on screen. DriveInput.steer keeps its "positive = the
+// driver's right" meaning and is negated once, inside the sim (both twins),
+// so the test drive's A/D and the pad fix together. The doc's telemetry
+// samples flip their yaw signs with it.
+//
+// CORNERING-KILLS-THE-GAS was an input truth, not a physics bug: the stick's
+// throttle is its vertical deflection, and a stick at full lock has none
+// left - so a stick-only driver lost the gas exactly when steering hard,
+// then engine braking ground them to zero. R2 is a second throttle button
+// now (the era's racers put the gas on a button for exactly this reason).
+//
+// HILLS: with gearTorque 1 the top gear pulls 0.43x, which loses to a
+// 15-degree dune, and the passive downshift waits for 50% of redline - the
+// car wallowed through two gears before any torque came back. KICKDOWN: flat
+// out with the engine under 72% of redline drops a gear immediately. The
+// landing guard leaves 0.15 of headroom under the up-shift point, not 0.05,
+// because the shift CUT itself decays the speed - with the tighter margin
+// the box kicked down into its own up-shift for ever and the harness car
+// crawled 170 units in 50 seconds ON THE FLAT. Harness: launch to top gear
+// on the flat, kick down on a 15-degree ramp, hold >= 5 u/s, climb 314
+// units - PASS, with the pre-powertrain regression still 0.000000000.
+//
+// THE WHEELS: the example's .tyra carried the struct DEFAULTS (track 1.40
+// against a 1.414-wide body - wheel centres exactly on the paint, tyres
+// fully outside the arches; radius 0.32 against a 0.232 baked wheel - the
+// car floated). The editor adopts measured geometry on import but only in
+// the GUI tick, and this example was authored headless, so nothing ever
+// said so. The build log states the measurement now ("[vehicle] ...
+// measured wheelBase 2.066 track 1.248 radius 0.232 ...") and the example
+// carries the measured numbers. gearTorque softened 1 -> 0.6 while there,
+// so the top gear holds the dunes it drives on.
+//
+// No format change. MINOR for the kickdown and R2.
+//
 // 1.60.0 (the drive, perfected - docs/vehicles.md): an adversarial review of
 // the whole vehicle branch plus the fixes it demanded, three physics upgrades,
 // a reflective paint option and a four-times-bigger playground.
@@ -1884,7 +1927,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 60
+#define TYRAX_VERSION_MINOR 61
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

@@ -199,6 +199,13 @@ misbehaves at one end of its range is worse than one that quietly refuses to.
 
 Reverse is gear **-1**: its own ratio off `reverseTopSpeed`, and it never shifts.
 
+**Kickdown.** Flat out (throttle > 0.8) with the engine under 72% of the redline
+drops a gear immediately instead of wallowing down to the passive threshold —
+the automatic gearbox's answer to a hill. Without it a car cresting a dune in
+top gear (torque multiplier 0.43 at `gearTorque` 1) decelerated through two
+whole gears before the passive 50% point ever fired. The landing guard keeps
+the post-kickdown rpm under the up-shift threshold, so it cannot hunt.
+
 ### Wheelspin, and why it needs no new knob
 
 The engine follows the **driven wheels**, not the car (`DriveState::wheelSpeed`),
@@ -412,6 +419,7 @@ stores the name, so it has to.
 | Square | the USE action — get in, and get out at the driver's door |
 | Cross | throttle (the left stick's Y works too, and reverses) |
 | L1 | brake — **not** Square, which is USE: getting in and slowing down cannot share a button |
+| R2 | throttle too — a stick at full lock has no vertical deflection left, so a stick-only driver loses the stick's gas exactly when steering hard |
 | Circle | handbrake, i.e. `handbrakeGrip` instead of `grip` — the drift |
 | R1 | nitrous, when the definition has a tank |
 | Triangle | cycle the camera |
@@ -577,18 +585,24 @@ And steering has its own acceptance line — hold throttle, then push the stick
 left, and the story continues:
 
 ```
-VEH pos 0 12   spd10 188 yaw -5   mtx 1   ← stick goes left
-VEH pos -4 21  spd10 219 yaw -40  mtx 1   ← carving at top speed
-VEH pos -24 28 spd10 219 yaw -104 mtx 1   ← 120° of arc across the map
-VEH pos -27 26 spd10 9   yaw -121 mtx 1   ← the WEST wall, mid-turn
+VEH pos 0 12   spd10 188 yaw 5    mtx 1   ← stick goes left
+VEH pos 4 21   spd10 219 yaw 40   mtx 1   ← carving at top speed
+VEH pos 24 28  spd10 219 yaw 104  mtx 1   ← 120° of arc across the map
+VEH pos 27 26  spd10 9   yaw 121  mtx 1   ← a side wall, mid-turn
 ```
+
+(Yaw signs POSITIVE for a left turn since the steering-inversion fix: screen X
+runs opposite world X, so +X is screen LEFT, and `DriveInput.steer`'s "positive
+= right" is negated into the yaw math whose positive angle turns toward +X. The
+original acceptance run only proved yaw MOVED under stick input - which way the
+car went on screen took a human driver to notice.)
 
 And the drift has one too. The same left turn twice — once on grip (26), once
 with the handbrake's grip (6) — is the whole story of the one knob:
 
 ```
-grip 26:       VEH pos -4 21  spd10 219 lat10 0   yaw -40    ← on rails
-handbrake 6:   VEH pos -2 23  spd10 170 lat10 130 yaw -55    ← 13 u/s sideways
+grip 26:       VEH pos 4 21  spd10 219 lat10 0   yaw 40    ← on rails
+handbrake 6:   VEH pos 2 23  spd10 170 lat10 130 yaw 55    ← 13 u/s sideways
 ```
 
 **The gearbox has its own, and the RPM sawtooth IS the acceptance test** — one

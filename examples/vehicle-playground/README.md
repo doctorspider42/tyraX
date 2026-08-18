@@ -32,6 +32,7 @@ seat). Press USE again to get out at the driver's door.
 | left stick | steer, and throttle forward/back |
 | Cross | throttle |
 | L1 | brake |
+| R2 | throttle too — full lock on the stick leaves no vertical deflection, so keep the gas on a button |
 | Circle | handbrake — this is the drift button |
 | R1 | nitrous — this car carries three seconds of it |
 | Triangle | cycle the camera: chase → bumper → far |
