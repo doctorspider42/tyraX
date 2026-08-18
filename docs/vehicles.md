@@ -147,7 +147,11 @@ everything else a scene does.
   `TERRAIN_VOID_Y`, so "there is no floor" needs no branch of its own.
 - **Suspension compression is presentation**, derived from each wheel's ground
   height against the *tilted* chassis plane — the residual the pitch and roll do
-  not already express. Measured against the mean instead, a constant slope reads
+  not already express. On the console the wheel bag actually DRAWS it: each hub
+  rides one radius above its own wheel's sampled ground, clamped to
+  `suspensionTravel` around the chassis, so a kerb lifts one corner, a crest
+  drops the pair, and in the air all four hang at full droop. (The editor's
+  preview keeps the wheels at ride height — a known, stated divergence.) Measured against the mean instead, a constant slope reads
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives
   `[0.40 0.60 0.60 0.40]`: the diagonal racking four springs actually produce.
@@ -590,6 +594,18 @@ vehicle that placeholder pushed `MODEL_COUNT` one short of the rows actually
 written. The emptiness test has to consider the appended vehicle slots too.
 
 ## Verifying a drive without eyes
+
+**`tyrax-editor --vehicle-check`** runs the drive model's property tests -
+host-only, no project, no Docker, exit 0 when every property holds - so a CI
+job or a pre-commit hook can gate on the sim. Fifteen assertions, each one a
+failure that actually happened: the pre-powertrain regression (a default spec
+must be bit-for-bit the old model), gear-ratio geometry, the anti-hunt under
+contradictory thresholds, the wall grind and the head-on (including the
+phantom grind-in-place), weight-transfer bounds and `leanAmount 0`, and the
+hill kickdown with its landing margin. What it cannot check is twin parity
+with the generated runtime - the VEH telemetry below is that check.
+
+
 
 While driving, the game prints one `VEH` line every half second to
 `bin/log.txt`, plus one on enter/exit — position, speed×10 and whether the body

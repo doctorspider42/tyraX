@@ -304,6 +304,7 @@ add_executable(tyrax-editor
     src/uvunwrap.cpp
     src/vehbake.cpp
     src/vehicle_ui.cpp
+    src/vehcheck.cpp
     src/vehiclesim.cpp
     src/save_assets.cpp
     src/templates.cpp

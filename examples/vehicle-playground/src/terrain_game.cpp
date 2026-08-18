@@ -13267,6 +13267,7 @@ void TerrainGame::updateVehicles(float dt) {
       const float wx = v.pos[0] + lx[w] * cy + lz[w] * sy;
       const float wz = v.pos[2] - lx[w] * sy + lz[w] * cy;
       gy[w] = terrainHeightAt(wx, wz);
+      v.wheelY[w] = gy[w];
       sum += gy[w];
     }
     const float planeY = sum * 0.25F;
@@ -13893,7 +13894,17 @@ void TerrainGame::renderVehicleWheels() {
       const float cp = cosf(sp), spn = sinf(sp);
       const float ax = v.pos[0] + lx[w] * cy + lz[w] * sy;
       const float az = v.pos[2] - lx[w] * sy + lz[w] * cy;
-      const float ay = v.pos[1];
+      // The hub follows ITS OWN wheel's ground - one radius above it - and
+      // the travel clamp keeps it inside the arch. This is the computed
+      // suspension finally reaching the screen: over a crest the outer pair
+      // drops, over a kerb one corner rides up, and in the air all four hang
+      // at full droop. rideHeight = wheelRadius keeps the flat-ground case
+      // exactly where it always was.
+      float ay = v.wheelY[w] + s.wheelRadius * SC;
+      const float lo = v.pos[1] - s.suspensionTravel * SC;
+      const float hi = v.pos[1] + s.suspensionTravel * SC;
+      if (ay < lo) ay = lo;
+      if (ay > hi) ay = hi;
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];

@@ -689,6 +689,11 @@ class TerrainGame : public Tyra::Game {
     // real pitch). Twin of DriveState::leanPitch/leanRoll.
     float leanPitch = 0.0F;
     float leanRoll = 0.0F;
+    // Each wheel's own ground height, from the contact sampling - what the
+    // wheel bag DRAWS at, clamped to the suspension travel around the
+    // chassis. Without it the wheels rode rigidly at chassis height and the
+    // computed compression never reached the screen.
+    float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
   };
   VehicleRt vehicles_[VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1];
   int vehicleCount_ = 0;
