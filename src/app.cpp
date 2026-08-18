@@ -142,6 +142,16 @@ struct EditorConfig {
     // A way of looking at the scene, like the safe areas and the axis gizmo,
     // so it belongs to the installation rather than to the project.
     bool viewportPs2 = false;
+    // PS2 shading in the viewport (docs/ps2-viewport.md): the console's
+    // per-vertex lighting and flat-shaded triangles instead of the editor's
+    // per-pixel preview. A way of looking, like viewportPs2, and independent
+    // of it - triangle shading is visible at any raster.
+    bool viewportPs2Shade = false;
+    // GS colour simulation (docs/ps2-viewport.md): 0 = follow the project's
+    // Preferences > Colour depth + dithering, 1 = force full 32-bit, 2 =
+    // force 16-bit, 3 = force 16-bit + dithering. Follow-project is the
+    // default so the viewport shows the truth with nothing configured.
+    int viewportGsColor = 0;
     // Toolbar run target: false = the emulator (PCSX2), true = a real console
     // over ps2link. Which machine is on the desk is a property of this PC, not
     // of the game, so it lives here rather than in the .tyra.
@@ -163,6 +173,12 @@ struct EditorConfig {
     // build. Off by default: everything else the assistant does is instant and
     // one Ctrl+Z away, this is neither.
     bool chatAllowBuild = false;
+    // Update check (docs/updates.md): whether the editor asks GitHub for a
+    // newer release at startup, and one version somebody has told it to stop
+    // mentioning. Which build is installed is a property of this machine, so
+    // both belong here rather than in any .tyra.
+    bool updateCheck = true;
+    std::string updateSkipVersion;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -240,6 +256,13 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
         else if (match("theme", v)) cfg.theme = v;
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
+        else if (match("viewportPs2Shade", v))
+            cfg.viewportPs2Shade = toI(v, 0) != 0;
+        else if (match("viewportGsColor", v)) {
+            cfg.viewportGsColor = toI(v, 0);
+            if (cfg.viewportGsColor < 0 || cfg.viewportGsColor > 3)
+                cfg.viewportGsColor = 0;
+        }
         else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
         else if (match("timeMachineBudgetMb", v))
             cfg.timeMachineBudgetMb = toI(v, 128);
@@ -256,6 +279,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
         else if (match("chatAllowEdits", v)) cfg.chatAllowEdits = toI(v, 1) != 0;
         else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
+        else if (match("updateCheck", v)) cfg.updateCheck = toI(v, 1) != 0;
+        else if (match("updateSkipVersion", v)) cfg.updateSkipVersion = v;
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -318,6 +343,8 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeOpacity=" << cfg.safeOpacity << "\n"
       << "theme=" << cfg.theme << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
+      << "viewportPs2Shade=" << (cfg.viewportPs2Shade ? 1 : 0) << "\n"
+      << "viewportGsColor=" << cfg.viewportGsColor << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
       << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n"
@@ -326,7 +353,9 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
       << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n"
       << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
-      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n";
+      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n"
+      << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
+      << "updateSkipVersion=" << cfg.updateSkipVersion << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -569,6 +598,8 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
+        viewportPs2Shade_ = cfg.viewportPs2Shade;
+        viewportGsColor_ = cfg.viewportGsColor;
         runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
         logOut_.mask = cfg.logMaskOutput;
@@ -577,6 +608,8 @@ int App::run(const std::string& initialProjectDir) {
         logDbg_.selectText = cfg.logSelectDebug;
         chatAllowEdits_ = cfg.chatAllowEdits;
         chatAllowBuild_ = cfg.chatAllowBuild;
+        globalUpdateCheck_ = cfg.updateCheck;
+        globalUpdateSkip_ = cfg.updateSkipVersion;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -617,6 +650,13 @@ int App::run(const std::string& initialProjectDir) {
         // owns the format-version gate + migration prompt.
         openProjectAt(dir);  // failure leaves the welcome screen up
     }
+
+    // Is there a newer TyraX? (docs/updates.md) A worker thread and one HTTPS
+    // request, so nothing here waits on it - the answer lands in updateTick()
+    // whenever it arrives, and a modal only appears if there IS something newer.
+    // Never during a UI script: an unattended run must not have a dialog open
+    // itself in the middle of somebody's step list.
+    if (globalUpdateCheck_ && !uiScriptActive_) startUpdateCheck(false);
 
     // UI scripting (docs/ui-scripting.md): collect ImGui's item boxes so a
     // script can name widgets, and stop pacing to the monitor - an unattended
@@ -710,6 +750,11 @@ int App::run(const std::string& initialProjectDir) {
     if (blssCovThread_.joinable()) blssCovThread_.join();
     // The importer publishes a result into App members, which must outlive it.
     if (modelImportThread_.joinable()) modelImportThread_.join();
+    // The update check writes into App members too, and its curl may be sitting
+    // on a 20-second timeout - kill it rather than making the exit wait for a
+    // network that is not answering.
+    update::cancel();
+    if (updateThread_.joinable()) updateThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
@@ -895,6 +940,8 @@ void App::drawUI() {
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
+    modelAoPoll();
+    litBakerPoll();
     blssPoll();
     drawBlssWindow();
     drawLoadingScreenWindow();
@@ -905,6 +952,11 @@ void App::drawUI() {
     drawRemotePadWindow();
     drawSessionWindow();
     drawPhoneCamWindow();
+    // The update check's answer, collected here and not from the modal's body:
+    // a check started at startup has to land whether or not anything about it
+    // is on screen (the giBakerPoll rule).
+    updateTick();
+    drawUpdateModal();
     drawNewProjectModal();
     drawPreferencesWindow();
     drawEditorPreferencesModal();
@@ -1070,9 +1122,11 @@ void App::saveGlobalConfig() {
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_,
-                      theme::info(theme_).key, viewportPs2_, runOnPs2_,
+                      theme::info(theme_).key, viewportPs2_,
+                      viewportPs2Shade_, viewportGsColor_, runOnPs2_,
                       logOut_.mask, logDbg_.mask, logOut_.selectText,
                       logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
+                      globalUpdateCheck_, globalUpdateSkip_,
                       std::move(recent)});
 }
 
@@ -1289,6 +1343,39 @@ void App::drawMenuBar() {
                     ImGui::TextDisabled("  %dx%d, %s", o.bufW, o.bufH,
                                         project_.settings.widescreen ? "16:9" : "4:3");
                 }
+                // The two look simulations compose with either output mode:
+                // triangle shading and 16-bit banding are visible (and true)
+                // at any raster.
+                if (ImGui::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
+                                    hasProject_)) {
+                    viewportPs2Shade_ = !viewportPs2Shade_;
+                    saveGlobalConfig();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Shade the way the console does: lights, occlusion and\n"
+                        "fog per VERTEX, most surfaces flat-shaded - one colour\n"
+                        "per triangle. Off = the editor's smooth per-pixel look.");
+                if (ImGui::BeginMenu("GS colour", hasProject_)) {
+                    static const char* kGsColorNames[] = {
+                        "Match project", "Full 32-bit", "16-bit",
+                        "16-bit + dithering"};
+                    for (int i = 0; i < 4; ++i) {
+                        if (ImGui::MenuItem(kGsColorNames[i], nullptr,
+                                            viewportGsColor_ == i) &&
+                            viewportGsColor_ != i) {
+                            viewportGsColor_ = i;
+                            saveGlobalConfig();
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The framebuffer depth the picture is shown at. Match\n"
+                        "project follows Preferences > Colour depth (and its\n"
+                        "dithering); the forced modes answer \"what if\" without\n"
+                        "touching the project.");
             }
 
             ImGui::Separator();
@@ -1643,6 +1730,37 @@ void App::drawMenuBar() {
                 showAmbienceEditor_ = true;
                 showGiBake_ = true;
             }
+            if (ImGui::MenuItem("Baked Lighting...")) {
+                showAmbienceEditor_ = true;
+                showBakedLighting_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Light baked on the host and shipped as pixels: automatic\n"
+                    "model AO multiplied into each model's own texture.");
+            ImGui::EndMenu();
+        }
+        // Deliberately outside the project gate: which build this is, and
+        // whether there is a newer one, are questions somebody has on the
+        // welcome screen too (docs/updates.md).
+        if (ImGui::BeginMenu("Help")) {
+            ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
+                            nullptr, false, false);
+            ImGui::Separator();
+            const bool updateBusy = updateChecking_ || updateDownloading_;
+            if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
+                startUpdateCheck(true);
+            if (!updateStatus_.empty()) ImGui::TextDisabled("%s", updateStatus_.c_str());
+            ImGui::Separator();
+            if (ImGui::MenuItem("Documentation"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/blob/main/docs/README.md");
+            if (ImGui::MenuItem("Releases"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/releases");
+            if (ImGui::MenuItem("Report an issue"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/issues");
             ImGui::EndMenu();
         }
 
@@ -2138,6 +2256,53 @@ void App::drawToolbar() {
         }
     }
 
+    // Build status, last on the bar. It lived in the Project panel, which is
+    // the least likely place for it to be seen - that panel is routinely docked
+    // behind another tab, while this bar carries every other build control and
+    // is always on screen. Hidden while idle and after a clean build, like the
+    // SESSION chip: a permanent "ready" chip is one more thing to read and says
+    // nothing. Clicking brings the Output panel forward, which is where both
+    // the progress and the failure are. The hit box carries a REAL label rather
+    // than a "##" id (the chat window's "Copy message" precedent): an
+    // InvisibleButton draws nothing either way, and a label-less widget is one
+    // --ui-script can never target.
+    {
+        const bool failed = runner_.state() == Runner::State::Failed;
+        if (busy || failed) {
+            const char* label = busy ? "BUILDING" : "BUILD FAILED";
+            const ImU32 c = busy ? colInfo : colStop;
+            ImGui::SameLine(0.0f, gapGroup);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float r = h * 0.18f;
+            const float textW = ImGui::CalcTextSize(label).x;
+            const float chipW = r * 2.0f + 4.0f + textW;
+            if (ImGui::InvisibleButton("Build status", ImVec2(chipW, h)))
+                pendingFocusWindow_ = "Output";
+            chipHover(dl, p, chipW);
+            const ImVec2 mid(p.x + r, p.y + h * 0.5f);
+            if (busy) {
+                // A drawn arc rather than the "|/-\" it replaces: a spinning
+                // ASCII character is indistinguishable from a stuck one at this
+                // size, and the rest of the bar is vector glyphs anyway.
+                const float t = (float)ImGui::GetTime() * 5.0f;
+                dl->PathArcTo(mid, r, t, t + 4.2f, 20);
+                dl->PathStroke(c, 0, ImMax(1.5f, h * 0.07f));
+            } else {
+                dl->AddCircleFilled(mid, h * 0.14f, c);
+            }
+            dl->AddText(ImVec2(p.x + r * 2.0f + 4.0f,
+                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                        c, label);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    busy ? "Building - Stop cancels it (or Build > Cancel "
+                           "Build).\nClick for the Output panel."
+                         : "The last build failed. Click for the Output "
+                           "panel - the first error is in there.");
+        }
+    }
+
     // The Play caret's dropdown (anchored just under the caret): which machine
     // to run on, then the run variants for it. Debug needs the debug build
     // profile - Live Link, the Debugger and Live Logic only exist there - so
@@ -2517,6 +2682,21 @@ void App::drawViewportWindow() {
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
                                animedit::projectTimeScale(project_.settings));
+        // Clips borrowed from other model files, grouped per target model - the
+        // preview merges them exactly as bakeAnimAssets does, so an imported
+        // clip is visible in the editor and not only on the console. Built only
+        // when the project has any, and setAnimImports compares before it
+        // drops the bake cache, so this costs a project without imports one
+        // empty map per frame.
+        if (!project_.animImports.empty()) {
+            std::map<std::string, std::vector<animmerge::ImportSpec>> imports;
+            for (const AnimImport& a : project_.animImports)
+                if (!imports.count(a.model))
+                    imports[a.model] = animedit::importsFor(project_, a.model);
+            viewport_.setAnimImports(std::move(imports));
+        } else {
+            viewport_.setAnimImports({});
+        }
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
         const std::vector<SceneObject>& posedObjects = cutscenePosedObjects();
@@ -2612,6 +2792,23 @@ void App::drawViewportWindow() {
         // project's display settings, which the Preferences dialog can change
         // under us, and resolving it is a handful of comparisons.
         viewport_.setPs2Output(ps2ViewportOutput());
+        viewport_.setPs2Shading(viewportPs2Shade_);
+        // GS colour: resolve "match project" against the project's own
+        // Preferences here, so the viewport stays settings-blind and a
+        // colour-depth edit shows the moment it is made.
+        {
+            bool quant = false, dith = false;
+            switch (viewportGsColor_) {
+                case 0:
+                    quant = project_.settings.colorDepth == "16bit";
+                    dith = project_.settings.dither;
+                    break;
+                case 2: quant = true; break;
+                case 3: quant = dith = true; break;
+                default: break;  // 1 = full 32-bit
+            }
+            viewport_.setGsColorSim(quant, dith);
+        }
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
         // Phone camera link: stream THIS frame to the connected device, so the
@@ -3898,6 +4095,28 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
             ImGui::TextDisabled("%dx%d into %s", o.bufW, o.bufH,
                                 project_.settings.widescreen ? "16:9" : "4:3");
         }
+        if (ImGui::Checkbox("PS2 shading", &viewportPs2Shade_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Shade the way the console does: lights, occlusion\n"
+                              "and fog per VERTEX, most surfaces flat-shaded -\n"
+                              "one colour per triangle. Off = the editor's\n"
+                              "smooth per-pixel look.");
+        {
+            static const char* kGsColorNames[] = {"Match project", "Full 32-bit",
+                                                  "16-bit", "16-bit + dithering"};
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            int gc = viewportGsColor_;
+            if (ImGui::Combo("GS colour", &gc, kGsColorNames, 4) &&
+                gc != viewportGsColor_) {
+                viewportGsColor_ = gc;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The framebuffer depth the picture is shown at.\n"
+                                  "Match project follows Preferences > Colour\n"
+                                  "depth (and its dithering); the forced modes\n"
+                                  "answer \"what if\" without touching the project.");
+        }
 
         ImGui::SeparatorText("TV safe areas");
         ImGui::Checkbox("Show guides", &showSafeArea_);
@@ -4255,18 +4474,10 @@ void App::drawProjectWindow() {
     drawSoundsSection();
     drawScriptsSection();
 
-    // Building lives in the top-level Build menu (F5 / F6 / Ctrl+Shift+B);
-    // the panel only mirrors the runner state so a build's progress is
-    // visible without the Output window.
-    if (runner_.busy()) {
-        ImGui::Separator();
-        ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Cancel")) runner_.cancel();
-    } else if (runner_.state() == Runner::State::Failed) {
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
-    }
+    // Build state is NOT mirrored here any more - it is the toolbar's BUILDING /
+    // BUILD FAILED chip (drawToolbar), which is on screen whether or not this
+    // panel is the front tab of its dock node. Cancelling is the toolbar's Stop
+    // button and Build > Cancel Build.
 
     ImGui::End();
 }
@@ -4278,6 +4489,9 @@ void App::saveProject() {
     project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
     project_.viewProjection = (int)viewport_.projection();
+    viewport_.camState(project_.viewCamYaw, project_.viewCamPitch,
+                       project_.viewCamDist, project_.viewCamTarget);
+    project_.viewShowFog = showFog_;  // View > Distance fog
     // Fold the live docking arrangement + open windows into the active layout.
     // While a switch is still settling (load or rebuild pending) the on-screen
     // layout doesn't yet belong to the active layout - keep the stored one
@@ -4557,7 +4771,7 @@ void App::applyActiveLayout() {
         // Load the saved dump at the run() frame boundary.
         layoutLoadPending_ = true;
         recipeRebuildPending_ = false;
-        // Legacy dumps predating the Properties window lack a slot for it; carve
+        // A dump saved while Properties was closed has no slot for it; carve
         // one once the load settles (drawUI waits for the Project dock node).
         dockPropertiesPending_ = L.ini.find("[Window][Properties]") == std::string::npos;
     } else {
@@ -5052,6 +5266,13 @@ void App::closeProject() {
     // keys into the sequence first - so a close never silently eats a take.
     if (phoneCam_.listening()) stopPhoneCam();
     if (giBaker_.running()) giBaker_.cancel();
+    // The model-AO baker is the same shape: a worker holding a COPY of the
+    // project, writing into ITS cache directory. Its results must not land in
+    // whichever project opens next, so the intent is reset with it.
+    modelAoBaker_.cancel();
+    modelAoIntent_ = 0;
+    modelAoSeen_ = modelAoBaker_.version();
+    viewport_.setModelAoMaps({}, 0.0f);
     // A build has no UI left once the toolbar goes away (Stop lives there), so
     // it would run to completion with no way to cancel it.
     if (runner_.busy()) runner_.cancel();
@@ -5106,6 +5327,21 @@ void App::closeProject() {
     wavIssueCache_.clear();
     modelInfoCache_.clear();
     glbInfoCache_.clear();  // always invalidated with modelInfoCache_
+    // The devkit self-screenshot is a picture of THIS project's game; the next
+    // one must not open the Debugger on somebody else's frame. The texture is
+    // kept (uploading into it again is free) and only its content forgotten.
+    dbgShotW_ = dbgShotH_ = 0;
+    dbgShotSize_ = 0;
+    dbgShotStamp_ = 0;
+    dbgShotTorn_ = 0;
+    dbgShotPartial_ = 0;
+    dbgShotWaiting_ = false;
+    dbgShotFile_.clear();
+    dbgShotError_.clear();
+    if (dbgShotTex_) {
+        glDeleteTextures(1, &dbgShotTex_);
+        dbgShotTex_ = 0;
+    }
     // The error catcher tails the open project's logs; the next open baselines
     // it again (attachProject). The runner log survives the close, so its size
     // has to stay honest or the next poll reads a shrink that never happened.
@@ -6078,20 +6314,9 @@ void App::attachProject() {
     }
 
     // Emulator path and PS2 IP are machine-global editor settings (editor.ini),
-    // not project data. Migrate any value carried by an older .tyra file into
-    // the global config the first time such a project is opened, then feed the
-    // global values into this project - project_ is the Runner's runtime
+    // not project data - the .tyra neither carries nor reads them. Feed the
+    // global values into this project: project_ is the Runner's runtime
     // transport for them (see Project::emulatorPath / ps2LinkIp).
-    bool migrated = false;
-    if (globalEmulatorPath_.empty() && !project_.emulatorPath.empty()) {
-        globalEmulatorPath_ = project_.emulatorPath;
-        migrated = true;
-    }
-    if (globalPs2Ip_.empty() && !project_.ps2LinkIp.empty()) {
-        globalPs2Ip_ = project_.ps2LinkIp;
-        migrated = true;
-    }
-    if (migrated) saveGlobalConfig();
     project_.emulatorPath = globalEmulatorPath_;
     project_.ps2LinkIp = globalPs2Ip_;
 
@@ -6170,6 +6395,12 @@ void App::attachProject() {
                              ? project_.viewProjection
                              : 0;
     viewport_.setProjection((Viewport::Projection)viewProj);
+    // ...and where the camera was pointing. A project saved before this key
+    // existed carries the viewport's own defaults, so it opens exactly where
+    // it always did.
+    viewport_.setCamState(project_.viewCamYaw, project_.viewCamPitch,
+                          project_.viewCamDist, project_.viewCamTarget);
+    showFog_ = project_.viewShowFog;
     // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
     // set (hand-edited or very old file), then apply the active one. Applying is
     // deferred to a frame boundary: loading ImGui settings mid-frame is
@@ -6795,8 +7026,6 @@ void App::drawModelImportModal() {
     ImGui::TextDisabled("%s", modelImportName_.c_str());
     ImGui::Spacing();
     ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
-    ImGui::TextDisabled(
-        "The editor stays responsive while the importer works in the background.");
     ImGui::EndPopup();
 }
 
@@ -7193,6 +7422,35 @@ std::vector<std::string> App::effectiveClips(const std::string& relPath) {
     return out;
 }
 
+// The bone list a Foot IK rig is authored against, plus the bind-pose heights
+// its sole offset is MEASURED from (footik.cpp does the 4x4 composition - the
+// shortcut of summing local translations is wrong by most of a leg on any rig
+// whose bind pose has rotated bones).
+//
+// METADATA-ONLY on purpose, and the difference is not small. A rig wants node
+// names, parents and the bind pose; it wants no animation channels and no
+// all-clips pose box. Measured on the example's 43-clip, 23 MB FBX: a full
+// parseSkel is 3.5-5.2 s against this path's 0.17-0.37 s, so reading the whole
+// skeleton here would roughly DOUBLE the cost of selecting that character on
+// top of the bake glbInfo already pays.
+//
+// The model's OWN skeleton, not the import-merged one: a retarget maps a
+// donor's bones onto these, so borrowed clips add no bones to bind.
+void App::fillFootIkBones(const std::string& relPath, GlbInfo& info) {
+    const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    glbparser::Skel skel;
+    std::string err;
+    if (!animimport::parseSkel(full.string(), skel, err, /*metadataOnly=*/true))
+        return;  // info.error already says why, if the callers above failed too
+    info.bones.reserve(skel.nodes.size());
+    info.boneParents.reserve(skel.nodes.size());
+    for (const glbparser::SkelNode& n : skel.nodes) {
+        info.bones.push_back(n.name);
+        info.boneParents.push_back(n.parent);
+    }
+    footik::bindHeights(skel, info.boneBindY);
+}
+
 const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     auto it = glbInfoCache_.find(relPath);
     if (it != glbInfoCache_.end()) return it->second;
@@ -7210,28 +7468,54 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     // inspected asset - so keep it metadata-only. Anything that needs posed
     // vertices wants the viewport's own cache instead.
     GlbInfo info;
-    glbparser::Skel skel;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
-    if (animimport::parseSkel(full.string(), skel, info.error,
-                              /*metadataOnly=*/true)) {
-        info.ok = true;
-        for (const auto& c : skel.clips) info.clips.push_back(c.name);
-        info.vertexCount = skel.totalVertexCount();
-        // The preview's frame total, computed from the durations instead of by
-        // sampling them - the same arithmetic bake() would have done, so the
-        // panels' "N frames" cost figure keeps meaning what it meant.
-        info.frameCount = 0;
-        for (const glbparser::SkelClip& c : skel.clips)
-            info.frameCount += (int)(c.duration * 12.0f + 0.5f) + 1;
-        // Pose AABB over all clips (what the .tskl carries), where bake gave
-        // the frame-0 box. A jump therefore counts toward the reported size,
-        // which is the honest answer to "how much room does this model need".
-        for (int c = 0; c < 3; ++c) {
-            info.min[c] = skel.min[c];
-            info.max[c] = skel.max[c];
+    const auto imports = animedit::importsFor(project_, relPath);
+    if (!imports.empty()) {
+        // Clips borrowed from other files count as this model's clips
+        // everywhere the editor asks "what can this model play". Everything
+        // this summary holds lives on the SKELETON, so it is read off the
+        // cache-assisted merge - never the morph-frame bake, whose skinning
+        // pass is what made Add clips and a prefix commit stall the editor.
+        glbparser::Skel skel;
+        if (animmerge::mergedSkel(full.string(), imports, skel, info.error,
+                                  &skelCache_)) {
+            info.ok = true;
+            for (const auto& c : skel.clips) info.clips.push_back(c.name);
+            info.vertexCount = skel.totalVertexCount();
+            // Nominal frames at the preview rate - display only.
+            float dur = 0.0f;
+            for (const auto& c : skel.clips) dur += c.duration;
+            info.frameCount = (int)(dur * 12.0f) + (int)skel.clips.size();
+            for (int c = 0; c < 3; ++c) {
+                info.min[c] = skel.min[c];
+                info.max[c] = skel.max[c];
+            }
+            info.warnings = skel.warnings;
+            for (const glbparser::SkelPart& p : skel.parts) {
+                GlbInfo::Material mat;
+                mat.name = p.material.empty() ? "material" : p.material;
+                mat.color[0] = p.baseColor[0];
+                mat.color[1] = p.baseColor[1];
+                mat.color[2] = p.baseColor[2];
+                mat.textured = p.image >= 0;
+                info.materials.push_back(std::move(mat));
+            }
         }
-        info.warnings = skel.warnings;
-        for (const glbparser::SkelPart& p : skel.parts) {
+        fillFootIkBones(relPath, info);
+        return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
+    }
+    glbparser::Baked baked;
+    if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
+        info.ok = true;
+        for (const auto& c : baked.clips) info.clips.push_back(c.name);
+        info.vertexCount = baked.totalVertexCount();
+        info.frameCount = baked.frameCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = baked.min[c];
+            info.max[c] = baked.max[c];
+        }
+        info.warnings = baked.warnings;
+        for (const glbparser::Part& p : baked.parts) {
             GlbInfo::Material mat;
             mat.name = p.material.empty() ? "material" : p.material;
             mat.color[0] = p.baseColor[0];
@@ -7240,18 +7524,8 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
             mat.textured = p.image >= 0;
             info.materials.push_back(std::move(mat));
         }
-        info.bones.reserve(skel.nodes.size());
-        info.boneParents.reserve(skel.nodes.size());
-        for (const glbparser::SkelNode& n : skel.nodes) {
-            info.bones.push_back(n.name);
-            info.boneParents.push_back(n.parent);
-        }
-        // Bind-pose heights, so Foot IK can MEASURE its sole offset instead of
-        // being handed a guess. The math lives in footik.cpp (full 4x4
-        // composition - the shortcut of summing local translations is wrong by
-        // most of a leg on any rig whose bind pose has rotated bones).
-        footik::bindHeights(skel, info.boneBindY);
     }
+    fillFootIkBones(relPath, info);
     return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
 }
 
@@ -8129,7 +8403,7 @@ void App::drawLayersSection() {
         ImGui::SetTooltip(
             "Streaming layers (per scene). Assign objects to a layer in\n"
             "Properties; the game can then drop the whole layer from memory\n"
-            "and stream it back with the Load / Unload Layer flow nodes -\n"
+            "and stream it back with the Set Layer Loaded flow node -\n"
             "GTA3-style interior streaming. The eye hides the layer in the\n"
             "editor only; \"start\" = in memory when the scene starts.\n"
             "Deleting a layer keeps its objects (they become unassigned).");
@@ -10017,6 +10291,8 @@ void App::drawAmbienceWindow() {
     // standalone window open.
     const bool wantGi = showGiBake_;
     showGiBake_ = false;
+    const bool wantBaked = showBakedLighting_;
+    showBakedLighting_ = false;
     bool changed = false;
     // Belt and braces: the presets and the day/night cycle both hand their
     // edits back through the `changed` out-param, which any new control in
@@ -10036,6 +10312,13 @@ void App::drawAmbienceWindow() {
         if (ImGui::BeginTabItem("Global illumination", nullptr,
                                 wantGi ? ImGuiTabItemFlags_SetSelected : 0)) {
             drawGiBakeSection();
+            ImGui::EndTabItem();
+        }
+        // The light that is computed on the host and ships as PIXELS rather
+        // than as a scene table - model AO today, and whatever else joins it.
+        if (ImGui::BeginTabItem("Baked lighting", nullptr,
+                                wantBaked ? ImGuiTabItemFlags_SetSelected : 0)) {
+            drawBakedLightingSection();
             ImGui::EndTabItem();
         }
         ImGui::EndTabBar();
@@ -10169,8 +10452,12 @@ void App::drawAmbiencePresets(bool& changed) {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::ColorEdit3("Sky zenith color", a.skyTopColor);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::Checkbox("Gradient sky dome", &a.skyDome);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    // A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit. It activates on
+    // mouse-down and both edits and deactivates on mouse-up, so the
+    // "was edited while active in a PREVIOUS frame" test it runs can never
+    // be true - the edit silently never reached the project, and the change
+    // survived only until the next reload. Use the return value.
+    if (ImGui::Checkbox("Gradient sky dome", &a.skyDome)) changed = true;
     ImGui::BeginDisabled(!a.skyDome);
     ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -10194,38 +10481,11 @@ void App::drawAmbiencePresets(bool& changed) {
     ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
-    ImGui::SeparatorText("Ambient occlusion");
-    ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Soft contact shadows where geometry meets: terrain\n"
-            "self-shadowing (ravines, foot of hills) and darkening where\n"
-            "objects touch the ground and each other - baked into per-pixel\n"
-            "AO textures at build (a terrain map + a primitive lightmap\n"
-            "atlas), drawn as extra blended passes. Which objects cast is\n"
-            "per object: Properties > Cast shadow. Imported and animated\n"
-            "models cast but don't receive.");
-    if (a.aoEnabled) {
-        ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How dark full occlusion gets (0 = invisible).");
-        ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "World units the contact darkening reaches from an\n"
-                "occluder. Terrain self-shadowing scans 3x this.");
-        if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
-        ImGui::TextDisabled("Static bake: moved objects re-shade themselves at "
-                            "runtime, but\nthe shadow they cast stays where the "
-                            "scene was built.");
-    }
-
+    // Scene AO lives in the Baked lighting tab now, beside model AO and
+    // pre-lit - moved, not mirrored. A read-only echo of a setting that is
+    // edited elsewhere is a second place to look for one answer.
     ImGui::SeparatorText("Distance fog");
-    ImGui::Checkbox("Fog enabled", &a.fogEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::Checkbox("Fog enabled", &a.fogEnabled)) changed = true;
     if (a.fogEnabled) {
         ImGui::ColorEdit3("Fog color", a.fogColor);
         changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -10658,8 +10918,8 @@ void App::updateSkyBodyPreview(int presetIndex) {
         // star from drawing as a hard little square.
         menubake::bakeFlareRGBA(2, rgba);
         viewport_.setSkyBodyTexture(Viewport::SkyStarDot,
-                                    menubake::kFlareSpriteSize,
-                                    menubake::kFlareSpriteSize, rgba.data());
+                                    menubake::kCoronaSpriteSize,
+                                    menubake::kCoronaSpriteSize, rgba.data());
         skyBodySunUploaded_ = true;
     }
     // The moon is a real image projection - only re-bake when its inputs move.
@@ -13273,10 +13533,12 @@ void App::applyProjectToViewport() {
     // per-frame cost.
     if (giViewScene_ != project_.activeScene ||
         giViewSerial_ != modelEditSerial_ ||
-        giViewVersion_ != giBaker_.version()) {
+        giViewVersion_ != giBaker_.version() ||
+        giViewEnabled_ != (rs.giEnabled ? 1 : 0)) {
         giViewScene_ = project_.activeScene;
         giViewSerial_ = modelEditSerial_;
         giViewVersion_ = giBaker_.version();
+        giViewEnabled_ = rs.giEnabled ? 1 : 0;
         const gibake::Bake b = gibake::load(project_, project_.activeScene);
         viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
         // The ground takes the baked terrain lightmap instead of the probes -
@@ -13889,6 +14151,35 @@ void App::drawPreferencesWindow() {
         "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
         "the picture also fills more of the screen. HUD sprites stretch\n"
         "with the screen. Runtime switch: the Set Widescreen flow node.");
+    // Colour depth. The GS is 4 MB and the frame buffers are most of it, so
+    // this is the biggest single lever on how much VRAM textures get - and
+    // on whether the third display buffer below fits at all.
+    {
+        int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
+        const char* depthNames[] = {"32-bit colour", "16-bit colour (2x VRAM)"};
+        if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
+            prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
+        prefHelp(
+            "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
+            "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
+            "GS memory and hands all of it to textures, which roughly\n"
+            "DOUBLES the texture budget - the single biggest saving available\n"
+            "on a 4 MB GS, what makes the taller HD scan modes practical, and\n"
+            "what most often decides whether triple buffering fits.\n"
+            "The cost is 32 levels per channel instead of 256, so smooth\n"
+            "gradients - skies, fog, bloom - band unless Dithering is on.\n"
+            "The z buffer stays 32-bit either way. See docs/gs-vram.md.");
+        ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
+        ImGui::Indent(scaled(16));
+        ImGui::Checkbox("Dithering", &prefSettings_.dither);
+        prefHelp(
+            "The GS's ordered 4x4 dither, which trades the banding of a\n"
+            "16-bit buffer for fine noise that a TV blurs away. The hardware\n"
+            "only dithers 16-bit destinations, so this does nothing at 32-bit\n"
+            "colour. Leave it on unless you want the flat bands on purpose.");
+        ImGui::Unindent(scaled(16));
+        ImGui::EndDisabled();
+    }
 
     // WHEN a finished frame reaches the TV, as opposed to what is in it. Both
     // of these used to sit under "Build", which is where nobody deciding how
@@ -14155,6 +14446,36 @@ void App::drawPreferencesWindow() {
         "whole map resident. Meant for FPP - orbit showcases see the whole\n"
         "map at once and should leave it 0.");
 
+    ImGui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
+                     0.0f, 2000.0f,
+                     prefSettings_.terrainLodDistance > 0.0f
+                         ? "%.0f units"
+                         : "off (full detail everywhere)");
+    if (prefSettings_.terrainLodDistance < 0.0f)
+        prefSettings_.terrainLodDistance = 0.0f;
+    prefHelp(
+        "Beyond this range the ground is built from every 2nd heightmap\n"
+        "sample, and beyond 2.2x it from every 4th - a quarter and a\n"
+        "sixteenth of the triangles. Edges are stitched to the neighbouring\n"
+        "tile, so no crack shows, and collision is unaffected. This is what\n"
+        "makes a large map affordable to DRAW; the view distance above is\n"
+        "what makes it fit in memory. 0 = full detail everywhere.");
+    if (prefSettings_.terrainLodDistance > 0.0f) {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        // What one full-detail tile costs, so the bands mean something in
+        // triangles rather than in units.
+        const float span = 16.0f * (float)sc.terrain.width /
+                           (float)(cellsX > 0 ? cellsX : 1);
+        ImGui::TextDisabled(
+            "Full detail to %.0f units, 1/4 of the triangles beyond it, 1/16 "
+            "beyond %.0f (tile = %.0f units).",
+            prefSettings_.terrainLodDistance,
+            prefSettings_.terrainLodDistance * 2.2f, span);
+    }
+
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
     // 32 B untextured / 48 B textured, chunks of 16x16 cells.
@@ -14234,7 +14555,7 @@ void App::drawPreferencesWindow() {
                                                          : 0;
     const char* clipNames[] = {
         "Precise clipping on VU1 (no holes, no EE cost - default)",
-        "Precise clipping on EE (legacy; costs EE time)",
+        "Precise clipping on EE (the older clipper; costs EE time)",
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
         prefSettings_.clipping =
@@ -14366,6 +14687,18 @@ void App::drawPreferencesWindow() {
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
             "grounds them visually for one quad each. Project-wide.");
+    ImGui::Checkbox("Flashlight shadow volumes",
+                    &prefSettings_.flashShadowVolumes);
+    prefHelp(
+        "How the player's torch throws shadows (docs/flashlight.md).\n"
+        "OFF - silhouette slots: mesh-accurate shadow shapes rendered from\n"
+        "the torch, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four at once, and light still leaks through everything else.\n"
+        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
+        "every solid in the beam occludes, exactly per pixel against the\n"
+        "real depth buffer, self-shadowing included. Costs the volume fill\n"
+        "each frame, and the shadow shapes come from the objects' BOXES\n"
+        "rather than their meshes.");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
@@ -14426,6 +14759,19 @@ void App::drawPreferencesWindow() {
                          0.05f, 0.2f, 50.0f, "%.2f");
         walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
                       prefSettings_.unitsPerMeter);
+        // The same walk -> run stick ramp a Player object has
+        // (docs/player-speeds.md), for the fallback walker a scene with no
+        // Player object gets. Sprint stays the multiplier below, because
+        // there is no object here to state an absolute speed on.
+        speedTierDrag("Run speed", prefSettings_.runSpeed,
+                      project::settingsRunSpeed(prefSettings_),
+                      prefSettings_.unitsPerMeter, "same as walk", nullptr);
+        prefHelp(
+            "Speed at FULL stick; the deflection ramps Walk -> Run, so easing\n"
+            "the stick walks. Left unset the walk speed is the only speed,\n"
+            "which is how this walker always behaved.\n\n"
+            "This is the project-wide fallback: a scene with a Player object\n"
+            "takes all three tiers from that object instead.");
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
         ImGui::SeparatorText("Camera");
@@ -14561,6 +14907,24 @@ void App::drawPreferencesWindow() {
         "and docs/keyboard-mouse.md.");
     ImGui::Unindent(scaled(16));
     ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Bakes before a build");
+    ImGui::BeginDisabled(!prefSettings_.giEnabled);
+    ImGui::Checkbox("Re-bake stale global illumination", &prefSettings_.giAutoBake);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Before every build, re-bake every scene whose GI cache no longer\n"
+        "matches it. Only STALE scenes - a build with everything fresh costs\n"
+        "nothing; a changed big scene can cost minutes. Off = bake by hand from\n"
+        "the Global illumination tab or --bake-gi, and a stale scene ships the\n"
+        "pre-GI lighting. Needs GI enabled.");
+    ImGui::Checkbox("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
+    prefHelp(
+        "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
+        "texture no longer matches the scene (moved, or the light changed).\n"
+        "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
+        "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
+        "Procedural volumes and model AO are always baked.");
 
     ImGui::SeparatorText("Debug overlays");
     ImGui::BeginDisabled(profile == 0);
@@ -14768,11 +15132,24 @@ void App::drawEditorPreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // AN EXPLICIT SIZE, NOT AlwaysAutoResize - the Project Preferences shape,
+    // for the reason that dialog documents. This one had grown past the screen
+    // too: with the AI assistant section in it, Save and Cancel sat ~700 px
+    // BELOW the bottom of a 1080p display and could only be reached by
+    // scrolling the whole dialog first (measured with `--ui-script dump`: the
+    // buttons at y=2707 in a 1973-high window). The footer is outside the
+    // scrolling body now, so it stays one click away however much anybody adds
+    // above it.
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(560),
+               std::min(scaled(760), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
-        return;
+    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr, 0)) return;
+
+    const float footerH =
+        ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    ImGui::BeginChild("##body", ImVec2(0, -footerH));
 
     ImGui::TextDisabled(
         "Settings for this editor installation - shared by every project and\n"
@@ -14910,6 +15287,31 @@ void App::drawEditorPreferencesModal() {
             "uses curl. Thinking = extended reasoning where the backend\n"
             "supports it (slower, better on tricky logic).");
     }
+
+    // Applies IMMEDIATELY and saves itself, like the theme above and unlike the
+    // staged text fields: it is one switch, and staging it would make Cancel
+    // read as "do not check for updates" (docs/updates.md).
+    ImGui::SeparatorText("Updates");
+    if (ImGui::Checkbox("Check for updates at startup", &globalUpdateCheck_))
+        saveGlobalConfig();
+    prefHelp(
+        "Asks GitHub once, at startup, whether there is a newer TyraX, and\n"
+        "says so only if there is. Off means nothing leaves this machine on\n"
+        "its own - Help > Check for updates still works whenever you ask.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(updateChecking_ || updateDownloading_);
+    if (ImGui::SmallButton("Check now")) startUpdateCheck(true);
+    ImGui::EndDisabled();
+    if (!globalUpdateSkip_.empty()) {
+        ImGui::TextDisabled("Skipping %s.", globalUpdateSkip_.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop skipping")) {
+            globalUpdateSkip_.clear();
+            saveGlobalConfig();
+        }
+    }
+
+    ImGui::EndChild();  // the scrolling body; the footer below is pinned
 
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
@@ -15306,7 +15708,7 @@ void App::drawScenePreferencesModal() {
                                                  : 0;
         const char* clipNames[] = {
             "Precise clipping on VU1 (no holes, no EE cost - default)",
-            "Precise clipping on EE (legacy; costs EE time)",
+            "Precise clipping on EE (the older clipper; costs EE time)",
             "Fast culling (fastest; big near triangles may vanish)"};
         if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
             s.clipping =

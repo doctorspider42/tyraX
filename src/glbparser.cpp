@@ -261,7 +261,6 @@ std::vector<uint32_t> readIndices(const Doc& doc, int index) {
 // Scene graph
 
 struct Node {
-    std::string name;
     float t[3] = {0, 0, 0};
     float r[4] = {0, 0, 0, 1};
     float s[3] = {1, 1, 1};
@@ -269,6 +268,7 @@ struct Node {
     M16 matrix = identity();
     int mesh = -1, skin = -1;
     std::vector<int> children;
+    std::string name;  // authored name, host-side only (see SkelNode::name)
 };
 
 // One animation channel with its keyframes decoded up front.
@@ -539,6 +539,7 @@ bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
             }
             node.mesh = intOr(&n, "mesh", -1);
             node.skin = intOr(&n, "skin", -1);
+            if (const json::Value* nm = n.find("name")) node.name = nm->stringOr("");
             if (const json::Value* ch = n.find("children");
                 ch && ch->type == json::Value::Type::Array)
                 for (const json::Value& c : ch->arr)
@@ -1155,7 +1156,9 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error,
         std::memcpy(dst.t, src.t, sizeof(dst.t));
         std::memcpy(dst.r, src.r, sizeof(dst.r));
         std::memcpy(dst.s, src.s, sizeof(dst.s));
+        dst.name = src.name;
     }
+    uniqueNodeNames(out);
 
     // --- matrix palette ------------------------------------------------------
     // Skins referenced by prims contribute their joint lists (with IBMs);
@@ -1475,6 +1478,24 @@ SkelLod unweld(const meshlod::Mesh& w) {
 }
 
 }  // namespace
+
+void uniqueNodeNames(Skel& skel) {
+    std::map<std::string, int> seen;  // name -> how many already used
+    for (size_t i = 0; i < skel.nodes.size(); ++i) {
+        SkelNode& n = skel.nodes[i];
+        if (n.name.empty()) n.name = "node_" + std::to_string(i);
+        const int prior = seen[n.name]++;
+        if (prior == 0) continue;
+        // Suffix until free: "Hips_1" may itself already be an authored name.
+        std::string candidate;
+        int suffix = prior;
+        do {
+            candidate = n.name + "_" + std::to_string(suffix++);
+        } while (seen.count(candidate));
+        seen[candidate] = 1;
+        n.name = candidate;
+    }
+}
 
 void generateSkelLods(Skel& skel) {
     // The tier policy (ratios, size floor, shrink slack) is shared with the

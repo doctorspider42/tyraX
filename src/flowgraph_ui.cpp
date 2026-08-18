@@ -267,7 +267,7 @@ void App::drawFlowGraphWindow() {
 
     // Which object a node's target resolves to in the editor, mirroring the
     // codegen order: incoming object link chain > explicit name > the graph
-    // owner ("self"). Used by the Play Animation clip picker.
+    // owner ("self"). Used by the Animation node's clip picker.
     auto uiResolveTarget = [&](const FlowNode& start) -> int {
         const FlowNode* cur = &start;
         std::vector<int> visited;

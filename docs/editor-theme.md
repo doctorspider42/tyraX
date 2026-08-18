@@ -99,7 +99,7 @@ A few things worth knowing because they are decisions rather than defaults:
 > A widget asks for **meaning**, never for a colour.
 
 Anything that cannot go through an `ImGuiCol_` — the toolbar's vector icons, the
-LIVE / DBG / LOGIC / SESSION chips, viewport overlays — reads
+BUILDING / LIVE / DBG / LOGIC / SESSION chips, viewport overlays — reads
 `theme::semantics()`, which offers `accent`, `accentMuted`, `ok`, `warn`,
 `danger`, `text`, `textDim`, `surface` and `border`. A chip that wants "the
 running-game green" asks for `ok` and moves with the theme; a chip that writes

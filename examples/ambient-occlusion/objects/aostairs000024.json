@@ -1,0 +1,1 @@
+{ "id": "aostairs000024", "name": "stairs", "type": "model", "position": [-11, 0.55, 4], "rotation": [0, 90, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "model": "res/models/Stairs_Exterior_Straight_Center.obj" }

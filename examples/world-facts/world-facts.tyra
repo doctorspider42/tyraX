@@ -1,7 +1,7 @@
 {
   "name": "world-facts",
-  "formatVersion": 7,
-  "editorVersion": "1.8.0",
+  "formatVersion": 33,
+  "editorVersion": "1.56.0",
   "template": "fpp",
   "projectId": "74214fd3e0c69d8a",
   "settings": {
@@ -17,6 +17,7 @@
     "showProfiler": false,
     "showAreas": false,
     "showCollision": false,
+    "showFootIkProbes": false,
     "liveLink": true,
     "liveDebug": true,
     "eeCrashHandler": false,
@@ -39,6 +40,7 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,
@@ -87,6 +89,13 @@
     "flare": 0,
     "godRays": 0,
     "blobShadows": false,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,
@@ -262,7 +271,7 @@
     { "name": "Parts but no spark", "desc": "All three parts fitted and the generator never pulled over: GeneratorReady is true, GeneratorRunning is false, and every gate downstream - the pump that frees Marta, the basement door - is shut. The scenario for reading the difference between 'can be started' and 'running' in the Why? panel.", "values": [{ "fact": "world.generator.parts", "value": 3 }, { "fact": "world.generator.partA", "value": 1 }, { "fact": "world.generator.partB", "value": 1 }, { "fact": "world.generator.partC", "value": 1 }, { "fact": "world.generator.started", "value": 0 }, { "fact": "world.power.state", "value": 0 }, { "fact": "player.hasBasementKey", "value": 1 }] },
     { "name": "Overloaded", "desc": "Powered and pushed past the trip point - the alarm rule and the scene-scoped fact in action.", "values": [{ "fact": "world.generator.parts", "value": 3 }, { "fact": "world.generator.partA", "value": 1 }, { "fact": "world.generator.partB", "value": 1 }, { "fact": "world.generator.partC", "value": 1 }, { "fact": "world.generator.started", "value": 1 }, { "fact": "world.power.state", "value": 2 }, { "fact": "world.power.load", "value": 0.95 }] }
   ],
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": ["debugger", "facts"], "ini": "[Window][Project]\nPos=0,23\nSize=444,994\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260808\n\n[Window][Properties]\nPos=1528,23\nSize=392,994\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260808\n\n[Window][Output]\nPos=446,779\nSize=1080,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260808\n\n[Window][Debug]\nPos=446,779\nSize=1080,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260808\n\n[Window][Flow Graph]\nPos=446,23\nSize=1080,754\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260808\n\n[Window][Viewport]\nPos=446,23\nSize=1080,754\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260808\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,994\nCollapsed=0\nLastUsed=20260808\n\n[Window][World Facts]\nPos=446,23\nSize=1080,754\nCollapsed=0\nDockId=0x00000005,2\nLastUsed=20260808\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260808\n\n[Window][Debugger]\nPos=1528,23\nSize=392,994\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260808\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,994 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1080,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xE96C8334\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=392,915 Selected=0x3571D65E\n\n" },

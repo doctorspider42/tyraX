@@ -11,6 +11,7 @@
 */
 
 #include "engine.hpp"
+#include "debug/sifrpc_guard.hpp"
 #include <kernel.h>
 
 namespace Tyra {
@@ -37,6 +38,8 @@ void Engine::realLoop() {
   if (kbdMouse.isEnabled()) kbdMouse.update();
   game->loop();
   info.update();
+  // One compare per frame unless the guard has actually dropped something.
+  SifRpcGuard::report();
 }
 
 void Engine::initAll(const EngineOptions& options) {
@@ -55,6 +58,13 @@ void Engine::initAll(const EngineOptions& options) {
   // and every redeploy hung because the console never processed the reset.
   ChangeThreadPriority(GetThreadId(), 0x40);
 
+  // Before ANY file access: the guard replaces ps2sdk's SIF_CMD_RPC_END
+  // handler, which crashes the EE on a duplicate completion instead of
+  // ignoring it (inc/debug/sifrpc_guard.hpp). It goes here rather than in
+  // IrxLoader because IrxLoader's ctor is what calls SifInitRpc(), and that
+  // is what installs the handler this replaces.
+  SifRpcGuard::install();
+
   srand(time(nullptr));
   // No keyboard/mouse under ps2link by default: USB drivers cannot be added
   // safely to a ps2link that is already running (its IOP is never reset, and
@@ -70,8 +80,17 @@ void Engine::initAll(const EngineOptions& options) {
       (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
   const bool loadOwnHid = withKbdMouse && !underPs2Link;
   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
-  renderer.init(options.videoMode, options.displayMode, options.widescreen,
-                options.tripleBuffering);
+  // Modified by TyraX: the renderer's init-time knobs travel as a struct.
+  RendererOptions rendererOptions;
+  rendererOptions.videoMode = options.videoMode;
+  rendererOptions.displayMode = options.displayMode;
+  rendererOptions.widescreen = options.widescreen;
+  rendererOptions.colorDepth = options.colorDepth;
+  rendererOptions.dither = options.dither;
+  rendererOptions.envMap = options.envMapTarget;
+  rendererOptions.camFeed = options.camFeedTarget;
+  rendererOptions.tripleBuffering = options.tripleBuffering;
+  renderer.init(rendererOptions);
   banner.show(&renderer);
   audio.init();
   pad.init();

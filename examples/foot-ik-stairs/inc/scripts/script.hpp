@@ -346,6 +346,10 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+  // Each points at that player's live walk/run/sprint triple (PlayerCtl::
+  // speeds), so Live Link can stream a speed edit into a running debug build.
+  // Null when the game has no walker. Set by the game.
+  float* playerSpeeds[2] = {nullptr, nullptr};
 
   // Prefabs (docs/prefabs.md) and runtime procedural volumes
   // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static

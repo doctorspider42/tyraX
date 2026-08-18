@@ -2391,42 +2391,6 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
 }
 
 // ---------------------------------------------------------------------------
-// Node types retired by the exec-pin merge: each Show*/Hide*/Toggle* family
-// collapsed into one node carrying a labeled exec pin per branch. A pre-merge
-// graph would otherwise lose those nodes outright (readFlowGraph drops unknown
-// types), so project::readFlowGraph rewrites the type and retargets every exec
-// link landing on the node to `pin`.
-struct FlowLegacyNode {
-    const char* from;  // the retired FlowNode::type
-    const char* to;    // its replacement
-    int pin;           // exec input the old node's behavior now lives on
-};
-
-inline const std::vector<FlowLegacyNode>& flowLegacyNodes() {
-    static const std::vector<FlowLegacyNode> v = {
-        {"ShowObject", "SetObjectVisible", 0},
-        {"HideObject", "SetObjectVisible", 1},
-        {"ToggleObject", "SetObjectVisible", 2},
-        {"ShowHud", "SetHudVisible", 0},
-        {"HideHud", "SetHudVisible", 1},
-        {"ToggleHud", "SetHudVisible", 2},
-        {"ShowText", "SetTextVisible", 0},
-        {"HideText", "SetTextVisible", 1},
-        {"LoadLayer", "SetLayerLoaded", 0},
-        {"UnloadLayer", "SetLayerLoaded", 1},
-        {"PlayAnimation", "Animation", 0},
-        {"StopAnimation", "Animation", 1},
-    };
-    return v;
-}
-
-inline const FlowLegacyNode* flowLegacyNode(const std::string& type) {
-    for (const FlowLegacyNode& m : flowLegacyNodes())
-        if (type == m.from) return &m;
-    return nullptr;
-}
-
-// ---------------------------------------------------------------------------
 // Project-defined custom nodes (see flownode.cpp).
 //
 // A custom node is a user-authored *action* node loaded from a .flownode text

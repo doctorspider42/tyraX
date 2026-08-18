@@ -1,5 +1,7 @@
 # Live Debugger — step through a PS2 game's logic from the editor
 
+![Live Debugger waiting for a running game](img/live-debugger.png)
+
 Live Link streams edits *into* the running game. The Live Debugger is the other
 direction: the game streams back **what its flow graphs are doing**, and takes
 commands. Nodes light up in the editor as the console runs them, exec links glow
@@ -130,6 +132,9 @@ Two things make that visible instead of mysterious:
   ~30 s of history, and a **trail in the viewport** showing the path it took
   (the head dot is where it is right now). Watch the selected object with one
   button; see [devkit.md](devkit.md).
+- **Screen** — one button that makes the game photograph its own frame buffer,
+  and the picture it sent back. The only capture path that works on real
+  hardware or on a locked desktop; see [devkit.md](devkit.md).
 - **Nodes** — the current graph's runnable nodes: hit counts, breakpoints, Fire,
   and the frames left on an armed `Delay`.
 - **Breakpoints** — the whole project's list; click one to jump to its node.
@@ -157,12 +162,19 @@ the ps2link file server on a console):
 | File | Written by | Contents |
 |---|---|---|
 | `bin/livedbg.bin` | the game, every 6 frames (25 under ps2link) | cumulative hit count per node, a ring of the ~192 most recent fires with their age in frames, the watch values, the halted flag, the node that stopped it, the symbol-table hash |
-| `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire |
+| `bin/livedbg.cmd` | the editor, when the desired state changes | the full breakpoint list, halt / resume / step, node keys to force-fire, and the one-shot asks: a VU1 capture, a free-RAM measurement, a screenshot |
+| `bin/frame.tga` | the game, once per *Capture frame* | its own frame buffer, read back out of GS VRAM. A transport file: the editor decodes it and keeps the picture as `screenshots/frame-<date>-<time>.png` (see [devkit.md](devkit.md)) |
 
-Both are validated by an exact-size + footer-echo check on both ends, so a torn
-write is skipped rather than half-applied, and a command is applied only when its
-sequence number changes. The Runner deletes both at build start: a stale command
-must not freeze a fresh boot.
+The first two are validated by an exact-size + footer-echo check on both ends, so
+a torn write is skipped rather than half-applied, and a command is applied only
+when its sequence number changes. The Runner deletes all three at build start: a
+stale command must not freeze a fresh boot, and a stale picture must not read as
+an answer to the first capture of the new one.
+
+The one-shot asks ride spare bits of the command's flags word rather than a
+longer header, so a game built before one of them existed reads the switches it
+knows and ignores the rest — no version bump on either side. Bit 3 is the VU1
+capture, bit 5 the RAM measurement, bit 6 the screenshot.
 
 The editor-side formats live in [`src/livedbg.hpp`](../src/livedbg.hpp) (parsers,
 command writer, the timeline model — no GL, no ImGui, harness-testable); the game

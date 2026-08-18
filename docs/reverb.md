@@ -1,5 +1,7 @@
 # Reverb (rooms for the sound effects)
 
+![Reverb settings on an Area](img/reverb-area.png)
+
 Draw a box, tick one checkbox, and every sound effect the player hears while
 standing inside it plays through a **real reverb** — a cave, a hall, a stairwell.
 It costs the EE nothing: the PlayStation 2's sound chip has a hardware reverb

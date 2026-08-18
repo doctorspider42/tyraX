@@ -39,7 +39,7 @@ struct SceneObjectData {
                   // 5 custom (physics below)
   int emitCount;  // emitters: particle pool size (density)
   float emitSize; // emitters: base particle size
-  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)
+  int emitEnabled; // emitters: 0 = off (Set Object Visible enables)
   int emitFollow;  // emitters: 1 = position is an offset from the player
   float emitSpeed;   // custom: emission speed along rotated +Y, units/s
   float emitSpread;  // custom: cone half-angle, degrees
@@ -66,6 +66,8 @@ struct SceneObjectData {
   int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
                      // Set Light / flicker work) instead of baked
   float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
+  int lightSpot;     // dynamic lights: 1 = cone down local -Y
+  float lightSpotAngle; // spot lights: cone half-angle, degrees
   int lightBeam;     // point lights: 0 none, 1 glow corona,
                      // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
@@ -78,6 +80,9 @@ struct SceneObjectData {
   int dynLit;     // 1 = lit by the LIT VU1 program from the probe
                   // grid every frame instead of baked vertex colors
                   // (docs/global-illumination.md)
+  int prelit;     // 1 = the object's TEXTURE already carries its
+                  // light, so its vertex colors go neutral and no
+                  // baked term is added (docs/prelit-models.md)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -218,24 +223,24 @@ constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[18] = {
-    {6, {2.0F, 0.0F, 0.0F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 180.0F, 1, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
-    {0, {-2.0F, 0.09F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.45F, 0.18F, 3.0F}, {0.95F, 0.72F, 0.12F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-curb
-    {0, {-3.5F, 0.11F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.22F, 3.0F}, {0.38F, 0.48F, 0.62F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-1
-    {0, {-4.3F, 0.22F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.44F, 3.0F}, {0.42F, 0.52F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-2
-    {0, {-5.1F, 0.33F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.66F, 3.0F}, {0.46F, 0.56F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-3
-    {0, {-5.9F, 0.44F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.88F, 3.0F}, {0.5F, 0.6F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-4
-    {0, {-6.7F, 0.55F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.1F, 3.0F}, {0.54F, 0.64F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-5
-    {0, {-8.0F, 0.55F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.1F, 3.0F}, {0.24F, 0.66F, 0.48F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-landing
-    {0, {-3.5F, 0.055F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.11F, 1.6F}, {0.38F, 0.48F, 0.62F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-1
-    {0, {-4.1F, 0.11F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.22F, 1.6F}, {0.4F, 0.5F, 0.64F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-2
-    {0, {-4.7F, 0.165F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.33F, 1.6F}, {0.42F, 0.52F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-3
-    {0, {-5.3F, 0.22F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.44F, 1.6F}, {0.435F, 0.535F, 0.675F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-4
-    {0, {-5.9F, 0.275F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.55F, 1.6F}, {0.45F, 0.55F, 0.69F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-5
-    {0, {-6.5F, 0.33F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.66F, 1.6F}, {0.47F, 0.57F, 0.71F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-6
-    {0, {-7.1F, 0.385F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.77F, 1.6F}, {0.485F, 0.585F, 0.725F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-7
-    {0, {-7.7F, 0.44F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.88F, 1.6F}, {0.5F, 0.6F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-8
-    {0, {-8.3F, 0.495F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.99F, 1.6F}, {0.52F, 0.62F, 0.76F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-9
-    {0, {-8.9F, 0.55F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 1.1F, 1.6F}, {0.54F, 0.64F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-10
+    {6, {2.0F, 0.0F, 0.0F}, {0.0F, -0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, "", 1, 1, 1.0F, -1.0F, -1.0F, 180.0F, 1, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
+    {0, {-2.0F, 0.09F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.45F, 0.18F, 3.0F}, {0.95F, 0.72F, 0.12F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-curb
+    {0, {-3.5F, 0.11F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.22F, 3.0F}, {0.38F, 0.48F, 0.62F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-1
+    {0, {-4.3F, 0.22F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.44F, 3.0F}, {0.42F, 0.52F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-2
+    {0, {-5.1F, 0.33F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.66F, 3.0F}, {0.46F, 0.56F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-3
+    {0, {-5.9F, 0.44F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 0.88F, 3.0F}, {0.5F, 0.6F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-4
+    {0, {-6.7F, 0.55F, 0.0F}, {0.0F, 0.0F, 0.0F}, {0.8F, 1.1F, 3.0F}, {0.54F, 0.64F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-5
+    {0, {-8.0F, 0.55F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.8F, 1.1F, 3.0F}, {0.24F, 0.66F, 0.48F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-landing
+    {0, {-3.5F, 0.055F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.11F, 1.6F}, {0.38F, 0.48F, 0.62F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-1
+    {0, {-4.1F, 0.11F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.22F, 1.6F}, {0.4F, 0.5F, 0.64F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-2
+    {0, {-4.7F, 0.165F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.33F, 1.6F}, {0.42F, 0.52F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-3
+    {0, {-5.3F, 0.22F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.44F, 1.6F}, {0.435F, 0.535F, 0.675F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-4
+    {0, {-5.9F, 0.275F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.55F, 1.6F}, {0.45F, 0.55F, 0.69F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-5
+    {0, {-6.5F, 0.33F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.66F, 1.6F}, {0.47F, 0.57F, 0.71F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-6
+    {0, {-7.1F, 0.385F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.77F, 1.6F}, {0.485F, 0.585F, 0.725F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-7
+    {0, {-7.7F, 0.44F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.88F, 1.6F}, {0.5F, 0.6F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-8
+    {0, {-8.3F, 0.495F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 0.99F, 1.6F}, {0.52F, 0.62F, 0.76F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-9
+    {0, {-8.9F, 0.55F, 5.0F}, {0.0F, 0.0F, 0.0F}, {0.6F, 1.1F, 1.6F}, {0.54F, 0.64F, 0.78F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ik-step-b-10
 };
 
 constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {18};
@@ -438,6 +443,8 @@ inline const char* SND_PATHS[1] = {""};
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {2};
 constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.025F};
+constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {0.025F};
+constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {0.045F};
 constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
@@ -454,6 +461,7 @@ constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"Idle_Loop"};
 constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"Walk_Loop"};
 constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
@@ -462,6 +470,8 @@ constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
 constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
 constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
 constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
+constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F};
+constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F};
 constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
 constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
 constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
@@ -478,6 +488,7 @@ constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
 constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
+constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
 constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
@@ -551,6 +562,7 @@ constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
 constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
 constexpr int FLARE_USED = 0;
 constexpr int BEAMS_USED = 0;
+constexpr int FLASHLIGHT_USED = 0;
 constexpr int DAYCYCLE_USED = 0;
 constexpr int STAR_COUNT = 0;
 struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
@@ -671,6 +683,8 @@ inline int everyFrames(float seconds) {
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_RUN_SPEED PLAYER_RUN_SPEEDS[g_activeScene]
+#define PLAYER_SPRINT_SPEED PLAYER_SPRINT_SPEEDS[g_activeScene]
 #define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
@@ -687,6 +701,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_SPRINT_CLIP PLAYER_SPRINT_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
 // Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
@@ -695,6 +710,8 @@ inline int everyFrames(float seconds) {
 #define PP_INDEX(pi) PP_TBL(pi, INDEXES)
 #define PP_MODE(pi) PP_TBL(pi, MODES)
 #define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_RUN_SPEED(pi) PP_TBL(pi, RUN_SPEEDS)
+#define PP_SPRINT_SPEED(pi) PP_TBL(pi, SPRINT_SPEEDS)
 #define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
 #define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
 #define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
@@ -711,6 +728,7 @@ inline int everyFrames(float seconds) {
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_SPRINT_CLIP(pi) PP_TBL(pi, SPRINT_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 // Directional locomotion (face-camera / strafe mode).
 #define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)

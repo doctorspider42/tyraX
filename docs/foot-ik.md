@@ -27,7 +27,7 @@ re-authoring anything.
 Both have to be on. An instance switched on whose model was never bound animates
 exactly as authored, and the Properties row says so rather than looking broken.
 
-> Projects saved before v18 stored the whole binding on each object. They are
+> Projects saved before v32 stored the whole binding on each object. They are
 > lifted into per-model rigs on load, automatically and once — see
 > [format-versioning.md](format-versioning.md).
 
@@ -97,6 +97,14 @@ each one say something different:
 Rules are stored under the clip's **source** name, like the Animation Editor's
 clip edits, so renaming a clip there cannot orphan a rule. A row that says
 nothing is dropped on save.
+
+**Clips borrowed from another file count here too.** A clip imported with
+[animation import](animation-import.md) is an ordinary clip of the model from
+then on, so it appears in this list by itself and can have its own rule — which
+matters more than it sounds, because a Mixamo download is exactly the kind of
+clip whose contact bands disagree with the character's own walk. The rule is
+keyed by the imported clip's source name, so giving it a shorter *Name in game*
+afterwards does not orphan the rule either.
 
 ## How the solver works
 

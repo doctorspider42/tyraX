@@ -20,8 +20,29 @@ constexpr int TERRAIN_MAX_CELLS = 32;
 constexpr int TERRAIN_CHUNK_CELLS = 16;
 constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
 
+// Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
+// range a tile is built from every 2nd heightmap sample, and beyond 2.2x it
+// from every 4th - a quarter and a sixteenth of the triangles. Edges are
+// stitched to the neighbouring tile's stride, so the drop in detail costs no
+// crack. 0 = every tile at full detail. Gameplay reads TERRAIN_HEIGHTS and is
+// never affected.
+constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
+
+// The flashlight's shadow technique (Preferences > Rendering,
+// docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
+// shapes, four-caster ceiling, light leaks through unflagged solids);
+// 1 = shadow volumes stencil-counted in the framebuffer's destination alpha
+// (occlusion exact per pixel against the real z buffer, box-shaped
+// silhouettes, every solid in the beam occludes).
+constexpr int FLASH_SHADOW_VOLUMES = 0;
+
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.1F;
+// The full-stick tier and the sprint tier, already resolved (0 = inherit is
+// applied by the editor, docs/player-speeds.md): with no run speed set these
+// are WALK_SPEED and WALK_SPEED x the sprint multiplier.
+constexpr float RUN_SPEED = 0.1F;
+constexpr float SPRINT_SPEED = 0.18F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -132,6 +153,19 @@ constexpr bool DEBUG_SHOW_COLLISION = false;
 // (nearest first). Both are frame-budget caps, not authoring limits: an edge is
 // 12 vertices, so the whole overlay costs at most COLLISION_BOX_LIMIT * 144.
 constexpr float COLLISION_BOX_RANGE = 60.0F;
+// Foot IK probe overlay (Preferences > Build > Show Foot IK probes,
+// docs/foot-ik.md). Every correction the solver makes comes from a raycast, and
+// a ray is the one thing the screen cannot show: "the foot hangs" and "the foot
+// is being lifted on purpose" look identical from outside, and so do "the ray
+// missed" and "the ray found the wrong surface". With this false the recording
+// and the overlay both fold away - the probe list is never touched and
+// renderFootIkProbes returns on its first line.
+constexpr bool DEBUG_SHOW_FOOTIK = false;
+// One frame's worth of probes, capped. A walking biped records ~30; the sweep
+// and the learned fan can push it past 60, and a crowd of solving characters
+// multiplies that - so this is a frame-budget cap, and the overlay says when it
+// truncated rather than silently drawing half the story.
+constexpr int FOOTIK_PROBE_LIMIT = 192;
 constexpr int COLLISION_BOX_LIMIT = 24;
 
 }  // namespace Vu_lab

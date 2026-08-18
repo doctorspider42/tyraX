@@ -1,7 +1,7 @@
 {
   "name": "upscaler-lab",
-  "formatVersion": 12,
-  "editorVersion": "1.12.1",
+  "formatVersion": 33,
+  "editorVersion": "1.56.0",
   "template": "fpp",
   "projectId": "33ce13428982d3c6",
   "settings": {
@@ -16,6 +16,7 @@
     "showProfiler": true,
     "showAreas": false,
     "showCollision": false,
+    "showFootIkProbes": false,
     "liveLink": true,
     "liveDebug": true,
     "eeCrashHandler": false,
@@ -38,6 +39,7 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,
@@ -228,7 +230,7 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "" },

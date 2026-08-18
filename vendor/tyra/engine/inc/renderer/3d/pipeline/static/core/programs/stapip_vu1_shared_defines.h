@@ -65,12 +65,18 @@
 // plane may classify either way, which is harmless. C++ side only.
 #define VU1_CLIP_GUARD 4096.0F
 
-// X/Y band the clip programs cut to, as a fraction of w. Must be < 1.0:
-// a vertex at exactly |x| = w scales to GS coordinate 4096.0, one past the
-// 12.4 XYZ2 maximum - it wraps to the far side of the raster window and
-// smears a wedge across the screen. 0.9 stays well inside (coord 3891)
-// while still covering the whole visible frustum (screen edge = 0.5 w),
-// so the GS scissor produces pixel-identical output. C++ side only.
+// X/Y band the clip programs cut to, as a fraction of w - the GUARD BAND
+// (docs/vu1-clipping.md). Must be < 1.0: a vertex at exactly |x| = w scales to
+// GS coordinate 4096.0, one past the 12.4 XYZ2 maximum - it wraps to the far
+// side of the raster window and smears a wedge across the screen. 0.9 stays
+// well inside (coord 3891).
+//
+// The visible frustum is far narrower than that. The projection divides by
+// RendererSettings::projectionScale (4096), so the screen edge sits at
+// width/4096 of w - 0.125 at 512 px, 0.109 vertically at 448 - and the band is
+// about SEVEN times that: a triangle may hang ~1590 px past either edge of a
+// 512x448 picture before anything is cut, and the GS scissor crops the raster
+// instead. Do not read 0.9 as "just inside the screen". C++ side only.
 #define VU1_CLIP_XY_BAND 0.9F
 
 // Buffer data (xtop)

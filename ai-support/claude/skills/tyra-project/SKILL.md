@@ -45,6 +45,8 @@ build. Two kinds of files coexist here:
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
 | `bin/livelogic.bin` | Live Logic patch: flow graphs the editor compiled and streamed into the running game (no rebuild) | No - runtime file |
 | `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
+| `bin/frame.tga` | The last frame the game photographed of ITSELF, on request (Debugger > Screen). A 32-bit TGA of the console's own frame buffer, deleted at every launch | No - runtime file |
+| `screenshots/` | Those captures kept as PNGs, one per capture, named by the clock. Yours to keep or delete | No - git-ignored |
 | `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
@@ -73,6 +75,8 @@ tyrax-editor binary lives.)
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
+| `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own ambient occlusion into `.res-baked/modelao/` and report what was skipped and why. A build does this itself; the verb is how you see it without Docker. `--texbake` also runs the texture bake, i.e. the multiply into `.res-baked` |
+| `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
 | `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |

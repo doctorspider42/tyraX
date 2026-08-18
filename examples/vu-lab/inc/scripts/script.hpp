@@ -24,6 +24,14 @@ struct RuntimeObject {
   // Turning it back on starts from a fresh contact history because the game
   // clears the solver cache while this is false.
   bool footIkEnabled = true;
+  // How far the ground under this object sits BELOW the position it is being
+  // rendered at, world units, >= 0. A walker's collision height steps onto a
+  // stair immediately while its visual root eases across (see the visualY
+  // filter), so during a descent the whole avatar is legitimately in the air
+  // and its swing foot cannot reach the tread with level-ground tolerances.
+  // The walker publishes that residual here and Foot IK adds it to the reach it
+  // is allowed to spend; anything else leaves it 0 and behaves as before.
+  float ikGroundDrop = 0.0F;
   // Object physics state (data.physics). Velocities are per-frame
   // displacements (like the player's), spin is degrees/frame. After writing
   // them from a script set restFrames = 0 too - a body at PHYS_ASLEEP is
@@ -338,6 +346,10 @@ struct ScriptContext {
   int (*spawnObject)(int templateIndex, float x, float y, float z,
                      float yaw) = nullptr;
   void (*despawnObject)(int objectIndex) = nullptr;
+  // Each points at that player's live walk/run/sprint triple (PlayerCtl::
+  // speeds), so Live Link can stream a speed edit into a running debug build.
+  // Null when the game has no walker. Set by the game.
+  float* playerSpeeds[2] = {nullptr, nullptr};
 
   // Prefabs (docs/prefabs.md) and runtime procedural volumes
   // (docs/procedural-runtime.md). spawnPrefab builds one instance: its static

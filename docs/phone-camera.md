@@ -1,5 +1,7 @@
 # Phone camera: the phone as a live viewfinder
 
+![Phone Camera connection panel](img/phone-camera.png)
+
 Hold your phone, look at the shot on its screen, and move it — the editor camera
 moves with you. Press **Record** and the move is written into a **Cutscene
 Director** camera track as keyframes, at a density you choose.

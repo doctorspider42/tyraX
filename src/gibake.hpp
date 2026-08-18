@@ -99,6 +99,15 @@ struct Scene {
     std::vector<float> heights;  // scene heightmap (for probe placement)
     int hmW = 0, hmD = 0;
     float hmWidth = 0, hmDepth = 0;
+    // The ground as the BVH actually has it: a DECIMATED grid of (cells+1)^2
+    // corner heights, split into triangles the way `build` splits them. The
+    // bake hands out points on the fine bilinear surface the game walks on,
+    // which sits above or below these triangles wherever the decimation cut a
+    // bump - and a gather ray fired from under them starts inside the ground.
+    // groundSurfaceY re-derives the traced height so an origin can be snapped
+    // onto it. Empty when the scene has no terrain.
+    std::vector<float> coarseH;
+    int coarseCells = 0;
 
     bool empty() const { return tree.empty(); }
 };
@@ -119,6 +128,11 @@ void skyRadiance(const Scene& s, const float dir[3], float out[3]);
 // land on. Deterministic - the sample spiral is rotated by a hash of `seed`,
 // never by a shared RNG, so the same bake twice is the same bytes twice at
 // any core count.
+// Height of the ground as the BVH holds it (see Scene::coarseH), -1e30f off
+// the terrain. Snap a ground-bake origin onto this, not onto the fine
+// bilinear surface, or the ray starts inside the mesh it is meant to leave.
+float groundSurfaceY(const Scene& s, float x, float z);
+
 void gather(const Scene& s, const float wp[3], const float n[3], uint32_t seed,
             int rays, float out[3]);
 
@@ -194,6 +208,23 @@ Bake load(const Project& p, int sceneIndex);
 // terrain map -> probes.
 Bake bakeScene(const Project& p, int sceneIndex,
                const std::atomic<bool>* cancel, const ProgressFn& progress);
+
+// The managed bake, synchronous: every scene whose cache is absent or STALE is
+// re-baked and written, the fresh ones are left alone and said so. Nothing
+// else - a scene whose cache still matches costs one signature pass. Two
+// callers, one loop: the pre-build step of `--build` and of
+// App::projectForBuild when ProjectSettings::giAutoBake is on (the litbake
+// bakeStale arrangement). It does not touch the Project - the cache lives on
+// disk - so the caller only has to re-read it (the viewport, refreshGenerated).
+// `log` receives one line per scene (`baked GI ...` / `fresh ...` / `error
+// ...`) plus a summary; may be null. Refuses to do anything while giEnabled is
+// off, which is what "GI never bakes silently" means: only a project that
+// asked for both switches gets it.
+struct StaleReport {
+    int baked = 0, kept = 0, failed = 0;
+};
+StaleReport bakeStale(const Project& p,
+                      const std::function<void(const std::string&)>& log);
 
 // Progressive asynchronous baker over a set of scenes - the matbake::Baker
 // pattern (worker thread, polled from the UI). start() on a running bake

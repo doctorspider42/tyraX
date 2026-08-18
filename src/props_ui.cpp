@@ -424,7 +424,7 @@ void App::drawPropertiesWindow() {
                 committed |= drawLodOverrides(o);
                 committed |= drawFootIkRow(o);
                 ImGui::TextDisabled(
-                    "Scripts/flow graph: Play Animation, Stop Animation,\n"
+                    "Scripts/flow graph: the Animation node (play/stop),\n"
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
@@ -861,6 +861,76 @@ void App::drawPropertiesWindow() {
                 "moves. The bake already excludes anything it can prove moves\n"
                 "(physics, pickable, usable, save-state, streamed, or moved by\n"
                 "a flow graph) - this is for the rest.");
+
+        // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
+        // primitive already has the per-texel lightmap route, which costs no
+        // extra texture at all.
+        if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
+            const int myIndex = selectedObject_;
+            const bool mine = litBaker_.objectIndex() == myIndex &&
+                              litBaker_.sceneIndex() == project_.activeScene;
+            if (litBaker_.running() && mine) {
+                ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+                ImGui::TextUnformatted(litBaker_.status().c_str());
+                if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
+            } else {
+                if (ImGui::Button("Bake lighting into texture")) {
+                    saveProject();  // the bake reads the model off disk
+                    litBaker_.start(project_, project_.activeScene, myIndex,
+                                    litBakeParams_);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
+                               512, "%d px");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
+                               512, "%d rays");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes the scene's light INTO this object's texture and\n"
+                    "gives it its own material - the only way a TEXTURED\n"
+                    "surface gets per-pixel static light on this hardware (the\n"
+                    "lightmap is additive and the GS cannot multiply a texture\n"
+                    "by a second one in a later pass).\n"
+                    "Its vertex light then goes neutral; the flashlight and\n"
+                    "live point lights still land on top.\n"
+                    "Costs one texture per object, and goes STALE if you move\n"
+                    "the object or change the scene's lighting - re-bake it.");
+            // Fresh or stale, from the signature - the same answer the Baked
+            // lighting tab gives, out of the same cached table (asking
+            // litbake::signature per frame would content-hash every file the
+            // GI bake reads).
+            if (o.prelit) {
+                const PrelitStatus* st = prelitStatusFor(myIndex);
+                if (st && st->fresh)
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                                       "Pre-lit: its texture carries its light");
+                else
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Pre-lit, but STALE: the scene or this object has "
+                        "moved since the bake");
+                if (ImGui::Button("Revert to source material"))
+                    revertPrelit(myIndex);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Puts back the material this object had before its\n"
+                        "first bake and stops shipping it pre-lit. The baked\n"
+                        "-lit.png/.mtl are left on disk (the Asset Browser\n"
+                        "lists them as unused).");
+            }
+            ImGui::TextDisabled(
+                "Every pre-lit object in this scene: Tools > Baked Lighting");
+            if (!litBaker_.error().empty() && mine)
+                ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                                   litBaker_.error().c_str());
+            // The result is applied by App::litBakerPoll, not here: a bake
+            // that finishes has to land whether or not this object is still
+            // the selected one.
+        }
     }
 
     if (isArea) {
@@ -1490,7 +1560,7 @@ void App::drawPropertiesWindow() {
                                 "X/Z near 0 and Y = height above the player.");
         ImGui::TextDisabled("Color tints the particles; scale X/Z = spawn area.\n"
                             "Rain falls from the emitter down to the terrain.\n"
-                            "Show/Hide Object nodes switch the emitter on/off.");
+                            "Set Object Visible switches the emitter on/off.");
     }
 
     if (o.type == PrimitiveType::SoundEmitter) {
@@ -1549,11 +1619,11 @@ void App::drawPropertiesWindow() {
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"
-                                "narration). Hide Object mutes.");
+                                "narration). Set Object Visible (hide) mutes.");
         } else {
             ImGui::TextDisabled("Volume fades with distance to the player.\n"
                                 "Interval 0 loops the sample seamlessly; > 0\n"
-                                "retriggers it every N seconds. Hide Object mutes.");
+                                "retriggers it every N seconds. Hiding the object mutes.");
         }
     }
 
@@ -1573,6 +1643,22 @@ void App::drawPropertiesWindow() {
                 "object and be switched by the Set Light flow node.\n"
                 "The engine lights each mesh with its strongest dynamic\n"
                 "light (one slot per mesh; max 8 per scene).");
+        if (o.lightDynamic) {
+            committed |= ImGui::Checkbox("Spot (cone)", &o.lightSpot);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The light becomes a cone down the object's local -Y\n"
+                    "(unrotated = straight down; rotate the object to aim).\n"
+                    "Nearby meshes take the cone per vertex, and on the\n"
+                    "ground its footprint is PROJECTED per pixel with the\n"
+                    "flashlight's gobo - a street lamp that really lights\n"
+                    "the street (docs/flashlight.md).");
+            if (o.lightSpot) {
+                ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
+                                 5.0f, 60.0f, "%.0f deg");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+            }
+        }
         if (o.lightDynamic) {
             ImGui::DragFloat("Flicker", &o.lightFlicker, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1690,8 +1776,39 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Player");
         const char* modes[] = {"Walk (FPP)", "Noclip (fly)", "Third person"};
         if (ImGui::Combo("Mode", &o.playerMode, modes, 3)) committed = true;
-        walkSpeedDrag("Walk speed", o.playerWalkSpeed,
-                      project_.settings.unitsPerMeter, &committed);
+        // The three speed tiers (docs/player-speeds.md). Walk is what a gentle
+        // stick gives, Run what a full one gives - the deflection ramps between
+        // them - and Sprint pins the top flat while the sprint action is held.
+        // Run and Sprint resolve through project::playerRunSpeed/
+        // playerSprintSpeed, the same functions codegen bakes with, so an unset
+        // tier displays the number the console will really run.
+        const float ups = project_.settings.unitsPerMeter;
+        walkSpeedDrag("Walk speed", o.playerWalkSpeed, ups, &committed);
+        prefHelp(
+            "Speed at a gentle stick, and the bottom of the walk -> run ramp.\n"
+            "With no Run speed set this is the only speed there is, which is\n"
+            "how every project behaved before the tiers existed.");
+        speedTierDrag("Run speed", o.playerRunSpeed,
+                      project::playerRunSpeed(o), ups, "same as walk",
+                      &committed);
+        prefHelp(
+            "Speed at FULL stick. The stick's deflection ramps the speed from\n"
+            "Walk up to Run, so easing the stick walks and pushing it all the\n"
+            "way runs.\n\n"
+            "A digital source - the d-pad, or the keyboard - always reads full\n"
+            "deflection, so it always moves at the Run speed.\n\n"
+            "This is also what the avatar's Run clip is measured against: the\n"
+            "'Run at' fraction below is a fraction of THIS speed.");
+        speedTierDrag("Sprint speed", o.playerSprintSpeed,
+                      project::playerSprintSpeed(o, project_.settings), ups,
+                      "run x sprint multiplier", &committed);
+        prefHelp(
+            "Speed while the 'sprint' action is held (Tools > Input Map).\n"
+            "It pins the top speed flat, ignoring the stick ramp - a\n"
+            "deliberate go-fast modifier rather than a third analog tier.\n\n"
+            "Left unset it is the Run speed times Preferences > Input >\n"
+            "Sprint speed, which is exactly what sprinting did before this\n"
+            "field existed. Set it to state the speed outright instead.");
         ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat(o.playerMode == 2 ? "Body height" : "Eye height",
@@ -1754,6 +1871,7 @@ void App::drawPropertiesWindow() {
                         o.playerIdleClip.clear();
                         o.playerWalkClip.clear();
                         o.playerRunClip.clear();
+                        o.playerSprintClip.clear();
                         o.playerJumpClip.clear();
                         o.playerBackClip.clear();
                         o.playerStrafeLeftClip.clear();
@@ -1817,13 +1935,31 @@ void App::drawPropertiesWindow() {
                     clipCombo("Idle clip", o.playerIdleClip, false);
                     clipCombo("Walk clip", o.playerWalkClip, false);
                     clipCombo("Run clip", o.playerRunClip, true);
+                    clipCombo("Sprint clip", o.playerSprintClip, true);
+                    prefHelp(
+                        "Played while the 'sprint' action is held and the\n"
+                        "avatar is past 'Run at' below. <none> = the run clip\n"
+                        "covers sprinting too.\n\n"
+                        "Chosen from the sprint BUTTON, not from a speed - so\n"
+                        "it works even when the sprint and run speeds are a\n"
+                        "hair apart. Its playback is matched to the sprint\n"
+                        "speed, so a clip authored at sprint pace plays at 1x\n"
+                        "when the player is actually sprinting.");
                     clipCombo("Jump clip", o.playerJumpClip, true);
+                    // A fraction of the RUN speed - which is the walk speed
+                    // until one is set, so the number means what it always did
+                    // while now tracking the tier the stick actually tops out
+                    // at (docs/player-speeds.md).
                     ImGui::DragFloat("Run at", &o.playerRunThreshold, 0.01f, 0.1f,
-                                     1.0f, "%.2f of walk speed");
+                                     1.0f, "%.2f of run speed");
                     committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    prefHelp(
+                        "Fraction of the full-stick Run speed at which the Run\n"
+                        "clip replaces the Walk clip. Sprinting is above the\n"
+                        "run speed, so it always plays the run clip.");
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
-                        "\"Play Animation\" one-shot plays to the end first.");
+                        "an Animation one-shot plays to the end first.");
                     // Directional locomotion: only meaningful with the avatar
                     // facing the camera - otherwise it turns into the movement
                     // and every step is a forward step.

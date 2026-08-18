@@ -23,6 +23,17 @@ class TerrainGame : public Tyra::Game {
   void buildScene();
   void resetTerrainChunks();
   void buildTerrainChunk(int slot, int cx, int cz);
+  // The grid stride chunk (cx, cz) is drawn at: 1 near the player, 2 and then
+  // 4 further out (docs/terrain-lod.md). A PURE function of the snapped foci
+  // below and nothing else - which is the whole trick: a chunk can work out
+  // what its neighbours are doing without asking whether they exist, so the two
+  // sides of a shared edge agree by construction instead of by bookkeeping.
+  int terrainLodStep(int cx, int cz) const;
+  // The foci the bands are measured from, SNAPPED to half a chunk. Snapping is
+  // what bounds the churn: the LOD field then only moves when the player
+  // crosses a snap line, instead of on every centimetre of walking.
+  float terrainLodFocus[2][2] = {{0.0F, 0.0F}, {0.0F, 0.0F}};
+  int terrainLodFocusCount = 0;
   // Streams the chunk ring around one or two view foci (two-player modes:
   // P2's avatar is the second focus) - a chunk near EITHER focus stays
   // resident, so the split halves stop evicting each other's terrain.
@@ -88,6 +99,15 @@ class TerrainGame : public Tyra::Game {
     // Height extent of this chunk's cells, filled at build - the portal
     // through-view's exact AABB-vs-exit-plane dead-zone test reads it.
     float minY = 0.0F, maxY = 0.0F;
+    // Distance detail (docs/terrain-lod.md): the grid stride this chunk was
+    // built at, and the stride each of its four neighbours had AT THAT MOMENT -
+    // a shared edge is drawn at the coarser of the two, so a neighbour changing
+    // detail invalidates this chunk exactly as much as its own band moving
+    // does. Both are one comparison in updateTerrainChunks. 1 everywhere with
+    // the feature off, which is what makes that build byte-identical to the
+    // pre-LOD one.
+    unsigned char lod = 1;
+    unsigned char lodW = 1, lodE = 1, lodN = 1, lodS = 1;
   };
   std::vector<TerrainChunk> terrainChunks;  // slot pool
   std::vector<short> terrainChunkSlot;      // chunk index -> slot, -1 = unbuilt
@@ -274,6 +294,23 @@ class TerrainGame : public Tyra::Game {
       bool resolved = false;
       bool valid = false;
       bool objectReady = false;
+      // Cached per-clip rule (FOOT_IK_CLIP_RULES). Resolved by NAME, but only
+      // when the playing clip index changes - a string compare per frame per
+      // instance would be paid forever for an answer that almost never moves.
+      int ruleClip = -1;
+      bool ruleSolve = true;
+      float rulePlant = 1.0F;
+      float ruleClearance = 1.0F;
+      // Locomotion grade: is this character walking on the level, up, or down?
+      // Filtered, and soft rather than a three-way enum, because every gate it
+      // widens would otherwise pop on the frame the classification flipped.
+      float previousY = 0.0F;
+      bool gradeReady = false;
+      float rootVy = 0.0F;      // filtered vertical speed of the visual root
+      float dropAhead = 0.0F;   // filtered ground drop under the path ahead
+      float descend = 0.0F;     // 0..1
+      float ascend = 0.0F;      // 0..1
+      float reachBudget = 0.0F; // filtered extra downward reach, world units
       int pelvis = -1;
       int hip[2] = {-1, -1};
       int knee[2] = {-1, -1};
@@ -488,6 +525,17 @@ class TerrainGame : public Tyra::Game {
   std::vector<StaticBatch> staticBatches;
   std::vector<short> objectBatchOf;  // authored index -> batch, -1 = solo
   std::unique_ptr<Tyra::StaPipInfoBag> batchInfoBag;  // shared by all batches
+  // ...and its Gouraud twin, for generated chunks whose vertex colours are
+  // meant to be READ ACROSS a triangle rather than picked from one corner
+  // (block ambient occlusion). Its own bag rather than a flag on the one
+  // above, because that one is shared with the static batcher, whose members
+  // are flat-shaded by design.
+  std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
+  // The same settings with the camera spot switched off, for a batch that holds
+  // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
+  // one bag for many objects, so this is only ever swapped in for a batch of
+  // ONE - otherwise a torch on one wall would darken its neighbours.
+  std::unique_ptr<Tyra::StaPipInfoBag> batchNoSpotInfoBag;
   void buildStaticBatchList();
   void rebuildStaticBatch(StaticBatch& b);
   void renderStaticBatches();
@@ -517,6 +565,11 @@ class TerrainGame : public Tyra::Game {
     float aabbMin[3] = {0, 0, 0}, aabbMax[3] = {0, 0, 0};
     float centre[3] = {0, 0, 0};
     float drawDist = 0.0F;  // 0 = always drawn
+    // Something in this chunk carries per-VERTEX colour that varies across a
+    // face, so it must be Gouraud-shaded. Sticky, and safe to be: Gouraud over
+    // equal corner colours is the flat result, so a chunk that mixes blocks
+    // with ordinary instances loses nothing.
+    bool smooth = false;
   };
   std::vector<ProcChunk> procChunks;
   // Collision for generated geometry. Merged geometry has no objects, so a
@@ -559,11 +612,19 @@ class TerrainGame : public Tyra::Game {
   float procBlockCeilAt(float x, float z, float minY) const;
   // Any solid block inside the vertical band [y0, y1] within `r` of (x, z)?
   bool procBlockBlocks(float x, float z, float y0, float y1, float r) const;
+  // Per-vertex ambient occlusion for one block of that field: its 3x3x3
+  // neighbourhood reduced to four corner levels per face, out[face * 4 +
+  // corner], 255 = open (docs/procedural-runtime.md, "Ambient occlusion").
+  void procBlockVertexAo(float x, float y, float z, unsigned char faces,
+                         unsigned char out[24]) const;
   void despawnPrefabInstance(int handle);
   // Merges a run of instances into procChunks. The two callers (a runtime
   // volume, a prefab instance) differ only in where the transforms come from.
+  // blockAo is the table procBlockVertexAo filled, and passing it is what
+  // makes an instance a self-occluding block rather than a scattered model.
   void procAddMergedObject(int owner, int instance, const SceneObjectData& d,
-                           unsigned char faces);
+                           unsigned char faces,
+                           const unsigned char* blockAo = nullptr);
   void procFinishChunks();
   void renderProcChunks();
   GeoPart skyDome;
@@ -864,6 +925,12 @@ class TerrainGame : public Tyra::Game {
     // from the model's clip table at scene load; -1 = unmapped.
     float faceYaw = 0;
     int idleClip = -1, walkClip = -1, runClip = -1, jumpClip = -1;
+    int sprintClip = -1;  // -1 = the run clip covers sprinting
+    // walk / run / sprint, seeded from the scene tables at load. A variable
+    // rather than the constants so Live Link can stream a speed edit into a
+    // running debug build (docs/player-speeds.md); a release build just
+    // reads what the load wrote.
+    float speeds[3] = {0.1F, 0.1F, 0.18F};
     // Directional locomotion (face-camera / strafe mode only); -1 = unmapped,
     // the walk clip covers that direction.
     int backClip = -1, strafeLClip = -1, strafeRClip = -1;
@@ -918,11 +985,20 @@ class TerrainGame : public Tyra::Game {
   // (strafe) locomotion - the movement direction relative to the avatar's
   // facing (moveLocal, radians, 0 = straight ahead), cross-fading on change.
   void drivePlayerAnim(PlayerCtl& P, RuntimeObject& body, float speedFrac,
-                       bool grounded, float moveLocal);
+                       bool grounded, float moveLocal, bool sprinting);
   void applyFootIk(int objectIndex, RuntimeObject& object,
                    ObjectGeometry& geometry, Tyra::SkelInstance& instance);
   bool footGroundAt(float x, float z, float top, float bottom, int skipIndex,
                     float* y, Tyra::Vec4* normal = nullptr) const;
+  // The surface a spawn marker is standing ON: the highest solid thing at or
+  // below its authored height - a stair, a platform, the terrain - which is
+  // what the editor's placement snap already showed the author when they put
+  // it there. `found` reports whether anything was under it at all (a
+  // terrain-less scene with nothing below keeps the authored height, and the
+  // walker starts airborne). Skips `skipIndex` so an avatar's own collider
+  // cannot catch the ray.
+  float spawnSurfaceY(float x, float z, float authoredY, int skipIndex,
+                      bool* found = nullptr) const;
   // Spring arm: the distance down the boom (from the head, along d) at which
   // the camera would enter geometry or the terrain. camBoom is the smoothed
   // boom length actually used - whisker casts ease it in ahead of a hit, a
@@ -960,6 +1036,36 @@ class TerrainGame : public Tyra::Game {
   std::vector<Tyra::Color> collisionBoxCols;
   std::unique_ptr<Tyra::StaPipBag> collisionBoxBag;
   std::unique_ptr<Tyra::StaPipColorBag> collisionBoxColorBag;
+  // --- Foot IK probe overlay (DEBUG_SHOW_FOOTIK) --------------------------
+  // One ray the solver cast this frame, in world space, plus what came back.
+  // Recorded by applyFootIk as it goes and drawn by renderFootIkProbes at the
+  // end of the frame: the solver runs before the render, and a probe is worth
+  // seeing where it WAS, not where the object has since been moved to.
+  struct FootProbe {
+    enum Kind : unsigned char {
+      Sole,       // the vertical ray under the sole - the main one
+      Lip,        // the near/far ahead probes that look for a riser
+      Ahead,      // the motion-lead sample
+      Sweep,      // a swept shoe-corner sample
+      Plan,       // a candidate of the learned landing fan
+      Target,     // not a ray: where the leg was actually sent
+    };
+    float x = 0.0F, z = 0.0F;   // where the ray was cast
+    float top = 0.0F, bottom = 0.0F;  // its search window
+    float hitY = 0.0F;
+    Kind kind = Sole;
+    bool hit = false;
+    bool locked = false;  // Target only: did the foot take weight
+  };
+  std::vector<FootProbe> footIkProbes;
+  bool footIkProbesTruncated = false;
+  void recordFootProbe(FootProbe::Kind kind, float x, float z, float top,
+                       float bottom, bool hit, float hitY);
+  std::vector<Tyra::Vec4> footProbeVerts;
+  std::vector<Tyra::Color> footProbeCols;
+  std::unique_ptr<Tyra::StaPipBag> footProbeBag;
+  std::unique_ptr<Tyra::StaPipColorBag> footProbeColorBag;
+  void renderFootIkProbes();
   // Does this object take part in collision at all? Geometry-less markers and
   // "collision: none" objects do not.
   static bool objectCollides(const SceneObjectData& d);
@@ -1203,6 +1309,35 @@ class TerrainGame : public Tyra::Game {
     int objIndex = -1;
     std::vector<Tyra::Vec4> verts, sts;
     Tyra::Color color;
+    // The flashlight's SECOND patch, for the wall its beam is touching. Both
+    // are drawn every frame and the depth buffer decides where each shows,
+    // because a beam sweeping from the floor up a wall really does light both
+    // at once - one patch had to teleport from one to the other, and that read
+    // as the light blinking off and on again. Its own buffers, never a second
+    // pass over the first: the DMA may still be reading them.
+    std::vector<Tyra::Vec4> wVerts, wSts;
+    // Per-vertex Gouraud colors, torch patches only: the projective STQ has
+    // no distance falloff of its own - along the beam's axis the mapping
+    // converges to the gobo's hot centre at ANY range, so a grazing pool lit
+    // its far reaches at full strength (bright trapezoids on every rise the
+    // beam touched, reported from the console). The reach falloff rides the
+    // vertex color instead, which the GS interpolates per pixel.
+    std::vector<Tyra::Color> colors, wColors;
+    Tyra::Color wColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> wInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
+    std::unique_ptr<Tyra::StaPipBag> wBag;
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
+    // occluder boxes, split by CAMERA facing. Front faces write destination
+    // alpha 0x80 where they are closer than the scene, back faces write 0
+    // where THEY are - two plain TestOnly draws inside the alpha-mask
+    // bracket, and the bit that survives is "this pixel is inside a volume".
+    std::vector<Tyra::Vec4> volFront, volBack;
+    Tyra::Color volSetColor, volClrColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
+    std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1215,11 +1350,15 @@ class TerrainGame : public Tyra::Game {
   // texture to the repository.
   Tyra::Texture* flashPoolTex = nullptr;
   std::string flashPoolTexPath;
+  // ...and the built-in one it falls back to: the baked gobo
+  // (res/hud/flashlight-gobo.png, loaded in buildScene when FLASHLIGHT_USED).
+  Tyra::Texture* flashGoboTex = nullptr;
   // The last entry (objIndex -1) is the camera flashlight's: per-VERTEX
   // lighting cannot draw a spot smaller than the mesh tessellation, so
   // looking down at your own feet lit nothing (the cone footprint is
-  // smaller than a terrain cell). That patch follows the view ray's
-  // terrain hit instead.
+  // smaller than a terrain cell). That patch is PROJECTED from the beam's
+  // own frustum instead, so its shape comes from the gobo texture and not
+  // from the terrain's vertex grid (docs/flashlight.md).
   void setupLightPools();            // per scene load
   void updateAndRenderLightPools();  // per frame, before the shadows
   void buildPoolPatch(LightPool& b, float cx, float cz, float r, float lift);
@@ -1247,6 +1386,18 @@ class TerrainGame : public Tyra::Game {
   struct ProjShadow {
     std::vector<Tyra::Vec4> verts, sts;  // receiver patch (terrain-conforming)
     Tyra::Color color;
+    // The WALL copy (docs/flashlight.md, "The shadow"): when the torch is the
+    // light that threw this slot's silhouette, the geometry the shadow ray
+    // lands on is re-rendered with the silhouette sampled through the light's
+    // view-proj - the same second-pass trick the torch's own light uses, so a
+    // caster in the beam paints its shadow ON the wall behind it. Own buffers:
+    // the DMA may still be reading the ground patch's.
+    std::vector<Tyra::Vec4> wallVerts, wallSts;
+    Tyra::Color wallColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> wallInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> wallColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> wallTexBag;
+    std::unique_ptr<Tyra::StaPipBag> wallBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1262,6 +1413,26 @@ class TerrainGame : public Tyra::Game {
   // heightfield alone ends up underneath it (see projCollectReceivers).
   void projCollectReceivers(float cx, float cz, float reach, float yMax);
   float projSurfaceAt(float x, float z);
+  // ...and the same objects as full boxes, walls included, for the flashlight's
+  // pool: shine a beam at a wall and the light belongs ON the wall, which the
+  // receiver list cannot say (it drops anything taller than the caster) and the
+  // marched column cannot either (it would put the light on the wall's top).
+  // projWallHit returns the nearest face the beam enters through: t along the
+  // ray, which axis the face is perpendicular to, which side of the box, and
+  // the box itself so the patch can be clipped to that face.
+  void projCollectBoxes(float cx, float cz, float reach);
+  bool projWallHit(const Tyra::Vec4& from, float dx, float dy, float dz,
+                   float maxT, float& outT, int& outAxis, float& outSign,
+                   struct ProjBox& outBox);
+  // The objects whose own per-vertex flashlight cone is switched OFF because the
+  // projected pool is doing that job on them (big flat boxes the cone would
+  // simply flood). Rebuilt each frame by updateFlashSpotOff.
+  std::vector<int> flashSpotOffList;
+  // ...fed by the pool pass: the cone receivers of this frame (objects the
+  // beam cone touches), whose per-vertex cone the projected light replaces.
+  std::vector<int> flashSpotExtra;
+  void updateFlashSpotOff();
+  void setFlashSpotOff(int obj, bool lit);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.

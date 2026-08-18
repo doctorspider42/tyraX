@@ -16,7 +16,7 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.25.0 (Foot IK becomes a tool, and a foot stops finishing its stride in
+// 1.56.0 (Foot IK becomes a tool, and a foot stops finishing its stride in
 // mid-air): reported twice with screenshots - "noga nie snapuje na niższy
 // stopień, tylko staje w powietrzu" on stairs, and the same hang while STANDING
 // with one foot on a step. Two different bugs wearing one symptom, and the
@@ -78,6 +78,975 @@
 // two runs saw 32 vs 178 descending frames - PCSX2 frame pacing sent the player
 // somewhere else, so the comparison is confounded, not passing). And the exact
 // pose from the last screenshot has not been reproduced on the fixed route.
+//
+// (Authored as 1.25.0 and renumbered on the merge that brought main up to
+// 1.55.3 - thirty commits, including a retargeter, the flashlight, the VRAM
+// work and a second FBX-bake speedup that arrived independently of the one
+// above. Nothing in the entry changed but the number.)
+//
+// 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
+// both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
+// dev checkout's build leftovers are not content" - and
+// vendor/tyra/audsrv/bin/libaudsrv.a is not a leftover. It is a COMMITTED
+// artifact of the in-tree audsrv fork (the per-channel L/R panning sound
+// emitters need), which runner.cpp overlays onto the build image's PS2SDK
+// together with audsrv.irx and audsrv.h. Those two matched no pattern and
+// travelled, so the hole was exactly one file wide and the failure wore
+// somebody else's face: the overlay is a `cp a && cp b && cp c`, it died on the
+// missing lib BEFORE reaching the header, the game then compiled against the
+// image's stock PS2SDK copy, and every build ended
+//
+//     md5sum: /engine-src/audsrv/bin/libaudsrv.a: No such file or directory
+//     inc/audio/audio_adpcm.hpp:108:5: error:
+//         'audsrv_adpcm_set_volume_and_pan' was not declared
+//
+// on EVERY project, for everyone who installed the editor and for nobody who
+// built it from a checkout - where the file is present and the same build is
+// clean. That asymmetry is why it survived two releases: the only people who
+// could reproduce it were the ones who could not debug it.
+//
+// Both packagers now exclude by DIRECTORY, and the list is exactly what
+// .gitignore drops under vendor/tyra (engine/obj, engine/bin, audsrv/.work):
+// what git keeps, the package ships. runner.cpp additionally checks the three
+// overlay files before it starts and names the missing one, because an editor
+// packaged before this fix stays broken until it updates - and the message it
+// used to give pointed at the engine's audio code, which was never wrong.
+//
+// Verified on both halves of the pair. Linux: stage_tree's find expression over
+// this tree stages 402 files where the old one staged 401, and the difference
+// is libaudsrv.a. Windows: ISCC compiles tyrax.iss with all three
+// audsrv/bin files in its "Compressing:" list and zero paths under engine/obj,
+// engine/bin or audsrv/.work. PATCH: no capability appears, nothing changes
+// shape on disk, a build that could not run starts running.
+//
+// 1.55.1 (the self-screenshot reaches the console it was built for -
+// docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
+// nothing said so. On hardware the picture never came back, deterministically,
+// and the cause is one call inside ps2sdk's libdebug: `ps2_screenshot_file()`
+// creates its output with `open(name, O_CREAT|O_WRONLY)`, and over ps2link that
+// create arrives at the `host:` server as a MKDIR OF THE TARGET NAME. The host
+// ends up with a DIRECTORY called frame.tga, the open that follows returns -1,
+// and the function reports nothing at all - it has no failure path. Measured on
+// a real PS2, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// while livedbg.bin, livetime.bin and every other devkit file - all written
+// through fopen(name, "wb"), flags 0x602 on the wire - succeeded in the same
+// session over the same server. So the runtime keeps the half of libdebug that
+// carries the value (ps2_screenshot, the VRAM readback) and writes the file
+// itself. PCSX2's own host: server accepts libdebug's spelling, which is
+// exactly why this could ship as emulator-only without anybody noticing.
+//
+// Two hardware-only traps came with owning the write, and both are guarded:
+// the readback lands in RAM BEHIND THE EE'S DATA CACHE (each line is flushed
+// after its transfer, or the picture repeats rows - invisible in an emulator
+// that emulates no cache), and ps2_screenshot REFUSES to run while VIF1's DMA
+// channel is busy, saying so only through its return value, so refusals are
+// counted and reported rather than written out as picture. A third bug was on
+// the EDITOR side and needed no console to be wrong: the panel gave a capture
+// six polls (~2.4 s) to finish before calling the file malformed, which PCSX2
+// meets between two frames and ps2link cannot - one capture is ~900 KB at a
+// network round trip per 1.4 KB, measured at about three seconds. It now waits
+// on PROGRESS (the file still growing) and reports only a write that has
+// stalled.
+//
+// Also here, from the same session: every capture is kept as a PNG under the
+// project's screenshots/ folder, and *Show file* reveals THAT rather than
+// bin/frame.tga - the channel file is overwritten by the next capture and
+// deleted by every launch, and explorer answers a path that does not exist by
+// opening the user's Documents folder, which reads as a broken button (it was
+// reported as one). platform::revealInFileManager now walks up to the nearest
+// ancestor that exists, so no caller can reproduce that. The picture is written
+// opaque, so nothing downstream has to know that a frame buffer's alpha is a
+// working channel rather than coverage.
+//
+// VERIFIED on the user's PlayStation 2 over ps2link, unattended: the capture
+// comes back 512x512, 1048594 bytes = 18 + 512*512*4, exactly the expected
+// size, with 0 repeated rows and no VIF1 refusals; it agrees with the same
+// scene captured in PCSX2 to 2.0/255 mean absolute difference; a second capture
+// after a --pad camera turn shows the turned view, so it is live rather than a
+// stale buffer; and the whole user-facing loop (menu > Run on PS2 > Debugger >
+// Screen > Capture frame > the picture on screen) was driven with --ui-script
+// and asserted with expect, exit 0. The PNG that lands in screenshots/ is
+// pixel-identical to the TGA it came from.
+//
+// PATCH: a fix. The generated devkit runtime changes, so a project must be
+// rebuilt to get it; nothing on disk changes shape.
+
+// 1.55.0 (the game photographs itself - docs/devkit.md, "The game's own
+// screenshot"): a sixth one-shot on the Live Debugger's command channel (flags
+// bit 6, beside the VU1 capture and the RAM measurement). The game reads its
+// last finished frame out of GS VRAM through ps2sdk libdebug's VIF1 reverse
+// FIFO, writes bin/frame.tga over the same host: channel every other devkit
+// file uses, and the Debugger's new Screen tab decodes and shows it.
+//
+// IT IS THE ONLY CAPTURE PATH THAT DOES NOT NEED A DESKTOP, which is the whole
+// argument for it: the emulator's F8 key, a GDI grab and PrintWindow all need
+// the window present and unoccluded on an unlocked session, and none of them
+// exists on a console at all. This one answers from hardware, from a locked
+// machine and from an unattended script.
+//
+// Four traps, each of which fails silently and three of which were found by
+// measuring rather than by reading. `fb->address` is in GS WORDS while the API
+// wants BLOCKS, so a missing /64 overflows SBP's 14 bits and reads buffer 0 with
+// its pages scrambled. The buffer must be getPreviousRealFrameBuffer(), never
+// the current one (half-composed) or getPreviousFrameBuffer() (which can be a
+// synthesised extrapolated frame). libdebug opens the file O_CREAT|O_WRONLY with
+// NO O_TRUNC, so a shorter capture over a longer one leaves the previous
+// picture's tail behind and still decodes - the runtime deletes first. And
+// ps2_screenshot_file's RETURN VALUE IS NOT A VERDICT: upstream returns 0 both
+// when open() fails and when everything worked, so the first version logged
+// "capture failed" over a perfectly good 1 MB picture. The check is the file's
+// own size against 18 + w*h*4.
+//
+// The panel decodes the TGA by hand rather than through stbi_load, and that is
+// deliberate: the editor's stb_image is built STBI_ONLY_PNG + STBI_ONLY_JPEG and
+// answers "unknown image type" to every TGA (which is how this was caught, on
+// screen, in the honest-failure text). Adding TGA would widen what every other
+// stbi_load in the editor accepts - the asset importer above all - for one debug
+// preview, where the format has exactly one writer whose source is known.
+//
+// Verified end to end in PCSX2 on an fpp fixture: the self-capture agrees with
+// PrintWindow's grab of the emulator's own render area to **0.91/255 mean
+// absolute difference** with the horizon at the same fraction (0.531 vs 0.530),
+// which is what says the address, the row order and the channel order are all
+// right. The Runner's stale-delete was checked by looking for the file after a
+// relaunch, and the whole loop - tab, button, command, capture, preview - was
+// driven with --ui-script and no human. --audit-release fails on the debug ELF
+// naming `frame.tga` among six findings and comes back clean on the release one,
+// whose devkit TU is three lines.
+//
+// MINOR: a capability appears, nothing changes shape on disk. (Authored as
+// 1.54.0 and RENUMBERED on the merge, this file's standing arrive-second rule -
+// main took 1.54.0 with #245 while this branch was open. Two of the entries
+// below are the argument for this one: 1.53.1 was diagnosed with every capture
+// taken by the GAME ITSELF, by hand, because the desktop was locked all night;
+// and 1.54.1 is a fault PCSX2 structurally cannot show, which is the other half
+// of the same problem - when only the console can reproduce something, only the
+// console can photograph it.)
+//
+// 1.54.1 (the flashlight's wall patch stops killing the game on real
+// hardware): setupLightPools set the wall slice's shading type thirty lines
+// BEFORE it allocated the bag holding it - a store through a null unique_ptr
+// at offset +4, which is where StaPipInfoBag::shadingType sits. Every project
+// with a torch took it during scene setup, i.e. the instant the loading screen
+// ended. It was invisible for a release and a half because PCSX2 has main RAM
+// at address 0, so the write landed in low memory and every emulator test
+// passed; a console has nothing mapped there and raises a TLB refill on store
+// (cause 3, BadAddr 0x00000004). The write now happens after the make_unique,
+// which also makes the wall patch Gouraud as the surrounding code always
+// intended - the per-vertex reach falloff renderSlice has been feeding it all
+// along. Cause 3 is handed back to the kernel by the crash handler on purpose
+// (see crash_handler.cpp), so this class of fault produces ps2link's raw
+// register dump and no crash.txt - docs/devkit.md says so now.
+//
+// 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
+// scene with Point Light > Beam used to look materially different in the
+// editor than in PCSX2, because the editor drew neither half of it. It draws
+// both now, from the game's own numbers: the additive corona billboard with
+// the camera pull (a quarter of the light radius, capped at three quarters of
+// the camera distance, size-compensated - without the pull the editor shows
+// the very z-fight seam 1.53.1 removed from the console), and the eight-
+// segment apex-to-black cone shaft for Beam: corona + shaft. One sprite bake
+// serves the beams, the ground pools and the night sky's star dot
+// (Viewport::coronaTex, at menubake::kCoronaSpriteSize - the pools were still
+// uploading it at the flare size after 1.53.1 moved kind 2 to 128, i.e. a
+// quarter of the image). Beams draw in EVERY shading mode, unlike the ground
+// pools: a beam is geometry the game submits, not a simulation of how the
+// console shades. The runtime LEVEL is deliberately not reproduced - flicker,
+// Set Light and a streamed-out light are runtime state, and a glow pulsing
+// over a rock-steady pool of light would be a new lie rather than less of one.
+// Verified against PCSX2 on examples/night-walk's street lamp by differencing
+// beam-on against beam-off in each renderer (which cancels the editor's
+// gizmos and every shading difference) at a matched eye/aim/FOV from three
+// vantages: the added light lands within 0.17 % of picture width and 0.64 % of
+// height, its area agrees to 8 %, and the editor's amplitude tracks the
+// sprite's own alpha curve to 3 % at two brightnesses. Behind a wall both add
+// exactly zero, so the depth test still hides a glow the way it should. Also
+// corrected on the way through: the console capped the pull at HALF the camera
+// distance while its own commit message, docs and this file all said three
+// quarters - the measurement that picked the value is in 1.53.1's entry, and
+// the code kept the value it rejected. MINOR: the viewport gains a capability,
+// nothing changes shape on disk.
+//
+// 1.53.1 (a lamp's glow stops sawing its own pole): reported from
+// examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
+// boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
+// at the reporter's own vantage (torch toggled: unchanged; light removed:
+// gone; Beam set to 0: gone - so the corona), with every capture taken by the
+// GAME ITSELF (ps2sdk's ps2_screenshot_file into host:, VIF1 reverse FIFO),
+// because the desktop was locked all night and no host-side capture can see a
+// window there. Two causes, two fixes, both in the generated
+// updateAndRenderLightBeams/menubake pair:
+//
+// THE SEAM IS A Z-FIGHT WITH ITS OWN FIXTURE. The corona is a depth-tested
+// additive billboard centred exactly on the bulb, so it slices through the
+// lamp's own pole and arm, and the GS's fixed-point z cuts the soft sprite on
+// a chunky seam that wanders as the camera moves. The sprite is now PULLED
+// toward the camera (a quarter of the light radius, capped at three quarters
+// of the camera distance - a half-distance cap measurably parked the seam at
+// the pole's base when looking steeply up, which is how the cap value was
+// chosen) and shrunk by the same fraction, so its apparent size is untouched:
+// the glow blooms OVER the thin fixture the way a real lens does, and a wall
+// between camera and lamp still occludes it. The cone shaft (Beam: shaft)
+// stays at the true position - it is world geometry.
+//
+// AND THE CORONA WAS 64 TEXELS ACROSS A THIRD OF THE SCREEN. Up close the
+// radial gradient's texels are ~4 px, so its rim contours in visible steps
+// whatever the z does. Kind 2 - the beam corona, which the star field also
+// draws through - bakes at 128 now (menubake::kCoronaSpriteSize; the 2D
+// lens-flare sprites stay 64, they draw small). The file is rewritten on
+// every refreshGenerated, so existing projects pick it up on their next
+// build; the editor viewport's star-dot upload follows the same constant.
+//
+// What this deliberately does NOT fix, measured so it is not re-chased: the
+// few-pixel stepping that remains at the pole's base is the pole model's own
+// edge aliasing at native resolution - identical with the corona's z-test
+// off, identical at 64 and 128, present with the beam entirely removed once
+// the contrast is matched - and would need AA or a higher raster, not a pass
+// change. PATCH: no capability appears, a defect goes away; the format is
+// untouched.
+//
+// 1.53.0 (the viewport learns to lie less - docs/ps2-viewport.md): two new
+// look simulations beside the PS2 output mode, both machine-global. "PS2
+// shading" re-runs the viewport's ONE lighting chunk per triangle corner in a
+// geometry stage - the console's per-vertex shading, with TyraShadingFlat
+// mirrored per draw, dynamic lights on the VU1 slot formula (radial, no N.L),
+// the terrain's dynamic light drawn as the console's ground POOL (same corona
+// pixels, same FIX scale) and the flashlight kept per-pixel like its projected
+// pool. "GS colour" quantizes the picture to PSMCT16's 5 bits through the
+// engine's own DIMX dither matrix, following the project's Colour depth by
+// default. Verified A/B against a PCSX2 frame of a lamp + sphere fixture
+// (savestate-embedded screenshot; the pool, the lit ball and the banding
+// match). MINOR: two capabilities appear, nothing changes shape on disk.
+//
+// 1.52.1 (the .rpm stops being twice its own size): v1.52.0 shipped a 31 MB
+// rpm of a tree that packs into 13, because a spec that says nothing about its
+// payload gets the BUILDER's default - and the CI runner's rpmbuild (Ubuntu
+// 22.04, rpm 4.17) reaches for gzip where a modern one reaches for zstd. It is
+// stated now, as xz: rpm 4.8 (2010) on the installing machine rather than zstd's
+// 4.14, and Debian-family rpm links liblzma for certain, which is not something
+// to bet a release job on. Verified by packing the same tree both ways and
+// reading %{PAYLOADCOMPRESSOR} back off the result - and the shrunken rpm's
+// payload was extracted and its editor run (--vu-check) out of it.
+//
+// Also here: the repository was renamed tyra-editor -> tyraX, so the four
+// tracked strings that still named the old one follow (the generated
+// THIRD-PARTY-NOTICES, the VS Code extension's README, package.json and its
+// packager). GitHub redirects the old URL, so nothing was broken - it was
+// merely lying about where this comes from. The committed .vsix still carries
+// the old URL in its manifest and is deliberately NOT repackaged for a metadata
+// string; the next real extension change picks it up.
+//
+// 1.52.0 (Linux gets packages of its own, and one of them updates itself):
+// docs/updates.md. `installer/build-package.sh` is the POSIX twin of
+// build-installer.ps1 - it stages the repo-shaped tree ONCE (bin/, vendor/tyra,
+// tools/, the nine VU sources, examples, the licence files) and emits three
+// formats from it, so they cannot disagree about their contents:
+// `tyrax-<v>-linux-x86_64.tar.gz`, `tyrax_<v>_amd64.deb` and
+// `tyrax-<v>-1.x86_64.rpm`. The release workflow gained a build-linux job that
+// attaches all three - stamping the released PATCH into this file's workspace
+// copy exactly as the Windows job does, or a tarball install would report the
+// file's number, disagree with its own release and offer itself an update for
+// ever. It runs on ubuntu-22.04 ON PURPOSE, because a binary runs
+// on a newer glibc than it was built against and never an older one, so the
+// runner image IS the compatibility floor.
+//
+// THE TARBALL IS THE PRIMARY FORMAT AND THE OTHER TWO ARE A CONVENIENCE LAYER,
+// which is a statement about what made the Windows installer good: not that it
+// is an installer, but that it installs PER USER, without root - which is the
+// only reason an update can install itself with nothing to authenticate
+// against. A .deb or .rpm cannot do that, so those are handed to the package
+// manager, out loud: `update::installKind` reads a one-word `.tyrax-package`
+// marker at the install root (absent = a source checkout) and
+// `selfInstallBlocked` turns each answer into either the install button or ONE
+// sentence naming what to do instead. `update::parseRelease` now picks its
+// asset by `platformAssetSuffix()` rather than by `.exe`, and the Linux half of
+// `runInstaller` writes a small detached script that waits for the editor to
+// exit, unpacks over the install root and starts it again - the same overlay
+// semantics tyrax.iss has always had.
+//
+// The .deb/.rpm live in /opt/tyrax with a /usr/bin symlink, which works because
+// platform::exePath resolves /proc/self/exe through canonical() - so the
+// editor's four exe-relative lookups land in the real tree. Verified: all three
+// packages built and inspected, a project created by the unpacked tarball's
+// binary bind-mounts ITS OWN vendor/tyra, and a full self-update (refuse for
+// deb/rpm/checkout/read-only, unpack, relaunch) driven from a harness.
+//
+// MINOR: a capability appears, nothing changes shape for an existing project.
+//
+// 1.51.0 (TyraX ships as an installer, and tells you when there is a newer
+// one): three pieces that only make sense together - docs/updates.md.
+//
+// AN INNO SETUP 7 INSTALLER (installer/tyrax.iss + build-installer.ps1). What
+// it packages is not just the .exe: the editor resolves the Tyra engine, the
+// PS2 tools, the VS Code extension and the VU framework sources RELATIVE TO
+// ITS OWN BINARY, one directory up, so the installed layout reproduces the
+// shape a development checkout has (bin/tyrax-editor.exe beside vendor/, tools/
+// and src/) - a bare .exe would install an editor that cannot compile a game.
+// Per-user by default (%LOCALAPPDATA%\Programs\TyraX), which is what lets an
+// update install itself without a UAC prompt.
+//
+// EVERY PUSH TO main IS A RELEASE (.github/workflows/release.yml). The version
+// is authored HERE, and the TAGS record which patches are spent: CI reads these
+// three macros, releases them as they stand if v<that> is untagged, and
+// otherwise goes one PATCH past the highest v<MAJOR>.<MINOR>.* tag - stamping
+// that number into a workspace copy of this file before it compiles, so the
+// binary, the installer and the tag cannot disagree. It never writes to main
+// (the branch ruleset forbids it; tags are exempt), which means that between
+// releases the PATCH below is a FLOOR rather than a fact. A human bumping MINOR
+// for a feature (with the paragraph above it, as here) is what SHOULD happen
+// and resets that sequence; the automatic patch is only the floor that stops
+// main from sitting unreleased.
+//
+// AND THE EDITOR CHECKS FOR ITSELF (update.cpp / update_ui.cpp, Help > Check
+// for updates). One HTTPS request to the repository's releases at startup, on a
+// worker thread, through curl the way aigen.cpp already reaches the OpenAI API;
+// a modal only appears when there IS something newer, "Download and install"
+// runs the new installer silently and comes back, and the whole thing is one
+// checkbox away from off in Edit > Preferences. The failure of a startup check
+// is deliberately silent - an editor that opens a dialog because the machine is
+// offline is an editor people turn the check off in.
+//
+// MINOR by this file's own rule: three capabilities appear, nothing changes
+// shape for an existing project (both new settings are editor.ini, not the
+// .tyra - kFormatVersion is untouched).
+//
+// 1.50.0 (the ground bake stops shadowing itself, and three switches start
+// doing what they say): a round of reports off the 1.49.0 build.
+//
+// THE GROUND WAS SHADOWING ITSELF, in a lattice of dark blotches nobody could
+// place. Two causes, both the same mistake - a gather ray fired from a point
+// that is not on the surface the rays are traced against.
+//   1. The terrain map's SUB-SAMPLES inherited the texel centre's height while
+//      moving up to half a texel horizontally. On any slope that puts the
+//      sample under the ground; the whole hemisphere hits terrain and the texel
+//      bakes black. Re-sampled now (aobake::terrainAOMap).
+//   2. The traced ground is a DECIMATED mesh (gibake caps it at 96x96 cells)
+//      while the bake hands out points on the fine bilinear heightfield the
+//      game walks on. Wherever the decimation cuts a bump, the point sits under
+//      the triangles - and the residue showed up along the coarse cells'
+//      DIAGONALS, which is what named the cause. Scene::coarseH keeps those
+//      corner heights and gibake::groundSurfaceY reads the traced height back,
+//      so the ground's light function snaps its origin onto the surface the
+//      BVH actually has.
+// Measured on the reporter's showcase: texels under 8/255 went 0.1% -> 0.5% ->
+// 0.0% across the two fixes (the middle number is fix 1 alone uncovering the
+// second cause), map alpha mean 95.5 -> 86.7, and the map now reads as relief
+// shading plus real tree and village shadows with no lattice in it.
+//
+// A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit, and three of them were
+// asking. A checkbox activates on mouse-down and both edits and deactivates on
+// mouse-up, so "was edited while active in a previous frame" can never be true.
+// Fog enabled, Gradient sky dome and the VU stage's Enabled were all relying on
+// it. The Ambience window's section-JSON comparison happened to catch the first
+// two, so nothing was lost - but that is a backstop, not the contract.
+//
+// GI OFF NOW LOOKS LIKE GI OFF. gibake::load already refuses to answer while
+// the switch is off, but nothing asked it again: the viewport's cache key had
+// scene / model-edit / bake-version in it and not the preference, and
+// commitChange does not touch the viewport. Unticking the box left the baked
+// light on screen until the scene changed. Measured: 66.7% of the viewport
+// changes across the toggle now, 0.08% before.
+//
+// AND View > DISTANCE FOG IS PROJECT STATE, like the camera in 1.47.0 - the
+// same report, and the same answer. It is the VIEWPORT's fog switch, not the
+// scene's fogEnabled: it suppresses the preview of a fog the game still has, so
+// you can author past it. Resetting it on every open reads exactly like a
+// setting that was not saved. kFormatVersion 30 -> 31, purely additive.
+//
+// The Ambience Editor also loses two paragraphs it should not have had: the
+// "What this does not do" wall in the GI tab (five lines of routing caveats
+// that went stale the day the ground's route changed - that story lives in
+// docs/global-illumination.md, which the in-editor assistant reads), and the
+// read-only "Ambient occlusion - edit it in the Baked lighting tab" echo left
+// behind by the 1.48.0 move. Moved is moved.
+//
+// 1.49.0 (a textured ground takes its GI as a MULTIPLY): the last third of the
+// black-hills report - the peaks stopped being black in 1.47.1, the grid
+// stopped clipping them in 1.48.0, and what was left was a ground that BANDED
+// along contour lines because a volume probe grid was being asked to light a
+// surface. A probe sample crosses a level as the terrain rises, and the probe
+// just above the grass sees mostly ground bounce where the next one up sees
+// sky. No amount of grid tuning fixes that; the surface wants a surface answer.
+//
+// It could not have one, because the ground's per-texel light is an ADDITIVE
+// pass and a flat add over a texture blows out its dark texels. The way
+// through is a frequency split, and its shape is forced by the hardware:
+// GS_SET_ALPHA(A,B,C,D,FIX) computes (A-B)*C>>7 + D, and C may only be As, Ad
+// or FIX - never a colour - so Cs*Cd is inexpressible and no pass can multiply
+// the frame buffer by a coloured lightmap. But the OCCLUSION pass already
+// multiplies by an alpha. So the bake writes the gathered light's luminance
+// into that alpha (AoImage::giLumAlpha) and the terrain keeps its ordinary
+// directional shade for colour: intensity per pixel, colour per vertex, no new
+// table, no new pass, no pixels on the EE. SCENE_AO_MAP_GILUM says which
+// meaning the channel carries, and it opens the occlusion pass on its own -
+// the pass must run even with ambient occlusion switched off, because there
+// the channel is light.
+//
+// THE TWO ROUTES ARE EXCLUSIVE, and the flags are where that is enforced
+// (mapLit/mapGi are written off `&& !giLumAlpha`). Shipping both at once is not
+// a subtle bug: LIT still on runs the additive pass over the texture and washes
+// the ground to a flat wash with no texture left in it, which is exactly what
+// the first console boot of this route showed. On the multiply route the map's
+// RGB is never read, the emitters are not collected per chunk, and the point
+// lights and emissive pools are skipped - the gather already contains them.
+// The terrain's own AO goes with them, in the viewport too: that alpha channel
+// is the light now, and the gather answered the sky-visibility question AO
+// approximates.
+//
+// Verified on the reporter's saved showcase, rebaked: viewport and PCSX2 agree,
+// the ground is textured and softly shaded across an eight-frame turn-and-walk,
+// no black patch, no banding, 50.0/50 FPS held, VRAM 3.11/4 MB (+0.23 MB - the
+// AO map, now uploaded in a scene whose ambient occlusion is off). The two GI
+// examples are untextured ground and take the RGB route unchanged; their bakes
+// are re-run only because the cache version moved 4 -> 5.
+//
+// 1.48.0 (the probe grid reaches the top of its terrain, and every bake is in
+// one tab): the black hills, and the AO controls' new home.
+//
+// THE GRID. probeLevels was taken literally - anchored half a step above the
+// LOWEST ground and rising a fixed levels*probeHeight from there, whatever the
+// terrain did. On real relief the hills came out ABOVE the whole grid, the
+// sampler clamped them onto its top layer (over a hill: buried inside that
+// hill) and the ground shaded BLACK. Measured on examples/showcase: terrain
+// -6.45..+7.88, grid -5.3..+0.7, 15.9% of the ground surface sampling to zero;
+// after, 33x9x65 and 0.0%. The count is decided BEFORE the kMaxProbes cap, so
+// a tall terrain thins X and Z rather than silently losing the levels that
+// stopped the ground being black.
+//
+// SCENE AO MOVES to Ambience Editor > Baked lighting, beside model AO and
+// pre-lit. It is still a per-PRESET setting and the section carries its own
+// preset picker so that stays visible; the Presets tab keeps a one-line
+// On/Off pointer. The tab's premise is rewritten with it - its sections do not
+// share a scope and never did, they share the question "what is baked into
+// this project's light".
+//
+// STILL WRONG, and written down in docs/global-illumination.md rather than
+// left as a surprise: a volume probe grid lighting a SURFACE bands along
+// contour lines. The ground sample crosses a probe level as the terrain rises,
+// and a probe just above the grass sees mostly ground bounce where the next
+// one up sees sky. The black is gone; the banding is not. (Fixed in 1.49.0 -
+// by taking the ground off the probe grid entirely, not by tuning it.)
+//
+// 1.47.1 (the ground never takes probe light): reported as "with GI on the
+// peaks are pitch black", and it was the editor preview alone - the generated
+// game never had it.
+//
+// A TEXTURED terrain deliberately gets no GI lightmap: the ground pass is
+// additive and would blow out the texture's dark texels, so gibake passes no
+// light function for one, and with the scene's ambient occlusion also off
+// terrainAOMap returns an EMPTY image. Correct so far. What was wrong is that
+// the viewport only skipped the probe grid when a ground lightmap existed, so
+// such a terrain fell through to giProbe - which REPLACES the shade instead of
+// adding to it, and which is a grid built for objects, a few levels a few
+// units apart. Handed a 192x192 landscape it has nothing to say, so every hill
+// went black. Measured on the reporter's own saved project: viewport mean RGB
+// 114/80/33 with GI off, 85/54/30 with GI on, and 114/80/33 after.
+//
+// The diagnosis is worth more than the fix. gibake::load returned valid=1 with
+// terrain size 0 / hasLight 0, which is what said the map was absent BY DESIGN
+// rather than broken - and the generated game reads terrainGi = terrainMapLit
+// && SCENE_AO_MAP_GI and never consults the probes for ground, which is what
+// said the console was fine. PATCH: no capability changes, a preview stops
+// lying.
+//
+// 1.47.0 (the viewport remembers where you were looking, and stops repainting
+// untextured models): two reports, both about the editor disagreeing with
+// itself or with the console.
+//
+// THE VIEWPORT CAMERA IS NOW PROJECT STATE. The .tyra carried the render mode,
+// the projection, the selection and the gizmo - everything about the viewport
+// except where it was pointing - so every reopen started at a default 90 units
+// out, which on a scene with distance fog ending at 82 is a flat wall of fog
+// colour. It is the five numbers the orbit camera IS (yaw, pitch, distance,
+// pivot), read off the viewport at save time exactly like viewMode, never
+// dirtying the project and never entering undo. kFormatVersion 29 -> 30,
+// purely additive: a file without the key opens at the viewport's own
+// defaults, which is where it always opened.
+//
+// It also makes a scene SETTABLE from outside the GUI, which is what it was
+// asked for: an agent or a script can put the camera on the thing it needs to
+// photograph instead of describing where to drag.
+//
+// AND AN UNTEXTURED ANIMATED MODEL KEEPS ITS OWN COLOUR. AnimModelDraw::Part
+// carried a mesh and a texture and nothing else, so glTF baseColorFactor was
+// dropped and the model was drawn in the scene light alone. On
+// examples/showcase - whose wobbler is teal by that factor and has no texture
+// at all (baseColorFactor [0.15, 0.72, 0.62], images: none) - it came out
+// ORANGE in the editor under a sunset preset while the console drew it green.
+// Reported as exactly that. The parser already read the factor; only the
+// viewport's own Part struct threw it away.
+//
+// MINOR: one new persisted key and a preview that changes colour.
+//
+// 1.46.0 (one occlusion model, two regimes, one constant): the response
+// finished in 1.45.0 was a disc, and a disc has to be TOLD WHICH WAY TO POINT.
+// Both ways of telling it fail on real geometry, and both were measured on
+// examples/ambient-occlusion: aimed at the shape's nearest point the floor
+// beside a wall reads 0.000 occluded (the wall touches it edge-on and the
+// cosine falls out), and aimed at the shape's centre a crate standing on a
+// 30x24 terrace reads 0.66 occluded ON ITS SIDES, because that terrace's
+// centre is ten units sideways. The second one is what the 1.45.0 shipped, and
+// this fixes it.
+//
+// Near and large, a shape is not a disc - it is a HALF-SPACE, and a half-space
+// needs no aiming: it blocks the hemisphere behind its face, (1 + n.toOcc)/2.
+// The two regimes blend on k = sin(alpha) = r/(r + dist), scaled by k*k, the
+// solid angle. BOTH FACTORS ARE NEEDED: blending on k alone let a crate 0.6
+// units away - 27 degrees, a speck - hand a horizontal surface the plane's
+// 0.5, and a ring of neighbours summed to half the sky gone on a crate top
+// with nothing above it (0.500 measured; 0.140 now).
+//
+// THE GROUND TERM TURNS OUT TO BE THAT SAME HALF-SPACE with toOcc pointing
+// down - (1 + n.toOcc)/2 is (1 - n.y)/2, exactly the 0.5 - 0.5*n.y it always
+// carried. It was never a separate model, only a separate spelling with its
+// own constant, which is how the two drifted. One shape, one spelling, and one
+// number left between the geometry and the picture: kAoBounce (0.7), applied
+// once over everything, replacing the ground term's 0.7 AND the occluder
+// term's unrelated 0.35 facing floor.
+//
+// The reported case, on the console at one frozen vantage - brightness of a
+// crate with another crate on it against its uncovered neighbour: 0.87 with AO
+// off (the natural difference), 0.78 before this branch, 1.04 with the disc
+// alone, 0.98 now. 50 FPS. MINOR: every scene with AO looks different again.
+//
+// 1.45.0 (an occluder darkens you by how much sky it takes, not by how close
+// it is): occluderOcclusionAt was (1 - dist/radius)^2 times a facing weight
+// with a 0.35 FLOOR, so a surface turned away from a shape it can barely see
+// kept a third of the term, and anything smaller than the AO radius darkened
+// over its whole height as a lump. It is now the solid angle the shape
+// subtends - cos(theta) * (r/d)^2 with r from the projected area and the disc
+// placed tangent to the nearest surface point - and blockers combine as
+// VISIBILITY, 1 - prod(1 - occ), instead of a clamped sum that saturates.
+//
+// Measured on the console, examples/ambient-occlusion: a crate with another
+// crate resting on it read 0.78 of its uncovered neighbour's brightness where
+// the AO-off scene reads 0.87 - a visible step between two crates 20 cm apart.
+// It now reads 1.04. The covered crate's SIDES went 0.22 -> 0.000, which is
+// the right answer rather than a suppression: the crate above lies entirely
+// behind the plane of those faces. Contact shadows got stronger where they
+// belong (floor beside a wall 0.247 -> 0.603). Existing scenes barely move:
+// gi-showcase terrain alpha mean 60.9 -> 59.6.
+//
+// TWO OF MY OWN ERRORS, both caught by measuring rather than by reading the
+// formula: aiming the disc at the shape's nearest point reads the floor beside
+// a wall as 0.000 occluded (the wall touches it edge-on and the cosine falls
+// out) - it is aimed at the midpoint of the nearest point and the centre; and
+// an uncapped disc collapses a 26-unit wall into radius 5.15 against the
+// surface for 0.70, where a half-plane at contact can block about 0.45 - r is
+// capped at the AO radius, which is also the radius the bake prunes by.
+//
+// The GROUND term is deliberately untouched and is now what decides how dark a
+// small prop gets; docs/backlog.md says why going fully physical there needs
+// measuring first. MINOR: every scene with AO looks different.
+//
+// 1.44.0 (ambient occlusion: runtime blocks, and a terrain scan that stops
+// shading bare slopes). Three things, and the number is a MERGE renumber - the
+// branch stood at 1.35.0 while main took 1.42.0 and then 1.43.0, and the rule
+// of this block takes the MINOR above both rather than picking a side.
+//
+// Runtime blocks self-occlude off the solid-cell field a Blocks Fill volume
+// already publishes: 26 bit tests per block at generation time, reduced per
+// visible face to four corner levels, riding the selfAo byte pushVert already
+// takes - so the scene's own AO strength scales it and a scene with AO off
+// computes none of it. THE TRAP WAS THE SHADING, NOT THE AO: generated chunks
+// draw TyraShadingFlat, which takes one corner of a triangle and paints the
+// whole triangle, so the first console build split every block face into two
+// flat plateaus 42 levels apart. Hard adjacent-pixel steps over the frame read
+// 2783 / 6964 / 2868 for AO-off / AO-on-flat / AO-on-Gouraud.
+//
+// The terrain horizon scan gets the term that stops a BARE SLOPE shading
+// itself - the horizon measured above the surface's own tangent plane rather
+// than above the horizontal - because every uphill sample is higher than the
+// last and a smooth open hillside was darkening for being a hillside: 16% at
+// 30 degrees, 30% at 60, no occluder anywhere. Both read open now while the
+// foot of a step is unchanged. Also 16 azimuths instead of 8 (a lone spire's
+// ring standard deviation 91% -> 30% of the mean) and an occluder GRID instead
+// of scanning every occluder per sub-sample (32.0 s -> 61 ms on 1100 casters,
+// and byte-identical output on every existing example).
+//
+// A per-texel azimuth rotation was implemented, measured and REMOVED - the
+// scan is one sample per texel with nothing downstream to average it, so it
+// decorrelates the error without reducing it. MINOR: behaviour changes for any
+// project with sculpted terrain, and examples/ambient-occlusion is the first
+// one in the tree that has any.
+//
+// 1.43.0 (the pre-release legacy comes out, and version::kMinFormatVersion is
+// what replaces it): TyraX has never shipped publicly, so every translation the
+// reader carried for a shape that changed on its way to v1 was weight nobody
+// could ever spend - objects inline in the manifest instead of objects/<id>.json,
+// a single "layout" dump, a project-level terrain block and flow graph, raw TTF
+// paths where a font name now goes, "terrainTex", "stickDeadzone",
+// "hudPostFxLayer", the one-day-old VU "programs" key, and the twelve retired
+// Show*/Hide* flow-node types (flowLegacyNodes). Gone with them: the verbatim v1
+// game templates kept only so matchesLegacy could recognise an unedited copy,
+// the "Generated by tyra-editor" pre-rebrand ownership marker, the pre-rename
+// TYRA assert banner, objparser's unused flat loader and the one-number
+// "# tyra-glow" hint. The removal is DELIBERATE rather than silent: a file below
+// kMinFormatVersion is refused by name, because a reader that recognises nothing
+// in it would otherwise open an empty project and say nothing about why.
+// Verified by resaving all 34 examples - byte-identical apart from the version
+// stamps - and by A/B-ing --refresh-gen against a pre-change binary in the SAME
+// directory (docker-compose.yml embeds the project path, so two directories
+// manufacture a false diff): the only generated change anywhere is that a
+// display-mode menu row now always carries its option->mode table instead of
+// falling back to the positional map when the table was absent, and the table
+// codegen emits for such a row is exactly that map. MINOR: the Cutscene
+// Director's "Shot from" combo gains the Free shot entry it never had - free
+// shots are what the take importer and the phone-camera recorder write, so
+// calling them legacy and offering no way back to them was a one-way mis-click,
+// not a deprecation. (Authored as 1.34.0 against a 1.33.0 main and RENUMBERED
+// TWICE on the way in, which is this file's own rule and not an accident: main
+// reached 1.33.1 and then 1.42.0 while this branch was open, so the MINOR
+// strictly above both parents is 1.43.0. The format number moved under it the
+// same way - see kMinFormatVersion's note.)
+// 1.42.0 (the editor stops flattering you about lights): three preview
+// gaps, all reported with a screenshot. The bulb gizmo is a small constant
+// MARKER now instead of a unit-sized glow that hid the very point it marks;
+// a spot light draws its actual CONE (apex at the light, opening down the
+// aimed -Y for the reach) instead of a radius sphere that said nothing
+// about direction; and the viewport lights shade the GAME's way - spots
+// use the cone term with no N.L (exactly the VU1 slot's trade), and a
+// dynamic light darkens only through its nearest FOUR Cast-shadow
+// (projected) objects, hard-edged and quantized to the coarseness of the
+// 64x64 silhouette the console samples. The editor used to raytrace
+// nothing for scene lights and everything for emissives, which is how "it
+// looks amazing in the editor, then surprise" happened. And Live Link
+// learns lights: protocol v4 streams a DYNAMIC light's pose, color,
+// brightness, radius, flicker and spot angle (the record's player-speeds
+// slot, reused - types never collide - plus the tail pad), so aiming a
+// lamp is a live drag instead of an amber chip. Baked lights still
+// rebuild (vertex colors own them), as do the dynamic flag, the beam and
+// the spot style (setup-time bags/textures).
+//
+// 1.41.0 (a scene light can be the flashlight's kind of light): dynamic
+// point lights gain a SPOT style (format v29: "spot" + "spotAngle" in the
+// light object, written only when on - old files resave byte for byte).
+// The cone points down the object's local -Y (unrotated = straight down, a
+// street lamp; the rotation gizmo aims it), lights nearby meshes per vertex
+// through the same engine slot the camera torch uses (new
+// RendererCore::addDynSpotLight - the registry entry always carried the
+// cone constants, nothing changed on VU1), and its footprint on the ground
+// is the flashlight's projection on a scene light: the pool patch takes
+// the gobo's projective STQ from the LIGHT's frustum instead of the round
+// corona, so a lamp's pool is per-pixel however coarse the ground is.
+// night-walk's street lamp now actually lights its street (with a 0.12
+// flicker and a corona). Spot pools march the cone axis to the ground and
+// size the patch from the cone's footprint at the landing.
+//
+// 1.40.0 (a caster's shadow follows its shape, not its bounding box): a
+// model now casts from up to three TIGHT sub-boxes fitted to its triangles
+// - median split on the longest axis, twice, then leaves greedily merge
+// back wherever the split bought nothing (a solid crate collapses to one
+// box; an L-shape stays a pole and an arm). Built lazily per model asset,
+// local space, shared by instances (g_shadowSubBoxes). This retires the
+// volume pick's thin-skip: a tight thin box (a sign, a pole) casts its
+// honest stripe now - the street lamp's shadow is its POLE again, not the
+// pole-plus-arm slab of air that blotted out a facade. Each sub-box gets
+// its own mask bracket because set/clear is only sound inside one CONVEX
+// volume - the GS cannot count like a stencil, which is also why true
+// mesh-shaped volumes (SH2's bed slats) need the era's full arrangement
+// (count in a spare color channel with add/sub blending + a resolve pass)
+// and are left as the named next step.
+//
+// 1.39.3 (thin things are transparent to the torch, in all three systems):
+// stand exactly on the street lamp's axis and the light died completely -
+// half a step sideways brought it back (reported, with the exact spot). The
+// lamp is a thin POLE, but its AABB - pole plus arm - is a big slab of
+// mostly air, and two systems still trusted that box: the volume pick cut a
+// shadow from it (on-axis, a slab three units from the lens blots out the
+// whole facade), and projWallHit called it "the wall the beam hits", which
+// then stuffed it into a guaranteed receiver slot. The 0.25 thin rule the
+// receiver scan already had now applies to all three: thin boxes cast no
+// volume, projWallHit sees through them to the surface behind, and the
+// guaranteed hit-slot inserts at its SORTED position (the interleaved walk
+// merges the receiver and caster lists by distance - an unsorted insert
+// drew a nearer light after farther volumes).
+//
+// 1.39.2 (nothing can shadow itself, and the toggle stops strobing the old
+// look): two more reports from the same yard. The shed went black in the
+// beam ("swallows the light like a black hole") because a model's AABB
+// stands proud of its real walls - the roof overhang - so the shed's own
+// volume's near cap floated in front of the wall the beam lit; no cap
+// geometry fixes that (the radial push is tangent to a big face up close),
+// so the ORDER does: casters and receivers walk together sorted by distance
+// and each receiver's light draws BEFORE its own volume enters the mask
+// (RendererCoreAlphaMask::beginKeep - one bracket per caster, only the
+// first clears). A volume only shadows what is behind its caster, so
+// nearest-first is the dependency order and self-shadowing is structurally
+// impossible; the truck still carves the facade behind it. And spamming the
+// torch toggle strobed the OLD per-vertex look for one frame per enable:
+// the receivers' cone-off flags are computed in the light-pool pass, AFTER
+// the scene has drawn, so the enable frame hit every big receiver with the
+// full blocky cone once. The engine spot now arms one frame after the
+// toggle - the projected pool lights the same frame, only the cheap cone
+// waits, and on the props that keep it one frame is invisible. Verified in
+// PCSX2: 12 toggles x 70 snapshots, four tight byte-size clusters, zero
+// outliers - and the shed takes the full gobo in volumes mode.
+//
+// 1.39.1 (the volumes learn who actually casts, and the mask stops leaking
+// onto the screen; renumbered from 1.38.1 when the lighting redesign took
+// its slot): three reports from the reworked backlot. Volume slots
+// go NEAREST-FIRST (they went in object-table order, and the scene's three
+// merged facades - each huge enough to intersect the cone whenever the beam
+// faced them - ate all of them, so the dumpster and the truck never cast:
+// "no dynamic shadows at all"); a THIN receiver (the street lamp) no longer
+// claims a light slot nor gives up its cone, and the box the beam actually
+// HITS is guaranteed one (standing by the lamp used to unlight the facade
+// behind it); and the destination-alpha mask is REPAINTED to neutral 0x80
+// after the last DATE pass - the SDTV flicker filter blends its two read
+// circuits by per-pixel framebuffer alpha, so a mask left in the channel
+// was shown by the CRTC as translucent wedges (the "broken triangles" at
+// torch toggles, caught by frame-stepping PCSX2). The repaint runs from its
+// OWN packet2: sharing begin()'s buffer let a FINISH-parity slip rebuild a
+// packet the GIF was still fetching, which killed the light entirely.
+//
+// 1.39.0 (the lighting redesign: baked light gets one home, and a textured
+// model finally occludes itself; authored as 1.38.0 - the examples split
+// took that number first, and the claim that arrives second renumbers).
+// Lighting had accumulated four separate
+// places - AO in the ambience presets, model AO by hand in the Material
+// Editor, GI in its own tab, and a per-object pre-lit button in Properties -
+// and the automatic half of that did the least for the thing a real game is
+// mostly made of, TEXTURED MODELS. The engine's lightmap route refuses them
+// (it is additive, and an additive term over a texture blows out its dark
+// texels) and GI reaches them only as flat per-vertex probe light, so an
+// imported model has never had any self-occlusion at all.
+//
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v28 -
+// authored as v26; this branch's base took v26 and then v27 while the
+// redesign was in flight, and the claim that arrives second renumbers): the
+// Material Editor's matbake AO, run per model ASSET without anybody asking,
+// and multiplied into the texture that model ships anyway. Two properties are
+// what make it affordable, and both fall out of WHAT is being baked rather
+// than out of any cleverness: a model's own surface occlusion is
+// TRANSFORM-INVARIANT, so every instance of the asset shares one map wherever
+// it stands; and the pixels ride in an existing texture, so it costs ZERO
+// extra GS VRAM - against one unique texture per object for the pre-lit route
+// next to it. src/modelao.cpp owns the bake, the content-hash cache in
+// .res-baked/modelao/ (the gibake rule: never mtimes, and never the texture's
+// PIXELS - AO is a function of geometry and UVs, so repainting must not throw
+// a bake away), and - the part that matters most - the MULTIPLY. That one
+// function is called by texbake for the shipped PNG and by the viewport for
+// the uploaded pixels, so what the editor shows and what the console draws
+// cannot drift.
+//
+// WHAT IT REFUSES TO DO IS THE DESIGN. A texture referenced by more than one
+// model asset is skipped and SAID SO, because two UV layouts over one image
+// make a single multiply wrong for both; so is a pre-lit material, whose
+// gather already contains occlusion and would be darkened twice. Both show up
+// as a named row in the panel and a line in the build log - an AO map that
+// silently is not there is indistinguishable from a broken feature. And
+// litbake now multiplies the same map into the albedo it reads, so an object
+// does not lose its self-AO the moment it goes pre-lit.
+//
+// PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
+// same format v28): 1.35.0 gave a textured model per-pixel static light through
+// one button per object, and left everything around that button to memory - no
+// record of which objects were supposed to ship pre-lit, no way to know that a
+// texture had stopped agreeing with the scene, no bulk operation, no way back.
+// Three SceneObject fields close that: prelitWanted (the author's statement),
+// prelitSig (what the last bake SAW) and prelitSource (the material to revert
+// to, recorded on the FIRST bake only, an asset path that joins
+// retargetAssetPath). All three are written only when they say something, so an
+// object that never met the baker resaves byte for byte.
+//
+// THE SIGNATURE IS THE FEATURE, and the load-bearing decision in it is what it
+// deliberately does NOT see. It mixes gibake's own scene signature, the
+// object's transform, the model and its .mtl libraries by content, the bake
+// parameters and - when Model AO resolves on for the asset - that map's
+// signature, since it is multiplied into the albedo. But the scene half hashes
+// the scene AS AUTHORED, with every pre-lit override normalized back to its
+// source material: gibake::signature hashes each object's materialPath and that
+// file's bytes, so without the normalization applying a bake would change the
+// scene signature and make the object it just baked read STALE on the next
+// frame, together with every other pre-lit object beside it. The price is that
+// bounce light off a neighbour's new pre-lit texture stales nothing, a
+// second-order term nobody would want a re-bake storm for.
+//
+// The batch baker builds and solves the gibake scene ONCE per scene and bakes N
+// objects from it (that solve is nearly all of the wall clock), reports "2/7:
+// crate-3", cancels, and lands as one undo step through App::litBakerPoll -
+// polled from drawUI, so a batch started from the tab arrives whether or not
+// the tab, the selection or Properties is still showing it. --bake-prelit is
+// its headless twin: it re-bakes every stale wanted object and says `fresh` for
+// the rest, so running it twice is the check that the tracking is honest. The
+// three of them - the tab's button, the verb and the OPT-IN pre-build pass
+// (ProjectSettings::prelitAutoBake, Preferences > Build) - are one loop,
+// litbake::bakeStale, so a build cannot bake something the tab would have
+// called fresh. Off by default: the gibake rule that an expensive bake is
+// pressed, not implied, still stands, and only STALE objects are ever touched.
+// GI gets the SAME opt-in (ProjectSettings::giAutoBake, gibake::bakeStale -
+// stale scene caches re-baked before the pre-lit pass), because the silent
+// alternative had already bitten twice: a stale cache drops a whole scene to
+// the pre-GI lighting without a word. And gibake now reads a pre-lit object's
+// SOURCE material (albedoMaterial) in both build() and signature(): a -lit
+// texture is albedo x light, reading it as albedo doubled the light in the
+// bounce, and every pre-lit bake used to stale the GI cache by repointing the
+// object's materialPath.
+//
+// ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
+// Tools > Baked Lighting..., which is where the scene's light was already
+// authored - Model AO (per ASSET, free) and the pre-lit table (per SCENE, one
+// texture each, with the VRAM line stating what that costs) as two sections of
+// it. The Material Editor's manual bake is untouched and gains one line
+// pointing at the automatic path.
+//
+// MINOR: capabilities appear (a textured model can occlude itself, for free;
+// pre-lit objects gain staleness, batch baking and a Revert; --bake-model-ao
+// and --bake-prelit are new headless verbs). No existing project's look moves -
+// modelAo is false in the struct, which is what every file saved before it
+// loads as, and true only for projects created from here on; the three pre-lit
+// fields are pure bookkeeping and reach no codegen at all.
+//
+// 1.34.0 (the flashlight stops being drawn by the terrain's vertex grid, and
+// the ground gets distance detail): two halves of one report - a torch on a big
+// map looked bad, and the proposed cure was a finer heightmap near the player.
+// The second half is built here as its own feature, because it is a good answer
+// to a big map and NOT the answer to the torch.
+//
+// WHY NOT: a terrain cell can never be finer than one world unit
+// (sceneGridDims caps cells at the map's own width in units), and the VU1 spot
+// is per vertex with no N.L, so the cone on the ground is a Gouraud diamond
+// whatever the detail cap says. A footprint two units across gets two vertices.
+// Aiming at your own feet had lit nothing at all, which is why the ground POOL
+// existed in the first place - a flat round patch under the beam's terrain hit,
+// textured with the lens-flare corona, radius capped at 8 units.
+//
+// THE FIX IS PROJECTION, and every part of it was already in the tree: the
+// receiver patch now takes its STs from the beam's own frustum, exactly the way
+// renderProjShadows samples a silhouette through a light view-proj, so the
+// light's SHAPE is a texture and the ground's tessellation stops being able to
+// decide it. With that, three long-standing approximations go: the patch is
+// laid out along the beam's ground run instead of axis-aligned (a grazing beam
+// really does reach four times further than it is wide), the radius cap is gone,
+// and it lands on placed geometry as well as terrain via projCollectReceivers -
+// so a torch works in a room built out of floors, where a scene with no terrain
+// at all used to have no pool by construction. The image itself is a baked
+// 128x128 gobo (menubake::bakeFlashGoboRGBA - hotspot, penumbra, reflector ring,
+// two low-frequency lobes so the circle is not perfect) instead of the corona
+// sprite, gated by FLASHLIGHT_USED so a project without a flashlight pays no GS
+// VRAM, and the authored Pool texture override keeps working - as a real gobo
+// now, which is what its own documentation always claimed it was.
+//
+// DISTANCE DETAIL (docs/terrain-lod.md, ProjectSettings::terrainLodDistance,
+// format v25): beyond the set range a terrain tile is built from every 2nd
+// heightmap sample and beyond 2.2x it from every 4th - a quarter and a
+// sixteenth of the triangles. The load-bearing decision is that the stride is a
+// PURE function of the snapped view focus, so a tile can work out what its
+// neighbours are doing without asking whether they are resident, and the finer
+// side of a shared edge interpolates its vertices onto the coarser side's
+// segment. That is what makes cracks impossible rather than merely rare, and it
+// adds no geometry - skirts, the usual cure, add a quarter as much again to the
+// tiles that can least afford it. The shade is interpolated with the height,
+// or the closed hole leaves a colour seam in its place. Collision is untouched:
+// every height query reads TERRAIN_HEIGHTS, never the mesh.
+//
+// MINOR: capabilities appear (a setting that did not exist, and a flashlight
+// that can light a floor). The gobo is not a default change - it replaces a
+// sprite that was never the right one - but the LOD key IS written into every
+// project's settings block on its next save, hence the format bump.
+//
+// 1.38.0 (one example was proving two features, so now there are two): the
+// night-walk example is split. deep-forest takes the scale story - the same
+// 2048x2048 map in daylight with 2800 scattered spruces, held at 50 FPS by
+// terrain detail distance + mesh LOD + chunk draw distance (2800 is measured:
+// 3777 instances died in the chunk build's loading peak, 3100 ran at
+// 30.7/32 MB, 2800 ships with headroom at 28.1). night-walk keeps the torch
+// and becomes a dark kenney-kit backlot (CC0 Retro Urban Kit) built to be
+// read by torchlight: brick facades, a dumpster and a truck for casters, the
+// pre-lit shed pair, the west facade turned 24 degrees for the oriented-box
+// receivers. The facades are kit tiles MERGED into one .obj each, because
+// the torch lights the nearest three solids in its cone - a wall of twelve
+// tile objects would light in patches. No engine or format change.
+//
+// 1.37.0 (the torch's shadows learn self-shadowing, and the technique becomes
+// a choice): ProjectSettings::flashShadowVolumes (format v27) picks how the
+// flashlight occludes. OFF keeps the silhouette slots below; ON is the
+// survival-horror era's own arrangement, built on its own hardware trick:
+// every occluder box in the beam is extruded away from the torch into a
+// closed volume, the volume's camera-front faces SET the framebuffer's
+// DESTINATION-ALPHA MSB where they beat the scene's depth and its back faces
+// CLEAR it where they do - plain TestOnly z is the entire algorithm - and
+// every torch light pass then draws with the GS's destination-alpha test
+// (TEST.DATE), i.e. only where the mask says lit. The mask gates LIGHT;
+// nothing ever paints darkness. Occlusion is exact per pixel against the
+// real z buffer, for EVERY solid in the beam, self-shadowing included, with
+// no caster flag and no four-slot budget; the price is the volume fill and
+// box-shaped rather than mesh-shaped silhouettes. Engine: a new
+// RendererCoreAlphaMask bracket (FBMSK to alpha-only + full-raster alpha
+// clear with z writes masked) and PipelineInfoBag::dateLit riding the same
+// in-band TEST qword every mesh already emits. Both re-render passes also
+// gained a per-triangle FACING cull (orientation from the object's centre -
+// an .obj's winding is nobody's promise), which is what stopped a box's far
+// side sampling a lit texel and a wall's inner face taking the silhouette.
+// MINOR: a capability and a setting appear; the default reproduces 1.36.0.
+//
+// 1.36.0 (the torch throws shadows, and its light stops picking favourites):
+// the flashlight becomes a candidate light in the projected-shadow system - a
+// caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
+// shadow-map slot, the ground patch samples it as always, and the wall behind
+// the caster is re-rendered with the silhouette through the light's view-proj,
+// per pixel: the Silent Hill composition, on the machinery that was already
+// there. Three findings paid for it: the torch needed a laxer elevation bar
+// than fixed lights (it is carried level with everything, and its shadow's
+// whole point is the WALL - the ground patch is simply skipped when the ray is
+// too flat); it needed a LINE-OF-SIGHT check, because a light that walks
+// around routinely stands on the wrong side of a wall from a caster, and the
+// silhouette painted straight through; and the light pass had to stop lighting
+// only the object the beam HITS - the wall behind a caster stayed dark (a
+// shadow with nothing to be carved from), and a shed with the beam at its feet
+// took no projected light at all and fell back to the per-vertex cone's hard
+// triangles. Receivers are now the nearest three solids whose oriented boxes
+// the CONE touches, drawn from one bag. MINOR: capabilities appear; no default
+// moves; the format is untouched by it.
+//
+// 1.35.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
+// renumbered on the merge below - main took 1.32.0 with #230 while this branch
+// was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
+// Hill had textured models and it looked fine", which is a fair objection to
+// everything the flashlight work had said up to then. The engine's lightmap
+// route is per texel and refuses textured surfaces, and that refusal is
+// hardware: the GS blend unit computes (A - B) * C + D with C always an ALPHA,
+// so "texture times lightmap" cannot be expressed in a second pass at all, and
+// the additive atlas this engine does have blows out a texture's dark texels.
+//
+// Which leaves the era's own answer: bake the light INTO the albedo and ship a
+// unique pre-lit texture for that surface. Both halves of the machine were
+// already here - gibake computes the light over a triangle BVH of the whole
+// scene, matbake showed how to rasterize a model's UV space - and what was
+// missing was the join. src/litbake.cpp walks the object's UV islands, turns
+// each texel into a WORLD position and normal through the object's transform,
+// asks gibake what arrives there, multiplies it into the albedo and writes the
+// object its own material. SceneObject::prelit (format v26) then switches that
+// object's vertex colours to neutral, because every term they used to carry is
+// in the texture now and adding it again lights the surface twice.
+//
+// The dynamic half still lands on top, which is the whole arrangement: static
+// light per pixel in the map, the flashlight's projected pool and cone added
+// over it at run time.
+//
+// MINOR: a capability appears (--bake-object-light, and a route to per-pixel
+// static light that textured geometry never had). No default moves - prelit is
+// false everywhere until a bake sets it.
+//
+// 1.24.4 (--vu-check says when its two halves are not from one commit): every
+// comparison it makes diffs a program GENERATED from the descriptions compiled
+// into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
+// comparable at one revision - and the documented attribution trick of pointing
+// it at another commit's engine swaps exactly ONE of them. Against a stale exe
+// that MANUFACTURES failures rather than attributing them: measured, a pre-#218
+// editor on post-#218 engine sources reports 7 DIFFERENT programs plus the
+// matcap identity-at-zero, every one of which passes when each half runs against
+// its own peer. It now prints `note: FOREIGN engine` when the engine is not the
+// one beside the executable, `note: ... is NEWER than this executable` when a
+// framework source outran the build, and a paragraph under FAIL naming the skew.
+// PATCH: no capability appears, a failure becomes readable.
 //
 // 1.24.3 (the shipped default net is refitted, and CI stops asserting a
 // property of one machine): the net embedded in the editor was fitted before
@@ -784,8 +1753,46 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.55.2 (the clipper stops clipping what the scissor would crop -
+// docs/vu1-clipping.md): the static pipeline classified a package against the
+// VIEW frustum and read PARTIALLY_IN_FRUSTUM as "needs clipping", which it is
+// not. VU1 cuts against the near/far pair and an X/Y band at 0.9 of w, and the
+// projection divides by projectionScale 4096, so the screen edge is at 0.125 of
+// w and the band is SEVEN times that - a triangle may hang ~1590 px past either
+// edge of a 512x448 picture before anything is cut, and the GS scissor crops
+// the raster during DDA. So a package straddling the screen border crossed no
+// clip plane at all, and it was still split into thirds (3x the DMA chains and
+// VU1 kicks), memcpy-ed stream by stream where the cull route hands VU1 a
+// POINTER, and run through Sutherland-Hodgman with an empty plane mask.
+//
+// The packager already computed that mask; it now answers the routing question
+// in the same pass (StaPipBagPackage::guardBandOnly) and such a package is
+// culled whole and by pointer. Over EIGHT planes, not six: the cull programs'
+// fcand 0x3FFFF tests z against +/-w too, while the guard band's near constant
+// is deliberately looser (PlanesClipAlgorithm::clipMargin), and that gap is a
+// thin shell in front of the near plane where the clipper draws a triangle the
+// cull program would ADC away - a hole at point-blank range. The two exact
+// near/far half-spaces live at indices 6..7, on the EE only, never uploaded.
+//
+// MEASURED on examples/large-terrain (2048x2048 terrain, 1181 props), PCSX2
+// software renderer, a frame-indexed script camera, one line differing between
+// the arms, 2922 PAIRED frames: work 6.887 -> 4.670 ms, d = -2.217 ms, 95% CI
+// [-2.258, -2.175], 1.475x, 2864/2922 frames faster. Clip-routed packages
+// 11 164 -> 2 127 per 50-frame window, clipped triangles 68 456 -> 13 264,
+// qbuffer flushes 1 287 -> 756 - five sixths of the clipper's load was geometry
+// that needed no clipping. The picture is unchanged, and the CONTROL is what
+// says so: two boots of the same build differ on this fixture (it streams
+// terrain chunks), and an A-arm boot and a B-arm boot came back BYTE-IDENTICAL
+// over four parked poses - the arm is not what sorts the images.
+//
+// Also here: StaPipTelemetry gets its first reader after a year with none. The
+// generated game enables it and prints an FTCLIP line beside FRAMETIME, but
+// only under TYRA_FRAME_PROFILE (default 0), so a shipped build carries none of
+// it. PATCH: no capability appears, frames get shorter, nothing on disk changes
+// shape.
+
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 25
+#define TYRAX_VERSION_MINOR 56
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -967,17 +1974,116 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // unchanged, and no migration step is needed for the renumber either - a file
 // claiming 8 now means "the neural upscaler", which an animation-only project
 // simply does not use.)
-// v18 (Foot IK becomes its own tool, docs/foot-ik.md): the whole binding MOVES
+// v18 (Player speed tiers, docs/player-speeds.md): SceneObject::playerRunSpeed
+// and playerSprintSpeed, plus ProjectSettings::runSpeed for the fallback
+// walker. All three are additive AND are written only when non-zero, so a
+// project that never opens the new fields resaves byte for byte - checked, not
+// assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere. (That
+// weapons-arena was never a project - PR #203 committed three ignored build
+// artifacts under the name and nothing else; the directory has since been
+// removed. The other four still make the point.)
+//
+// No migration step, and the reason is the "0 = inherit" default rather than
+// mere additivity: 0 resolves to the numbers the walkers used to compute
+// inline (run = walk, sprint = walk x sprintMultiplier), so an old project is
+// not merely readable, it MOVES identically. Verified on the generated side -
+// examples/script-demo regenerated RUN_SPEED == WALK_SPEED == 0.4 and
+// SPRINT_SPEED == 0.72 == 0.4 x 1.8.
+// v19 (animation import, docs/animation-import.md): Project::animImports and
+// its "animImports" manifest section - clips borrowed from another model file.
+// A whole new section rather than a field, so a project that has imported
+// nothing emits no key at all and resaves byte for byte; every retarget flag
+// inside a row is likewise written only when it differs from its default.
+//
+// No migration step: nothing existing is renamed, moved or reinterpreted, and
+// the feature is inert without a row. The one thing that DID change shape for
+// every model is host-side only - SkelNode::name, which writeTskl does not
+// serialize - so no .tskl version moved either and an unimported model bakes
+// the same bytes it did before.
+// v20 (sprint clip + live speeds, docs/player-speeds.md): SceneObject::
+// playerSprintClip - the third-person avatar clip for the sprint tier, stored
+// in the thirdPerson object and written only when set, so an untouched project
+// resaves byte for byte. No migration step: "" means "the run clip covers
+// sprinting", which is what every project did. The same commit moves the
+// walkers onto PlayerCtl::speeds and streams speed edits over Live Link
+// record v3 - channel-internal, not project format.
+// v21 (bone mapping, docs/animation-import.md): AnimImport::boneMap - the
+// hand-made donor->target bone pairs from the Map bones editor, an array of
+// {s, t} objects written only when non-empty. Additive with a safe default
+// (empty = pure name matching, the previous behaviour), so no migration step.
+// v22 (the full retargeter, docs/animation-import.md): AnimImport::facing
+// (world yaw of the source, -1 = auto from the rigs' feet) and ::mirror
+// (left<->right flipped import). Written only when set and true respectively,
+// so untouched projects resave byte for byte; no migration step. The
+// retarget path itself is chosen automatically and stores nothing.
+// v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
+// degrees of torso pitch applied by the retargeter. Written only when
+// non-zero; no migration step.
+// v24 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
+// frame buffers' pixel format (PSMCT32 or the half-size PSMCT16) and
+// ProjectSettings::dither drives the GS's ordered dither. Both are written
+// only when set away from their defaults, and those defaults are exactly what
+// every older project already did, so no migration step. (The two optional
+// render targets that landed with them are NOT in the format at all - they
+// are derived at build time from what the project ships, not stored.
+// Authored as v9 on this branch, renumbered to v18 at the first merge and to
+// v24 at this one, the same rule every note above applied to itself: main's
+// neural-upscaler batch took 8 through 17 and its speed/animation-import batch
+// 18 through 23 while this branch was open, and the claim that arrives second
+// renumbers.)
+// v25 (terrain distance detail, docs/terrain-lod.md):
+// ProjectSettings::terrainLodDistance - beyond it the ground is built from
+// every 2nd heightmap sample, beyond 2.2x it from every 4th. It defaults to 0,
+// which builds every tile at full detail, i.e. exactly what every project did
+// before the key existed, so an older file opens and RUNS unchanged and no
+// migration step is needed. It is written unconditionally, like the
+// terrainViewDistance beside it in that flat settings block, so an untouched
+// project does gain the key on its next save - which is precisely what this
+// number exists to make safe. (Authored as v24; main's VRAM options took that
+// number first, and the claim that arrives second renumbers.)
+// v26 (pre-lit models, docs/prelit-models.md): SceneObject::prelit - the
+// object's texture already carries its light, so its vertex colours go
+// neutral. Written only when true, so a project that has never baked one
+// resaves byte for byte; it defaults to false, which is what every existing
+// object is. No migration step. (Authored as v25, renumbered with v25 above.)
+// v27 (flashlight shadow volumes, docs/flashlight.md "The shadow"):
+// ProjectSettings::flashShadowVolumes - written only when true, so an
+// untouched project resaves byte for byte; false (the default) is the
+// silhouette-slot behaviour every earlier file had. No migration step.
+// v28 (the lighting redesign - automatic model AO + pre-lit management;
+// authored as v26, renumbered twice as this branch's base took v26 and then
+// v27 while the redesign was in flight - the arrive-second rule):
+// ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
+// project-wide bake knobs - plus the "modelAoMode" section, the per-asset
+// force-on/force-off override keyed by a model's asset path; and the three
+// pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
+// statement that the object ships pre-lit), prelitSig (a hex-string hash of
+// what the last bake saw) and prelitSource (the materialPath to revert to,
+// recorded on the first bake only); plus ProjectSettings::prelitAutoBake and
+// giAutoBake, the opt-in "re-bake what went stale before every build"
+// switches for pre-lit objects and for the GI caches. Every one
+// of them is written ONLY when it
+// differs from its default and the modelAoMode section is omitted entirely
+// while empty, so a project that never touches either feature resaves byte for
+// byte; the struct defaults reproduce what an older file did (no model AO at
+// all), while project::create turns modelAo on for new projects. Purely
+// additive - no migration step.
+// v29 (spot-style dynamic lights, docs/flashlight.md "A scene light with the
+// same trick"): "spot" + "spotAngle" on a light object's light block -
+// written only when the style is on, so an untouched project resaves byte
+// for byte; off (the default) is the point light every earlier file had.
+// v32 (Foot IK becomes its own tool, docs/foot-ik.md): the whole binding MOVES
 // off the scene object into the "footIkRigs" section - one rig per animated
 // model asset, with per-clip rules and the new descent reach - and a scene
 // object keeps the instance switch alone ("footIk": true). Data moved, so this
 // is the one Foot IK bump that is not purely additive - but the lift is
-// unambiguous (a v9..v17 object carried both halves in one place, and the model
+// unambiguous (a v9..v31 object carried both halves in one place, and the model
 // path says which rig it becomes), so it is a LOAD-TIME shim in
 // readObjectsArray rather than a migrations.cpp step: there is nothing for the
 // user to confirm and nothing that can be lost. Two objects that shared a model
 // but disagreed about its bones keep the first binding and say so on stderr.
-// v19 (Foot IK probe overlay, docs/foot-ik.md): ProjectSettings::showFootIkProbes
+// v33 (Foot IK probe overlay, docs/foot-ik.md): ProjectSettings::showFootIkProbes
 // - the debug-profile preference that draws the solver's ground raycasts in the
 // running game, next to showCollision/showAreas. Purely additive and false when
 // absent, which is what every older project gets and what the game did before,
@@ -989,6 +2095,31 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // for main's projects; a project written by this branch at 12 or 13 is read by
 // the tolerant reader either way, and the Foot IK lift keys off the shape of the
 // per-object "footIk" value rather than off the version number.)
-inline constexpr int kFormatVersion = 19;
+// (Authored as v12/v13 on this branch, renumbered to v18/v19 on the first
+// main merge and to v32/v33 on this one - two features may never share a
+// number and the claim that arrives second renumbers. NOTE main's own gap,
+// found here rather than assumed: its highest DOCUMENTED entry is v29 while
+// kFormatVersion said 31, so v30 and v31 are claimed without prose. They are
+// left alone precisely because files written by main already say 31 - reusing
+// the number would make one of those projects read as carrying a footIkRigs
+// section it never had. Nothing on disk changes for this renumber either:
+// the Foot IK lift keys off the SHAPE of the per-object "footIk" value (an
+// object is the old whole binding, a bool is the instance switch), not off a
+// version number, which is what has made all three renumbers free.
+inline constexpr int kFormatVersion = 33;
+
+// The OLDEST format this editor reads. v0 is "saved before versioning existed"
+// - a handful of shapes that were renamed or moved on their way to v1 (objects
+// inline in the manifest instead of objects/<id>.json, a single "layout" dump,
+// a project-level terrain block and flow graph, raw TTF paths where a font name
+// now goes, ...). TyraX has never shipped publicly, so nothing on anyone's disk
+// is written that way and the translations for it were pure weight; they are
+// gone. The gate exists so such a file is REFUSED by name rather than opening
+// as an empty project - the reader would find no scene it recognises and say
+// nothing about why.
+//
+// Raising this is the same kind of decision as a migration step and wants the
+// same note above kFormatVersion: it drops support for everything below it.
+inline constexpr int kMinFormatVersion = 1;
 
 }  // namespace version

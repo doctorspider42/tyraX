@@ -1,5 +1,7 @@
 # The time machine — put the running game back
 
+![Time machine enabled in the devkit channels](img/project-preferences-build.png)
+
 Live Link streams object state **into** the running game. The Live Debugger
 streams back **what ran**. Live Logic streams **the program itself**. This
 channel streams **the world**: the game captures everything it mutates a few

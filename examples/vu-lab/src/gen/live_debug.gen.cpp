@@ -20,6 +20,13 @@
 #include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <string>
+// ps2sdk libdebug (already on every generated game's link line, -ldebug): reads
+// a GS frame buffer back over the VIF1 reverse FIFO. That readback is what lets
+// the game photograph ITSELF; the FILE is written by writeFrameCapture below,
+// which explains why libdebug's own writer cannot be used over ps2link.
+#include <screenshot.h>
+#include <kernel.h>  // FlushCache - the readback lands behind the data cache
 
 #include "debug/crash_handler.hpp"  // EE exception -> crash report
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
@@ -156,6 +163,10 @@ unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
 // the chain - honest, but a heap storm nobody wants once per frame.
 bool ramMeasureWanted = false;
 unsigned int ramFreeKB = 0, ramFrame = 0;
+// The game's own screenshot (docs/devkit.md). One-shot, like the VU capture:
+// reading a whole frame buffer back out of GS VRAM is a ~900 KB DMA plus a
+// ~900 KB host: write, which is not something to do on a timer.
+bool frameShotWanted = false;
 // __attribute__((unused)): the EE crash handler is opt-in (Preferences >
 // Build), and with it off nothing references this - it sits in an anonymous
 // namespace so the compiler drops it, but it would warn on the way past.
@@ -163,9 +174,12 @@ void writeCrashReport(const Tyra::CrashInfo& ci) __attribute__((unused));  // de
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
+void writeFrameCapture(ScriptContext& ctx);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
-int pollCooldown = 1;
+int pollCooldown = 21;  // poll phase - see docs/devkit.md
+// The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
+// it is the editor's liveness signal, and delaying it delays "the game is up".
 int flushCooldown = 1;
 bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
@@ -289,6 +303,8 @@ void pollCommand() {
   // leaves the index at 0 - the behaviour they expect.
   // Bit 5: measure free EE RAM once (a heap storm - see ramMeasureWanted).
   if ((flags & 32U) != 0) ramMeasureWanted = true;
+  // Bit 6: photograph the last finished frame into frame.tga (one-shot).
+  if ((flags & 64U) != 0) frameShotWanted = true;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -515,6 +531,13 @@ void tickImpl(ScriptContext& ctx) {
     ramFrame = frameNo;
   }
   if (vuCapPending) writeVuCapture(ctx);
+  // The self-screenshot runs HERE for the same reason the VU capture's write
+  // does: the tick sits between frames, so the buffer it reads is finished and
+  // no renderer DMA is in flight to race the reverse FIFO.
+  if (frameShotWanted) {
+    frameShotWanted = false;
+    writeFrameCapture(ctx);
+  }
   forcedCount = 0;  // force-fires live for exactly one frame
 
   // Over ps2link every fopen is a network round-trip, so poll sparsely there.
@@ -766,6 +789,137 @@ void writeVuCapture(ScriptContext& ctx) {
   TYRA_LOG("VU capture: flush ", vuCapTookIndex, "/", vuFlushPrevFrame, ", ",
            vuCapQw, " qw chain + ", vuCapBlocks,
            " referenced block(s) written to vucap.bin");
+}
+
+// The game photographs ITSELF: ps2sdk's libdebug reads the frame buffer back
+// out of GS VRAM over the VIF1 reverse FIFO, and this writes what comes back as
+// an uncompressed 32-bit TGA. Every host-side capture path (PCSX2's F8, GDI,
+// PrintWindow) needs a desktop that is unlocked and a window that is on top,
+// and NONE of them exists on real hardware - this one works on both, which is
+// the whole point.
+//
+// THE FILE IS WRITTEN HERE RATHER THAN BY libdebug, AND THAT IS WHAT MAKES IT
+// WORK ON A CONSOLE. ps2_screenshot_file() creates its output with
+// open(name, O_CREAT|O_WRONLY) - no mode argument, no O_TRUNC - and over
+// ps2link that create arrives at the host: server as a MKDIR OF THE TARGET
+// NAME. The host ends up with a DIRECTORY called frame.tga, the open that
+// follows returns -1, and the function reports nothing, because it has no
+// failure path at all. Measured on hardware, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// Every other devkit channel writes through fopen(name, "wb") - flags 0x602,
+// WRONLY|CREAT|TRUNC on the wire - and none of them has ever had the problem,
+// in the same session, over the same server. So the fix is to keep the half of
+// libdebug that carries the value (ps2_screenshot, the VRAM readback) and hand
+// the bytes to the stdio path everything else here already uses. PCSX2's own
+// host: server accepts libdebug's spelling, which is exactly why this shipped
+// as an emulator-only feature without anybody noticing.
+//
+// Five more things decide whether it produces a picture at all, and each of
+// them fails SILENTLY - which is why they are written down rather than trusted:
+//
+//  * the buffer must be the PREVIOUS REAL one. getCurrentFrameBuffer() is the
+//    one the next frame draws into (a half-composed image, or the frame before
+//    last), and getPreviousFrameBuffer() can be a synthesised extrapolated
+//    frame - getPreviousRealFrameBuffer() is the last thing the SCENE drew.
+//  * `address` is in GS WORDS and the API wants BLOCKS. Handing it words
+//    overflows SBP's 14 bits, so the read silently lands on buffer 0 with its
+//    pages scrambled into bands - it looks like a corrupt renderer and is a
+//    missing division by 64.
+//  * the readback lands a LINE at a time in a static buffer, so a frame buffer
+//    wider than 1024 pixels would overrun it. No display mode this engine
+//    offers comes near that, but the guard costs one comparison.
+//  * THE DMA WRITES RAM BEHIND THE EE'S DATA CACHE. Nothing invalidates it for
+//    us, so the line is flushed after every transfer; without that a cached
+//    line hands over the PREVIOUS row and the picture comes out striped with
+//    repeats - on hardware only, since PCSX2 emulates no cache.
+//  * ps2_screenshot REFUSES to run while VIF1's DMA channel is busy, and says
+//    so only through its return value (0). The line is then whatever was in
+//    the buffer before, so the refusals are counted and reported rather than
+//    written out as if they were picture.
+//
+// The verdict is the byte count actually written - 18 bytes of TGA header plus
+// 4 bytes per pixel - and never a return value.
+void writeFrameCapture(ScriptContext& ctx) {
+  if (!ctx.engine) return;
+  framebuffer_t* fb = ctx.engine->renderer.core.gs.getPreviousRealFrameBuffer();
+  if (!fb || fb->width == 0 || fb->height == 0) return;
+  if (fb->width > 1024) {
+    TYRA_WARN("Frame capture: ", fb->width, " px is wider than the capture "
+              "line buffer - skipped");
+    return;
+  }
+  const unsigned int w = fb->width, h = fb->height;
+  const std::string path = Tyra::FileUtils::fromCwd("frame.tga");
+  FILE* f = fopen(path.c_str(), "wb");
+  if (!f) {
+    TYRA_WARN("Frame capture: cannot open frame.tga for writing");
+    return;
+  }
+  // Uncompressed true-colour TGA, bottom row first, 32 bpp - what the editor's
+  // Screen tab decodes (docs/devkit.md).
+  unsigned char header[18];
+  memset(header, 0, sizeof(header));
+  header[2] = 2;
+  header[12] = (unsigned char)(w & 255U);
+  header[13] = (unsigned char)((w >> 8) & 255U);
+  header[14] = (unsigned char)(h & 255U);
+  header[15] = (unsigned char)((h >> 8) & 255U);
+  header[16] = 32;
+  header[17] = 8;
+  unsigned int wrote = (unsigned int)fwrite(header, 1, sizeof(header), f);
+  // The DMA destination has to be quadword aligned; 1024 words covers the
+  // widest line the guard above lets through, at any of the three pixel
+  // formats a frame buffer can be in.
+  static unsigned int lineIn[1024] __attribute__((aligned(16)));
+  static unsigned int lineOut[1024];
+  unsigned int refused = 0;
+  for (unsigned int y = 0; y < h; ++y) {
+    // Bottom row first, so the TGA needs no flip on either side.
+    if (!ps2_screenshot(lineIn, fb->address / 64, 0, (h - 1U) - y, w, 1,
+                        fb->psm))
+      ++refused;
+    FlushCache(0);  // the line was written by DMA - see above
+    // Alpha is forced opaque: the GS keeps 0..128 there and a frame buffer's
+    // alpha is a working channel rather than coverage, so taken literally the
+    // picture reads as half transparent. Only the colour here is a picture.
+    if (fb->psm == 2) {  // PSMCT16
+      const unsigned short* in = (const unsigned short*)lineIn;
+      for (unsigned int x = 0; x < w; ++x) {
+        const unsigned int r = (unsigned int)((in[x] & 31U) << 3);
+        const unsigned int g = (unsigned int)(((in[x] >> 5) & 31U) << 3);
+        const unsigned int b = (unsigned int)(((in[x] >> 10) & 31U) << 3);
+        lineOut[x] = 0xFF000000U | (r << 16) | (g << 8) | b;
+      }
+    } else if (fb->psm == 1) {  // PSMCT24
+      const unsigned char* in = (const unsigned char*)lineIn;
+      for (unsigned int x = 0; x < w; ++x, in += 3)
+        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+                     ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+    } else {  // PSMCT32
+      const unsigned char* in = (const unsigned char*)lineIn;
+      for (unsigned int x = 0; x < w; ++x, in += 4)
+        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+                     ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+    }
+    wrote += (unsigned int)fwrite(lineOut, 1, w * 4U, f);
+  }
+  fclose(f);
+  const unsigned int want = 18U + w * h * 4U;
+  if (wrote != want)
+    TYRA_WARN("Frame capture: wrote ", wrote, " of ", want,
+              " bytes - the host: write did not complete");
+  else if (refused > 0)
+    TYRA_WARN("Frame capture: ", refused, " of ", h,
+              " lines came back while VIF1 was busy - the picture repeats "
+              "rows there");
+  else
+    TYRA_LOG("Frame capture: ", w, "x", h, " psm ", (unsigned int)fb->psm,
+             " at frame ", frameNo, " written to frame.tga");
 }
 
 // A real EE exception (bad pointer, address error, reserved instruction...) is

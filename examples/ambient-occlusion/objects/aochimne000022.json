@@ -1,0 +1,1 @@
+{ "id": "aochimne000022", "name": "chimney", "type": "model", "position": [13.2, 0.5, -9.9], "rotation": [0, 0, 0], "scale": [0.9, 0.9, 0.9], "color": [1, 1, 1], "physics": false, "model": "res/models/Prop_Chimney2.obj" }

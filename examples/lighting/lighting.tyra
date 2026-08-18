@@ -1,5 +1,7 @@
 {
   "name": "lighting",
+  "formatVersion": 33,
+  "editorVersion": "1.56.0",
   "template": "fpp",
   "projectId": "27c3db05e7c84cfd",
   "settings": {
@@ -14,12 +16,15 @@
     "showMemory": false,
     "showProfiler": false,
     "showAreas": false,
+    "showCollision": false,
+    "showFootIkProbes": false,
     "liveLink": true,
     "liveDebug": true,
     "eeCrashHandler": false,
     "liveLogic": true,
     "timeMachine": true,
-    "keyboardMouse": true,
+    "remotePad": true,
+    "keyboardMouse": false,
     "keyboardMousePs2Link": false,
     "disableVsync": false,
     "clipping": "vu1",
@@ -35,6 +40,7 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
     "skyColor": [0.85, 0.55, 0.35],
     "skyTopColor": [0.16, 0.2, 0.45],
     "skyDome": true,
@@ -83,6 +89,13 @@
     "flare": 0.7,
     "godRays": 0.55,
     "blobShadows": true,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,
@@ -136,6 +149,24 @@
   "sounds": [],
   "saveValues": [],
   "saveTexts": [],
+  "saveTitle": "",
+  "saveIcon": "",
+  "saveIconModel": "",
+  "saveIconClip": "",
+  "saveIconFrames": 6,
+  "saveIconMotion": "",
+  "saveIconMotionAmount": 1,
+  "saveMenuWritesCheckpoint": false,
+  "saveAutosaveSlot": -1,
+  "saveSlotCount": 3,
+  "saveSlotsPerPage": 3,
+  "saveAsync": false,
+  "saveSpinner": true,
+  "saveSpinnerImage": "",
+  "saveSpinnerFrames": 8,
+  "saveSpinnerCorner": 3,
+  "saveSpinnerMargin": 20,
+  "saveSpinnerScale": 1,
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
@@ -146,8 +177,12 @@
   "loadingScreens": [],
   "defaultLoadingScreen": -1,
   "splashScreens": [],
+  "credits": [],
   "sequences": [],
-  "menus": [],
+  "menus": [
+    { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
+      "entries": [] }
+  ],
   "input": {
     "activePreset": 0,
     "allowRebind": true,
@@ -194,12 +229,14 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": 0, "gizmo": 1, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": 0, "gizmo": 1, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,19\nSize=460,998\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260728\n\n[Window][Properties]\nPos=1451,19\nSize=469,998\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260728\n\n[Window][Output]\nPos=462,753\nSize=987,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260728\n\n[Window][Debug]\nPos=462,753\nSize=987,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260728\n\n[Window][Flow Graph]\nPos=462,19\nSize=987,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260728\n\n[Window][Viewport]\nPos=462,19\nSize=987,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260728\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260728\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260728\n\n[Window][New Project]\nPos=773,327\nSize=527,363\nCollapsed=0\nLastUsed=20260728\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260728\n\n[Window][Ambience Editor]\nPos=321,170\nSize=560,540\nCollapsed=0\nLastUsed=20260728\n\n[Window][Bake Global Illumination]\nPos=41,217\nSize=651,707\nCollapsed=0\nLastUsed=20260728\n\n[Window][Unsaved Changes]\nPos=805,471\nSize=310,75\nCollapsed=0\nLastUsed=20260728\n\n[Window][New Script]\nPos=728,450\nSize=485,116\nCollapsed=0\nLastUsed=20260728\n\n[Window][Project Preferences]\nPos=693,12\nSize=534,992\nCollapsed=0\nLastUsed=20260727\n\n[Window][Debugger]\nPos=1344,19\nSize=576,898\nCollapsed=0\nLastUsed=20260727\n\n[Window][New material]\nPos=826,470\nSize=268,77\nCollapsed=0\nLastUsed=20260728\n\n[Window][Delete Asset?]\nPos=766,462\nSize=387,93\nCollapsed=0\nLastUsed=20260728\n\n[Window][Material Editor]\nPos=164,97\nSize=1020,600\nCollapsed=0\nLastUsed=20260728\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=987,1017 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,751 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,264 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=469,1017 Selected=0x8C72BEA8\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
-    { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,19\nSize=460,898\nCollapsed=0\nLastUsed=20260727\n\n[Window][Properties]\nPos=1344,19\nSize=576,998\nCollapsed=0\nDockId=0x00000002,0\nLastUsed=20260727\n\n[Window][Output]\nPos=0,773\nSize=1342,244\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260727\n\n[Window][Debug]\nPos=0,773\nSize=1342,244\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260727\n\n[Window][Flow Graph]\nPos=0,19\nSize=1342,752\nCollapsed=0\nDockId=0x00000003,1\nLastUsed=20260727\n\n[Window][Viewport]\nPos=0,19\nSize=1342,752\nCollapsed=0\nDockId=0x00000003,0\nLastUsed=20260727\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260727\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260727\n\n[Window][Project Preferences]\nPos=693,12\nSize=534,992\nCollapsed=0\nLastUsed=20260727\n\n[Window][Ambience Editor]\nPos=321,170\nSize=560,540\nCollapsed=0\nLastUsed=20260727\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260727\n\n[Window][Debugger]\nPos=1344,19\nSize=576,998\nCollapsed=0\nDockId=0x00000002,1\nLastUsed=20260727\n\n[Docking][Data]\nDockSpace     ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode    ID=0x00000001 Parent=0x08BD597D SizeRef=1342,1017 Split=Y\n    DockNode  ID=0x00000003 Parent=0x00000001 SizeRef=1342,771 CentralNode=1 Selected=0xE96C8334\n    DockNode  ID=0x00000004 Parent=0x00000001 SizeRef=1342,244 Selected=0x6BCC3585\n  DockNode    ID=0x00000002 Parent=0x08BD597D SizeRef=576,1017 Selected=0x3571D65E\n\n" }
+    { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,19\nSize=460,898\nCollapsed=0\nLastUsed=20260727\n\n[Window][Properties]\nPos=1344,19\nSize=576,998\nCollapsed=0\nDockId=0x00000002,0\nLastUsed=20260727\n\n[Window][Output]\nPos=0,773\nSize=1342,244\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260727\n\n[Window][Debug]\nPos=0,773\nSize=1342,244\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260727\n\n[Window][Flow Graph]\nPos=0,19\nSize=1342,752\nCollapsed=0\nDockId=0x00000003,1\nLastUsed=20260727\n\n[Window][Viewport]\nPos=0,19\nSize=1342,752\nCollapsed=0\nDockId=0x00000003,0\nLastUsed=20260727\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260727\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260727\n\n[Window][Project Preferences]\nPos=693,12\nSize=534,992\nCollapsed=0\nLastUsed=20260727\n\n[Window][Ambience Editor]\nPos=321,170\nSize=560,540\nCollapsed=0\nLastUsed=20260727\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,19\nCollapsed=0\nLastUsed=20260727\n\n[Window][Debugger]\nPos=1344,19\nSize=576,998\nCollapsed=0\nDockId=0x00000002,1\nLastUsed=20260727\n\n[Docking][Data]\nDockSpace     ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode    ID=0x00000001 Parent=0x08BD597D SizeRef=1342,1017 Split=Y\n    DockNode  ID=0x00000003 Parent=0x00000001 SizeRef=1342,771 CentralNode=1 Selected=0xE96C8334\n    DockNode  ID=0x00000004 Parent=0x00000001 SizeRef=1342,244 Selected=0x6BCC3585\n  DockNode    ID=0x00000002 Parent=0x08BD597D SizeRef=576,1017 Selected=0x3571D65E\n\n" },
+    { "name": "Procedural", "recipe": 4, "open": ["proc", "prefabs"], "ini": "" },
+    { "name": "Menu Designer", "recipe": 5, "open": ["menus", "menupreview", "fonts"], "ini": "" }
   ]
 }

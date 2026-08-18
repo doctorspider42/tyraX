@@ -414,6 +414,15 @@ void App::rebuildAssetUsage() {
         for (const std::string& t : tiers)
             note(t, 2, "LOD level of " + nameOf(asset));
 
+    // An animation import's SOURCE is a reference of exactly that kind: the
+    // build opens that file and takes clips out of it, so a clip-only donor -
+    // which nothing else in the project points at, and whose mesh is never
+    // drawn - must not read as unused and invite a delete. The target `model`
+    // is deliberately not counted: it is the row's key, and the model is
+    // already counted wherever it is actually placed.
+    for (const AnimImport& a : project_.animImports)
+        note(a.source, 2, "animation source for " + nameOf(a.model));
+
     // The built-in sprites the generated game loads by fixed name (save menu,
     // USE prompt, loading screen, debug font). Nothing in the model points at
     // them, so without this they would read as unused - they are not, they are
@@ -597,6 +606,11 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (SceneObject& o : scene.objects) {
             swap(o.modelPath);
             swap(o.materialPath);
+            // The material a Revert would put back (docs/prelit-models.md): a
+            // stored asset path like any other, so renaming that .mtl must
+            // follow it or Revert points a pre-lit object at a file that has
+            // moved.
+            swap(o.prelitSource);
             swap(o.soundPath);
             for (FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
@@ -616,6 +630,7 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (SceneObject& o : pf.objects) {
             swap(o.modelPath);
             swap(o.materialPath);
+            swap(o.prelitSource);
             swap(o.soundPath);
         }
 
@@ -641,6 +656,9 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (std::string& m : project_.music) swap(m);
     for (std::string& s : project_.sounds) swap(s);
     for (AnimClipEdit& e : project_.animClipEdits) swap(e.model);
+    // Both ends of an animation import name an asset (docs/animation-import.md):
+    // the character the clips land on and the file they come from.
+    for (AnimImport& a : project_.animImports) swap(a.model), swap(a.source);
 
     // Map keys have to be re-inserted rather than assigned.
     if (auto it = project_.textureQuality.find(from);
@@ -654,6 +672,16 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         const Project::MusicBuildOpt value = it->second;
         project_.musicBuild.erase(it);
         if (!to.empty()) project_.musicBuild[to] = value;
+        ++hits;
+    }
+    // The model's automatic-AO override (docs/ambient-occlusion.md): a setting
+    // keyed by the asset path, so it has to travel with the file or a renamed
+    // model silently falls back to the project default.
+    if (auto it = project_.modelAoMode.find(from);
+        it != project_.modelAoMode.end()) {
+        const int value = it->second;
+        project_.modelAoMode.erase(it);
+        if (!to.empty()) project_.modelAoMode[to] = value;
         ++hits;
     }
     if (auto it = project_.modelLods.find(from); it != project_.modelLods.end()) {

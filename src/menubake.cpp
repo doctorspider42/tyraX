@@ -1761,10 +1761,11 @@ bool bakeTextPNG(const HudText& text, const Project& p,
 }
 
 void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba) {
-    // 64x64 pow2 (PS2 texture rule), white RGB, shape in alpha. The game
-    // draws them additively (Sprite::additive) tinted by the light color,
-    // so alpha IS the brightness profile.
-    constexpr int N = 64;
+    // pow2 (PS2 texture rule), white RGB, shape in alpha. The game draws
+    // them additively (Sprite::additive) tinted by the light color, so
+    // alpha IS the brightness profile. Kind 2 bakes larger - see the size
+    // note in menubake.hpp.
+    const int N = flareSpriteSize(kind);
     rgba.assign(N * N * 4, 0);
     for (int y = 0; y < N; ++y) {
         for (int x = 0; x < N; ++x) {
@@ -1804,14 +1805,73 @@ bool bakeFlarePNG(int kind, std::vector<unsigned char>& png) {
     std::vector<unsigned char> rgba;
     bakeFlareRGBA(kind, rgba);
     png.clear();
-    return stbi_write_png_to_func(pngWriteCallback, &png, 64, 64, 4, rgba.data(),
-                                  64 * 4) != 0;
+    const int n = flareSpriteSize(kind);
+    return stbi_write_png_to_func(pngWriteCallback, &png, n, n, 4, rgba.data(),
+                                  n * 4) != 0;
 }
 
 std::string flareFileName(int kind) {
     return kind == 0   ? "flare-glow.png"
            : kind == 1 ? "flare-ring.png"
                        : "flare-corona.png";
+}
+
+// The cone edge lands here in the r = |uv - 0.5| * 2 convention the profiles
+// above use. The runtime's projective ST mapping halves it (0.43 either side of
+// the centre), and everything past it is black so the EE's ST clamp has nothing
+// to smear - see updateAndRenderLightPools.
+constexpr float kGoboEdge = 0.86f;
+
+void bakeFlashGoboRGBA(std::vector<unsigned char>& rgba) {
+    constexpr int N = kFlashGoboSize;
+    rgba.assign(N * N * 4, 0);
+    for (int y = 0; y < N; ++y) {
+        for (int x = 0; x < N; ++x) {
+            const float dx = (x + 0.5f) / N - 0.5f;
+            const float dy = (y + 0.5f) / N - 0.5f;
+            const float r = std::sqrt(dx * dx + dy * dy) * 2.0f;
+            float a = 0.0f;
+            if (r < kGoboEdge) {
+                const float t = 1.0f - r / kGoboEdge;
+                // Penumbra: soft all the way out, but with most of the light
+                // still in the middle third - a torch beam, not a fog ball.
+                // The two terms are balanced to reach EXACTLY 1.0 at the
+                // centre: the pool is additive at nearly full FIX, so anything
+                // over that clips, and a clipped core is not a bright torch -
+                // it is a flat white blob whose shape is the patch's own
+                // triangulation. Measured in PCSX2 before the rebalance.
+                a = t * std::sqrt(t) * (0.20f + 0.55f * t);
+                // The filament hotspot, and the faint bright ring a dish
+                // reflector throws around it. Both are what makes this read as
+                // a lamp instead of a radial gradient.
+                a += 0.25f * std::exp(-(r / 0.19f) * (r / 0.19f));
+                const float ring = (r - 0.52f) / 0.11f;
+                a += 0.09f * std::exp(-ring * ring) * t;
+                // A real beam is never perfectly round: two low-frequency
+                // lobes, small enough to read as an imperfection rather than a
+                // pattern. Deterministic - this is a bake, not a look.
+                const float th = std::atan2(dy, dx);
+                a *= 1.0f + (0.055f * std::sin(3.0f * th + 0.7f) +
+                             0.035f * std::sin(7.0f * th - 2.1f)) *
+                                (1.0f - t) ;  // fades out at the core, which
+                // must stay round: the lobes are meant to break the OUTLINE.
+                if (a < 0.0f) a = 0.0f;
+                if (a > 1.0f) a = 1.0f;
+            }
+            unsigned char* px = &rgba[(y * N + x) * 4];
+            px[0] = px[1] = px[2] = (unsigned char)(a * 255.0f + 0.5f);
+            px[3] = 255;
+        }
+    }
+}
+
+bool bakeFlashGoboPNG(std::vector<unsigned char>& png) {
+    std::vector<unsigned char> rgba;
+    bakeFlashGoboRGBA(rgba);
+    png.clear();
+    return stbi_write_png_to_func(pngWriteCallback, &png, kFlashGoboSize,
+                                  kFlashGoboSize, 4, rgba.data(),
+                                  kFlashGoboSize * 4) != 0;
 }
 
 void bakeSunRGBA(std::vector<unsigned char>& rgba) {

@@ -149,6 +149,8 @@ TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
+TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
+TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
@@ -290,6 +292,20 @@ replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
 generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
 
+**Rebuild before believing a `--vu-check` failure, and never attribute one by
+swapping the engine alone.** Both sides of every comparison must come from ONE
+commit: the generated side is compiled into the binary, the handwritten side is
+read off disk. So `git archive <rev> vendor/tyra/engine` + `--vu-check <thatDir>`
+- the attribution trick that works for engine-only symptoms - swaps exactly one
+half here and MANUFACTURES failures against a stale exe (measured: 7 DIFFERENT
+programs plus the matcap identity-at-zero, all of which pass when each half runs
+against its own peer). The check now says so itself - `note: FOREIGN engine` /
+`note: ... is NEWER than this executable`, and a paragraph under FAIL - but the
+habit to keep is the 2x2: old and new binary against old and new engine. Both
+diagonals passing means skew, not a bug. `D:\tyra-editor` is usually parked on
+another branch with a days-old `build/`, so check `git log -1` and the exe's
+mtime before trusting a run from there.
+
 - `--new` scaffolds a complete game project (all generated sources, Makefile,
   docker-compose.yml) **without Docker** — instant way to get a fixture. `fpp` seeds a
   single Player entity in walk mode and `thirdperson` the same entity in
@@ -321,11 +337,44 @@ here will not work on the console either.
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
   against the same project with `"giEnabled": false` in its `.tyra`. Two
-  traps worth knowing: the bake is NEVER part of a build (a build only READS
-  the cache), so a change to the scene silently falls it back to the pre-GI
-  lighting until you re-bake; and it prints per scene how long it took plus
+  traps worth knowing: the bake is NOT part of a build by default (a build only
+  READS the cache), so a change to the scene silently falls it back to the
+  pre-GI lighting until you re-bake - `"giAutoBake": true` in the settings
+  makes `--build` (and the GUI build) re-bake exactly the STALE scenes first,
+  printing `gi: baked GI ...` / `gi: fresh ...` per scene, and the check is a
+  second build that says `fresh` for all of them; and it prints per scene how long it took plus
   the atlas/terrain/probe dimensions, which is the fastest sanity check that
   it saw any geometry at all (`atlas 0` means no eligible receivers).
+- `--bake-model-ao` bakes every eligible `.obj` model's OWN ambient occlusion
+  (docs/ambient-occlusion.md, "Model AO") into `.res-baked/modelao/` and prints
+  one line per (model, texture) pair - `baked` / `fresh` / `skipped ... :
+  reason`. It exists because the shipping path for that feature is `texbake`,
+  which runs only inside a real Docker build, so **`--bake-model-ao
+  <dir> --texbake` is how the whole chain is checkable with no container**:
+  the second flag runs the texture bake too, i.e. the actual multiply into
+  `.res-baked`, which logs `model AO: multiplied into <texture>`. The honest
+  check afterwards is a pixel one - decode `res/models/x.png` and
+  `.res-baked/models/x.png` and compare their RGB means (baked must be darker)
+  and their alpha channels (must be IDENTICAL - the GS cutout rule). Re-run to
+  confirm idempotence (`fresh`, byte-identical map). The verb refuses when the
+  project has the feature off, so a fixture needs `"modelAo": true` in its
+  `.tyra` settings (new projects get it; older ones do not).
+- `--bake-prelit <dir> [scene]` re-bakes every object marked to ship pre-lit
+  (`prelitWanted`) whose baked texture no longer matches the scene
+  (docs/prelit-models.md, "Managing pre-lit objects"), then saves and
+  regenerates. It prints `baked` or `fresh` per object plus a summary and exits
+  non-zero on a bake failure. **Two runs are the test**: the second must report
+  everything `fresh` and bake nothing, which is the only check that the
+  signature is stable rather than merely present. To see a stale one, move the
+  object (edit its `objects/<id>.json` position) and run again - it re-bakes,
+  and the reported `mean light` moves with it. The object's stamp lands in
+  `objects/<id>.json` as `prelitSig` (hex string), `prelitWanted` and - only
+  when the object had a material override before its first bake -
+  `prelitSource`. It refuses a project needing a format migration, like every
+  headless verb that writes the project. With `"prelitAutoBake": true` in the
+  project's settings, `--build` (and the GUI's build) runs the SAME loop first
+  and prints `pre-lit: ...` lines - the check is a build log that says
+  `0 baked, N already fresh` on the second build.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:
@@ -785,6 +834,46 @@ editor-owned scratch copy for this test.
   stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
   the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
   EE's stdout was buffered and never flushed) — rebuild before believing silence.
+- **The game can photograph ITSELF, and that is the path that never lies about
+  which window it grabbed** (docs/devkit.md, "The game's own screenshot"). A
+  debug build with *Live Debugger* on takes a one-shot on the same command
+  channel as the VU1 capture — **flags bit 6** of `bin/livedbg.cmd`, or
+  *Debugger > Screen > Capture frame* — reads its last finished frame out of GS
+  VRAM and writes `bin/frame.tga`; the editor decodes that and keeps the picture
+  as `screenshots/frame-<date>-<time>.png` in the project, which is what *Show
+  file* opens. No desktop, no window, no focus, and it is the ONLY one that
+  exists on real hardware. Reach for it whenever a host-side grab is in doubt:
+  an occluded window, a locked or disconnected session, a parallel worktree's
+  emulator, or a console.
+
+  **It works on a console since 1.55.1 and did not before**, which is worth
+  knowing when reading anything measured with it earlier: ps2sdk's
+  `ps2_screenshot_file()` creates its output with `open(O_CREAT|O_WRONLY)`, and
+  over ps2link that create arrives at the `host:` server as a **mkdir of the
+  target name** - the host gets a DIRECTORY called `frame.tga`, the open fails,
+  and the function has no failure path to report it with. The runtime writes the
+  file itself now (docs/devkit.md, "Why the file is written by the game rather
+  than by libdebug"). Over ps2link one capture freezes the game for about three
+  seconds; in PCSX2 it lands between two frames.
+
+  Scripted, through the editor's own encoder (the `livedbg.cpp` probe recipe
+  below), it is ~10 lines: `Command c; c.seq = n; c.captureFrame = true;
+  livedbg::writeCommand(bin + "livedbg.cmd", c);` then wait for `frame.tga` and
+  read it. The file is an uncompressed 32-bit TGA, **BGRA, bottom row first**,
+  exactly `18 + w*h*4` bytes — PIL opens it directly, and that size is also how
+  you tell a finished write from a poll that landed mid-transfer (it is written
+  a scan line at a time over `host:`, so mid-write reads are common, not rare —
+  and over ps2link the write takes SECONDS, so decide "still writing" from the
+  size still GROWING rather than from a number of tries). Its alpha is already
+  opaque; a frame buffer's alpha is a working channel rather than coverage, so
+  the game writes 255 instead of handing over a half-transparent picture.
+
+  What comes back is the **GS raster**, not the television picture — no aspect
+  correction, no letterbox — which is why it is also the cheapest way to read
+  the real buffer geometry without touching `ScreenshotSize` in PCSX2.ini. To
+  cross-check it against the emulator, crop the PrintWindow grab to its
+  non-black columns and compare resized: measured **0.91/255** mean absolute
+  difference on an fpp fixture, which is what a correct capture looks like.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script, which has **two capture back-ends** — and picking the wrong one is how
   a whole run becomes fiction, so read this before the flags:
@@ -2126,10 +2215,103 @@ And the reply is consumed by `aiChatTick`, which runs from `drawUI` whether or n
 the window is open - so a `wait` long enough for N backend invocations is what a
 multi-step turn needs, and closing the window mid-turn does not strand it.
 
+## Verifying the packages and the update check (docs/updates.md)
+
+Both halves are checkable on the machine you are on - neither needs CI, and
+neither should be believed without this.
+
+**The pure half first.** `update::compareVersions` and `update::parseRelease`
+have no ImGui, no GL and no `Project`, so they take a 40-line harness (the
+treegen/placement pattern):
+
+```bash
+g++ -std=c++20 -I src -I vendor/glfw/include harness.cpp \
+    src/update.cpp src/json.cpp src/platform.cpp build/vendor/glfw/src/libglfw3.a \
+    -o uh.exe -lshell32 -lole32 -luuid -lws2_32 -lcomdlg32 -lgdi32
+```
+
+Feed `parseRelease` a REAL payload, not only a hand-written one -
+`curl -sL https://api.github.com/repos/<any>/releases/latest` is one command and
+it is what proves the asset picker survives GitHub's actual shape. The same
+harness can call `fetchLatest()` for the live path; against a repository with no
+releases the honest answer is *no releases have been published yet*, which is a
+state and not a failure.
+
+**The UI half** is an ordinary `--ui-script` run - the modal is reachable with
+no network luck involved, because a failed check opens it too:
+
+```bash
+./build/tyrax-editor.exe --ui-script "frames 10; click Help; click 'Check for updates'; wait 3; shot upd.png; dump"
+```
+
+The automatic startup check is deliberately skipped while a UI script is running
+(`uiScriptActive_`), so no unattended run can have a dialog open itself mid-step.
+
+**The installer is verified by installing it**, and that is worth the five
+minutes because the thing it can silently get wrong is the LAYOUT. Note the
+first trap: a silent install started from a console-attached shell just sits
+there until something kills it - drive it with `Start-Process -Wait`.
+
+```powershell
+./installer/build-installer.ps1 -SkipBuild
+Start-Process dist\TyraX-Setup-<v>.exe -Wait -ArgumentList `
+  '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER',"/DIR=$env:TEMP\tyrax-test","/LOG=$env:TEMP\ins.log"
+```
+
+Then prove the installed tree WORKS rather than merely exists, which is two
+commands and covers every exe-relative lookup at once:
+
+```powershell
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --vu-check           # finds <exe>/../vendor/tyra
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --new t $env:TEMP    # then grep the engine path
+Select-String tyrax-test $env:TEMP\t\docker-compose.yml        #   in the generated compose
+```
+
+Finish with `unins000.exe /VERYSILENT` and check that the directory, the Start
+Menu folder and the `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`
+key are all gone - an installer that cannot uninstall itself is a worse bug than
+one that cannot install.
+
+**The Linux packages are the same idea and cost less.** All three come out of
+one staged tree, so the tarball is the one to unpack and RUN - it proves the
+layout for the other two:
+
+```bash
+./installer/build-package.sh --skip-build --all --out-dir /tmp/pkg
+tar xzf /tmp/pkg/tyrax-<v>-linux-x86_64.tar.gz -C /tmp/pkg
+/tmp/pkg/tyrax-<v>/bin/tyrax-editor --new t /tmp/pkg   # then grep the engine path
+grep engine-src /tmp/pkg/t/docker-compose.yml          #   in the generated compose
+```
+
+That last line is the whole point: it must name the UNPACKED tree's
+`vendor/tyra` and not your checkout's. `--deb` needs `dpkg-deb`
+(`apt-get install dpkg-dev`), `--rpm` needs `rpmbuild` (`apt-get install rpm`);
+inspect what they declare rather than trusting the spec - `dpkg-deb -I`/`-c` and
+`rpm -qip`/`-qRp`/`-qlp` print the metadata, the dependency list and the file
+list, and a missing `zenity | kdialog` there is an editor whose Open button does
+nothing.
+
+**The self-update is testable without a release**, and it should be, because
+every branch of it is a refusal:
+
+```bash
+g++ -std=c++20 -I src harness.cpp src/update.cpp src/json.cpp src/platform.cpp -o uh
+```
+
+Put that binary at `<root>/bin/`, write a `.tyrax-package` marker beside it and
+call `update::installKind`/`selfInstallBlocked` for each word: `tarball` (empty
+= the button appears), `deb`, `rpm`, no file at all (source checkout), and
+`tarball` in a `chmod a-w` directory. Then drive the real thing - build a
+throwaway "new release" tarball of the same harness, call
+`update::runInstaller` on it, and check afterwards that the tree carries the new
+files, that a file the new release does NOT contain survived (the overlay is
+deliberate) and that the binary was relaunched.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
 |---|---|
+| A package or the update check | The section above: a harness for the pure half, `--ui-script` for the modal, a real install (silent on Windows, unpack the tarball on Linux) + `--vu-check`/`--new` FROM it for the layout, then uninstall / a driven self-update |
 | Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |

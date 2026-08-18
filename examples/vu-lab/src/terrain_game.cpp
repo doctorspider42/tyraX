@@ -196,9 +196,9 @@ namespace {
 constexpr float PI = 3.14159265358979F;
 
 // Display-mode option rows (bind 5): the engine mode an option drives, and
-// the option a mode shows as. Rows without an explicit optModes table keep
-// the positional mapping (option index == Tyra::DisplayMode); a table entry
-// of -1 is the "DEFAULT" option - the project-default boot mode.
+// the option a mode shows as. Every such row carries an optModes table (codegen
+// fills a short one in positionally); a table entry of -1 is the "DEFAULT"
+// option - the project-default boot mode.
 int displayOptionMode(const MenuEntryData& en, int idx) {
   if (en.optModes && idx >= 0 && idx < en.optionCount) {
     const int m = en.optModes[idx];
@@ -421,6 +421,15 @@ std::vector<Vec4>* g_litNormals = nullptr;
  * puts the whole thing back. */
 bool g_giLightmap = false;
 
+/** ...and this one: the surface's light is already IN ITS TEXTURE
+ * (docs/prelit-models.md - litbake multiplied the scene's gathered light into
+ * this object's own map_Kd on the host). Its vertex colour is therefore
+ * NEUTRAL: not black like the lightmap route, which has a pass coming to put
+ * the light back, but plain white, because the texture is the finished
+ * article. The dynamic light - the flashlight's pool, its cone, the live point
+ * lights - still lands on top at run time. */
+bool g_prelitTex = false;
+
 /** Point lights (SceneObject type 9) of the active scene, collected once per
  * scene load. pointLightAt runs PER VERTEX while baking terrain chunks and
  * object meshes; scanning the whole SCENE_OBJECTS table there thrashes the
@@ -520,10 +529,22 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
       float v = c * 128.0F * k;
       return v > 255.0F ? 255.0F : v;
     };
-    core.addDynPointLight(
-        Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
-        Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
-        d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+    if (d.lightSpot) {
+      // The cone points down the object's local -Y: unrotated, a lamp
+      // shines straight down; the rotation gizmo aims it.
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      core.addDynSpotLight(
+          Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+          Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+          Tyra::Vec4(sd.x, sd.y, sd.z, 0.0F),
+          d.lightRadius > 0.01F ? d.lightRadius : 0.01F, d.lightSpotAngle,
+          1.6F);
+    } else {
+      core.addDynPointLight(
+          Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
+          Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
+          d.lightRadius > 0.01F ? d.lightRadius : 0.01F);
+    }
   }
 }
 
@@ -652,43 +673,94 @@ void occShapeAt(const Shape& oc, const V3& wp, float& dist, V3& toOcc) {
   }
 }
 
-/** Occlusion contribution of one occluder at a surface point (0..1). */
+/** The locality window every occlusion term closes with; occlusion past the
+ * AO radius is deliberately not counted. Twin of aobake::aoRangeWindow. */
+float aoRangeWindow(float dist, float range) {
+  if (dist >= range) return 0.0F;
+  float t = (range - dist) / (0.4F * range);
+  if (t >= 1.0F) return 1.0F;
+  if (t < 0.0F) t = 0.0F;
+  return t * t * (3.0F - 2.0F * t);
+}
+
+/** The one number between the geometry and the picture: a surface resting on a
+ * floor really does lose half its hemisphere, but there is no indirect light
+ * here to put back, so the finished occlusion is scaled once. Twin of
+ * aobake::kAoBounce - the two must not drift. */
+constexpr float kAoBounce = 0.7F;
+
+/** Radius of a disc with the same PROJECTED AREA as the shape, seen along
+ * `toOcc`. Twin of aobake::occProjRadius. */
+float aoProjRadius(const AoOccData& oc, const V3& toOcc) {
+  if (oc.sphere) return oc.half[0];
+  const float* ax[3] = {oc.ax, oc.ay, oc.az};
+  float a = 0.0F;
+  for (int k = 0; k < 3; ++k) {
+    float c = toOcc.x * ax[k][0] + toOcc.y * ax[k][1] + toOcc.z * ax[k][2];
+    if (c < 0.0F) c = -c;
+    a += c * 4.0F * oc.half[(k + 1) % 3] * oc.half[(k + 2) % 3];
+  }
+  return sqrtf(a * (1.0F / 3.14159265F));
+}
+
+/** Occlusion contribution of one occluder at a surface point (0..1) - how much
+ * of the surface's cosine-weighted hemisphere the shape covers, NOT how close
+ * it is. Twin of aobake::occluderOcclusionAt and of aoOcclusion in the
+ * viewport shader; the reasoning and the measurements are in aobake.cpp. */
 float aoOccluderAt(const AoOccData& oc, const V3& wp, const V3& n) {
   float dist;
   V3 toOcc;  // direction from the point toward the occluder surface
   occShapeAt(oc, wp, dist, toOcc);
   if (dist <= 0.0F) return 1.0F;  // touching / inside
-  float fade = 1.0F - dist / SCENE_AO_RADIUS;
-  if (fade <= 0.0F) return 0.0F;
-  fade *= fade;
-  // Facing weight: full occlusion facing the occluder, ~0.35 side-on (a wall
-  // still darkens the floor at its base), zero facing away.
-  float w = 0.35F + 0.65F * (n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z);
-  if (w <= 0.0F) return 0.0F;
-  if (w > 1.0F) w = 1.0F;
-  return fade * w;
+  if (dist >= SCENE_AO_RADIUS) return 0.0F;
+  const float cosT = n.x * toOcc.x + n.y * toOcc.y + n.z * toOcc.z;
+  float r = aoProjRadius(oc, toOcc);
+  if (r > SCENE_AO_RADIUS) r = SCENE_AO_RADIUS;
+  if (r <= 0.00001F) return 0.0F;
+
+  // Two regimes, picked by the shape's angular radius. Far and small it is a
+  // disc taking cos(theta) of its solid angle; near and large it is a
+  // HALF-SPACE, which needs no aiming - what a plane blocks is the hemisphere
+  // behind its face, (1 + n.toOcc)/2. k = sin(alpha) carries the surface
+  // between them and k*k is the solid angle, and BOTH factors are needed: on k
+  // alone a crate 0.6 units away hands a horizontal surface the plane's 0.5,
+  // and a ring of neighbours then reads as half the sky gone on a crate top
+  // with nothing above it. See aobake.cpp for the measurements.
+  const float k = r / (r + dist);
+  const float lit = (cosT > 0.0F) ? cosT : 0.0F;
+  const float plane = (1.0F + cosT) * 0.5F;
+  float occ = k * k * (lit + (plane - lit) * k);
+  if (occ < 0.0F) occ = 0.0F;
+  if (occ > 1.0F) occ = 1.0F;
+  return occ * aoRangeWindow(dist, SCENE_AO_RADIUS);
 }
 
-/** Occlusion sum over the pruned local list (+ the terrain contact term for
- * object geometry) -> shade multiplier. groundTerm is off for the terrain
- * itself - the ground doesn't sit next to itself. */
+/** Occlusion over the pruned local list (+ the terrain contact term for object
+ * geometry) -> shade multiplier. groundTerm is off for the terrain itself -
+ * the ground doesn't sit next to itself.
+ *
+ * Blockers combine as VISIBILITY (the product of what each leaves open), not
+ * as a clamped sum: a sum saturates, which is what let a neighbouring box and
+ * the ground between them black out a surface each of them only half covers.
+ * Twin of aobake::aoAccumVis and of the viewport shader. */
 float aoShadeMul(const V3& wp, const V3& n, bool groundTerm) {
   if (!SCENE_AO_ENABLED) return 1.0F;
-  float occ = 0.0F;
-  for (const AoOccData* oc : g_aoLocal) occ += aoOccluderAt(*oc, wp, n);
+  float vis = 1.0F;
+  for (const AoOccData* oc : g_aoLocal) vis *= 1.0F - aoOccluderAt(*oc, wp, n);
   if (groundTerm) {
     float dy = wp.y - terrainHeightAt(wp.x, wp.z);
     if (dy < 0.0F) dy = 0.0F;
     if (dy < SCENE_AO_RADIUS) {
-      float fade = 1.0F - dy / SCENE_AO_RADIUS;
-      fade *= fade;
-      // up-facing: open sky above; the 0.7 keeps wall bases from muddying
-      // (the ground is lit and bounces - full half-hemisphere reads too dark)
+      // The SAME half-space the occluder response falls back to: the ground
+      // is a plane whose toOcc points straight down, so (1 + n.toOcc)/2 is
+      // (1 - n.y)/2 - which is what this term always was, under its own
+      // constant. One shape, one spelling now.
       float horiz = 0.5F - 0.5F * n.y;
       if (horiz < 0.0F) horiz = 0.0F;
-      occ += 0.7F * fade * horiz;
+      vis *= 1.0F - horiz * aoRangeWindow(dy, SCENE_AO_RADIUS);
     }
   }
+  float occ = kAoBounce * (1.0F - vis);
   if (occ > 1.0F) occ = 1.0F;
   return 1.0F - SCENE_AO_STRENGTH * occ;
 }
@@ -968,6 +1040,13 @@ void pushVert(std::vector<Vec4>& verts, std::vector<Color>& cols,
     // mistake the lightmap/probe routes are arranged to avoid.
     g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
                                         : Vec4(n.x, n.y, n.z, 0.0F));
+    shade = {1.0F, 1.0F, 1.0F};
+    giHere = true;
+  } else if (g_prelitTex) {
+    // The texture IS the lit surface (docs/prelit-models.md). NEUTRAL, not
+    // black: the lightmap route below goes black because a pass is coming to
+    // put the light back, and here nothing is coming - the modulate has to
+    // leave the texture exactly as it was baked.
     shade = {1.0F, 1.0F, 1.0F};
     giHere = true;
   } else if (g_giLightmap) {
@@ -1572,6 +1651,15 @@ u32 pBeg = 0, pEnd = 0, pCmp = 0, pCmpEe = 0;
 u32 pPrx = 0, pAcc = 0, pRep = 0, pFea = 0, pNet = 0, pPkt = 0;
 bool pValid = false;
 
+// The static pipeline's routing counters (docs/vu1-clipping.md). Set at init
+// so tick() can drain them without threading a pipeline pointer through
+// drawDebugHud. StaPipTelemetry is opt-in and costs COP0 reads, so it is
+// enabled only inside this #if - a normal debug build still carries none.
+Tyra::StaPipCore* core = nullptr;
+u32 tCull = 0, tClip = 0, tGuard = 0, tOut = 0;
+u32 tTriCull = 0, tTriClip = 0, tTriGuard = 0;
+u32 tFlush = 0, tVuWait = 0;
+
 // u64, because a u32 SUM OVERFLOWS. 50 frames x 300 ms is 4.4e9 ticks against
 // a 4.29e9 ceiling, so on a scene slow enough to be worth profiling the mean
 // wrapped and printed BELOW the median - which is how a 500 ms frame first
@@ -1639,6 +1727,20 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
   pNet = FP::tBlssNet;
   pPkt = FP::tBlssPacket;
   pValid = true;
+  // Drained EVERY frame, not once a window: takeTelemetry() clears as it
+  // reads, so skipping frames would silently drop their packages.
+  if (core != nullptr) {
+    const Tyra::StaPipTelemetry t = core->takeTelemetry();
+    tCull += t.packagesCull;
+    tClip += t.packagesClip;
+    tGuard += t.packagesGuardBand;
+    tOut += t.packagesOutside;
+    tTriCull += t.trianglesCull;
+    tTriClip += t.trianglesClip;
+    tTriGuard += t.trianglesGuardBand;
+    tFlush += t.packetFlushes;
+    tVuWait += t.vu1WaitTicks;
+  }
   if (rawN < kRaw) raw[rawN++] = FP::tFrameWork;
   if (rawN == 1) rawFirst = frame;
   frame++;
@@ -1700,6 +1802,28 @@ void tick(const Vec4& camPos, const Vec4& camAt) {
            (double)ms(sRep, kWindow), (double)ms(sFea, kWindow),
            (double)ms(sNet, kWindow), (double)ms(sPkt, kWindow));
   TYRA_LOG(line);
+  // The clipper routing line (docs/vu1-clipping.md). Packages and triangles
+  // per route over the window, plus the GUARD subset of cull - the packages
+  // that leave the screen but stay inside the guard band, which used to be
+  // clipped and are now culled whole. `clip` going down while `guard` goes up
+  // by the same amount is what a guard-band routing change looks like; the
+  // two totals must stay equal between two arms of an A/B, or the arms are
+  // not looking at the same scene. Counts, not milliseconds - `work` above is
+  // the milliseconds, and this line says WHY it moved.
+  if (core != nullptr) {
+    snprintf(line, sizeof(line),
+             "FTCLIP f=%lu cull=%lu/%lu clip=%lu/%lu guard=%lu/%lu out=%lu "
+             "flush=%lu vuwait=%.2f",
+             (unsigned long)(frame - kWindow), (unsigned long)tCull,
+             (unsigned long)tTriCull, (unsigned long)tClip,
+             (unsigned long)tTriClip, (unsigned long)tGuard,
+             (unsigned long)tTriGuard, (unsigned long)tOut,
+             (unsigned long)tFlush, (double)ms(tVuWait, kWindow));
+    TYRA_LOG(line);
+    tCull = tClip = tGuard = tOut = 0;
+    tTriCull = tTriClip = tTriGuard = 0;
+    tFlush = tVuWait = 0;
+  }
   sBeg = sEnd = sCmp = sCmpEe = 0;
   sPrx = sAcc = sRep = sFea = sNet = sPkt = 0;
   if (rawN >= kRaw) dumpRaw();
@@ -2161,6 +2285,13 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
+#if TYRA_FRAME_PROFILE
+  // The frame-timing rig's FTCLIP line - the static pipeline's routing
+  // counters (docs/vu1-clipping.md). Opt-in because the counters cost COP0
+  // reads; nothing outside this #if enables them.
+  ftrig::core = &stapip.core;
+  stapip.core.setTelemetryEnabled(true);
+#endif
   // The project's own VU1 microprograms, if it has any (docs/vu-authoring.md).
   // AFTER setVU1Clipping, which rebuilds the resident program cache: an
   // override installed first would be rebuilt away. Compiles to nothing when
@@ -2208,9 +2339,11 @@ void TerrainGame::init() {
       break;
     }
   }
-  // Feet on the ground - or at the spawn point's own height in a scene with no
-  // terrain, where there is no ground to stand on (docs/terrain.md).
-  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+  // Feet on whatever the spawn point is standing on (spawnSurfaceY). This one
+  // runs BEFORE buildScene, so there are no runtime objects to probe yet and it
+  // resolves to the terrain; the boot re-places the player at the start scene's
+  // own spawn below, where the geometry does exist.
+  playerY = spawnSurfaceY(playerX, playerZ, spawnY, -1);
 
   updatePlayer();
   buildScene();
@@ -2469,8 +2602,10 @@ void TerrainGame::loop() {
         break;
       }
     }
-    // The spawn point's own height in a scene with no terrain - see initScene.
-    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+    // Feet on whatever the spawn point is standing on - a stair or a platform,
+    // not the terrain beneath it (spawnSurfaceY). Runs after the scene load, so
+    // the geometry is there to probe.
+    playerY = spawnSurfaceY(playerX, playerZ, spawnY, -1);
     playerVelY = 0.0F;
   }
 
@@ -2678,14 +2813,37 @@ void TerrainGame::loop() {
     gameMenuStackDepth = 0;
   }
   if (!menuOwnsPad && flashlightTogglePressed(engine)) g_flashOn = !g_flashOn;
-  if (g_flashEnabled && g_flashOn) {
+  // The cone waits ONE frame after the toggle. The receivers' spot-off flags
+  // (updateFlashSpotOff) are computed in the light-pool pass, AFTER the
+  // scene's objects have drawn - so on the enable frame every big receiver
+  // still had its cone armed and took the full per-vertex term once: the OLD
+  // blocky-triangle look, strobing when the toggle is spammed (reported).
+  // The projected pool needs no warm-up and lights the same frame; only the
+  // cheap cone is deferred, and on the props that keep it one frame is
+  // invisible.
+  static bool flashSpotArmed = false;
+  const bool flashOnNow = g_flashEnabled && g_flashOn;
+  if (flashOnNow && flashSpotArmed) {
     Vec4 flashDir = cameraLookAt - cameraPosition;
+    // The cone is a FILL now, not the light (docs/flashlight.md): the ground
+    // and every big flat surface take the projected pool instead, and what is
+    // left for this term is the small stuff - props, trees, the avatar - where
+    // the pool cannot go. So it is deliberately dimmer and MUCH softer-edged
+    // than the light it used to be.
+    //
+    // Softness is the edge's crispness, and on a coarse mesh it IS the artifact:
+    // the cone term is evaluated per vertex, so a hard edge crossing a triangle
+    // metres wide shows up as that triangle, and a model with few of them reads
+    // as a bag of bright shards. A wide, gentle ramp spreads the same change
+    // over enough geometry that the interpolation stops being visible. It costs
+    // a fuzzier beam edge, which is what a torch beam has anyway.
     engine->renderer.core.setSpotLight(
-        Color(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B), cameraPosition,
-        flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE);
+        Color(FLASHLIGHT_R * 0.7F, FLASHLIGHT_G * 0.7F, FLASHLIGHT_B * 0.7F),
+        cameraPosition, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
   } else {
     engine->renderer.core.disableSpotLight();
   }
+  flashSpotArmed = flashOnNow;
   // Dynamic point lights: apply Set Light requests + register this frame's
   // lights (the engine picks the strongest per mesh, flashlight included).
   updateDynLights(engine, scriptCtx);
@@ -2978,6 +3136,8 @@ void TerrainGame::buildScene() {
   scriptCtx.resolveClip = &animResolveClipThunk;
   scriptCtx.spawnObject = &spawnObjectThunk;
   scriptCtx.despawnObject = &despawnObjectThunk;
+  scriptCtx.playerSpeeds[0] = players[0].speeds;
+  scriptCtx.playerSpeeds[1] = players[1].speeds;
   scriptCtx.spawnPrefab = &spawnPrefabThunk;
   scriptCtx.despawnPrefabs = &despawnPrefabsThunk;
   scriptCtx.generateVolume = &generateVolumeThunk;
@@ -2991,6 +3151,15 @@ void TerrainGame::buildScene() {
   // it globally) and the scene lights paint their ground pools as smooth
   // additive patches instead (updateAndRenderLightPools).
   infoBag->dynLightPick = false;
+  // ...and out of the camera SPOT too, when the project has a flashlight
+  // (docs/flashlight.md). That light is per VERTEX, and a terrain cell is
+  // never finer than one world unit, so on the ground the cone is not a cone -
+  // it is a Gouraud diamond that moves in cell-sized steps. The beam's real
+  // shape is drawn there per pixel by its projected pool, and running both
+  // gives the worst of the two: a soft ellipse sitting inside a blocky wedge.
+  // The pool is only built for a project that HAS a flashlight, so the flag
+  // follows the same predicate - nothing changes for a project without one.
+  infoBag->spotLit = !FLASHLIGHT_USED;
   // Always classify per package against the frustum: packages fully outside
   // are skipped, packages touching a plane get per-triangle clipping
   // (CLIP_PRECISE, Project > Preferences) or per-triangle culling (fast -
@@ -3009,6 +3178,8 @@ void TerrainGame::buildScene() {
   layerInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
   layerInfoBag->fullClipChecks = CLIP_PRECISE;
   layerInfoBag->blendingEnabled = true;
+  // A painted layer is the same ground, so it answers the spot the same way.
+  layerInfoBag->spotLit = !FLASHLIGHT_USED;
   // Scene-lightmap ADD pass (docs/emissive-materials.md): same shape, but the
   // additive equation Cv = Cs*FIX/128 + Cd at full strength, and unfogged -
   // GS fog would add the fog color through an additive blend and brighten
@@ -3315,6 +3486,13 @@ void TerrainGame::buildScene() {
     if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
+    // The camera flashlight's gobo (docs/flashlight.md): the pool patch takes
+    // its STs from the light's own frustum, so this 128x128 IS the shape of the
+    // beam. FLASHLIGHT_USED matches the refreshGenerated predicate that bakes
+    // it, so a project with no flashlight pays no VRAM for it.
+    if (FLASHLIGHT_USED)
+      flashGoboTex = engine->renderer.getTextureRepository().add(
+          FileUtils::fromCwd("hud/flashlight-gobo.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
     if (BLOB_SHADOWS)
       blobShadowTex = engine->renderer.getTextureRepository().add(
@@ -3322,7 +3500,7 @@ void TerrainGame::buildScene() {
     // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
     // predicate that bakes the two PNGs (templates::projectUsesDayCycle), so a
     // cycle-less project pays no VRAM for a sky it does not draw. Together they
-    // are 64x64 + 128x128 = ~8.7% of the ~1.08 MB texture heap (docs/gs-vram.md).
+    // are 64x64 + 128x128 = ~7.3% of the ~1.08 MB texture heap (docs/gs-vram.md).
     if (DAYCYCLE_USED) {
       sunDiscTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/sun-disc.png"));
@@ -3472,11 +3650,16 @@ void TerrainGame::loadModelAsset(int i) {
     }
     if (mat.reflTextureName == "@sky") {
       // Dynamic env map: the engine-owned VRAM target, re-rendered from the
-      // sky dome every frame (renderScene).
+      // sky dome every frame (renderScene). Null when this build reserved no
+      // env-map target (nothing looked like it used one at build time) - the
+      // material then simply draws without its reflection pass rather than
+      // sampling VRAM that belongs to somebody else.
       part.reflTexture = engine->renderer.core.envMap.getTexture();
-      part.reflStrength = mat.reflStrength;
-      part.reflDynamic = true;
-      ++g_dynamicEnvUsers;
+      if (part.reflTexture) {
+        part.reflStrength = mat.reflStrength;
+        part.reflDynamic = true;
+        ++g_dynamicEnvUsers;
+      }
     } else if (!mat.reflTextureName.empty()) {
       const std::string path = dir + mat.reflTextureName;
       part.reflTexture = acquireTexture(path);
@@ -3530,11 +3713,13 @@ void TerrainGame::loadMaterialAsset(int i) {
     for (int k = 0; k < 4; ++k) gmat.uvRect[k] = mat.uvRect[k];
   }
   if (mat.reflTextureName == "@sky") {
-    // Dynamic env map (see loadModelAsset).
+    // Dynamic env map (see loadModelAsset), null when unreserved.
     gmat.reflTexture = engine->renderer.core.envMap.getTexture();
-    gmat.reflStrength = mat.reflStrength;
-    gmat.reflDynamic = true;
-    ++g_dynamicEnvUsers;
+    if (gmat.reflTexture) {
+      gmat.reflStrength = mat.reflStrength;
+      gmat.reflDynamic = true;
+      ++g_dynamicEnvUsers;
+    }
   } else if (!mat.reflTextureName.empty()) {
     gmat.reflTexPath = dir + mat.reflTextureName;
     gmat.reflTexture = acquireTexture(gmat.reflTexPath);
@@ -4227,6 +4412,36 @@ void TerrainGame::fillDynLitColors(int i) {
   }
 }
 
+// Where a spawn marker's feet belong. Authoring a start point ON something -
+// a stair, a platform, a rooftop - is the obvious thing to do in the viewport
+// (the placement snap even rests the marker on it), and the runtime used to
+// answer with the TERRAIN under it regardless, dropping the player through the
+// geometry they were standing on. So the question is asked of the world instead
+// of the heightfield: the highest support at or below the authored height.
+//
+// The window starts a little ABOVE the marker so one resting exactly on a step
+// still finds it, and ends below the terrain so a marker left floating resolves
+// to the ground under it exactly as before. That is what keeps this from moving
+// anything an existing project authored: a marker at (or near) ground level
+// finds the terrain and nothing changes.
+float TerrainGame::spawnSurfaceY(float x, float z, float authoredY,
+                                 int skipIndex, bool* found) const {
+  const float top = authoredY + 0.25F;
+  const float bottom =
+      TERRAIN_ENABLED ? terrainHeightAt(x, z) - 0.5F : authoredY - 500.0F;
+  float y = 0.0F;
+  if (bottom < top && footGroundAt(x, z, top, bottom, skipIndex, &y)) {
+    if (found) *found = true;
+    return y;
+  }
+  if (TERRAIN_ENABLED) {
+    if (found) *found = true;
+    return terrainHeightAt(x, z);
+  }
+  if (found) *found = false;
+  return authoredY;
+}
+
 bool TerrainGame::footGroundAt(float x, float z, float top, float bottom,
                                int skipIndex, float* y, Vec4* normal) const {
   bool found = false;
@@ -4322,77 +4537,64 @@ bool TerrainGame::footGroundAt(float x, float z, float top, float bottom,
   return found;
 }
 
-// Tiny learned landing/stair controller: 16 inputs -> 16 ReLU -> 5 outputs.
-// tools/train-foot-neural.py reproduces these bootstrap weights; trace builds
-// also emit real PCSX2 trajectories which the same trainer can mix in.  The
-// extra geometry inputs are two stair-lip residuals (after removing the slope
-// predicted by the support normal).  Learned stair outputs may only add a
-// bounded clearance or release a foot after those raycasts prove a real lip.
+// Tiny learned landing/stair controller: 20 inputs -> 16 ReLU -> 6 outputs
+// (docs/foot-ik.md). tools/train-foot-neural.py reproduces these weights from
+// domain-randomized synthetic geometry plus the labelled PCSX2 trajectories in
+// tools/data/foot-neural-real.csv; earlier architectures live in git history
+// rather than as dead tables here.
+//
+// The geometry inputs are two stair-lip residuals (after removing the slope the
+// support normal predicts) and, since v4, the LOCOMOTION GRADE - is this
+// character walking on the level, up, or down, and how much downward reach has
+// a raycast already earned. That is what lets the heads specialize on a descent
+// instead of inferring one from a filtered velocity.
+//
+// Every learned output is advice on an envelope the procedural solver already
+// opened: clearance and release need raycasts to have proven a real lip first,
+// the reach head can only firm up a down-reach phase whose target came from a
+// ray, and the landing residual only re-centres a fan whose candidates are all
+// raycast-verified. Nothing here can invent a supporting surface.
+//
 // Dense products use VU0 macro mode and consume no micro-memory.
-static const float FOOT_NEURAL_W1[12][12] = {
-  {-0.976524373F, -1.06745576F, 1.10435971F, 1.21180006F, -0.860359026F, 0.228129601F, 0.271024313F, -0.442966524F, -0.249905198F, -0.996500128F, 0.508255637F, 0.114341108F},
-  {1.23683117F, -1.24491459F, 0.340258643F, -0.372071552F, 0.020760371F, -0.0847893803F, 0.0598060831F, -0.148724248F, 0.0770886867F, 0.392565447F, -0.247677361F, 0.105513604F},
-  {-0.211645942F, -0.0230562459F, 0.244537365F, -0.0995637499F, -0.156597893F, -1.12144769F, -0.195253718F, 0.143271706F, 0.131570329F, -0.392060428F, 0.0681149622F, -0.0888505856F},
-  {0.95967616F, 0.997684838F, 0.495771029F, 0.484839691F, 0.314219374F, 0.158763336F, 0.057162024F, -0.261437217F, 0.0768062534F, 0.307591034F, -0.150195278F, -0.0819124435F},
-  {-1.45208043F, 1.45968616F, -0.00669436968F, 0.115756661F, 0.534906507F, -0.178334924F, 0.0954831914F, -0.488832584F, 0.00959752976F, 0.193777391F, 0.372865448F, -0.0413112297F},
-  {0.0758787275F, 0.0384896684F, 0.00470720996F, -0.0580618567F, -0.149635376F, 3.02614454F, -0.109542669F, 0.431384815F, -0.091145962F, -1.26567244F, 0.0318113892F, -0.094987218F},
-  {0.318911883F, -0.422791533F, -0.212432705F, 0.358920358F, 1.29612336F, -0.250591251F, -0.55368126F, -0.8556365F, 0.276785288F, -0.984783939F, -0.132160536F, 0.0482285179F},
-  {-1.17182271F, -1.13448079F, -0.328132458F, -0.522130222F, 0.0875301322F, -0.344562097F, 0.14919526F, -0.434256698F, 0.0864800656F, 0.284113181F, 0.263979332F, 0.104052698F},
-  {0.0136417523F, -0.0560161608F, 0.00992696266F, 0.0834245333F, 0.00639647626F, 0.249391984F, -0.00822342041F, -0.105062611F, -0.142586624F, -1.76826442F, 0.0449816389F, -0.0177771719F},
-  {0.673125373F, -0.601032702F, -0.96598663F, 0.886196878F, -1.1001589F, 0.495901885F, 0.40851338F, 0.368548567F, 0.771229108F, -2.6773334F, -0.340951603F, -0.116165307F},
-  {0.11860494F, 0.0289651608F, -0.0448480483F, -0.0489118732F, -0.118850373F, 2.92260909F, -0.114331498F, 0.392061769F, -0.0652756528F, 0.298595016F, 0.0296748489F, -0.134093726F},
-  {-0.981400551F, 1.03152016F, 1.01028872F, -1.08870906F, 0.20556842F, -0.700516385F, 0.162228309F, -0.365478037F, -0.10887349F, -0.187262295F, 0.568347489F, -0.04170507F},
+constexpr int FOOT_NEURAL_IN = 20;
+constexpr int FOOT_NEURAL_IN_LANES = FOOT_NEURAL_IN / 4;  // Vec4s per sample
+constexpr int FOOT_NEURAL_HIDDEN = 16;
+constexpr int FOOT_NEURAL_OUT = 6;
+// seed 2002 synthetic 4500 real 867 repeat 3 epochs 70
+static const float FOOT_NEURAL_W1[16][20] = {
+  {0.4202601F, 0.317875287F, -0.852917057F, -0.61017066F, -2.25943643F, 1.70387291F, 0.548411627F, -1.07875203F, -2.13566729F, -7.11538136F, -0.182925543F, -0.735723216F, -0.495813574F, -2.18994297F, -0.00553316751F, -1.99720562F, 1.68576658F, 1.12842607F, -8.65775089F, -8.56302437F},
+  {-0.00822200408F, 0.0135488146F, 0.118575948F, -0.145406217F, -1.73304687F, -2.64953417F, -1.40965195F, 0.49673553F, -0.04942943F, 0.0469579341F, 0.0313131398F, -0.0156425912F, 0.827990354F, 3.01029759F, 0.244199911F, 0.0035350729F, 0.0143030513F, -0.0911800249F, -0.0670539116F, 0.612943803F},
+  {-0.0818243125F, 0.0458734919F, 0.139014981F, 0.0674147514F, -0.692180976F, 1.59438683F, -0.804328522F, 0.224601905F, -0.399324366F, -3.77015287F, 0.0120633118F, 0.223205522F, 0.789400721F, 1.47158932F, -0.7007745F, -0.0765851653F, -0.492777168F, -0.215287958F, 0.317692059F, 0.902062287F},
+  {-0.594937865F, -0.185325525F, 0.0276906364F, 0.0158200081F, -2.31097834F, -0.644831921F, 0.276011864F, -2.75560466F, -3.73899227F, 1.12306139F, -0.161646304F, -0.570183814F, -0.374063802F, -0.469835202F, 0.222878987F, 0.179379912F, -0.415542568F, 2.07134047F, -0.88509554F, -0.274287892F},
+  {-0.108159664F, 0.0450347612F, 0.134198025F, -0.0799006857F, -0.480219461F, 0.479117132F, 0.0652430867F, 0.426515394F, 0.143545712F, 0.689653263F, -0.00845864389F, 0.0794374652F, -0.16751332F, -0.104278243F, -0.179740575F, 0.0041094767F, 1.34953809F, -0.275925197F, -0.0593999096F, 0.762721665F},
+  {-0.0718474228F, -0.720978703F, 0.13040543F, -0.633905855F, -0.405226397F, 0.271654654F, 0.243774994F, -0.127884516F, 0.100996326F, 0.253669945F, 0.0271388892F, 0.00435297551F, 0.633286058F, -0.648231937F, 0.129854094F, 0.0163461693F, -0.184619709F, -0.0812863237F, 0.0490555366F, 0.2485221F},
+  {-0.0494225162F, -0.0193711776F, 0.0578849222F, 0.126966509F, -0.775840059F, 2.42978321F, -0.400338145F, 0.212894962F, -0.018947091F, 1.22664639F, 0.0839333358F, 0.212903146F, 0.812226371F, 0.354832258F, -0.668554545F, -0.140974273F, -0.466287977F, -0.175446755F, 0.106025837F, 0.672649668F},
+  {-0.0776527377F, 0.76116496F, 0.0842582808F, 0.42433581F, -0.345496451F, 1.06739606F, 0.675365028F, -0.027560983F, 0.0897859976F, 0.305629421F, 0.0197685212F, -0.0351504372F, 0.458168112F, -1.86383789F, 0.0768123951F, -0.0427447561F, -0.162002885F, -0.0616205588F, 0.024051013F, 0.299005789F},
+  {0.0357245736F, -2.12323834F, -0.718369675F, 0.19439155F, -1.02595373F, 0.760270845F, 0.953042195F, -3.82688226F, -2.45356794F, 1.4799927F, 0.774646375F, 0.859871042F, -0.27057593F, -1.53208859F, -0.429745523F, 1.16457815F, 2.94309663F, 2.30155503F, -10.1851633F, -10.834621F},
+  {-1.50637846F, 0.0265612626F, -0.733078765F, -0.0346102855F, 1.05731233F, 1.52153807F, 0.918852001F, 0.335448323F, -0.199219927F, -0.0482424496F, -0.159186244F, 0.0368322207F, -1.05824609F, -2.41748187F, -0.449477414F, 0.0580424258F, 0.0565103755F, 0.0424110028F, 0.0230846536F, 0.101059895F},
+  {-0.528990362F, 0.0594597875F, -0.0881264367F, -0.211553263F, -2.6044199F, -0.903845646F, 0.170153418F, -3.05227189F, -3.43824084F, 1.14821783F, -0.150765888F, -0.611949248F, -0.349921288F, 0.014154603F, 0.373020096F, 0.201562466F, 1.60908857F, 2.17010889F, -5.3049481F, -5.48213624F},
+  {1.05984112F, 0.0909906962F, 0.755710468F, -0.049676663F, 0.039200444F, 0.6982792F, 0.416772281F, -0.0584960022F, -0.0266970272F, -0.0355539859F, 0.00516763493F, -0.0070336016F, 0.0234462848F, -1.17253623F, 0.125836537F, -0.00644978026F, -0.0894523853F, -0.0349550324F, -0.0222254023F, 0.0106723976F},
+  {-0.0785067875F, 0.866886998F, -0.567928759F, -0.674208197F, -0.491671358F, 1.01075729F, 1.21723705F, -3.10332941F, -6.22992467F, 1.8311768F, -0.16660069F, 0.182702179F, -1.32582586F, -2.22686949F, -0.355968542F, 1.16106492F, 2.6616468F, 1.82808343F, -9.92294842F, -9.49531487F},
+  {0.0146404379F, 0.0722945853F, -0.0230340685F, -0.0652472498F, -2.86627781F, -0.024598265F, -0.0109356233F, 0.0487474816F, 0.0500934844F, 0.0716267892F, 0.0564557172F, 0.0995468288F, -0.0402839723F, 0.0525564643F, -0.131692651F, -0.0335241752F, 1.68971867F, 0.166961504F, -0.0357642571F, 0.69808973F},
+  {-0.371424149F, -0.638426029F, 0.134861333F, -2.4086788F, 0.55538244F, -4.90671846F, -0.483939648F, -0.740388568F, 9.1592214F, -9.85057619F, -0.654446028F, -0.00628444377F, -0.971504773F, 5.7478715F, -18.428535F, 0.479284849F, 1.53385339F, 1.22100804F, -2.68085126F, -2.7671647F},
+  {0.0144252542F, 0.0468982184F, -0.0384995877F, -0.0528600512F, 0.666262517F, -0.0763660701F, 0.0422894624F, -0.132165609F, -0.0137611205F, -0.187658875F, 0.0174675644F, 0.0178565996F, -0.21557283F, -0.0814769492F, -0.029246959F, -0.0164068313F, 1.22221888F, -0.299044324F, 0.0964372563F, 0.682521122F},
 };
-static const float FOOT_NEURAL_B1[12] = {
-  0.330317826F, -0.388904254F, 0.461943941F, -0.327982646F,
-  -0.474780179F, -0.082362481F, -0.188471548F, -0.362184763F,
-  0.525236422F, 0.204387275F, -0.0362281926F, 0.302933576F,
+static const float FOOT_NEURAL_B1[16] = {-1.07889185F, 0.134565201F, 0.0714966431F, -1.42847404F, -0.958403936F, 0.556099526F, 0.192503564F, 0.503783033F, -0.633550724F, -0.181586758F, 0.611083854F, 0.379588372F, -0.203105116F, -0.483430814F, -2.04969511F, -0.527259976F};
+static const float FOOT_NEURAL_W2[6][16] = {
+  {-0.0377602543F, 0.0232153689F, 0.00726315673F, -0.252849033F, 0.0296752191F, -0.0458441041F, -0.00208742419F, -0.0565664067F, 0.161122001F, -0.446257144F, 0.298533177F, 0.724657748F, -0.365314948F, 0.00691113467F, 0.175198664F, 0.0630121624F},
+  {-0.155332365F, -0.058992271F, 0.0151166396F, 0.121072576F, -0.0128701222F, -0.616768152F, 0.0002285505F, 0.544510345F, -1.12160762F, -0.0248198861F, -0.121856978F, 0.0191538523F, 0.714748958F, -0.00479339651F, 2.71699229F, -0.0172601033F},
+  {-0.0564652853F, 0.615664876F, -0.0583721914F, 0.964798297F, 0.319569404F, -0.434973004F, -0.0691813635F, -0.438935276F, 0.117853001F, -0.00253043559F, -0.895642004F, -0.0116008846F, 0.411778174F, -0.0514574869F, 0.397686571F, -0.24193411F},
+  {0.0223983162F, 0.0070302729F, -0.381794945F, -0.465913717F, 0.170456337F, 0.108190134F, 0.332570013F, 0.134522665F, 0.00819540976F, -0.0192167766F, 0.464069232F, -0.00920591062F, -0.086405118F, -0.0626412781F, 0.0270735267F, -0.0506760341F},
+  {0.934502276F, -0.0181742348F, -0.406598094F, -0.0402932693F, 0.0774993888F, -0.0124593596F, 0.372435964F, -0.00639580724F, -0.0184464345F, 0.00810649682F, 0.0193288613F, 0.0116256707F, -0.040965239F, -0.0407464076F, 0.0516251356F, -0.00256827258F},
+  {0.00350243922F, 0.00568614156F, 0.0132732324F, -0.0276223185F, 0.15517018F, -0.00858407471F, -0.00507515943F, -0.00087273501F, -0.006723613F, 0.0059900171F, 0.0168057654F, 0.0115660738F, -0.00706501747F, -0.521573445F, 0.0123587162F, 0.486354683F},
 };
-static const float FOOT_NEURAL_W2[5][12] = {
-  {0.318820335F, 0.522166245F, -0.0184466752F, 0.544180562F, -0.539415614F, 0.0420012132F, 0.0369395273F, -0.483280861F, 0.058105649F, -0.278025255F, -0.0287518531F, 0.293589632F},
-  {0.270359072F, -0.497752048F, 0.176079483F, 0.501772751F, 0.489551785F, -0.0860243288F, -0.0627451807F, -0.499460238F, -0.0798828905F, 0.174569231F, -0.0140358485F, -0.272079294F},
-  {-0.114754548F, -0.119888291F, 0.713173363F, -0.102479685F, -0.139458173F, 0.000738905084F, -0.593822498F, -0.158959702F, 0.469566803F, -0.27727343F, -0.134698986F, -0.282837366F},
-  {0.0369320328F, 0.00856246022F, -0.0939056541F, 0.0140382995F, 0.00589768045F, -0.441188481F, -0.0161826913F, 0.000309882925F, -0.710750861F, -0.00682061989F, 0.510399126F, -0.0124831572F},
-  {0.0376579316F, -0.0137165427F, -0.0695446887F, 0.0130924653F, -0.00887524286F, -0.725170787F, -0.00341421856F, 0.0149155047F, -0.300357152F, -0.0376127784F, 0.793649719F, 0.00386435364F},
-};
-static const float FOOT_NEURAL_B2[5] = {
-  -0.188641722F, 0.0481514951F, 0.553322651F,
-  0.389970122F, 0.151190095F,
-};
-
-// v3 adds causal filtered gap/vertical velocity, lip memory and swing phase.
-// The v2 constants above stay in generated source for reproducible project
-// upgrades; inference below exclusively consumes this trained v3 set.
-static const float FOOT_NEURAL_V3_W1[16][16] = {
-  {0.926220789F, 0.129270024F, 0.699034063F, 0.0417397979F, -0.193047185F, 1.36347543F, 0.744365569F, -0.0630148755F, 0.0332483976F, -0.259456714F, 0.00884546557F, -0.0026567093F, 0.196670058F, -2.00470279F, 0.317849873F, -0.0945836793F},
-  {-0.00292087468F, 0.0230610058F, -0.152094322F, 0.0418315467F, 2.79672904F, -0.0316480243F, -0.0666837463F, -0.489331581F, -0.0684935472F, -2.10539449F, 0.121579286F, -0.0332780098F, -1.32511661F, -0.532993334F, -0.0485250666F, -0.0393460068F},
-  {-1.44253818F, -0.11881145F, -0.198934703F, -0.0278622713F, -1.19708172F, -0.24519686F, -0.154219237F, 0.551446553F, -0.317913084F, -0.347953308F, -0.158359224F, 0.017767807F, 0.821337785F, 0.131857284F, -0.180557434F, -0.0623973613F},
-  {-0.0580256782F, -0.649528537F, 0.0754560718F, -0.493944673F, -0.308243661F, 1.95742007F, 1.1974817F, 0.00161293458F, 0.0914281472F, -0.119325782F, -0.0209725828F, 0.0163838925F, 0.354509925F, -3.18247812F, 0.204318893F, -0.157929595F},
-  {-0.058229098F, 0.648625759F, 0.0126288618F, 0.450535936F, 0.0340635571F, 1.82066169F, 1.12517761F, 0.0268348597F, 0.03689111F, -0.0309176396F, 0.00967998924F, 0.0183685668F, 0.0176425188F, -2.98857466F, 0.102266196F, -0.117376066F},
-  {1.2604014F, -1.20979065F, -1.70088571F, -0.676994879F, -0.672342475F, 2.29704156F, 0.992779406F, -0.432030487F, 1.09961303F, 0.00321641394F, 0.598742124F, -0.137493395F, -1.93347605F, -2.61381958F, -19.1768887F, 0.508483366F},
-  {-0.0397586111F, 0.0649414375F, -0.141108297F, -0.0121404053F, 2.79643255F, 1.16964748F, 0.734271354F, -0.639384706F, -0.109420927F, -1.28315286F, 0.160066584F, -0.0242753198F, -0.749722128F, -2.5990697F, -0.0729554356F, 0.000365942474F},
-  {-0.0811317935F, 0.0196537473F, 0.00395929174F, -0.00810419107F, -0.72687753F, -2.83520163F, -1.3975495F, 0.546663843F, -0.0707607222F, 0.42864573F, -0.00188985445F, 0.0100545383F, 0.319206909F, 3.27949241F, -0.303504131F, 0.000460199985F},
-  {0.103060029F, 0.0778092752F, -0.276825729F, -0.184021319F, -0.371101039F, 0.445678674F, 0.247640844F, -0.462798774F, 2.55731609F, 3.34192356F, 0.178466457F, -0.0970392384F, -0.471378511F, -0.61040147F, -13.5279509F, -2.9910627F},
-  {0.193490077F, -0.135580454F, -0.0805024722F, 0.161636659F, -1.1983469F, 2.08139455F, -0.61698258F, 0.47433687F, -0.112381665F, 0.603616742F, -0.0503967109F, 0.0408840581F, 1.12952093F, 0.880187038F, -0.196429973F, -0.139921768F},
-  {0.0770522447F, -0.0591970356F, 0.0988985221F, 0.133438739F, -1.67926507F, 1.82628915F, -0.700266488F, 0.466271385F, -0.169450738F, -3.81089102F, -0.0736246322F, 0.0403695895F, 1.48688183F, 1.07965168F, -0.353865212F, -0.146326482F},
-  {1.39410734F, -1.28430093F, -1.7807017F, -0.793098641F, -2.41203424F, 1.33584024F, 0.200818163F, -0.59536654F, -0.0554749147F, -2.62952745F, 0.689797902F, -0.3080732F, -0.979255087F, -0.803105276F, -15.5969457F, 0.032661889F},
-  {-1.18303347F, -0.210635832F, -0.749977987F, -0.0476115103F, 1.0658347F, 2.49448975F, 1.78286166F, 0.0993050538F, -0.170270086F, 0.194183327F, -0.0259026431F, -0.00618841624F, -0.966804381F, -4.43541729F, -0.432913787F, 0.249002436F},
-  {0.295586669F, 0.157519429F, -0.429169384F, -0.319898438F, -0.824333016F, 0.938568058F, 0.432277992F, -0.712836348F, 9.71318029F, 8.23822681F, 0.305216253F, -0.320669932F, -0.604433279F, -1.04963575F, -36.2252707F, -2.64986394F},
-  {-0.606761107F, 0.61016024F, 0.868533067F, -2.03358094F, 1.07903854F, -1.12375799F, -0.0670259181F, -0.250188836F, 17.2409661F, 13.7300221F, 0.21192903F, 0.0723307521F, -1.18790221F, 1.15217567F, -51.5247003F, 1.40086264F},
-  {-0.101416583F, 0.599031371F, -0.0188295822F, -0.229701758F, -0.432343316F, 1.20896325F, 0.931859381F, 0.0922253189F, 12.6404794F, 17.0096964F, -0.039648728F, 0.0327346335F, -0.175640236F, -2.10090834F, -47.1440715F, 0.421145692F},
-};
-static const float FOOT_NEURAL_V3_B1[16] = {0.423400479F, -0.00826804301F, 0.249019066F, 0.439384406F, 0.496710297F, -0.046720318F, -0.688940775F, 0.0686116704F, -2.51483465F, 0.376257284F, 0.51580643F, -0.135395158F, -0.0593819694F, -1.82705401F, -2.07943747F, -0.120483464F};
-static const float FOOT_NEURAL_V3_W2[5][16] = {
-  {0.809690715F, -0.083811142F, -0.0213566583F, -0.0190194803F, -0.176006362F, 0.273331828F, 0.128621279F, 0.178958864F, -0.386861064F, -0.0263235367F, -0.0217778538F, -0.187466411F, -0.486922557F, 0.00961032139F, 0.37918693F, -0.466833145F},
-  {-0.0106504745F, 0.0616711913F, -0.0406216217F, -0.72589571F, 0.75467015F, -1.0046279F, -0.0656036566F, -0.0528286549F, 0.104373474F, -0.0105286889F, 0.0268236862F, 0.89089518F, -0.00784630006F, -0.30198435F, 2.54099134F, 1.75323308F},
-  {-0.0402118977F, 0.73516985F, -0.430575429F, -0.0275245141F, 0.00113707014F, 0.187219648F, -1.00562816F, 0.803645412F, 0.331233022F, -0.0953774844F, 0.0238463868F, -0.155761347F, 0.361851867F, 0.0784285206F, 0.639850014F, 0.538455283F},
-  {-0.010353046F, -0.477150958F, 0.0778387773F, 0.078551256F, 0.0854057236F, -0.00616190382F, 0.32376672F, -0.0926646285F, -0.634889664F, 0.297319292F, -0.396227436F, -0.0459217297F, -0.0922099766F, 0.167195725F, 0.0257827365F, -0.0318008285F},
-  {0.032595359F, -0.0179642529F, 0.167436888F, -0.0205126127F, -0.0179310736F, 0.0319924541F, -0.014008219F, -0.0649832849F, -4.20045267F, 0.418561869F, -0.437117852F, -0.0685987073F, -0.149859998F, 2.38903848F, 0.0230357925F, 0.0796373206F},
-};
-static const float FOOT_NEURAL_V3_B2[5] = {-0.233279649F, -0.0183421615F, 0.313565869F, 0.247512231F, 0.0622077607F};
+static const float FOOT_NEURAL_B2[6] = {-0.315769608F, 0.160677891F, 1.06921181F, -0.12353829F, 0.000992406107F, -0.00918596992F};
 
 struct FootNeuralPrediction {
   float dx, dz, confidence, clearance, release;
+  // How much of the geometry-proven descent reach this frame wants to spend.
+  // Advice on an envelope, never on whether support exists (docs/foot-ik.md).
+  float reach;
 };
 
 static float footNeuralDot4(const Vec4& a, const Vec4& b, bool forceEe) {
@@ -4404,71 +4606,66 @@ static float footNeuralDot4(const Vec4& a, const Vec4& b, bool forceEe) {
   return a.innerProduct(b) + a.w * b.w;
 }
 
-static float footNeuralDot16(const Vec4& a0, const Vec4& a1, const Vec4& a2,
-                             const Vec4& a3, const float* weights,
-                             bool forceEe) {
-  const Vec4 w0(weights[0], weights[1], weights[2], weights[3]);
-  const Vec4 w1(weights[4], weights[5], weights[6], weights[7]);
-  const Vec4 w2(weights[8], weights[9], weights[10], weights[11]);
-  const Vec4 w3(weights[12], weights[13], weights[14], weights[15]);
-  return footNeuralDot4(a0, w0, forceEe) +
-         footNeuralDot4(a1, w1, forceEe) +
-         footNeuralDot4(a2, w2, forceEe) +
-         footNeuralDot4(a3, w3, forceEe);
+// One dense row over a feature vector held as `lanes` Vec4s. The width is a
+// parameter rather than a hardcoded 16 because the input layer (20) and the
+// hidden layer (16) are different sizes - v3 got that for free while both were
+// 16, and a second copy of this loop is exactly the drift the VU framework's
+// single-Desc rule exists to avoid.
+static float footNeuralDot(const Vec4* activations, int lanes,
+                           const float* weights, bool forceEe) {
+  float sum = 0.0F;
+  for (int l = 0; l < lanes; ++l) {
+    const float* w = weights + l * 4;
+    sum += footNeuralDot4(activations[l], Vec4(w[0], w[1], w[2], w[3]), forceEe);
+  }
+  return sum;
 }
 
-static FootNeuralPrediction footNeuralRunMode(const Vec4& input0,
-                                              const Vec4& input1,
-                                              const Vec4& input2,
-                                              const Vec4& input3,
-                                              bool forceEe) {
-  float hidden[16];
-  for (int h = 0; h < 16; ++h) {
-    hidden[h] = FOOT_NEURAL_V3_B1[h] +
-                footNeuralDot16(input0, input1, input2, input3,
-                                FOOT_NEURAL_V3_W1[h], forceEe);
+static FootNeuralPrediction footNeuralRunMode(const Vec4* input, bool forceEe) {
+  float hidden[FOOT_NEURAL_HIDDEN];
+  for (int h = 0; h < FOOT_NEURAL_HIDDEN; ++h) {
+    hidden[h] = FOOT_NEURAL_B1[h] +
+                footNeuralDot(input, FOOT_NEURAL_IN_LANES,
+                              FOOT_NEURAL_W1[h], forceEe);
     if (hidden[h] < 0.0F) hidden[h] = 0.0F;
   }
-  const Vec4 h0(hidden[0], hidden[1], hidden[2], hidden[3]);
-  const Vec4 h1(hidden[4], hidden[5], hidden[6], hidden[7]);
-  const Vec4 h2(hidden[8], hidden[9], hidden[10], hidden[11]);
-  const Vec4 h3(hidden[12], hidden[13], hidden[14], hidden[15]);
-  float output[5];
-  for (int o = 0; o < 5; ++o)
-    output[o] = FOOT_NEURAL_V3_B2[o] +
-                footNeuralDot16(h0, h1, h2, h3,
-                                FOOT_NEURAL_V3_W2[o], forceEe);
+  Vec4 hid[FOOT_NEURAL_HIDDEN / 4];
+  for (int l = 0; l < FOOT_NEURAL_HIDDEN / 4; ++l)
+    hid[l] = Vec4(hidden[l * 4], hidden[l * 4 + 1], hidden[l * 4 + 2],
+                  hidden[l * 4 + 3]);
+  float output[FOOT_NEURAL_OUT];
+  for (int o = 0; o < FOOT_NEURAL_OUT; ++o)
+    output[o] = FOOT_NEURAL_B2[o] +
+                footNeuralDot(hid, FOOT_NEURAL_HIDDEN / 4, FOOT_NEURAL_W2[o],
+                              forceEe);
+  // The two landing residuals are signed; every other head is an intent in
+  // 0..1 and is clamped there before anything scales it.
   for (int i = 0; i < 2; ++i) {
     if (output[i] < -1.0F) output[i] = -1.0F;
     if (output[i] > 1.0F) output[i] = 1.0F;
   }
-  for (int i = 2; i < 5; ++i) {
+  for (int i = 2; i < FOOT_NEURAL_OUT; ++i) {
     if (output[i] < 0.0F) output[i] = 0.0F;
     if (output[i] > 1.0F) output[i] = 1.0F;
   }
-  return {output[0] * 0.16F, output[1] * 0.16F,
-          output[2], output[3], output[4]};
+  return {output[0] * 0.16F, output[1] * 0.16F, output[2],
+          output[3],         output[4],         output[5]};
 }
 
 static float g_footNeuralParityMax = 0.0F;
 
-static FootNeuralPrediction footNeuralRun(const Vec4& input0,
-                                          const Vec4& input1,
-                                          const Vec4& input2,
-                                          const Vec4& input3) {
+static FootNeuralPrediction footNeuralRun(const Vec4* input) {
   const FootNeuralPrediction result =
-      footNeuralRunMode(input0, input1, input2, input3, FOOT_NEURAL_FORCE_EE);
+      footNeuralRunMode(input, FOOT_NEURAL_FORCE_EE);
   // Trace builds evaluate the scalar twin on the IDENTICAL feature vector.
   // Normal builds constant-fold this whole branch away.
   if (FOOT_IK_TRACE && !FOOT_NEURAL_FORCE_EE) {
-    const FootNeuralPrediction ee =
-        footNeuralRunMode(input0, input1, input2, input3, true);
-    const float delta[5] = {fabsf(result.dx - ee.dx),
-                            fabsf(result.dz - ee.dz),
-                            fabsf(result.confidence - ee.confidence),
-                            fabsf(result.clearance - ee.clearance),
-                            fabsf(result.release - ee.release)};
-    for (int i = 0; i < 5; ++i)
+    const FootNeuralPrediction ee = footNeuralRunMode(input, true);
+    const float delta[FOOT_NEURAL_OUT] = {
+        fabsf(result.dx - ee.dx),                  fabsf(result.dz - ee.dz),
+        fabsf(result.confidence - ee.confidence),  fabsf(result.clearance - ee.clearance),
+        fabsf(result.release - ee.release),        fabsf(result.reach - ee.reach)};
+    for (int i = 0; i < FOOT_NEURAL_OUT; ++i)
       if (delta[i] > g_footNeuralParityMax) g_footNeuralParityMax = delta[i];
   }
   return result;
@@ -4484,16 +4681,82 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     if (!o.footIkEnabled) g.footIk = ObjectGeometry::FootIkRuntime();
     return;
   }
+  // The rig is per model asset (docs/foot-ik.md): every instance of this
+  // character shares the binding, and the scene object above carried only the
+  // switch. An unbound slot cannot solve - the scene table already emits
+  // footIk = 0 for those, so this is the belt to that braces.
+  if (o.data.animModel < 0 || o.data.animModel >= ANIM_MODEL_COUNT ||
+      !FOOT_IK_RIGS[o.data.animModel].solve) {
+    inst.clearPoseAdjust();
+    return;
+  }
+  const FootIkRigData& rig = FOOT_IK_RIGS[o.data.animModel];
   ObjectGeometry::FootIkRuntime& rt = g.footIk;
+
+  // Which clip is playing decides WHETHER to solve and how wide the bands are
+  // (a jump wants the authored pose; a run wants a walk's tolerances widened).
+  // Resolved by name, but only when the clip index moves - the answer almost
+  // never changes and a per-frame string compare per instance would be paid
+  // forever for it.
+  if (rt.ruleClip != o.animClip) {
+    rt.ruleClip = o.animClip;
+    rt.ruleSolve = true;
+    rt.rulePlant = 1.0F;
+    rt.ruleClearance = 1.0F;
+    const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+    if (gam.src && o.animClip >= 0 && o.animClip < (int)gam.src->clips.size()) {
+      const std::string& playing = gam.src->clips[o.animClip].name;
+      for (int r = 0; r < rig.ruleCount; ++r) {
+        const FootIkClipRuleData& rule = FOOT_IK_CLIP_RULES[rig.firstRule + r];
+        if (playing != rule.clip) continue;
+        rt.ruleSolve = rule.solve != 0;
+        rt.rulePlant = rule.plantScale;
+        rt.ruleClearance = rule.clearanceScale;
+        break;
+      }
+    }
+  }
+  if (!rt.ruleSolve) {
+    // This clip plays as authored. Drop the contacts - a jump that kept a
+    // planted target would land the solver back on the stair it left - but keep
+    // the locomotion filters, which are about the OBJECT and not the pose.
+    inst.clearPoseAdjust();
+    rt.foot[0] = ObjectGeometry::FootState();
+    rt.foot[1] = ObjectGeometry::FootState();
+    rt.reachBudget = 0.0F;
+    // The velocity histories are re-seeded on the next solving frame rather
+    // than carried: a jump can move the object a long way while nothing here
+    // ran, and a stale previous position would read as one enormous frame of
+    // vertical speed exactly when the feet start looking for the ground again.
+    rt.gradeReady = false;
+    rt.objectReady = false;
+    rt.descend = rt.ascend = 0.0F;
+    rt.dropAhead = 0.0F;
+    return;
+  }
+
+  // The rig's numbers, with this clip's scales folded in once. Everything below
+  // reads these locals, so a per-clip rule cannot be honoured in one gate and
+  // forgotten in the next.
+  const float ikSole = rig.sole;
+  const float ikProbeUp = rig.probeUp;
+  const float ikPlant = rig.plant * rt.rulePlant;
+  const float ikRelease = rig.release * rt.rulePlant;
+  const float ikPelvis = rig.pelvis;
+  const float ikMaxFootAngle = rig.maxFootAngle;
+  const float ikToeClearance = rig.toeClearance * rt.ruleClearance;
+  const bool ikNeural = rig.neural != 0;
+  const float ikNeuralStrength = rig.neuralStrength;
+
   if (!rt.resolved) {
     rt.resolved = true;
     const SkelModel* model = inst.model;
-    rt.hip[0] = model->findNode(o.data.ikLeftHip);
-    rt.knee[0] = model->findNode(o.data.ikLeftKnee);
-    rt.ankle[0] = model->findNode(o.data.ikLeftAnkle);
-    rt.hip[1] = model->findNode(o.data.ikRightHip);
-    rt.knee[1] = model->findNode(o.data.ikRightKnee);
-    rt.ankle[1] = model->findNode(o.data.ikRightAnkle);
+    rt.hip[0] = model->findNode(rig.leftHip);
+    rt.knee[0] = model->findNode(rig.leftKnee);
+    rt.ankle[0] = model->findNode(rig.leftAnkle);
+    rt.hip[1] = model->findNode(rig.rightHip);
+    rt.knee[1] = model->findNode(rig.rightKnee);
+    rt.ankle[1] = model->findNode(rig.rightAnkle);
     rt.pelvis = model->commonAncestor(rt.hip[0], rt.hip[1]);
     auto below = [&](int child, int parent) {
       for (int n = child; n >= 0 && n < (int)model->nodes.size();
@@ -4517,6 +4780,8 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                            inst.nodeGlobal(rt.ankle[1])};
   const M4x4* kneeM[2] = {inst.nodeGlobal(rt.knee[0]),
                           inst.nodeGlobal(rt.knee[1])};
+  const M4x4* hipM[2] = {inst.nodeGlobal(rt.hip[0]),
+                         inst.nodeGlobal(rt.hip[1])};
   if (!ankleM[0] || !ankleM[1]) {
     // First visible frame establishes the sampled pose. The next frame can
     // probe it without paying for a second skin of the same mesh.
@@ -4563,7 +4828,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     return Vec4(q.x / sx, q.y / sy, q.z / sz, 0.0F);
   };
   const float scaleY = fabsf(o.data.scale[1]);
-  const float sole = o.data.ikSole * scaleY;
+  const float sole = ikSole * scaleY;
   SkelPoseAdjust adjust;
   adjust.pelvis = rt.pelvis;
   adjust.legCount = 2;
@@ -4609,6 +4874,112 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
   else
     rt.objectStillTime = 0.0F;
 
+  // --- Locomotion grade: level, up, or down -------------------------------
+  //
+  // This is the answer to "why does a foot finish its stride in the air going
+  // down stairs". The contact bands below are tuned for level ground and are
+  // deliberately narrow - a wide band turns every airborne swing into a ground
+  // magnet. On a descent the swing foot has to cover the whole step height PLUS
+  // whatever the visual root still owes the collision height, which on a 22 cm
+  // stair is already twice the plant distance. No level-ground number can be
+  // stretched to cover that without ruining flat ground, so the reach becomes
+  // conditional on the character actually going DOWN.
+  //
+  // Three independent signals, because each one alone is wrong somewhere:
+  //  - the root's own vertical speed (says nothing while the visualY filter is
+  //    still catching up, and says "down" during a jump's descent),
+  //  - the ground drop the walker published (exact, but only a walker has it),
+  //  - a probe under the path ahead (works for any object, including an NPC or
+  //    a scripted mover, and sees the step before it is stepped on).
+  // They are combined and low-pass filtered, and the classification is SOFT:
+  // every gate scales with it, so nothing pops on the frame it flips.
+  {
+    float rawVy = 0.0F;
+    if (rt.gradeReady && g_frameDt > 0.0001F)
+      rawVy = (o.data.position[1] - rt.previousY) / g_frameDt;
+    else
+      rt.gradeReady = true;
+    rt.previousY = o.data.position[1];
+    float blend = g_frameDt * 9.0F;
+    if (blend > 1.0F) blend = 1.0F;
+    rt.rootVy += (rawVy - rt.rootVy) * blend;
+
+    // Ground under a point ahead of the root, compared with the ground under
+    // it. A lead proportional to speed asks "what am I about to stand on"
+    // rather than "what is a fixed distance away".
+    float rawDrop = 0.0F;
+    if (objectSpeed > 0.12F) {
+      const float lead = 0.30F + objectSpeed * 0.14F;
+      const float inv = 1.0F / objectSpeed;
+      const float dirX = objectVx * inv, dirZ = objectVz * inv;
+      const float top = o.data.position[1] + ikProbeUp + 0.5F;
+      const float bottom =
+          o.data.position[1] - rig.probeDown - rig.descendReach - 0.5F;
+      float here = 0.0F, there = 0.0F;
+      const bool hereHit = footGroundAt(o.data.position[0], o.data.position[2],
+                                        top, bottom, objectIndex, &here);
+      const bool thereHit =
+          footGroundAt(o.data.position[0] + dirX * lead,
+                       o.data.position[2] + dirZ * lead, top, bottom,
+                       objectIndex, &there);
+      if (hereHit && thereHit && there < here) rawDrop = here - there;
+    }
+    float dropBlend = g_frameDt * (rawDrop > rt.dropAhead ? 14.0F : 6.0F);
+    if (dropBlend > 1.0F) dropBlend = 1.0F;
+    rt.dropAhead += (rawDrop - rt.dropAhead) * dropBlend;
+
+    // Grade as a dimensionless slope, so a slow careful descent and a brisk one
+    // classify the same. Below the speed floor there is no direction of travel
+    // to speak of and the character is standing (rest contact owns that case).
+    const float horizontal = objectSpeed > 0.20F ? objectSpeed : 0.20F;
+    const float grade = objectSpeed > 0.08F ? rt.rootVy / horizontal : 0.0F;
+    auto smooth = [](float edge0, float edge1, float v) {
+      float t = (v - edge0) / (edge1 - edge0);
+      if (t < 0.0F) t = 0.0F;
+      if (t > 1.0F) t = 1.0F;
+      return t * t * (3.0F - 2.0F * t);
+    };
+    // Either the root is measurably falling relative to its travel, or the
+    // ground ahead is a step down. Geometry wins: a probe that already found a
+    // lower surface is worth more than a filtered velocity.
+    const float fromMotion = smooth(-0.06F, -0.32F, grade);
+    const float fromGeometry = smooth(0.02F, 0.14F, rt.dropAhead);
+    const float fromResidual = smooth(0.01F, 0.10F, o.ikGroundDrop);
+    float wantDescend = fromMotion;
+    if (fromGeometry > wantDescend) wantDescend = fromGeometry;
+    if (fromResidual > wantDescend) wantDescend = fromResidual;
+    const float wantAscend = smooth(0.06F, 0.32F, grade);
+    float classBlend = g_frameDt * 10.0F;
+    if (classBlend > 1.0F) classBlend = 1.0F;
+    rt.descend += (wantDescend - rt.descend) * classBlend;
+    rt.ascend += (wantAscend - rt.ascend) * classBlend;
+    // Ascending and descending are mutually exclusive; a signal that says both
+    // is noise, and letting descent win there is what makes a foot chase the
+    // ground on a staircase whose treads are shorter than the probe lead.
+    if (rt.ascend > rt.descend)
+      rt.descend *= 1.0F - rt.ascend;
+    else
+      rt.ascend *= 1.0F - rt.descend;
+
+    // How much extra downward reach the descent has EARNED. The step ahead and
+    // the root's own debt are additive - on a staircase both are present at
+    // once - and the rig caps the total, so "Descent reach" reads as "the
+    // tallest step this character walks down".
+    float wanted = (rt.dropAhead + o.ikGroundDrop) * rt.descend;
+    if (wanted > rig.descendReach) wanted = rig.descendReach;
+    wanted *= rt.rulePlant;  // a run's wider tolerances scale this too
+    float reachBlend = g_frameDt * (wanted > rt.reachBudget ? 12.0F : 7.0F);
+    if (reachBlend > 1.0F) reachBlend = 1.0F;
+    rt.reachBudget += (wanted - rt.reachBudget) * reachBlend;
+    if (rt.reachBudget < 0.0005F) rt.reachBudget = 0.0F;
+  }
+  // Probing has to SEE the tread before any gate can accept it, so the search
+  // window grows with the budget. Everything below stays raycast-gated: a
+  // budget only widens where the foot may look, never what it may believe.
+  const float ikProbeDown = rig.probeDown + rt.reachBudget;
+  // The reach a descending foot may add to the level-ground contact bands.
+  const float descentReach = rt.reachBudget;
+
   for (int side = 0; side < 2; ++side) {
     ObjectGeometry::FootState& foot = rt.foot[side];
     const Vec4 local(ankleM[side]->data[12], ankleM[side]->data[13],
@@ -4618,8 +4989,11 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     float ground = 0.0F;
     Vec4 groundNormal(0.0F, 1.0F, 0.0F, 0.0F);
     const bool hit = footGroundAt(
-        soleWorld.x, soleWorld.z, soleWorld.y + o.data.ikProbeUp,
-        soleWorld.y - o.data.ikProbeDown, objectIndex, &ground, &groundNormal);
+        soleWorld.x, soleWorld.z, soleWorld.y + ikProbeUp,
+        soleWorld.y - ikProbeDown, objectIndex, &ground, &groundNormal);
+    recordFootProbe(FootProbe::Sole, soleWorld.x, soleWorld.z,
+                    soleWorld.y + ikProbeUp, soleWorld.y - ikProbeDown, hit,
+                    ground);
     const float vy = foot.ready && g_frameDt > 0.0001F
                          ? (soleWorld.y - foot.previousWorld.y) / g_frameDt
                          : 0.0F;
@@ -4640,7 +5014,25 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // Sample the terrain envelope once.  The near/far residuals subtract the
     // rise predicted by the current support plane: a continuous hillside is
     // therefore close to zero while a vertical stair lip stays positive.
-    const float travelSpeed = objectSpeed > 0.08F ? objectSpeed : footSpeed;
+    //
+    // The fallback to the ANKLE's speed is for an in-place animation - a model
+    // that walks without its object moving - but a STANDING character must not
+    // get it. Standing still, an idle's shuffle (or the turn the avatar makes
+    // when the stick is released) moves the sole past 0.12 while "ahead" means
+    // nothing, so the lip probes fire in whatever direction that shuffle
+    // happened to point; next to a step they then find a 22 cm riser and lift
+    // the free foot over a lip the character is not approaching. Because
+    // nothing resolves while standing, that lift is PERMANENT: measured on a
+    // stopped avatar beside a step, both feet over ground at 0.880 and the free
+    // one held at 0.919 with a clearance target above its own sole, weight
+    // zero, forever. That is the foot hanging in the air in the report, and it
+    // has nothing to do with reach - the solver was lifting it on purpose.
+    //
+    // objectStillTime is the same signal rest contact already uses to mean
+    // "this character is standing", so the two halves of the policy agree.
+    const bool standing = rt.objectStillTime >= 0.10F;
+    const float travelSpeed =
+        objectSpeed > 0.08F ? objectSpeed : (standing ? 0.0F : footSpeed);
     float dirX = 0.0F, dirZ = 0.0F;
     float nearExcess = 0.0F, farExcess = 0.0F;
     float obstacleGround = ground;
@@ -4656,16 +5048,22 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       float nearGround = ground;
       const bool nearHit = footGroundAt(
           soleWorld.x + dirX * 0.11F, soleWorld.z + dirZ * 0.11F,
-          soleWorld.y + o.data.ikProbeUp,
-          soleWorld.y - o.data.ikProbeDown, objectIndex, &nearGround);
+          soleWorld.y + ikProbeUp,
+          soleWorld.y - ikProbeDown, objectIndex, &nearGround);
+      recordFootProbe(FootProbe::Lip, soleWorld.x + dirX * 0.11F,
+                      soleWorld.z + dirZ * 0.11F, soleWorld.y + ikProbeUp,
+                      soleWorld.y - ikProbeDown, nearHit, nearGround);
       if (nearHit) nearExcess = nearGround - ground - groundSlope * 0.11F;
       farLead = 0.20F + travelSpeed * 0.025F;
       if (farLead > 0.30F) farLead = 0.30F;
       float farGround = ground;
       const bool farHit = footGroundAt(
           soleWorld.x + dirX * farLead, soleWorld.z + dirZ * farLead,
-          soleWorld.y + o.data.ikProbeUp,
-          soleWorld.y - o.data.ikProbeDown, objectIndex, &farGround);
+          soleWorld.y + ikProbeUp,
+          soleWorld.y - ikProbeDown, objectIndex, &farGround);
+      recordFootProbe(FootProbe::Lip, soleWorld.x + dirX * farLead,
+                      soleWorld.z + dirZ * farLead, soleWorld.y + ikProbeUp,
+                      soleWorld.y - ikProbeDown, farHit, farGround);
       if (farHit) farExcess = farGround - ground - groundSlope * farLead;
       if (nearHit && nearExcess > 0.025F) {
         obstacleHit = true;
@@ -4712,7 +5110,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     float sweepClearance = 0.0F;
     float sweepRise = 0.0F;
     if (!foot.locked && hit && travelSpeed > 0.12F &&
-        o.data.ikToeClearance > 0.0F) {
+        ikToeClearance > 0.0F) {
       float footprintScale =
           0.5F * (fabsf(o.data.scale[0]) + fabsf(o.data.scale[2]));
       if (footprintScale < 0.55F) footprintScale = 0.55F;
@@ -4737,8 +5135,11 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                                sideZ * across[corner];
           float sweptGround = ground;
           const bool sweptHit = footGroundAt(
-              probeX, probeZ, pathY + o.data.ikProbeUp,
-              pathY - o.data.ikProbeDown, objectIndex, &sweptGround);
+              probeX, probeZ, pathY + ikProbeUp,
+              pathY - ikProbeDown, objectIndex, &sweptGround);
+          recordFootProbe(FootProbe::Sweep, probeX, probeZ,
+                          pathY + ikProbeUp, pathY - ikProbeDown, sweptHit,
+                          sweptGround);
           if (!sweptHit) continue;
           // The swept sole exists to catch a RAISED tread crossed between
           // frames. Applying its shoe margin to the same support plane turns
@@ -4749,7 +5150,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
           const float supportRise = sweptGround - ground;
           if (supportRise > sweepRise) sweepRise = supportRise;
           const float needed =
-              sweptGround + o.data.ikToeClearance * 0.72F - pathY;
+              sweptGround + ikToeClearance * 0.72F - pathY;
           if (needed > sweepClearance) sweepClearance = needed;
           if (raisedSupport &&
               (!obstacleHit || sweptGround > obstacleGround)) {
@@ -4759,7 +5160,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
         }
       }
       if (sweepClearance < 0.0F) sweepClearance = 0.0F;
-      const float sweepCap = o.data.ikProbeUp + o.data.ikToeClearance;
+      const float sweepCap = ikProbeUp + ikToeClearance;
       if (sweepClearance > sweepCap) sweepClearance = sweepCap;
     }
 
@@ -4773,37 +5174,50 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     float neuralConfidence = 0.0F;
     float neuralClearance = 0.0F;
     float neuralRelease = 0.0F;
+    float neuralReach = 0.0F;
     bool neuralApplied = false;
     float aheadGround = ground;
     const float aheadX = soleWorld.x + objectVx * 0.08F;
     const float aheadZ = soleWorld.z + objectVz * 0.08F;
     const bool aheadHit = hit && footGroundAt(
-        aheadX, aheadZ, soleWorld.y + o.data.ikProbeUp,
-        soleWorld.y - o.data.ikProbeDown, objectIndex, &aheadGround);
+        aheadX, aheadZ, soleWorld.y + ikProbeUp,
+        soleWorld.y - ikProbeDown, objectIndex, &aheadGround);
+    if (hit)
+      recordFootProbe(FootProbe::Ahead, aheadX, aheadZ,
+                      soleWorld.y + ikProbeUp, soleWorld.y - ikProbeDown,
+                      aheadHit, aheadGround);
     const float aheadHeightDelta = aheadHit ? aheadGround - ground : 0.0F;
     auto unit = [](float value) {
       if (value < -1.0F) return -1.0F;
       if (value > 1.0F) return 1.0F;
       return value;
     };
-    const Vec4 input0(unit(objectVx / 4.0F), unit(objectVz / 4.0F),
-                      unit(vx / 6.0F), unit(vz / 6.0F));
-    const Vec4 input1(unit((soleWorld.y - ground) / 0.55F), unit(vy / 3.0F),
-                      unit(foot.previousVy / 3.0F),
-                      unit(aheadHeightDelta / 0.55F));
-    const Vec4 input2(unit(nearExcess / 0.35F), unit(farExcess / 0.35F),
-                      unit(groundNormal.x), unit(groundNormal.z));
-    const Vec4 input3(unit(foot.filteredGap / 0.55F),
-                      unit(foot.filteredVy / 3.0F),
-                      unit(foot.lipMemory / 0.35F),
-                      unit(foot.swingTime / 0.25F - 1.0F));
-    FootNeuralPrediction prediction = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-    if (o.data.ikNeural && hit && foot.ready) {
-      prediction = footNeuralRun(input0, input1, input2, input3);
-      const float strength = o.data.ikNeuralStrength;
+    // The feature vector, in the order tools/train-foot-neural.py builds it.
+    // Runtime normalization, the regression runner's labels and the trainer's
+    // feature order are EXACT twins - a divisor changed on one side alone
+    // silently feeds the network a different world than it was trained on.
+    // Lanes 4 (f16..f19) are the locomotion grade: the whole descent story is
+    // in there, which is what lets the learned heads specialize on going down
+    // instead of inferring it from a filtered velocity.
+    const Vec4 input[FOOT_NEURAL_IN_LANES] = {
+        Vec4(unit(objectVx / 4.0F), unit(objectVz / 4.0F), unit(vx / 6.0F),
+             unit(vz / 6.0F)),
+        Vec4(unit((soleWorld.y - ground) / 0.55F), unit(vy / 3.0F),
+             unit(foot.previousVy / 3.0F), unit(aheadHeightDelta / 0.55F)),
+        Vec4(unit(nearExcess / 0.35F), unit(farExcess / 0.35F),
+             unit(groundNormal.x), unit(groundNormal.z)),
+        Vec4(unit(foot.filteredGap / 0.55F), unit(foot.filteredVy / 3.0F),
+             unit(foot.lipMemory / 0.35F), unit(foot.swingTime / 0.25F - 1.0F)),
+        Vec4(unit(rt.descend * 2.0F - 1.0F), unit(rt.ascend * 2.0F - 1.0F),
+             unit(rt.dropAhead / 0.55F), unit(rt.reachBudget / 0.55F))};
+    FootNeuralPrediction prediction = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    if (ikNeural && hit && foot.ready) {
+      prediction = footNeuralRun(input);
+      const float strength = ikNeuralStrength;
       neuralConfidence = prediction.confidence * strength;
       neuralClearance = prediction.clearance * strength;
       neuralRelease = prediction.release * strength;
+      neuralReach = prediction.reach * strength;
       const float preferredX = soleWorld.x + objectVx * 0.055F +
                                prediction.dx * strength;
       const float preferredZ = soleWorld.z + objectVz * 0.055F +
@@ -4827,19 +5241,21 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                            sideZ * sideOffset[option];
           float py = ground;
           Vec4 pn(0.0F, 1.0F, 0.0F, 0.0F);
-          if (!footGroundAt(px, pz, soleWorld.y + o.data.ikProbeUp,
-                            soleWorld.y - o.data.ikProbeDown, objectIndex,
-                            &py, &pn))
-            continue;
+          const bool fanHit =
+              footGroundAt(px, pz, soleWorld.y + ikProbeUp,
+                           soleWorld.y - ikProbeDown, objectIndex, &py, &pn);
+          recordFootProbe(FootProbe::Plan, px, pz, soleWorld.y + ikProbeUp,
+                          soleWorld.y - ikProbeDown, fanHit, py);
+          if (!fanHit) continue;
           float toeY = py, heelY = py;
           const bool toeHit = footGroundAt(
               px + dirX * 0.085F, pz + dirZ * 0.085F,
-              soleWorld.y + o.data.ikProbeUp,
-              soleWorld.y - o.data.ikProbeDown, objectIndex, &toeY);
+              soleWorld.y + ikProbeUp,
+              soleWorld.y - ikProbeDown, objectIndex, &toeY);
           const bool heelHit = footGroundAt(
               px - dirX * 0.085F, pz - dirZ * 0.085F,
-              soleWorld.y + o.data.ikProbeUp,
-              soleWorld.y - o.data.ikProbeDown, objectIndex, &heelY);
+              soleWorld.y + ikProbeUp,
+              soleWorld.y - ikProbeDown, objectIndex, &heelY);
           float support = 1.0F;
           if (toeHit && fabsf(toeY - py) <= 0.075F) support += 0.65F;
           if (heelHit && fabsf(heelY - py) <= 0.075F) support += 0.65F;
@@ -4896,14 +5312,14 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // the authored toe margin, and only after the probes above prove a lip.
     float wantedClearance = 0.0F;
     if ((!foot.locked || vy > 0.04F) && hit && travelSpeed > 0.12F &&
-        o.data.ikToeClearance > 0.0F && obstacleHit) {
+        ikToeClearance > 0.0F && obstacleHit) {
       const float rise = obstacleGround - ground;
       if (rise > 0.025F) {
-        wantedClearance = obstacleGround + o.data.ikToeClearance - soleWorld.y;
+        wantedClearance = obstacleGround + ikToeClearance - soleWorld.y;
         if (wantedClearance < 0.0F) wantedClearance = 0.0F;
         wantedClearance +=
-            o.data.ikToeClearance * 0.35F * neuralClearance;
-        const float maxClearance = o.data.ikProbeUp + o.data.ikToeClearance;
+            ikToeClearance * 0.35F * neuralClearance;
+        const float maxClearance = ikProbeUp + ikToeClearance;
         if (wantedClearance > maxClearance) wantedClearance = maxClearance;
       }
     }
@@ -4952,31 +5368,51 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     // above a lower tread. Once the sole ray proves reachable support below a
     // descending foot, guide only Y toward it; XZ stays authored and the foot
     // remains unlocked, so this cannot recreate flat-ground glue.
+    // The descent budget widens it: a 22 cm stair puts the tread further below
+    // the authored sole than any level-ground band reaches, and the whole point
+    // of the grade above is that this widening exists only while going down.
     const float downReachLimit =
-        o.data.ikPlant + o.data.ikPelvis * 0.65F;
+        ikPlant + ikPelvis * 0.65F + descentReach;
     const float downGap = hit ? soleWorld.y - ground : 0.0F;
     const ObjectGeometry::FootState& supportFoot = rt.foot[1 - side];
-    const bool lowerTread = supportFoot.locked && supportFoot.weight > 0.15F &&
-        ground < supportFoot.lockedWorld.y - 0.025F;
+    // "There is a lower tread under this foot" used to require the OTHER foot
+    // to be planted above it. On a staircase that is a deadlock: with both feet
+    // hovering, neither can be the support that lets the other reach - which is
+    // exactly the reported failure. A confident descent is the second way to
+    // answer it, and it is still geometry-gated (`hit` proved the surface, and
+    // the grade itself came from probes and the walker's own drop).
+    const bool lowerTread =
+        (supportFoot.locked && supportFoot.weight > 0.15F &&
+         ground < supportFoot.lockedWorld.y - 0.025F) ||
+        (rt.descend > 0.35F && descentReach > 0.005F);
     const bool descendingForReach =
-        vy <= -0.04F || (foot.downReach > 0.001F && foot.filteredVy <= 0.04F);
+        vy <= -0.04F || (foot.downReach > 0.001F && foot.filteredVy <= 0.04F) ||
+        // A walk cycle's swing foot is briefly level in its own frame while the
+        // whole body descends; the body's grade is the honest signal there.
+        (rt.descend > 0.5F && foot.filteredVy <= 0.06F);
     float wantedDownReach = 0.0F;
     if (!foot.locked && !foot.releasing && hit &&
         wantedClearance <= 0.0F && objectSpeed > 0.08F &&
-        lowerTread && descendingForReach && downGap > o.data.ikPlant &&
+        lowerTread && descendingForReach && downGap > ikPlant &&
         downGap <= downReachLimit) {
       float reachT = 1.0F -
-          (downGap - o.data.ikPlant) /
-              fmaxf(0.001F, downReachLimit - o.data.ikPlant);
+          (downGap - ikPlant) /
+              fmaxf(0.001F, downReachLimit - ikPlant);
       if (reachT < 0.0F) reachT = 0.0F;
       if (reachT > 1.0F) reachT = 1.0F;
       reachT = reachT * reachT * (3.0F - 2.0F * reachT);
       wantedDownReach = 0.22F + reachT * 0.56F;
+      // The learned head may firm up an envelope the raycast above already
+      // proved, by at most a quarter. It cannot create the phase (this whole
+      // branch is behind `hit` and the descent gates) and it cannot move the
+      // target, which stays the surface the ray found.
+      wantedDownReach *= 1.0F + 0.25F * neuralReach;
+      if (wantedDownReach > 1.0F) wantedDownReach = 1.0F;
     }
     if (wantedDownReach == 0.0F &&
         (!hit || wantedClearance > 0.0F || foot.filteredVy > 0.04F ||
          !lowerTread || objectSpeed <= 0.08F ||
-         downGap <= o.data.ikPlant ||
+         downGap <= ikPlant ||
          downGap > downReachLimit)) {
       foot.downReach = 0.0F;
     } else {
@@ -4993,14 +5429,14 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float dx = soleWorld.x - foot.lockedWorld.x;
       const float dz = soleWorld.z - foot.lockedWorld.z;
       const float verticalRelease = foot.restLocked
-                                        ? o.data.ikPlant + o.data.ikPelvis
-                                        : o.data.ikRelease;
+                                        ? ikPlant + ikPelvis
+                                        : ikRelease;
       const float contactSpeedLimit =
           fmaxf(0.55F, objectSpeed * 0.70F);
       const bool toeOff = !foot.restLocked && objectSpeed > 0.08F &&
           foot.filteredVy > 0.04F && footSpeed > contactSpeedLimit;
       if (!hit || soleWorld.y - ground > verticalRelease || toeOff ||
-          dx * dx + dz * dz > o.data.ikRelease * o.data.ikRelease ||
+          dx * dx + dz * dz > ikRelease * ikRelease ||
           (foot.restLocked && rt.objectStillTime < 0.04F)) {
         foot.locked = false;
         foot.restLocked = false;
@@ -5013,21 +5449,28 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float gap = soleWorld.y - candidateGround;
       const float contactSpeedLimit =
           fmaxf(0.55F, objectSpeed * 0.70F);
-      const bool normalPlant = gap <= o.data.ikPlant && vy <= 0.25F &&
+      const bool normalPlant = gap <= ikPlant && vy <= 0.25F &&
           footSpeed <= contactSpeedLimit;
       // A descending foot may acquire a lower neighbouring surface before it
       // enters the narrow ordinary plant band.  Using vertical direction as
       // the extra gate gives split-level walking useful reach without turning
-      // the rising swing into a ground magnet.
-      const float descendingReach =
-          o.data.ikPlant + o.data.ikPelvis * 0.55F;
+      // the rising swing into a ground magnet.  The descent budget adds to it,
+      // which is what finally lets the plant itself - not just the down-reach
+      // guidance - happen a whole step below the authored sole.
+      const float descendingPlantReach =
+          ikPlant + ikPelvis * 0.55F + descentReach;
+      // While the body is genuinely descending, the swing foot's own vy is not
+      // required to be negative: in a flat walk clip played by a falling root
+      // the ankle can be rising in model space while the shoe is dropping
+      // toward the next tread.
       const bool descendingPlant =
-          gap > o.data.ikPlant && gap <= descendingReach && vy <= -0.04F &&
+          gap > ikPlant && gap <= descendingPlantReach &&
+          (vy <= -0.04F || rt.descend > 0.45F) &&
           footSpeed <= contactSpeedLimit * 0.85F;
       const bool restPlant =
           rt.objectStillTime >= 0.10F && footSpeed <= 0.18F &&
-          fabsf(vy) <= 0.18F && gap >= -o.data.ikPlant &&
-          gap <= o.data.ikPlant + o.data.ikPelvis;
+          fabsf(vy) <= 0.18F && gap >= -ikPlant &&
+          gap <= ikPlant + ikPelvis;
       const bool plantCandidate = normalPlant || descendingPlant || restPlant;
       if (plantCandidate)
         foot.plantCandidateTime += g_frameDt;
@@ -5090,12 +5533,60 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       } else {
         targetWorld.y = ground + sole;
       }
-      const float d = (targetWorld.y - ankleWorld.y) * foot.weight;
-      // Pelvis compensation is a reach safeguard, not a second ground magnet.
-      // Only a planted foot that needs more downward reach may lower it.
-      if (foot.locked && d < 0.0F) {
-        if (!havePelvis || d < pelvisWorld) pelvisWorld = d;
-        havePelvis = true;
+      // Pelvis compensation is a reach safeguard, not a second ground magnet,
+      // and the quantity it owes is the reach THE LEG CANNOT MAKE - measured,
+      // not guessed.
+      //
+      // Both failure modes seen while this was being written are the two ways of
+      // getting that quantity wrong. Handing the pelvis the FULL correction made
+      // the hips an echo of the animation: every centimetre the clip lifts a
+      // foot became a centimetre of hip drop, -0.169 on FLAT ground with both
+      // feet already exactly on their targets, which read as the avatar being
+      // buried to the shins (and it pulled planted feet off their contacts).
+      // Giving the pelvis only what exceeded a FRACTION OF Max pelvis
+      // correction fixed that and broke the other end: a foot whose target is
+      // farther than the leg can span just never arrives, and the overlay shows
+      // it exactly - the ray finds the ground, the target cross sits on it in
+      // green, and the shoe hangs half a metre above, because the analytic
+      // two-bone solve has nothing left to give.
+      //
+      // The honest number is geometric. A leg spans |hip-knee| + |knee-ankle|,
+      // which are rigid bone lengths and therefore readable from any pose; if
+      // the target sits farther from the hip than that (less a small margin, so
+      // the knee is not asked to lock straight), the difference is exactly what
+      // the hips must come down by. Below that, the leg does the work and the
+      // pelvis stays where the animation put it.
+      if (foot.locked && hipM[side]) {
+        const Vec4 hipWorld = modelToWorld(Vec4(
+            hipM[side]->data[12], hipM[side]->data[13], hipM[side]->data[14],
+            1.0F));
+        const Vec4 kneeWorld =
+            kneeM[side] ? modelToWorld(Vec4(kneeM[side]->data[12],
+                                            kneeM[side]->data[13],
+                                            kneeM[side]->data[14], 1.0F))
+                        : hipWorld;
+        auto dist = [](const Vec4& a, const Vec4& b) {
+          const float dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+          return sqrtf(dx * dx + dy * dy + dz * dz);
+        };
+        // The FULL span, not a fraction of it. A standing human's hip sits
+        // almost exactly one leg-length above the floor, so any margin here is
+        // smaller than the knee bend an ordinary pose carries - a 2% one made
+        // the rule fire on 391 of 678 frames with up to 7.8 cm of hip drop on
+        // FLAT ground, which is the sinking again in miniature. At 1.0 the
+        // deficit is zero unless the target is genuinely out of the leg's
+        // range, which is the only case the hips are meant to answer. The price
+        // is a knee that straightens fully at the extreme; that is the correct
+        // trade against a body that sinks or a foot that never arrives.
+        const float reach =
+            dist(hipWorld, kneeWorld) + dist(kneeWorld, ankleWorld);
+        const float needed = dist(hipWorld, targetWorld);
+        const float deficit = (needed - reach) * foot.weight;
+        if (deficit > 0.0F) {
+          const float share = -deficit;
+          if (!havePelvis || share < pelvisWorld) pelvisWorld = share;
+          havePelvis = true;
+        }
       }
     }
     if (!foot.locked && !foot.releasing && foot.clearance > 0.0F) {
@@ -5124,6 +5615,12 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
       const float guideWeight = foot.planWeight * 0.42F;
       if (guideWeight > legWeight) legWeight = guideWeight;
     }
+    // Not a ray: the target the leg was actually given, and whether this foot
+    // is taking weight. Drawn as the big cross - the rays above are why.
+    recordFootProbe(FootProbe::Target, targetWorld.x, targetWorld.z, 0.0F, 0.0F,
+                    true, targetWorld.y - sole);
+    if (!footIkProbes.empty())
+      footIkProbes.back().locked = legWeight > 0.05F;
     adjust.legs[side].hip = rt.hip[side];
     adjust.legs[side].knee = rt.knee[side];
     adjust.legs[side].ankle = rt.ankle[side];
@@ -5135,7 +5632,7 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
     adjust.legs[side].surfaceNormal = worldDirToModel(supportNormal);
     adjust.legs[side].alignWeight =
         (foot.locked || foot.releasing) ? foot.weight : 0.0F;
-    adjust.legs[side].maxAlignRadians = o.data.ikMaxFootAngle * PI / 180.0F;
+    adjust.legs[side].maxAlignRadians = ikMaxFootAngle * PI / 180.0F;
     if (kneeM[side]) {
       const Vec4 authoredKnee(kneeM[side]->data[12], kneeM[side]->data[13],
                               kneeM[side]->data[14], 1.0F);
@@ -5192,14 +5689,22 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
                ",", foot.filteredVy, ",", foot.lipMemory, ",",
                foot.swingTime, ",", sweepClearance, ",", foot.planScore,
                ",", neuralApplied ? 1 : 0, ",", sweepRise, ",",
-               foot.downReach, ",", downGap);
+               foot.downReach, ",", downGap, ",", rt.descend, ",",
+               rt.ascend, ",", rt.dropAhead, ",", rt.reachBudget, ",",
+               neuralReach);
     foot.previousWorld = soleWorld;
     foot.previousVy = vy;
   }
 
   float wantedPelvis = havePelvis ? pelvisWorld : 0.0F;
-  if (wantedPelvis > o.data.ikPelvis) wantedPelvis = o.data.ikPelvis;
-  if (wantedPelvis < -o.data.ikPelvis) wantedPelvis = -o.data.ikPelvis;
+  // Reaching a step below needs hip travel as well as leg extension, so the
+  // descent budget raises the DOWNWARD cap only (a fraction of it: the leg does
+  // most of the work, and a pelvis allowed to sink the whole step height reads
+  // as a crouch). Upward correction keeps the authored limit - nothing about
+  // going downstairs justifies pushing the body up.
+  const float pelvisDownLimit = ikPelvis + descentReach * 0.6F;
+  if (wantedPelvis > ikPelvis) wantedPelvis = ikPelvis;
+  if (wantedPelvis < -pelvisDownLimit) wantedPelvis = -pelvisDownLimit;
   // Contact weights smooth the legs, but an unsmoothed lowest-foot choice can
   // still make the whole body chatter when probes trade surfaces at an edge.
   // Give the common pelvis its own critically simple low-pass state.
@@ -5283,12 +5788,18 @@ void TerrainGame::applyFootIk(int objectIndex, RuntimeObject& o,
              tracePlan[0], ",", tracePlanApplied[0], ",", tracePlan[1],
              ",", tracePlanApplied[1], ",", rt.pelvisOffsetWorld.x, ",",
              rt.pelvisOffsetWorld.z, ",", rt.bodyPitch, ",", rt.bodyRoll,
-             ",", traceDownReach[0], ",", traceDownReach[1]);
+             ",", traceDownReach[0], ",", traceDownReach[1], ",",
+             rt.descend, ",", rt.ascend, ",", rt.dropAhead, ",",
+             rt.reachBudget, ",", o.ikGroundDrop);
   inst.setPoseAdjust(adjust);
 }
 
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
+  // The probe overlay records as the solver runs, so the list belongs to ONE
+  // frame and is emptied before the first object solves - not after drawing,
+  // which a split-screen second pass (that does not re-solve) would skip.
+  if (DEBUG_SHOW_FOOTIK && !splitSecondPass) footIkProbes.clear();
   bool any = false;
   for (int i = 0; i < (int)runtimeObjects.size() && !any; ++i)
     any = runtimeObjects[i].active && runtimeObjects[i].visible &&
@@ -6027,7 +6538,10 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoMapTexPath = SCENE_AO_MAP_PATH;
     aoMapTexture = acquireTexture(aoMapTexPath);
   }
-  terrainMapOcc = aoMapTexture && SCENE_AO_ENABLED && SCENE_AO_MAP_OCC;
+  // ...and for the GI multiply route regardless of the AO preference: on
+  // that route the alpha channel is the LIGHT, not ambient occlusion.
+  terrainMapOcc = aoMapTexture && SCENE_AO_MAP_OCC &&
+                  (SCENE_AO_ENABLED || SCENE_AO_MAP_GILUM);
   // A failed load falls the light back to the per-vertex path rather than
   // dropping it: the chunk shade below reads this flag.
   terrainMapLit = aoMapTexture && SCENE_AO_MAP_LIT;
@@ -6206,6 +6720,8 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The flashlight's receivers are indices into the table that just went away.
+  flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.
   for (int i = SCENE_OBJECT_COUNT; i < (int)runtimeObjects.size(); ++i) {
     runtimeObjects[i].active = false;
@@ -6296,12 +6812,14 @@ void TerrainGame::loadScene(int sceneIndex) {
     // (docs/terrain.md), in which case the authored height is the only sensible
     // start: the void answer would drop the player a million units below the
     // world before the first frame's collision could catch them.
-    P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
+    bool onSurface = false;
+    P.y = PP_MODE(pi) == 1
               ? SCENE_OBJECTS[P.objIndex].position[1]
-              : terrainHeightAt(P.x, P.z);
+              : spawnSurfaceY(P.x, P.z, SCENE_OBJECTS[P.objIndex].position[1],
+                              P.objIndex, &onSurface);
     P.visualY = P.y;
     P.visualYReady = true;
-    P.grounded = PP_MODE(pi) != 1 && TERRAIN_ENABLED;
+    P.grounded = PP_MODE(pi) != 1 && onSurface;
     P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
     P.velY = 0.0F;
     P.pitch = 0.0F;
@@ -6328,6 +6846,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       P.walkClip = resolveClipIndex(P.objIndex, PP_WALK_CLIP(pi));
       P.runClip =
           PP_RUN_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_RUN_CLIP(pi)) : -1;
+      P.sprintClip = PP_SPRINT_CLIP(pi)[0]
+                         ? resolveClipIndex(P.objIndex, PP_SPRINT_CLIP(pi))
+                         : -1;
+      P.speeds[0] = PP_WALK_SPEED(pi);
+      P.speeds[1] = PP_RUN_SPEED(pi);
+      P.speeds[2] = PP_SPRINT_SPEED(pi);
       P.jumpClip =
           PP_JUMP_CLIP(pi)[0] ? resolveClipIndex(P.objIndex, PP_JUMP_CLIP(pi)) : -1;
       P.backClip =
@@ -6412,7 +6936,7 @@ void TerrainGame::loadScene(int sceneIndex) {
 // faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
 // skipped while the channel is still busy, so the sample loops seamlessly.
 // sndOnPlayer emitters skip all of that: full volume, centered - they play
-// "on the player" wherever they are (dialogs, narration). Hide Object mutes.
+// "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
@@ -9099,26 +9623,196 @@ void TerrainGame::setupLightBeams() {
   }
 }
 
+// An ORIENTED box the flashlight's beam can land on - see projCollectBoxes,
+// which fills these, and projWallHit, which intersects them. Declared up here
+// because updateAndRenderLightPools is the consumer and it comes first.
+struct ProjBox {
+  float o[3];                 // centre, world
+  float ax[3], ay[3], az[3];  // rotated unit axes
+  float h[3];                 // half extents along them
+  int obj;                    // index into runtimeObjects
+  int type;                   // SceneObjectData::type
+};
+std::vector<ProjBox> g_projBoxes;
+
+// The shadow volumes are cut from BOXES, and one AABB around a sparse model
+// lies about its shape: a lamp post's box (pole plus arm) is a slab of
+// mostly air, and its "shadow" blotted out whole walls. So a model's volume
+// is cut from up to three TIGHT sub-boxes instead: split the triangles at
+// the median of the box's longest axis, twice, then greedily merge leaves
+// back wherever the split bought nothing - a solid crate merges back to one
+// box, an L-shape stays a pole and an arm. Each sub-box is convex, which is
+// the one thing the 1-bit destination-alpha trick genuinely requires (the
+// GS cannot COUNT like a stencil, so a non-convex volume's set/clear order
+// lies; a true mesh volume is off the table for exactly that reason).
+struct ShadowSubBox {
+  float mn[3], mx[3];
+};
+// Lazily built per MODEL asset (local space, shared by every instance),
+// keyed by gameModels index; cleared whenever the model table changes size.
+static std::vector<std::vector<ShadowSubBox>> g_shadowSubBoxes;
+
+static void buildShadowSubBoxes(
+    const std::vector<const std::vector<float>*>& parts,
+    std::vector<ShadowSubBox>& out) {
+  struct Tri {
+    float cen[3];
+    float mn[3], mx[3];
+  };
+  std::vector<Tri> tris;
+  for (const std::vector<float>* pv : parts) {
+    const std::vector<float>& v = *pv;
+    const size_t n = v.size() / 8;
+    for (size_t i = 0; i + 3 <= n; i += 3) {
+      Tri t;
+      for (int a = 0; a < 3; ++a) {
+        const float p0 = v[(i + 0) * 8 + a];
+        const float p1 = v[(i + 1) * 8 + a];
+        const float p2 = v[(i + 2) * 8 + a];
+        t.cen[a] = (p0 + p1 + p2) / 3.0F;
+        t.mn[a] = p0 < p1 ? (p0 < p2 ? p0 : p2) : (p1 < p2 ? p1 : p2);
+        t.mx[a] = p0 > p1 ? (p0 > p2 ? p0 : p2) : (p1 > p2 ? p1 : p2);
+      }
+      tris.push_back(t);
+    }
+  }
+  auto boxOf = [&](const std::vector<int>& idx, ShadowSubBox& b) {
+    b.mn[0] = b.mn[1] = b.mn[2] = 1e30F;
+    b.mx[0] = b.mx[1] = b.mx[2] = -1e30F;
+    for (int i : idx)
+      for (int a = 0; a < 3; ++a) {
+        if (tris[i].mn[a] < b.mn[a]) b.mn[a] = tris[i].mn[a];
+        if (tris[i].mx[a] > b.mx[a]) b.mx[a] = tris[i].mx[a];
+      }
+  };
+  // A padded volume, so flat boxes still compare meaningfully.
+  auto volOf = [](const ShadowSubBox& b) {
+    return (b.mx[0] - b.mn[0] + 0.05F) * (b.mx[1] - b.mn[1] + 0.05F) *
+           (b.mx[2] - b.mn[2] + 0.05F);
+  };
+  out.clear();
+  if (tris.empty()) return;
+  std::vector<int> all(tris.size());
+  for (size_t i = 0; i < tris.size(); ++i) all[i] = (int)i;
+  // Median split on the longest axis, applied twice -> up to four leaves.
+  // Iterative on purpose (no std::function in the game TU).
+  auto halve = [&](const std::vector<int>& idx, std::vector<int>& lo,
+                   std::vector<int>& hi) {
+    ShadowSubBox b;
+    boxOf(idx, b);
+    int ax = 0;
+    float best = b.mx[0] - b.mn[0];
+    for (int a = 1; a < 3; ++a)
+      if (b.mx[a] - b.mn[a] > best) best = b.mx[a] - b.mn[a], ax = a;
+    std::vector<int> srt = idx;
+    std::sort(srt.begin(), srt.end(), [&](int l, int r) {
+      return tris[l].cen[ax] < tris[r].cen[ax];
+    });
+    lo.assign(srt.begin(), srt.begin() + srt.size() / 2);
+    hi.assign(srt.begin() + srt.size() / 2, srt.end());
+  };
+  std::vector<std::vector<int>> leaves;
+  if (all.size() < 8) {
+    leaves.push_back(all);
+  } else {
+    std::vector<int> lo, hi;
+    halve(all, lo, hi);
+    std::vector<std::vector<int>> level = {lo, hi};
+    for (std::vector<int>& half : level) {
+      if (half.size() < 8) {
+        leaves.push_back(half);
+        continue;
+      }
+      std::vector<int> l2, h2;
+      halve(half, l2, h2);
+      leaves.push_back(l2);
+      leaves.push_back(h2);
+    }
+  }
+  std::vector<ShadowSubBox> boxes;
+  for (std::vector<int>& lf : leaves) {
+    if (lf.empty()) continue;
+    ShadowSubBox b;
+    boxOf(lf, b);
+    boxes.push_back(b);
+  }
+  // Greedy merge: whenever a union costs little more than its parts, the
+  // split bought nothing - a solid model collapses back to one box.
+  auto tryMerge = [&](float slack) {
+    for (bool again = true; again;) {
+      again = false;
+      for (size_t i = 0; i < boxes.size() && !again; ++i)
+        for (size_t j = i + 1; j < boxes.size() && !again; ++j) {
+          ShadowSubBox u;
+          for (int a = 0; a < 3; ++a) {
+            u.mn[a] = boxes[i].mn[a] < boxes[j].mn[a] ? boxes[i].mn[a]
+                                                      : boxes[j].mn[a];
+            u.mx[a] = boxes[i].mx[a] > boxes[j].mx[a] ? boxes[i].mx[a]
+                                                      : boxes[j].mx[a];
+          }
+          if (volOf(u) <= (volOf(boxes[i]) + volOf(boxes[j])) * slack) {
+            boxes[i] = u;
+            boxes.erase(boxes.begin() + j);
+            again = true;
+          }
+        }
+    }
+  };
+  tryMerge(1.4F);
+  // Cap at three: force-merge the cheapest pairs beyond that.
+  while (boxes.size() > 3) {
+    size_t bi = 0, bj = 1;
+    float bestCost = 1e30F;
+    for (size_t i = 0; i < boxes.size(); ++i)
+      for (size_t j = i + 1; j < boxes.size(); ++j) {
+        ShadowSubBox u;
+        for (int a = 0; a < 3; ++a) {
+          u.mn[a] = boxes[i].mn[a] < boxes[j].mn[a] ? boxes[i].mn[a]
+                                                    : boxes[j].mn[a];
+          u.mx[a] = boxes[i].mx[a] > boxes[j].mx[a] ? boxes[i].mx[a]
+                                                    : boxes[j].mx[a];
+        }
+        const float c = volOf(u);
+        if (c < bestCost) bestCost = c, bi = i, bj = j;
+      }
+    ShadowSubBox u;
+    for (int a = 0; a < 3; ++a) {
+      u.mn[a] = boxes[bi].mn[a] < boxes[bj].mn[a] ? boxes[bi].mn[a]
+                                                  : boxes[bj].mn[a];
+      u.mx[a] = boxes[bi].mx[a] > boxes[bj].mx[a] ? boxes[bi].mx[a]
+                                                  : boxes[bj].mx[a];
+    }
+    boxes[bi] = u;
+    boxes.erase(boxes.begin() + bj);
+  }
+  out = boxes;
+}
+
 // Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
 // terrain patch per dynamic light, textured with the corona sprite (shape
 // in RGB - additive bags ignore texture alpha), tinted by the light color.
 void TerrainGame::setupLightPools() {
   lightPools.clear();
-  if (!beamCoronaTex) return;
-  // A pool is a patch dropped ON the ground: with no terrain (docs/terrain.md)
-  // there is nothing to drop it onto, so the scene simply has none - the beams,
-  // the coronas and the per-vertex light are unaffected.
-  if (!TERRAIN_ENABLED) return;
+  if (!beamCoronaTex && !flashGoboTex) return;
+  // A scene light's pool is a patch dropped ON THE GROUND: with no terrain
+  // (docs/terrain.md) there is nothing to drop it onto, so those simply do not
+  // exist - the beams, the coronas and the per-vertex light are unaffected.
+  // The FLASHLIGHT's pool is projected onto whatever its beam lands on,
+  // receivers included (docs/flashlight.md), so that one exists either way -
+  // which is what makes a torch work in a room built out of placed floors.
+  const bool groundPools = TERRAIN_ENABLED;
   constexpr int kCells = 4;
   // One pool per dynamic point light, plus a last one (objIndex -1) that
-  // follows the camera flashlight's terrain hit.
+  // follows the camera flashlight's beam.
   int poolCount = 1;
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
-      ++poolCount;
+  if (groundPools)
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+      if (SCENE_OBJECTS[i].type == 9 && SCENE_OBJECTS[i].lightDynamic)
+        ++poolCount;
   lightPools.reserve(poolCount);
   for (int i = 0; i <= SCENE_OBJECT_COUNT; ++i) {
     if (i < SCENE_OBJECT_COUNT) {
+      if (!groundPools) continue;
       const SceneObjectData& d = SCENE_OBJECTS[i];
       if (d.type != 9 || !d.lightDynamic) continue;
     }
@@ -9149,22 +9843,57 @@ void TerrainGame::setupLightPools() {
     b.info->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     b.info->zTestType = PipelineZTest_TestOnly;  // never writes z
     b.info->dynLightPick = false;  // it IS the light - never re-lit
+    // ...and that has to include the camera spot, which dynLightPick = false
+    // FALLS BACK TO. Without this the flashlight's own pool is itself lit by
+    // the flashlight: VU1 adds the per-vertex cone on top of the projected
+    // texture, on a patch whose vertices are metres apart, and the result is a
+    // Gouraud wedge drawn across the very pool that exists to replace it. It
+    // reads as hard diagonal seams along the patch's triangulation, and it
+    // survived a fix for the ST mapping, one for the near plane and one for
+    // the depth test - because it was none of those.
+    b.info->spotLit = false;
     b.info->fullClipChecks = true;  // big near-camera quads: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = beamCoronaTex;
-    // The flashlight's pool can carry an authored sprite instead - that
-    // texture IS the beam's shape (gobo, cross, cracked lens). Additive,
-    // so the shape lives in RGB; alpha is ignored.
-    if (b.objIndex < 0 && FLASHLIGHT_TEX[0] != '\0') {
-      const std::string want(FLASHLIGHT_TEX);
-      if (!flashPoolTex || flashPoolTexPath != want) {
-        flashPoolTex =
-            engine->renderer.getTextureRepository().add(FileUtils::fromCwd(want));
-        flashPoolTexPath = want;
+    // A SPOT light's pool is the flashlight's trick on a scene light: the
+    // gobo projected from the light's own frustum, per pixel. The corona
+    // stays the fallback when the gobo failed to load.
+    if (b.objIndex >= 0 && b.objIndex < SCENE_OBJECT_COUNT &&
+        SCENE_OBJECTS[b.objIndex].lightSpot && flashGoboTex)
+      b.texBag->texture = flashGoboTex;
+    // The flashlight's pool is PROJECTED, so its texture IS the beam's shape
+    // (gobo, cross, cracked lens): the baked gobo by default, or an authored
+    // sprite when the Player object names one. Additive, so the shape lives in
+    // RGB; alpha is ignored. The corona stays as the last resort - a project
+    // whose gobo failed to load draws a soft blob rather than nothing.
+    if (b.objIndex < 0) {
+      if (flashGoboTex) b.texBag->texture = flashGoboTex;
+      if (FLASHLIGHT_TEX[0] != '\0') {
+        const std::string want(FLASHLIGHT_TEX);
+        if (!flashPoolTex || flashPoolTexPath != want) {
+          flashPoolTex = engine->renderer.getTextureRepository().add(
+              FileUtils::fromCwd(want));
+          flashPoolTexPath = want;
+        }
+        if (flashPoolTex) b.texBag->texture = flashPoolTex;
       }
-      if (flashPoolTex) b.texBag->texture = flashPoolTex;
+      // The reach falloff lives in per-vertex GOURAUD colors (see the struct
+      // note) - one flat color per patch cannot dim the far end of a pool
+      // that stretches forty units down a grazing beam.
+      b.colors.assign(b.verts.size(), Color(0.0F, 0.0F, 0.0F, 128.0F));
+      b.colorBag->many = b.colors.data();
+      b.colorBag->single = nullptr;
+      b.info->shadingType = TyraShadingGouraud;
+      // GS CLAMP, and only on this one texture: the pool's STs come out of a
+      // projection, so the patch's outer ring genuinely lands outside 0..1 and
+      // the default REPEAT would draw the beam a second time beside itself.
+      // Clamping per PIXEL is what lets updateAndRenderLightPools hand the GS
+      // the projection's numerator and denominator instead of a finished u,v
+      // it would have had to clamp per vertex.
+      if (b.texBag->texture)
+        b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
     }
     b.texBag->coordinates = b.sts.data();
     b.bag = std::make_unique<StaPipBag>();
@@ -9173,6 +9902,100 @@ void TerrainGame::setupLightPools() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // The flashlight's second patch - same everything, its own buffers, for the
+    // wall the beam is touching while it also lights the floor.
+    if (b.objIndex < 0) {
+      // Sized per frame from the geometry the beam lands on; reserved once
+      // so the per-frame clear/push never reallocates in the steady state.
+      b.wVerts.reserve(4096);
+      b.wSts.reserve(4096);
+      b.wColors.reserve(4096);
+      b.wColor = b.color;
+      b.wInfo = std::make_unique<StaPipInfoBag>();
+      b.wInfo->model = &b.mat;
+      // Gouraud, exactly like the floor patch above: the wall slice carries the
+      // same per-vertex reach falloff, and renderSlice points wColorBag->many
+      // at it every frame. This line USED TO SIT thirty lines further up, next
+      // to the floor patch's - which is to say BEFORE wInfo was allocated, a
+      // store through a null unique_ptr at offset +4 (where shadingType lives).
+      // PCSX2 has RAM at address 0, so it wrote into low memory and every
+      // emulator test passed; a real console has nothing mapped there and takes
+      // a TLB-refill-on-store exception, killing the game the moment the
+      // loading screen ends. Keep every bag's fields BELOW its make_unique.
+      b.wInfo->shadingType = TyraShadingGouraud;
+      b.wInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      b.wInfo->zTestType = PipelineZTest_TestOnly;
+      b.wInfo->dynLightPick = false;
+      b.wInfo->spotLit = false;
+      // Unfogged, the additive rule (the env pass does the same): GS fog would
+      // ADD the fog colour through this blend and brighten fogged pixels.
+      b.wInfo->fogDisabled = true;
+      b.wInfo->fullClipChecks = true;
+      b.wColorBag = std::make_unique<StaPipColorBag>();
+      b.wColorBag->single = &b.wColor;
+      b.wTexBag = std::make_unique<StaPipTextureBag>();
+      b.wTexBag->texture = b.texBag->texture;
+      b.wTexBag->coordinates = b.wSts.data();
+      b.wBag = std::make_unique<StaPipBag>();
+      b.wBag->info = b.wInfo.get();
+      b.wBag->color = b.wColorBag.get();
+      b.wBag->texture = b.wTexBag.get();
+      b.wBag->vertices = b.wVerts.data();
+      b.wBag->count = (u32)b.wVerts.size();
+      if (FLASH_SHADOW_VOLUMES) {
+        // Untextured, unfogged, TestOnly against the real scene z: the test
+        // IS the algorithm. The vertex alpha is the whole payload - 128 sets
+        // the mask bit, 0 clears it - and the bracket's FBMSK keeps the
+        // colors out of the frame.
+        b.volFront.reserve(512);
+        b.volBack.reserve(512);
+        b.volSetColor = Color(0.0F, 0.0F, 0.0F, 128.0F);
+        b.volClrColor = Color(0.0F, 0.0F, 0.0F, 0.0F);
+        b.volInfo = std::make_unique<StaPipInfoBag>();
+        b.volInfo->model = &b.mat;
+        b.volInfo->shadingType = TyraShadingFlat;
+        b.volInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        b.volInfo->zTestType = PipelineZTest_TestOnly;
+        b.volInfo->dynLightPick = false;
+        b.volInfo->spotLit = false;
+        b.volInfo->fogDisabled = true;
+        b.volInfo->fullClipChecks = true;
+        b.volSetBagC = std::make_unique<StaPipColorBag>();
+        b.volSetBagC->single = &b.volSetColor;
+        b.volClrBagC = std::make_unique<StaPipColorBag>();
+        b.volClrBagC->single = &b.volClrColor;
+        b.volSetBag = std::make_unique<StaPipBag>();
+        b.volSetBag->info = b.volInfo.get();
+        b.volSetBag->color = b.volSetBagC.get();
+        b.volSetBag->vertices = b.volFront.data();
+        b.volSetBag->count = 0;
+        b.volClrBag = std::make_unique<StaPipBag>();
+        b.volClrBag->info = b.volInfo.get();
+        b.volClrBag->color = b.volClrBagC.get();
+        b.volClrBag->vertices = b.volBack.data();
+        b.volClrBag->count = 0;
+      }
+    }
+  }
+  // REBIND after the vector has stopped growing - the bags hold pointers INTO
+  // the elements (setupLightBeams pays for this lesson in full).
+  for (LightPool& b : lightPools) {
+    b.info->model = &b.mat;
+    b.colorBag->single = &b.color;
+    if (b.wInfo) {
+      b.wInfo->model = &b.mat;
+      // The torch's bags carry per-vertex colors; wColorBag->many is
+      // re-pointed with the verts each frame.
+    }
+    if (b.objIndex < 0 && b.colorBag) {
+      b.colorBag->many = b.colors.data();
+      b.colorBag->single = nullptr;
+    }
+    if (b.volInfo) {
+      b.volInfo->model = &b.mat;
+      b.volSetBagC->single = &b.volSetColor;
+      b.volClrBagC->single = &b.volClrColor;
+    }
   }
 }
 
@@ -9204,30 +10027,582 @@ void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
   for (LightPool& b : lightPools) {
     if (b.objIndex < 0) {
-      // The camera flashlight. Per-vertex lighting cannot draw a spot
-      // smaller than the mesh tessellation, so aiming at your own feet
-      // (a footprint well under one terrain cell) lit nothing at all.
-      // Follow the view ray to the terrain and put a pool there instead.
-      if (!g_flashEnabled || !g_flashOn) continue;
+      // The camera flashlight (docs/flashlight.md). Per-vertex lighting cannot
+      // draw a spot smaller than the mesh tessellation, and a terrain cell is
+      // never finer than one world unit, so the cone the VU1 spot paints on the
+      // ground is a Gouraud diamond and aiming at your own feet lit nothing at
+      // all. So the beam's shape is PROJECTED here instead: the patch takes its
+      // STs from the light's own frustum - the same trick renderProjShadows
+      // uses to sample a silhouette - and the gobo texture decides what a torch
+      // looks like. Nothing below depends on how finely the ground is
+      // tessellated, which is the whole point.
+      if (!g_flashEnabled || !g_flashOn) {
+        // Torch off: every wall gets its own cone back (there is none to give,
+        // but the flag must not outlive the light that set it).
+        for (int prev : flashSpotOffList) setFlashSpotOff(prev, true);
+        flashSpotOffList.clear();
+        flashSpotExtra.clear();
+        continue;
+      }
       float dx = cameraLookAt.x - cameraPosition.x;
       float dy = cameraLookAt.y - cameraPosition.y;
       float dz = cameraLookAt.z - cameraPosition.z;
       const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
       if (dl < 0.0001F) continue;
       dx /= dl, dy /= dl, dz /= dl;
+      // What the beam can land on, collected ONCE for the whole march (the
+      // point-light dcache lesson - never scan the object table per step).
+      // yMax is the EYE: a wall taller than the player is not a floor, and
+      // admitting one as a receiver would put a bright ellipse on top of it.
+      // Excluded, the beam runs past it to the ground behind, where the patch's
+      // z test hides it - exactly what the old terrain-only march did.
+      projCollectReceivers(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                           cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+                           FLASHLIGHT_RANGE * 0.5F + 2.0F, cameraPosition.y);
+      // A WALL first, because a beam meets one before it meets the ground
+      // behind it. Exact slab intersection against the solid boxes in reach -
+      // vertical faces only; a box's TOP is a floor and the ground path below
+      // already finds it through projSurfaceAt.
+      projCollectBoxes(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                       cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+                       FLASHLIGHT_RANGE * 0.5F + 2.0F);
+      float wallT = 0.0F, wallSign = 0.0F;
+      int wallAxis = -1;
+      ProjBox wallBox;
+      bool onWall = false;
+      if (projWallHit(cameraPosition, dx, dy, dz, FLASHLIGHT_RANGE, wallT,
+                      wallAxis, wallSign, wallBox)) {
+        // The face's outward normal, in world. A face pointing mostly UP is a
+        // floor, and the ground path below already lands the pool on it through
+        // projSurfaceAt; anything steeper than about 45 degrees is a wall and
+        // belongs here, on the object's own triangles.
+        const float* fa = wallAxis == 0 ? wallBox.ax
+                                        : (wallAxis == 1 ? wallBox.ay
+                                                         : wallBox.az);
+        const float ny = fa[1] * wallSign;
+        onWall = ny < 0.7F;
+      }
+      // The light's RECEIVERS: every solid whose box the beam cone touches,
+      // nearest first, up to three. Not merely the object the beam HITS -
+      // shine at the ground right under a shed and the shed is in the cone
+      // with nothing hit at all, and it used to keep its per-vertex cone,
+      // which lit it as the old hard triangles (reported from the console).
+      // Every receiver is drawn by the projected pass below and gives up its
+      // cone (size-gated: a crate lit all over still reads better than one
+      // patch with black sides). A grouping-cell-sized box (a baked scatter
+      // chunk that happens to be solid) is not a wall and stays out.
+      const float tanARecv = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      int recvObj[3] = {-1, -1, -1};
+      float recvT[3] = {0.0F, 0.0F, 0.0F};
+      int recvN = 0;
+      flashSpotExtra.clear();
+      for (const ProjBox& pb : g_projBoxes) {
+        const float ex2 = pb.o[0] - cameraPosition.x,
+                    ey2 = pb.o[1] - cameraPosition.y,
+                    ez2 = pb.o[2] - cameraPosition.z;
+        const float t = ex2 * dx + ey2 * dy + ez2 * dz;
+        const float br =
+            sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] + pb.h[2] * pb.h[2]);
+        if (br > 20.0F) continue;  // grouping-cell sized: not a wall
+        // A THIN thing - a lamp post, a sign, a fence rail - claims no slot
+        // and keeps its per-vertex cone: the projected pass on a sliver buys
+        // nothing visible, and the slot it stole was the facade's (reported
+        // from the yard: stand by the street lamp and the building behind
+        // stops taking the torch).
+        float hthin = pb.h[0] < pb.h[1] ? pb.h[0] : pb.h[1];
+        if (pb.h[2] < hthin) hthin = pb.h[2];
+        if (hthin < 0.25F) continue;
+        if (t < -br || t > FLASHLIGHT_RANGE) continue;
+        const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
+                    pz2 = ez2 - dz * t;
+        const float perp = sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2);
+        if (perp > (t > 0.0F ? t : 0.0F) * tanARecv * 1.3F + br) continue;
+        // insertion sort by t, keep the nearest three
+        int at = recvN < 3 ? recvN : 3;
+        for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+          if (t < recvT[k2]) { at = k2; break; }
+        if (at >= 3) continue;
+        for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+          recvObj[k2] = recvObj[k2 - 1];
+          recvT[k2] = recvT[k2 - 1];
+        }
+        recvObj[at] = pb.obj;
+        recvT[at] = t;
+        if (recvN < 3) ++recvN;
+        // The size gate for the cone strip, on the two largest extents.
+        float h0 = pb.h[0], h1 = pb.h[1], h2 = pb.h[2];
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (h1 < h2) { const float tmp = h1; h1 = h2, h2 = tmp; }
+        if (h0 < h1) { const float tmp = h0; h0 = h1, h1 = tmp; }
+        if (sqrtf(h0 * h0 + h1 * h1) > 1.4F)
+          flashSpotExtra.push_back(pb.obj);
+      }
+      if (onWall) {
+        bool haveHit = false;
+        for (int k2 = 0; k2 < recvN; ++k2)
+          if (recvObj[k2] == wallBox.obj) haveHit = true;
+        if (!haveHit) {
+          // Insert at the SORTED position (evicting the farthest): the
+          // interleaved walk below merges recvT with the caster distances
+          // and both lists must stay ascending - a slot stuffed at the end
+          // with a nearer t drew its light after farther volumes.
+          int at = recvN < 3 ? recvN : 3;
+          for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+            if (wallT < recvT[k2]) { at = k2; break; }
+          if (at >= 3) at = 2;
+          for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+            recvObj[k2] = recvObj[k2 - 1];
+            recvT[k2] = recvT[k2 - 1];
+          }
+          recvObj[at] = wallBox.obj;
+          recvT[at] = wallT;
+          if (recvN < 3) ++recvN;
+        }
+      }
+      updateFlashSpotOff();
+      // --- the beam's projection, needed by everything below ----------------
+      // (goboST/zBias used to live next to the floor patch; the light passes
+      // now interleave with the shadow volumes, so the projection must exist
+      // before either.)
+      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
+      // Beam basis. cross(dir, worldUp) degenerates when you look straight
+      // down - which is precisely the case this pool exists for - so world Z
+      // stands in there.
+      float rx, ry, rz;
+      if (dy > 0.995F || dy < -0.995F) {
+        rx = dy, ry = -dx, rz = 0.0F;
+      } else {
+        rx = -dz, ry = 0.0F, rz = dx;
+      }
+      const float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+      if (rl < 0.0001F) continue;  // nothing drew yet, nothing to repaint
+      rx /= rl, ry /= rl, rz /= rl;
+      const float ux = ry * dz - rz * dy;  // up = right x forward
+      const float uy = rz * dx - rx * dz;
+      const float uz = rx * dy - ry * dx;
+
+      // Where a world point sits in the beam's own frustum - as the
+      // projection's NUMERATOR AND DENOMINATOR, not as a finished u,v.
+      //
+      // This is the difference between a projected texture and a decal with
+      // the right picture on it. VU1 emits ST scaled by the vertex's own 1/w
+      // (PerformTexturePerspectiveCorrection: mulq stq, stq, q) and the GS
+      // divides S/Q per PIXEL, so whatever pair goes in here is interpolated
+      // exactly across the triangle in world space. u = S/Q with
+      //   S = 0.5 * fwd + k * (e . right)      k = 0.43 / tan(halfAngle)
+      //   Q = fwd                              fwd = e . forward
+      // and BOTH are affine in the world position, so the per-pixel quotient
+      // is the true projective mapping - not the linear approximation of it
+      // that finished u,v give (which read as a fan of triangles, reported
+      // from the console; 0.43 puts the cone edge at r = 0.86, the gobo's
+      // own black margin). No EE clamp: the gobo is GS CLAMP, so a sample
+      // outside the frustum takes the black border per pixel.
+      const float kProj = 0.43F / tanA;
+      auto goboST = [&](float x, float y, float z) {
+        const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
+                    ez = z - cameraPosition.z;
+        float fwd = ex * dx + ey * dy + ez * dz;
+        if (fwd < 0.05F) fwd = 0.05F;  // at or behind the lens
+        return Vec4(0.5F * fwd + kProj * (ex * rx + ey * ry + ez * rz),
+                    0.5F * fwd - kProj * (ex * ux + ey * uy + ez * uz), fwd,
+                    0.0F);
+      };
+      // The floor patch is depth-TESTED and never writes z, so it has to win
+      // that test against the surface it lies 4.5 cm above - which on one
+      // enormous floor triangle is not a margin the GS can always resolve.
+      // Pulling each vertex a fixed FRACTION of its eye distance closer wins
+      // at every range and costs nothing visually: the displacement is along
+      // the view ray, so the vertex projects to the same pixel. 0.975, not
+      // the projected shadows' 0.996: the margin must also cover a terrain
+      // CREASE falling between two patch vertices (the dark triangles in the
+      // pool were exactly that chord losing to the ground's own
+      // triangulation).
+      auto zBias = [&](float x, float y, float z) {
+        constexpr float k = 0.975F;
+        return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
+                    cameraPosition.y + (y - cameraPosition.y) * k,
+                    cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
+      };
+
+      // --- the beam ON solid geometry: fill, per receiver -------------------
+      // The era's own trick, done the era's own way: every receiver the cone
+      // touches is rendered a SECOND time, additively, with the gobo's
+      // projective STQ per vertex - light on REAL triangles, per pixel,
+      // whatever their count or orientation. Receivers by CONE rather than by
+      // hit (three console reports paid for that). The fill is sliced PER
+      // RECEIVER now, because the walk below renders each receiver's light at
+      // its own place in the caster order.
+      int wSliceStart[3] = {0, 0, 0};
+      int wSliceCount[3] = {0, 0, 0};
+      b.wVerts.clear();
+      b.wSts.clear();
+      b.wColors.clear();
+      {
+        for (int ri = 0; ri < recvN; ++ri) {
+          wSliceStart[ri] = (int)b.wVerts.size();
+          const int oi = recvObj[ri];
+          if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
+          // A statically batched receiver owns no solo geometry - bake it on
+          // first use, like the projected shadows' silhouette pass (and with
+          // the same DIRTY caveat). The batch keeps drawing the BASE pass;
+          // only this additive layer uses the solo bake.
+          const bool batched =
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+          if (batched) {
+            if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
+              rebuildObjectGeometry(oi);
+          } else if (runtimeObjects[oi].dirty) {
+            rebuildObjectGeometry(oi);
+          }
+          ObjectGeometry& g = objectGeometry[oi];
+          // Nothing to re-render: animated models (skinned buffers) and
+          // physics bodies (LOCAL verts under a live matrix - an EE transform
+          // would not be bit-identical to VU1's, and this pass depends on
+          // EQUAL depth). Both are small and keep the cone instead.
+          if (g.parts.empty() || g.matrixMode) continue;
+          // Two things per TRIANGLE, both cheap and both reported from the
+          // console. A FACING cull: the STQ is a function of position alone,
+          // so a face pointing away from the torch sampled a lit texel - a
+          // box's far side and a roof's underside glowed. Orientation comes
+          // from the object's centre (an .obj's winding is nobody's promise).
+          // And the REACH falloff per vertex: the projection converges to the
+          // gobo's hot centre along the beam at ANY range.
+          const float* oc = runtimeObjects[oi].data.position;
+          for (GeoPart& part : g.parts) {
+            if (!part.bag) continue;
+            const size_t nvt = part.vertices.size() / 3 * 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+              if (b.wVerts.size() >= 3997) break;  // fill-rate backstop
+              const Vec4& a3 = part.vertices[vi];
+              const Vec4& b3 = part.vertices[vi + 1];
+              const Vec4& c3 = part.vertices[vi + 2];
+              float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
+                          (b3.z - a3.z) * (c3.y - a3.y);
+              float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
+                          (b3.x - a3.x) * (c3.z - a3.z);
+              float nz2 = (b3.x - a3.x) * (c3.y - a3.y) -
+                          (b3.y - a3.y) * (c3.x - a3.x);
+              const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+              const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+              const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+              if (nx2 * (cx3 - oc[0]) + ny2 * (cy3 - oc[1]) +
+                      nz2 * (cz3 - oc[2]) <
+                  0.0F)
+                nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+              if (nx2 * (cameraPosition.x - cx3) +
+                      ny2 * (cameraPosition.y - cy3) +
+                      nz2 * (cameraPosition.z - cz3) <=
+                  0.0F)
+                continue;  // faces away from the torch
+              const Vec4 tri3[3] = {a3, b3, c3};
+              for (int k3 = 0; k3 < 3; ++k3) {
+                b.wVerts.push_back(tri3[k3]);
+                const Vec4 st3 = goboST(tri3[k3].x, tri3[k3].y, tri3[k3].z);
+                b.wSts.push_back(st3);
+                float reach = 1.0F - st3.z / FLASHLIGHT_RANGE;
+                if (reach < 0.0F) reach = 0.0F;
+                if (reach > 1.0F) reach = 1.0F;
+                b.wColors.push_back(Color(FLASHLIGHT_R * reach,
+                                          FLASHLIGHT_G * reach,
+                                          FLASHLIGHT_B * reach, 128.0F));
+              }
+            }
+          }
+          wSliceCount[ri] = (int)b.wVerts.size() - wSliceStart[ri];
+        }
+      }
+      // Grazing dim from the hit face when the beam actually meets one square
+      // enough to know; reach lives in the vertex colors.
+      float cosI = 1.0F;
+      if (onWall) {
+        const float* fa = wallAxis == 0
+                              ? wallBox.ax
+                              : (wallAxis == 1 ? wallBox.ay : wallBox.az);
+        cosI = dx * fa[0] + dy * fa[1] + dz * fa[2];
+        if (cosI < 0.0F) cosI = -cosI;
+        if (cosI < 0.25F) cosI = 0.25F;
+      }
+      const float wf = 0.55F + 0.45F * cosI;
+      float wmaxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+      if (FLASHLIGHT_B > wmaxC) wmaxC = FLASHLIGHT_B;
+      if (wmaxC < 1.0F) wmaxC = 1.0F;
+      float wfix = 14746.0F / wmaxC * wf;
+      if (wfix > 255.0F) wfix = 255.0F;
+      const bool wLightOn = wfix >= 1.0F && !b.wVerts.empty();
+
+      // --- SHADOW VOLUMES x LIGHT PASSES, interleaved by distance -----------
+      // The survival-horror arrangement, on its own hardware trick: each
+      // occluder box in the beam is extruded away from the torch into a
+      // closed volume, its camera-front faces SET the framebuffer alpha's MSB
+      // where they are closer than the scene, its back faces CLEAR it - plain
+      // TestOnly z does all the reasoning - and the light passes draw with
+      // DATE, only where the bit says lit.
+      //
+      // The ORDER is the load-bearing part: casters and receivers walk
+      // together, sorted by distance from the torch, and each receiver's
+      // light draws BEFORE its own volume enters the mask. A volume can only
+      // shadow things BEHIND its caster (it extrudes away from the light), so
+      // nearer-first is exactly the dependency order - and an object can
+      // never shadow ITSELF. The shed taught why that matters: a model's
+      // AABB stands proud of its actual walls (the roof overhang), so its
+      // volume's near cap floated IN FRONT of the very wall the beam lit and
+      // the whole shed went black ("swallows the light like a black hole",
+      // reported). No cap geometry can fix that - the interleave makes it
+      // structurally impossible.
+      bool volMask = false;
+      auto& rc = engine->renderer.core;
+      auto renderSlice = [&](int ri) {
+        if (!wLightOn || wSliceCount[ri] <= 0) return;
+        b.wInfo->dateLit = volMask;
+        b.wBag->vertices = b.wVerts.data() + wSliceStart[ri];
+        b.wBag->count = (u32)wSliceCount[ri];
+        b.wTexBag->coordinates = b.wSts.data() + wSliceStart[ri];
+        b.wColorBag->many = b.wColors.data() + wSliceStart[ri];
+        b.wColorBag->single = nullptr;
+        b.wInfo->additiveBlendFix = (u8)wfix;
+        b.wBag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(b.wBag.get());
+      };
+      // Occluder candidates, NEAREST first - never object-table order (the
+      // scene's merged facades used to eat every slot and the props between
+      // the torch and them never cast; reported as "no dynamic shadows").
+      const ProjBox* volPick[4] = {nullptr, nullptr, nullptr, nullptr};
+      float volPickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+      int volCount = 0;
+      if (FLASH_SHADOW_VOLUMES) {
+        for (const ProjBox& pb : g_projBoxes) {
+          const float ex2 = pb.o[0] - cameraPosition.x,
+                      ey2 = pb.o[1] - cameraPosition.y,
+                      ez2 = pb.o[2] - cameraPosition.z;
+          const float t = ex2 * dx + ey2 * dy + ez2 * dz;
+          const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
+                                 pb.h[2] * pb.h[2]);
+          if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
+          if (t < 0.3F || t > FLASHLIGHT_RANGE) continue;
+          const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
+                      pz2 = ez2 - dz * t;
+          if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) >
+              t * tanARecv * 1.3F + br)
+            continue;
+          int at = volCount < 4 ? volCount : 4;
+          for (int k2 = 0; k2 < volCount && k2 < 4; ++k2)
+            if (t < volPickT[k2]) { at = k2; break; }
+          if (at >= 4) continue;
+          for (int k2 = (volCount < 4 ? volCount : 3); k2 > at; --k2) {
+            volPick[k2] = volPick[k2 - 1];
+            volPickT[k2] = volPickT[k2 - 1];
+          }
+          volPick[at] = &pb;
+          volPickT[at] = t;
+          if (volCount < 4) ++volCount;
+        }
+      }
+      {
+        int li = 0, vj = 0;
+        while (li < recvN || vj < volCount) {
+          // Tie goes to the LIGHT: when the receiver and the caster are the
+          // same object (same box, same t) its light must precede its volume.
+          if (li < recvN && (vj >= volCount || recvT[li] <= volPickT[vj])) {
+            renderSlice(li);
+            ++li;
+            continue;
+          }
+          const ProjBox& castPb = *volPick[vj];
+          ++vj;
+          // A model caster casts from its TIGHT sub-boxes, not its one AABB
+          // (see buildShadowSubBoxes): the lamp's box is a slab of mostly
+          // air, and standing on its axis that slab's shadow blotted out
+          // the whole facade ("no light until half a step sideways",
+          // reported). Sub-boxes give the pole its honest thin stripe back.
+          ProjBox subBox[3];
+          int subN = 0;
+          const SceneObjectData& cdd = runtimeObjects[castPb.obj].data;
+          if (cdd.type == 5 && cdd.model >= 0 &&
+              cdd.model < (int)gameModels.size()) {
+            if (g_shadowSubBoxes.size() != gameModels.size())
+              g_shadowSubBoxes.assign(gameModels.size(),
+                                      std::vector<ShadowSubBox>());
+            std::vector<ShadowSubBox>& sbs = g_shadowSubBoxes[cdd.model];
+            if (sbs.empty()) {
+              std::vector<const std::vector<float>*> pv;
+              for (const GameModelPart& gp : gameModels[cdd.model].parts)
+                pv.push_back(&gp.verts);
+              buildShadowSubBoxes(pv, sbs);
+            }
+            for (const ShadowSubBox& box : sbs) {
+              if (subN >= 3) break;
+              ProjBox r = castPb;  // the basis and the object ride along
+              float lc2[3], hh2[3];
+              for (int a = 0; a < 3; ++a) {
+                lc2[a] = 0.5F * (box.mn[a] + box.mx[a]) * cdd.scale[a];
+                hh2[a] = 0.5F * (box.mx[a] - box.mn[a]) * cdd.scale[a];
+                if (hh2[a] < 0.0F) hh2[a] = -hh2[a];
+              }
+              r.o[0] = cdd.position[0] + castPb.ax[0] * lc2[0] +
+                       castPb.ay[0] * lc2[1] + castPb.az[0] * lc2[2];
+              r.o[1] = cdd.position[1] + castPb.ax[1] * lc2[0] +
+                       castPb.ay[1] * lc2[1] + castPb.az[1] * lc2[2];
+              r.o[2] = cdd.position[2] + castPb.ax[2] * lc2[0] +
+                       castPb.ay[2] * lc2[1] + castPb.az[2] * lc2[2];
+              r.h[0] = hh2[0], r.h[1] = hh2[1], r.h[2] = hh2[2];
+              subBox[subN++] = r;
+            }
+          }
+          if (subN == 0) subBox[subN++] = castPb;
+          for (int si = 0; si < subN; ++si) {
+          const ProjBox& pb = subBox[si];
+          b.volFront.clear();
+          b.volBack.clear();
+          // Box corners (bit code x|y<<1|z<<2), pushed a hair AWAY from the
+          // light: with the interleave the push no longer guards the
+          // caster's own face (its light drew already) - it only breaks the
+          // depth TIE against the next surface a cap might touch.
+          Vec4 nearP[8], farP[8];
+          for (int ci = 0; ci < 8; ++ci) {
+            const float sx = (ci & 1) ? 1.0F : -1.0F;
+            const float sy = (ci & 2) ? 1.0F : -1.0F;
+            const float sz = (ci & 4) ? 1.0F : -1.0F;
+            const float wx = pb.o[0] + pb.ax[0] * pb.h[0] * sx +
+                             pb.ay[0] * pb.h[1] * sy + pb.az[0] * pb.h[2] * sz;
+            const float wy = pb.o[1] + pb.ax[1] * pb.h[0] * sx +
+                             pb.ay[1] * pb.h[1] * sy + pb.az[1] * pb.h[2] * sz;
+            const float wz = pb.o[2] + pb.ax[2] * pb.h[0] * sx +
+                             pb.ay[2] * pb.h[1] * sy + pb.az[2] * pb.h[2] * sz;
+            float ddx2 = wx - cameraPosition.x, ddy2 = wy - cameraPosition.y,
+                  ddz2 = wz - cameraPosition.z;
+            const float dl2 = sqrtf(ddx2 * ddx2 + ddy2 * ddy2 + ddz2 * ddz2);
+            const float inv = dl2 > 0.05F ? 1.0F / dl2 : 20.0F;
+            ddx2 *= inv, ddy2 *= inv, ddz2 *= inv;
+            nearP[ci] = Vec4(wx + ddx2 * 0.05F, wy + ddy2 * 0.05F,
+                             wz + ddz2 * 0.05F, 1.0F);
+            farP[ci] = Vec4(cameraPosition.x + ddx2 * FLASHLIGHT_RANGE,
+                            cameraPosition.y + ddy2 * FLASHLIGHT_RANGE,
+                            cameraPosition.z + ddz2 * FLASHLIGHT_RANGE, 1.0F);
+          }
+          float volC[3] = {0.0F, 0.0F, 0.0F};
+          for (int ci = 0; ci < 8; ++ci) {
+            volC[0] += (nearP[ci].x + farP[ci].x) / 16.0F;
+            volC[1] += (nearP[ci].y + farP[ci].y) / 16.0F;
+            volC[2] += (nearP[ci].z + farP[ci].z) / 16.0F;
+          }
+          auto pushTri = [&](const Vec4& a3, const Vec4& b3, const Vec4& c3) {
+            const float ux2 = b3.x - a3.x, uy2 = b3.y - a3.y,
+                        uz2 = b3.z - a3.z;
+            const float vx2 = c3.x - a3.x, vy2 = c3.y - a3.y,
+                        vz2 = c3.z - a3.z;
+            float nx2 = uy2 * vz2 - uz2 * vy2, ny2 = uz2 * vx2 - ux2 * vz2,
+                  nz2 = ux2 * vy2 - uy2 * vx2;
+            const float cx3 = (a3.x + b3.x + c3.x) / 3.0F,
+                        cy3 = (a3.y + b3.y + c3.y) / 3.0F,
+                        cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+            // Winding is whatever the tables gave; orient the normal OUTWARD
+            // via the volume centroid, then classify against the camera. The
+            // GS has no face culling, so only the classification matters.
+            if (nx2 * (cx3 - volC[0]) + ny2 * (cy3 - volC[1]) +
+                    nz2 * (cz3 - volC[2]) <
+                0.0F)
+              nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+            const bool front = nx2 * (cameraPosition.x - cx3) +
+                                   ny2 * (cameraPosition.y - cy3) +
+                                   nz2 * (cameraPosition.z - cz3) >
+                               0.0F;
+            std::vector<Vec4>& dst = front ? b.volFront : b.volBack;
+            if (dst.size() > 4000) return;
+            dst.push_back(a3);
+            dst.push_back(b3);
+            dst.push_back(c3);
+          };
+          // 6 faces: corner indices + outward axis; lit = faces the light.
+          static const int kFace[6][4] = {{0, 2, 6, 4}, {1, 3, 7, 5},
+                                          {0, 1, 5, 4}, {2, 3, 7, 6},
+                                          {0, 1, 3, 2}, {4, 5, 7, 6}};
+          static const int kFaceAxis[6] = {0, 0, 1, 1, 2, 2};
+          static const float kFaceSign[6] = {-1, 1, -1, 1, -1, 1};
+          bool lit[6];
+          for (int f = 0; f < 6; ++f) {
+            const int a4 = kFaceAxis[f];
+            const float* ax2 = a4 == 0 ? pb.ax : (a4 == 1 ? pb.ay : pb.az);
+            float fc[3];
+            for (int c4 = 0; c4 < 3; ++c4)
+              fc[c4] = pb.o[c4] + ax2[c4] * pb.h[a4] * kFaceSign[f];
+            lit[f] = (fc[0] - cameraPosition.x) * ax2[0] * kFaceSign[f] +
+                         (fc[1] - cameraPosition.y) * ax2[1] * kFaceSign[f] +
+                         (fc[2] - cameraPosition.z) * ax2[2] * kFaceSign[f] <
+                     0.0F;
+            if (lit[f]) {
+              const int* q4 = kFace[f];
+              // near cap (the occluder's lit side) and its far projection
+              pushTri(nearP[q4[0]], nearP[q4[1]], nearP[q4[2]]);
+              pushTri(nearP[q4[0]], nearP[q4[2]], nearP[q4[3]]);
+              pushTri(farP[q4[0]], farP[q4[1]], farP[q4[2]]);
+              pushTri(farP[q4[0]], farP[q4[2]], farP[q4[3]]);
+            }
+          }
+          // Silhouette edges (adjacent faces disagree about the light): the
+          // extruded side quads that close the volume.
+          static const int kEdge[12][4] = {
+              {0, 1, 2, 4}, {2, 3, 3, 4}, {4, 5, 2, 5}, {6, 7, 3, 5},
+              {0, 2, 0, 4}, {1, 3, 1, 4}, {4, 6, 0, 5}, {5, 7, 1, 5},
+              {0, 4, 0, 2}, {1, 5, 1, 2}, {2, 6, 0, 3}, {3, 7, 1, 3}};
+          for (int e = 0; e < 12; ++e) {
+            if (lit[kEdge[e][2]] == lit[kEdge[e][3]]) continue;
+            const int p0 = kEdge[e][0], p1 = kEdge[e][1];
+            pushTri(nearP[p0], nearP[p1], farP[p1]);
+            pushTri(nearP[p0], farP[p1], farP[p0]);
+          }
+          if (b.volFront.empty() && b.volBack.empty()) continue;
+          // One bracket per sub-box; only the FIRST clears the mask channel.
+          // (Set-then-clear is only sound inside ONE convex volume, so each
+          // sub-box gets its own bracket; where two sub-boxes of one model
+          // overlap - the pole/arm joint - the artifact is a sliver.)
+          if (!volMask) {
+            rc.alphaMask.begin();
+            volMask = true;
+          } else {
+            rc.alphaMask.beginKeep();
+          }
+          if (!b.volFront.empty()) {
+            b.volSetBag->vertices = b.volFront.data();
+            b.volSetBag->count = (u32)b.volFront.size();
+            b.volSetBag->bboxVersion = ++g_bboxStamp;
+            stapip.core.render(b.volSetBag.get());
+          }
+          if (!b.volBack.empty()) {
+            b.volClrBag->vertices = b.volBack.data();
+            b.volClrBag->count = (u32)b.volBack.size();
+            b.volClrBag->bboxVersion = ++g_bboxStamp;
+            stapip.core.render(b.volClrBag.get());
+          }
+          rc.alphaMask.end();
+          }
+        }
+      }
+      // The floor pool draws through the mask - or plainly, without one.
+      // Set EVERY frame: the flag would outlive the mask otherwise.
+      b.info->dateLit = volMask;
+      // The mask lives in the framebuffer's ALPHA, and on the SDTV
+      // interlaced modes that channel is live display state (the flicker
+      // filter blends its two read circuits by per-pixel alpha) - leave it
+      // and the CRTC shows the volume shapes as translucent wedges over the
+      // picture. So once the last DATE-gated pass of this torch has drawn,
+      // the alpha byte goes back to the scene's neutral 0x80. Every exit
+      // from the branch below this point runs it.
+      auto finishVolMask = [&] {
+        if (volMask) engine->renderer.core.alphaMask.repaintAlpha();
+      };
       // Fixed-step march + a short bisection, like the flare's occlusion
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
       for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
         if (cameraPosition.y + dy * t <=
-            terrainHeightAt(cameraPosition.x + dx * t,
-                            cameraPosition.z + dz * t)) {
+            projSurfaceAt(cameraPosition.x + dx * t,
+                          cameraPosition.z + dz * t)) {
           float lo = prev, hi2 = t;
           for (int k2 = 0; k2 < 6; ++k2) {
             const float mid = (lo + hi2) * 0.5F;
             if (cameraPosition.y + dy * mid <=
-                terrainHeightAt(cameraPosition.x + dx * mid,
-                                cameraPosition.z + dz * mid))
+                projSurfaceAt(cameraPosition.x + dx * mid,
+                              cameraPosition.z + dz * mid))
               hi2 = mid;
             else
               lo = mid;
@@ -9237,28 +10612,225 @@ void TerrainGame::updateAndRenderLightPools() {
         }
         prev = t;
       }
-      if (hit < 0.0F) continue;
+      if (hit < 0.0F) {
+        // Nothing on the ground to light; the receivers already got theirs.
+        finishVolMask();
+        continue;
+      }
       const float gx = cameraPosition.x + dx * hit;
       const float gz = cameraPosition.z + dz * hit;
-      // Cone footprint at that distance, widened a little for the soft
-      // edge and floored so a straight-down look still gets a visible
-      // puddle. Grazing angles stretch the real footprint - the round
-      // patch is the PS2-era approximation, not a projection.
-      const float tanA = tanf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F);
-      float r = hit * tanA * 1.7F;
-      if (r < 0.7F) r = 0.7F;
-      if (r > 8.0F) r = 8.0F;
-      buildPoolPatch(b, gx, gz, r, 0.045F);
-      b.color.set(FLASHLIGHT_R, FLASHLIGHT_G, FLASHLIGHT_B, 128.0F);
-      // Fade out over the last third of the reach so the pool dies with
-      // the per-vertex beam instead of ending on a hard circle.
-      float fade = 1.0F - (hit / FLASHLIGHT_RANGE);
-      fade = fade > 1.0F ? 1.0F : (fade < 0.0F ? 0.0F : fade);
-      const float fix = 110.0F * fade;
-      if (fix < 1.0F) continue;
+      // What the patch lies on is decided ONCE, at the landing point, never
+      // per vertex: projSurfaceAt answers "the top of any receiver over this
+      // point", so a prop standing inside the patch would otherwise punch a
+      // cliff into it and the quad between would rasterize as a wall
+      // (renderProjShadows pays for that lesson in full). Terrain relief IS
+      // followed - it is smooth, and following it keeps the pool grounded.
+      const float baseY = projSurfaceAt(gx, gz);
+      const bool onGeometry = baseY > terrainHeightAt(gx, gz) + 0.01F;
+
+      // --- and the FLOOR patch, whether or not there was a wall -------------
+      // Nothing to stand on where the beam lands (no terrain, no receiver) is
+      // the one case with no floor pool at all.
+      if (hit < 0.0F || baseY <= TERRAIN_VOID_Y * 0.5F) {
+        finishVolMask();
+        continue;
+      }
+      // The lit footprint is an ELLIPSE: a beam meeting the floor at a grazing
+      // angle reaches far further than it is wide. So the patch is laid out
+      // along the beam's ground run rather than axis-aligned - a round one
+      // either clips the pool or spends fill rate on corners the gobo leaves
+      // black. Only COVERAGE is decided here; the shape is the texture's.
+      float ax = dx, az = dz;
+      const float al = sqrtf(ax * ax + az * az);
+      if (al < 0.0001F) {
+        ax = 1.0F, az = 0.0F;
+      } else {
+        ax /= al, az /= al;
+      }
+      const float cx2 = -az, cz2 = ax;  // across the beam
+      // Horizontal distance from the player to where the beam lands: the axis
+      // every extent below is measured along.
+      const float dxz = sqrtf(dx * dx + dz * dz);
+      const float tLand = hit * dxz;
+      float across = hit * tanA * 1.3F + 0.35F;
+      if (across > 7.0F) across = 7.0F;
+      float sinE = -dy;  // sine of the incidence angle with a level floor
+      if (sinE < 0.22F) sinE = 0.22F;
+      // Grazing beams spread the same cone over several times the ground, so
+      // they really are weaker per square metre. Applied per vertex, with the
+      // reach falloff.
+      float angleFade = 0.55F + 0.45F * sinE;
+      float along = across / sinE;
+      if (along > across * 4.5F) along = across * 4.5F;
+      across *= 1.12F;  // a little margin so the gobo reaches black inside it
+      along *= 1.12F;
+      // REACH far enough that the beam's own falloff is what ends the pool, not
+      // the patch's edge. The lower edge of the cone meets the ground at a
+      // horizontal distance that runs away as the beam flattens; the beam's
+      // range bounds it, because past that there is no light to draw anyway.
+      //
+      // An earlier version FADED the pool by how much of that it managed to
+      // cover, and that was wrong in a way worth recording: the required
+      // distance explodes as the elevation approaches the cone's half-angle,
+      // while the patch itself grows with the landing distance - so the fade
+      // was not monotonic in pitch. It left a band a few degrees wide where the
+      // pool vanished completely and came back beyond it, reported from the
+      // console as a dead spot. A fade that is not monotonic in the thing the
+      // player is moving is worse than the artifact it hides.
+      {
+        const float elev = asinf(sinE > 1.0F ? 1.0F : sinE);
+        float lower = elev - FLASHLIGHT_ANGLE * 3.14159265F / 180.0F;
+        if (lower < 0.03F) lower = 0.03F;
+        float need = (cameraPosition.y - baseY) / tanf(lower);  // horizontal
+        if (need > FLASHLIGHT_RANGE) need = FLASHLIGHT_RANGE;
+        const float want = (need - tLand) / 1.4F;  // the far edge is along*1.4
+        if (want > along) along = want;
+        if (along > across * 8.0F) along = across * 8.0F;  // fill-rate backstop
+      }
+      // The stretch belongs BEYOND the landing point, not around it.
+      const float shift = (along - across) * 0.55F;
+      const float px0 = gx + ax * shift, pz0 = gz + az * shift;
+      // ...and the NEAR edge may not reach behind the lens. Measuring
+      // horizontal distance along the beam's ground run as t, a patch point has
+      //   fwd = t * |d.xz| + height-above-ground * -d.y
+      // so fwd crosses zero at a t that is perfectly reachable whenever the
+      // player looks steeply down - and the projection's denominator going to
+      // zero across a straight line ON THE GROUND is exactly what a hard dark
+      // wedge cutting into the pool is. (Reported as "the pool is triangular";
+      // it survived the switch to per-pixel mapping, because the geometry was
+      // the half at fault.) Solve for fwd = 0.3 and put the near edge there.
+      float aNear = -along;
+      if (dxz > 1e-4F) {
+        const float tMin =
+            (0.3F - (cameraPosition.y - baseY) * -dy) / dxz - (tLand + shift);
+        if (tMin > aNear) aNear = tMin > along ? along * 0.05F : tMin;
+      }
+
+      // 96 vertices = one VU1 package. The cells are UNIFORM again: they were
+      // clustered toward the middle while the STs were finished u,v, to put
+      // vertices where the linear approximation hurt most - and with the
+      // mapping exact per pixel there is no approximation left to hide. All
+      // this grid decides now is which ground the pool COVERS.
+      // THREE cells, not the four the buffers are sized for (setupLightPools
+      // allocates the point lights' 4x4 = 96 vertices for every pool). Two
+      // reasons, and the second is the one that matters:
+      //
+      // With the mapping exact per pixel, this grid no longer draws the light
+      // at all - it only decides which GROUND the pool covers and how closely
+      // it follows the relief - so cells are nearly free to give up.
+      //
+      // And the patch sits right under the camera, so most of its triangles
+      // cross a frustum plane and the EE clipper REPLACES each with up to two:
+      // a 96-vertex bag can leave as a much bigger one, and a bag that outgrows
+      // a single VU1 package drops the overflow (the same multi-package drop
+      // renderProjShadows records for its 5x5 patch). A dropped triangle is a
+      // hard-edged dark wedge in the middle of the pool - which is exactly what
+      // survived every earlier fix. Four leaves the rim a cell to fade in
+      // without the fade eating the pool.
+      //
+      // The 16 cells are SHAPED to the pool rather than fixed square: 4x4 on
+      // a steep beam, 2 across x 8 along once the pool stretches - the chord
+      // length ALONG the beam is what fights the relief, and eight segments
+      // halve it at the same one-package vertex budget.
+      const int cellsA = along > across * 3.0F ? 8 : 4;
+      const int cellsC = 16 / cellsA;
+      b.bag->count = (u32)(cellsA * cellsC * 6);
+      // How far the patch floats above the ground it samples. A patch cell is
+      // metres across and the terrain under it is NOT flat between its corners,
+      // so the chord the patch draws dips below every crease it spans - and
+      // there the pool loses the depth test and you see plain ground in the
+      // middle of the light, as a hard-edged wedge along the patch's own
+      // triangulation. The view-ray bias below cannot cover that: it is a
+      // fraction of the distance, while this error is a property of the RELIEF.
+      // So the lift grows with the patch instead of being a constant 4.5 cm,
+      // which is free - this is additive light, not a shadow, and half a metre
+      // of float is invisible on a soft blob.
+      // ...and the lift grows with the LENGTH too: a grazing beam stretches
+      // the pool over tens of units of rolling ground, and a hill's crest
+      // cuts through a chord that a knee-high lift covers on a short patch.
+      // Seen as bright trapezoids marching into the distance - the pieces of
+      // the pool that survived the z test between the crests that ate it.
+      float lift = 0.10F + 0.07F * across + 0.02F * along;
+      if (lift > 1.2F) lift = 1.2F;
+      float aOff[9], cOff[9];
+      for (int i = 0; i <= cellsA; ++i) {
+        const float s = (float)i / cellsA;                // 0 .. 1
+        // 1.4x of margin on the FAR side: coverage is cheap now (the gobo is
+        // black out there, so the extra ground costs fill and nothing else)
+        // and running out of patch before the beam runs out of light cuts the
+        // pool off with a straight edge across the ground.
+        aOff[i] = aNear + (along * 1.4F - aNear) * s;     // asymmetric
+      }
+      for (int i = 0; i <= cellsC; ++i)
+        cOff[i] = ((float)i / cellsC * 2.0F - 1.0F) * across;
+      int v = 0;
+      for (int iz = 0; iz < cellsA; ++iz) {
+        for (int ix = 0; ix < cellsC; ++ix) {
+          const float a0 = aOff[iz], a1 = aOff[iz + 1];
+          const float c0 = cOff[ix], c1 = cOff[ix + 1];
+          // Corner order matches buildPoolPatch's winding (along first, then
+          // across): the beam basis is right-handed the other way round, and
+          // reversing it here keeps every pool submitting the same way.
+          const float qx[4] = {px0 + ax * a0 + cx2 * c0, px0 + ax * a1 + cx2 * c0,
+                               px0 + ax * a1 + cx2 * c1, px0 + ax * a0 + cx2 * c1};
+          const float qz[4] = {pz0 + az * a0 + cz2 * c0, pz0 + az * a1 + cz2 * c0,
+                               pz0 + az * a1 + cz2 * c1, pz0 + az * a0 + cz2 * c1};
+          Vec4 pv[4], ps[4];
+          Color pcv[4];
+          for (int k2 = 0; k2 < 4; ++k2) {
+            const float py =
+                (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + lift;
+            // The ST comes from the TRUE surface point: the depth bias must
+            // move the patch in z only, never slide the beam across it.
+            ps[k2] = goboST(qx[k2], py, qz[k2]);
+            pv[k2] = zBias(qx[k2], py, qz[k2]);
+            // Reach falloff per VERTEX (ps.z is the projection's own fwd):
+            // the far stretches of a grazing pool dim the way the beam does.
+            float reach = 1.0F - ps[k2].z / FLASHLIGHT_RANGE;
+            if (reach < 0.0F) reach = 0.0F;
+            if (reach > 1.0F) reach = 1.0F;
+            pcv[k2] = Color(FLASHLIGHT_R * reach, FLASHLIGHT_G * reach,
+                            FLASHLIGHT_B * reach, 128.0F);
+          }
+          constexpr int kTri[6] = {0, 1, 2, 0, 2, 3};
+          for (int k2 = 0; k2 < 6; ++k2) {
+            b.verts[v + k2] = pv[kTri[k2]];
+            b.sts[v + k2] = ps[kTri[k2]];
+            b.colors[v + k2] = pcv[kTri[k2]];
+          }
+          v += 6;
+        }
+      }
+      // The pool's gain is AIMED, not fixed: the additive blend computes
+      // Cs*FIX/128 + Cd, so the peak this patch can add is
+      // maxChannel/128 * FIX/128, and a peak at or over 1.0 clips - at which
+      // point the outline of the clipped region is the patch's own
+      // piecewise-linear ST field, i.e. straight segments and corners where
+      // its cells meet. That was reported as "the torch texture is ragged".
+      // So solve for a peak of 0.8 instead, from whatever colour the project
+      // authored: a dim torch keeps its pool bright, a white one no longer
+      // burns the middle out, and BOTH read brighter than a clipped one
+      // because the falloff around the core survives.
+      //
+      // The colour still drives the per-vertex cone on props at full strength,
+      // which is the other half of the same trap: that term has no N.L, so a
+      // bright torch flattens everything it touches into one colour.
+      // Reach lives in the vertex colors now; the flat factor keeps only the
+      // grazing dim and the aimed ceiling.
+      const float fade = angleFade;
+      float maxC = FLASHLIGHT_R > FLASHLIGHT_G ? FLASHLIGHT_R : FLASHLIGHT_G;
+      if (FLASHLIGHT_B > maxC) maxC = FLASHLIGHT_B;
+      if (maxC < 1.0F) maxC = 1.0F;
+      float fix = 14746.0F / maxC * fade;  // 0.9 * 128 * 128
+      if (fix > 255.0F) fix = 255.0F;
+      if (fix < 1.0F) {
+        finishVolMask();
+        continue;
+      }
       b.info->additiveBlendFix = fix > 255.0F ? 255 : (u8)fix;
       b.bag->bboxVersion = ++g_bboxStamp;
       stapip.core.render(b.bag.get());
+      finishVolMask();
       continue;
     }
     if (b.objIndex >= (int)runtimeObjects.size()) continue;
@@ -9273,8 +10845,55 @@ void TerrainGame::updateAndRenderLightPools() {
       }
     const float k = d.lightBright * level;
     if (k <= 0.01F) continue;
-    buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
-                   0.04F);  // under the shadows' 0.05/0.06
+    if (d.lightSpot && b.texBag->texture == flashGoboTex) {
+      // The flashlight's projection, from a SCENE light: march the cone's
+      // axis to the ground, drop the patch on the landing, and hand every
+      // vertex the projective STQ of the light's own frustum - the GS
+      // divides S/Q per pixel, so the footprint is the gobo however coarse
+      // the ground is (docs/flashlight.md; same formulas, light for camera).
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      const float lx = d.position[0], ly = d.position[1], lz = d.position[2];
+      float hit = -1.0F;
+      for (float t = 0.3F; t <= d.lightRadius; t += 0.3F) {
+        if (ly + sd.y * t <=
+            projSurfaceAt(lx + sd.x * t, lz + sd.z * t)) {
+          hit = t;
+          break;
+        }
+      }
+      if (hit < 0.0F) continue;
+      const float tanS = tanf(d.lightSpotAngle * 3.14159265F / 180.0F);
+      float rr = tanS * hit * 1.5F + 0.4F;
+      if (rr > d.lightRadius) rr = d.lightRadius;
+      buildPoolPatch(b, lx + sd.x * hit, lz + sd.z * hit, rr, 0.04F);
+      // Beam basis (the torch's degenerate-case trick, sd for the camera).
+      float srx, sry, srz;
+      if (sd.y > 0.995F || sd.y < -0.995F) {
+        srx = sd.y, sry = -sd.x, srz = 0.0F;
+      } else {
+        srx = -sd.z, sry = 0.0F, srz = sd.x;
+      }
+      const float srl = sqrtf(srx * srx + sry * sry + srz * srz);
+      if (srl < 0.0001F) continue;
+      srx /= srl, sry /= srl, srz /= srl;
+      const float sux = sry * sd.z - srz * sd.y;
+      const float suy = srz * sd.x - srx * sd.z;
+      const float suz = srx * sd.y - sry * sd.x;
+      const float kP = 0.43F / tanS;
+      for (size_t vi = 0; vi < b.verts.size(); ++vi) {
+        const float ex = b.verts[vi].x - lx, ey = b.verts[vi].y - ly,
+                    ez = b.verts[vi].z - lz;
+        float fwd = ex * sd.x + ey * sd.y + ez * sd.z;
+        if (fwd < 0.05F) fwd = 0.05F;
+        b.sts[vi] =
+            Vec4(0.5F * fwd + kP * (ex * srx + ey * sry + ez * srz),
+                 0.5F * fwd - kP * (ex * sux + ey * suy + ez * suz), fwd,
+                 0.0F);
+      }
+    } else {
+      buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
+                     0.04F);  // under the shadows' 0.05/0.06
+    }
     b.color.set(128.0F * d.color[0], 128.0F * d.color[1], 128.0F * d.color[2],
                 128.0F);
     float fix = 96.0F * (k > 1.4F ? 1.4F : k);
@@ -9319,6 +10938,8 @@ void TerrainGame::setupBlobShadows() {
     b.info->dynLightPick = false;  // as for the projected patches: a dark
                                    // blob under a dynamic light was picked up
                                    // by that light and drawn BRIGHT
+    b.info->spotLit = false;  // ...and the flashlight is the light that would
+                              // most obviously do it - you are standing there
     b.info->fullClipChecks = true;  // near-camera quad: clip, not drop
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.colorBag->single = &b.color;
@@ -9416,6 +11037,10 @@ void TerrainGame::setupProjShadows() {
                                    // its black straight back to the light's
                                    // color - a bright quad where the shadow
                                    // should be (same rule as the pools)
+    b.info->spotLit = false;  // including the flashlight, which dynLightPick =
+                              // false falls back to: shine a torch at your own
+                              // shadow and the per-vertex cone was lifting it
+                              // out of the ground in cell-sized steps
     b.info->fullClipChecks = true;  // big near-camera triangles: crossing
                                     // ones must CLIP, not drop whole (a
                                     // dropped 3-unit ground quad is a hole)
@@ -9430,6 +11055,36 @@ void TerrainGame::setupProjShadows() {
     b.bag->texture = b.texBag.get();
     b.bag->vertices = b.verts.data();
     b.bag->count = (u32)b.verts.size();
+    // GS CLAMP on the slot texture, for the WALL copy below: its STs are the
+    // silhouette projection evaluated per PIXEL (STQ), so there is no vertex
+    // to clamp on the EE the way the flat patch does - and REPEAT would tile
+    // the silhouette across the wall. The silhouette keeps a ~22% transparent
+    // border by construction (the fov sizing), so the clamped edge is empty.
+    b.texBag->texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
+    // The wall copy: same darkness, same slot texture, its own buffers. The
+    // STs are filled per frame from the light view-proj of the frame.
+    b.wallVerts.reserve(4096);
+    b.wallSts.reserve(4096);
+    b.wallColor = Color(0.0F, 0.0F, 0.0F, 55.0F);
+    b.wallInfo = std::make_unique<StaPipInfoBag>();
+    b.wallInfo->model = &b.mat;
+    b.wallInfo->shadingType = TyraShadingFlat;
+    b.wallInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    b.wallInfo->zTestType = PipelineZTest_TestOnly;
+    b.wallInfo->dynLightPick = false;  // a shadow is never re-lit
+    b.wallInfo->spotLit = false;
+    b.wallInfo->fullClipChecks = true;
+    b.wallColorBag = std::make_unique<StaPipColorBag>();
+    b.wallColorBag->single = &b.wallColor;
+    b.wallTexBag = std::make_unique<StaPipTextureBag>();
+    b.wallTexBag->texture = b.texBag->texture;
+    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallBag = std::make_unique<StaPipBag>();
+    b.wallBag->info = b.wallInfo.get();
+    b.wallBag->color = b.wallColorBag.get();
+    b.wallBag->texture = b.wallTexBag.get();
+    b.wallBag->vertices = b.wallVerts.data();
+    b.wallBag->count = 0;
   }
   // See setupLightBeams: the bags point INTO the vector elements, so they are
   // rebound once the vector has stopped reallocating under them. This is what
@@ -9438,6 +11093,8 @@ void TerrainGame::setupProjShadows() {
   for (ProjShadow& b : projShadows) {
     b.info->model = &b.mat;
     b.colorBag->single = &b.color;
+    b.wallInfo->model = &b.mat;
+    b.wallColorBag->single = &b.wallColor;
   }
 }
 
@@ -9515,6 +11172,244 @@ void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
     g_projRecv.push_back(r);
     if (g_projRecv.size() >= 24) break;  // a patch never needs more
   }
+}
+
+/** Solid boxes the flashlight's beam can land on, WALLS included.
+ *
+ * projCollectReceivers answers "what could this stand on", so it drops anything
+ * whose top is above the caster - which is every wall in the level. A beam does
+ * not care: shine it at a wall and the light belongs on the wall. This collects
+ * the same objects, with no height test, and projWallHit intersects them
+ * exactly rather than marching the column the ground path uses (a column would
+ * put the light on top of the wall).
+ *
+ * ORIENTED boxes, not axis-aligned ones. Everything else in this file that asks
+ * "what is under here" works on the AABB with rotation ignored, because it is
+ * asking about a FOOTPRINT and a footprint has no facing. A wall's facing is the
+ * entire question here: on an AABB, a wall turned 30 degrees to the world would
+ * take its light on a face that is not where the wall is. So the ray goes into
+ * the box's own frame (areaBasis - the same rotated basis an Area uses), the
+ * slab test happens there, and the patch is built there too. */
+
+void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
+  g_projBoxes.clear();
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible) continue;
+    if (o.data.collision == 2) continue;  // no collision = nothing to light
+    const int t = o.data.type;
+    // The same marker/volume skip list projCollectReceivers uses.
+    if (t == 4 || t == 6 || t == 7 || t == 8 || t == 9 || t == 11 || t == 13 ||
+        t == 14 || t == 17)
+      continue;
+    const GameModel* gm = nullptr;
+    if (t == 5 && o.data.model >= 0 && o.data.model < (int)gameModels.size())
+      gm = &gameModels[o.data.model];
+    const SkelModel* am = nullptr;
+    if (t == 5 && o.data.animModel >= 0 &&
+        o.data.animModel < (int)gameAnimModels.size())
+      am = gameAnimModels[o.data.animModel].src.get();
+    float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
+          ez = 0.5F * o.data.scale[2];
+    V3 lc = {0.0F, 0.0F, 0.0F};
+    const float* mn = gm ? gm->mn : (am ? am->min : nullptr);
+    const float* mx = gm ? gm->mx : (am ? am->max : nullptr);
+    if (mn && mx) {
+      lc = {0.5F * (mn[0] + mx[0]) * o.data.scale[0],
+            0.5F * (mn[1] + mx[1]) * o.data.scale[1],
+            0.5F * (mn[2] + mx[2]) * o.data.scale[2]};
+      ex = 0.5F * (mx[0] - mn[0]) * o.data.scale[0];
+      ey = 0.5F * (mx[1] - mn[1]) * o.data.scale[1];
+      ez = 0.5F * (mx[2] - mn[2]) * o.data.scale[2];
+    }
+    const AreaBasis ab = areaBasis(o.data);
+    ProjBox r;
+    for (int a = 0; a < 3; ++a) {
+      r.ax[a] = ab.ax[a], r.ay[a] = ab.ay[a], r.az[a] = ab.az[a];
+    }
+    // The mesh AABB's own centre offset is a LOCAL offset, so it rotates with
+    // the object - which is the whole point of doing this in the box's frame.
+    r.o[0] = o.data.position[0] + ab.ax[0] * lc.x + ab.ay[0] * lc.y +
+             ab.az[0] * lc.z;
+    r.o[1] = o.data.position[1] + ab.ax[1] * lc.x + ab.ay[1] * lc.y +
+             ab.az[1] * lc.z;
+    r.o[2] = o.data.position[2] + ab.ax[2] * lc.x + ab.ay[2] * lc.y +
+             ab.az[2] * lc.z;
+    r.h[0] = ex, r.h[1] = ey, r.h[2] = ez;
+    r.obj = oi;
+    r.type = t;
+    // Reach test on the bounding SPHERE - cheap, and rotation cannot fool it.
+    const float rad = sqrtf(ex * ex + ey * ey + ez * ez);
+    if (r.o[0] + rad < cx - reach || r.o[0] - rad > cx + reach) continue;
+    if (r.o[2] + rad < cz - reach || r.o[2] - rad > cz + reach) continue;
+    g_projBoxes.push_back(r);
+    if (g_projBoxes.size() >= 24) break;
+  }
+}
+
+bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
+                              float maxT, float& outT, int& outAxis,
+                              float& outSign, ProjBox& outBox) {
+  bool found = false;
+  for (const ProjBox& b : g_projBoxes) {
+    // A THIN box - a lamp post, a sign - is transparent to this ray: its
+    // AABB is a slab of mostly air (the post's arm stretches it), and the
+    // surface the light belongs to is whatever stands BEHIND it. Same 0.25
+    // rule as the receiver slots.
+    float bthin = b.h[0] < b.h[1] ? b.h[0] : b.h[1];
+    if (b.h[2] < bthin) bthin = b.h[2];
+    if (bthin < 0.25F) continue;
+    // The ray, in the box's own frame: project the offset and the direction
+    // onto its three axes. From here it is the ordinary slab test, and the slab
+    // that ADMITTED the ray last is the face it enters through - which is the
+    // plane the light lands on.
+    const float ox = from.x - b.o[0], oy = from.y - b.o[1],
+                oz = from.z - b.o[2];
+    const float lo3[3] = {ox * b.ax[0] + oy * b.ax[1] + oz * b.ax[2],
+                          ox * b.ay[0] + oy * b.ay[1] + oz * b.ay[2],
+                          ox * b.az[0] + oy * b.az[1] + oz * b.az[2]};
+    const float ld[3] = {dx * b.ax[0] + dy * b.ax[1] + dz * b.ax[2],
+                         dx * b.ay[0] + dy * b.ay[1] + dz * b.ay[2],
+                         dx * b.az[0] + dy * b.az[1] + dz * b.az[2]};
+    float t0 = 0.0F, t1 = maxT;
+    int axis = -1;
+    float sign = 0.0F;
+    bool ok = true;
+    for (int a = 0; a < 3 && ok; ++a) {
+      if (ld[a] > -1e-6F && ld[a] < 1e-6F) {
+        if (lo3[a] < -b.h[a] || lo3[a] > b.h[a]) ok = false;
+        continue;
+      }
+      const float inv = 1.0F / ld[a];
+      float tn = (-b.h[a] - lo3[a]) * inv;
+      float tf = (b.h[a] - lo3[a]) * inv;
+      float s = -1.0F;
+      if (tn > tf) {
+        const float tmp = tn;
+        tn = tf, tf = tmp;
+        s = 1.0F;
+      }
+      if (tn > t0) t0 = tn, axis = a, sign = s;
+      if (tf < t1) t1 = tf;
+      if (t0 > t1) ok = false;
+    }
+    if (!ok || axis < 0 || t0 <= 0.05F) continue;
+    if (found && t0 >= outT) continue;
+    found = true;
+    outT = t0;
+    outAxis = axis;
+    outSign = sign;
+    outBox = b;
+  }
+  return found;
+}
+
+/** Takes one object off the camera spot, and puts the previous one back.
+ *
+ * The per-vertex cone lights a box face from its four corners with no N.L, so a
+ * big flat receiver comes up EVENLY - and once the projected pool lands on that
+ * same face, the pool reads as a hotspot on an already-lit wall instead of as
+ * the only light on it. The wall is the one surface where the pool can do the
+ * whole job, so the cone gets out of its way, exactly as the terrain's does.
+ *
+ * The flag lives in the object's own info bags rather than at the submission
+ * sites - there are eleven of those (portals, mirrors, the through-views, the
+ * main pass) and a flag applied per site would be forgotten at one of them.
+ * It therefore takes effect on the NEXT frame, since the pool is drawn after
+ * the objects: 20 ms of cone on a wall you have just swept onto, which is not
+ * a thing anyone can see. Only the receiver's OWN spot is dropped, so the
+ * torch keeps lighting everything else in the beam. */
+/** Every big flat BOX in the beam's reach gives up the per-vertex cone, not
+ * merely the one the beam happens to be touching.
+ *
+ * Doing it for the hit alone left the other half of the report standing: a wall
+ * off to the side, inside the cone but not aimed at, still lit up as "a few
+ * bright triangles" - and then those triangles vanished the instant the beam
+ * came onto it and the pool took over. Two pops for the price of one.
+ *
+ * A wall never wants that term, whether or not the beam is centred on it. So the
+ * rule is a property of the OBJECT, not of the aim: a box primitive whose
+ * largest face is more than about 1.4 units across is lit by the pool when the
+ * pool is there and by the moon when it is not.
+ *
+ * BOXES ONLY, and that restriction is load-bearing: a model's bounding box says
+ * nothing about how its surface is tessellated, and a baked scatter chunk has an
+ * enormous one - a whole grouping cell of trees - so a size test would strip the
+ * cone from the entire forest. */
+void TerrainGame::updateFlashSpotOff() {
+  static std::vector<int> want;
+  want.clear();
+  for (int e : flashSpotExtra) want.push_back(e);
+  for (const ProjBox& b : g_projBoxes) {
+    bool have = false;
+    for (int e : flashSpotExtra)
+      if (e == b.obj) { have = true; break; }
+    if (have) continue;
+    if (b.type != 0) continue;  // box primitives only
+    float h0 = b.h[0], h1 = b.h[1], h2 = b.h[2];
+    if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
+    if (h1 < h2) { const float t = h1; h1 = h2, h2 = t; }
+    if (h0 < h1) { const float t = h0; h0 = h1, h1 = t; }
+    if (sqrtf(h0 * h0 + h1 * h1) > 1.4F) want.push_back(b.obj);
+  }
+  for (int prev : flashSpotOffList) {
+    bool still = false;
+    for (int w : want)
+      if (w == prev) { still = true; break; }
+    if (!still) setFlashSpotOff(prev, true);
+  }
+  flashSpotOffList.assign(want.begin(), want.end());
+  for (int w : want) setFlashSpotOff(w, false);
+}
+
+void TerrainGame::setFlashSpotOff(int obj, bool spot) {
+  // A STATICALLY BATCHED receiver does not draw from its own bags at all - its
+  // geometry lives in a merged bag that other objects share - so flagging its
+  // parts reaches nothing. (Measured the hard way: the flag was provably set,
+  // `Static batching: 3 objects in 3 batches` in the log, and the wall kept its
+  // cone.) A batch that holds ONLY this object can take the flag as a whole,
+  // which is the common case for a wall: batches group by cell and material, so
+  // a big lone wall tends to be its own. A batch with company keeps the cone -
+  // one torch must not darken every object grouped with what it points at.
+  auto loneBatch = [&](int i) -> StaticBatch* {
+    if (i < 0 || i >= (int)objectBatchOf.size()) return nullptr;
+    const int bi = objectBatchOf[i];
+    if (bi < 0 || bi >= (int)staticBatches.size()) return nullptr;
+    StaticBatch* sb = &staticBatches[bi];
+    return sb->members.size() == 1 && sb->bag ? sb : nullptr;
+  };
+  auto apply = [&](int i, bool lit) {
+    if (i < 0 || i >= (int)objectGeometry.size()) return;
+    for (GeoPart& part : objectGeometry[i].parts)
+      if (part.infoBag) part.infoBag->spotLit = lit;
+    if (objectGeometry[i].animInfoBag)
+      objectGeometry[i].animInfoBag->spotLit = lit;
+    if (StaticBatch* sb = loneBatch(i)) {
+      if (lit) {
+        if (batchInfoBag) sb->bag->info = batchInfoBag.get();
+      } else {
+        if (!batchNoSpotInfoBag) {
+          // The same settings rebuildStaticBatch gives batchInfoBag, and one
+          // more: no camera spot.
+          batchNoSpotInfoBag = std::make_unique<StaPipInfoBag>();
+          batchNoSpotInfoBag->model = &model;
+          batchNoSpotInfoBag->shadingType = TyraShadingFlat;
+          batchNoSpotInfoBag->frustumCulling =
+              PipelineInfoBagFrustumCulling_Precise;
+          batchNoSpotInfoBag->fullClipChecks = true;
+          batchNoSpotInfoBag->spotLit = false;
+        }
+        sb->bag->info = batchNoSpotInfoBag.get();
+      }
+    }
+  };
+  // Applied EVERY frame by the caller, not once on a transition:
+  // rebuildObjectGeometry makes a fresh info bag whenever a part's bag has gone
+  // (a demotion out of a static batch, a Live Link edit, a script that moves
+  // vertices), and that bag arrives with the cone switched back on. A flag set
+  // once would then be silently lost for as long as the beam stayed on that
+  // wall - which is exactly when it matters.
+  apply(obj, spot);
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {
@@ -9606,7 +11501,19 @@ void TerrainGame::renderProjShadows() {
       // every caster has been through, so it has to re-collect each one's
       // receivers rather than inherit the last caster's list.
       syMax[Tyra::RendererCoreShadowMap::slots];
+  // The torch's slots additionally paint the silhouette on the WALL behind
+  // the caster, so those need the shadow ray itself: caster centre + radius,
+  // the light->caster direction, and whether the torch was the light at all.
+  bool storch[Tyra::RendererCoreShadowMap::slots];
+  float sray[Tyra::RendererCoreShadowMap::slots][7];  // cx,cy,cz, dx,dy,dz, r
   int used = 0;
+  // The beam, for the cone gate below (a caster behind the player must not
+  // take a shadow from a light that does not reach it).
+  float fbx = cameraLookAt.x - cameraPosition.x,
+        fby = cameraLookAt.y - cameraPosition.y,
+        fbz = cameraLookAt.z - cameraPosition.z;
+  const float fbl = sqrtf(fbx * fbx + fby * fby + fbz * fbz);
+  if (fbl > 0.0001F) fbx /= fbl, fby /= fbl, fbz /= fbl;
 
   for (const Cand& c : cands) {
     if (used >= (int)projShadows.size()) break;
@@ -9662,16 +11569,20 @@ void TerrainGame::renderProjShadows() {
     // matter and the flat caster silently cast nothing at all.
     const AreaBasis casterBox = areaBasis(o.data);
     auto consider = [&](float px, float py, float pz, float radius,
-                        float bright, float level) {
+                        float bright, float level, float levelBar) {
       if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
       const float dx = cx - px, dy = cy - py, dz = cz - pz;
       const float d = sqrtf(dx * dx + dy * dy + dz * dz);
       if (d < 0.05F) return;
       if (areaDistSq(casterBox, px, py, pz) < 0.04F) return;  // in the caster
-      // Level with the caster or below it: nothing lands on the ground. The
-      // bar is low (~5 degrees) because the patch distance is clamped below -
-      // a flat ray now yields a truncated shadow instead of none.
-      if (dy > -0.08F * d) return;
+      // Level with the caster or below it: nothing lands on the GROUND, so a
+      // fixed light is not worth a slot (the bar is low, ~5 degrees, because
+      // the patch distance is clamped below - a flat ray yields a truncated
+      // shadow instead of none). The TORCH passes a laxer bar: it is carried
+      // at eye height, level with everything, and its shadow's whole point is
+      // the WALL behind the caster - the ground patch is simply skipped when
+      // the ray is too flat for one (see groundOk below).
+      if (dy > levelBar * d) return;
       const float fall = 1.0F - d / radius;
       if (fall <= 0.0F) return;  // out of the light's reach
       const float score = bright * level * fall;
@@ -9688,12 +11599,56 @@ void TerrainGame::renderProjShadows() {
         continue;
       const SceneObjectData& ld = runtimeObjects[L.objIndex].data;  // live
       consider(ld.position[0], ld.position[1], ld.position[2], ld.lightRadius,
-               ld.lightBright, L.lastLevel);
+               ld.lightBright, L.lastLevel, -0.08F);
     }
     // Baked point lights cast too: their light is vertex-baked and static,
     // but the CASTER moves, so its shadow cannot be baked with it.
     for (const BakedPointLight& L : g_scenePointLights)
-      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F);
+      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F, -0.08F);
+    // And the TORCH (docs/flashlight.md, "The shadow") - the Silent Hill
+    // moment this system existed for without knowing it: a caster in the beam
+    // hurls its silhouette away from the player, and the shadow swings with
+    // every step and every turn because the light is the player. Gated on the
+    // caster actually being IN the cone (with a margin for its radius): a prop
+    // beside the beam must not shadow from a light that does not reach it.
+    // Brightness 2.0 - at night the torch IS the light, and a scene point
+    // light you stand next to can still outbid it through its falloff term.
+    // (Volumes mode carries the torch's shadows in the destination alpha
+    // instead - the slots stay free for the scene's own lights there.)
+    if (!FLASH_SHADOW_VOLUMES && g_flashEnabled && g_flashOn) {
+      const float tx2 = cx - cameraPosition.x, ty2 = cy - cameraPosition.y,
+                  tz2 = cz - cameraPosition.z;
+      const float td = sqrtf(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
+      if (td > 0.05F) {
+        const float ca2 = (tx2 * fbx + ty2 * fby + tz2 * fbz) / td;
+        const float margin = td > 0.05F ? r / td : 1.0F;
+        if (ca2 + margin > cosf(FLASHLIGHT_ANGLE * 3.14159265F / 180.0F)) {
+          // ...and only with LINE OF SIGHT. The torch is the one light that
+          // walks around, so a caster on the far side of a wall is a routine
+          // arrangement, not an edge case - and without this test it still
+          // won the score and painted its silhouette THROUGH the wall, as a
+          // dark shape floating in the pool on the near face (seen in PCSX2
+          // before this test existed). One slab query along torch->caster,
+          // stopped a little short so the caster's own box cannot occlude
+          // itself.
+          projCollectBoxes(cameraPosition.x + tx2 * 0.5F,
+                           cameraPosition.z + tz2 * 0.5F, td * 0.5F + 2.0F);
+          float lt = 0.0F, ls = 0.0F;
+          int la = -1;
+          ProjBox lb;
+          const bool blocked =
+              projWallHit(cameraPosition, tx2 / td, ty2 / td, tz2 / td,
+                          td - r * 0.8F, lt, la, ls, lb) &&
+              lb.obj != i;
+          if (!blocked)
+            consider(cameraPosition.x, cameraPosition.y, cameraPosition.z,
+                     FLASHLIGHT_RANGE, 2.0F, 1.0F, 0.35F);
+        }
+      }
+    }
+    // Exact-equality test on purpose: consider() stored these very floats.
+    const bool fromTorch = !bestSun && lpx == cameraPosition.x &&
+                           lpy == cameraPosition.y && lpz == cameraPosition.z;
     if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
 
     // Light camera. For a point light the eye sits AT the light, so the
@@ -9713,7 +11668,11 @@ void TerrainGame::renderProjShadows() {
     const float eDist = sqrtf(ddx * ddx + ddy * ddy + ddz * ddz);
     if (eDist < 0.0001F) continue;
     ddx /= eDist, ddy /= eDist, ddz /= eDist;
-    if (ddy > -0.08F) continue;  // level or rising: nothing reaches the ground
+    // Level or rising: nothing reaches the GROUND. For a fixed light that is
+    // the end of it; the torch keeps the slot for the silhouette and the wall
+    // pass, and only the ground patch is skipped.
+    const bool groundOk = ddy <= -0.08F;
+    if (!fromTorch && !groundOk) continue;
 
     // FOV sized so the silhouette keeps a ~25% transparent border (CLAMP
     // smears edge texels outward - the border guarantees the edges stay
@@ -9756,6 +11715,8 @@ void TerrainGame::renderProjShadows() {
     const float latMax = r * 4.0F;
     const float tgMax =
         horizRun > 0.0001F ? latMax / horizRun : 1.0e9F;
+    float gx = cx, gz = cz, half = 0.0F;
+    if (groundOk) {
     // Receivers first: everything below is asking "where is the floor", and
     // indoors the floor is geometry. yMax is the caster's own underside (feet
     // for the anim/player types the lift above accounts for) plus a little,
@@ -9765,7 +11726,7 @@ void TerrainGame::renderProjShadows() {
     float gy = projSurfaceAt(cx, cz);
     float tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
-    float gx = cx + ddx * tg, gz = cz + ddz * tg;
+    gx = cx + ddx * tg, gz = cz + ddz * tg;
     gy = projSurfaceAt(gx, gz);
     tg = (cy - gy) / -ddy;
     if (tg > tgMax) tg = tgMax;
@@ -9779,12 +11740,17 @@ void TerrainGame::renderProjShadows() {
     // quad, and its triangles straddle the near plane every frame - exactly
     // where big triangles are fragile (and it looked wrong anyway). The cost
     // is a cropped shadow tip when the light is very low or very close.
-    float half = bestSun ? r * 1.6F + tg * 0.25F
-                         : r * 1.7F * ((eDist + tg) / eDist);
+    half = bestSun ? r * 1.6F + tg * 0.25F
+                   : r * 1.7F * ((eDist + tg) / eDist);
     const float halfCap = r * 3.5F;
     if (half > halfCap) half = halfCap;
+    }  // groundOk
 
     sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
+    storch[used] = fromTorch;
+    sray[used][0] = cx, sray[used][1] = cy, sray[used][2] = cz;
+    sray[used][3] = ddx, sray[used][4] = ddy, sray[used][5] = ddz;
+    sray[used][6] = r;
     syMax[used] = cy - r + 0.35F;
     const float dist = sqrtf(c.d2);
     sfade[used] =
@@ -9836,6 +11802,104 @@ void TerrainGame::renderProjShadows() {
   for (int s = 0; s < used; ++s) {
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
+    // Wall pass FIRST: the ground code below `continue`s on its own dead ends
+    // (a void landing, a sub-threshold fade), and a flat torch ray has no
+    // ground patch at all - shalf 0 marks it - while the wall is the point.
+    if (storch[s]) do {
+    // --- the WALL behind a torch-lit caster (docs/flashlight.md) ----------
+    // The silhouette painted ON the wall - the Silent Hill shot. The shadow
+    // ray (torch through caster) is chased to the nearest solid face, and the
+    // geometry it lands on is re-rendered with the slot's silhouette sampled
+    // through the light view-proj: STQ again, so the projection is exact per
+    // PIXEL, and the GS's CLAMP on the slot texture ends it at the
+    // silhouette's own transparent border. Torch slots only - a scene light
+    // is fixed and its wall shadow would be too, which the bake already does
+    // better; the torch's moves with every step, which nothing baked can.
+    const float* R = sray[s];
+    const float reach2 = R[6] * 8.0F;
+    projCollectBoxes(R[0] + R[3] * reach2 * 0.5F, R[2] + R[5] * reach2 * 0.5F,
+                     reach2 * 0.5F + 2.0F);
+    float wT = 0.0F, wSign = 0.0F;
+    int wAxis = -1;
+    ProjBox wBox;
+    if (!projWallHit(Vec4(R[0], R[1], R[2], 1.0F), R[3], R[4], R[5], reach2,
+                     wT, wAxis, wSign, wBox))
+      break;
+    {
+      // A face pointing mostly up is a floor: the flat patch above already
+      // owns it, and painting it twice doubles the darkness.
+      const float* fa2 =
+          wAxis == 0 ? wBox.ax : (wAxis == 1 ? wBox.ay : wBox.az);
+      if (fa2[1] * wSign >= 0.7F) break;
+    }
+    const int wo = wBox.obj;
+    if (wo < 0 || wo >= (int)objectGeometry.size()) break;
+    const bool wBatched =
+        wo < (int)objectBatchOf.size() && objectBatchOf[wo] >= 0;
+    if (wBatched) {
+      if (objectGeometry[wo].parts.empty() && !runtimeObjects[wo].dirty)
+        rebuildObjectGeometry(wo);
+    } else if (runtimeObjects[wo].dirty) {
+      rebuildObjectGeometry(wo);
+    }
+    ObjectGeometry& wg = objectGeometry[wo];
+    if (wg.parts.empty() || wg.matrixMode) break;
+    b.wallVerts.clear();
+    b.wallSts.clear();
+    const float* woc = runtimeObjects[wo].data.position;
+    for (GeoPart& part : wg.parts) {
+      if (!part.bag) continue;
+      const size_t nvt = part.vertices.size() / 3 * 3;
+      for (size_t vi = 0; vi + 2 < nvt + 1; vi += 3) {
+        if (b.wallVerts.size() >= 3997) break;
+        const Vec4& a3 = part.vertices[vi];
+        const Vec4& b3 = part.vertices[vi + 1];
+        const Vec4& c3 = part.vertices[vi + 2];
+        // The same facing cull as the light pass, against the same torch: a
+        // face the light cannot reach must not take its shadow either - this
+        // is what keeps the silhouette off the wall's INNER face.
+        float nx2 =
+            (b3.y - a3.y) * (c3.z - a3.z) - (b3.z - a3.z) * (c3.y - a3.y);
+        float ny2 =
+            (b3.z - a3.z) * (c3.x - a3.x) - (b3.x - a3.x) * (c3.z - a3.z);
+        float nz2 =
+            (b3.x - a3.x) * (c3.y - a3.y) - (b3.y - a3.y) * (c3.x - a3.x);
+        const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+        const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+        const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+        if (nx2 * (cx3 - woc[0]) + ny2 * (cy3 - woc[1]) +
+                nz2 * (cz3 - woc[2]) <
+            0.0F)
+          nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+        if (nx2 * (cameraPosition.x - cx3) + ny2 * (cameraPosition.y - cy3) +
+                nz2 * (cameraPosition.z - cz3) <=
+            0.0F)
+          continue;
+        // The silhouette's STQ: clip = lightVP * world, and the same 2048
+        // raster convention as the flat patch (kUv). Q guards at a hair above
+        // zero - a vertex behind the light plane lands far outside 0..1 and
+        // the CLAMP returns the border, which the fov margin keeps empty.
+        const Vec4 tri3[3] = {a3, b3, c3};
+        for (int k3 = 0; k3 < 3; ++k3) {
+          b.wallVerts.push_back(tri3[k3]);
+          const Vec4 clip = lightVP[s] * tri3[k3];
+          const float q = clip.w > 0.001F ? clip.w : 0.001F;
+          b.wallSts.push_back(Vec4(0.5F * q + kUv * clip.x,
+                                   0.5F * q + kUv * clip.y, q, 0.0F));
+        }
+      }
+    }
+    b.wallVerts.resize(b.wallVerts.size() / 3 * 3);
+    b.wallSts.resize(b.wallVerts.size());
+    if (b.wallVerts.empty()) break;
+    b.wallColor.a = 55.0F * sfade[s];
+    b.wallBag->vertices = b.wallVerts.data();
+    b.wallBag->count = (u32)b.wallVerts.size();
+    b.wallTexBag->coordinates = b.wallSts.data();
+    b.wallBag->bboxVersion = ++g_bboxStamp;
+    stapip.core.render(b.wallBag.get());
+    } while (0);
+    if (half < 0.01F) continue;  // a flat torch ray: wall only
     projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
     // What this patch lies on is decided ONCE, at its centre - never per
     // vertex.
@@ -9914,6 +11978,7 @@ void TerrainGame::renderProjShadows() {
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
+
   }
 }
 
@@ -9958,15 +12023,45 @@ void TerrainGame::updateAndRenderLightBeams() {
 
     const float cx = d.position[0], cy = d.position[1], cz = d.position[2];
     const float half = d.lightRadius * 0.14F;
+    // The corona is depth-TESTED so a wall in front of the lamp still hides
+    // it - but a billboard centred exactly on the bulb SLICES THROUGH the
+    // fixture that carries it (the pole, the arm), and the GS's fixed-point z
+    // interpolation cuts the soft sprite on a jagged, stair-stepped seam
+    // (reported from night-walk's street lamp: a hard staircase running up
+    // the pole where the glow met it). So the sprite is pulled toward the
+    // CAMERA far enough to clear its own fixture, and shrunk by the same
+    // fraction so its apparent size does not move - a glow is not a surface,
+    // and in a real lens it blooms OVER the thin thing that carries it.
+    // Capped at THREE QUARTERS of the camera distance, so walking into the
+    // lamp cannot drag the sprite through the near plane. Half was tried
+    // first and measurably parked the seam at the pole's base when looking
+    // steeply up (which is how the value was chosen) - the editor viewport's
+    // twin, Viewport::drawLightBeams, reads the same 0.75. The cone shaft
+    // below stays at the true position on purpose: it is world geometry, and
+    // sliding it would visibly detach it from the lamp head.
+    float pcx = cx, pcy = cy, pcz = cz, chalf = half;
+    {
+      const float vx2 = cameraPosition.x - cx, vy2 = cameraPosition.y - cy,
+                  vz2 = cameraPosition.z - cz;
+      const float vl = sqrtf(vx2 * vx2 + vy2 * vy2 + vz2 * vz2);
+      if (vl > 0.0001F) {
+        float pull = d.lightRadius * 0.25F;
+        if (pull > vl * 0.75F) pull = vl * 0.75F;
+        pcx += vx2 / vl * pull;
+        pcy += vy2 / vl * pull;
+        pcz += vz2 / vl * pull;
+        chalf = half * (vl - pull) / vl;
+      }
+    }
     const Vec4 corners[4] = {
-        Vec4(cx + (-rx - ux) * half, cy + (-ry - uy) * half,
-             cz + (-rz - uz) * half, 1.0F),
-        Vec4(cx + (rx - ux) * half, cy + (ry - uy) * half,
-             cz + (rz - uz) * half, 1.0F),
-        Vec4(cx + (rx + ux) * half, cy + (ry + uy) * half,
-             cz + (rz + uz) * half, 1.0F),
-        Vec4(cx + (-rx + ux) * half, cy + (-ry + uy) * half,
-             cz + (-rz + uz) * half, 1.0F)};
+        Vec4(pcx + (-rx - ux) * chalf, pcy + (-ry - uy) * chalf,
+             pcz + (-rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx - ux) * chalf, pcy + (ry - uy) * chalf,
+             pcz + (rz - uz) * chalf, 1.0F),
+        Vec4(pcx + (rx + ux) * chalf, pcy + (ry + uy) * chalf,
+             pcz + (rz + uz) * chalf, 1.0F),
+        Vec4(pcx + (-rx + ux) * chalf, pcy + (-ry + uy) * chalf,
+             pcz + (-rz + uz) * chalf, 1.0F)};
     b.coronaVerts[0] = corners[0];
     b.coronaVerts[1] = corners[1];
     b.coronaVerts[2] = corners[2];
@@ -10122,6 +12217,146 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
   for (int k = 0; k < 3; ++k) b.center[k] = c[k], b.half[k] = h[k];
   b.yaw = o.data.modelYaw;
   return b;
+}
+
+// --- Foot IK probe overlay (DEBUG_SHOW_FOOTIK, docs/foot-ik.md) -----------
+//
+// Every correction Foot IK makes comes from a raycast, and a ray is exactly what
+// the screen cannot show. From outside, "the foot hangs in the air" looks the
+// same whether the ray missed, found a surface the gates then refused, or found
+// one the solver deliberately lifted the shoe OVER - three different bugs with
+// three different fixes, and picking between them used to mean reading a CSV.
+// This draws the rays where they were cast, marks where each one stopped, and
+// colours the leg's actual target by whether the foot took weight.
+//
+// The colours are the vocabulary:
+//   dim cyan segment   the search window a ray covered
+//   bright cyan mark   where it stopped (a real surface)
+//   red segment        the ray came back with nothing
+//   yellow mark        an ahead/lip probe's hit - what the swing reacts to
+//   magenta mark       a swept shoe-corner hit (the tunnelling guard)
+//   white mark         a candidate of the learned landing fan
+//   green cross        the leg's target, foot taking weight
+//   orange cross       the leg's target, foot NOT taking weight - the "why is
+//                      it in the air" case, and the mark sits where the solver
+//                      sent the ankle rather than where the ray hit
+void TerrainGame::recordFootProbe(FootProbe::Kind kind, float x, float z,
+                                  float top, float bottom, bool hit,
+                                  float hitY) {
+  if (!DEBUG_SHOW_FOOTIK) return;
+  if ((int)footIkProbes.size() >= FOOTIK_PROBE_LIMIT) {
+    footIkProbesTruncated = true;
+    return;
+  }
+  FootProbe pr;
+  pr.kind = kind;
+  pr.x = x;
+  pr.z = z;
+  pr.top = top;
+  pr.bottom = bottom;
+  pr.hit = hit;
+  pr.hitY = hitY;
+  footIkProbes.push_back(pr);
+}
+
+void TerrainGame::renderFootIkProbes() {
+  if (!DEBUG_SHOW_FOOTIK) return;
+  if (footIkProbes.empty()) return;
+  footProbeVerts.clear();
+  footProbeCols.clear();
+
+  // A camera-facing quad is not worth the trouble here: a thin CROSS of two
+  // axis-aligned quads reads as a line from any angle and nothing in this
+  // overlay backface-culls (the collision overlay makes the same trade).
+  auto quad = [&](const Vec4& p0, const Vec4& p1, const Vec4& p2,
+                  const Vec4& p3, const Color& c) {
+    footProbeVerts.push_back(p0), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p1), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p2), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p0), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p2), footProbeCols.push_back(c);
+    footProbeVerts.push_back(p3), footProbeCols.push_back(c);
+  };
+  // A vertical segment at (x, z) from y0 to y1, as a cross of two thin quads.
+  auto segment = [&](float x, float z, float y0, float y1, float t,
+                     const Color& c) {
+    if (y1 < y0) { const float sw = y0; y0 = y1; y1 = sw; }
+    quad(Vec4(x - t, y0, z, 1.0F), Vec4(x + t, y0, z, 1.0F),
+         Vec4(x + t, y1, z, 1.0F), Vec4(x - t, y1, z, 1.0F), c);
+    quad(Vec4(x, y0, z - t, 1.0F), Vec4(x, y0, z + t, 1.0F),
+         Vec4(x, y1, z + t, 1.0F), Vec4(x, y1, z - t, 1.0F), c);
+  };
+  // A horizontal cross at a height - "it stopped HERE".
+  auto mark = [&](float x, float z, float y, float r, const Color& c) {
+    const float t = r * 0.18F;
+    quad(Vec4(x - r, y, z - t, 1.0F), Vec4(x + r, y, z - t, 1.0F),
+         Vec4(x + r, y, z + t, 1.0F), Vec4(x - r, y, z + t, 1.0F), c);
+    quad(Vec4(x - t, y, z - r, 1.0F), Vec4(x + t, y, z - r, 1.0F),
+         Vec4(x + t, y, z + r, 1.0F), Vec4(x - t, y, z + r, 1.0F), c);
+  };
+
+  const Color dimCyan(0.0F, 110.0F, 130.0F, 90.0F);
+  const Color brightCyan(60.0F, 230.0F, 255.0F, 128.0F);
+  const Color red(255.0F, 60.0F, 60.0F, 110.0F);
+  const Color yellow(255.0F, 210.0F, 40.0F, 128.0F);
+  const Color magenta(230.0F, 70.0F, 230.0F, 128.0F);
+  const Color white(240.0F, 240.0F, 240.0F, 120.0F);
+  const Color green(60.0F, 240.0F, 90.0F, 128.0F);
+  const Color orange(255.0F, 140.0F, 30.0F, 128.0F);
+
+  for (const FootProbe& pr : footIkProbes) {
+    if (pr.kind == FootProbe::Target) {
+      // Bigger, and drawn at the target height: this is the answer, the rays
+      // are the evidence.
+      mark(pr.x, pr.z, pr.hitY, 0.075F, pr.locked ? green : orange);
+      continue;
+    }
+    // The window the ray covered, and where it stopped. A miss draws the whole
+    // window red, which is what makes "there was nothing there" legible.
+    const float thin = pr.kind == FootProbe::Sole ? 0.006F : 0.004F;
+    if (!pr.hit) {
+      segment(pr.x, pr.z, pr.top, pr.bottom, thin, red);
+      continue;
+    }
+    segment(pr.x, pr.z, pr.top, pr.hitY, thin, dimCyan);
+    Color c = brightCyan;
+    float r = 0.030F;
+    if (pr.kind == FootProbe::Lip || pr.kind == FootProbe::Ahead)
+      c = yellow, r = 0.024F;
+    else if (pr.kind == FootProbe::Sweep)
+      c = magenta, r = 0.018F;
+    else if (pr.kind == FootProbe::Plan)
+      c = white, r = 0.020F;
+    else
+      r = 0.040F;
+    mark(pr.x, pr.z, pr.hitY, r, c);
+  }
+
+  if (footProbeVerts.empty()) return;
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  if (!footProbeBag) {
+    footProbeColorBag = std::make_unique<StaPipColorBag>();
+    footProbeBag = std::make_unique<StaPipBag>();
+    footProbeBag->info = batchInfoBag.get();
+    footProbeBag->color = footProbeColorBag.get();
+    footProbeBag->lighting = nullptr;
+    footProbeBag->texture = nullptr;
+  }
+  footProbeColorBag->many = footProbeCols.data();
+  footProbeBag->vertices = footProbeVerts.data();
+  footProbeBag->count = static_cast<u32>(footProbeVerts.size());
+  footProbeBag->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(footProbeBag.get());
+  if (footIkProbesTruncated)
+    TYRA_WARN("Foot IK probe overlay truncated at ", FOOTIK_PROBE_LIMIT,
+              " probes - some rays this frame are not drawn");
+  footIkProbesTruncated = false;
 }
 
 // Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
@@ -10471,17 +12706,28 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
 
-  // Sprint (Tools > Input Map "sprint" action + Preferences > Input > Sprint
-  // speed): scales the walk speed while the action is held. SPRINT_MULT 1 or
-  // an unbound/absent sprint action = no sprinting, no cost. The avatar's
-  // locomotion clip is chosen from speedFrac against the UNSPRINTED speed
-  // further down, so sprinting is what pushes it over the run threshold.
+  // The three speed tiers (docs/player-speeds.md). The stick's DEFLECTION
+  // ramps the speed from walk to run, so easing the stick walks and pushing it
+  // all the way runs; a digital source (d-pad, keyboard) always reads full
+  // deflection and therefore always runs. Holding the "sprint" action pins the
+  // top speed FLAT instead of ramping - a deliberate go-fast modifier.
+  //
+  // Both tiers are RESOLVED at build time (project::playerRunSpeed /
+  // playerSprintSpeed), so a project that set neither has RUN == WALK - the
+  // ramp is then a no-op - and SPRINT == walk x SPRINT_MULT, which is the
+  // expression this used to compute here. That is what makes an existing
+  // project move exactly as it did.
+  //
+  // forward/strafe are each -1..1 and already carry the stick's magnitude into
+  // the position delta below, so the ramp must scale the SPEED only; the clamp
+  // matters because a d-pad diagonal reads sqrt(2).
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
+  const bool sprinting =
+      IA_ROLE_SPRINT >= 0 && inputPressed(pad, IA_ROLE_SPRINT);
   const float moveSpeed =
-      PP_WALK_SPEED(pi) *
-      ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-        inputPressed(pad, IA_ROLE_SPRINT))
-           ? SPRINT_MULT
-           : 1.0F);
+      sprinting ? P.speeds[2]
+                : P.speeds[0] + (P.speeds[1] - P.speeds[0]) * stickMag;
 
   if (PP_MODE(pi) == 1) {
     // Noclip: fly where the camera looks; X up, Square down.
@@ -10555,11 +12801,20 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // root so a 22 cm stair is crossed over several frames instead of one.
     // Airborne motion follows physics exactly; the filter resumes on contact,
     // including a landing onto a raised surface after a short gap.
+    // Going DOWN eases faster than going up, and that asymmetry is not
+    // cosmetic: while the root lags above the real floor the swing foot has to
+    // reach the whole residual PLUS the step, which is how a walk down stairs
+    // ended up finishing its stride in the air. A rising step wants the slow
+    // filter (the alternative is the whole camera hopping); a falling one is
+    // gravity and reads fine quickly. Foot IK is told the residual either way -
+    // see ikGroundDrop below - so the two mechanisms cannot disagree about how
+    // far down the ground is.
     if (!P.visualYReady) {
       P.visualY = P.y;
       P.visualYReady = true;
     } else if (grounded) {
-      float rootBlend = g_frameDt * 8.0F;
+      const bool falling = P.y < P.visualY;
+      float rootBlend = g_frameDt * (falling ? 16.0F : 8.0F);
       if (rootBlend > 1.0F) rootBlend = 1.0F;
       P.visualY += (P.y - P.visualY) * rootBlend;
       if (fabsf(P.y - P.visualY) < 0.0005F) P.visualY = P.y;
@@ -10676,9 +12931,18 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
       body.data.position[1] = P.visualY;
       body.data.position[2] = P.z;
       body.data.rotation[1] = P.faceYaw * 180.0F / PI;
-      const float step = PP_WALK_SPEED(pi) * g_frameScale;
+      // What the visual root still owes the collision height. Positive while
+      // stepping DOWN, which is exactly when a foot needs extra reach; Foot IK
+      // spends it only where a raycast proves support that far below.
+      body.ikGroundDrop = P.visualY > P.y ? P.visualY - P.y : 0.0F;
+      // Locomotion clips are measured against the RUN speed - the top of the
+      // stick ramp - so PP_RUN_THRESHOLD keeps meaning "fraction of full-stick
+      // speed" whether or not a run speed was set (with none, RUN == WALK and
+      // this is the expression it always was). Sprinting exceeds the run
+      // speed, so it still pushes the fraction past the threshold.
+      const float step = P.speeds[1] * g_frameScale;
       drivePlayerAnim(P, body, step > 1e-4F ? movedLen / step : 0.0F, grounded,
-                      moveLocal);
+                      moveLocal, sprinting);
     }
     return;
   }
@@ -10794,17 +13058,18 @@ void TerrainGame::setPlayerTwoActive(bool active) {
 // the planar speed as a fraction of full walk speed. The mapping is trivial -
 // idle / walk / run by speed, jump while airborne - and the avatar's playback
 // speed tracks the real speed so the feet don't slide. The escape hatch: if a
-// non-locomotion clip is currently playing (a script/flow "Play Animation"
+// non-locomotion clip is currently playing (a script or an Animation node
 // one-shot), locomotion holds off until it finishes, then resumes. This is the
 // whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
                                   float speedFrac, bool grounded,
-                                  float moveLocal) {
+                                  float moveLocal, bool sprinting) {
   if (P.objIndex < 0 || !objectGeometry[P.objIndex].animInst) return;
   const int pi = &P == &players[1] ? 1 : 0;
   body.animPlaying = true;
 
   int want;
+  bool onSprintClip = false;
   if (!grounded && P.jumpClip >= 0)
     want = P.jumpClip;
   else if (speedFrac < 0.12F)
@@ -10821,19 +13086,29 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
       dir = P.backClip;
     else if (a > 1.0471976F)  // 60..120 deg
       dir = moveLocal < 0.0F ? P.strafeRClip : P.strafeLClip;
+    // Above the run threshold the sprint clip REPLACES the run clip while the
+    // sprint action is held - the tier is a button, not a speed band, so it is
+    // read from the button. A project with no sprint clip keeps using the run
+    // clip for both, exactly as before.
     if (dir >= 0)
       want = dir;
-    else if (speedFrac < PP_RUN_THRESHOLD(pi) || P.runClip < 0)
+    else if (speedFrac < PP_RUN_THRESHOLD(pi))
       want = P.walkClip;
-    else
+    else if (sprinting && P.sprintClip >= 0) {
+      want = P.sprintClip;
+      onSprintClip = true;
+    } else if (P.runClip >= 0)
       want = P.runClip;
+    else
+      want = P.walkClip;
   }
   if (want < 0) want = P.idleClip;
   if (want < 0) want = 0;  // no clips mapped: hold the model's first clip
 
   const bool locomotion =
       body.animClip == P.idleClip || body.animClip == P.walkClip ||
-      body.animClip == P.runClip || body.animClip == P.jumpClip ||
+      body.animClip == P.runClip || body.animClip == P.sprintClip ||
+      body.animClip == P.jumpClip ||
       body.animClip == P.backClip || body.animClip == P.strafeLClip ||
       body.animClip == P.strafeRClip;
   if (!locomotion && !body.animFinished) return;  // let a one-shot finish
@@ -10849,25 +13124,43 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
   // changed translation without changing the authored cadence.
   const float base = body.data.animSpeed;
   if (want != P.idleClip && want != P.jumpClip && speedFrac >= 0.12F) {
-    float cadence = speedFrac < 0.35F ? 0.35F : speedFrac;
+    // speedFrac is measured against the RUN speed, so a sprint clip - authored
+    // at sprint pace - would be driven at sprint/run times its authored rate
+    // and visibly gallop. Normalise it against the tier the clip belongs to,
+    // so a sprint clip plays 1x while actually sprinting.
+    float frac = speedFrac;
+    if (onSprintClip && P.speeds[1] > 1e-6F) {
+      const float ratio = P.speeds[2] / P.speeds[1];
+      if (ratio > 1e-6F) frac /= ratio;
+    }
+    float cadence = frac < 0.6F ? 0.6F : frac;
+    // An AUTHORED stride speed measures the same thing directly, and better: a
+    // clip whose gaitSpeed was baked is driven by the ratio of actual travel
+    // speed to the pace it was animated at, which is what keeps a PLANTED foot
+    // from skating (docs/foot-ik.md - a foot the solver has pinned to a stair
+    // slides visibly when the clip runs at the wrong rate). It also makes the
+    // tier normalisation above redundant for that clip: a sprint clip played at
+    // its authored pace comes out at 1x by construction. So the tier ratio is
+    // the fallback, for a clip with no measured stride (gaitSpeed 0).
     if (body.data.animModel >= 0 &&
-        body.data.animModel < (int)gameAnimModels.size() &&
-        want >= 0 && want < (int)gameAnimModels[body.data.animModel].src->clips.size()) {
+        body.data.animModel < (int)gameAnimModels.size() && want >= 0 &&
+        want < (int)gameAnimModels[body.data.animModel].src->clips.size()) {
       const float authored =
           gameAnimModels[body.data.animModel].src->clips[want].gaitSpeed;
       const float scale =
           (fabsf(body.data.scale[0]) + fabsf(body.data.scale[2])) * 0.5F;
       if (authored > 0.001F && scale > 0.001F) {
-        const float actualSpeed = speedFrac * PP_WALK_SPEED(pi) * 50.0F;
+        // Against the RUN speed, which is what speedFrac is a fraction OF now -
+        // it was PP_WALK_SPEED before main moved the reference.
+        const float actualSpeed = speedFrac * P.speeds[1] * 50.0F;
         cadence = actualSpeed / (authored * scale);
         if (cadence < 0.35F) cadence = 0.35F;
         if (cadence > 3.5F) cadence = 3.5F;
       }
     }
     body.animSpeed = base * cadence;
-  } else {
+  } else
     body.animSpeed = base;
-  }
 }
 
 void TerrainGame::buildSkyDome() {
@@ -11082,6 +13375,17 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   // probe path. Never both (docs/global-illumination.md).
   g_giLightmap = SCENE_AO_ATLAS_GI && g_emisAtlas;
   g_giProbeShade = !g_giLightmap && SCENE_PROBES != nullptr;
+  // ...unless the object's TEXTURE already carries its light
+  // (docs/prelit-models.md). Then nothing may be baked into its vertices at
+  // all: every term below - ambient, N.L, the baked point lights, the emissive
+  // pools - is already in the albedo, per pixel, and adding it again lights the
+  // surface twice. This is the only per-pixel static light a TEXTURED surface
+  // can have on this hardware, so the flag has to beat both routes above.
+  g_prelitTex = o.data.prelit != 0;
+  if (g_prelitTex) {
+    g_giLightmap = false;
+    g_giProbeShade = false;
+  }
   // Dynamic lighting wins over both: VU1 lights this object from a bag the
   // frame loop refills, so nothing may be baked into its vertices at all.
   // Needs a probe grid to read - without one there is nothing to be dynamic
@@ -11974,6 +14278,96 @@ static bool modelSourceMatches(int m, const char* srcPath) {
   return m >= 0 && m < MODEL_COUNT && !strcmp(MODEL_SOURCES[m], srcPath);
 }
 
+// --- block ambient occlusion ------------------------------------------------
+// The block lattice is the one piece of runtime geometry that can occlude
+// ITSELF, and the only one that already knows how: Blocks Fill publishes a
+// collision field saying which cells are solid, so the corner darkening a
+// voxel world lives on costs a handful of bit tests per block at generation
+// time and nothing per frame. Everything else generated at runtime is lit
+// from the probe grid and the baked occluder table
+// (docs/ambient-occlusion.md), and neither of those can see geometry that did
+// not exist when the scene was baked.
+//
+// Face index is faceOfNormal's, which is also the bit order of Blocks Fill's
+// visible-face mask: 0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z, 5 = -Z. Both
+// read the ASSET's local axes, so a block asset placed with a rotation
+// mismatches the lattice here exactly as it already does for face culling.
+//   kProcFaceAxis/kProcFaceDir - the axis the face looks along, and which way
+//   kProcFaceU/kProcFaceV      - its two in-plane axes, in the order the
+//                                corner index counts them:
+//                                corner = (v > 0) * 2 + (u > 0).
+static const int kProcFaceAxis[6] = {0, 0, 1, 1, 2, 2};
+static const int kProcFaceDir[6] = {1, -1, 1, -1, 1, -1};
+static const int kProcFaceU[6] = {2, 2, 0, 0, 0, 0};
+static const int kProcFaceV[6] = {1, 1, 2, 2, 1, 1};
+
+/** One cell of the 3x3x3 neighbourhood word procBlockVertexAo builds. */
+static bool procNbSolid(unsigned int nb, int dx, int dy, int dz) {
+  return ((nb >> ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1))) & 1u) != 0u;
+}
+
+void TerrainGame::procBlockVertexAo(float x, float y, float z,
+                                    unsigned char faces,
+                                    unsigned char out[24]) const {
+  for (int i = 0; i < 24; ++i) out[i] = 255;  // 255 = open sky
+  if (!procBlocks.active || !SCENE_AO_ENABLED) return;
+  // Sample the whole neighbourhood once - 26 field lookups instead of the 72
+  // the corners would ask for separately, and each corner below is then three
+  // bit tests. Offsets are taken from the block's CENTRE, so a lattice cell
+  // can never be missed by a rounding edge.
+  const float c = procBlocks.cell;
+  unsigned int nb = 0u;
+  for (int dz = -1; dz <= 1; ++dz)
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx)
+        if (procBlockSolid(x + (float)dx * c, y + (float)dy * c,
+                           z + (float)dz * c))
+          nb |= 1u << ((dz + 1) * 9 + (dy + 1) * 3 + (dx + 1));
+
+  for (int f = 0; f < 6; ++f) {
+    if (!(faces & (1 << f))) continue;  // buried: nothing will read it
+    const int na = kProcFaceAxis[f], ua = kProcFaceU[f], va = kProcFaceV[f];
+    for (int corner = 0; corner < 4; ++corner) {
+      const int us = (corner & 1) ? 1 : -1;
+      const int vs = (corner & 2) ? 1 : -1;
+      // The three cells sharing this corner, in the plane just OUTSIDE the
+      // face: the two edge neighbours and the diagonal between them.
+      int s1[3] = {0, 0, 0}, s2[3] = {0, 0, 0}, dg[3] = {0, 0, 0};
+      s1[na] = s2[na] = dg[na] = kProcFaceDir[f];
+      s1[ua] = us;
+      s2[va] = vs;
+      dg[ua] = us;
+      dg[va] = vs;
+      const int a = procNbSolid(nb, s1[0], s1[1], s1[2]) ? 1 : 0;
+      const int b = procNbSolid(nb, s2[0], s2[1], s2[2]) ? 1 : 0;
+      const int g = procNbSolid(nb, dg[0], dg[1], dg[2]) ? 1 : 0;
+      // Two solid edge neighbours wall the corner in completely and the
+      // diagonal behind them cannot make it darker; otherwise each of the
+      // three takes it down one step of four.
+      const int t = (a && b) ? 0 : 3 - (a + b + g);
+      out[f * 4 + corner] = (unsigned char)(t * 85);
+    }
+  }
+}
+
+/** Which of a face's four corner levels a vertex sits on. A block asset is
+ * authored as a unit cube, so its two in-plane local coordinates land on
+ * +-0.5 and this picks a corner exactly; interpolating rather than snapping
+ * is what keeps a SUBDIVIDED block asset smooth instead of banded. */
+static unsigned char procBlockAoAt(const unsigned char* ao, int face,
+                                   const float* v) {
+  float fu = v[kProcFaceU[face]] + 0.5F;
+  float fv = v[kProcFaceV[face]] + 0.5F;
+  if (fu < 0.0F) fu = 0.0F;
+  else if (fu > 1.0F) fu = 1.0F;
+  if (fv < 0.0F) fv = 0.0F;
+  else if (fv > 1.0F) fv = 1.0F;
+  const unsigned char* q = ao + face * 4;
+  const float lo = (float)q[0] + ((float)q[1] - (float)q[0]) * fu;
+  const float hi = (float)q[2] + ((float)q[3] - (float)q[2]) * fu;
+  return (unsigned char)(lo + (hi - lo) * fv + 0.5F);
+}
+
 static int faceOfNormal(float nx, float ny, float nz) {
   const float t = 0.85F;
   if (nx > t) return 0;
@@ -11987,7 +14381,8 @@ static int faceOfNormal(float nx, float ny, float nz) {
 
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
-                                      unsigned char faces) {
+                                      unsigned char faces,
+                                      const unsigned char* blockAo) {
   const float cell =
       owner >= 0 ? procrt::VOLUMES[owner].cell : 100000.0F;  // one bag per prefab
   const int cx = (int)floorf(d.position[0] / cell);
@@ -12009,7 +14404,12 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   g_aoAtlas = false;
   g_emisAtlas = false;
   g_aoSts = nullptr;
-  g_aoOff = d.type == 5;
+  // Imported models take no per-vertex occlusion - on an authored low-poly
+  // mesh it reads as triangulated shading (docs/ambient-occlusion.md). A
+  // BLOCK is the exception the rule was never about: two triangles per flat
+  // square face is exactly the geometry a corner gradient resolves well, so a
+  // table from procBlockVertexAo is what turns the vertex path back on.
+  g_aoOff = d.type == 5 && !blockAo;
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
   g_litNormals = nullptr;
@@ -12038,13 +14438,23 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
     procColliders.push_back(b);
   }
 
+  // Per-vertex AO is only worth computing if the rasterizer reads it ACROSS
+  // the triangle - flat shading takes one corner and paints the whole triangle
+  // with it, which turns a corner gradient into a hard diagonal seam down every
+  // face. Measured before this existed: one block face came out as two flat
+  // plateaus 42 levels apart instead of a gradient.
+  const bool wantSmooth = blockAo != nullptr;
+
   auto chunkFor = [&](int model, int part, int material) -> ProcChunk& {
     for (ProcChunk& c : procChunks)
       if (c.owner == owner && c.instance == instance && c.model == model &&
-          c.part == part && c.material == material && c.cx == cx && c.cz == cz)
+          c.part == part && c.material == material && c.cx == cx && c.cz == cz) {
+        c.smooth = c.smooth || wantSmooth;
         return c;
+      }
     procChunks.emplace_back();
     ProcChunk& c = procChunks.back();
+    c.smooth = wantSmooth;
     c.owner = owner;
     c.instance = instance;
     c.model = model;
@@ -12067,16 +14477,25 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
       const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
       // Whole triangles, so a dropped face takes all of its triangles with it.
       for (size_t i = 0; i + 23 < src.verts.size(); i += 24) {
-        if (faces != 63) {
-          const float* v0 = &src.verts[i];
-          const int f = faceOfNormal(v0[3], v0[4], v0[5]);
-          if (f >= 0 && !(faces & (1 << f))) continue;
-        }
+        // The face this triangle belongs to answers two questions at once -
+        // whether a neighbour covers it, and which four corner AO levels its
+        // vertices interpolate - so it is resolved once, and only when
+        // somebody is going to ask.
+        const float* v0 = &src.verts[i];
+        const int face = (faces != 63 || blockAo)
+                             ? faceOfNormal(v0[3], v0[4], v0[5])
+                             : -1;
+        if (faces != 63 && face >= 0 && !(faces & (1 << face))) continue;
         for (int k = 0; k < 3; ++k) {
           const float* v = &src.verts[i + k * 8];
+          unsigned char vao =
+              hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255;
+          // A block's own lattice wins over a baked .aov sidecar: the sidecar
+          // describes the cube in isolation, the lattice describes where this
+          // copy of it actually sits.
+          if (blockAo && face >= 0) vao = procBlockAoAt(blockAo, face, v);
           pushVert(c.vertices, c.colors, c.sts, d, {v[0], v[1], v[2]},
-                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
-                   hasAo ? src.vertexAo[(i + k * 8) / 8] : (unsigned char)255,
+                   {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured, vao,
                    src.ke);
         }
       }
@@ -12121,6 +14540,17 @@ void TerrainGame::procFinishChunks() {
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
+  // Its Gouraud twin, built only once a chunk asks for it - a project with no
+  // block world never allocates it.
+  for (const ProcChunk& c : procChunks)
+    if (c.smooth && !c.vertices.empty() && !procSmoothInfoBag) {
+      procSmoothInfoBag = std::make_unique<StaPipInfoBag>();
+      procSmoothInfoBag->model = &model;
+      procSmoothInfoBag->shadingType = TyraShadingGouraud;
+      procSmoothInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+      procSmoothInfoBag->fullClipChecks = true;
+      break;
+    }
   for (ProcChunk& c : procChunks) {
     if (c.vertices.empty()) {
       c.bag.reset();
@@ -12129,10 +14559,12 @@ void TerrainGame::procFinishChunks() {
     if (!c.bag) {
       c.colorBag = std::make_unique<StaPipColorBag>();
       c.bag = std::make_unique<StaPipBag>();
-      c.bag->info = batchInfoBag.get();
       c.bag->color = c.colorBag.get();
       c.bag->lighting = nullptr;
     }
+    // Re-stated every pass, not only on creation: a regeneration reuses the
+    // chunk, and a world whose blocks moved may have gained or lost the AO.
+    c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
     c.colorBag->many = c.colors.data();
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
@@ -12380,6 +14812,10 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
   d.material = -1;
   d.color[0] = d.color[1] = d.color[2] = 1.0F;
   d.primDetail = 1;
+  // Blocks self-occlude off the field published just above; nothing else here
+  // can, and a scene with ambient occlusion switched off computes none of it.
+  unsigned char blockAo[24];
+  const bool aoBlocks = procBlocks.active && SCENE_AO_ENABLED;
   for (int i = 0; i < count; ++i) {
     const procrt::Pt& P = c.buf[i];
     if (P.prefab >= 0) {
@@ -12398,7 +14834,9 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     d.rotation[1] = P.ry;
     d.rotation[2] = P.rz;
     d.scale[0] = d.scale[1] = d.scale[2] = P.sc;
-    procAddMergedObject(volume, -1, d, P.faces);
+    const bool isBlock = aoBlocks && P.block != 0;
+    if (isBlock) procBlockVertexAo(P.x, P.y, P.z, P.faces, blockAo);
+    procAddMergedObject(volume, -1, d, P.faces, isBlock ? blockAo : nullptr);
   }
   procFinishChunks();
 }
@@ -13433,6 +15871,7 @@ void TerrainGame::renderScene() {
   renderProjShadows();
   // Blob shadows before the beams: dark quads on the terrain, z-tested
   // against the finished scene (objects standing on them still cover them).
+  renderFootIkProbes();
   updateAndRenderBlobShadows();
   // Visible light beams last: additive coronas/cones depth-test against the
   // finished scene (no z writes), so walls occlude them correctly.
@@ -15650,6 +18089,40 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunkSlot.assign(total, -1);
 }
 
+// Distance detail (docs/terrain-lod.md). Two bands, then the floor: full grid
+// inside TERRAIN_LOD_DISTANCE, every 2nd sample out to 2.2x it, every 4th
+// beyond. 2.2 rather than 2 so the middle band is wide enough to be crossed
+// rather than straddled - the whole point of a band is that walking through it
+// rebuilds a ring once.
+//
+// The distance is measured to the chunk's CENTRE, from whichever focus is
+// nearest (split screen has two), and both are snapped by the caller. A chunk
+// asks this about its neighbours as well as itself, so the answer must depend on
+// nothing but the arguments and that snapped state - never on what is resident.
+int TerrainGame::terrainLodStep(int cx, int cz) const {
+  if (TERRAIN_LOD_DISTANCE <= 0.0F || terrainLodFocusCount <= 0) return 1;
+  if (cx < 0 || cz < 0 || cx >= terrainChunksX || cz >= terrainChunksZ) return 1;
+  const int cellsX = HM_W - 1;
+  const int cellsZ = HM_D - 1;
+  if (cellsX <= 0 || cellsZ <= 0) return 1;
+  const float spanX = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_WIDTH / cellsX);
+  const float spanZ = TERRAIN_CHUNK_CELLS * ((float)TERRAIN_DEPTH / cellsZ);
+  const float wx = -TERRAIN_WIDTH * 0.5F + (cx + 0.5F) * spanX;
+  const float wz = -TERRAIN_DEPTH * 0.5F + (cz + 0.5F) * spanZ;
+  float best = -1.0F;
+  for (int i = 0; i < terrainLodFocusCount; ++i) {
+    const float dx = wx - terrainLodFocus[i][0];
+    const float dz = wz - terrainLodFocus[i][1];
+    const float d2 = dx * dx + dz * dz;
+    if (best < 0.0F || d2 < best) best = d2;
+  }
+  const float near2 = TERRAIN_LOD_DISTANCE * TERRAIN_LOD_DISTANCE;
+  if (best <= near2) return 1;
+  const float mid = TERRAIN_LOD_DISTANCE * 2.2F;
+  if (best <= mid * mid) return 2;
+  return 4;
+}
+
 // Macro ground variation (docs/terrain-painting.md): deterministic value
 // noise over WORLD position - two smoothstepped octaves - multiplied into the
 // vertex shade below. Large soft patches of lighter/darker ground at zero
@@ -15722,12 +18195,23 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
         if (h > ch.maxY) ch.maxY = h;
       }
   }
+  // The MULTIPLY route for a TEXTURED ground (docs/global-illumination.md):
+  // the map's alpha carries the gathered light's INTENSITY and the occlusion
+  // pass applies it per pixel, so the vertex shade carries only its COLOUR.
+  // That is the frequency split the GS forces - it cannot multiply the frame
+  // buffer by a colour - and it is what replaced reading the probe grid here,
+  // which banded along contour lines because a volume grid was being asked to
+  // light a surface. On this route the map's RGB is never read, so the scene
+  // ships SCENE_AO_MAP_LIT and SCENE_AO_MAP_GI OFF and the additive pass below
+  // never runs; the light is already in the alpha, emitters included.
+  const bool terrainGiLum = aoMapTexture && SCENE_AO_MAP_GILUM;
   // Emitters reaching this chunk, collected ONCE (the point-light dcache
   // lesson: never scan the whole table per vertex). The chunk's bounding
   // sphere spans its cells horizontally and its height extent vertically.
   // Skipped entirely when the terrain lightmap carries the light: it then
-  // lands per pixel through the additive pass below.
-  if (!terrainMapLit) {
+  // lands per pixel through the additive pass below (or, on the multiply
+  // route, through the occlusion pass).
+  if (!terrainMapLit && !terrainGiLum) {
     const float cw = TERRAIN_CHUNK_CELLS * stepX;
     const float cd = TERRAIN_CHUNK_CELLS * stepZ;
     const float chx = startX + (cx * TERRAIN_CHUNK_CELLS + TERRAIN_CHUNK_CELLS * 0.5F) * stepX;
@@ -15746,7 +18230,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   // terrain grid is dense enough (one sample per cell) that probes look right
   // on it, which is not true of a two-triangle box face.
   const bool terrainGi = terrainMapLit && SCENE_AO_MAP_GI;
-  const bool terrainProbeGi = !terrainGi && SCENE_PROBES != nullptr;
+  const bool terrainProbeGi =
+      !terrainGi && !terrainGiLum && SCENE_PROBES != nullptr;
   auto shadeAt = [&](int ix, int iz) -> V3 {
     V3 n = {hAt(ix - 1, iz) - hAt(ix + 1, iz), 2.0F * (stepX < stepZ ? stepX : stepZ),
             hAt(ix, iz - 1) - hAt(ix, iz + 1)};
@@ -15754,10 +18239,17 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     if (len > 0.00001F) n.x /= len, n.y /= len, n.z /= len;
     const V3 wp = {startX + ix * stepX, hAt(ix, iz), startZ + iz * stepZ};
     V3 s;
-    bool giHere = terrainGi;
+    // giHere means "the baked answer already contains every source", so the
+    // point lights and the emissive pools below must not land a second time.
+    // It is TRUE on the multiply route even though the shade is the ordinary
+    // one: what that shade contributes there is colour, and the intensity that
+    // multiplies it was gathered with the emitters in it.
+    bool giHere = terrainGi || terrainGiLum;
     GiSample gs;
     if (terrainGi) {
       s = {0.0F, 0.0F, 0.0F};
+    } else if (terrainGiLum) {
+      s = shadeOf(n);
     } else if (terrainProbeGi && giProbeAt(wp.x, wp.y, wp.z, gs)) {
       s = giShade(gs, n);
       giHere = true;
@@ -15827,15 +18319,87 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   if (gx1 > cellsX) gx1 = cellsX;  // edge chunks cover the remainder
   if (gz1 > cellsZ) gz1 = cellsZ;
 
+  // Distance detail (docs/terrain-lod.md): far chunks take every 2nd or 4th
+  // heightmap sample, so a big map costs its vertices where the player is
+  // rather than uniformly. Gameplay never notices - terrainHeightAt samples
+  // TERRAIN_HEIGHTS and not the mesh - and with the feature off every stride is
+  // 1 and this whole build is the pre-LOD one, quad for quad.
+  const int lod = terrainLodStep(cx, cz);
+  ch.lod = (unsigned char)lod;
+  ch.lodW = (unsigned char)terrainLodStep(cx - 1, cz);
+  ch.lodE = (unsigned char)terrainLodStep(cx + 1, cz);
+  ch.lodN = (unsigned char)terrainLodStep(cx, cz - 1);
+  ch.lodS = (unsigned char)terrainLodStep(cx, cz + 1);
+  // A vertex on an edge whose neighbour is COARSER has to sit on the
+  // NEIGHBOUR's segment, or the two meshes disagree along that line and the
+  // difference shows as a hairline of background - the classic geomipmap crack.
+  // Interpolating it onto the coarse segment is exact and adds no vertices
+  // (skirts, the other cure, add a quarter as much geometry again to the chunks
+  // that can least afford it). The shade is interpolated the same way: matching
+  // only the height would close the hole and leave a colour seam in its place.
+  // Corners need no special case - a chunk corner is a multiple of every
+  // stride, so both interpolations land on the vertex itself.
+  struct EdgeMix {
+    int a = 0, b = 0;
+    float t = 0.0F;
+    bool alongZ = false, snap = false;
+  };
+  auto edgeMix = [&](int ix, int iz) {
+    EdgeMix m;
+    int sn = 0;
+    bool alongZ = true;
+    if (ix == gx0 && cx > 0)
+      sn = ch.lodW;
+    else if (ix == gx1 && cx < terrainChunksX - 1)
+      sn = ch.lodE;
+    if (sn <= lod) {
+      sn = 0;
+      alongZ = false;
+      if (iz == gz0 && cz > 0)
+        sn = ch.lodN;
+      else if (iz == gz1 && cz < terrainChunksZ - 1)
+        sn = ch.lodS;
+    }
+    if (sn <= lod) return m;
+    const int i = alongZ ? iz : ix;
+    const int i0 = alongZ ? gz0 : gx0;
+    const int iMax = alongZ ? gz1 : gx1;
+    const int a = i0 + ((i - i0) / sn) * sn;
+    int b = a + sn;
+    if (b > iMax) b = iMax;
+    if (b <= a || i == a) return m;
+    m.a = a, m.b = b, m.alongZ = alongZ, m.snap = true;
+    m.t = (float)(i - a) / (float)(b - a);
+    return m;
+  };
+  auto hAtE = [&](int ix, int iz) {
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return hAt(ix, iz);
+    const float ha = m.alongZ ? hAt(ix, m.a) : hAt(m.a, iz);
+    const float hb = m.alongZ ? hAt(ix, m.b) : hAt(m.b, iz);
+    return ha + (hb - ha) * m.t;
+  };
+  auto shadeAtE = [&](int ix, int iz) -> V3 {
+    const EdgeMix m = edgeMix(ix, iz);
+    if (!m.snap) return shadeAt(ix, iz);
+    const V3 sa = m.alongZ ? shadeAt(ix, m.a) : shadeAt(m.a, iz);
+    const V3 sb = m.alongZ ? shadeAt(ix, m.b) : shadeAt(m.b, iz);
+    return V3{sa.x + (sb.x - sa.x) * m.t, sa.y + (sb.y - sa.y) * m.t,
+              sa.z + (sb.z - sa.z) * m.t};
+  };
+  // Quads this chunk really emits - the reserve has to follow the stride or a
+  // distant chunk asks for sixteen times the memory it fills.
+  const int quadsX = (gx1 - gx0 + lod - 1) / lod;
+  const int quadsZ = (gz1 - gz0 + lod - 1) / lod;
+
   ch.vertices.clear();
   ch.colors.clear();
   ch.sts.clear();
   ch.emisCols.clear();
-  if (terrainMapLit)
-    ch.emisCols.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  ch.vertices.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  ch.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-  if (textured) ch.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+  if (terrainMapLit) ch.emisCols.reserve((size_t)quadsX * quadsZ * 6);
+  ch.vertices.reserve((size_t)quadsX * quadsZ * 6);
+  ch.colors.reserve((size_t)quadsX * quadsZ * 6);
+  if (textured) ch.sts.reserve((size_t)quadsX * quadsZ * 6);
 
   // Painted terrain layers: find which layers have any weight on this chunk's
   // vertices - each gets one extra alpha-blended pass sharing ch.vertices.
@@ -15863,8 +18427,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     lp.layer = activeLayers[a];
     lp.colors.clear();
     lp.sts.clear();
-    lp.colors.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
-    lp.sts.reserve((size_t)(gx1 - gx0) * (gz1 - gz0) * 6);
+    lp.colors.reserve((size_t)quadsX * quadsZ * 6);
+    lp.sts.reserve((size_t)quadsX * quadsZ * 6);
   }
   auto splatAt = [&](int ix, int iz, int l) -> float {
     if (ix < 0) ix = 0;
@@ -15874,18 +18438,25 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     return splatW8[((size_t)iz * HM_W + ix) * layerN + l] / 255.0F;
   };
 
-  for (int z = gz0; z < gz1; ++z) {
-    for (int x = gx0; x < gx1; ++x) {
+  for (int z = gz0; z < gz1; z += lod) {
+    for (int x = gx0; x < gx1; x += lod) {
+      // The far corner, clamped: an edge chunk covers the map's remainder, so
+      // the last quad of a row may be shorter than the stride.
+      const int xN = x + lod > gx1 ? gx1 : x + lod;
+      const int zN = z + lod > gz1 ? gz1 : z + lod;
       const float x0 = startX + x * stepX;
-      const float x1 = x0 + stepX;
+      const float x1 = startX + xN * stepX;
       const float z0 = startZ + z * stepZ;
-      const float z1 = z0 + stepZ;
-      const float* base = ((x + z) % 2 == 0) ? baseA : baseB;
+      const float z1 = startZ + zN * stepZ;
+      // The untextured checker counts QUADS, not cells: on x += 2 the parity of
+      // (x + z) never changes, so a distant chunk would come out one flat
+      // colour and the band boundary would read as a seam in the ground.
+      const float* base = ((x / lod + z / lod) % 2 == 0) ? baseA : baseB;
 
-      const float h00 = hAt(x, z), h10 = hAt(x + 1, z);
-      const float h01 = hAt(x, z + 1), h11 = hAt(x + 1, z + 1);
-      const V3 s00 = shadeAt(x, z), s10 = shadeAt(x + 1, z);
-      const V3 s01 = shadeAt(x, z + 1), s11 = shadeAt(x + 1, z + 1);
+      const float h00 = hAtE(x, z), h10 = hAtE(xN, z);
+      const float h01 = hAtE(x, zN), h11 = hAtE(xN, zN);
+      const V3 s00 = shadeAtE(x, z), s10 = shadeAtE(xN, z);
+      const V3 s01 = shadeAtE(x, zN), s11 = shadeAtE(xN, zN);
       auto shaded = [&](const V3& s) {
         return Color(base[0] * s.x, base[1] * s.y, base[2] * s.z, 128.0F);
       };
@@ -15941,8 +18512,13 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
           return Color(tint[0] * lk * s.x, tint[1] * lk * s.y,
                        tint[2] * lk * s.z, w * 128.0F);
         };
-        const float w00 = splatAt(x, z, l), w10 = splatAt(x + 1, z, l);
-        const float w01 = splatAt(x, z + 1, l), w11 = splatAt(x + 1, z + 1, l);
+        // Sampled at the quad's own corners: a painted layer's weight is a
+        // blend factor, so a coarse chunk reading coarse weights loses detail
+        // in the painting exactly the way it loses it in the relief. The edge
+        // snap deliberately does NOT extend here - a weight that disagrees by a
+        // few percent across a seam is invisible, unlike a height.
+        const float w00 = splatAt(x, z, l), w10 = splatAt(xN, z, l);
+        const float w01 = splatAt(x, zN, l), w11 = splatAt(xN, zN, l);
         lp.colors.push_back(lcol(s00, w00));
         lp.colors.push_back(lcol(s10, w10));
         lp.colors.push_back(lcol(s01, w01));
@@ -16179,6 +18755,23 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
   addRect(focusX, focusZ);
   if (twoFoci) addRect(focus2X, focus2Z);
 
+  // The LOD bands' own foci, SNAPPED to half a chunk. Detail is a step
+  // function, so its input may as well be one: without the snap the field
+  // changes on every centimetre of walking and a chunk sitting on a band
+  // boundary rebuilds itself for ever.
+  if (TERRAIN_LOD_DISTANCE > 0.0F) {
+    auto snap = [](float v, float step) {
+      return floorf(v / step) * step + step * 0.5F;
+    };
+    const float snapX = spanX * 0.5F, snapZ = spanZ * 0.5F;
+    terrainLodFocusCount = 0;
+    for (int r = 0; r < rectCount; ++r) {
+      terrainLodFocus[r][0] = snap(rects[r].fx, snapX);
+      terrainLodFocus[r][1] = snap(rects[r].fz, snapZ);
+      ++terrainLodFocusCount;
+    }
+  }
+
   if (TERRAIN_VIEW_DISTANCE > 0.0F) {
     for (TerrainChunk& ch : terrainChunks) {
       if (ch.cx < 0) continue;
@@ -16213,7 +18806,7 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
             bestD = d;
           }
         }
-    if (bestCx < 0) return;  // everything in view is built
+    if (bestCx < 0) break;  // everything in view is built
 
     int slot = -1;
     for (int s = 0; s < (int)terrainChunks.size(); ++s)
@@ -16224,6 +18817,31 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
     if (slot < 0) return;  // pool momentarily full - eviction frees one soon
 
     buildTerrainChunk(slot, bestCx, bestCz);
+    --budget;
+  }
+
+  // Then the resident chunks whose detail has gone stale - their own band
+  // moved, or a NEIGHBOUR's did, which is a crack along the edge they share.
+  // Missing chunks are built first on purpose: a hole in the ground is a worse
+  // frame than a hairline, and both are settled within a few frames at one
+  // build apiece.
+  if (TERRAIN_LOD_DISTANCE <= 0.0F) return;
+  while (budget > 0) {
+    int slot = -1;
+    for (int s = 0; s < (int)terrainChunks.size(); ++s) {
+      const TerrainChunk& ch = terrainChunks[s];
+      if (ch.cx < 0) continue;
+      if (ch.lod == terrainLodStep(ch.cx, ch.cz) &&
+          ch.lodW == terrainLodStep(ch.cx - 1, ch.cz) &&
+          ch.lodE == terrainLodStep(ch.cx + 1, ch.cz) &&
+          ch.lodN == terrainLodStep(ch.cx, ch.cz - 1) &&
+          ch.lodS == terrainLodStep(ch.cx, ch.cz + 1))
+        continue;
+      slot = s;
+      break;
+    }
+    if (slot < 0) return;
+    buildTerrainChunk(slot, terrainChunks[slot].cx, terrainChunks[slot].cz);
     --budget;
   }
 }
@@ -16401,12 +19019,17 @@ void TerrainGame::updatePlayer() {
   const float fz = cosf(yaw);
   const float forward = -axisL(leftJoy.v);
   const float strafe = axisL(leftJoy.h);
-  // Sprint: same rule as the Player-entity walker (Tools > Input Map).
+  // Speed tiers: the same rule as the Player-entity walker - the stick's
+  // deflection ramps WALK -> RUN, and holding sprint pins the top flat
+  // (docs/player-speeds.md). RUN_SPEED and SPRINT_SPEED are resolved at build
+  // time, so with no run speed set RUN_SPEED == WALK_SPEED (a flat ramp) and
+  // SPRINT_SPEED == WALK_SPEED x SPRINT_MULT, which is what this computed.
+  float stickMag = sqrtf(forward * forward + strafe * strafe);
+  if (stickMag > 1.0F) stickMag = 1.0F;
   const float moveSpeed =
-      WALK_SPEED * ((SPRINT_MULT > 1.0F && IA_ROLE_SPRINT >= 0 &&
-                     inputPressed(engine->pad, IA_ROLE_SPRINT))
-                        ? SPRINT_MULT
-                        : 1.0F);
+      (IA_ROLE_SPRINT >= 0 && inputPressed(engine->pad, IA_ROLE_SPRINT))
+          ? SPRINT_SPEED
+          : WALK_SPEED + (RUN_SPEED - WALK_SPEED) * stickMag;
   float nextX = playerX + (fx * forward - fz * strafe) * moveSpeed * g_frameScale;
   float nextZ = playerZ + (fz * forward + fx * strafe) * moveSpeed * g_frameScale;
 

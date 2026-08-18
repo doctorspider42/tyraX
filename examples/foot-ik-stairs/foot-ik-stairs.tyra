@@ -1,7 +1,7 @@
 {
   "name": "foot-ik-stairs",
-  "formatVersion": 19,
-  "editorVersion": "1.25.0",
+  "formatVersion": 33,
+  "editorVersion": "1.56.0",
   "template": "thirdperson",
   "projectId": "bbb45a6db338c7fa",
   "settings": {
@@ -40,6 +40,7 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,
@@ -230,7 +231,7 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": 0, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": 0, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": ["chat"], "ini": "[Window][Project]\nPos=0,23\nSize=460,986\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260812\n\n[Window][Properties]\nPos=1541,23\nSize=379,986\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260812\n\n[Window][Output]\nPos=462,747\nSize=1077,262\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260812\n\n[Window][Debug]\nPos=462,747\nSize=1077,262\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260812\n\n[Window][Flow Graph]\nPos=462,23\nSize=1077,722\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260812\n\n[Window][Viewport]\nPos=462,23\nSize=1077,722\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260812\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,986\nCollapsed=0\nLastUsed=20260812\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260812\n\n[Window][New Project]\nPos=761,272\nSize=440,464\nCollapsed=0\nLastUsed=20260810\n\n[Window][Model size]\nPos=60,60\nSize=20,39\nCollapsed=0\nLastUsed=20260810\n\n[Window][Animation Editor]\nPos=60,60\nSize=920,620\nCollapsed=0\nLastUsed=20260811\n\n[Window][Terrain Editor]\nPos=99,82\nSize=380,540\nCollapsed=0\nLastUsed=20260811\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,23\nCollapsed=0\nLastUsed=20260812\n\n[Window][AI Assistant]\nPos=1541,23\nSize=379,986\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260812\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,986 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=460,1009 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1009 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=1077,1009 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1077,745 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1077,262 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=379,1009 Selected=0x8C72BEA8\n\n" },

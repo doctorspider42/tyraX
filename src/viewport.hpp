@@ -1,13 +1,17 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <memory>
+#include <thread>
 #include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "animmerge.hpp"
 #include "aobake.hpp"
 #include "gibake.hpp"
 #include "glbparser.hpp"
@@ -27,6 +31,22 @@ public:
 
     // View > Collision boxes: draw the box the GAME collides with over every
     // collider (docs/collision-boxes.md). Editor state, no project data.
+    // The orbit camera as the five numbers it actually is, so the project can
+    // store where you were looking (project.hpp viewCam*). Read at save time
+    // and applied on open; neither dirties anything.
+    void camState(float& yaw, float& pitch, float& dist, float t[3]) const {
+        yaw = yaw_, pitch = pitch_, dist = distance_;
+        t[0] = target_[0], t[1] = target_[1], t[2] = target_[2];
+    }
+    void setCamState(float yaw, float pitch, float dist, const float t[3]) {
+        yaw_ = yaw;
+        pitch_ = pitch < -kOrbitPitchLimit
+                     ? -kOrbitPitchLimit
+                     : (pitch > kOrbitPitchLimit ? kOrbitPitchLimit : pitch);
+        distance_ = dist > 0.01f ? dist : 0.01f;
+        target_[0] = t[0], target_[1] = t[1], target_[2] = t[2];
+    }
+
     void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
     bool collisionOverlay() const { return collisionOverlay_; }
 
@@ -430,6 +450,17 @@ public:
         animEdits_ = std::move(edits);
         animProjectScale_ = projectScale > 0.001f ? projectScale : 1.0f;
     }
+    // Clips borrowed from other model files (docs/animation-import.md), pushed
+    // in the same way and for the same reason: the merge has to happen on this
+    // side too, or an imported clip would exist on the console and nowhere the
+    // author can see it. Keyed by project-relative model path, and a model
+    // absent from the map takes the untouched parser path.
+    void setAnimImports(
+        std::map<std::string, std::vector<animmerge::ImportSpec>> imports) {
+        if (imports == animImports_) return;  // nothing changed, keep the cache
+        animImports_ = std::move(imports);
+        invalidateAnimatedModels();
+    }
 
     // Animation Editor live preview: one animated model on a checker floor,
     // posed at an explicit time so the panel owns play/pause/scrub. Times are
@@ -508,10 +539,30 @@ public:
     void updateTexturePixels(const std::string& relPath, int w, int h,
                              const unsigned char* rgba);
 
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"): project-
+    // relative texture path -> the baked AO map that gets multiplied into it
+    // as it is uploaded, plus the strength that multiply uses. The multiply
+    // itself is modelao's, which is also what texbake calls for the shipped
+    // PNG - so the preview and the console cannot disagree about it.
+    // Changing the table (or the strength) invalidates every disk-derived
+    // cache, exactly like an asset changing on disk - and it must, because a
+    // cached ModelDraw/MaterialDraw part holds the GL texture NAME. Dropping
+    // one texture on its own leaves those parts pointing at a deleted name,
+    // which OpenGL is free to hand to the next glGenTextures: measured as an
+    // altar rendering flat white with a stray decal from another image on it.
+    void setModelAoMaps(std::map<std::string, std::string> maps,
+                        float strength);
+
     // Drops every disk-derived cache (models, materials, GL textures). Call
     // after an asset file changed on disk (e.g. the Material Editor saved a
     // .mtl) so the next frame re-reads it.
     void invalidateAssets();
+    // Re-bakes cached animated models IN THE BACKGROUND: entries are marked
+    // stale and keep drawing their old bake until the fresh one lands. An
+    // import change alters the CLIP LIST of a model, which is baked into the
+    // cache entry - unlike a clip edit, which is applied per pose. `relPath`
+    // limits it to one model's entries ("" = all).
+    void invalidateAnimatedModels(const std::string& relPath = std::string());
 
     // Camera controls, driven by the UI layer. The camera orbits a movable
     // target point: pan slides it in the view plane (middle mouse drag),
@@ -596,6 +647,24 @@ public:
     };
     void setPs2Output(const Ps2Output& o) { ps2_ = o; }
     const Ps2Output& ps2Output() const { return ps2_; }
+
+    // PS2 shading simulation (docs/ps2-viewport.md): shade the scene the way
+    // the console does - every lighting term (GI probes, AO, point lights,
+    // emissive lights, flashlight, fog) evaluated per VERTEX with the
+    // triangle's own flat normal, and static geometry flat-shaded (one corner
+    // colour per triangle, TyraShadingFlat). Independent of the Ps2Output
+    // resolution mode - triangle shading is visible at any raster.
+    void setPs2Shading(bool on) { ps2Shade_ = on; }
+    bool ps2Shading() const { return ps2Shade_; }
+
+    // GS colour depth simulation (docs/ps2-viewport.md): show the picture at
+    // the 5 bits per channel a PSMCT16 framebuffer keeps, optionally through
+    // the GS's 4x4 ordered dither (the DIMX matrix the engine programs). The
+    // app resolves "match project" against ProjectSettings before calling.
+    void setGsColorSim(bool quantize, bool dither) {
+        gsQuant_ = quantize;
+        gsDither_ = quantize && dither;
+    }
 
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
@@ -752,6 +821,45 @@ private:
     }
 
     uint32_t program_ = 0;
+    // PS2 shading simulation: the same vertex + fragment sources with a
+    // geometry stage between them that runs the whole lighting stack per
+    // triangle corner (the console's per-vertex shading). The u*_ location
+    // members below are re-queried against whichever of the two programs is
+    // active (useSceneProgram), so every existing uniform-setting site works
+    // unchanged for both.
+    uint32_t vtxProgram_ = 0;
+    uint32_t sceneProgActive_ = 0;  // program_ or vtxProgram_
+    bool ps2Shade_ = false;
+    void querySceneLocations(uint32_t prog);
+    void useSceneProgram(bool ps2Vertex);
+    int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
+    int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
+    // GL_LINES cannot pass through a triangles geometry shader, so when the
+    // vtx program is active the draw helpers detour lines through program_
+    // with this small location set (unlit geometry reads nothing else).
+    struct LineLocs {
+        int mvp = -1, model = -1, tint = -1, lit = -1, useTex = -1, alpha = -1,
+            opacity = -1, emissive = -1, reflOn = -1;
+    } lineLocs_;
+    // GS colour depth simulation (setGsColorSim) - applied in the grade pass.
+    bool gsQuant_ = false, gsDither_ = false;
+    // Dynamic lights' ground pools, PS2-shading mode only: the console's
+    // terrain-conforming additive corona patch under every dynamic point
+    // light (the generated game's updateAndRenderLightPools).
+    void drawLightPools(const std::vector<SceneObject>& objects,
+                        const float* viewProj);
+    // Visible light beams (Point Light > Beam): the console's additive corona
+    // billboard and, for kind 2, its cone shaft - the twin of the generated
+    // game's updateAndRenderLightBeams. Drawn whatever the shading mode: a
+    // beam is scene CONTENT the game always renders, not a shading simulation.
+    void drawLightBeams(const std::vector<SceneObject>& objects,
+                        const float* viewProj, const float* fwdP,
+                        const float* eyeP);
+    // The corona pixels both of those draw through - the same bake the game
+    // ships as hud/flare-corona.png (menubake::bakeFlareRGBA kind 2, at
+    // kCoronaSpriteSize). Uploaded once, on the first frame that needs it.
+    uint32_t coronaTex();
+    uint32_t coronaTex_ = 0;
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
@@ -762,6 +870,8 @@ private:
     int uLit_ = -1;
     int uLightCount_ = -1;
     int uLightPos_ = -1;
+    int uLightDir_ = -1;   // spot dir + style channel (see the shader)
+    int uLightOcc_ = -1;   // per-light shadow-caster AO slots, game rules
     int uLightCol_ = -1;
     // GS hardware fog preview
     int uFogOn_ = -1, uFogColor_ = -1, uFogStart_ = -1, uFogEnd_ = -1;
@@ -806,6 +916,11 @@ private:
     // for those draws.
     int uGiSkipProbe_ = -1;
     std::vector<uint8_t> giTerrLight_;  // size*size*3, empty = no lit map
+    // The MULTIPLY route (aobake::AoImage::giLumAlpha): a textured ground
+    // takes the light as a per-pixel attenuation in the alpha channel
+    // instead of an additive RGB pass it would blow out.
+    std::vector<uint8_t> giTerrAlpha_;
+    bool giTerrLum_ = false;  // size*size*3, empty = no lit map
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();
@@ -839,6 +954,7 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    Mesh wireCone_;    // unit spot cone: apex origin, base ring at y = -1
     Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
     Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
@@ -891,25 +1007,46 @@ private:
         struct Part {
             Mesh mesh;
             uint32_t tex = 0;
+            // glTF baseColorFactor. An animated model with no texture carries
+            // its whole colour here (the wobbler is teal by this and nothing
+            // else), and dropping it drew every such model in the scene light
+            // alone - green in the game, orange in the viewport.
+            float kd[3] = {1.0f, 1.0f, 1.0f};
         };
         std::vector<Part> parts;  // parallel to baked.parts
-        // Which clips of `baked` actually carry sampled frames. The first bake
-        // samples NONE of them - a preview poses one clip at a time, and an
-        // animation-library character can carry forty - so each is sampled the
-        // first time something asks to pose it (ensureAnimClip).
-        std::string relPath, materialRel;
-        std::vector<std::string> sampled;
+        bool stale = false;  // a rebake is in flight; keep drawing this one
     };
     // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
     // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
+    // The bake runs on a WORKER (parse + merge + skinning cost seconds on a
+    // real character, and it used to run inline on the first frame that drew
+    // the model - the "opening the project stalls" report). A stale entry
+    // keeps drawing its old bake until the fresh one lands; a brand-new model
+    // draws the box placeholder for the moment the bake needs.
+    struct AnimBakeJob {
+        std::string key, relPath, materialRel;
+        glbparser::Baked baked;
+        bool ok = false;
+        // An invalidation that arrives while this job is in flight: the job
+        // was started with the OLD imports, so its result must land already
+        // stale and re-bake. Without it a rapid pair of edits could keep the
+        // first edit's preview forever.
+        bool restale = false;
+        std::atomic<bool> done{false};
+        std::thread worker;
+    };
+    std::vector<std::unique_ptr<AnimBakeJob>> animBakeJobs_;
+    void animBakeStart(const std::string& key, const std::string& relPath,
+                       const std::string& materialRel);
+    void animBakeCollect();  // GL thread: finished jobs -> cache + uploads
     AnimModelDraw* animModelDraw(const std::string& relPath,
                                  const std::string& materialRel);
-    // Makes sure `sourceClip` carries real frames, re-baking the entry with it
-    // added when it does not. Cheap and idempotent once a clip is in; call it
-    // before resolving frame indices, because an unsampled clip resolves to a
-    // single frozen frame and would silently preview as a static pose.
-    void ensureAnimClip(AnimModelDraw& draw, const std::string& sourceClip);
+    // How many bakes are in flight - the Animation Editor's spinner reads it.
+   public:
+    int animBakesPending() const { return (int)animBakeJobs_.size(); }
+
+   private:
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     // Uploads one explicit pose: `frame` is a fractional index into the whole
@@ -925,6 +1062,12 @@ private:
     float animProjectScale_ = 1.0f;  // project fps ratio (animedit.hpp)
     const AnimClipEdit* animEditFor(const std::string& modelRel,
                                     const std::string& sourceClip) const;
+    // Clips borrowed from other files, pushed in by the app alongside the
+    // edits above. Keyed by project-relative model path; a model with no entry
+    // returns an empty list and therefore takes the untouched parser bake.
+    std::map<std::string, std::vector<animmerge::ImportSpec>> animImports_;
+    const std::vector<animmerge::ImportSpec>& animImportsFor(
+        const std::string& modelRel) const;
 
     // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
     struct MaterialDraw {
@@ -947,6 +1090,9 @@ private:
     // fully opaque), filled as they load - the cutout/blend decision, so a
     // draw site never has to re-read the file.
     std::map<std::string, bool> texAlpha_;
+    // Model AO maps by texture path + the apply strength (see setModelAoMaps).
+    std::map<std::string, std::string> modelAoMaps_;
+    float modelAoStrength_ = 0.0f;
     uint32_t glTexture(const std::string& relPath);
     bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();
@@ -1133,7 +1279,8 @@ private:
     CompiledGrading grading_;
     uint32_t gradeProgram_ = 0, gradeFbo_ = 0, gradeTex_ = 0, gradeVao_ = 0;
     int uGradeSrc_ = -1, uGradeGain_ = -1, uGradeLiftPos_ = -1,
-        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1;
+        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1,
+        uGradeQuant_ = -1, uGradeDither_ = -1;
 
     float viewM_[16] = {};
     float projM_[16] = {};

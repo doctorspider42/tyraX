@@ -1,5 +1,7 @@
 {
   "name": "gi-showcase",
+  "formatVersion": 33,
+  "editorVersion": "1.56.0",
   "template": "fpp",
   "projectId": "eeffe02abe2da5db",
   "settings": {
@@ -14,11 +16,14 @@
     "showMemory": false,
     "showProfiler": false,
     "showAreas": false,
+    "showCollision": false,
+    "showFootIkProbes": false,
     "liveLink": true,
     "liveDebug": true,
     "eeCrashHandler": false,
     "liveLogic": true,
     "timeMachine": true,
+    "remotePad": true,
     "keyboardMouse": false,
     "keyboardMousePs2Link": false,
     "disableVsync": false,
@@ -35,6 +40,7 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
     "skyColor": [0.66, 0.75, 0.9],
     "skyTopColor": [0.22, 0.44, 0.85],
     "skyDome": true,
@@ -83,6 +89,13 @@
     "flare": 0,
     "godRays": 0,
     "blobShadows": false,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,
@@ -136,6 +149,24 @@
   "sounds": [],
   "saveValues": [],
   "saveTexts": [],
+  "saveTitle": "",
+  "saveIcon": "",
+  "saveIconModel": "",
+  "saveIconClip": "",
+  "saveIconFrames": 6,
+  "saveIconMotion": "",
+  "saveIconMotionAmount": 1,
+  "saveMenuWritesCheckpoint": false,
+  "saveAutosaveSlot": -1,
+  "saveSlotCount": 3,
+  "saveSlotsPerPage": 3,
+  "saveAsync": false,
+  "saveSpinner": true,
+  "saveSpinnerImage": "",
+  "saveSpinnerFrames": 8,
+  "saveSpinnerCorner": 3,
+  "saveSpinnerMargin": 20,
+  "saveSpinnerScale": 1,
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
@@ -145,8 +176,12 @@
   "loadingScreens": [],
   "defaultLoadingScreen": -1,
   "splashScreens": [],
+  "credits": [],
   "sequences": [],
-  "menus": [],
+  "menus": [
+    { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
+      "entries": [] }
+  ],
   "input": {
     "activePreset": 0,
     "allowRebind": true,
@@ -193,12 +228,14 @@
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
-    { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" }
+    { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },
+    { "name": "Procedural", "recipe": 4, "open": ["proc", "prefabs"], "ini": "" },
+    { "name": "Menu Designer", "recipe": 5, "open": ["menus", "menupreview", "fonts"], "ini": "" }
   ]
 }

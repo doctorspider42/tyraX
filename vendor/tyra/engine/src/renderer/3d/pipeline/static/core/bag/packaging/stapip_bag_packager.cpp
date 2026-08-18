@@ -66,9 +66,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_size, StaPipBag* data,
         (i * size + result[i].size - 1) / (maxVertCount / 3);
 
     result[i].clipPlaneMask = 0;
-    result[i].isInFrustum =
-        checkFrustum(result[i], capturePlaneMasks ? &result[i].clipPlaneMask
-                                                  : nullptr);
+    result[i].guardBandOnly = false;
+    result[i].isInFrustum = checkFrustum(
+        result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
+        &result[i].guardBandOnly);
   }
 
   return result;
@@ -118,9 +119,10 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
         ((i * size + result[i].size - 1) / (maxVertCount / 3));
 
     result[i].clipPlaneMask = 0;
-    result[i].isInFrustum =
-        checkFrustum(result[i], capturePlaneMasks ? &result[i].clipPlaneMask
-                                                  : nullptr);
+    result[i].guardBandOnly = false;
+    result[i].isInFrustum = checkFrustum(
+        result[i], capturePlaneMasks ? &result[i].clipPlaneMask : nullptr,
+        &result[i].guardBandOnly);
   }
 
   return result;
@@ -133,7 +135,9 @@ StaPipBagPackage* StaPipBagPackager::create(u16* o_count,
 // each world plane - the dominant EE cost of partially-visible geometry
 // after the clipper itself.
 CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
-                                                u8* crossingMask) {
+                                                u8* crossingMask,
+                                                bool* o_guardBandOnly) {
+  if (o_guardBandOnly) *o_guardBandOnly = false;
   if (!renderBBox || !objectSpacePlanes)
     return CoreBBoxFrustum::OUTSIDE_FRUSTUM;
 
@@ -160,10 +164,17 @@ CoreBBoxFrustum StaPipBagPackager::checkFrustum(const StaPipBagPackage& pkg,
   const CoreBBoxFrustum result =
       CoreBBox::frustumCheckAABB(objectSpacePlanes, min, max, frustumMask);
   if (crossingMask != nullptr && clipObjectSpacePlanes != nullptr) {
-    *crossingMask = result == PARTIALLY_IN_FRUSTUM
-                        ? CoreBBox::activePlaneMaskAABB(
-                              clipObjectSpacePlanes, min, max)
-                        : 0;
+    // Modified by TyraX: eight planes, not six. Bits 0..5 are the mask VU1
+    // gets; bits 6..7 are the exact near/far pair, and a package that is
+    // inside all eight needs no clipping (StaPipCore::isGuardBandOnly).
+    // Both are answered by one pass over the same box.
+    const u8 mask =
+        result == PARTIALLY_IN_FRUSTUM
+            ? CoreBBox::activePlaneMaskAABB(clipObjectSpacePlanes, min, max, 8)
+            : 0;
+    *crossingMask = static_cast<u8>(mask & 0x3F);
+    if (o_guardBandOnly)
+      *o_guardBandOnly = result == PARTIALLY_IN_FRUSTUM && mask == 0;
   }
   return result;
 }

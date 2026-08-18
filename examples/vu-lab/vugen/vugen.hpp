@@ -366,7 +366,7 @@ struct StageDef {
 /** The catalogue. Ordered by slot, then by how often you would reach for it. */
 const std::vector<StageDef>& stageDefs();
 /** nullptr when the key names nothing - an unknown stage is DROPPED rather
- * than guessed at, the flowLegacyNodes rule. */
+ * than guessed at, the readFlowGraph rule. */
 const StageDef* stageDef(const std::string& key);
 
 /** One authored parameter value: a literal, or field `meshSlot` of the per-mesh

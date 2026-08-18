@@ -65,6 +65,17 @@ copy-back, so prefer it.
   way to find out: the editor's Debugger panel (F9) shows per-node hit
   counters, the flow variables and the save values live. The map from the
   keys in those files to objects and nodes is `src/gen/livedbg.sym`.
+- **Seeing what the game is DRAWING**: the same debug build can photograph
+  itself. *Debugger > Screen > Capture frame* makes the game read its last
+  finished frame out of GS video memory and hand it over through
+  `bin/frame.tga` (an uncompressed 32-bit TGA, bottom row first, opaque
+  alpha); the editor keeps every capture as a PNG in the project's
+  `screenshots/` folder, which is what *Show file* opens. It needs no window
+  and no desktop, so it is the one way to get a picture from a real
+  PlayStation 2, or from a machine whose screen is locked - and what it hands
+  over is the frame buffer as the console holds it, with no aspect correction.
+  It costs the game a visible hitch (about three seconds over ps2link), so it
+  is one press per picture.
 
 ## Driving the running game (no window focus needed)
 

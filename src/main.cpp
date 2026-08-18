@@ -24,6 +24,9 @@
 #include "editorcfg.hpp"
 #include "elfsym.hpp"
 #include "gibake.hpp"
+#include "litbake.hpp"
+#include "modelao.hpp"
+#include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
 #include "livepad.hpp"
 #include "uiscript.hpp"
@@ -345,6 +348,44 @@ static void bakeProcedural(Project& p) {
                      err.c_str());
 }
 
+// The opt-in pre-build GI pass (ProjectSettings::giAutoBake,
+// docs/global-illumination.md): re-bake every scene whose cache is stale so the
+// build reads a fresh one instead of silently falling back to the pre-GI
+// lighting. Runs BEFORE the pre-lit pass, which gathers from the solved scene.
+// The cache lives on disk, so nothing here needs saving.
+static void bakeStaleGi(const Project& p) {
+    if (!p.settings.giAutoBake || !p.settings.giEnabled) return;
+    const gibake::StaleReport rep = gibake::bakeStale(p, [](const std::string& l) {
+        std::printf("gi: %s\n", l.c_str());
+    });
+    if (rep.failed)
+        std::fprintf(stderr, "warning: %d GI bake(s) failed - the scene ships "
+                             "the pre-GI lighting\n",
+                     rep.failed);
+}
+
+// The opt-in pre-build pre-lit pass (ProjectSettings::prelitAutoBake,
+// docs/prelit-models.md): re-bake the STALE wanted objects and save, so what
+// ships agrees with the scene. The GUI twin is App::projectForBuild. Off by
+// default, and only stale objects are touched - a build with everything fresh
+// pays for one signature pass and nothing else.
+static void bakeStalePrelit(Project& p) {
+    if (!p.settings.prelitAutoBake) return;
+    const litbake::Params prm;
+    const litbake::StaleReport rep = litbake::bakeStale(
+        p, prm, "",
+        [](const std::string& line) { std::printf("pre-lit: %s\n", line.c_str()); });
+    if (rep.baked || rep.failed) {
+        if (std::string err = project::save(p); !err.empty())
+            std::fprintf(stderr,
+                         "warning: could not save the pre-lit scene: %s\n",
+                         err.c_str());
+    }
+    if (rep.failed)
+        std::fprintf(stderr, "warning: %d pre-lit bake(s) failed - %s\n",
+                     rep.failed, rep.firstError.c_str());
+}
+
 // Shared gate for the headless commands: a project with pending format
 // migrations is refused instead of silently and irreversibly rewritten by a
 // script/CI - migrating is an explicit act (--migrate, or opening in the GUI).
@@ -392,6 +433,8 @@ static int buildFromCli(int argc, char** argv) {
     if (refuseUnmigrated(p)) return 1;
     if (!ps2Ip.empty()) p.ps2LinkIp = ps2Ip;
     bakeProcedural(p);
+    bakeStaleGi(p);
+    bakeStalePrelit(p);
 
     Runner runner;
     if (runPs2)
@@ -427,9 +470,10 @@ static int buildFromCli(int argc, char** argv) {
 
 // Headless helper: tyrax-editor.exe --resave <projectDir>
 // Loads a project and writes it straight back out. On its own it is a no-op for
-// an up-to-date project, but the tolerant loader lifts every legacy shape (e.g.
-// stamping stable object ids on pre-id projects), so this refreshes a project
-// to the current on-disk format without opening the GUI. Projects with pending
+// an up-to-date project, but the loader defaults every field the file does not
+// carry and repairs what only the model can (stamping ids on objects that have
+// none, seeding the built-in layouts, clamping out-of-range values), so this
+// refreshes a project to the current on-disk format without opening the GUI. Projects with pending
 // REGISTERED migration steps (data transforms) are refused - that irreversible
 // path is --migrate's job.
 static int resaveFromCli(int argc, char** argv) {
@@ -726,6 +770,210 @@ static int refreshGenFromCli(int argc, char** argv) {
     }
     std::printf("refreshed generated files: %s\n", p.dir.c_str());
     return 0;
+}
+
+// Bakes the scene's light INTO one object's texture (docs/prelit-models.md):
+// the only way a TEXTURED surface gets per-pixel static light on this hardware,
+// because the lightmap atlas is additive and the GS cannot multiply a texture
+// by a second one in a later pass. Writes res/materials/<name>-lit.png + .mtl,
+// points the object at it and marks it prelit, then refreshes the generated
+// files. Headless twin of the Properties button.
+static int bakeObjectLightFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-object-light <projectDir> "
+                     "<objectName> [size] [rays]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    litbake::Params prm;
+    if (argc > 4) prm.size = std::atoi(argv[4]);
+    if (argc > 5) prm.rays = std::atoi(argv[5]);
+    const std::string want = argv[3];
+    int found = 0;
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        SceneData& sc = p.scenes[si];
+        // The gather needs the solved scene: build the triangle set and run the
+        // bounce passes ONCE per scene, however many objects are baked from it.
+        gibake::Settings st = gibake::settingsOf(p.settings);
+        st.enabled = true;
+        gibake::Scene scene = gibake::build(p, sc, st);
+        bool solved = false;
+        for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
+            if (sc.objects[oi].name != want) continue;
+            if (!solved) {
+                const std::atomic<bool> never{false};
+                gibake::solve(scene, st, &never, nullptr);
+                solved = true;
+            }
+            litbake::Result r;
+            std::string err;
+            const auto t0 = std::chrono::steady_clock::now();
+            if (!litbake::bakeObject(p, sc, oi, scene, prm, r, err)) {
+                std::fprintf(stderr, "error: %s\n", err.c_str());
+                return 1;
+            }
+            if (std::string e = litbake::applyToObject(p, sc, oi, r); !e.empty()) {
+                std::fprintf(stderr, "error: %s\n", e.c_str());
+                return 1;
+            }
+            const double secs =
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                    .count();
+            std::printf(
+                "pre-lit %s in scene '%s': %dx%d, %d texels, mean light %.3f, "
+                "%.1fs\n",
+                want.c_str(), sc.name.c_str(), r.size, r.size, r.litTexels,
+                r.meanLight, secs);
+            ++found;
+        }
+    }
+    if (!found) {
+        std::fprintf(stderr, "error: no object named '%s'\n", want.c_str());
+        return 1;
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("pre-lit %d object(s)\n", found);
+    return 0;
+}
+
+// tyrax-editor --bake-prelit <projectDir> [sceneName]
+//
+// The MANAGED half of pre-lighting (docs/prelit-models.md, "Managing pre-lit
+// objects"), headless: every object the author marked `prelitWanted` whose
+// baked texture no longer matches the scene is re-baked, and the ones that
+// still match are left alone and said so. That last part is the point - a
+// pre-lit texture goes stale when the object moves or the scene's light
+// changes, and until now the only way to know was to remember.
+//
+// One gibake::build + one gibake::solve PER SCENE, however many objects come
+// out of it: the gather per object is seconds and the bounce solve is the rest.
+// Twin of the Baked lighting tab's "Bake pending" button.
+static int bakePrelitFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-prelit <projectDir> "
+                     "[sceneName]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;  // it saves the project
+    const char* wantScene = argc > 3 ? argv[3] : nullptr;
+
+    const litbake::Params prm;  // the editor's own defaults - see the doc
+    const litbake::StaleReport rep = litbake::bakeStale(
+        p, prm, wantScene ? wantScene : "",
+        [](const std::string& line) {
+            // The verb's own summary line keeps its historic spelling.
+            if (line.rfind("summary   ", 0) == 0)
+                std::printf("pre-lit: %s\n", line.c_str() + 10);
+            else
+                std::printf("%s\n", line.c_str());
+        });
+    if (wantScene && !rep.sceneFound) {
+        std::fprintf(stderr, "error: no scene named '%s'\n", wantScene);
+        return 1;
+    }
+    if (rep.baked) {
+        if (std::string err = project::save(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        if (std::string err = project::refreshGenerated(p); !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    if (!rep.wanted)
+        std::printf(
+            "nothing is marked to ship pre-lit - tick objects in Tools > "
+            "Baked Lighting, or use --bake-object-light for a one-off\n");
+    return rep.failed ? 1 : 0;
+}
+
+// tyrax-editor --bake-model-ao <projectDir> [--texbake]
+//
+// Bakes every eligible model asset's own ambient occlusion into
+// .res-baked/modelao/ (docs/ambient-occlusion.md, "Model AO") and reports what
+// it did and what it deliberately skipped.
+//
+// It exists because the shipping path for this feature is texbake, which runs
+// only inside a real build - so without a verb the only way to exercise the
+// bake would be Docker, and the only way to see the skip rules would be to
+// read them. `--texbake` additionally runs the texture bake, i.e. the actual
+// multiply into .res-baked, so the whole chain is checkable with no container.
+static int bakeModelAoFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --bake-model-ao <projectDir> "
+                     "[--texbake]\n");
+        return 2;
+    }
+    bool alsoTexbake = false;
+    for (int i = 3; i < argc; ++i)
+        if (std::strcmp(argv[i], "--texbake") == 0) alsoTexbake = true;
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const modelao::Params prm = modelao::paramsOf(p.settings);
+    if (!prm.enabled && p.modelAoMode.empty()) {
+        std::fprintf(stderr,
+                     "error: model AO is off for this project (Tools > Baked "
+                     "Lighting)\n");
+        return 1;
+    }
+    const modelao::Plan pl = modelao::plan(p, prm);
+    int baked = 0, failed = 0;
+    for (const modelao::Target& t : pl.targets) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool had = modelao::fresh(p, t, prm);
+        const std::string err = modelao::ensure(p, t, prm);
+        const double secs =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        if (!err.empty()) {
+            std::fprintf(stderr, "error: %s: %s\n", t.textureRel.c_str(),
+                         err.c_str());
+            ++failed;
+            continue;
+        }
+        std::printf("%-9s %s (%s, %dx%d) %.1fs\n", had ? "fresh" : "baked",
+                    t.textureRel.c_str(), t.modelRel.c_str(), t.texW, t.texH,
+                    secs);
+        ++baked;
+    }
+    for (const modelao::Skipped& s : pl.skipped)
+        std::printf("skipped   %s (%s): %s\n",
+                    s.textureRel.empty() ? "-" : s.textureRel.c_str(),
+                    s.modelRel.c_str(), s.reason.c_str());
+    std::printf("model AO: %d map(s), %d skipped, %d failed\n", baked,
+                (int)pl.skipped.size(), failed);
+    if (alsoTexbake) {
+        if (std::string err = texbake::bake(
+                p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+            !err.empty()) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+    }
+    return failed ? 1 : 0;
 }
 
 // Bakes global illumination for every scene (docs/global-illumination.md) into
@@ -1557,6 +1805,61 @@ static std::string vuEngineDir(const char* override) {
     return "vendor/tyra/engine";
 }
 
+// Whether the two halves --vu-check compares come from the same tree.
+//
+// Every comparison it makes has a GENERATED side, built from the descriptions
+// compiled into THIS BINARY, and a HANDWRITTEN side read off disk as .vclpp -
+// including the identity-at-zero half, which measures a generated stage against
+// the engine's own cull programs. So the two are only comparable when they come
+// from one commit, and a mismatch across a version boundary says nothing about
+// the generator.
+//
+// That is not a hypothetical. Pointing this at another commit's engine (the
+// `git archive <rev> vendor/tyra/engine` attribution trick) swaps exactly ONE of
+// the two halves, so against a stale binary it MANUFACTURES the failures it is
+// being used to attribute - seven DIFFERENT programs plus the matcap class's
+// identity-at-zero, all of which pass when each half is run against its own
+// peer. Naming the skew is what keeps a failure here readable as a failure.
+struct VuProvenance {
+    bool foreignEngine = false;  // not the engine next to this executable
+    std::string ownEngine;       // ...which would have been this one
+    bool staleBinary = false;    // a framework source is newer than the exe
+    std::string staleSource;     // ...this one
+};
+
+static VuProvenance vuProvenance(const std::string& engine) {
+    namespace fs = std::filesystem;
+    VuProvenance pv;
+    std::error_code ec;
+
+    const fs::path own = fs::weakly_canonical(fs::path(vuEngineDir(nullptr)), ec);
+    const fs::path used = fs::weakly_canonical(fs::path(engine), ec);
+    if (fs::exists(own / "Makefile", ec) && used != own) {
+        pv.foreignEngine = true;
+        pv.ownEngine = own.string();
+    }
+
+    // The descriptors are compiled INTO this binary, so a framework source
+    // newer than the executable means the run is not testing the tree.
+    const std::string exe = platform::exePath();
+    if (exe.empty()) return pv;
+    const auto exeTime = fs::last_write_time(fs::path(exe), ec);
+    if (ec) return pv;
+    const fs::path src = fs::path(exe).parent_path() / ".." / "src";
+    for (const char* name : {"vugen.cpp", "vugen.hpp", "vusim.cpp", "vuir.cpp",
+                             "vuasm.cpp", "main.cpp"}) {
+        std::error_code fec;
+        const fs::path f = src / name;
+        const auto t = fs::last_write_time(f, fec);
+        if (!fec && t > exeTime) {
+            pv.staleBinary = true;
+            pv.staleSource = fs::weakly_canonical(f, fec).string();
+            break;
+        }
+    }
+    return pv;
+}
+
 // The stage-library half of --vu-check.
 //
 // Two claims, and each stage has to satisfy BOTH or it is not shippable.
@@ -2302,7 +2605,15 @@ static bool wrapperAbi(const std::string& text, int& reglist, int& elements) {
 static int vuCheckFromCli(int argc, char** argv) {
     namespace fs = std::filesystem;
     const std::string engine = vuEngineDir(argc > 2 ? argv[2] : nullptr);
-    std::printf("engine: %s\n\n", engine.c_str());
+    std::printf("engine: %s\n", engine.c_str());
+    const VuProvenance prov = vuProvenance(engine);
+    if (prov.foreignEngine)
+        std::printf("note: FOREIGN engine - this build's own is %s\n",
+                    prov.ownEngine.c_str());
+    if (prov.staleBinary)
+        std::printf("note: %s is NEWER than this executable - rebuild first\n",
+                    prov.staleSource.c_str());
+    std::printf("\n");
 
     std::error_code ec;
     if (!fs::exists(fs::path(engine) / "src", ec)) {
@@ -2667,6 +2978,25 @@ static int vuCheckFromCli(int argc, char** argv) {
                              "handwritten twin bit for bit, and every wrapper "
                              "links the image it should"
                            : "FAIL");
+    // A failure across a version boundary is not a generator bug, and saying so
+    // here is the difference between "the framework is broken" and "rebuild".
+    if (!ok && (prov.foreignEngine || prov.staleBinary)) {
+        std::printf(
+            "\n"
+            "note: the two halves compared above may not be from one commit.\n"
+            "      The generated half comes from the descriptions compiled into\n"
+            "      THIS binary, the handwritten half from the .vclpp on disk.\n");
+        if (prov.foreignEngine)
+            std::printf("      - the engine is not this build's own (%s)\n",
+                        prov.ownEngine.c_str());
+        if (prov.staleBinary)
+            std::printf("      - %s is newer than this executable\n",
+                        prov.staleSource.c_str());
+        std::printf(
+            "      Rebuild, then re-run with no engine argument. If that passes\n"
+            "      while this fails, the two are out of step and neither side is\n"
+            "      wrong (docs/vu-framework.md, \"One commit, both halves\").\n");
+    }
     return ok ? 0 : 1;
 }
 
@@ -3083,8 +3413,14 @@ int main(int argc, char** argv) {
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-object-light") == 0)
+        return bakeObjectLightFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-prelit") == 0)
+        return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
+        return bakeModelAoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ai-graph") == 0)
         return aiGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--add-ai-support") == 0)
@@ -3144,6 +3480,13 @@ int main(int argc, char** argv) {
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
+            "  --bake-model-ao <projectDir> [--texbake]\n"
+            "                                          bake every model "
+            "asset's own AO into its texture\n"
+            "                                          (docs/ambient-occlusion.md)\n"
+            "  --bake-prelit <projectDir> [sceneName]  re-bake every STALE "
+            "pre-lit object\n"
+            "                                          (docs/prelit-models.md)\n"
             "Neural upscaler (docs/neural-upscaler.md):\n"
             "  --blss-train [<projectDir>] [-o blss.net] [--frames N] "
             "[--epochs N] [--dump <dir>]\n"

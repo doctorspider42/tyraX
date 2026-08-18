@@ -13,7 +13,8 @@ You spawn facing three crates — **red** (nearest), **green**, **blue**.
 
 - **Press Cross** → the nearest still-visible crate disappears. Press again and
   the next one goes, then the last. This runs a **C++-backed** custom node whose
-  **object output** feeds a built-in **Hide Object**.
+  **object output** feeds a built-in **Set Object Visible** on its *hide* exec
+  pin.
 - **Press Square** → the green crate spins 45° each press. This runs an
   **inline-snippet** custom node.
 
@@ -26,34 +27,35 @@ nodes live in `flow-nodes/`:
   and `exec_out`. Its C++ lives in `inc/scripts/flow_nodes.hpp`
   (`flowNearestVisible`): it scans the scene for the closest visible object and
   writes it to `io.objectOut`. That is a *runtime* object reference (known only
-  in-game), and the graph wires it straight into a built-in **Hide Object** —
-  the whole point of C++-backed nodes with pins. `exec_out` fires the Hide right
-  after the pick, sequencing the two. The built-in action is bounds-guarded, so
-  once every crate is hidden the last press is a harmless no-op.
+  in-game), and the graph wires it straight into a built-in **Set Object
+  Visible**, entered on its *hide* exec pin — the whole point of C++-backed
+  nodes with pins. `exec_out` fires the hide right after the pick, sequencing
+  the two. The built-in action is bounds-guarded, so once every crate is hidden
+  the last press is a harmless no-op.
 
   ```
-  On Button (Cross) ──exec──▶ Nearest Visible ──exec──▶ Hide Object
-                                    └────── object ──────┘
+  On Button (Cross) ──exec──▶ Nearest Visible ──exec──▶ Set Object Visible (hide)
+                                    └────── object ─────────────┘
   ```
 
 - **`spin.flownode`** — an **inline** node: a two-line C++ snippet with
   `{obj}` / `{num0}` placeholders, no separate function. It nudges the target
-  object's yaw by *Degrees*. Here it targets `crate-2` (the green one).
+  object's yaw by *Degrees* — here `crate-2`, the green one.
 
   ```
   On Button (Square) ──exec──▶ Spin By (crate-2, 45°)
   ```
 
-  It is kept here as the smallest possible inline-node example. For real work
-  the editor now has built-ins that do this and more: **Rotate Object By** (the
-  same nudge, any axis) and **Spin Object** (continuous rotation the game
+  It stays here as the smallest possible inline-node example, but the editor
+  now has built-ins that do this and more: **Rotate Object By** (the same
+  nudge, any axis) and **Spin Object** (continuous rotation the game
   integrates itself). Reach for a custom node when the editor has no built-in,
   not to re-implement one.
 
 ## Both files document themselves
 
-Each `.flownode` here carries the documentation keys, and they are worth copying
-because they are what stops a project's own node needing a person next to it:
+Each `.flownode` here carries the documentation keys — worth copying, because
+they are what stops a project's own node needing a person next to it:
 
 - `desc` — what the NODE does. Shown when you hover the node in the Flow Graph
   or its entry in the add-menu, and fed to the AI flow-graph generator.
@@ -61,10 +63,10 @@ because they are what stops a project's own node needing a person next to it:
   cursor rests on that widget inside the node, and listed under `desc` in the
   node's own tooltip.
 
-`Spin By` has both (see its `tip0`: what Degrees means, and that firing it twice
-turns twice as far); `Nearest Visible` takes no parameters, so `desc` alone is
-its documentation. The built-in registry holds itself to the same split — see
-[docs/custom-flow-nodes.md](../../docs/custom-flow-nodes.md).
+`Spin By` has both (see its `tip0`: what Degrees means, and that firing it
+twice turns twice as far); `Nearest Visible` takes no parameters, so `desc`
+alone is its documentation. The built-in registry holds itself to the same
+split — see [docs/custom-flow-nodes.md](../../docs/custom-flow-nodes.md).
 
 ## Reusing these nodes
 
@@ -74,4 +76,4 @@ copy `flow-nodes/spin.flownode` into that project's `flow-nodes/` folder. For
 project's `inc/scripts/flow_nodes.hpp` (an inline node needs no extra file).
 
 `inc/scripts/flow_nodes.hpp` here is **owned** (its editor marker line was
-removed) so the editor keeps the hand-written function on every build.
+removed), so the editor keeps the hand-written function on every build.

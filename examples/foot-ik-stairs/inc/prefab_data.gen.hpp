@@ -16,7 +16,7 @@ constexpr int PREFAB_COUNTS[PREFAB_COUNT > 0 ? PREFAB_COUNT : 1] = {0};
 
 constexpr int PREFAB_MEMBER_COUNT = 0;
 constexpr SceneObjectData PREFAB_MEMBERS[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER_COUNT : 1] = {
-    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 0, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},
 };
 constexpr unsigned char PREFAB_MERGE[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER_COUNT : 1] = {0};
 

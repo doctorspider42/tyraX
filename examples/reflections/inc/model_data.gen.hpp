@@ -26,6 +26,37 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
     "",
 };
 
+// Per-clip Foot IK rules, sliced per rig by firstRule/ruleCount.
+// The clip is the EFFECTIVE (post-rename) name, which is what
+// the .tskl carries and what SkelInstance reports.
+struct FootIkClipRuleData {
+  const char* clip;
+  int solve;             // 0 = this clip plays as authored
+  float plantScale;      // x plant / release / descent reach
+  float clearanceScale;  // x toe clearance
+};
+constexpr int FOOT_IK_CLIP_RULE_COUNT = 0;
+inline const FootIkClipRuleData FOOT_IK_CLIP_RULES[FOOT_IK_CLIP_RULE_COUNT > 0 ? FOOT_IK_CLIP_RULE_COUNT : 1] = {
+    {"", 1, 1.0F, 1.0F},
+};
+
+// The leg binding and tolerances of one animated model asset.
+// Bones are bound by NAME so a re-export may reorder the
+// hierarchy; the game resolves them once per instance.
+struct FootIkRigData {
+  int solve;  // 0 = this model is not bound; ignore the rest
+  const char *leftHip, *leftKnee, *leftAnkle;
+  const char *rightHip, *rightKnee, *rightAnkle;
+  float sole, probeUp, probeDown, plant, release, pelvis;
+  float maxFootAngle, toeClearance, descendReach;
+  int neural;            // learned VU0 assist (raycast-gated)
+  float neuralStrength;  // 0..1 influence
+  int firstRule, ruleCount;  // slice of FOOT_IK_CLIP_RULES
+};
+inline const FootIkRigData FOOT_IK_RIGS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
+    {0, "", "", "", "", "", "", 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0, 0.0F, 0, 0},
+};
+
 // .mtl libraries assigned to primitives (first material = surface)
 constexpr int MATERIAL_COUNT = 6;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {

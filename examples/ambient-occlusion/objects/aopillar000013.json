@@ -1,0 +1,1 @@
+{ "id": "aopillar000013", "name": "pillar-cap-3", "type": "box", "position": [8, 3.75, 8.6], "rotation": [0, 0, 0], "scale": [1.5, 0.3, 1.5], "color": [1, 1, 1], "physics": false, "material": "res/materials/terrace.mtl" }

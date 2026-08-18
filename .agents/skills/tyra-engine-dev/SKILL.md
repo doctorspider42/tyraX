@@ -137,8 +137,9 @@ Editor-specific engine additions so far: Cohen–Sutherland outcodes in the EE
 clipper, the StaPip `clip` VU1 program family (on-VU1 Sutherland–Hodgman,
 **the default** clipping mode for new projects since M4; the EE clipper stays
 selectable as "Precise clipping on EE (legacy)" and remains the load-time
-default for pre-M4 `.tyra` files without a `clipping` key — design + status
-in `docs/vu1-clipping-plan.md`), static pools in `stapip_clipper.cpp` /
+default for pre-M4 `.tyra` files without a `clipping` key — the routing, the
+guard band and the measured numbers are in `docs/vu1-clipping.md`), static
+pools in `stapip_clipper.cpp` /
 `stapip_qbuffer.cpp`,
 `RendererCorePostFx` (bloom + film grain + depth of field + god rays via GS
 blits — god rays (`PassGodRays`, `setGodRays` strength + per-frame
@@ -547,7 +548,7 @@ Eight things here that were paid for, and that any edit must keep:
   never reached the line. **Grep `GS_SET_ZBUF` before adding a full-screen
   pass**, and never write the mask from one. The full account with before/after
   numbers is in `docs/neural-upscaler.md` §5 ("That invariant has been broken
-  TWICE") and `docs/backlog.md`.
+  TWICE").
   The diagnostic worth stealing: the same broken arms were **also missing the
   crosshair sprite**, including an arm whose terrain was untextured — a second,
   unrelated-looking thing going missing at the same time is what said "this is
@@ -842,9 +843,9 @@ Eight things here that were paid for, and that any edit must keep:
   default (FIXED 2026-08-09 - a single project positional defaults the path to
   `<projectDir>/blss.net` on the read side as well as the write; the BLSS
   window never saw it because it runs with cwd = the project AND passes `-o`);
-  and the corpus
-  RENDERER draws no emitters, so a PSNR number for a billboard-heavy scene
-  describes a frame the game never displays (both in docs/backlog.md).
+  and the corpus RENDERER draws no emitters, so a PSNR number for a
+  billboard-heavy scene describes a frame the game never displays. The missing
+  renderer is tracked in `docs/backlog.md`.
 - **The bob is the JITTER, and the per-field bias is NOT part of it.** The
   +-1/4-pixel per-frame raster jitter in `beginScene` is the confirmed cause: a
   person watched three builds of `examples/upscaler-lab` differing in nothing
@@ -1376,9 +1377,20 @@ banner both, so a previously built ELF still reports.
   `pointer = address` (a stack pop), so freeing anything but the newest
   allocation handed out the memory of still-live textures: streaming-layer
   unloads reproduced it as surviving objects rendering another object's
-  texture. Budget after the init buffers is **~1.08 MB** (~1 MB in
-  `Pal576i`), and every allocation costs ~8 KB of padding on top of its
-  pixels — a 256×256 32bpp texture is 24% of the heap, a 512×512 is 93%.
+  texture. Budget after the init buffers is **~1.08 MB at 32-bit colour and
+  ~1.95 MB at 16-bit** (see the colour-depth bullet below), plus 256 KB more
+  when a project reserves neither optional render target — a 256×256 32bpp
+  texture is 23% of the 32-bit heap, a 512×512 is 93%. **`getSize()` computes
+  the real swizzled GS footprint** — whole pages above one page, whole blocks
+  inside one, via the PSM's Morton block order (the Z formats' orders are
+  permuted variants for which that shortcut is invalid, so they round to
+  pages). It used to add a flat `1024 * 2` words to every allocation with the
+  comment *"without this hack, textures are overlapping ourselves"*, which
+  charged a 16-entry CLUT **8.25 KB** for 64 bytes of data AND still
+  UNDER-allocated extreme aspect ratios (a 512×32 PSMCT16 strip reaches word
+  15 360 and was handed 10 240 — the overlap the hack was named after was
+  never actually fixed by it). `menulayout.cpp`'s `gsWords` is the editor's
+  host-side mirror of this; the two must agree.
   When a texture does not fit, `RendererCoreTexture::makeRoomFor()` evicts
   coldest-first (`pickVictim`: stale entries by LRU; when the whole resident
   set is in this frame's working set, the MOST recently bound one — plain LRU
@@ -1390,6 +1402,36 @@ banner both, so a previously built ELF still reports.
   (binds/hits/uploads/**re-uploads**/evictions/resident/free MB/largest free
   block, per frame); `reup` per frame is the number that matters, each one is
   a full PATH3 transfer. `examples/showcase` sits at 6 allocations and
+  1.15 MB free (2.04 MB at 16-bit colour) and never evicts anything — if you
+  are chasing a VRAM problem in a palettized project, measure before assuming
+  there is one.
+- **The framebuffer PSM is a setting, not a constant** (TyraX fork,
+  docs/gs-vram.md). `RendererSettings::getFrameBufferPsm()` returns PSMCT32 or
+  PSMCT16 per the project's colour depth, and **everything that writes a
+  `FRAME` register for the screen must use it**: `draw_setup_environment`, all
+  of `RendererCorePostFx` (`fbPsm` / `psmFor` — the low-res work buffers are
+  allocated in the frame format so the blur chain never converts, while the
+  film-grain noise stays PSMCT32 because it is uploaded rather than rendered),
+  and the env-map / shadow-map brackets' restores. A hardcoded `GS_PSM_32`
+  there decodes a 16-bit frame as 32-bit garbage. The **z buffer stays 32-bit**
+  deliberately: 16-bit z would save as much again, but at `near` 0.1 / `far`
+  51200 its resolution collapses with distance and terrain fights baked
+  shadows. Two traps paid for here: **ps2sdk's `GS_SET_DIMX` masks each entry
+  with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
+  half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
+  dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;
+  and the GS only dithers **16-bit destinations**, so `DTHE` is inert at 32bpp
+  and the switch cannot be tested there.
+- **The env-map and camera-feed targets are opt-in** (TyraX fork). Two
+  128×128 targets plus their z buffers, 128 KB each, were reserved for every
+  project whether or not anything sampled them — a quarter of the 32-bit
+  texture heap. `RendererCoreEnvMap::setEnabled` (driven by
+  `EngineOptions::envMapTarget` / `camFeedTarget`, decided by the editor's
+  `projectNeedsEnvMap` / `projectNeedsCamFeed`) turns them off, and then
+  `getTexture()` returns **nullptr** and `begin()`/`end()` are no-ops. Any new
+  caller must null-check rather than assume a texture; the generated game
+  drops the reflection pass instead. If you add a third such target, make it
+  opt-in from the start.
   0.87 MB free and never evicts anything — if you are chasing a VRAM problem
   in a palettized project, measure before assuming there is one.
 - **"Restoring" a GS register nothing else writes is a GUESS, not a restore.**
@@ -1694,9 +1736,46 @@ on the same scene now that classification is cheap. When touching
 classification, mind the AABB invariant: every CoreBBox the packager sees is
 axis-aligned with `vertices[0]`/`vertices[7]` as min/max — only the
 matrix-transform constructor breaks that, and it must never feed the AABB
-test. Known next target (from `docs/backlog.md`): retire the EE clipper —
-flip `"clipping"` to vu1 by default (M4 in docs/vu1-clipping-plan.md, gated
-on a real-PS2 pass).
+test. VU1 clipping is now the default; the EE clipper remains available as the
+legacy compatibility mode. See docs/vu1-clipping.md.
+- **`PARTIALLY_IN_FRUSTUM` does NOT mean "needs clipping", and treating it that
+  way was worth 2.2 ms a frame** (docs/vu1-clipping.md). A package is classified
+  against the VIEW frustum — the screen edge — while VU1 cuts against the near/far
+  pair and an X/Y band at `VU1_CLIP_XY_BAND` (0.9) of w. The projection divides
+  by `projectionScale` 4096, so the screen edge is at `width/4096` of w — **0.125**
+  at 512 px — and the band is about SEVEN times that: a triangle may hang ~1590 px
+  past either edge before anything is cut, and the GS scissor crops the raster
+  (it acts during DDA, so unseen pixels cost no fill). So a package straddling the
+  screen border typically crosses no VU clip plane at all, and it used to be split
+  into thirds, `memcpy`-ed stream by stream and run through Sutherland-Hodgman with
+  an empty plane mask. `StaPipBagPackage::guardBandOnly` (set by the packager,
+  read by `StaPipCore::isGuardBandOnly`) routes it to **cull**, whole and by
+  pointer. Measured on `examples/large-terrain`, 2922 paired frames: clip-routed
+  packages 11 164 -> 2 127 per 50-frame window, qbuffer flushes 1 287 -> 756, work
+  6.887 -> 4.670 ms (**1.475x**, CI [-2.258, -2.175]); the picture is unchanged
+  (an A-arm and a B-arm boot came back byte-identical over four parked poses,
+  while two boots of the SAME build did not — this fixture's chunk streaming is
+  the noise floor, so ALWAYS capture a same-build control here).
+  **The trap inside it, and the reason the mask is tested over EIGHT planes:** the
+  cull programs' `fcand 0x3FFFF` covers all six clip flags of all three vertices,
+  `z` against `+/-w` included, while the guard band's near constant is
+  deliberately looser (`PlanesClipAlgorithm::clipMargin`). That leaves a thin
+  shell in front of the near plane where the clipper draws a triangle the cull
+  program would ADC away — a hole at point-blank range.
+  `computeClipObjectSpacePlanes` therefore builds the six VU planes PLUS the exact
+  near (`z <= w`) and far (`z >= -w`) pair at indices 6..7; those two are EE-only,
+  never uploaded, and `clipPlaneMask` is masked back to six bits before VU1 sees
+  it. If you add a plane here, decide first which side of that line it is on.
+  Note the trade: the whole package is now submitted where the split would have
+  dropped some thirds as OUTSIDE — ~7 % more triangles in 54 % fewer packages,
+  because the cost on this pipeline is per PACKAGE (a DMA chain, a kick, a copy),
+  not per triangle.
+- **`StaPipTelemetry` finally has a reader: the `FTCLIP` line.** The counter block
+  existed for a year with nothing calling `takeTelemetry()`. Under
+  `TYRA_FRAME_PROFILE` the generated game now enables it and prints
+  `cull=P/T clip=P/T guard=P/T out=... flush=... vuwait=...` once a second beside
+  `FRAMETIME` (docs/profiling.md). Drain it EVERY frame — `takeTelemetry` clears
+  as it reads, so a skipped frame is a lost frame.
 - **`Info::getFps()` is NOT a clock you may add a constant to, and it was one
   for years.** It divided a hardcoded `15625.0` into a single frame's delta of
   **EE Timer 3**, which the kernel clocks from **H-BLNK** - i.e. it counts

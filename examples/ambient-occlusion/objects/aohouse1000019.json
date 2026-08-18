@@ -1,0 +1,1 @@
+{ "id": "aohouse1000019", "name": "house-1", "type": "model", "position": [8, 0.5, -9.6], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "model": "res/models/Wall_Plaster_Straight.obj" }

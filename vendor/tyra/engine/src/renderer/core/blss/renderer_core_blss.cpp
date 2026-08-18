@@ -286,7 +286,8 @@ void RendererCoreBlss::allocate() {
   // history is the other display framebuffer (section 6) and the low-res pass
   // points ZBUF at the main z buffer (section 7) - FRAME and ZBUF bases are
   // independent registers.
-  lowVram = gs->vram.allocateBuffer(lowBufW, lowH, GS_PSM_32);
+  fbPsm = settings->getFrameBufferPsm();
+  lowVram = gs->vram.allocateBuffer(lowBufW, lowH, fbPsm);
   TYRA_ASSERT(lowVram >= 0, "Out of VRAM for the BLSS low-res target");
   allocated = true;
   TYRA_LOG("BLSS: ", lowW, "x", lowH, " low-res target at VRAM ", lowVram);
@@ -1475,7 +1476,7 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   // the previous window and never painted).
   PACK_GIFTAG(q, GS_SET_XYOFFSET(offX16, offY16), GS_REG_XYOFFSET_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(lowVram >> 11, lowBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(lowVram >> 11, lowBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_SCISSOR(0, lowW - 1, 0, lowH - 1), GS_REG_SCISSOR_1);
@@ -1611,7 +1612,7 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
     //   RGB = Ct * 128 >> 7 = Ct      (exact, no loss)
     //   A   = TA0 * Av >> 7 = Av      (with TEXA below)
     PACK_GIFTAG(q,
-                GS_SET_TEX0(srcVram >> 6, srcBufW >> 6, GS_PSM_32, lg2(texW),
+                GS_SET_TEX0(srcVram >> 6, srcBufW >> 6, fbPsm, lg2(texW),
                             lg2(texH), 0 /* TCC: RGB */,
                             0 /* TFX: MODULATE */, 0, 0, 0, 0, 0),
                 GS_REG_TEX0_1);
@@ -1636,7 +1637,7 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
   // what draw_setup_environment leaves (see kEnvTexa), re-stated per pass.
   PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);

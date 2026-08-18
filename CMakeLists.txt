@@ -210,6 +210,7 @@ add_executable(tyrax-editor
     src/aisupport.cpp
     src/ambience.cpp
     src/animedit.cpp
+    src/animmerge.cpp
     src/aobake.cpp
     src/app.cpp
     src/audiopreview.cpp
@@ -250,6 +251,7 @@ add_executable(tyrax-editor
     src/vucap.cpp
     src/bvh.cpp
     src/gibake.cpp
+    src/litbake.cpp
     src/vuir.cpp
     src/vuasm.cpp
     src/vusim.cpp
@@ -261,6 +263,7 @@ add_executable(tyrax-editor
     src/vushader_palette_sample.cpp
     src/vukernel_sample.cpp
     src/matbake.cpp
+    src/modelao.cpp
     src/objparser.cpp
     src/iso9660.cpp
     src/isoexport.cpp
@@ -298,6 +301,8 @@ add_executable(tyrax-editor
     src/tmdl.cpp
     src/treegen.cpp
     src/uiscript.cpp
+    src/update.cpp
+    src/update_ui.cpp
     src/uvunwrap.cpp
     src/save_assets.cpp
     src/templates.cpp

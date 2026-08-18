@@ -23,8 +23,10 @@
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
+#include "litbake.hpp"
 #include "procbake.hpp"
 #include "matbake.hpp"
+#include "modelao.hpp"  // the automatic model-AO baker + its per-asset plan
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
 #include "menulayout.hpp"  // the Menu Preview's row geometry
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
@@ -45,6 +47,7 @@
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "update.hpp"  // update::Release member (the update check's answer)
 #include "savebake.hpp"
 #include "viewport.hpp"
 
@@ -221,6 +224,12 @@ private:
     // RendererSettings::updateGeometry, so a new display mode is one entry in
     // both places.
     bool viewportPs2_ = false;
+    // PS2 shading (per-vertex + flat triangles) and GS colour simulation
+    // (0 = match project, 1 = full 32-bit, 2 = 16-bit, 3 = 16-bit + dither) -
+    // docs/ps2-viewport.md. Machine-global like viewportPs2_, pushed to the
+    // viewport each frame next to setPs2Output.
+    bool viewportPs2Shade_ = false;
+    int viewportGsColor_ = 0;
     Viewport::Ps2Output ps2ViewportOutput() const;
     // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
     void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
@@ -666,6 +675,9 @@ private:
     };
     std::map<std::string, GlbInfo> glbInfoCache_;
     const GlbInfo& glbInfo(const std::string& relPath);
+    // Fills GlbInfo's three Foot IK fields (bones, boneParents, boneBindY)
+    // from the cache-assisted skeleton. Called by both glbInfo paths.
+    void fillFootIkBones(const std::string& relPath, GlbInfo& info);
     // glbInfo(relPath).clips with the Animation Editor's renames applied -
     // the names the game resolves and every reference stores.
     std::vector<std::string> effectiveClips(const std::string& relPath);
@@ -713,6 +725,38 @@ private:
     // on gibake::Baker's worker thread (docs/global-illumination.md).
     void giBakerPoll();
     void drawGiBakeSection();
+    // The "Baked lighting" tab of the Ambience Editor (docs/ambient-occlusion.md).
+    // One home for the light that is computed on the host and shipped as
+    // pixels; drawBakedLightingSection is a list of sections, drawModelAoSection
+    // is the first of them.
+    void modelAoPoll();
+    void drawBakedLightingSection();
+    void drawSceneAoSection();
+    void drawModelAoSection();
+    // "Pre-lit models" - the second section of that tab (docs/prelit-models.md,
+    // "Managing pre-lit objects"): which objects of the active scene are
+    // pre-lit, whether their textures still match the scene, and the batch bake.
+    void drawPrelitSection();
+    // Drains litBaker_ and applies whatever it finished, as ONE undo step.
+    // Polled every frame from drawUI and from nowhere else - the giBakerPoll
+    // rule: a batch started from the tab has to land whether or not the tab (or
+    // Properties, or the object's selection) is still there when it finishes.
+    void litBakerPoll();
+    // Puts one object back on the material it had before its first bake and
+    // forgets it was ever pre-lit. One commitChange.
+    void revertPrelit(int objIndex);
+    // What the panels draw from. litbake::signature hashes every file the GI
+    // bake reads, so it cannot be asked per row per frame: this is recomputed
+    // only when the model, the scene or the bake parameters move.
+    struct PrelitStatus {
+        int index = -1;
+        bool prelit = false;  // its texture carries light TODAY
+        bool fresh = false;   // ...and still matches the scene
+        bool movable = false;  // project::objectRuntimeMovable
+        int texSize = 0;       // the baked image's own size, 0 = not on disk
+    };
+    const std::vector<PrelitStatus>& prelitStatuses();
+    const PrelitStatus* prelitStatusFor(int objIndex);
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -1040,6 +1084,94 @@ private:
     // Tools > Animation Editor (docs/animated-models.md). Non-destructive:
     // every control writes an AnimClipEdit, never the source .glb/.fbx.
     void drawAnimEditorWindow();
+    // The "Imported clips" block of that window (docs/animation-import.md):
+    // borrow clips from another model file. Returns true when it changed
+    // something, which the caller turns into a commit + a cache drop - an
+    // import alters what clips a model HAS, so every parse of it is stale.
+    bool drawAnimImportSection(const std::string& modelRel);
+    // Everything derived from a model's parse: the GlbInfo summary, the
+    // viewport's baked draw and the material preview. Called after an import
+    // change, since those caches all hold a clip list. With `modelRel` given
+    // only THAT model's entries drop - an Apply on one character must not
+    // re-bake every animated model in the project.
+    void invalidateAnimCaches(const std::string& modelRel = std::string());
+    // Staged donor pick for the import block; "" = nothing chosen yet.
+    std::string animImpSource_;
+    // Clip-list name filter (Animation Editor, left pane).
+    char animEdFilter_[48] = {};
+    // Everything the import panel needs to know about a (target, source) pair.
+    // Answering it means parsing two models, which a panel body must not do
+    // every frame - so it is computed once per pair and dropped by
+    // invalidateAnimCaches() with every other parse-derived cache.
+    struct AnimImportProbe {
+        bool ok = false;
+        std::string error;
+        int clipCount = 0;
+        float match = 0.0f;   // 0..1, fraction of animated bones with a home
+        int bonesTotal = 0;   // donor skinning bones
+        int bonesMapped = 0;  // ...that resolve to a target bone
+        animmerge::RetargetInfo retarget;  // which path, gap, facing
+    };
+    std::map<std::string, AnimImportProbe> animProbeCache_;
+    // Parsed skeletons, shared by the probe, the bone mapper and glbInfo -
+    // one parse per FILE instead of one per consumer (the concrete stalls:
+    // open, Add clips, Map bones). Revalidates by size+mtime, so it survives
+    // invalidateAnimCaches() and still notices a re-imported asset.
+    animmerge::SkelCache skelCache_;
+    // `boneMap` participates in the cache key, so a row with hand-made pairs
+    // reads its own numbers and a mapping commit refreshes them.
+    const AnimImportProbe& animImportProbe(
+        const std::string& modelRel, const std::string& sourceRel,
+        const std::vector<std::pair<std::string, std::string>>& boneMap);
+
+    // --- the bone-mapping editor (Map bones... on an import row) -----------
+    // Staged entirely on the App: the two skeletons are parsed ONCE when the
+    // window opens and the pair list is a working copy, committed on Apply.
+    int animMapRow_ = -1;  // index into project_.animImports; -1 = closed
+    bool animMapParsed_ = false;
+    glbparser::Skel animMapTarget_, animMapDonor_;
+    std::vector<float> animMapTPos_, animMapDPos_;  // bind-pose globals
+    std::vector<std::pair<std::string, std::string>> animMapPairs_;  // staged
+    std::vector<animmerge::BoneSuggestion> animMapSugg_;
+    int animMapSelDonor_ = -1;  // selected donor node, -1 = none
+    // The pair list's hover, read by the canvas NEXT frame (the list is laid
+    // out after the canvas but must highlight into it - the standard one-frame
+    // ImGui trick). Donor/target node indices, -1 = none.
+    int animMapHiD_ = -1, animMapHiT_ = -1;
+    // Canvas view: wheel zooms to the cursor, middle-drag pans - without it
+    // finger and toe joints of a real rig are unclickable. Reset on open.
+    float animMapZoom_ = 1.0f, animMapPanX_ = 0.0f, animMapPanY_ = 0.0f;
+    // Test pose: both rigs posed through the CURRENT mapping - the check
+    // that beats every percentage (docs/animation-import.md).
+    int animMapPoseClip_ = -1;  // donor clip index, -1 = off
+    float animMapPoseT_ = 0.0f;
+    bool animMapPosePlay_ = false;
+    std::vector<float> animMapDPosed_, animMapTPosed_;
+    // One affix rule covering many unmatched bones (recomputed with the
+    // suggestions), and the AI assist (aigen backend, one-shot).
+    animmerge::AffixRule animMapAffix_;
+    bool animMapAffixOk_ = false;
+    std::unique_ptr<aigen::Generator> animMapAiGen_;
+    std::vector<std::pair<std::string, std::string>> animMapAiSugg_;
+    std::string animMapAiErr_;
+    // The user's accepted pairs, machine-global (<configDir>/bone-aliases.ini)
+    // - once "Oyayubi1" was mapped onto "Thumb1", the next file from the same
+    // pack suggests itself. Written on Apply, loaded lazily.
+    std::map<std::string, std::string> boneAliases_;
+    bool boneAliasesLoaded_ = false;
+    void loadBoneAliases();
+    void saveBoneAliases();
+    // Suggestions are recomputed only when the staged pairs change - they
+    // were per-frame, which is wasted work and made the window read as busy.
+    std::vector<std::pair<std::string, std::string>> animMapSuggFor_;
+    bool animMapSuggValid_ = false;
+    void openAnimBoneMap(int importRow);
+    // Draws the window when open; returns true on an applied change.
+    bool drawAnimBoneMapWindow();
+    // Staged text of the row being typed into, so a Name prefix edit costs a
+    // re-merge once on commit instead of once per keystroke.
+    int animImpEditRow_ = -1;
+    char animImpPrefix_[64] = {};
     // Preview lighting shared by the Material and Animation Editors.
     // `sel` is the stored selection (see matEdLight_): resolves it into the
     // override the viewport bakes with, and draws the combo that picks it
@@ -1430,6 +1562,40 @@ private:
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
     // Preferences > AI assistant). Model "" = the backend's default.
     aigen::Config globalAi_;
+
+    // --- Update check (docs/updates.md, update.cpp + update_ui.cpp) ---------
+    // Whether the editor asks GitHub for a newer release when it starts
+    // (editor.ini, Edit > Preferences; Help > Check for updates asks
+    // regardless), and one version the user has told it to stop mentioning.
+    // Both are machine-global: which build is installed on this PC is not a
+    // property of any project.
+    bool globalUpdateCheck_ = true;
+    std::string globalUpdateSkip_;
+    // ONE worker for both jobs (the check and the download), because they are
+    // never both wanted and the UI is a single modal. Everything below it is
+    // written by that thread and read by the UI thread only after `done` flips
+    // - the Runner/aigen idiom, no mutex.
+    std::thread updateThread_;
+    std::atomic<bool> updateDone_{false};
+    std::atomic<bool> updateBusy_{false};
+    update::Release updateRelease_;
+    std::string updateError_;
+    std::filesystem::path updateFile_;  // the downloaded installer
+    enum class UpdateJob { None, Check, Download };
+    UpdateJob updateJob_ = UpdateJob::None;
+    bool updateManual_ = false;      // asked for from the menu: say so either way
+    bool updateChecking_ = false;    // a check is in flight (menu item greys out)
+    bool updateDownloading_ = false;
+    bool openUpdatePopup_ = false;   // request to open the modal next frame
+    std::string updateStatus_;       // one line under the menu item / in the modal
+    // Started at startup (when the preference is on) and from Help > Check for
+    // updates; updateTick() collects the answer each frame from drawUI.
+    void startUpdateCheck(bool manual);
+    void updateTick();
+    void drawUpdateModal();
+    // Downloads the installer, then closes the editor and lets it run.
+    void updateDownload();
+    void updateJoinWorker();
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -1799,13 +1965,42 @@ private:
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
     gibake::Baker giBaker_;
+    // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
+    // object's texture, from the button in Properties. Async because the bounce
+    // solve is the expensive half; the result is applied on the UI thread, so
+    // the object edit goes through commitChange like every other edit.
+    litbake::Baker litBaker_;
+    litbake::Params litBakeParams_;
+    // The active scene's pre-lit status table + the key it was computed for
+    // (scene, modelEditSerial_, the bake parameters). ~0 = recompute.
+    std::vector<PrelitStatus> prelitStatus_;
+    uint64_t prelitStatusKey_ = ~0ull;
     // The probe grid currently uploaded to the viewport: reloaded when the
     // scene changes, the model is edited (which can stale the bake) or a bake
     // finishes.
     int giViewScene_ = -1;
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
+    // ...and when the GI switch itself moves. Without it the preference was
+    // the one GI setting the viewport ignored: gibake::load already refuses
+    // to answer while GI is off, but nothing asked it again, so unticking the
+    // box left the baked light on screen until the scene changed.
+    int giViewEnabled_ = -1;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). The bake is
+    // a property of an ASSET, not of a scene, so it has no per-scene staleness
+    // readout - it just has to be there when the viewport uploads a texture.
+    // showBakedLighting_ is not a window flag: it is "show me that tab",
+    // exactly like showGiBake_.
+    bool showBakedLighting_ = false;
+    modelao::Baker modelAoBaker_;
+    uint64_t modelAoSeen_ = 0;  // last Baker version pushed to the viewport
+    // What the last run was started FOR: the settings plus the per-asset
+    // overrides. Re-scanning every frame would mean parsing every .obj in the
+    // project every frame, so the poll starts a run when this changes and at
+    // no other time (plus the panel's explicit Re-scan).
+    uint64_t modelAoIntent_ = 0;
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // One job at a time: every verb here saturates the machine, so a second
@@ -2624,8 +2819,16 @@ private:
     // via bin/livetex.bin; the generated live_tex poller re-uploads the
     // pixels into the running game's existing GS VRAM allocation. Paint in
     // the editor, watch the texture change on the console.
-    std::map<std::string, uint32_t> liveTexGen_;  // game-relative -> generation
+    // One paint may have SEVERAL shipped paths (an animated model's .tskl
+    // renames its textures), so each record carries the paint it belongs to -
+    // the game reports a failed reload per group, not per path.
+    struct LiveTexRec {
+        uint32_t gen = 0;    // grows per repaint; the poller applies unseen
+        uint32_t group = 0;  // the paint that announced it
+    };
+    std::map<std::string, LiveTexRec> liveTexGen_;  // game-relative -> record
     uint32_t liveTexSeq_ = 0;
+    uint32_t liveTexGroup_ = 0;
     void liveTexNotify(const std::string& texResRel);
     // "New texture" modal (paintable blank PNG next to the .mtl)
     bool openNewTexturePopup_ = false;
@@ -3192,6 +3395,21 @@ private:
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
     int dbgVuFlushWanted_ = 0;    // ...which one
+    // The game's own screenshot (docs/devkit.md): the running game reads its
+    // last finished frame out of GS VRAM and writes bin/frame.tga, which this
+    // decodes into a GL texture for the Debugger's Screen tab. The only capture
+    // path that works on real hardware - and the only one that survives a
+    // locked desktop, where PCSX2's F8 and every host-side grab go blind.
+    unsigned int dbgShotTex_ = 0;   // GL texture, or 0 when nothing decoded
+    int dbgShotW_ = 0, dbgShotH_ = 0;
+    long long dbgShotStamp_ = 0;    // last_write_time of the file we decoded
+    size_t dbgShotSize_ = 0;
+    int dbgShotTorn_ = 0;           // consecutive polls that saw NO progress
+    size_t dbgShotPartial_ = 0;     // size of the last short read - see below
+    bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    std::string dbgShotFile_;       // the PNG this capture was kept as
+    std::string dbgShotError_;
+    void dbgReadFrameShot();
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();

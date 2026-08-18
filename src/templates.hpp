@@ -52,6 +52,17 @@ std::vector<File> bakeStaticModels(const Project& p,
 std::vector<File> bakeAnimAssets(const Project& p,
                                  std::vector<std::string>* warnings = nullptr);
 
+// Texture hot reload (docs/live-link.md): the bin/-relative paths the GAME
+// knows a res/-relative texture as when an ANIMATED model carries it.
+// bakeAnimAssets extracts every texture an override .mtl names into a RENAMED
+// copy next to the model's .tskl ("models/<stem>_<basename>.png"), and that
+// baked path - not the texture's own location - is what the .tskl stores and
+// the game loads. So a repaint has to be announced under it, and under one
+// per model when several animated models share the texture. Empty for the
+// ordinary case (nothing animated uses the file: it ships where it lives).
+std::vector<std::string> animTextureAliases(const Project& p,
+                                            const std::string& texResRel);
+
 // Built-in assets for the "FPP showcase" template.
 const char* houseObjText();
 const unsigned char* crosshairPng(size_t& size);
@@ -92,6 +103,12 @@ bool projectUsesFlare(const Project& p);
 // True when any scene has a Point Light with a visible beam (corona/cone).
 // Gates the res/hud/flare-corona.png bake and BEAMS_USED in scene_data.hpp.
 bool projectUsesBeams(const Project& p);
+
+// True when any scene can show the camera flashlight (a Player object with it
+// enabled, or a Set Flashlight node that could switch one on at runtime).
+// Gates the res/hud/flashlight-gobo.png bake and FLASHLIGHT_USED in
+// scene_data.hpp - keep them equal, like projectUsesFlare and FLARE_USED.
+bool projectUsesFlashlight(const Project& p);
 
 // The enabled day/night cycle a scene resolves to through its ambience preset,
 // or null (docs/day-night-cycle.md). The single answer codegen, the sky-disc
@@ -187,9 +204,6 @@ SaveSizeInfo saveSizeInfo(const Project& p);
 // The game's save directory on the memory card ("/TYRA-<NAME>").
 std::string saveDirName(const Project& p);
 
-// True when `content` is byte-identical to what an older editor version
-// generated for this file - i.e. the user never edited it and it is safe
-// to regenerate even though it predates the ownership marker.
 // A File::relativePath as a filesystem path. The generator writes '\\'
 // separators (and hundreds of call sites compare against literals spelled that
 // way), but a backslash is an ordinary FILENAME CHARACTER on POSIX - writing
@@ -197,9 +211,6 @@ std::string saveDirName(const Project& p);
 // instead of the directory tree. Every place a relativePath meets the file
 // system goes through here.
 std::filesystem::path nativePath(const std::string& relativePath);
-
-bool matchesLegacy(const Project& p, const std::string& relativePath,
-                   const std::string& content);
 
 // `.vscode/extensions.json` with the ids the editor knows about ensured
 // present, given whatever the project already has. "" when nothing needs

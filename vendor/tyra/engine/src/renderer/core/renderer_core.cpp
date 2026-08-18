@@ -38,36 +38,44 @@ RendererCore::RendererCore() {
 }
 RendererCore::~RendererCore() {}
 
-void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
-                        bool widescreen, bool tripleBuffering) {
-  settings.setVideoMode(videoMode);
+void RendererCore::init(const RendererOptions& options) {
+  settings.setVideoMode(options.videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
-  settings.setDisplayMode(displayMode);
-  settings.setWidescreen(widescreen);
+  settings.setDisplayMode(options.displayMode);
+  settings.setWidescreen(options.widescreen);
+  // ...and it picks their pixel format + the GS dither state (TyraX fork).
+  settings.setColorDepth(options.colorDepth);
+  settings.setDither(options.dither);
   // Same rule: gs.init decides how many display buffers to allocate from it
-  // (TyraX fork, docs/frame-pacing.md).
-  settings.setTripleBuffering(tripleBuffering);
+  // (TyraX fork, docs/frame-pacing.md). Note the two interact - a third
+  // display buffer is half the price at ColorDepth::Bits16.
+  settings.setTripleBuffering(options.tripleBuffering);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
   // Post fx VRAM sits right above the frame/z buffers; allocate it before
   // any texture buffer so texture free (FIFO) never reclaims it.
   postFx.init(&settings, &gs);
-  // Same rule for the dynamic env map's render target (TyraX fork).
+  // Same rule for the dynamic env map's render target (TyraX fork) - but
+  // only if this project has a reflective "@sky" material at all. The
+  // target and its z are 128 KB of a ~1.08 MB texture heap, and they used
+  // to be reserved whether or not anything ever sampled them.
+  envMap.setEnabled(options.envMap);
   envMap.init(&settings, &gs, &sync, &path1);
   // Projected shadows: wiring only - VRAM is allocated lazily when the game
   // calls shadowMap.allocate() (init() also re-places the buffers after a
   // display-mode VRAM reset if they were on).
   shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);
   // Camera-feed render target (TyraX fork, "texture feeds"): a second
-  // instance of the same redirect bracket, permanently allocated below
-  // every texture for the same FIFO-free reason. Costs 128 KB of VRAM
-  // whether the game uses feeds or not. Clamp: feeds sample through plain
-  // surface UVs and the default Repeat bleeds the opposite edge rows into
-  // the screen border.
+  // instance of the same redirect bracket, another 128 KB, and equally
+  // opt-in. Clamp: feeds sample through plain surface UVs and the default
+  // Repeat bleeds the opposite edge rows into the screen border.
+  camFeed.setEnabled(options.camFeed);
   camFeed.init(&settings, &gs, &sync, &path1);
-  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
-                                        TextureWrap::Clamp);
+  if (camFeed.getTexture())
+    camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                          TextureWrap::Clamp);
   // BLSS, the neural upscaler (TyraX fork): its low-res render target belongs
   // in the same permanent region, in the same relative order - but it is only
   // taken when the generated game's init() calls blss.configure(), so a
@@ -99,9 +107,13 @@ void RendererCore::rebuildPermanentBuffers() {
   gs.reallocateBuffers();
   postFx.init(&settings, &gs);
   envMap.init(&settings, &gs, &sync, &path1);
-  shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+  shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
   camFeed.init(&settings, &gs, &sync, &path1);
-  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
+  // Null when this project reserved no camera-feed target (TyraX fork).
+  if (camFeed.getTexture())
+    camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                          TextureWrap::Clamp);
   TYRA_LOG("Permanent GS buffers re-placed (raster scale ",
            settings.getRasterScaleX(), "x", settings.getRasterScaleY(),
            "), texture heap free MB: ", gs.vram.getFreeSpaceInMB());
@@ -131,7 +143,8 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
-    shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+    shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
     camFeed.init(&settings, &gs, &sync, &path1);
     // Same for the BLSS low-res target: vram.reset() forgot it, and its size
     // follows the new framebuffer geometry (re-places only if configured).
@@ -212,6 +225,34 @@ int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
   l.color = color;
   l.range = range;
   return static_cast<int>(dynLightCount++);
+}
+
+int RendererCore::addDynSpotLight(const Color& color,
+                                  const Vec4& position,
+                                  const Vec4& direction, const float& range,
+                                  const float& cutoffDegrees,
+                                  const float& softness) {
+  // Modified by TyraX: a scene spot light is the point-light registry entry
+  // with the cone constants filled - the VU1 slot has carried them since the
+  // camera torch, so no program changes.
+  const int slot = addDynPointLight(color, position, range);
+  if (slot < 0) return slot;
+  auto& l = dynLights[slot];
+  l.point = false;
+  l.direction = direction;
+  const float len = sqrtf(direction.x * direction.x +
+                          direction.y * direction.y +
+                          direction.z * direction.z);
+  if (len > 1e-5F) {
+    l.direction.x /= len;
+    l.direction.y /= len;
+    l.direction.z /= len;
+  }
+  l.direction.w = 0.0F;
+  const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
+  l.cosCutoff = cosf(halfAngle);
+  l.softness = softness < 1.0F ? 1.0F : softness;
+  return slot;
 }
 
 const RendererCoreSpotLight* RendererCore::pickDynLight(
