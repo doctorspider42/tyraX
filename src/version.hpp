@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.67.1 (al dente - docs/vehicles.md, "The three cameras"): the glance
+// capped at +-60 degrees and R3 held = an instant rear view. The full orbit
+// tanked the frame rate exactly broadside - the widest view of the map is
+// also the most expensive one - and the only thing it bought over a glance,
+// looking straight back, is now a cut that never sweeps through those views
+// at all. The rear view takes the BODY yaw, not the lagging boom: mid-slide,
+// "what is behind the car" is a question about the car. Verified on PCSX2:
+// the glance stops at the three-quarter view, R3 mid-drive shows the grille
+// and the road falling away behind. PATCH.
+//
 // 1.67.0 (the glance - docs/vehicles.md, "The three cameras"): the right
 // stick orbits the chase/far camera around the car (X, a full circle in ~2 s)
 // and lifts or sinks the boom (Y); both offsets spring back to zero on
@@ -2089,7 +2099,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 67
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

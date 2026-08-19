@@ -13938,13 +13938,18 @@ void TerrainGame::updateVehicles(float dt) {
       vehCamYaw_ += dyaw * k;
       if (engine->pad.getClicked().Triangle)
         vehCamMode_ = (vehCamMode_ + 1) % 3;
-      // The RIGHT stick orbits the camera around the car (X) and lifts or
-      // drops the boom (Y). Held, it looks - full deflection walks the whole
-      // way around in about two seconds; released, both offsets spring back
-      // behind the car, so the stick is a glance, not a mode. The signs
-      // follow the steering stick's convention (h=0 is left, and left must
-      // orbit left); Y up looks down on the car, Y down sinks toward the
-      // bumper. The car stays the look-at, so the orbit never loses it.
+      // The RIGHT stick GLANCES around the car (X) and lifts or drops the
+      // boom (Y) - up to +-60 degrees, never the full circle. Held, it
+      // looks; released, both offsets spring back behind the car. The cap is
+      // a frame-rate decision as much as a feel one: swinging the view
+      // broadside puts the whole map in the frustum at once (terrain fill
+      // plus every prop), which is exactly where "koszmarnie klatki
+      // spadaja" was reported - and the one thing a full orbit bought,
+      // looking straight back, is R3's job below, as an instant cut that
+      // never sweeps through the expensive side views at all. Signs follow
+      // the steering stick's convention (h=0 is left, and left must glance
+      // left); Y up looks down on the car, Y down sinks toward the bumper.
+      // The car stays the look-at, so the glance never loses it.
       {
         const auto& rj = engine->pad.getRightJoyPad();
         const float rx = ((float)rj.h - 128.0F) / 128.0F;
@@ -13952,15 +13957,15 @@ void TerrainGame::updateVehicles(float dt) {
         if (rx > 0.15F || rx < -0.15F)
           vehCamOrbit_ -= rx * 180.0F * dt;
         else {
-          // Spring home through the SHORT way, fast enough to feel snappy
-          // and slow enough to read as a camera, not a cut.
+          // Spring home fast enough to feel snappy and slow enough to read
+          // as a camera, not a cut.
           const float back = 260.0F * dt;
           if (vehCamOrbit_ > back) vehCamOrbit_ -= back;
           else if (vehCamOrbit_ < -back) vehCamOrbit_ += back;
           else vehCamOrbit_ = 0.0F;
         }
-        while (vehCamOrbit_ > 180.0F) vehCamOrbit_ -= 360.0F;
-        while (vehCamOrbit_ < -180.0F) vehCamOrbit_ += 360.0F;
+        if (vehCamOrbit_ > 60.0F) vehCamOrbit_ = 60.0F;
+        if (vehCamOrbit_ < -60.0F) vehCamOrbit_ = -60.0F;
         if (ry > 0.15F || ry < -0.15F) {
           vehCamLift_ -= ry * 2.2F * dt;
           if (vehCamLift_ > 1.0F) vehCamLift_ = 1.0F;
@@ -13980,7 +13985,13 @@ void TerrainGame::updateVehicles(float dt) {
       // go. Same rig, two opposite choices, and that contrast is the reason to
       // have both.
       const float bodyC = cosf(v.yaw * kDeg), bodyS = sinf(v.yaw * kDeg);
-      const float rigYaw = vehCamYaw_ + vehCamOrbit_;
+      // R3 held = the rear view, as an INSTANT cut both ways - the era's
+      // look-back mirror. It takes the BODY yaw, not the lagging boom: what
+      // the driver asks for is "what is behind the car", and a boom that is
+      // mid-slide would answer with somewhere else.
+      const bool rearView = engine->pad.getPressed().R3;
+      const float rigYaw =
+          rearView ? v.yaw + 180.0F : vehCamYaw_ + vehCamOrbit_;
       const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
       float atY = v.pos[1] + s.camHeight * SC * 0.35F;
       if (vehCamMode_ == 1) {

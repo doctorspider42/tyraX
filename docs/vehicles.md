@@ -548,7 +548,8 @@ stores the name, so it has to.
 | R1 | nitrous, when the definition has a tank |
 | Triangle | cycle the camera |
 | left stick X | steer |
-| right stick | orbit the camera around the car (X) and lift the boom (Y); springs back on release |
+| right stick | glance around the car (X, up to ±60°) and lift the boom (Y); springs back on release |
+| R3 | held: instant rear view — the look-back mirror |
 
 These are **raw pad reads**, which is a known deviation from this repo's rule that
 gameplay goes through named Input Map actions (docs/input-bindings.md) — only USE
@@ -566,13 +567,21 @@ does. The whole set wants to become `InputAction::Role`s; see docs/backlog.md.
   with the two opposite decisions is the reason to have both.
 - **2 far** — the chase rig at 1.9x the distance and 1.6x the height.
 
-The **right stick orbits the rig** (X walks around the car — a full circle in
-about two seconds at full deflection — Y lifts or sinks the boom), and both
-offsets **spring back to zero on release**: the stick is a glance at a rival
-or an apex, never a re-aim. The car stays the look-at, so the orbit cannot
-lose it, and the bumper cam ignores the stick on purpose — its whole point is
-being bolted to the body. Signs follow the steering stick's convention (stick
-right looks around the right side; stick up climbs and looks down).
+The **right stick glances around the rig** — X walks around the car up to
+**±60°**, Y lifts or sinks the boom — and both offsets **spring back to zero
+on release**: the stick is a glance at a rival or an apex, never a re-aim.
+The cap is a frame-rate decision as much as a feel one: the first cut allowed
+a full orbit, and swinging the view broadside puts the whole map in the
+frustum at once (terrain fill plus every prop), which is exactly where
+"koszmarnie klatki spadają" was reported. The one thing the full orbit
+bought — looking straight back — is **R3's job: held, it cuts to the rear
+view instantly** (the era's look-back mirror), taking the *body* yaw rather
+than the lagging boom, because "what is behind the car" mid-slide is a
+question about the car, not the camera. The car stays the look-at, so the
+glance cannot lose it, and the bumper cam ignores the stick on purpose — its
+whole point is being bolted to the body. Signs follow the steering stick's
+convention (stick right looks around the right side; stick up climbs and
+looks down).
 
 ## Where the code lives
 
