@@ -3758,10 +3758,10 @@ void ensureInputActions(Project& p) {
         // before these existed (docs/vehicles.md). Keyboard defaults follow
         // the walker's WSAD hand position; the two sets never fire in the
         // same frame - driving gates the walker.
-        {InputAction::RoleVehThrottle, "Vehicle throttle", "Cross", 0x1A, 0, true},
-        {InputAction::RoleVehBrake, "Vehicle brake", "L1", 0x16, 0, true},
+        {InputAction::RoleVehThrottle, "Vehicle throttle", "R2", 0x1A, 0, true},
+        {InputAction::RoleVehBrake, "Vehicle brake", "L2", 0x16, 0, true},
         {InputAction::RoleVehHandbrake, "Vehicle handbrake", "Circle", 0x2C, 0, true},
-        {InputAction::RoleVehNitrous, "Vehicle nitrous", "R1", 0xE1, 0, true},
+        {InputAction::RoleVehNitrous, "Vehicle nitrous", "Cross", 0xE1, 0, true},
         {InputAction::RoleVehCamera, "Vehicle camera", "Triangle", 0x06, 0, true},
         {InputAction::RoleVehRearView, "Vehicle rear view", "R3", 0x15, 0, true},
     };

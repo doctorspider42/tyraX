@@ -30,11 +30,10 @@ seat). Press USE again to get out at the driver's door.
 | | |
 |---|---|
 | left stick | steer, and throttle forward/back |
-| Cross | throttle |
-| L1 | brake |
-| R2 | throttle too — full lock on the stick leaves no vertical deflection, so keep the gas on a button |
+| R2 | throttle — ANALOG: a DualShock 2 reports the button's pressure, so squeeze for a crawl |
+| L2 | brake |
 | Circle | handbrake — this is the drift button |
-| R1 | nitrous — this car carries three seconds of it |
+| Cross | nitrous — this car carries three seconds of it |
 | Triangle | cycle the camera: chase → bumper → far |
 | right stick | glance around the car (X, up to ±60°), lift the camera (Y) — springs back on release |
 | R3 | hold for the rear view — the look-back mirror |
@@ -42,8 +41,10 @@ seat). Press USE again to get out at the driver's door.
 All of the buttons above are Input Map actions (*Tools > Input Map*), so a
 project can move them; the analog stick and the d-pad stay hardwired.
 
-L1 rather than Square for the brake is deliberate: Square is USE, and a brake
-there would throw the driver out on the same press.
+Gas on a shoulder button is the era's own answer: a stick at full lock has no
+vertical deflection left, so gas-on-stick dies exactly when you steer hard.
+The brake avoids Square deliberately: Square is USE, and a brake there would
+also throw the driver out on the same press.
 
 **Try the bumper cam in a handbrake turn.** The chase camera's boom lags the car,
 so a slide reads as the body rotating underneath you; the bumper cam takes the

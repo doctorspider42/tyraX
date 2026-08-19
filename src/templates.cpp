@@ -28001,16 +28001,19 @@ void TerrainGame::updateVehicles(float dt) {
       // the runtime hardcoded before the roles existed, so a project whose
       // map lost the action (they are deletable) keeps driving; the ternary
       // folds away at compile time either way.
-      if (IA_ROLE_VEH_THROTTLE >= 0
-              ? inputPressed(engine->pad, IA_ROLE_VEH_THROTTLE)
-              : engine->pad.getPressed().Cross)
-        inThrottle = 1.0F;
-      // R2 stays a hardwired EXTRA throttle on top of the role: a stick
-      // pushed to full lock has no vertical deflection left, so a
-      // stick-only driver loses the stick's throttle exactly when steering
-      // hard - "turning brakes the car to zero", reported from a real pad.
-      // The era's racers put the gas on a button for this reason.
-      if (engine->pad.getPressed().R2) inThrottle = 1.0F;
+      // The throttle is ANALOG: a DualShock 2 reports the button's pressure,
+      // so the default R2 squeezes from a crawl to flat out - and any digital
+      // source (keyboard, an emulator without pressure mapping) reads as a
+      // clean 1. The role default moved to R2 for the original reason gas
+      // lives on a shoulder button in the era's racers: a stick at full lock
+      // has no vertical deflection left ("turning brakes the car to zero").
+      {
+        const float thr =
+            IA_ROLE_VEH_THROTTLE >= 0
+                ? inputAnalog(engine->pad, IA_ROLE_VEH_THROTTLE)
+                : (engine->pad.getPressed().R2 ? 1.0F : 0.0F);
+        if (thr > 0.02F) inThrottle = thr;
+      }
       // The D-PAD drives too. The generated game's rule is "only the analog
       // sticks", but a keyboard emulating a stick (PCSX2 in a VM above all)
       // can drop chorded key events, and full-lock-plus-throttle is exactly
@@ -28027,7 +28030,7 @@ void TerrainGame::updateVehicles(float dt) {
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
       if (IA_ROLE_VEH_BRAKE >= 0 ? inputPressed(engine->pad, IA_ROLE_VEH_BRAKE)
-                                 : engine->pad.getPressed().L1)
+                                 : engine->pad.getPressed().L2)
         inBrake = 1.0F;
       if (IA_ROLE_VEH_HANDBRAKE >= 0
               ? inputPressed(engine->pad, IA_ROLE_VEH_HANDBRAKE)
@@ -28035,7 +28038,7 @@ void TerrainGame::updateVehicles(float dt) {
         inHand = 1;
       if (IA_ROLE_VEH_NITROUS >= 0
               ? inputPressed(engine->pad, IA_ROLE_VEH_NITROUS)
-              : engine->pad.getPressed().R1)
+              : engine->pad.getPressed().Cross)
         inNos = 1;
       if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
     } else if (v.wpCount > 0) {
@@ -28115,12 +28118,128 @@ void TerrainGame::updateVehicles(float dt) {
     const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
     const float lx[4] = {-hx, hx, -hx, hx};
     const float lz[4] = {hz, hz, -hz, -hz};
+    // GATHER the nearby colliders ONCE per vehicle per frame - the trig
+    // (boxRotate, objectCollisionBox) happens here and nowhere else; the
+    // wheels and the wall samples below then cost multiplies alone. The
+    // first cut called collidePlayer per sample point at ~1.1 ms a call in
+    // PCSX2, which at eight points times two vehicles was most of the
+    // reported frame drop. Two lists by the WALKER's own vertical rules:
+    // a top within half a unit of the feet is a FLOOR the car rides (which
+    // is what lets a car climb a ramp prop instead of nosing into it - "kolo
+    // sie wbija w glebe i hamuje" was exactly a mesh slope answered with
+    // "wall"), anything taller is a WALL, and a bottom above the roof-ish is
+    // an overpass to drive under.
+    struct VehWallBox { float bx, bz, hx, hz, yc, ys; };
+    struct VehFloorBox { float bx, bz, hx, hz, yc, ys, top; };
+    VehWallBox wallBox[12];
+    int wallBoxN = 0;
+    VehFloorBox floorBox[8];
+    int floorBoxN = 0;
+    int nearMesh[4];
+    int nearMeshN = 0;
+    const float feet0 = v.pos[1] - s.rideHeight * SC;
+    {
+      const float spd = v.speed < 0.0F ? -v.speed : v.speed;
+      const float reach = hx + hz + 1.5F + spd * dt;
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        if (oi == v.object || oi == carryIndex) continue;  // never itself
+        const RuntimeObject& o = runtimeObjects[oi];
+        if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+        const GameModel* gm = nullptr;
+        if (o.data.type == 5 && o.data.model >= 0 &&
+            o.data.model < (int)gameModels.size())
+          gm = &gameModels[o.data.model];
+        if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+          // Mesh mode: rare and expensive - remember the object, pay the
+          // resolver only near it (the wheels ride its ground, the wall
+          // samples ask it to refuse).
+          const float dx = o.data.position[0] - v.pos[0];
+          const float dz = o.data.position[2] - v.pos[2];
+          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) +
+                          2.0F;
+          if (dx * dx + dz * dz < r * r && nearMeshN < 4)
+            nearMesh[nearMeshN++] = oi;
+          continue;
+        }
+        const CollisionBox cb = objectCollisionBox(o);
+        const V3 cW = boxRotate({cb.center[0], cb.center[1], cb.center[2]},
+                                o.data);
+        const float top = o.data.position[1] + cW.y + cb.half[1];
+        const float bottom = o.data.position[1] + cW.y - cb.half[1];
+        const float wx = o.data.position[0] + cW.x;
+        const float wz = o.data.position[2] + cW.z;
+        const float ddx = wx - v.pos[0], ddz = wz - v.pos[2];
+        const float yawR = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+        if (top <= feet0 + 0.5F && top > feet0 - 3.0F) {
+          // A floor: the REAL footprint, no walker-radius inflation - a
+          // wheel rides the platform, it does not hover off its edge.
+          const float rr = reach + cb.half[0] + cb.half[2];
+          if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
+            floorBox[floorBoxN++] = {wx,          wz,          cb.half[0],
+                                     cb.half[2],  cosf(yawR),  sinf(yawR),
+                                     top};
+          continue;
+        }
+        if (top <= feet0 + 0.5F || bottom >= feet0 + 0.9F) continue;
+        const float bhx = cb.half[0] + 0.35F;  // the walker's playerRadius
+        const float bhz = cb.half[2] + 0.35F;
+        const float rr = reach + bhx + bhz;
+        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, cosf(yawR), sinf(yawR)};
+      }
+      // Generated geometry (prefabs, procedural volumes): already
+      // axis-aligned conservative boxes, same vertical rules.
+      for (const StaticBox& b : procColliders) {
+        const float wx = 0.5F * (b.mx[0] + b.mn[0]);
+        const float wz = 0.5F * (b.mx[2] + b.mn[2]);
+        const float ddx = wx - v.pos[0], ddz = wz - v.pos[2];
+        if (b.mx[1] <= feet0 + 0.5F && b.mx[1] > feet0 - 3.0F) {
+          const float fhx = 0.5F * (b.mx[0] - b.mn[0]);
+          const float fhz = 0.5F * (b.mx[2] - b.mn[2]);
+          const float rr = reach + fhx + fhz;
+          if (ddx * ddx + ddz * ddz < rr * rr && floorBoxN < 8)
+            floorBox[floorBoxN++] = {wx, wz, fhx, fhz, 1.0F, 0.0F, b.mx[1]};
+          continue;
+        }
+        if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) continue;
+        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
+        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const float rr = reach + bhx + bhz;
+        if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) continue;
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+      }
+    }
     float gy[4];
     float sum = 0.0F;
     for (int w = 0; w < 4; ++w) {
       const float wx = v.pos[0] + lx[w] * cy + lz[w] * sy;
       const float wz = v.pos[2] - lx[w] * sy + lz[w] * cy;
       gy[w] = terrainHeightAt(wx, wz);
+      // The wheel RIDES an object floor when one is higher than the terrain
+      // under it - a platform, a ramp prop, generated prefab geometry. This
+      // is what lets a car drive ONTO things instead of nosing into their
+      // sides, and it is per wheel, so a car half on a platform tilts.
+      for (int b = 0; b < floorBoxN; ++b) {
+        const VehFloorBox& f = floorBox[b];
+        if (f.top <= gy[w]) continue;
+        const float dx = wx - f.bx, dz = wz - f.bz;
+        const float lxx = dx * f.yc - dz * f.ys;
+        const float lzz = dx * f.ys + dz * f.yc;
+        if (lxx > -f.hx && lxx < f.hx && lzz > -f.hz && lzz < f.hz)
+          gy[w] = f.top;
+      }
+      if (nearMeshN > 0) {
+        // A mesh prop's walkable ground (its shallow faces): the resolver's
+        // own floor answer, taken only when it is a floor a car can mount.
+        const int ownColW =
+            v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
+        if (v.object >= 0) runtimeObjects[v.object].data.collision = 2;
+        float nx = wx, nz = wz;
+        float gr = -1e9F, ce = 1e9F;
+        collidePlayer(wx, wz, &nx, &nz, feet0, 0.6F, &gr, &ce);
+        if (v.object >= 0) runtimeObjects[v.object].data.collision = ownColW;
+        if (gr > gy[w] && gr <= feet0 + 0.5F) gy[w] = gr;
+      }
       v.wheelY[w] = gy[w];
       sum += gy[w];
     }
@@ -28333,77 +28452,11 @@ void TerrainGame::updateVehicles(float dt) {
       const float cx[8] = {-hx2, hx2, -hx2, hx2, 0.0F, 0.0F, -hx2, hx2};
       const float cz[8] = {hz2, hz2, -hz2, -hz2, hz2, -hz2, 0.0F, 0.0F};
       const float feet = v.pos[1] - s.rideHeight * SC;
-      // GATHER ONCE, test cheap. The first cut called collidePlayer per
-      // sample point, and collidePlayer pays boxRotate's trig for EVERY
-      // object on EVERY call - measured ~1.1 ms per call in PCSX2, which at
-      // eight points times two vehicles was ~18 ms of a 40 ms frame (and the
-      // old four-corner sweep was already ~9 of the reported slowdown's ms).
-      // So: one pass over the objects per vehicle per frame does the trig
-      // and keeps only what is within reach - almost always zero or one
-      // entry - and the sample points then cost multiplies alone. This also
-      // makes the runtime STRUCTURALLY the host twin (point tests against
-      // solids), not a re-purposed move resolver.
-      struct VehWallBox { float bx, bz, hx, hz, yc, ys; };
-      VehWallBox nearBox[12];
-      int nearBoxN = 0;
-      int nearMesh[4];
-      int nearMeshN = 0;
-      const float spd = v.speed < 0.0F ? -v.speed : v.speed;
-      const float reach = hx2 + hz2 + 1.5F + spd * dt;
-      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
-        if (oi == v.object || oi == carryIndex) continue;  // never itself
-        const RuntimeObject& o = runtimeObjects[oi];
-        if (!o.active || !o.visible || !objectCollides(o.data)) continue;
-        const GameModel* gm = nullptr;
-        if (o.data.type == 5 && o.data.model >= 0 &&
-            o.data.model < (int)gameModels.size())
-          gm = &gameModels[o.data.model];
-        if (o.data.collision == 1 && gm && !gm->collider.empty()) {
-          // Mesh mode: rare and expensive - remember the object, pay the
-          // resolver only for points near it (below).
-          const float dx = o.data.position[0] - prevX;
-          const float dz = o.data.position[2] - prevZ;
-          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) +
-                          2.0F;
-          if (dx * dx + dz * dz < r * r && nearMeshN < 4)
-            nearMesh[nearMeshN++] = oi;
-          continue;
-        }
-        // Box mode - the walker's own box, radius inflation included, with
-        // its vertical rules: a top at knee height is a floor (not a wall),
-        // a bottom above the roof-ish is an overpass to drive under. Cars
-        // do NOT climb props, so anything taller than half a unit blocks -
-        // the walker would put a "walkable" answer here and the car, whose
-        // height comes from the TERRAIN alone, would drive straight inside.
-        const CollisionBox cb = objectCollisionBox(o);
-        const V3 cW = boxRotate({cb.center[0], cb.center[1], cb.center[2]},
-                                o.data);
-        const float top = o.data.position[1] + cW.y + cb.half[1];
-        const float bottom = o.data.position[1] + cW.y - cb.half[1];
-        if (top <= feet + 0.5F || bottom >= feet + 0.9F) continue;
-        const float wx = o.data.position[0] + cW.x;
-        const float wz = o.data.position[2] + cW.z;
-        const float bhx = cb.half[0] + 0.35F;  // the walker's playerRadius
-        const float bhz = cb.half[2] + 0.35F;
-        const float ddx = wx - prevX, ddz = wz - prevZ;
-        const float rr = reach + bhx + bhz;
-        if (ddx * ddx + ddz * ddz >= rr * rr || nearBoxN >= 12) continue;
-        const float yawR = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
-        nearBox[nearBoxN++] = {wx, wz, bhx, bhz, cosf(yawR), sinf(yawR)};
-      }
-      // Generated geometry (prefabs, procedural volumes): already
-      // axis-aligned conservative boxes, same vertical rules.
-      for (const StaticBox& b : procColliders) {
-        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
-        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
-        const float wx = 0.5F * (b.mx[0] + b.mn[0]);
-        const float wz = 0.5F * (b.mx[2] + b.mn[2]);
-        if (b.mx[1] <= feet + 0.5F || b.mn[1] >= feet + 0.9F) continue;
-        const float ddx = wx - prevX, ddz = wz - prevZ;
-        const float rr = reach + bhx + bhz;
-        if (ddx * ddx + ddz * ddz >= rr * rr || nearBoxN >= 12) continue;
-        nearBox[nearBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
-      }
+      // The colliders come from THE gather at the top of this vehicle's
+      // update (one pass, all the trig): wallBox blocks, floorBox is what
+      // the wheels already ride, nearMesh pays the resolver per point. The
+      // first cut called collidePlayer per sample point at ~1.1 ms a call
+      // in PCSX2 - eight points times two vehicles was most of a frame.
       // Count AND centroid, not a boolean: once the car is already
       // overlapping, WHERE the blocked points sit is what tells "out of the
       // thing" from "deeper into it". A point is blocked inside a near box -
@@ -28420,8 +28473,8 @@ void TerrainGame::updateVehicles(float dt) {
           const float px = bx + cx[k] * c2 + cz[k] * s2;
           const float pz = bz - cx[k] * s2 + cz[k] * c2;
           bool hit = false;
-          for (int b = 0; b < nearBoxN && !hit; ++b) {
-            const VehWallBox& w = nearBox[b];
+          for (int b = 0; b < wallBoxN && !hit; ++b) {
+            const VehWallBox& w = wallBox[b];
             const float dx = px - w.bx, dz = pz - w.bz;
             const float lx = dx * w.yc - dz * w.ys;
             const float lz = dx * w.ys + dz * w.yc;
@@ -40745,6 +40798,11 @@ static std::string inputMapHeader(const Project& p) {
            "void inputSetPreset(int preset);\n"
            "void inputSetOverride(int action, int code);\n"
            "bool inputPressed(Tyra::Pad& pad, int action);  // held this frame\n"
+           "// The bound pad button's PRESSURE, 0..1 - a DualShock 2 reports\n"
+           "// 0..255 for the twelve pressure buttons, which is what an analog\n"
+           "// throttle wants. Digital sources (keyboard, mouse, the four\n"
+           "// pressure-less buttons) read as exactly 1 while held.\n"
+           "float inputAnalog(Tyra::Pad& pad, int action);\n"
            "bool inputClicked(Tyra::Pad& pad, int action);  // went down now\n"
            "// Left-stick deflection (-127..127) the move-* actions ask for on a\n"
            "// keyboard; 0/0 when no key is down or no keyboard is attached.\n"
@@ -41047,6 +41105,42 @@ bool inputPressed(Tyra::Pad& pad, int action) {
       return true;
   }
   return false;
+}
+
+float inputAnalog(Tyra::Pad& pad, int action) {
+  if (action < 0 || action >= INPUT_ACTION_COUNT) return 0.0F;
+  if (!g_inputInit) inputRebuild();
+  const InputBind& b = g_inputBind[action];
+  if (b.pad >= 0 && padBit(pad.getPressed(), b.pad)) {
+    // Pressure by kPadButtonNames index. Gated on the digital press: an
+    // unpressed button's pressure byte is stale, not zero, on some pads.
+    const padButtonStatus& r = pad.rawButtons();
+    int pr = -1;
+    switch (b.pad) {
+      case 0: pr = r.cross_p; break;
+      case 1: pr = r.square_p; break;
+      case 2: pr = r.triangle_p; break;
+      case 3: pr = r.circle_p; break;
+      case 4: pr = r.up_p; break;
+      case 5: pr = r.down_p; break;
+      case 6: pr = r.left_p; break;
+      case 7: pr = r.right_p; break;
+      case 8: pr = r.l1_p; break;
+      case 9: pr = r.l2_p; break;
+      case 11: pr = r.r1_p; break;
+      case 12: pr = r.r2_p; break;
+      default: break;  // L3/R3/Start/Select carry no pressure
+    }
+    // Pressure 0 while pressed = a digital source (an emulator with no
+    // pressure mapping, injectVirtual's keyboard overlay) - full deflection.
+    return pr > 0 ? (float)pr / 255.0F : 1.0F;
+  }
+  if (Tyra::KbdMouse* km = kbd()) {
+    if (b.key != 0 && km->isKeyDown(b.key)) return 1.0F;
+    if (b.mouse != 0 && (km->getMouse().buttons & (1 << (b.mouse - 1))) != 0)
+      return 1.0F;
+  }
+  return 0.0F;
 }
 
 bool inputClicked(Tyra::Pad& pad, int action) {

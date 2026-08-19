@@ -162,7 +162,14 @@ everything else a scene does.
   moment walls actually hold. Throttle held for over a second with no motion
   reads as wedged: the car backs out for a second, advances its waypoint so
   it aims past the obstacle, and resumes.
-- **Ground contact is four height samples** under the wheel anchors. They give
+- **Ground contact is four height samples** under the wheel anchors — each
+  the MAX of the terrain and any object floor there (a box top within half a
+  unit of the car's feet, a mesh prop's walkable face), so a car drives ONTO
+  platforms and ramp props instead of nosing into their sides. Per wheel, so
+  a car half on a platform tilts; drive off the edge and the ordinary
+  airborne drop takes over. The editor's test drive stays terrain-only — the
+  twins share the formulas, the height *source* is each side's own, exactly
+  like the wall test's solid()/collidePlayer split. They give
   the ride height, the pitch and the roll from one query each, which is what
   makes a heightfield vehicle affordable at all. A scene with no terrain answers
   `TERRAIN_VOID_Y`, so "there is no floor" needs no branch of its own.
@@ -540,12 +547,11 @@ stores the name, so it has to.
 | Button | What it does |
 |---|---|
 | Square | the USE action — get in, and get out at the driver's door |
-| Cross | throttle (the left stick's Y works too, and reverses) |
-| L1 | brake — **not** Square, which is USE: getting in and slowing down cannot share a button |
-| R2 | throttle too — a stick at full lock has no vertical deflection left, so a stick-only driver loses the stick's gas exactly when steering hard |
+| R2 | throttle — **analog**: the DualShock 2 button pressure, so a squeeze is a crawl |
+| L2 | brake |
 | D-pad | drives too (steer + throttle/reverse). A keyboard emulating a stick — PCSX2 in a VM above all — can drop chorded key events, and full-lock-plus-throttle is exactly a chord; the d-pad is independent booleans end to end, so it cannot ghost |
 | Circle | handbrake, i.e. `handbrakeGrip` instead of `grip` — the drift |
-| R1 | nitrous, when the definition has a tank |
+| Cross | nitrous, when the definition has a tank |
 | Triangle | cycle the camera |
 | left stick X | steer |
 | right stick | glance around the car (X, up to ±60°) and lift the boom (Y); springs back on release |
@@ -556,9 +562,12 @@ Every BUTTON of the set is an Input Map role (`veh-throttle`, `veh-brake`,
 docs/input-bindings.md), so a project can rebind the throttle; the table above
 shows the seeded defaults. The runtime falls back to those exact buttons when a
 project's map lost an action (they are deletable), and the ANALOG reads — the
-steering stick, the stick's own throttle, the d-pad ghosting fallback and R2's
-extra gas — stay hardwired: an axis is not an action, and the ergonomic
-fallbacks exist precisely for pads that cannot chord.
+steering stick, the stick's own throttle and the d-pad ghosting fallback —
+stay hardwired: an axis is not an action, and the ergonomic fallbacks exist
+precisely for pads that cannot chord. The throttle role reads the DualShock
+2's **button pressure** (`inputAnalog`), so the default R2 squeezes from a
+crawl to flat out, and any digital source (a keyboard, an emulator without
+pressure mapping) reads as a clean 1.
 
 ### The three cameras
 
