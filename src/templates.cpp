@@ -28760,6 +28760,16 @@ void TerrainGame::renderVehicleWheels() {
       const float hi = v.pos[1] + s.suspensionTravel * SC;
       if (ay < lo) ay = lo;
       if (ay > hi) ay = hi;
+      // The WEIGHT-TRANSFER lean moves the wheels WITH the body. The lean is
+      // cosmetic - no ground caused it - so ground-stuck wheels under a
+      // leaning body open daylight at the arches on FLAT ground (squat 4 deg
+      // over the front overhang is ~0.11 units of gap, and it was reported
+      // from a plain corner exit). The terrain-derived pitch/roll stay OUT of
+      // this on purpose: those the wheels answer with their own ground
+      // sampling, which is the suspension look. Signs mirror the body's
+      // render exactly: rotX(-(pitch)) lifts the +lz corner by lz*sin(pitch),
+      // rotZ(-(roll)) drops the +lx corner by lx*sin(roll).
+      ay += lz[w] * sinf(v.leanPitch * kDeg) - lx[w] * sinf(v.leanRoll * kDeg);
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];

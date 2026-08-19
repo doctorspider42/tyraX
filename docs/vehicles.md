@@ -152,7 +152,14 @@ everything else a scene does.
   **asymmetrically** — full `suspensionTravel` in compression, 45% in droop.
   A kerb still shoves a wheel up into the arch and a crest still shows daylight
   under a tyre, but a wheel hanging a whole travel below the body read as
-  falling off the car, which is exactly how it was reported. (The editor's
+  falling off the car, which is exactly how it was reported. The
+  **weight-transfer lean moves the wheels WITH the body**: squat, dive and
+  corner roll are cosmetic — no ground caused them — so a leaning body over
+  ground-stuck wheels opened daylight at the arches on flat ground (4° of squat
+  over the front overhang is ~0.11 units of gap). Each hub adds the body
+  plane's lean offset at its own anchor; the terrain-derived pitch and roll
+  stay out of it, because those the wheels answer with their own ground
+  sampling — which is the suspension look. (The editor's
   preview keeps the wheels at ride height — a known, stated divergence.) Measured against the mean instead, a constant slope reads
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives

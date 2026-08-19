@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.65.3 (the wheels lean WITH the car - docs/vehicles.md): the droop clamp
+// was the right cap but the wrong diagnosis - the daylight in the report came
+// from the LEAN, not the travel. The weight-transfer squat/roll rotates the
+// body while the wheels stayed glued to flat ground, so a corner exit lifted
+// an arch ~0.18 units off its own wheel. Each hub now adds the body plane's
+// lean offset at its anchor (lz*sin(leanPitch) - lx*sin(leanRoll), signs
+// mirroring the render's rotX/rotZ exactly); terrain pitch/roll stay out - the
+// wheels answer those with their own ground sampling, which IS the suspension
+// look. Verified on GS frame captures mid-donut: wheels tucked at full lean.
+// PATCH.
+//
 // 1.65.2 (the wheel stays owned - docs/vehicles.md): the suspension's visual
 // clamp was symmetric, so on a crest a wheel could hang a FULL
 // suspensionTravel below the body (x1.5 instance scale = 0.27 units of
@@ -2051,7 +2062,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 65
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
