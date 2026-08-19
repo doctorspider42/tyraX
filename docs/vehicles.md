@@ -176,6 +176,22 @@ everything else a scene does.
   the ride height, the pitch and the roll from one query each, which is what
   makes a heightfield vehicle affordable at all. A scene with no terrain answers
   `TERRAIN_VOID_Y`, so "there is no floor" needs no branch of its own.
+- **The body is a SPRUNG RIG.** Height, pitch and roll are damped
+  second-order springs pulled toward the terrain-derived targets (heave
+  wn 14 rad/s at 0.9 of critical with plane-velocity feed-forward so a climb
+  tracks with no droop; attitude wn 11 at 0.8, softly overshooting a crest;
+  airborne both glide level at wn 4). The body used to SNAP to the plane
+  while a rate-limited attitude hung mid-swing over every ridge — the mean
+  of four samples jumps across a crest, so the body teleported vertically
+  while the wheels rode their own samples — and every "car breaks apart on
+  a bump" report was that one seam. A landing now compresses and rebounds
+  once (the fall speed is kept and absorbed, never zeroed in a frame), a
+  cliff-base slam bottoms out on a hard floor one travel below the plane,
+  and **grounded has slack** (a third of the ride height), because the
+  binary test flickered over every bump and each flicker dropped the
+  steering and the tyres for a frame. Held as a `--vehicle-check` property:
+  full throttle across a washboard of sharp ridges keeps the per-frame
+  height step under 0.3, the attitude sane and the pace up.
 - **Suspension compression is presentation**, derived from each wheel's ground
   height against the *tilted* chassis plane — the residual the pitch and roll do
   not already express. On the console the wheel bag actually DRAWS it: each hub

@@ -307,6 +307,41 @@ void hill() {
             "kicks down on the grade and climbs");
 }
 
+// 7. THE SPRUNG RIG: full throttle across a field of sharp ridges must never
+//    teleport the body - the per-frame height step stays bounded, the
+//    attitude stays sane, and the car keeps making progress. This is the
+//    property behind every "the car breaks apart on a bump" report: the old
+//    snap-to-plane rig jumped the body half a unit in one frame wherever the
+//    four-sample mean crossed a ridge.
+void roughRide() {
+    std::printf("-- sprung rig over ridges --\n");
+    auto ridges = [](float, float z) {
+        // Sharp triangular ridges, 0.8 tall every 9 units - a washboard.
+        const float t = z / 9.0f - std::floor(z / 9.0f);
+        return 0.8f * (t < 0.5f ? t * 2.0f : (1.0f - t) * 2.0f);
+    };
+    DriveSpec s;
+    DriveState st;
+    st.pos[1] = ridges(0, 0) + s.rideHeight;
+    DriveInput in;
+    in.throttle = 1.0f;
+    float prevY = st.pos[1];
+    float worstStep = 0.0f, worstPitch = 0.0f;
+    for (int i = 0; i < 50 * 30; ++i) {
+        step(s, in, 1.0f / 50.0f, ridges, st);
+        worstStep = std::max(worstStep, std::fabs(st.pos[1] - prevY));
+        prevY = st.pos[1];
+        worstPitch = std::max(worstPitch,
+                              std::max(std::fabs(st.pitch), std::fabs(st.roll)));
+    }
+    std::printf("  worst frame height step %.3f, worst attitude %.1f deg, "
+                "end z %.0f\n",
+                worstStep, worstPitch, st.pos[2]);
+    verdict(worstStep < 0.30f, "the body never teleports over a ridge");
+    verdict(worstPitch < 35.0f, "the attitude stays sane on a washboard");
+    verdict(st.pos[2] > 350.0f, "the car keeps its pace across the ridges");
+}
+
 }  // namespace
 
 int run() {
@@ -317,6 +352,7 @@ int run() {
     walls();
     lean();
     hill();
+    roughRide();
     if (failures) {
         std::printf("vehicle-check: %d FAILURE(S)\n", failures);
         return 1;

@@ -27674,6 +27674,11 @@ static std::string vehicleMembers(const Project& p) {
     // chassis. Without it the wheels rode rigidly at chassis height and the
     // computed compression never reached the screen.
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+    // The sprung rig (vehiclesim.cpp, "THE SPRUNG RIG" - change one, change
+    // both): attitude rates and last frame's plane height (1e9 = none).
+    float pitchVel = 0.0F;
+    float rollVel = 0.0F;
+    float lastRestY = 1e9F;
     float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
     // AI route (docs/vehicles.md, "AI drivers"): a slice of VEH_WAYPOINTS.
     // AI unstick (docs/vehicles.md): seconds spent asking for throttle and
@@ -28245,30 +28250,52 @@ void TerrainGame::updateVehicles(float dt) {
     }
     const float planeY = sum * 0.25F;
     const float restY = planeY + s.rideHeight * SC;
-    v.grounded = (v.pos[1] <= restY + 0.02F) ? 1 : 0;
+    // THE SPRUNG RIG - the host twin's exact arrangement (vehiclesim.cpp,
+    // "THE SPRUNG RIG" - change one, change both). The body used to SNAP to
+    // the plane while a rate-limited attitude hung mid-swing over every
+    // ridge, wheels riding their own samples - every "car breaks apart on a
+    // bump" was that one seam. Damped springs on the height and on the
+    // attitude instead: a ridge is a heave the body absorbs, a landing
+    // compresses and rebounds once. GROUNDED gets slack for the same
+    // reason - the binary test flickered over every bump and each flicker
+    // dropped the steering and the tyres for a frame.
+    v.grounded =
+        (v.pos[1] <= restY + 0.35F * s.rideHeight * SC + 0.02F) ? 1 : 0;
 
     if (v.grounded) {
-      // The chassis RIDES the plane, unlimited: rate-limiting this looks
-      // like suspension and is not - a climb outruns any authored rate and
-      // the body sinks through the ground for the whole hill.
-      v.pos[1] = restY;
-      v.velY = 0.0F;
+      {
+        // Heave: wn 14 rad/s, damping 0.9 of critical, damped against the
+        // velocity RELATIVE to the plane (a plain spring lags a ramp by a
+        // constant and rode half a unit under every climb).
+        const float wn = 14.0F, zeta = 0.9F;
+        const float planeVel =
+            v.lastRestY < 1e8F ? (restY - v.lastRestY) / dt : 0.0F;
+        v.velY += (wn * wn * (restY - v.pos[1]) -
+                   2.0F * zeta * wn * (v.velY - planeVel)) *
+                  dt;
+        v.pos[1] += v.velY * dt;
+        const float floorY = restY - s.suspensionTravel * SC;
+        if (v.pos[1] < floorY) {
+          v.pos[1] = floorY;
+          if (v.velY < 0.0F) v.velY = 0.0F;
+        }
+      }
       const float fY = 0.5F * (gy[0] + gy[1]), rY = 0.5F * (gy[2] + gy[3]);
       const float lY = 0.5F * (gy[0] + gy[2]), rrY = 0.5F * (gy[1] + gy[3]);
-      // Smoothed at the host twin's 180 deg/s - and this is NOT cosmetic:
-      // the grounded branch reads sin(pitch) for slope gravity, so a raw
-      // atan2 write made longitudinal speed step over every bump the host
-      // rode smoothly.
+      // Attitude: the same spring, softer (wn 11) and a touch underdamped
+      // (0.8) - the small crest overshoot is body language a snap never had.
+      // NOT cosmetic: the grounded branch reads sin(pitch) for slope
+      // gravity, so this smoothness is the longitudinal smoothness too.
       {
         const float tP =
             atan2f(fY - rY, s.wheelBase * SC > 0.01F ? s.wheelBase * SC : 0.01F) * kRad;
         const float tR =
             atan2f(rrY - lY, s.track * SC > 0.01F ? s.track * SC : 0.01F) * kRad;
-        const float aStep = 180.0F * dt;
-        if (v.pitch < tP) { v.pitch += aStep; if (v.pitch > tP) v.pitch = tP; }
-        else { v.pitch -= aStep; if (v.pitch < tP) v.pitch = tP; }
-        if (v.roll < tR) { v.roll += aStep; if (v.roll > tR) v.roll = tR; }
-        else { v.roll -= aStep; if (v.roll < tR) v.roll = tR; }
+        const float wn = 11.0F, zeta = 0.8F;
+        v.pitchVel += (wn * wn * (tP - v.pitch) - 2.0F * zeta * wn * v.pitchVel) * dt;
+        v.rollVel += (wn * wn * (tR - v.roll) - 2.0F * zeta * wn * v.rollVel) * dt;
+        v.pitch += v.pitchVel * dt;
+        v.roll += v.rollVel * dt;
       }
       // Compression is the residual against the TILTED plane, so flat
       // ground at any angle reads neutral and only bumps move a wheel.
@@ -28294,20 +28321,30 @@ void TerrainGame::updateVehicles(float dt) {
       v.velY -= s.gravity * dt;
       v.pos[1] += v.velY * dt;
       if (v.pos[1] < restY) {
-        v.pos[1] = restY;
-        v.velY = 0.0F;
+        // Touchdown: keep the fall speed - the heave spring absorbs it over
+        // the next frames (no snap, no one-frame slam). Only the hard floor
+        // holds.
+        const float floorY = restY - s.suspensionTravel * SC;
+        if (v.pos[1] < floorY) {
+          v.pos[1] = floorY;
+          if (v.velY < 0.0F) v.velY = 0.0F;
+        }
         v.grounded = 1;
       }
-      // In the air the body settles toward level at the host twin's 40 deg/s
-      // (it used to keep the attitude it left the ground with for ever).
+      // In the air the attitude GLIDES level - the same springs, much
+      // softer (wn 4), the host twin's numbers.
       {
-        const float aStep = 40.0F * dt;
-        if (v.pitch < 0.0F) { v.pitch += aStep; if (v.pitch > 0.0F) v.pitch = 0.0F; }
-        else { v.pitch -= aStep; if (v.pitch < 0.0F) v.pitch = 0.0F; }
-        if (v.roll < 0.0F) { v.roll += aStep; if (v.roll > 0.0F) v.roll = 0.0F; }
-        else { v.roll -= aStep; if (v.roll < 0.0F) v.roll = 0.0F; }
+        const float wn = 4.0F, zeta = 1.0F;
+        v.pitchVel += (wn * wn * (0.0F - v.pitch) - 2.0F * zeta * wn * v.pitchVel) * dt;
+        v.rollVel += (wn * wn * (0.0F - v.roll) - 2.0F * zeta * wn * v.rollVel) * dt;
+        v.pitch += v.pitchVel * dt;
+        v.roll += v.rollVel * dt;
       }
     }
+    // The heave spring's feed-forward frame (see above): remember the plane,
+    // forget it over the void (a restY built from TERRAIN_VOID_Y samples is
+    // not a plane to track).
+    v.lastRestY = restY > -1e8F ? restY : 1e9F;
 
     // The powertrain, before the longitudinal step. The gear is resolved from
     // the speed the car ALREADY has - derived, not simulated - and the two

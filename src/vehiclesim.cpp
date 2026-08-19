@@ -578,31 +578,73 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     const float planeY = sum * 0.25f;
     const float restY = planeY + spec.rideHeight;
 
+    // THE SPRUNG RIG. The body used to snap to the plane (pos[1] = restY
+    // instantly) with the attitude chasing its target at a fixed rate - and
+    // on any sharp terrain feature the two disagreed violently: the mean of
+    // four samples JUMPS across a ridge (the body teleports vertically) while
+    // a rate-limited pitch hangs mid-swing, wheels riding their own samples
+    // all the while. Every "car breaks apart on a bump" report was this one
+    // seam. The era's arcade answer is a damped SPRING on all three: the
+    // height and the attitude are second-order systems pulled toward the
+    // terrain targets - never snapped, never rate-limited - so a ridge is a
+    // heave the body absorbs, a landing compresses and rebounds once, and
+    // the wheels' own samples always live within a coherent, smooth body.
+    //
+    // GROUNDED gets slack for the same reason: binary pos-at-plane flickered
+    // over every bump, and each flicker dropped the steering (yaw integrates
+    // only grounded) and the tyres (grip zeroes airborne) for a frame -
+    // "the car goes deaf over bumps". Near the plane IS contact.
     if (!anyGround) {
         state.grounded = false;
-    } else if (state.pos[1] <= restY + 0.02f) {
-        state.grounded = true;
     } else {
-        state.grounded = false;
+        state.grounded = state.pos[1] <= restY + 0.35f * spec.rideHeight + 0.02f;
     }
 
     if (state.grounded) {
-        // The chassis RIDES the contact plane - no rate limit on this. Smoothing
-        // the vertical position here looks like suspension and is not: a car
-        // climbing a 25% grade at 17 units/s needs 4.3 units/s of vertical
-        // travel, an authored suspension rate supplies about 1.4, and the
-        // chassis sinks below the terrain and stays there for the whole climb
-        // (measured: y = 4.68 where the ground was 10.16). The ride belongs in
-        // wheelCompress, which is presentation and costs the sim nothing.
-        state.pos[1] = restY;
-        state.velY = 0.0f;
+        // Heave: critically-ish damped spring toward the plane. wn 14 rad/s
+        // (~2.2 Hz - an arcade car's body, firm but visibly alive), damping
+        // 0.9 of critical - one soft settle, no wobble. Semi-implicit Euler,
+        // stable at 50 Hz by a wide margin (wn*dt = 0.28).
+        {
+            const float wn = 14.0f, zeta = 0.9f;
+            // Feed-forward: damp against the velocity RELATIVE to the
+            // plane, not absolute - a plain spring lags a ramp by a
+            // constant (v * 2 zeta / wn, half a unit on a fast climb) and
+            // the body rode under the terrain for the whole hill.
+            const float planeVel =
+                state.lastRestY < 1e8f ? (restY - state.lastRestY) / dt : 0.0f;
+            state.velY += (wn * wn * (restY - state.pos[1]) -
+                           2.0f * zeta * wn * (state.velY - planeVel)) *
+                          dt;
+            state.pos[1] += state.velY * dt;
+            // The spring may not put the body UNDER the ground plane by more
+            // than the suspension has travel - a cliff-base slam bottoms out
+            // against a hard floor instead of clipping through it.
+            const float floorY = restY - spec.suspensionTravel;
+            if (state.pos[1] < floorY) {
+                state.pos[1] = floorY;
+                if (state.velY < 0.0f) state.velY = 0.0f;
+            }
+        }
 
         const float frontY = 0.5f * (gy[0] + gy[1]), rearY = 0.5f * (gy[2] + gy[3]);
         const float leftY = 0.5f * (gy[0] + gy[2]), rightY = 0.5f * (gy[1] + gy[3]);
         const float tPitch = std::atan2(frontY - rearY, std::max(spec.wheelBase, 0.01f)) * kRad2Deg;
         const float tRoll = std::atan2(rightY - leftY, std::max(spec.track, 0.01f)) * kRad2Deg;
-        state.pitch = approach(state.pitch, tPitch, 180.0f * dt);
-        state.roll = approach(state.roll, tRoll, 180.0f * dt);
+        // Attitude: the same spring, slightly softer (wn 11) and a touch
+        // underdamped (0.8) - the small overshoot on a crest is exactly the
+        // body language a snap or a rate limit never had.
+        {
+            const float wn = 11.0f, zeta = 0.8f;
+            state.pitchVel += (wn * wn * (tPitch - state.pitch) -
+                               2.0f * zeta * wn * state.pitchVel) *
+                              dt;
+            state.rollVel += (wn * wn * (tRoll - state.roll) -
+                              2.0f * zeta * wn * state.rollVel) *
+                             dt;
+            state.pitch += state.pitchVel * dt;
+            state.roll += state.rollVel * dt;
+        }
 
         // Compression is each wheel's ground height against the TILTED chassis
         // plane, not against the mean: measured against the mean, a constant
@@ -626,14 +668,32 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
         state.velY -= spec.gravity * dt;
         state.pos[1] += state.velY * dt;
         if (anyGround && state.pos[1] < restY) {
-            state.pos[1] = restY;
-            state.velY = 0.0f;
+            // Touchdown: the body arrives with its fall speed and the HEAVE
+            // SPRING absorbs it over the next frames - no snap to the plane
+            // and no instant velY kill, which used to slam a jump flat in
+            // one frame. Only the hard floor holds.
+            const float floorY = restY - spec.suspensionTravel;
+            if (state.pos[1] < floorY) {
+                state.pos[1] = floorY;
+                if (state.velY < 0.0f) state.velY = 0.0f;
+            }
             state.grounded = true;
         }
-        // In the air the body keeps the attitude it left the ground with.
-        state.pitch = approach(state.pitch, 0.0f, 40.0f * dt);
-        state.roll = approach(state.roll, 0.0f, 40.0f * dt);
+        // In the air the attitude glides level - the same springs, much
+        // softer (wn 4), so a launched car floats toward flat instead of
+        // holding a takeoff snapshot and slamming its nose on arrival.
+        {
+            const float wn = 4.0f, zeta = 1.0f;
+            state.pitchVel +=
+                (wn * wn * (0.0f - state.pitch) - 2.0f * zeta * wn * state.pitchVel) * dt;
+            state.rollVel +=
+                (wn * wn * (0.0f - state.roll) - 2.0f * zeta * wn * state.rollVel) * dt;
+            state.pitch += state.pitchVel * dt;
+            state.roll += state.rollVel * dt;
+        }
     }
+
+    state.lastRestY = anyGround ? restY : 1e9f;
 
     // --- the powertrain, before the longitudinal step -----------------------
     // The gear is resolved from the speed the car ALREADY has, which is what

@@ -16,6 +16,23 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.71.0 (the sprung rig - docs/vehicles.md): the recurring "car breaks
+// apart on a bump" had ONE structural cause, not many small ones: the body
+// SNAPPED to the contact plane (pos = restY every frame - the four-sample
+// mean jumps across a ridge, so the body teleported vertically) while a
+// rate-limited pitch/roll hung mid-swing, wheels riding their own samples.
+// The body is a damped spring rig now, in both twins: heave at wn 14 (0.9
+// critical) with plane-velocity feed-forward (a plain spring rode half a
+// unit under every climb), attitude at wn 11 (0.8 - a crest gets the small
+// overshoot a snap never had), airborne glide at wn 4, landings keep their
+// fall speed for the spring to absorb, and grounded gained slack (the
+// binary test dropped steering and grip for a frame on every bump). The
+// planar handling - speed, grip, yaw, walls - is untouched, and the
+// pre-powertrain regression stays bit-exact (flat ground is the springs'
+// equilibrium). New vehicle-check property: full throttle across a
+// washboard keeps the frame height step under 0.3 (measured 0.097, the old
+// rig teleported ~0.5), attitude sane, pace kept. MINOR.
+//
 // 1.70.0 (the bumper exists - docs/vehicles.md): the wall test sampled the
 // AXLE rectangle, so a car stopped when its axles met the wall and the
 // bonnet clipped a bumper's length inside ("dalej sie da wjechac w sciane
@@ -2145,7 +2162,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 70
+#define TYRAX_VERSION_MINOR 71
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

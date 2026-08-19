@@ -246,6 +246,18 @@ struct DriveState {
     float speed = 0.0f;                 // along forward, units/s (signed)
     float lateral = 0.0f;               // sideways, units/s (signed, + = right)
     float velY = 0.0f;                  // vertical, units/s
+    // Attitude rates, deg/s - the body is a SPRUNG rig (see step's ground
+    // section): pitch and roll are driven by damped springs toward the
+    // terrain-derived targets, never snapped and never rate-limited, which
+    // is what keeps the body coherent over a ridge instead of hanging
+    // mid-swing while the wheels ride their own samples.
+    float pitchVel = 0.0f;
+    float rollVel = 0.0f;
+    // Last frame's contact-plane height - the heave spring tracks the plane
+    // WITH its velocity (feed-forward), because a plain spring lags a ramp
+    // by a constant and the body rode half a unit under every climb. 1e9 =
+    // "no previous frame" (the first step treats the plane as still).
+    float lastRestY = 1e9f;
     float steerAngle = 0.0f;            // degrees, the wheels' actual angle
     bool grounded = false;
 
