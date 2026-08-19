@@ -47,6 +47,7 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Portal: return "portal";
         case PrimitiveType::Area: return "area";
         case PrimitiveType::Scatter: return "scatter";
+        case PrimitiveType::Road: return "road";
         case PrimitiveType::Scroller: return "scroller";
         case PrimitiveType::Vehicle: return "vehicle";
     }
@@ -71,6 +72,7 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "mirror") return PrimitiveType::Mirror;
     if (s == "portal") return PrimitiveType::Portal;
     if (s == "area") return PrimitiveType::Area;
+    if (s == "road") return PrimitiveType::Road;
     if (s == "scatter") return PrimitiveType::Scatter;
     if (s == "scroller") return PrimitiveType::Scroller;
     if (s == "vehicle") return PrimitiveType::Vehicle;
@@ -939,6 +941,14 @@ std::string objectJson(const SceneObject& o) {
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
     if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
+    if (!o.roadPoints.empty()) {
+        json += ", \"roadPoints\": [";
+        for (size_t k = 0; k < o.roadPoints.size(); ++k)
+            json += (k ? ", " : "") + fmtFloat(o.roadPoints[k]);
+        json += "], \"roadWidth\": " + fmtFloat(o.roadWidth);
+        if (!o.roadTexture.empty())
+            json += ", \"roadTexture\": \"" + jsonEscape(o.roadTexture) + "\"";
+    }
     if (!o.procSource.empty())
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.prefabSource.empty())
@@ -5097,6 +5107,16 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
+        if (const auto* rp = jo.find("roadPoints")) {
+            o.roadPoints.clear();
+            if (rp->type == json::Value::Type::Array)
+                for (const json::Value& v : rp->arr)
+                    o.roadPoints.push_back((float)v.numberOr(0.0));
+        }
+        if (const auto* rw = jo.find("roadWidth"))
+            o.roadWidth = (float)rw->numberOr(6.0);
+        if (const auto* rt = jo.find("roadTexture"))
+            o.roadTexture = rt->stringOr("");
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("prefabSource"))
             o.prefabSource = v->stringOr("");

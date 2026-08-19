@@ -150,6 +150,12 @@ enum class PrimitiveType {
     // you like and tuned in one place. The editor draws the definition's body
     // and wheels; the game builds two bags out of it and drives it.
     Vehicle = 20,
+    // Road (docs/roads.md): a Catmull-Rom spline through authored points,
+    // tessellated into terrain-hugging textured chunks AT BOOT - the object
+    // stores only the points, the width and a texture, so a kilometre of
+    // road costs a handful of floats in the .tyra and ONE tiled texture in
+    // VRAM. The editor can also flatten the terrain to the road's line.
+    Road = 21,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
@@ -784,6 +790,12 @@ struct SceneObject {
     // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
     // static geometry at build (procbake); nothing of it reaches the PS2.
     ProcGraph procGraph;
+    // Road payload (type Road): the polyline the spline threads, XZ pairs in
+    // world space (the object's own position is cosmetic for roads - points
+    // are absolute, which is what lets "align terrain" mean one thing).
+    std::vector<float> roadPoints;
+    float roadWidth = 6.0f;
+    std::string roadTexture;  // project texture path; "" = untextured grey
     // Set on the chunk objects a Scatter bake produced: the id of the Scatter
     // object that owns them. They are real scene objects (so codegen,
     // culling, LOD and the disc layout need no special case) but the editor
@@ -1226,6 +1238,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
+           a.roadPoints == b.roadPoints && a.roadWidth == b.roadWidth &&
+           a.roadTexture == b.roadTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
            a.prefabSource == b.prefabSource;
