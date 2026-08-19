@@ -241,6 +241,92 @@ currently reproduces the sprite exactly, which is the defensible half.
 
 ## Medium
 
+### Take the gait stage from the abandoned engine-side Foot IK branch
+
+`claude/character-stairs-animation-36b4b9` (11 commits, head `76e6beab`, last
+touched 2026-08-11, 34 commits behind main) solved stair walking a second time
+and in a different place: the solver and a learned pose corrector live in the
+ENGINE (`vendor/tyra/.../skel_foot_ik.cpp` 523 lines, `motion_net.cpp` 362,
+pose hooks on `SkelInstance`), where [Foot IK](foot-ik.md) as shipped keeps the
+solver in generated game code and touches the engine only for hooks and
+`CollisionMesh::raycast`'s surface normal.
+
+It is not merge material - it would give the tree two Foot IK implementations
+and it predates 34 commits of main - and the techniques it shares with the
+shipped solver (knee pole test, smoothed support normal, pelvis lean) are
+already here. Keep the remote branch; these four things are the reason.
+
+**1. The net rewrites the STRIDE, not the foot.** This is the idea worth the
+most and the shipped net does not have it. Its `docs/neural-gait.md` puts the
+argument better than a summary can: a solver "only knows about now", so it
+cannot do "the half of stair walking that happens before the foot lands ...
+above all **shortening the stride**. People take quicker, smaller steps going up
+a flight. No amount of IK produces that, because the clip's timing is not
+something a solver has any handle on." Their net therefore emits a **phase
+rate** alongside the per-joint rotation deltas, and the game multiplies its
+animation step by it. The shipped net predicts where a foot should land; this
+one predicts a gait that needs less landing correction. Testable end: walk the
+same flight with the rate output forced to 1.0 and to the net's value, and count
+the frames Foot IK had to correct at all.
+
+**2. `.tnet` as a loadable asset, instead of weights compiled into the game.**
+Ours bakes a 20x16x6 table into generated C++, so a retrain is a rebuild and the
+net's size is a codegen concern. Theirs writes `.tnet` and reads it with
+`MotionNetLoader`, following the `.tskl` conventions - magic `TXNN`, version read
+as a RANGE, counts followed by inline arrays. Four decisions in it are worth
+copying verbatim: the file carries `kFeatureVersion` and a mismatch is
+**refused** at load rather than guessed (a net handed shifted columns "produces a
+plausible, confident, wrong pose, which is the worst failure mode available"); a
+missing net is **never fatal** - the character walks, IK still plants, a warning
+goes in the log; weight rows are padded to a multiple of four floats and the
+whole net is one allocation advanced to a 16-byte boundary, because `lqc2` needs
+the alignment and `std::vector` only promises four bytes, with the pad columns
+zero so the inner loop has no tail to special-case.
+
+**3. A probe GRID in the character's own frame.** Theirs feeds a 3x3 of ground
+heights - behind/under/ahead x left/centre/right - and the frame is the point:
+"the net sees 'a step 0.35 ahead of me', never 'a step at world +X'", which is
+what makes a learned gait direction-independent for free. Ours has a single
+ahead probe plus two slope-removed residuals, so the same idea is present but
+one-dimensional. Two guards come with it and both are cheap: a **missed probe
+reads as "the floor is where I am"**, never as a hole, because feeding an extreme
+value to a net on a pattern it never trained on "is precisely how you get
+something confident and spectacular"; and the **outputs are low-passed, not the
+poses** - the probes cross a tread edge in one frame, so a per-frame net is
+jittery by construction, and smoothing outputs costs one multiply-add each where
+smoothing poses costs a second blend.
+
+**4. Host-side dataset generation, so retraining needs no emulator.**
+`--gait-dataset` walks the character over generated flats, steps, staircases and
+ramps with a host twin of the runtime solver and writes 30 000 rows plus a
+`.meta.json` carrying the joint list and the probe geometry derived from that
+model's own height. Ours needs PCSX2 runs through the regression runner for its
+real rows, which is the slowest part of a retrain. Their ownership rule is the
+part to keep even if the generator is not copied: **the editor owns the feature
+layout, the joint order and the binary format, and the trainer owns none of
+them** - which is the structural answer to the exact-twin drift this feature has
+had to police by hand across runtime, runner and trainer.
+
+Their measured numbers, for scale rather than for comparison (a different target
+space - rotation deltas against our mixed intents - so the losses are not
+comparable): 68-bone character, 30 000 rows, 64 units x 2 hidden layers, train
+0.0048 / validation 0.0055, **7 296 MAC per frame, about 50 us on VU0** against
+roughly 900 us of skinning for the same instance, 30 KB file. Their headroom
+table is the useful part, and it says the ceiling is much higher than either net
+uses: ~8 k MAC is effectively free, 50 k costs 0.2-0.4 ms, and a PFNN-sized
+512x4 would be 2-4 ms - a 30 fps hero character. The architectural fact behind
+it is one this project should have written down anyway: **weights stream from
+main RAM through `lqc2`, so a macro-mode net is bounded by the 32 MB of RAM, not
+by VU0's 4 KB of data memory** - that limit only applies to microprograms.
+
+Already taken from it: the held-out validation split in
+`tools/train-foot-neural.py` (see [foot-ik.md](foot-ik.md), "Retraining") came
+from its warning that a shuffled split over consecutive frames "leaks the answer
+and the reported loss means nothing" - this trainer had no split at all, so its
+reported loss carried no overfit signal. `CollisionMesh::raycast`'s `outNormal`
+was taken earlier and is still not on main.
+
+
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 
 ```
