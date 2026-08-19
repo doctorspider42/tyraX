@@ -2497,6 +2497,17 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
                  << fmtFloat(v.enginePitchRedline) << "], \"engineVolume\": "
                  << fmtFloat(v.engineVolume);
         }
+        // The sound pack, each key only when authored - an untouched
+        // definition still writes nothing (the byte-identity rule).
+        if (!v.engineHighSound.empty())
+            json << ", \"engineHighSound\": \"" << jsonEscape(v.engineHighSound)
+                 << "\"";
+        if (!v.screechSound.empty() || v.screechVolume != 80.0f)
+            json << ", \"screechSound\": \"" << jsonEscape(v.screechSound)
+                 << "\", \"screechVolume\": " << fmtFloat(v.screechVolume);
+        if (!v.shiftSound.empty() || v.shiftVolume != 80.0f)
+            json << ", \"shiftSound\": \"" << jsonEscape(v.shiftSound)
+                 << "\", \"shiftVolume\": " << fmtFloat(v.shiftVolume);
         if (!v.wheels.empty()) {
             json << ", \"wheels\": [";
             for (size_t k = 0; k < v.wheels.size(); ++k)
@@ -2552,6 +2563,16 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             v.hudSpeedScale = (float)x->numberOr(v.hudSpeedScale);
         if (const json::Value* x = e.find("engineSound"))
             v.engineSound = x->stringOr("");
+        if (const json::Value* x = e.find("engineHighSound"))
+            v.engineHighSound = x->stringOr("");
+        if (const json::Value* x = e.find("screechSound"))
+            v.screechSound = x->stringOr("");
+        if (const json::Value* x = e.find("screechVolume"))
+            v.screechVolume = (float)x->numberOr(80.0);
+        if (const json::Value* x = e.find("shiftSound"))
+            v.shiftSound = x->stringOr("");
+        if (const json::Value* x = e.find("shiftVolume"))
+            v.shiftVolume = (float)x->numberOr(80.0);
         if (const json::Value* x = e.find("enginePitch"))
             if (x->type == json::Value::Type::Array && x->arr.size() >= 2) {
                 v.enginePitchIdle = (float)x->arr[0].numberOr(v.enginePitchIdle);

@@ -1041,6 +1041,19 @@ struct VehicleDef {
     float enginePitchIdle = 0.75f;
     float enginePitchRedline = 2.4f;
     float engineVolume = 70.0f;  // 0..100, audsrv's own scale
+    // The second engine loop, for HIGH revs ("" = single-sample mode, exactly
+    // the behavior above). With one set, the runtime CROSSFADES the two loops
+    // on the engine speed - the era's two-sample engine - both riding the
+    // same authored pitch curve.
+    std::string engineHighSound;
+    // Tyre squeal: a loop whose volume rides DriveState::slip - the same one
+    // number the smoke and the telemetry already read, so they can never
+    // disagree about when a tyre lets go. "" = no squeal.
+    std::string screechSound;
+    // A one-shot played on every gear change while driving. "" = silent.
+    std::string shiftSound;
+    float screechVolume = 80.0f;  // 0..100
+    float shiftVolume = 80.0f;    // 0..100
 
     // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
     // vehicle authored before it existed still shows nothing.
@@ -1069,6 +1082,9 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.enginePitchIdle != b.enginePitchIdle ||
         a.enginePitchRedline != b.enginePitchRedline ||
         a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
+        a.engineHighSound != b.engineHighSound ||
+        a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
+        a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
         return false;
     for (int i = 0; i < 3; ++i)

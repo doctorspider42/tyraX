@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.73.0 (the sound pack - docs/vehicles.md, "The sound pack"): a vehicle
+// definition can now author a HIGH-REV loop (crossfaded with the base one
+// on the engine speed - the era's two-sample engine, volumes quantised and
+// written on change like the pitch), a TYRE SQUEAL loop (volume rides
+// DriveState::slip, the same number the smoke and telemetry read), and a
+// GEAR-SHIFT one-shot - all in the Vehicle Editor's new Sounds tab, all
+// silent until authored. Vehicle projects reserve four voices per core
+// (base+20..23); the emitter bank runs four slots short there. The example
+// ships a deterministic set (tools/veh-sound-pack.py). kFormatVersion 42,
+// additive. Verified on PCSX2: boots with the pack wired, drives through
+// gear changes and a drift with zero asserts - the ear test is the
+// author's. MINOR.
+//
 // 1.72.0 (trading paint - docs/vehicles.md): car vs car stopped being a
 // wall ("nieklimatyczne jeb i oba stoja w miejscu") and became momentum.
 // Vehicles leave each other's wall gather; a pair pass after the vehicle
@@ -2177,7 +2190,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 72
+#define TYRAX_VERSION_MINOR 73
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2458,7 +2471,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 41;
+inline constexpr int kFormatVersion = 42;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -306,6 +306,30 @@ with the car, and what makes the wheels visibly turn faster than the ground.
 number, so the tyre smoke and the screech cannot disagree about when a tyre has
 let go.
 
+### The sound pack
+
+Past the base loop, three optional companions (all per definition, in the
+Vehicle Editor's **Sounds** tab; every one silent until authored):
+
+- **High-rev loop** (`engineHighSound`, `*-loop.wav`): the era's two-sample
+  engine — the base loop fades out toward the redline as this fades in, both
+  riding the same authored pitch curve against their own natural rates.
+  Volumes quantise to 8 steps and write on change, the pitch discipline's
+  twin: a steady cruise is zero RPCs.
+- **Tyre squeal** (`screechSound`, `*-loop.wav`): volume rides
+  `DriveState::slip` — the one number the smoke and telemetry already read,
+  so all three agree when a tyre lets go. Silent under slip 0.3, squared
+  above it.
+- **Gear shift** (`shiftSound`, any one-shot): played on every gear change
+  while driving.
+
+A vehicle project reserves **four** voices per core for the drive
+(idle/single loop at `base+23`, high at `+22`, squeal at `+21`, the shift
+one-shot at `+20`), so the emitter bank runs four slots short there
+(`{{SND_SLOTS}}`). The shift deliberately does not borrow a script voice:
+`flowPickSfxChannel` exists only in projects whose flow graph plays sounds.
+`tools/veh-sound-pack.py` generates the example's deterministic set.
+
 ### Nitrous
 
 `nosCapacity` is **seconds of boost, and it is the switch**: it defaults to 0, so a

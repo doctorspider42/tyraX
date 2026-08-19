@@ -22,6 +22,11 @@ worked example for [vehicles](../../docs/vehicles.md).
 
 ## Driving it
 
+The CC96 carries the full sound pack: a two-sample engine (idle +
+high-rev loops crossfaded on the revs), a tyre squeal riding the slip, and a
+gear-shift thunk — all generated deterministically by
+`tools/veh-sound-pack.py` and `tools/engine-loop-wav.py`.
+
 Walk up to the car and press **USE** (Square by default). The camera moves to a
 lagged boom behind the car;
 while driving, the on-foot controls are fully off (no jumping from the driver's

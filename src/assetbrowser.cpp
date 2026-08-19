@@ -381,6 +381,12 @@ void App::rebuildAssetUsage() {
             note(v.modelPath, 0, "vehicle \"" + v.name + "\" (model)");
         if (!v.engineSound.empty())
             note(v.engineSound, 2, "vehicle \"" + v.name + "\" (engine sound)");
+        if (!v.engineHighSound.empty())
+            note(v.engineHighSound, 2, "vehicle \"" + v.name + "\" (engine high)");
+        if (!v.screechSound.empty())
+            note(v.screechSound, 2, "vehicle \"" + v.name + "\" (tyre squeal)");
+        if (!v.shiftSound.empty())
+            note(v.shiftSound, 2, "vehicle \"" + v.name + "\" (gear shift)");
         if (!v.bodyReflMap.empty())
             note(v.bodyReflMap, 2, "vehicle \"" + v.name + "\" (reflection map)");
     }
@@ -651,6 +657,9 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
     for (VehicleDef& v : project_.vehicles) {
         swap(v.modelPath);
         swap(v.engineSound);
+        swap(v.engineHighSound);
+        swap(v.screechSound);
+        swap(v.shiftSound);
         swap(v.bodyReflMap);
     }
 

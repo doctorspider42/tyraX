@@ -641,6 +641,93 @@ void App::drawVehicleWindow() {
             ImGui::EndTabItem();
         }
 
+        // --- Sounds -----------------------------------------------------------
+        // The sound pack past the base engine loop (which lives in Driver,
+        // next to the pitch curve it rides): the high-rev loop it crossfades
+        // with, the tyre squeal riding the ONE slip number, and the gear
+        // change one-shot.
+        if (ImGui::BeginTabItem("Sounds")) {
+            std::vector<const std::string*> loops2;
+            for (const std::string& snd : project_.sounds) {
+                const size_t slash = snd.rfind('/');
+                const std::string base = slash == std::string::npos
+                                             ? snd
+                                             : snd.substr(slash + 1);
+                if (base.size() >= 9 &&
+                    base.compare(base.size() - 9, 9, "-loop.wav") == 0)
+                    loops2.push_back(&snd);
+            }
+            const auto loopPicker = [&](const char* label, const char* tid,
+                                        std::string& path, const char* tip) {
+                ImGui::SetNextItemWidth(scaled(300));
+                const std::string cur = path.empty() ? "(none)" : path;
+                if (ImGui::BeginCombo(label, cur.c_str())) {
+                    if (ImGui::Selectable(
+                            (std::string("(none)##") + tid).c_str(),
+                            path.empty()))
+                        path.clear();
+                    for (size_t k = 0; k < loops2.size(); ++k) {
+                        const std::string l =
+                            *loops2[k] + "##" + tid + std::to_string(k);
+                        if (ImGui::Selectable(l.c_str(), path == *loops2[k]))
+                            path = *loops2[k];
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp(tip);
+            };
+            ImGui::TextDisabled(
+                "The base engine loop and its pitch curve live in the Driver "
+                "tab.");
+            loopPicker("High-rev loop", "vehsndhigh", v.engineHighSound,
+                       "A second engine loop the base one CROSSFADES with as\n"
+                       "the revs rise - the era's two-sample engine. Both ride\n"
+                       "the same authored pitch curve. Loops only (*-loop.wav).");
+            ImGui::Separator();
+            loopPicker("Tyre squeal loop", "vehsndscr", v.screechSound,
+                       "Volume rides the tyre slip - the same number the smoke\n"
+                       "and the telemetry read, so they always agree about when\n"
+                       "a tyre has let go. Loops only (*-loop.wav).");
+            if (!v.screechSound.empty()) {
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("Squeal volume", &v.screechVolume, 0.0f,
+                                   100.0f, "%.0f");
+            }
+            ImGui::Separator();
+            {
+                ImGui::SetNextItemWidth(scaled(300));
+                const std::string cur =
+                    v.shiftSound.empty() ? "(none)" : v.shiftSound;
+                if (ImGui::BeginCombo("Gear shift", cur.c_str())) {
+                    if (ImGui::Selectable("(none)##vehsndshift",
+                                          v.shiftSound.empty()))
+                        v.shiftSound.clear();
+                    for (size_t k = 0; k < project_.sounds.size(); ++k) {
+                        const std::string l = project_.sounds[k] +
+                                              "##vehshift" + std::to_string(k);
+                        if (ImGui::Selectable(l.c_str(),
+                                              v.shiftSound == project_.sounds[k]))
+                            v.shiftSound = project_.sounds[k];
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp(
+                    "A ONE-SHOT played on every gear change while driving -\n"
+                    "any sound qualifies, loops make no sense here. It borrows\n"
+                    "a free script voice (priority 60), never the engine's.");
+                if (!v.shiftSound.empty()) {
+                    ImGui::SetNextItemWidth(scaled(220));
+                    ImGui::SliderFloat("Shift volume", &v.shiftVolume, 0.0f,
+                                       100.0f, "%.0f");
+                }
+            }
+            if (loops2.empty())
+                ImGui::TextDisabled(
+                    "No looping sounds in the project. Add a WAV named "
+                    "*-loop.wav under res/sfx.");
+            ImGui::EndTabItem();
+        }
+
         // --- Cost -------------------------------------------------------------
         // The number that decides whether a scene can afford this vehicle at
         // all. A PS2 submit is ~1 ms of fixed EE time whatever it holds, so

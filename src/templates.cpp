@@ -25019,6 +25019,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // multipliers at idle and at the redline.\n"
                "  int engineSnd; float enginePitchIdle; float enginePitchRedline;\n"
                "  int engineVolume;\n"
+               "  // The sound pack: a HIGH-rev loop crossfaded with the one\n"
+               "  // above (-1 = single-sample), a tyre squeal riding slip, a\n"
+               "  // one-shot per gear change. SND_PATHS slots, -1 = none.\n"
+               "  int engineHighSnd; int screechSnd; int shiftSnd;\n"
+               "  int screechVolume; int shiftVolume;\n"
                "  // Driver readout: a FONTS slot (-1 = no HUD) and what a world\n"
                "  // unit per second should READ as on it.\n"
                "  int hudFont; float hudSpeedScale;\n"
@@ -25033,7 +25038,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {-1, -1";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
-                   " -1, 1.0F}\n";
+                   " -1, -1, -1, 80, 80, -1, 1.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -25048,10 +25053,19 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                 // the Sounds panel was reordered), so this is where the two
                 // meet - and a path naming no listed sound is -1, i.e. silent,
                 // rather than a slot that would read some other sample.
-                int snd = -1;
-                if (!v->engineSound.empty())
+                const auto sndSlot = [&](const std::string& path) {
+                    if (path.empty()) return -1;
                     for (size_t k = 0; k < p.sounds.size(); ++k)
-                        if (p.sounds[k] == v->engineSound) { snd = (int)k; break; }
+                        if (p.sounds[k] == path) return (int)k;
+                    return -1;
+                };
+                const int snd = sndSlot(v->engineSound);
+                const int sndHigh = sndSlot(v->engineHighSound);
+                const int sndScr = sndSlot(v->screechSound);
+                const int sndShift = sndSlot(v->shiftSound);
+                const auto vol100 = [](float f) {
+                    return (int)(f < 0.0f ? 0.0f : (f > 100.0f ? 100.0f : f));
+                };
                 // The HUD font resolves to a FONTS slot the same way every
                 // other font reference does. -1 means no readout at all, which
                 // is what an author who never turned it on gets.
@@ -25075,9 +25089,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << vec3Init(v->exitOffset) << ", " << snd << ", "
                     << floatLit(v->enginePitchIdle) << ", "
                     << floatLit(v->enginePitchRedline) << ", "
-                    << (int)(v->engineVolume < 0.0f
-                                 ? 0.0f
-                                 : (v->engineVolume > 100.0f ? 100.0f : v->engineVolume))
+                    << vol100(v->engineVolume) << ", " << sndHigh << ", "
+                    << sndScr << ", " << sndShift << ", "
+                    << vol100(v->screechVolume) << ", " << vol100(v->shiftVolume)
                     << ", " << hudFont << ", " << floatLit(v->hudSpeedScale)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
@@ -27664,6 +27678,16 @@ static std::string vehicleMembers(const Project& p) {
     // RPC and must happen only on a real change.
     int engineCh = -1;
     int enginePitchReg = 0;
+    // The rest of the sound pack: the high-rev loop's channel + last written
+    // registers (write-on-change - a SIF RPC per redundant write otherwise),
+    // the squeal's, and the last gear the shift blip heard.
+    int engineChHigh = -1;
+    int enginePitchRegHigh = 0;
+    int engineVolRegLow = -1;
+    int engineVolRegHigh = -1;
+    int screechCh = -1;
+    int screechVolReg = -1;
+    int sndPrevGear = 0;
     // Weight transfer, presentation only - degrees ON TOP of the
     // terrain-derived pitch/roll, never fed back (slope gravity reads the
     // real pitch). Twin of DriveState::leanPitch/leanRoll.
@@ -29032,14 +29056,66 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
     return;
   }
   if (!driving) {
-    // Out of the car: silence the voice and forget the channel, so getting back
-    // in starts the loop again rather than inheriting a stale pitch.
+    // Out of the car: silence the whole pack and forget the channels, so
+    // getting back in starts the loops again rather than inheriting a stale
+    // pitch or a mid-squeal volume.
     if (v.engineCh >= 0) {
       engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
       v.engineCh = -1;
       v.enginePitchReg = 0;
+      v.engineVolRegLow = -1;
+    }
+    if (v.engineChHigh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineChHigh);
+      v.engineChHigh = -1;
+      v.enginePitchRegHigh = 0;
+      v.engineVolRegHigh = -1;
+    }
+    if (v.screechCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.screechCh);
+      v.screechCh = -1;
+      v.screechVolReg = -1;
     }
     return;
+  }
+  // The GEAR-SHIFT blip: a plain one-shot on any free script voice, priority
+  // 60 - a shift matters more than ambience, less than dialogue. Reverse
+  // (gear -1) counts as a change too; the box only flips there at a stop, so
+  // it cannot spam.
+  if (s.shiftSnd >= 0 && s.shiftSnd < (int)sndSamples.size() &&
+      sndSamples[s.shiftSnd] && v.gear != v.sndPrevGear) {
+    // Its OWN reserved voice (base+20), not a borrowed script one:
+    // flowPickSfxChannel exists only in projects whose flow graph plays
+    // sounds (the zero-cost rule), and a shift blip must not depend on that.
+    const s8 ch = (s8)(scriptCtx.reverbBusBase + 20);
+    engine->audio.adpcm.setVolume((u8)(s.shiftVolume * scriptCtx.sfxVolume / 100),
+                                  ch);
+    engine->audio.adpcm.forcePlay(sndSamples[s.shiftSnd], ch);
+  }
+  v.sndPrevGear = v.gear;
+  // The TYRE SQUEAL: a loop whose volume rides DriveState::slip - the one
+  // number the smoke and the telemetry already consume, so all three agree
+  // about when a tyre has let go. Quantised to 8 volume steps and written on
+  // change: a drift is one RPC every few frames, a clean drive is none.
+  if (s.screechSnd >= 0 && s.screechSnd < (int)sndSamples.size() &&
+      sndSamples[s.screechSnd]) {
+    const int ch = scriptCtx.reverbBusBase + 21;
+    if (v.screechCh != ch) {
+      if (v.screechCh >= 0) engine->audio.adpcm.setVolume(0, (s8)v.screechCh);
+      v.screechCh = ch;
+      v.screechVolReg = -1;
+      engine->audio.adpcm.forcePlay(sndSamples[s.screechSnd], (s8)ch);
+      engine->audio.adpcm.setVolume(0, (s8)ch);
+    }
+    float k = (v.slip - 0.3F) / 0.7F;
+    if (k < 0.0F) k = 0.0F;
+    if (k > 1.0F) k = 1.0F;
+    int vol = (int)((float)s.screechVolume * k * k);
+    vol &= ~7;
+    if (vol != v.screechVolReg) {
+      v.screechVolReg = vol;
+      engine->audio.adpcm.setVolume((u8)vol, (s8)v.screechCh);
+    }
   }
 
   // The bus matters: a voice can only reach the reverb unit of its OWN SPU2
@@ -29083,6 +29159,48 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
     v.enginePitchReg = reg;
     engine->audio.adpcm.setPitch((s8)v.engineCh, (u16)reg);
   }
+
+  // THE TWO-SAMPLE ENGINE (docs/vehicles.md, "Engine sound"): with a HIGH-rev
+  // loop authored, the two loops CROSSFADE on the same f the pitch already
+  // rides - the idle sample fades out toward the redline, the high one fades
+  // in, both pitched by the same authored curve against their own natural
+  // rates. Volumes quantised to 8 steps and written on change, the pitch
+  // discipline's twin: a steady cruise is zero RPCs.
+  if (s.engineHighSnd >= 0 && s.engineHighSnd < (int)sndSamples.size() &&
+      sndSamples[s.engineHighSnd]) {
+    const int ch2 = scriptCtx.reverbBusBase + 22;
+    if (v.engineChHigh != ch2) {
+      if (v.engineChHigh >= 0)
+        engine->audio.adpcm.setVolume(0, (s8)v.engineChHigh);
+      v.engineChHigh = ch2;
+      v.enginePitchRegHigh = 0;
+      v.engineVolRegHigh = -1;
+      v.engineVolRegLow = -1;
+      engine->audio.adpcm.forcePlay(sndSamples[s.engineHighSnd], (s8)ch2);
+      engine->audio.adpcm.setVolume(0, (s8)ch2);
+    }
+    const u16 nat2 = Tyra::AudioAdpcm::naturalPitch(sndSamples[s.engineHighSnd]);
+    int reg2 = (int)((float)nat2 * mul);
+    if (reg2 < 0x80) reg2 = 0x80;
+    if (reg2 > 0x3FFF) reg2 = 0x3FFF;
+    reg2 &= ~31;
+    if (reg2 != v.enginePitchRegHigh) {
+      v.enginePitchRegHigh = reg2;
+      engine->audio.adpcm.setPitch((s8)ch2, (u16)reg2);
+    }
+    int volLow = (int)((float)s.engineVolume * (1.0F - f * 0.85F));
+    int volHigh = (int)((float)s.engineVolume * f);
+    volLow &= ~7;
+    volHigh &= ~7;
+    if (volLow != v.engineVolRegLow) {
+      v.engineVolRegLow = volLow;
+      engine->audio.adpcm.setVolume((u8)volLow, (s8)v.engineCh);
+    }
+    if (volHigh != v.engineVolRegHigh) {
+      v.engineVolRegHigh = volHigh;
+      engine->audio.adpcm.setVolume((u8)volHigh, (s8)v.engineChHigh);
+    }
+  }
 }
 
 // The paint pass's gate: only a VEHICLE's env bag gets the fresnel rim, the
@@ -29104,10 +29222,23 @@ int TerrainGame::vehiclePaintFor(int objIdx) {
 void TerrainGame::muteVehicleEngines() {
   for (int i = 0; i < vehicleCount_; ++i) {
     VehicleRt& v = vehicles_[i];
-    if (v.engineCh < 0) continue;
-    engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
-    v.engineCh = -1;
-    v.enginePitchReg = 0;
+    if (v.engineCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineCh);
+      v.engineCh = -1;
+      v.enginePitchReg = 0;
+      v.engineVolRegLow = -1;
+    }
+    if (v.engineChHigh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.engineChHigh);
+      v.engineChHigh = -1;
+      v.enginePitchRegHigh = 0;
+      v.engineVolRegHigh = -1;
+    }
+    if (v.screechCh >= 0) {
+      engine->audio.adpcm.setVolume(0, (s8)v.screechCh);
+      v.screechCh = -1;
+      v.screechVolReg = -1;
+    }
   }
 }
 
@@ -29681,7 +29812,13 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // Play Sound channel is an authored reference that must keep meaning what
     // the author said. Substituting the literal "8" back keeps a vehicle-less
     // project byte-identical.
-    s = replaceAll(s, "{{SND_SLOTS}}", projectHasVehicles(p) ? "7" : "8");
+    // Vehicle projects reserve FOUR voices per core for the drive's sounds
+    // (idle/single loop at base+23, the high-rev loop at +22, the squeal at
+    // +21, the gear-shift one-shot at +20), so the emitter bank runs four
+    // slots short there. Not borrowed from the script picker on purpose:
+    // flowPickSfxChannel exists only in projects whose flow graph plays
+    // sounds (the zero-cost rule).
+    s = replaceAll(s, "{{SND_SLOTS}}", projectHasVehicles(p) ? "4" : "8");
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
