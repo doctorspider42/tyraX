@@ -297,6 +297,27 @@ gaps, each with a testable end:
   before `ps aux` told the truth. killEmulatorsFor should normalise quoting
   before matching, and a diagnostic "N other emulator(s) on this ELF" line in
   the Runner would have named it immediately.
+- **Tail/brake lamps submit and do not show - OPEN.** The glow bag counts
+  them (probe: n=5 = beam pool + two double-sided lamps) and the screen
+  shows nothing, through THREE variants: additive FIX blend, reversed
+  winding (double-sided verticals), and the smoke's proven alpha-over. The
+  beam POOL was sighted exactly once (additive, pre-bodyOverhang positions,
+  viewed from the front through R3) and never re-sighted from the chase
+  camera. Suspects, in order: the UNTEXTURED + PipelineZTest_TestOnly path
+  (the smoke that proves TestOnly is a BILLBOARD bag with a texture bag
+  attached; the collision overlay that proves untextured runs standard z),
+  the translucent-tail draw position, or per-bag state leaking from the
+  submit before. Next probe: give the glow bag a dummy texture bag like the
+  smoke's, or draw it once with standard z to bisect. The lamp code itself
+  (positions past bodyOverhang, brake flare, DpadUp toggle) is in and
+  exercised. The skid marks ride the same untextured+TestOnly recipe and
+  their on-screen sighting is ALSO unconfirmed - one bisect likely answers
+  both.
+- **Nitro speed blur (GS previous-frame feedback) - DROPPED for now** by the
+  author's call ("ten blur na razie zlejmy"). The idea stays era-correct
+  (blend the previous framebuffer over the current while nosActive); the
+  entry point is renderer_core_postfx and the frame extrapolation path, and
+  the risk is GS bandwidth on a frame already at 22-40 ms.
 - **~~A car can escape the arena through a wall corner-case.~~ FIXED** - the
   suspect was right (a yaw change sweeps a corner through geometry with no
   position delta to refuse), and the fix is the overlapped-case rule in both
