@@ -16,6 +16,23 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.69.0 (the car rides the world - docs/vehicles.md): the dig-in bug and
+// the driver's seat rearranged. (1) Wheels (and the chassis) ride OBJECT
+// floors: each ground sample is the max of the terrain and any mountable
+// object top there (box tops within half a unit of the feet, mesh props'
+// walkable faces), gathered in the same one-pass collider sweep the walls
+// use. Before, a mesh slope was answered with "wall": the car nosed in, the
+// wheel read as buried in the ground, and the head-on refusal braked it
+// every frame ("kolo sie wbija w glebe, zostaje i hamuje"). (2) The default
+// drive is R2 gas / L2 brake / Cross nitrous / Circle handbrake - and the
+// throttle is ANALOG through the DualShock 2 button pressure (inputAnalog,
+// new engine Pad::rawButtons()); digital sources read as 1. (3) The first
+// REAL migration: v39 -> v40 rewrites bindings still at the old defaults,
+// with the editor's backup + prompt machinery exercised end to end.
+// Verified on PCSX2: R2 crosses a 0.45-high platform ON its top at full
+// speed, Cross drains the tank, the migration rewrote exactly the three
+// rows. MINOR.
+//
 // 1.68.0 (the driver's seat is rebindable - docs/vehicles.md,
 // docs/input-bindings.md): three fixes and the backlog's Input Map item.
 // (1) The wheel-arch clamp is measured from the TILTED body plane (terrain
@@ -2116,7 +2133,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 68
+#define TYRAX_VERSION_MINOR 69
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
