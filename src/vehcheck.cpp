@@ -143,6 +143,77 @@ void walls() {
         verdict(st.speed < 3.0f && st.pos[2] < 10.0f,
                 "a head-on stops at the wall (no phantom grind-in-place)");
     }
+    // A pillar NARROWER than the corner spacing must still stop the car -
+    // four corner samples alone let a pole pass between them and sit inside
+    // the body, which is exactly how "wjechac w obiekt" was reported. The
+    // edge midpoints are what catch it.
+    {
+        auto pillar = [](float x, float z, float) {
+            return std::fabs(x) < 0.45f && z > 10.0f && z < 10.9f;
+        };
+        DriveSpec s;  // track 1.4: a 0.9-wide pillar fits between the corners
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        DriveInput in;
+        in.throttle = 1.0f;
+        for (int i = 0; i < 600; ++i)
+            step(s, in, 1.0f / 50.0f, flat, st, pillar);
+        std::printf("  pillar: end z %.2f (pillar face at %.2f)\n", st.pos[2],
+                    10.0f - 0.5f * s.wheelBase);
+        verdict(st.pos[2] < 10.0f, "a pillar narrower than the track stops the car");
+    }
+    // A car that STARTS overlapping a wall (an old save, a spawn, a swept
+    // corner) must never be trapped: reversing out has to work, and holding
+    // the throttle INTO the wall must not push it any deeper.
+    {
+        DriveSpec s;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.pos[2] = 10.5f;  // nose corners past the z>10 face
+        DriveInput in;
+        in.throttle = 1.0f;
+        float deepest = st.pos[2];
+        for (int i = 0; i < 200; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, st, wall);
+            deepest = std::max(deepest, st.pos[2]);
+        }
+        const float pushed = deepest - 10.5f;
+        in.throttle = -1.0f;
+        bool out = false;
+        for (int i = 0; i < 400 && !out; ++i) {
+            step(s, in, 1.0f / 50.0f, flat, st, wall);
+            out = st.pos[2] + 0.5f * s.wheelBase < 10.0f;
+        }
+        std::printf("  overlapped: pushed %.2f deeper, reversed out: %s\n",
+                    pushed, out ? "yes" : "no");
+        verdict(pushed < 0.05f, "throttle into the wall gains no depth at all");
+        verdict(out, "a car spawned inside a wall reverses out (never trapped)");
+    }
+    // A THIN wall must hold a car that grinds it while turning hard - the
+    // tunneling case: with "no deeper" judged by an equal blocked count, the
+    // nose's sample points left the far side exactly as the tail's entered,
+    // and a car swept in by its own (unchecked) rotation drove clean through
+    // the 1.5-thick arena wall on the example map.
+    {
+        auto slab = [](float, float z, float) {
+            return z > 10.0f && z < 11.5f;
+        };
+        DriveSpec s;
+        DriveState st;
+        st.pos[1] = s.rideHeight;
+        st.pos[2] = 8.0f;  // right against the slab, about to grind
+        DriveInput in;
+        in.throttle = 1.0f;
+        float worstZ = st.pos[2];
+        for (int i = 0; i < 1500; ++i) {
+            in.steer = (i / 150) % 2 ? 1.0f : -1.0f;  // saw at the wall
+            step(s, in, 1.0f / 50.0f, flat, st, slab);
+            worstZ = std::max(worstZ, st.pos[2]);
+        }
+        std::printf("  thin wall: deepest centre z %.2f (far face at 11.50)\n",
+                    worstZ);
+        verdict(worstZ < 10.6f, "a thin wall cannot be tunneled by grinding");
+    }
 }
 
 // 5. Weight transfer: bounded, settles at a cruise, and the roll flips with

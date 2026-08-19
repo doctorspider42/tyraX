@@ -696,6 +696,10 @@ class TerrainGame : public Tyra::Game {
     float wheelY[4] = {0.0F, 0.0F, 0.0F, 0.0F};
     float smokeAcc = 0.0F;  // fractional puffs owed by the slip rate
     // AI route (docs/vehicles.md, "AI drivers"): a slice of VEH_WAYPOINTS.
+    // AI unstick (docs/vehicles.md): seconds spent asking for throttle and
+    // getting no motion, and seconds left of the reverse-out manoeuvre.
+    float aiStuckT = 0.0F;
+    float aiRevT = 0.0F;
     int wpFirst = -1;
     int wpCount = 0;
     int wpCur = 0;

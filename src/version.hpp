@@ -16,6 +16,24 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.66.0 (the world got solid - docs/vehicles.md): four driver reports, one
+// round. (1) Cars no longer drive INSIDE objects: the wall test grew from
+// four corners to eight points (a pillar narrower than the corner spacing
+// drove between four), an object floor >0.5 over the car's feet blocks (a
+// mesh prop's walkable face was a door into its inside), and the overlapped
+// case moves only AWAY from the blocked points' centroid - which also closes
+// the backlog's arena-escape bug, reproduced live (x 232, wall at 152) before
+// closing. Colliders gather once per vehicle per frame; the runtime is now
+// structurally the host twin. (2) Tyre smoke stopped punching holes in the
+// car: the billboard submit moved to the frame's translucent tail and never
+// writes Z (PipelineZTest_TestOnly). (3) The wheel-arch clamp tightened to
+// 65% in compression (wheels rode through the bonnet at full travel).
+// (4) The AI rival un-sticks itself (reverse-out + waypoint advance) - the
+// walls holding is what parked it against a pillar forever - and far
+// vehicles skip their shine pass (35u), wheels and smoke (70u). Verified on
+// PCSX2 GS captures + telemetry; --vehicle-check grew pillar/overlapped/
+// thin-wall properties. MINOR.
+//
 // 1.65.3 (the wheels lean WITH the car - docs/vehicles.md): the droop clamp
 // was the right cap but the wrong diagnosis - the daylight in the report came
 // from the LEAN, not the travel. The weight-transfer squat/roll rotates the
@@ -2061,8 +2079,8 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 65
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 66
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

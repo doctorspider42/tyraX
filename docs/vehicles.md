@@ -141,6 +141,27 @@ everything else a scene does.
   difference *is* the sideways slip, and grip is the cap on how fast the tyres
   kill it. Low slides, high is on rails, and `handbrakeGrip` replaces it while
   the handbrake is held — that is the entire drift knob.
+- **Walls are eight sample points** — the four body corners plus the edge
+  midpoints — through the runtime's own collider set (object boxes, generated
+  prefab boxes, and mesh props), axis-separated so a glancing hit grinds and
+  only a head-on stops. Corners alone let anything narrower than the corner
+  spacing — a pillar, a post, a thin wall hit end-on — pass *between* the
+  samples and sit inside the car. Two rules keep the overlapped case honest:
+  a car already overlapping (a swept corner, an old save) may only move AWAY
+  from the centroid of its blocked points (count comparisons fail here in
+  both flavours — "no deeper" tunnels thin walls, "strictly fewer" deadlocks
+  the escape), and an OBJECT floor rising more than half a unit over the
+  car's feet blocks even where the on-foot walker would climb it, because a
+  car reads its height from the terrain alone and a "walkable" mesh face was
+  a door into the prop's inside. The colliders are gathered ONCE per vehicle
+  per frame (the trig lives in the gather, the eight points cost multiplies),
+  and the host twin holds all of it as `--vehicle-check` properties: pillar,
+  overlapped, thin wall.
+- **The AI driver un-sticks itself.** Pure pursuit has no obstacle avoidance,
+  so a pillar on the racing line parks the rival against itself forever the
+  moment walls actually hold. Throttle held for over a second with no motion
+  reads as wedged: the car backs out for a second, advances its waypoint so
+  it aims past the obstacle, and resumes.
 - **Ground contact is four height samples** under the wheel anchors. They give
   the ride height, the pitch and the roll from one query each, which is what
   makes a heightfield vehicle affordable at all. A scene with no terrain answers
@@ -149,7 +170,10 @@ everything else a scene does.
   height against the *tilted* chassis plane — the residual the pitch and roll do
   not already express. On the console the wheel bag actually DRAWS it: each hub
   rides one radius above its own wheel's sampled ground, clamped
-  **asymmetrically** — full `suspensionTravel` in compression, 45% in droop.
+  **asymmetrically** — 65% of `suspensionTravel` in compression, 45% in droop.
+  Both ends are tighter than the sim's travel on purpose: this clamp is the
+  wheel against the ARCH, not the spring — at a full travel up the wheel rode
+  visibly through the bodywork.
   A kerb still shoves a wheel up into the arch and a crest still shows daylight
   under a tyre, but a wheel hanging a whole travel below the body read as
   falling off the car, which is exactly how it was reported. The
@@ -289,7 +313,12 @@ both the smoke and the telemetry is what keeps them from ever disagreeing. The
 puffs are camera-facing billboards in **one submit** (the particle system's
 exact shape: VU1 expands centre + 2×2 basis weights into a quad, the EE never
 touches a corner), untextured grey with per-puff alpha over standard blending,
-swirling and swelling as they fade — the fog puff's own recipe. A dead puff is
+swirling and swelling as they fade — the fog puff's own recipe. The submit
+rides at the frame's translucent tail with the emitters' particles and never
+writes Z (the engine's `PipelineZTest_TestOnly`): drawn before the car with
+depth writes on, a puff's quad z-rejected the body pixels behind it and read
+on screen as a HOLE through the car. A vehicle 70+ units from the camera
+spawns no puffs at all — invisible smoke was spending the shared pool. A dead puff is
 a degenerate quad, and the bag is skipped outright when the pool is empty, so a
 clean drive pays nothing.
 

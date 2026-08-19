@@ -13070,6 +13070,9 @@ void TerrainGame::renderVehicleSmoke() {
     // whose corner leaves the raster window (the emitters' own note).
     smokeInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_None;
     smokeInfoBag_->fullClipChecks = false;
+    // Depth-tested but never writing Z (alpha-test all-fail + AFAIL=FB_ONLY):
+    // translucent smoke must not carve holes into anything drawn after it.
+    smokeInfoBag_->zTestType = PipelineZTest_TestOnly;
     smokeColorBag_ = std::make_unique<StaPipColorBag>();
     smokeColorBag_->many = smokeCols_;
     smokeBillboardBag_ = std::make_unique<StaPipBillboardBag>();
@@ -13330,6 +13333,29 @@ void TerrainGame::updateVehicles(float dt) {
       const float ae = err < 0.0F ? -err : err;
       inThrottle = ae < 45.0F ? 1.0F : (ae < 100.0F ? 0.45F : 0.15F);
       if (ae > 115.0F && v.speed > 7.0F) inBrake = 1.0F;
+      // UNSTICK. Pure pursuit has no obstacle avoidance, so a pillar on the
+      // racing line simply parks the car against itself forever (measured:
+      // the rival wedged at spd10 1 the moment the walls started holding).
+      // The arcade answer: throttle held with nothing to show for it for
+      // over a second means wedged - back out for a second STEERING THE
+      // SAME WAY the pursuit asks (reversing swings the nose the other
+      // way), then resume. The waypoint also advances, so the car aims past
+      // the obstacle instead of back into it.
+      const float sp0 = v.speed < 0.0F ? -v.speed : v.speed;
+      if (v.aiRevT > 0.0F) {
+        v.aiRevT -= dt;
+        inThrottle = -1.0F;
+        inBrake = 0.0F;
+      } else if (inThrottle > 0.5F && sp0 < 1.0F) {
+        v.aiStuckT += dt;
+        if (v.aiStuckT > 1.2F) {
+          v.aiStuckT = 0.0F;
+          v.aiRevT = 1.0F;
+          v.wpCur = (v.wpCur + 1) % v.wpCount;
+        }
+      } else {
+        v.aiStuckT = 0.0F;
+      }
     }
 
     // Steering, with the lock shrinking toward top speed: without the taper
@@ -13561,69 +13587,194 @@ void TerrainGame::updateVehicles(float dt) {
     v.pos[0] += (v.speed * s2 + v.lateral * c2) * dt;
     v.pos[2] += (v.speed * c2 - v.lateral * s2) * dt;
 
-    // Walls. Four corners through the walker's own resolver, not the centre
-    // (a centre test lets a car put half its width through a wall before
-    // anything notices), and AXIS-SEPARATED, the host twin's structure
-    // exactly (vehiclesim::step - change one, change both): a blocked move
-    // first tries keeping only its X, then only its Z, so a glancing hit
-    // GRINDS along the wall with the speed scrubbed per second, and only a
-    // head-on refuses the whole move. Per-corner resolution stays off the
-    // table - it would rotate a body a kinematic chassis cannot represent.
+    // Walls. EIGHT sample points through the walker's own resolver, not the
+    // centre (a centre test lets a car put half its width through a wall
+    // before anything notices) and not corners alone (four corners let
+    // anything narrower than the corner spacing - a pole, a post, a thin
+    // wall hit end-on - pass BETWEEN the samples and sit inside the car).
+    // AXIS-SEPARATED, the host twin's structure exactly (vehiclesim::step -
+    // change one, change both): a blocked move first tries keeping only its
+    // X, then only its Z, so a glancing hit GRINDS along the wall with the
+    // speed scrubbed per second, and only a head-on refuses the whole move.
+    // Per-corner resolution stays off the table - it would rotate a body a
+    // kinematic chassis cannot represent.
     {
       const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
-      const float cx[4] = {-hx2, hx2, -hx2, hx2};
-      const float cz[4] = {hz2, hz2, -hz2, -hz2};
+      const float cx[8] = {-hx2, hx2, -hx2, hx2, 0.0F, 0.0F, -hx2, hx2};
+      const float cz[8] = {hz2, hz2, -hz2, -hz2, hz2, -hz2, 0.0F, 0.0F};
       const float feet = v.pos[1] - s.rideHeight * SC;
-      // The car must not collide with ITSELF: collidePlayer tests every solid
-      // object and the four corners sit inside the body's own collision box,
-      // so every moving frame read as blocked and the car crawled at a tenth
-      // of its speed (measured: spd10 oscillating 0..9 on open ground, with
-      // nothing within twenty units). Collision is flipped off for the test
-      // and restored after - the same trick the carry sweep plays.
-      const int ownCol = v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
-      if (v.object >= 0) runtimeObjects[v.object].data.collision = 2;
-      auto blockedAt = [&](float bx, float bz) {
-        for (int k = 0; k < 4; ++k) {
-          const float p0x = prevX + cx[k] * c2 + cz[k] * s2;
-          const float p0z = prevZ - cx[k] * s2 + cz[k] * c2;
-          float nx = bx + cx[k] * c2 + cz[k] * s2;
-          float nz = bz - cx[k] * s2 + cz[k] * c2;
-          const float wantX = nx, wantZ = nz;
-          float gr = 0.0F, ce = 0.0F;
-          collidePlayer(p0x, p0z, &nx, &nz, feet, 0.6F, &gr, &ce);
-          const float dx = nx - wantX, dz = nz - wantZ;
-          if (dx * dx + dz * dz > 0.0004F) return true;
+      // GATHER ONCE, test cheap. The first cut called collidePlayer per
+      // sample point, and collidePlayer pays boxRotate's trig for EVERY
+      // object on EVERY call - measured ~1.1 ms per call in PCSX2, which at
+      // eight points times two vehicles was ~18 ms of a 40 ms frame (and the
+      // old four-corner sweep was already ~9 of the reported slowdown's ms).
+      // So: one pass over the objects per vehicle per frame does the trig
+      // and keeps only what is within reach - almost always zero or one
+      // entry - and the sample points then cost multiplies alone. This also
+      // makes the runtime STRUCTURALLY the host twin (point tests against
+      // solids), not a re-purposed move resolver.
+      struct VehWallBox { float bx, bz, hx, hz, yc, ys; };
+      VehWallBox nearBox[12];
+      int nearBoxN = 0;
+      int nearMesh[4];
+      int nearMeshN = 0;
+      const float spd = v.speed < 0.0F ? -v.speed : v.speed;
+      const float reach = hx2 + hz2 + 1.5F + spd * dt;
+      for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+        if (oi == v.object || oi == carryIndex) continue;  // never itself
+        const RuntimeObject& o = runtimeObjects[oi];
+        if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+        const GameModel* gm = nullptr;
+        if (o.data.type == 5 && o.data.model >= 0 &&
+            o.data.model < (int)gameModels.size())
+          gm = &gameModels[o.data.model];
+        if (o.data.collision == 1 && gm && !gm->collider.empty()) {
+          // Mesh mode: rare and expensive - remember the object, pay the
+          // resolver only for points near it (below).
+          const float dx = o.data.position[0] - prevX;
+          const float dz = o.data.position[2] - prevZ;
+          const float r = reach + 0.5F * (o.data.scale[0] + o.data.scale[2]) +
+                          2.0F;
+          if (dx * dx + dz * dz < r * r && nearMeshN < 4)
+            nearMesh[nearMeshN++] = oi;
+          continue;
         }
-        return false;
+        // Box mode - the walker's own box, radius inflation included, with
+        // its vertical rules: a top at knee height is a floor (not a wall),
+        // a bottom above the roof-ish is an overpass to drive under. Cars
+        // do NOT climb props, so anything taller than half a unit blocks -
+        // the walker would put a "walkable" answer here and the car, whose
+        // height comes from the TERRAIN alone, would drive straight inside.
+        const CollisionBox cb = objectCollisionBox(o);
+        const V3 cW = boxRotate({cb.center[0], cb.center[1], cb.center[2]},
+                                o.data);
+        const float top = o.data.position[1] + cW.y + cb.half[1];
+        const float bottom = o.data.position[1] + cW.y - cb.half[1];
+        if (top <= feet + 0.5F || bottom >= feet + 0.9F) continue;
+        const float wx = o.data.position[0] + cW.x;
+        const float wz = o.data.position[2] + cW.z;
+        const float bhx = cb.half[0] + 0.35F;  // the walker's playerRadius
+        const float bhz = cb.half[2] + 0.35F;
+        const float ddx = wx - prevX, ddz = wz - prevZ;
+        const float rr = reach + bhx + bhz;
+        if (ddx * ddx + ddz * ddz >= rr * rr || nearBoxN >= 12) continue;
+        const float yawR = (o.data.rotation[1] + cb.yaw) * PI / 180.0F;
+        nearBox[nearBoxN++] = {wx, wz, bhx, bhz, cosf(yawR), sinf(yawR)};
+      }
+      // Generated geometry (prefabs, procedural volumes): already
+      // axis-aligned conservative boxes, same vertical rules.
+      for (const StaticBox& b : procColliders) {
+        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
+        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const float wx = 0.5F * (b.mx[0] + b.mn[0]);
+        const float wz = 0.5F * (b.mx[2] + b.mn[2]);
+        if (b.mx[1] <= feet + 0.5F || b.mn[1] >= feet + 0.9F) continue;
+        const float ddx = wx - prevX, ddz = wz - prevZ;
+        const float rr = reach + bhx + bhz;
+        if (ddx * ddx + ddz * ddz >= rr * rr || nearBoxN >= 12) continue;
+        nearBox[nearBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+      }
+      // Count AND centroid, not a boolean: once the car is already
+      // overlapping, WHERE the blocked points sit is what tells "out of the
+      // thing" from "deeper into it". A point is blocked inside a near box -
+      // or, at a MESH prop, when the walker's resolver displaces it or the
+      // prop's own floor rises more than half a unit over the car's feet
+      // there (the walker climbs a mesh prop's shallow face; a car reads its
+      // height from the TERRAIN alone, so "walkable" mesh geometry was a
+      // door straight into the prop's inside).
+      const int ownCol = v.object >= 0 ? runtimeObjects[v.object].data.collision : 2;
+      auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+        int n = 0;
+        float sx = 0.0F, sz = 0.0F;
+        for (int k = 0; k < 8; ++k) {
+          const float px = bx + cx[k] * c2 + cz[k] * s2;
+          const float pz = bz - cx[k] * s2 + cz[k] * c2;
+          bool hit = false;
+          for (int b = 0; b < nearBoxN && !hit; ++b) {
+            const VehWallBox& w = nearBox[b];
+            const float dx = px - w.bx, dz = pz - w.bz;
+            const float lx = dx * w.yc - dz * w.ys;
+            const float lz = dx * w.ys + dz * w.yc;
+            hit = lx > -w.hx && lx < w.hx && lz > -w.hz && lz < w.hz;
+          }
+          if (!hit && nearMeshN > 0) {
+            // The resolver walks every object, so the car's own box must
+            // not answer (the carry sweep's collision-flip trick).
+            if (v.object >= 0) runtimeObjects[v.object].data.collision = 2;
+            float nx = px + 0.05F, nz = pz + 0.05F;
+            float gr = -1e9F, ce = 1e9F;
+            collidePlayer(px, pz, &nx, &nz, feet, 0.6F, &gr, &ce);
+            if (v.object >= 0)
+              runtimeObjects[v.object].data.collision = ownCol;
+            const float dx = nx - (px + 0.05F), dz = nz - (pz + 0.05F);
+            hit = dx * dx + dz * dz > 0.0004F || gr > feet + 0.5F;
+          }
+          if (hit) {
+            ++n;
+            sx += px;
+            sz += pz;
+          }
+        }
+        if (n > 0 && ox) *ox = sx / (float)n, *oz = sz / (float)n;
+        return n;
       };
-      if (blockedAt(v.pos[0], v.pos[2])) {
-        // A slide is only a slide if that axis carries REAL motion - a
-        // head-on has ~zero motion along the wall, and "keep only X" would be
-        // trivially free, grinding in place at a phantom 5 u/s (the host
-        // harness caught exactly that). And the grind scrubs by ANGLE: f is
-        // the fraction of the motion the wall lets through, so a shallow
-        // scrape barely slows and a steep one digs in.
-        const float wvx = v.pos[0] - prevX, wvz = v.pos[2] - prevZ;
-        const float wl = sqrtf(wvx * wvx + wvz * wvz);
-        const float fx = wl > 1e-6F ? (wvx < 0.0F ? -wvx : wvx) / wl : 0.0F;
-        const float fz = wl > 1e-6F ? (wvz < 0.0F ? -wvz : wvz) / wl : 0.0F;
+      const int nowBlocked =
+          blockedInfo(v.pos[0], v.pos[2], nullptr, nullptr);
+      if (nowBlocked > 0) {
+        float obX = 0.0F, obZ = 0.0F;
+        const int prevBlocked = blockedInfo(prevX, prevZ, &obX, &obZ);
         const float latScrub = 1.0F - vehClamp(12.0F * dt, 0.0F, 0.9F);
-        if (fx > 0.3F && !blockedAt(v.pos[0], prevZ)) {
-          v.pos[2] = prevZ;  // slide along X
-          v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fx)) * dt, 0.0F, 0.6F);
-          v.lateral *= latScrub;
-        } else if (fz > 0.3F && !blockedAt(prevX, v.pos[2])) {
-          v.pos[0] = prevX;  // slide along Z
-          v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fz)) * dt, 0.0F, 0.6F);
-          v.lateral *= latScrub;
+        if (prevBlocked > 0) {
+          // ALREADY overlapping (a save from before this rule, a spawn
+          // inside a prop, a corner swept in by an unchecked rotation):
+          // never trap the car, but the only move allowed (at a heavy scrub)
+          // is one heading AWAY from the centroid of the blocked points -
+          // backing out always is. Anything else is refused. A count
+          // comparison is NOT enough, in either flavour: "no deeper" (count
+          // must not grow) held exactly while the nose's points left a thin
+          // wall's far side as the tail's entered, and the car drove clean
+          // through the arena wall (measured on this map: x 232 with the
+          // wall at 152); "strictly fewer" deadlocked the escape, because
+          // backing out only sheds its first point after half a unit of
+          // travel it was refusing. The host twin holds these as properties
+          // (--vehicle-check: pillar, overlapped, thin wall).
+          const float mvX = v.pos[0] - prevX, mvZ = v.pos[2] - prevZ;
+          if (mvX * (prevX - obX) + mvZ * (prevZ - obZ) > 0.0F) {
+            v.speed *= 1.0F - vehClamp(2.0F * dt, 0.0F, 0.6F);
+            v.lateral *= latScrub;
+          } else {
+            v.pos[0] = prevX;
+            v.pos[2] = prevZ;
+            v.speed *= 0.25F;
+            v.lateral = 0.0F;
+          }
         } else {
-          v.pos[0] = prevX;  // head-on: the impact takes the speed with it
-          v.pos[2] = prevZ;
-          v.speed *= 0.25F;
-          v.lateral = 0.0F;
+          // A slide is only a slide if that axis carries REAL motion - a
+          // head-on has ~zero motion along the wall, and "keep only X" would
+          // be trivially free, grinding in place at a phantom 5 u/s (the
+          // host harness caught exactly that). And the grind scrubs by
+          // ANGLE: f is the fraction of the motion the wall lets through, so
+          // a shallow scrape barely slows and a steep one digs in.
+          const float wvx = v.pos[0] - prevX, wvz = v.pos[2] - prevZ;
+          const float wl = sqrtf(wvx * wvx + wvz * wvz);
+          const float fx = wl > 1e-6F ? (wvx < 0.0F ? -wvx : wvx) / wl : 0.0F;
+          const float fz = wl > 1e-6F ? (wvz < 0.0F ? -wvz : wvz) / wl : 0.0F;
+          if (fx > 0.3F && blockedInfo(v.pos[0], prevZ, nullptr, nullptr) == 0) {
+            v.pos[2] = prevZ;  // slide along X
+            v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fx)) * dt, 0.0F, 0.6F);
+            v.lateral *= latScrub;
+          } else if (fz > 0.3F && blockedInfo(prevX, v.pos[2], nullptr, nullptr) == 0) {
+            v.pos[0] = prevX;  // slide along Z
+            v.speed *= 1.0F - vehClamp((0.3F + 2.5F * (1.0F - fz)) * dt, 0.0F, 0.6F);
+            v.lateral *= latScrub;
+          } else {
+            v.pos[0] = prevX;  // head-on: the impact takes the speed with it
+            v.pos[2] = prevZ;
+            v.speed *= 0.25F;
+            v.lateral = 0.0F;
+          }
         }
       }
-      if (v.object >= 0) runtimeObjects[v.object].data.collision = ownCol;
     }
     // Presentation, derived and costing the sim nothing: the driven wheels'
     // surface speed is the car's speed PLUS whatever drive the tyres could not
@@ -13676,6 +13827,11 @@ void TerrainGame::updateVehicles(float dt) {
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
     if (v.grounded && v.slip > 0.35F) {
+      const float sdx = v.pos[0] - cameraPosition.x;
+      const float sdz = v.pos[2] - cameraPosition.z;
+      if (sdx * sdx + sdz * sdz > 70.0F * 70.0F) {
+        v.smokeAcc = 0.0F;  // far smoke is invisible - keep the pool for the near
+      } else
       v.smokeAcc += (v.slip - 0.25F) * dt * 30.0F;
       const float cy2 = cosf(v.yaw * kDeg), sy2 = sinf(v.yaw * kDeg);
       const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
@@ -14035,6 +14191,14 @@ void TerrainGame::renderVehicleWheels() {
       continue;
     const GameModelPart& part = gameModels[wm].parts[0];
     if (part.verts.size() < 24) continue;
+    // A vehicle 70+ units from the camera draws sub-pixel wheels for ~8k EE
+    // multiplies per frame - skip it whole. The body (the object pass) is
+    // what reads as "a car" at that size.
+    {
+      const float ddx = v.pos[0] - cameraPosition.x;
+      const float ddz = v.pos[2] - cameraPosition.z;
+      if (ddx * ddx + ddz * ddz > 70.0F * 70.0F) continue;
+    }
     src = &part;
     const float SC = v.scale;
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
@@ -14057,14 +14221,16 @@ void TerrainGame::renderVehicleWheels() {
       // at full droop. rideHeight = wheelRadius keeps the flat-ground case
       // exactly where it always was.
       float ay = v.wheelY[w] + s.wheelRadius * SC;
-      // ASYMMETRIC clamp: full travel in compression (a kerb shoves a wheel
-      // up into the arch), but only 45% in DROOP - a wheel hanging a whole
-      // travel below the body reads as falling off the car, which is exactly
-      // how it was reported ("kolo za bardzo potrafi odejsc od karoserii").
-      // Real suspension droops less than it compresses; the car still shows
-      // daylight under a tyre on a crest, it just keeps the wheel owned.
+      // ASYMMETRIC clamp: 65% of the travel in compression, 45% in DROOP.
+      // Both ends are tighter than the sim's travel on purpose - this is the
+      // WHEEL against the ARCH, not the spring: a wheel a whole travel up
+      // rode visibly through the bodywork ("kola dosc agresywnie wnikaja w
+      // karoserie"), one a whole travel down read as falling off the car.
+      // Real suspension droops less than it compresses; a kerb still tucks
+      // the wheel into the arch and a crest still shows daylight under a
+      // tyre, the wheel just stays owned by the car in both directions.
       const float lo = v.pos[1] - s.suspensionTravel * SC * 0.45F;
-      const float hi = v.pos[1] + s.suspensionTravel * SC;
+      const float hi = v.pos[1] + s.suspensionTravel * SC * 0.65F;
       if (ay < lo) ay = lo;
       if (ay > hi) ay = hi;
       // The WEIGHT-TRANSFER lean moves the wheels WITH the body. The lean is
@@ -15236,7 +15402,6 @@ void TerrainGame::renderScene() {
   // no per-object bookkeeping at all, only a distance test and a submit.
   renderProcChunks();
   renderVehicleWheels();
-  renderVehicleSmoke();
 
   // Debug overlay: the collision boxes the walker and the camera boom test
   // (folds away entirely in a release build - DEBUG_SHOW_COLLISION).
@@ -15251,6 +15416,15 @@ void TerrainGame::renderScene() {
   auto renderEnvPass = [&](int oi, GeoPart& part) {
     ObjectGeometry& og = objectGeometry[oi];
     if (!part.envBag) return;
+    // A far VEHICLE skips its whole shine pass: the env submit is a second
+    // full body draw plus ~1100 EE flops of fresnel/specular per frame, and
+    // at 35+ units the streaks it buys are a handful of pixels. Fixed props
+    // keep their shine - they do not multiply, vehicles do.
+    if (vehiclePaintFor(oi)) {
+      const float vdx = runtimeObjects[oi].data.position[0] - cameraPosition.x;
+      const float vdz = runtimeObjects[oi].data.position[2] - cameraPosition.z;
+      if (vdx * vdx + vdz * vdz > 35.0F * 35.0F) return;
+    }
     // TCE programs compute the matcap ST on VU1 - the EE only refreshes the
     // per-mesh camera basis here. Reflected-probe objects sample with THEIR
     // probe camera's basis (see renderObjectProbe), everything else with
@@ -15535,6 +15709,8 @@ void TerrainGame::renderScene() {
   }
   for (ParticleSystem& ps : particles)
     if (ps.bag && ps.bag->count > 0) stapip.core.render(ps.bag.get());
+  renderVehicleSmoke();
+
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
 }
 

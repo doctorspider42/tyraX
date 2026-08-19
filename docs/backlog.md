@@ -297,18 +297,18 @@ gaps, each with a testable end:
   before `ps aux` told the truth. killEmulatorsFor should normalise quoting
   before matching, and a diagnostic "N other emulator(s) on this ELF" line in
   the Runner would have named it immediately.
-- **A car can escape the arena through a wall corner-case.** Observed once,
-  machine-logged: after a long east-wall grind at (149..150, z varying), a
-  reverse-plus-full-lock manoeuvre at the wall left the car at x=154 - BEYOND
-  the wall at 152 (box 151.25..152.75) - wedged outside with spd10 0. Straight
-  tunnelling is ruled out (0.75 half-width against <=0.52 u/frame at nitrous
-  top speed); the suspect is the corner sweep during a fast yaw change while
-  REVERSING against the wall: blockedAt tests the corners at the CANDIDATE
-  position, but a pure yaw change moves a corner sideways through geometry
-  with no position delta for the axis-separated slide to refuse. Repro sketch:
-  grind the east wall, then stick-down + full-lock. Fix candidates: also test
-  the corners after the yaw integration (before the move), or refuse the yaw
-  change itself when it would sweep a corner into a solid.
+- **~~A car can escape the arena through a wall corner-case.~~ FIXED** - the
+  suspect was right (a yaw change sweeps a corner through geometry with no
+  position delta to refuse), and the fix is the overlapped-case rule in both
+  twins: a car with blocked sample points may only move AWAY from their
+  centroid, so a swept-in corner can grind and back out but never cross. The
+  same round widened the test to eight points (a pillar narrower than the
+  corner spacing drove straight between four) and reproduced the escape live
+  (x 232 with the wall at 152) before closing it; --vehicle-check holds it as
+  three properties (pillar, overlapped, thin wall). What remains open is the
+  ROTATION itself: yaw is still never collision-checked, so a corner can
+  still sweep INTO an overlap (and now gets stuck grinding instead of
+  escaping) - refusing the yaw change is still a candidate polish.
 - **The editor test drive ignores instance scale.** The runtime multiplies
   track, wheelbase, ride height and the camera rig by the placed object's
   uniform scale; the host sim drives the raw spec, so a car authored at scale

@@ -760,8 +760,13 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     state.pos[0] += vx * dt;
     state.pos[2] += vz * dt;
 
-    // Walls: four corners against the caller's solid test, the PS2 runtime's
-    // twin (updateVehicles in templates.cpp - change one, change both).
+    // Walls: EIGHT sample points against the caller's solid test, the PS2
+    // runtime's twin (updateVehicles in templates.cpp - change one, change
+    // both). Corners plus edge midpoints: four corners alone let anything
+    // narrower than the corner spacing - a pole, a post, a thin wall hit
+    // end-on - pass BETWEEN the samples and sit inside the car, which is
+    // exactly how it was reported ("wjechac w sciane, gazu! i jestem w
+    // srodku").
     //
     // AXIS-SEPARATED: a blocked move first tries keeping only its X, then only
     // its Z. A glancing hit therefore GRINDS along the wall - speed scrubbed
@@ -773,47 +778,89 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     // would rotate a body a kinematic chassis has no way to represent.
     if (solid) {
         const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
-        const float lx[4] = {-hx, hx, -hx, hx};
-        const float lz[4] = {hz, hz, -hz, -hz};
+        const float lx[8] = {-hx, hx, -hx, hx, 0.0f, 0.0f, -hx, hx};
+        const float lz[8] = {hz, hz, -hz, -hz, hz, -hz, 0.0f, 0.0f};
         const float feet = state.pos[1] - spec.rideHeight;
-        auto blockedAt = [&](float bx, float bz) {
-            for (int k = 0; k < 4; ++k)
-                if (solid(bx + lx[k] * c + lz[k] * s, bz - lx[k] * s + lz[k] * c,
-                          feet))
-                    return true;
-            return false;
+        // Count AND centroid, not a boolean: once the car is already
+        // overlapping, WHERE the blocked points sit is what tells "out of
+        // the thing" from "deeper into it".
+        auto blockedInfo = [&](float bx, float bz, float* ox, float* oz) {
+            int n = 0;
+            float sx = 0.0f, sz = 0.0f;
+            for (int k = 0; k < 8; ++k) {
+                const float px = bx + lx[k] * c + lz[k] * s;
+                const float pz = bz - lx[k] * s + lz[k] * c;
+                if (solid(px, pz, feet)) {
+                    ++n;
+                    sx += px;
+                    sz += pz;
+                }
+            }
+            if (n > 0 && ox) *ox = sx / (float)n, *oz = sz / (float)n;
+            return n;
         };
-        if (blockedAt(state.pos[0], state.pos[2])) {
+        const int nowBlocked = blockedInfo(state.pos[0], state.pos[2], nullptr,
+                                           nullptr);
+        if (nowBlocked > 0) {
             const float prevX = state.pos[0] - vx * dt;
             const float prevZ = state.pos[2] - vz * dt;
-            // A slide is only a slide if that axis carries REAL motion. A
-            // head-on has ~zero motion along the wall, so "keep only X" is
-            // trivially free - and the first version took that branch, ground
-            // in place and reported ~5 u/s while standing still (the harness
-            // caught it: end z 8.90, end speed 4.80 where a stop was owed).
-            const float wl = std::sqrt(vx * vx + vz * vz);
-            const float fx = wl > 1e-6f ? std::fabs(vx) / wl : 0.0f;
-            const float fz = wl > 1e-6f ? std::fabs(vz) / wl : 0.0f;
-            // The grind scrubs by ANGLE: a shallow scrape barely slows, a
-            // steep one digs in. f is the fraction of the motion the wall
-            // lets through.
-            auto grind = [&](float f) {
-                return 1.0f - clampf((0.3f + 2.5f * (1.0f - f)) * dt, 0.0f, 0.6f);
-            };
-            const float latScrub = 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
-            if (fx > 0.3f && !blockedAt(state.pos[0], prevZ)) {
-                state.pos[2] = prevZ;  // slide along X
-                state.speed *= grind(fx);
-                state.lateral *= latScrub;
-            } else if (fz > 0.3f && !blockedAt(prevX, state.pos[2])) {
-                state.pos[0] = prevX;  // slide along Z
-                state.speed *= grind(fz);
-                state.lateral *= latScrub;
+            float obX = 0.0f, obZ = 0.0f;
+            const int prevBlocked = blockedInfo(prevX, prevZ, &obX, &obZ);
+            if (prevBlocked > 0) {
+                // ALREADY overlapping (a save from before this rule, a spawn
+                // inside a prop, a corner swept in by an unchecked rotation):
+                // never trap the car, but the only move allowed (at a heavy
+                // scrub) is one heading AWAY from the centroid of the blocked
+                // points - backing out always is. Anything else is refused.
+                // A count comparison is NOT enough here, in either flavour:
+                // "no deeper" (count must not grow) held exactly while the
+                // nose's points left a thin wall's far side as the tail's
+                // entered, and the car drove clean through the arena wall
+                // (measured: x 232 with the wall at 152); "strictly fewer"
+                // deadlocked the escape, because backing out only sheds its
+                // first point after half a unit of travel it was refusing.
+                const float awayX = state.pos[0] - obX;
+                const float awayZ = state.pos[2] - obZ;
+                if (vx * awayX + vz * awayZ > 0.0f) {
+                    state.speed *= 1.0f - clampf(2.0f * dt, 0.0f, 0.6f);
+                    state.lateral *= 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
+                } else {
+                    state.pos[0] = prevX;
+                    state.pos[2] = prevZ;
+                    state.speed *= 0.25f;
+                    state.lateral = 0.0f;
+                }
             } else {
-                state.pos[0] = prevX;  // head-on: the impact takes the speed
-                state.pos[2] = prevZ;
-                state.speed *= 0.25f;
-                state.lateral = 0.0f;
+                // A slide is only a slide if that axis carries REAL motion. A
+                // head-on has ~zero motion along the wall, so "keep only X" is
+                // trivially free - and the first version took that branch,
+                // ground in place and reported ~5 u/s while standing still
+                // (the harness caught it: end z 8.90, end speed 4.80 where a
+                // stop was owed).
+                const float wl = std::sqrt(vx * vx + vz * vz);
+                const float fx = wl > 1e-6f ? std::fabs(vx) / wl : 0.0f;
+                const float fz = wl > 1e-6f ? std::fabs(vz) / wl : 0.0f;
+                // The grind scrubs by ANGLE: a shallow scrape barely slows, a
+                // steep one digs in. f is the fraction of the motion the wall
+                // lets through.
+                auto grind = [&](float f) {
+                    return 1.0f - clampf((0.3f + 2.5f * (1.0f - f)) * dt, 0.0f, 0.6f);
+                };
+                const float latScrub = 1.0f - clampf(12.0f * dt, 0.0f, 0.9f);
+                if (fx > 0.3f && blockedInfo(state.pos[0], prevZ, nullptr, nullptr) == 0) {
+                    state.pos[2] = prevZ;  // slide along X
+                    state.speed *= grind(fx);
+                    state.lateral *= latScrub;
+                } else if (fz > 0.3f && blockedInfo(prevX, state.pos[2], nullptr, nullptr) == 0) {
+                    state.pos[0] = prevX;  // slide along Z
+                    state.speed *= grind(fz);
+                    state.lateral *= latScrub;
+                } else {
+                    state.pos[0] = prevX;  // head-on: the impact takes the speed
+                    state.pos[2] = prevZ;
+                    state.speed *= 0.25f;
+                    state.lateral = 0.0f;
+                }
             }
         }
     }
