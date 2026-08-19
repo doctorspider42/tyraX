@@ -1212,6 +1212,11 @@ class TerrainGame : public Tyra::Game {
     int model = -1;    // gameModels index the vertices came from
     int part = 0;      // that model's material part = this bag's texture
     int material = -1; // primitives: gameMaterials index
+    // Roads (docs/roads.md): a chunk built by buildRoads holds its texture
+    // DIRECTLY - road surfaces come from a project texture, not from a
+    // model part or an .mtl. Owner is -3 for these, so a scene revisit can
+    // clear and rebuild them without touching merged geometry.
+    Tyra::Texture* roadTex = nullptr;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -2581,6 +2586,11 @@ class TerrainGame : public Tyra::Game {
     int model = -1;    // gameModels index the vertices came from
     int part = 0;      // that model's material part = this bag's texture
     int material = -1; // primitives: gameMaterials index
+    // Roads (docs/roads.md): a chunk built by buildRoads holds its texture
+    // DIRECTLY - road surfaces come from a project texture, not from a
+    // model part or an .mtl. Owner is -3 for these, so a scene revisit can
+    // clear and rebuild them without touching merged geometry.
+    Tyra::Texture* roadTex = nullptr;
     std::vector<Tyra::Vec4> vertices;
     std::vector<Tyra::Color> colors;
     std::vector<Tyra::Vec4> sts;
@@ -16377,8 +16387,9 @@ void TerrainGame::procFinishChunks() {
     c.bag->vertices = c.vertices.data();
     c.bag->count = static_cast<u32>(c.vertices.size());
     c.bag->bboxVersion = ++g_bboxStamp;
-    const Tyra::Texture* tex = nullptr;
-    if (c.model >= 0 && c.model < (int)gameModels.size() &&
+    const Tyra::Texture* tex = c.roadTex;
+    if (tex) {
+    } else if (c.model >= 0 && c.model < (int)gameModels.size() &&
         c.part < (int)gameModels[c.model].parts.size())
       tex = gameModels[c.model].parts[c.part].texture;
     else if (c.material >= 0 && c.material < (int)gameMaterials.size())
