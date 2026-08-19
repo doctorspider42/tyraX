@@ -25024,6 +25024,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // one-shot per gear change. SND_PATHS slots, -1 = none.\n"
                "  int engineHighSnd; int screechSnd; int shiftSnd;\n"
                "  int screechVolume; int shiftVolume;\n"
+               "  int headlights;  // additive terrain pools ahead of the nose\n"
                "  // Driver readout: a FONTS slot (-1 = no HUD) and what a world\n"
                "  // unit per second should READ as on it.\n"
                "  int hudFont; float hudSpeedScale;\n"
@@ -25038,7 +25039,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {-1, -1";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
-                   " -1, -1, -1, 80, 80, -1, 1.0F}\n";
+                   " -1, -1, -1, 80, 80, 0, -1, 1.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -25092,6 +25093,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << vol100(v->engineVolume) << ", " << sndHigh << ", "
                     << sndScr << ", " << sndShift << ", "
                     << vol100(v->screechVolume) << ", " << vol100(v->shiftVolume)
+                    << ", " << (v->headlights ? 1 : 0)
                     << ", " << hudFont << ", " << floatLit(v->hudSpeedScale)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
@@ -27688,6 +27690,11 @@ static std::string vehicleMembers(const Project& p) {
     int screechCh = -1;
     int screechVolReg = -1;
     int sndPrevGear = 0;
+    // Visual fx: distance owed to the next skid quad, the backfire flash
+    // timer, and the last gear the flash heard.
+    float skidAcc = 0.0F;
+    float backfireT = 0.0F;
+    int fxPrevGear = 0;
     // Weight transfer, presentation only - degrees ON TOP of the
     // terrain-derived pitch/roll, never fed back (slope gravity reads the
     // real pitch). Twin of DriveState::leanPitch/leanRoll.
@@ -27758,6 +27765,34 @@ static std::string vehicleMembers(const Project& p) {
   std::unique_ptr<Tyra::StaPipBillboardBag> smokeBillboardBag_;
   void updateVehicleSmoke(float dt);
   void renderVehicleSmoke();
+  // SKID MARKS - slip's fifth consumer (smoke, screech, telemetry, drift HUD
+  // one day): a ring of terrain-flat dark quads under the slipping rear
+  // wheels, fading out over seconds. Plain triangles (the collision-overlay
+  // shape), one submit, skipped when empty. bboxVersion bumps only when a
+  // quad SPAWNS - the fade touches colors alone.
+  enum { kVehSkidMax = 96 };
+  Tyra::Vec4 skidVerts_[kVehSkidMax * 6];
+  Tyra::Color skidCols_[kVehSkidMax * 6];
+  float skidLife_[kVehSkidMax] = {};
+  int skidNext_ = 0;
+  int skidAlive_ = 0;
+  int skidDirty_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> skidBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> skidInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> skidColorBag_;
+  void updateVehicleSkids(float dt);
+  void renderVehicleSkids();
+  // The GLOW bag - everything a car ADDS light with, one additive submit:
+  // backfire flashes at the exhaust on an upshift, and the headlight pools
+  // painted on the terrain ahead (the scene lights' ground-pool trick).
+  enum { kVehGlowMax = 12 };
+  Tyra::Vec4 glowVerts_[kVehGlowMax * 6];
+  Tyra::Color glowCols_[kVehGlowMax * 6];
+  int glowCount_ = 0;
+  std::unique_ptr<Tyra::StaPipBag> glowBag_;
+  std::unique_ptr<Tyra::StaPipInfoBag> glowInfoBag_;
+  std::unique_ptr<Tyra::StaPipColorBag> glowColorBag_;
+  void renderVehicleGlow();
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
@@ -27842,6 +27877,176 @@ void TerrainGame::renderVehicleSmoke() {
   smokeBag_->count = (u32)kVehSmokeMax;
   smokeBag_->bboxVersion = ++g_bboxStamp;  // centres move every frame
   stapip.core.render(smokeBag_.get());
+}
+
+// SKID MARKS. Decay is colors-only; geometry (and bboxVersion) changes only
+// when a quad spawns, so a fading track costs the GS blending and nothing
+// else. Spawning is DISTANCE-paced (a quad every half unit of travel), which
+// is what makes a long drift read as a continuous stripe at any speed.
+void TerrainGame::updateVehicleSkids(float dt) {
+  skidAlive_ = 0;
+  for (int i = 0; i < kVehSkidMax; ++i) {
+    if (skidLife_[i] <= 0.0F) continue;
+    skidLife_[i] -= dt;
+    const float t = skidLife_[i] > 0.0F ? skidLife_[i] / 6.0F : 0.0F;
+    const float a = 58.0F * t;
+    for (int k = 0; k < 6; ++k) skidCols_[i * 6 + k].a = a;
+    ++skidAlive_;
+  }
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || !v.grounded || v.slip < 0.4F) {
+      if (v.active) v.skidAcc = 0.0F;
+      continue;
+    }
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    const float spd = v.speed < 0.0F ? -v.speed : v.speed;
+    if (spd < 2.0F) continue;
+    v.skidAcc += spd * dt;
+    if (v.skidAcc < 0.5F) continue;
+    v.skidAcc = 0.0F;
+    const float cy = cosf(v.yaw * 0.017453293F), sy = sinf(v.yaw * 0.017453293F);
+    const float hx = 0.5F * s.track * SC, hz = 0.5F * s.wheelBase * SC;
+    const float hw = 0.10F * SC, hl = 0.32F * SC;
+    for (int w = 2; w < 4; ++w) {  // the rear pair - the driven wheels
+      const float lx = (w == 2 ? -hx : hx), lz = -hz;
+      const float ax = v.pos[0] + lx * cy + lz * sy;
+      const float az = v.pos[2] - lx * sy + lz * cy;
+      const float ay = v.wheelY[w] + 0.03F;
+      const float fx = sy * hl, fz = cy * hl;
+      const float rx = cy * hw, rz = -sy * hw;
+      const int q = skidNext_;
+      skidNext_ = (skidNext_ + 1) % kVehSkidMax;
+      skidLife_[q] = 6.0F;
+      Tyra::Vec4* qv = &skidVerts_[q * 6];
+      qv[0].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
+      qv[1].set(ax + rx - fx, ay, az + rz - fz, 1.0F);
+      qv[2].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
+      qv[3].set(ax - rx - fx, ay, az - rz - fz, 1.0F);
+      qv[4].set(ax + rx + fx, ay, az + rz + fz, 1.0F);
+      qv[5].set(ax - rx + fx, ay, az - rz + fz, 1.0F);
+      for (int k = 0; k < 6; ++k)
+        skidCols_[q * 6 + k] = Tyra::Color(16.0F, 16.0F, 16.0F, 58.0F);
+      skidDirty_ = 1;
+      ++skidAlive_;
+    }
+  }
+}
+
+void TerrainGame::renderVehicleSkids() {
+  if (skidAlive_ <= 0) return;
+  if (!skidBag_) {
+    skidInfoBag_ = std::make_unique<StaPipInfoBag>();
+    skidInfoBag_->model = &model;
+    skidInfoBag_->shadingType = TyraShadingGouraud;
+    // Full clip checks ON: these are plain world quads the camera drives
+    // straight over, and a near-plane crosser without them is the giant
+    // smeared polygon of engine legend.
+    skidInfoBag_->fullClipChecks = true;
+    // Precise culling is REQUIRED with full clip checks (the engine asserts
+    // on the None combination) - and it is also what we want: parked skid
+    // trails across the map cull away by bbox, spawn bumps bboxVersion.
+    skidInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    skidInfoBag_->zTestType = PipelineZTest_TestOnly;
+    skidColorBag_ = std::make_unique<StaPipColorBag>();
+    skidColorBag_->many = skidCols_;
+    skidBag_ = std::make_unique<StaPipBag>();
+    skidBag_->info = skidInfoBag_.get();
+    skidBag_->color = skidColorBag_.get();
+    skidBag_->lighting = nullptr;
+    skidBag_->texture = nullptr;
+    skidBag_->vertices = skidVerts_;
+  }
+  skidBag_->count = (u32)(kVehSkidMax * 6);
+  if (skidDirty_) {
+    skidDirty_ = 0;
+    skidBag_->bboxVersion = ++g_bboxStamp;
+  }
+  stapip.core.render(skidBag_.get());
+}
+
+// The GLOW bag: one ADDITIVE submit for everything a car adds light with -
+// rebuilt every frame from the vehicles (it is tiny), submitted only when
+// anything glows. Headlight pools are the scene lights' ground-pool trick:
+// a terrain-hugging trapezoid, bright at the nose, gone at the far end -
+// gouraud does the falloff. The backfire is a vertical quad at the exhaust
+// for a tenth of a second on every upshift, the shift sound's visual twin.
+void TerrainGame::renderVehicleGlow() {
+  glowCount_ = 0;
+  const float kDeg = 0.017453293F;
+  for (int vi = 0; vi < vehicleCount_ && glowCount_ + 3 <= kVehGlowMax; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+    const float hz = 0.5F * s.wheelBase * SC;
+    if (s.headlights) {
+      const float nx = v.pos[0] + sy * (hz + 0.3F * SC);
+      const float nz = v.pos[2] + cy * (hz + 0.3F * SC);
+      const float fx2 = v.pos[0] + sy * (hz + 7.5F * SC);
+      const float fz2 = v.pos[2] + cy * (hz + 7.5F * SC);
+      const float nw = 0.55F * s.track * SC, fw = 1.1F * s.track * SC;
+      const float rxn = cy * nw, rzn = -sy * nw;
+      const float rxf = cy * fw, rzf = -sy * fw;
+      Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
+      Tyra::Color* c = &glowCols_[glowCount_ * 6];
+      const float e = 0.06F;
+      g[0].set(nx - rxn, terrainHeightAt(nx - rxn, nz - rzn) + e, nz - rzn, 1.0F);
+      g[1].set(nx + rxn, terrainHeightAt(nx + rxn, nz + rzn) + e, nz + rzn, 1.0F);
+      g[2].set(fx2 + rxf, terrainHeightAt(fx2 + rxf, fz2 + rzf) + e, fz2 + rzf, 1.0F);
+      g[3] = g[0];
+      g[4] = g[2];
+      g[5].set(fx2 - rxf, terrainHeightAt(fx2 - rxf, fz2 - rzf) + e, fz2 - rzf, 1.0F);
+      const Tyra::Color nearC(52.0F, 48.0F, 30.0F, 128.0F);
+      const Tyra::Color farC(0.0F, 0.0F, 0.0F, 128.0F);
+      c[0] = nearC; c[1] = nearC; c[2] = farC; c[3] = nearC; c[4] = farC; c[5] = farC;
+      ++glowCount_;
+    }
+    if (v.backfireT > 0.0F) {
+      const float k = v.backfireT / 0.09F;
+      const float bx = v.pos[0] - sy * (hz + 0.22F * SC);
+      const float bz = v.pos[2] - cy * (hz + 0.22F * SC);
+      const float by = v.pos[1] - 0.02F;
+      const float hw = 0.22F * SC * (0.6F + 0.4F * k), hh = 0.18F * SC;
+      const float rx = cy * hw, rz = -sy * hw;
+      Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
+      Tyra::Color* c = &glowCols_[glowCount_ * 6];
+      g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
+      g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
+      g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
+      g[3] = g[0];
+      g[4] = g[2];
+      g[5].set(bx - rx, by + hh, bz - rz, 1.0F);
+      const Tyra::Color fire(120.0F * k, 62.0F * k, 14.0F * k, 128.0F);
+      for (int j = 0; j < 6; ++j) c[j] = fire;
+      ++glowCount_;
+    }
+  }
+  if (glowCount_ <= 0) return;
+  if (!glowBag_) {
+    glowInfoBag_ = std::make_unique<StaPipInfoBag>();
+    glowInfoBag_->model = &model;
+    glowInfoBag_->shadingType = TyraShadingGouraud;
+    glowInfoBag_->fullClipChecks = true;
+    glowInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    glowInfoBag_->zTestType = PipelineZTest_TestOnly;
+    // The additive equation: light is ADDED, never painted over - the
+    // reflective materials' blend, FIX = 128 (+1.0).
+    glowInfoBag_->additiveBlendFix = 128;
+    glowColorBag_ = std::make_unique<StaPipColorBag>();
+    glowColorBag_->many = glowCols_;
+    glowBag_ = std::make_unique<StaPipBag>();
+    glowBag_->info = glowInfoBag_.get();
+    glowBag_->color = glowColorBag_.get();
+    glowBag_->lighting = nullptr;
+    glowBag_->texture = nullptr;
+    glowBag_->vertices = glowVerts_;
+  }
+  glowBag_->count = (u32)(glowCount_ * 6);
+  glowBag_->bboxVersion = ++g_bboxStamp;  // it moves with the cars
+  stapip.core.render(glowBag_.get());
 }
 
 // The gearbox, the per-frame twin of vehiclesim::gearCount/gearTopSpeed/
@@ -28685,6 +28890,11 @@ void TerrainGame::updateVehicles(float dt) {
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
     if (v.grounded && v.slip > 0.35F) {
+      // Backfire: an upshift pops the exhaust for a tenth of a second -
+      // the shift sound's visual twin, drawn by the glow bag.
+      if (v.gear > v.fxPrevGear && v.fxPrevGear >= 0) v.backfireT = 0.09F;
+      v.fxPrevGear = v.gear;
+      if (v.backfireT > 0.0F) v.backfireT -= dt;
       const float sdx = v.pos[0] - cameraPosition.x;
       const float sdz = v.pos[2] - cameraPosition.z;
       if (sdx * sdx + sdz * sdz > 70.0F * 70.0F) {
@@ -29483,7 +29693,8 @@ static std::string vehicleUpdateCall(const Project& p) {
     // The smoke ticks with the same gate, so puffs hang frozen behind the
     // menu exactly like the emitters' particles do.
     return "  if (!menuActive) { updateVehicles(g_frameScale * (1.0F / 50.0F));"
-           " updateVehicleSmoke(g_frameScale * (1.0F / 50.0F)); }\n"
+           " updateVehicleSmoke(g_frameScale * (1.0F / 50.0F));"
+           " updateVehicleSkids(g_frameScale * (1.0F / 50.0F)); }\n"
            "  else muteVehicleEngines();\n";
 }
 
@@ -29500,7 +29711,10 @@ static std::string vehicleRenderCall(const Project& p) {
 
 static std::string vehicleSmokeRenderCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
-    return "  renderVehicleSmoke();\n";
+    // Skids under the smoke (both translucent; marks lie on the ground),
+    // the glow last - light adds on top of everything.
+    return "  renderVehicleSkids();\n  renderVehicleSmoke();\n"
+           "  renderVehicleGlow();\n";
 }
 
 static std::string blssInclude(const Project& p) {

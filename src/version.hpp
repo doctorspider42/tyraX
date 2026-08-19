@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.74.0 (the visual pack - docs/vehicles.md, "The visual pack"): skid
+// marks (a 96-quad terrain-flat ring under slipping rear wheels, distance
+// paced, colors-only fade so bboxVersion bumps only on spawn), backfire
+// (an upshift pops an additive quad at the exhaust for 0.09 s - the shift
+// sound's visual twin), and headlight beam pools (an additive trapezoid on
+// the terrain ahead, gouraud falloff, per-definition toggle, the example's
+// CC96 has them on). Skids are one alpha-over submit, backfire+headlights
+// share one additive glow submit; all skipped when idle. Both bags ride
+// Precise culling with full clip checks - the engine ASSERTS on the None
+// combination, which the first boot found the honest way. kFormatVersion
+// 43 (headlights bool, additive). Verified on PCSX2: the beam pool visible
+// on camera ahead of the nose, launches and drifts with zero asserts.
+// MINOR.
+//
 // 1.73.0 (the sound pack - docs/vehicles.md, "The sound pack"): a vehicle
 // definition can now author a HIGH-REV loop (crossfaded with the base one
 // on the engine speed - the era's two-sample engine, volumes quantised and
@@ -2190,7 +2204,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 73
+#define TYRAX_VERSION_MINOR 74
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2471,7 +2485,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 42;
+inline constexpr int kFormatVersion = 43;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

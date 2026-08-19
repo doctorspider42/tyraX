@@ -679,6 +679,12 @@ void App::drawVehicleWindow() {
             ImGui::TextDisabled(
                 "The base engine loop and its pitch curve live in the Driver "
                 "tab.");
+            ImGui::Checkbox("Headlights", &v.headlights);
+            prefHelp(
+                "Two additive beam pools painted on the terrain ahead of the\n"
+                "nose - the scene lights' ground-pool trick. Reads as light,\n"
+                "so it sells a NIGHT map; on a bright day map it is subtle.");
+            ImGui::Separator();
             loopPicker("High-rev loop", "vehsndhigh", v.engineHighSound,
                        "A second engine loop the base one CROSSFADES with as\n"
                        "the revs rise - the era's two-sample engine. Both ride\n"

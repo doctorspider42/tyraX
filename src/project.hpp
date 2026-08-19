@@ -1054,6 +1054,9 @@ struct VehicleDef {
     std::string shiftSound;
     float screechVolume = 80.0f;  // 0..100
     float shiftVolume = 80.0f;    // 0..100
+    // Headlight pools: two additive beams painted on the terrain ahead.
+    // Off by default - they read as light, so a day map opts in knowingly.
+    bool headlights = false;
 
     // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
     // vehicle authored before it existed still shows nothing.
@@ -1085,6 +1088,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.engineHighSound != b.engineHighSound ||
         a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
         a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
+        a.headlights != b.headlights ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
         return false;
     for (int i = 0; i < 3; ++i)
