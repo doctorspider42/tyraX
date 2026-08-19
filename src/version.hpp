@@ -16,6 +16,24 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.68.0 (the driver's seat is rebindable - docs/vehicles.md,
+// docs/input-bindings.md): three fixes and the backlog's Input Map item.
+// (1) The wheel-arch clamp is measured from the TILTED body plane (terrain
+// pitch + lean), not the flat pos[1]: on a climb the front arch rides ~0.4
+// above the centre, so the window pinned the wheels - the front pair sank
+// into the slope, the rear pair floated over the deck, and the whole car
+// read as sheared ("co sie odpierdala, jak sie pod gorke jedzie"). This
+// subsumes 1.65.3's lean-only term. (2) Engine: Pad::reset() never cleared
+// pressed.L3/R3/Start/Select - the very four a previous fix ADDED to the
+// pressed set - so the first R3 latched the rear view for the rest of the
+// run. (3) Six Input Map roles cover every vehicle button (throttle, brake,
+// handbrake, nitrous, camera, rear view), seeds matching the old hardcoded
+// pads, per-role constexpr fallback for maps that deleted an action; the
+// analog reads stay hardwired (an axis is not an action). Proven by
+// rebinding the fixture's throttle to L2 and driving on it. kFormatVersion
+// 39: the seeded vehicle actions are new .tyra content an older editor
+// would round-trip into role-less custom actions. MINOR.
+//
 // 1.67.1 (al dente - docs/vehicles.md, "The three cameras"): the glance
 // capped at +-60 degrees and R3 held = an instant rear view. The full orbit
 // tanked the frame rate exactly broadside - the widest view of the map is
@@ -2098,8 +2116,8 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 67
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 68
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2379,7 +2397,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 38;
+inline constexpr int kFormatVersion = 39;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

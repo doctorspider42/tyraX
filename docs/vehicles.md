@@ -551,9 +551,14 @@ stores the name, so it has to.
 | right stick | glance around the car (X, up to ±60°) and lift the boom (Y); springs back on release |
 | R3 | held: instant rear view — the look-back mirror |
 
-These are **raw pad reads**, which is a known deviation from this repo's rule that
-gameplay goes through named Input Map actions (docs/input-bindings.md) — only USE
-does. The whole set wants to become `InputAction::Role`s; see docs/backlog.md.
+Every BUTTON of the set is an Input Map role (`veh-throttle`, `veh-brake`,
+`veh-handbrake`, `veh-nitrous`, `veh-camera`, `veh-rearview` —
+docs/input-bindings.md), so a project can rebind the throttle; the table above
+shows the seeded defaults. The runtime falls back to those exact buttons when a
+project's map lost an action (they are deletable), and the ANALOG reads — the
+steering stick, the stick's own throttle, the d-pad ghosting fallback and R2's
+extra gas — stay hardwired: an axis is not an action, and the ergonomic
+fallbacks exist precisely for pads that cannot chord.
 
 ### The three cameras
 

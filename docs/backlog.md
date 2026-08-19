@@ -328,48 +328,13 @@ gaps, each with a testable end:
   emulator's own picture already cut it in half and a CRT would have lost it
   entirely. Anything added to that readout gets checked against
   docs/safe-areas.md, from the bottom row up.
-- **The vehicle controls are RAW pad reads.** Only USE goes through the Input Map;
-  throttle, brake, handbrake, nitrous and the camera cycle are
-  `pad.getPressed().Cross` and friends, which is exactly what
-  docs/input-bindings.md says not to do. Five `InputAction::Role`s plus their
-  `kSeeds` and `kRoles` rows fixes it and makes a wheel or a rebind possible at
-  all. Done when a project can rebind the throttle.
-- ~~**The NFS paint stack.**~~ DONE in 1.63.0, and WITHOUT the VU1 program the
-  plan assumed: fresnel rides the env pass's vertex RGB and the white specular
-  its ALPHA, computed per frame on the EE (the wheel-bag precedent, ~40-60 us
-  for a body), drawn with the GS's HIGHLIGHT2 texture function - which
-  resolves the "they cannot both have the alpha" conflict this entry used to
-  state, and needs no source-alpha blending at all. The remaining VU1 version
-  is an OFFLOAD, not a feature: a kMatcap-class script reconstructing the rim
-  from the matcap ST ((2s-1)^2 + (1-2t)^2) would move ~20 flops/vertex off the
-  EE, at the price of de-aliasing the TC/TCE shared clip image against a
-  micro-memory ceiling already at 962..1918 of 2042 - check Tools > VU
-  Programs > Micro memory FIRST, and only bother once a measured frame says
-  the EE loop matters.
-- ~~**Tyre smoke.**~~ DONE in 1.64.0 - a 48-puff billboard ring fed by
-  `DriveState::slip` at the rear anchors, one submit, the particle system's
-  exact bag shape. It needed no emitter machinery at all, which is the lesson:
-  the vehicle already rebuilds a bag per frame (the wheels), and a second
-  small bag is cheaper than teaching the emitter system about runtime
-  positions.
-
-### ANSWERED: the guard does run under ps2link, and guards nothing
-
-```
-SIF RPC guard: seen 306,   guarded 0
-SIF RPC guard: seen 14329, guarded 0     <- ~150 completions/second
-SIF RPC guard: seen 29483, guarded 0
-```
-
-Fresh boot verified by the protocol below (two boot lines in the capture, first
-`VRAMSTAT` at `f=120`). So the handler **is** on the dispatch path on hardware -
-~29 500 completions in ~200 s - and none of them needed guarding. Every earlier
-zero was therefore a real negative, not a handler that was never asked. It also
-works in PCSX2 (429 completions), so both targets are covered.
-
-Getting to that took three retracted conclusions, and the protocol that survives
-is the useful residue:
-
+- **~~Vehicle buttons bypass the Input Map.~~ DONE** - six roles
+  (`veh-throttle/brake/handbrake/nitrous/camera/rearview`) with seeds matching
+  the old hardcoded buttons, single-slot codegen constants, and a hardwired
+  fallback per role for maps that deleted an action. Proven the way the entry
+  asked: the fixture's throttle rebound from Cross to L2 drove on L2. The
+  analog reads (steering stick, stick throttle, d-pad ghost fallback, R2's
+  extra gas) stay hardwired by design - an axis is not an action.
 - **A deploy is only fresh if the capture proves it.** Require a boot line
   (`Clut set` / `Pad initialized`) or a low first `VRAMSTAT f=`. `bin/livedbg.bin`
   appearing proves nothing: a game still running from an earlier deploy resumes

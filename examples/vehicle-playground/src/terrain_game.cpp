@@ -13283,11 +13283,21 @@ void TerrainGame::updateVehicles(float dt) {
       inSteer = -((float)joy.h - 128.0F) / 128.0F;
       const float fwd = -((float)joy.v - 128.0F) / 128.0F;
       if (fwd > 0.15F || fwd < -0.15F) inThrottle = fwd;
-      if (engine->pad.getPressed().Cross) inThrottle = 1.0F;
-      // R2 too: a stick pushed to full lock has no vertical deflection left,
-      // so a stick-only driver loses the stick's throttle exactly when
-      // steering hard - "turning brakes the car to zero", reported from a
-      // real pad. The era's racers put the gas on a button for this reason.
+      // The drive's BUTTONS are Input Map roles (docs/input-bindings.md), so
+      // a project can rebind the throttle - the axes stay the analog stick,
+      // because an axis is not an action. Each role falls back to the button
+      // the runtime hardcoded before the roles existed, so a project whose
+      // map lost the action (they are deletable) keeps driving; the ternary
+      // folds away at compile time either way.
+      if (IA_ROLE_VEH_THROTTLE >= 0
+              ? inputPressed(engine->pad, IA_ROLE_VEH_THROTTLE)
+              : engine->pad.getPressed().Cross)
+        inThrottle = 1.0F;
+      // R2 stays a hardwired EXTRA throttle on top of the role: a stick
+      // pushed to full lock has no vertical deflection left, so a
+      // stick-only driver loses the stick's throttle exactly when steering
+      // hard - "turning brakes the car to zero", reported from a real pad.
+      // The era's racers put the gas on a button for this reason.
       if (engine->pad.getPressed().R2) inThrottle = 1.0F;
       // The D-PAD drives too. The generated game's rule is "only the analog
       // sticks", but a keyboard emulating a stick (PCSX2 in a VM above all)
@@ -13301,12 +13311,20 @@ void TerrainGame::updateVehicles(float dt) {
       // left is joy.h = 0, i.e. inSteer = +1 in this local's convention.
       if (engine->pad.getPressed().DpadLeft) inSteer = 1.0F;
       if (engine->pad.getPressed().DpadRight) inSteer = -1.0F;
-      // L1, NOT Square: Square is the USE action's default binding, so a
+      // L1 as the DEFAULT, not Square: Square is USE's default binding, so a
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
-      if (engine->pad.getPressed().L1) inBrake = 1.0F;
-      if (engine->pad.getPressed().Circle) inHand = 1;
-      if (engine->pad.getPressed().R1) inNos = 1;
+      if (IA_ROLE_VEH_BRAKE >= 0 ? inputPressed(engine->pad, IA_ROLE_VEH_BRAKE)
+                                 : engine->pad.getPressed().L1)
+        inBrake = 1.0F;
+      if (IA_ROLE_VEH_HANDBRAKE >= 0
+              ? inputPressed(engine->pad, IA_ROLE_VEH_HANDBRAKE)
+              : engine->pad.getPressed().Circle)
+        inHand = 1;
+      if (IA_ROLE_VEH_NITROUS >= 0
+              ? inputPressed(engine->pad, IA_ROLE_VEH_NITROUS)
+              : engine->pad.getPressed().R1)
+        inNos = 1;
       if (inSteer > -0.12F && inSteer < 0.12F) inSteer = 0.0F;
     } else if (v.wpCount > 0) {
       // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
@@ -13936,7 +13954,9 @@ void TerrainGame::updateVehicles(float dt) {
       float k = dt * 5.0F;
       if (k > 1.0F) k = 1.0F;
       vehCamYaw_ += dyaw * k;
-      if (engine->pad.getClicked().Triangle)
+      if (IA_ROLE_VEH_CAMERA >= 0
+              ? inputClicked(engine->pad, IA_ROLE_VEH_CAMERA)
+              : engine->pad.getClicked().Triangle)
         vehCamMode_ = (vehCamMode_ + 1) % 3;
       // The RIGHT stick GLANCES around the car (X) and lifts or drops the
       // boom (Y) - up to +-60 degrees, never the full circle. Held, it
@@ -13989,7 +14009,10 @@ void TerrainGame::updateVehicles(float dt) {
       // look-back mirror. It takes the BODY yaw, not the lagging boom: what
       // the driver asks for is "what is behind the car", and a boom that is
       // mid-slide would answer with somewhere else.
-      const bool rearView = engine->pad.getPressed().R3;
+      const bool rearView =
+          IA_ROLE_VEH_REARVIEW >= 0
+              ? inputPressed(engine->pad, IA_ROLE_VEH_REARVIEW)
+              : (bool)engine->pad.getPressed().R3;
       const float rigYaw =
           rearView ? v.yaw + 180.0F : vehCamYaw_ + vehCamOrbit_;
       const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
@@ -14267,28 +14290,33 @@ void TerrainGame::renderVehicleWheels() {
       // at full droop. rideHeight = wheelRadius keeps the flat-ground case
       // exactly where it always was.
       float ay = v.wheelY[w] + s.wheelRadius * SC;
-      // ASYMMETRIC clamp: 65% of the travel in compression, 45% in DROOP.
-      // Both ends are tighter than the sim's travel on purpose - this is the
-      // WHEEL against the ARCH, not the spring: a wheel a whole travel up
-      // rode visibly through the bodywork ("kola dosc agresywnie wnikaja w
-      // karoserie"), one a whole travel down read as falling off the car.
-      // Real suspension droops less than it compresses; a kerb still tucks
-      // the wheel into the arch and a crest still shows daylight under a
-      // tyre, the wheel just stays owned by the car in both directions.
-      const float lo = v.pos[1] - s.suspensionTravel * SC * 0.45F;
-      const float hi = v.pos[1] + s.suspensionTravel * SC * 0.65F;
+      // Clamp against the ARCH, which lives on the TILTED body plane - the
+      // FULL rotation, terrain pitch and cosmetic lean alike. The window was
+      // centred on the flat pos[1] at first and that broke twice, each end
+      // separately: the cosmetic lean rotated the arches off ground-stuck
+      // wheels on FLAT ground (daylight at a corner exit), and on a real
+      // CLIMB the front arch rides ~0.4 above the centre - past any sane
+      // window around pos[1] - so the wheels PINNED to the clamp, the front
+      // pair sank into the slope and the rear pair floated over the deck
+      // ("co sie odpierdala, jak sie pod gorke jedzie"). Measured from the
+      // plane, the clamp only bounds what suspension MAY express: the
+      // residual between a wheel's own sampled ground and the plane. Signs
+      // mirror the body's render exactly: rotX(-(pitch+leanPitch)) lifts the
+      // +lz corner by lz*sin(pitch+leanPitch), rotZ(-(roll+leanRoll)) drops
+      // the +lx corner by lx*sin(roll+leanRoll).
+      //
+      // ASYMMETRIC: 65% of the travel in compression, 45% in droop, both
+      // tighter than the sim's travel on purpose - this is the wheel against
+      // the arch, not the spring. A kerb still tucks the wheel up, a crest
+      // still shows daylight under a tyre, the wheel just stays owned by the
+      // car in both directions.
+      const float planeY = v.pos[1] +
+                           lz[w] * sinf((v.pitch + v.leanPitch) * kDeg) -
+                           lx[w] * sinf((v.roll + v.leanRoll) * kDeg);
+      const float lo = planeY - s.suspensionTravel * SC * 0.45F;
+      const float hi = planeY + s.suspensionTravel * SC * 0.65F;
       if (ay < lo) ay = lo;
       if (ay > hi) ay = hi;
-      // The WEIGHT-TRANSFER lean moves the wheels WITH the body. The lean is
-      // cosmetic - no ground caused it - so ground-stuck wheels under a
-      // leaning body open daylight at the arches on FLAT ground (squat 4 deg
-      // over the front overhang is ~0.11 units of gap, and it was reported
-      // from a plain corner exit). The terrain-derived pitch/roll stay OUT of
-      // this on purpose: those the wheels answer with their own ground
-      // sampling, which is the suspension look. Signs mirror the body's
-      // render exactly: rotX(-(pitch)) lifts the +lz corner by lz*sin(pitch),
-      // rotZ(-(roll)) drops the +lx corner by lx*sin(roll).
-      ay += lz[w] * sinf(v.leanPitch * kDeg) - lx[w] * sinf(v.leanRoll * kDeg);
       const u32 nv = (u32)(part.verts.size() / 8);
       for (u32 i = 0; i < nv; ++i) {
         const float* q = &part.verts[(size_t)i * 8];

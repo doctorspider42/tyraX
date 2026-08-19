@@ -39,6 +39,9 @@ seat). Press USE again to get out at the driver's door.
 | right stick | glance around the car (X, up to ±60°), lift the camera (Y) — springs back on release |
 | R3 | hold for the rear view — the look-back mirror |
 
+All of the buttons above are Input Map actions (*Tools > Input Map*), so a
+project can move them; the analog stick and the d-pad stay hardwired.
+
 L1 rather than Square for the brake is deliberate: Square is USE, and a brake
 there would throw the driver out on the same press.
 

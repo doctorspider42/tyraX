@@ -41,14 +41,14 @@
 
 namespace Vehicle_playground {
 
-const char* const INPUT_ACTION_NAMES[INPUT_ACTION_COUNT] = {"move-forward", "move-back", "move-left", "move-right", "jump", "sprint", "use", "throw", "fly-up", "fly-down", "confirm", "back", "menu", "alt", "menu-up", "menu-down", "menu-left", "menu-right"};
-const char* const INPUT_ACTION_LABELS[INPUT_ACTION_COUNT] = {"Move forward", "Move back", "Move left", "Move right", "Jump", "Sprint", "Use", "Throw", "Fly up", "Fly down", "Confirm", "Back", "Pause menu", "Alternate", "Menu up", "Menu down", "Menu left", "Menu right"};
-const unsigned char INPUT_REBINDABLE[INPUT_ACTION_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+const char* const INPUT_ACTION_NAMES[INPUT_ACTION_COUNT] = {"move-forward", "move-back", "move-left", "move-right", "jump", "sprint", "use", "throw", "fly-up", "fly-down", "confirm", "back", "menu", "alt", "menu-up", "menu-down", "menu-left", "menu-right", "veh-throttle", "veh-brake", "veh-handbrake", "veh-nitrous", "veh-camera", "veh-rearview"};
+const char* const INPUT_ACTION_LABELS[INPUT_ACTION_COUNT] = {"Move forward", "Move back", "Move left", "Move right", "Jump", "Sprint", "Use", "Throw", "Fly up", "Fly down", "Confirm", "Back", "Pause menu", "Alternate", "Menu up", "Menu down", "Menu left", "Menu right", "Vehicle throttle", "Vehicle brake", "Vehicle handbrake", "Vehicle nitrous", "Vehicle camera", "Vehicle rear view"};
+const unsigned char INPUT_REBINDABLE[INPUT_ACTION_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
 
 const char* const INPUT_PRESET_NAMES[INPUT_PRESET_COUNT] = {"Default"};
 
 const InputBind INPUT_PRESETS[INPUT_PRESET_COUNT][INPUT_ACTION_COUNT] = {
-    {{-1, 26, 0}, {-1, 22, 0}, {-1, 4, 0}, {-1, 7, 0}, {0, 44, 2}, {12, 225, 0}, {1, 8, 1}, {3, 0, 3}, {0, 44, 0}, {1, 8, 0}, {0, 40, 0}, {2, 42, 0}, {14, 41, 0}, {3, 21, 3}, {4, 82, 0}, {5, 81, 0}, {6, 80, 0}, {7, 79, 0}},  // Default
+    {{-1, 26, 0}, {-1, 22, 0}, {-1, 4, 0}, {-1, 7, 0}, {0, 44, 2}, {12, 225, 0}, {1, 8, 1}, {3, 0, 3}, {0, 44, 0}, {1, 8, 0}, {0, 40, 0}, {2, 42, 0}, {14, 41, 0}, {3, 21, 3}, {4, 82, 0}, {5, 81, 0}, {6, 80, 0}, {7, 79, 0}, {0, 26, 0}, {8, 22, 0}, {3, 44, 0}, {11, 225, 0}, {2, 6, 0}, {13, 21, 0}},  // Default
 };
 
 const InputBind INPUT_CODES[INPUT_CODE_COUNT] = {

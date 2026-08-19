@@ -2304,12 +2304,12 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
 // whose .tyra lost the key would silently fall back to the seeded defaults
 // instead of the user's bindings.
 static void writeInputSection(std::ostream& json, const Project& p) {
-    // Role -> stable json name. Index = InputAction::Role.
-    static const char* kRoles[] = {
-        "",        "jump",      "use",       "throw",     "sprint",
-        "fly-up",  "fly-down",  "confirm",   "back",      "menu",
-        "alt",     "menu-up",   "menu-down", "menu-left", "menu-right",
-        "move-forward", "move-back", "move-left", "move-right"};
+    // The role's json name comes from inputRoleName - the READER's own table -
+    // never from a local copy. The writer used to carry its own 19-entry
+    // array, and the first enum growth past it (the six vehicle roles) walked
+    // off the end: kRoles[19] was a garbage pointer, the file got a raw
+    // control character inside an unterminated string, and every project
+    // with a vehicle action saved as MALFORMED. One table, both directions.
     json << "\"input\": {\n    \"activePreset\": " << p.input.activePreset
          << ",\n    \"allowRebind\": "
          << (p.input.allowRebind ? "true" : "false") << ",\n    \"actions\": [";
@@ -2319,7 +2319,7 @@ static void writeInputSection(std::ostream& json, const Project& p) {
         json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
              << jsonEscape(a.name) << "\", \"label\": \"" << jsonEscape(a.label)
              << "\"";
-        if (r != 0) json << ", \"role\": \"" << kRoles[r] << "\"";
+        if (r != 0) json << ", \"role\": \"" << inputRoleName(r) << "\"";
         if (!a.rebindable) json << ", \"rebindable\": false";
         json << " }";
     }
@@ -3535,6 +3535,12 @@ const char* inputRoleName(int role) {
         case InputAction::RoleMoveBack: return "move-back";
         case InputAction::RoleMoveLeft: return "move-left";
         case InputAction::RoleMoveRight: return "move-right";
+        case InputAction::RoleVehThrottle: return "veh-throttle";
+        case InputAction::RoleVehBrake: return "veh-brake";
+        case InputAction::RoleVehHandbrake: return "veh-handbrake";
+        case InputAction::RoleVehNitrous: return "veh-nitrous";
+        case InputAction::RoleVehCamera: return "veh-camera";
+        case InputAction::RoleVehRearView: return "veh-rearview";
         default: return "";
     }
 }
@@ -3748,6 +3754,16 @@ void ensureInputActions(Project& p) {
         {InputAction::RoleMenuDown, "Menu down", "DpadDown", 0x51, 0, false},
         {InputAction::RoleMenuLeft, "Menu left", "DpadLeft", 0x50, 0, false},
         {InputAction::RoleMenuRight, "Menu right", "DpadRight", 0x4F, 0, false},
+        // The driver's seat, defaults matching what the runtime hardcoded
+        // before these existed (docs/vehicles.md). Keyboard defaults follow
+        // the walker's WSAD hand position; the two sets never fire in the
+        // same frame - driving gates the walker.
+        {InputAction::RoleVehThrottle, "Vehicle throttle", "Cross", 0x1A, 0, true},
+        {InputAction::RoleVehBrake, "Vehicle brake", "L1", 0x16, 0, true},
+        {InputAction::RoleVehHandbrake, "Vehicle handbrake", "Circle", 0x2C, 0, true},
+        {InputAction::RoleVehNitrous, "Vehicle nitrous", "R1", 0xE1, 0, true},
+        {InputAction::RoleVehCamera, "Vehicle camera", "Triangle", 0x06, 0, true},
+        {InputAction::RoleVehRearView, "Vehicle rear view", "R3", 0x15, 0, true},
     };
 
     if (p.input.presets.empty()) p.input.presets.push_back(InputPreset{});
