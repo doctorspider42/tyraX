@@ -214,9 +214,12 @@ void RendererCoreAlphaMask::maskClear() {
   // a mask that lives in that very bit: the clear below writes alpha 0 and the
   // GS stored 1, so DATE read SHADOW over the whole raster and every
   // DATE-gated torch pass was discarded. The projected pool simply did not
-  // draw in a 16-bit project. Nothing else in this engine programs FBA, so
-  // re-asserting 0 here (once per frame, the way Path3::clearScreen re-asserts
-  // the REPEAT wrap contract) is enough and cannot be undone behind our back.
+  // draw in a 16-bit project. WHO set it: ps2sdk's draw_setup_environment
+  // programs FBA = 1 for a 16-bit frame PSM (RendererCoreGS::
+  // initDrawingEnvironment zeroes it right after that call now); nothing else
+  // in this engine touches the register, so re-asserting 0 here (once per
+  // frame, the way Path3::clearScreen re-asserts the REPEAT wrap contract)
+  // cannot be undone behind our back. begin() carries the same line.
   PACK_GIFTAG(q, GS_SET_FBA(0), GS_REG_FBA_1);
   q++;
   PACK_GIFTAG(q,
@@ -349,12 +352,23 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // texture cache before sampling it.
   PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
   q++;
-  // Sampled through the SAME page slide the count pass wrote through, in the
-  // same 32-bit format, so the texel at (x, y - bandY0) is the count written
-  // for screen pixel (x, y). TBP is in 64-word blocks, FBP in 2048-word
-  // pages, hence the different shifts of one address.
+  // Sampled at the band's OWN base with V = y - bandY0, so the texel for
+  // screen pixel (x, y) is the count the slid FRAME wrote for it: the count
+  // pass addressed pixel (x, y) as slid + pageRow(y), and slid + pageRow(y) ==
+  // countAddress + pageRow(y - bandY0) because the slide IS bandY0 worth of
+  // page rows. This used to bind TBP0 to the SLID base as well - slide and
+  // V-offset both - which for every band but the first reads bandY0 rows
+  // BELOW the band (at 32-bit, 512 KB below: the top of the scene z buffer
+  // and the post-fx / shadow-map allocations; the 24-bit z's alpha byte is 0
+  // and the slots' alpha is what their last render left, so the lower band's
+  // resolve ORed garbage or nothing - no shadow ever reached the bottom 256
+  // rows of the screen from this pass). Found by reading the address
+  // arithmetic, not from a report: a shadow that is missing only below row
+  // 256 looks like the FPP torch's own "the shadow hides behind its caster"
+  // rule. TBP is in 64-word blocks, FBP in 2048-word pages, hence the
+  // different shifts.
   PACK_GIFTAG(q,
-              GS_SET_TEX0(slidBase(bandY0, t.frameWidth) >> 6,
+              GS_SET_TEX0(countAddress >> 6,
                           t.frameWidth >> 6, countPsm, lg2up(countW),
                           lg2up(countH), 1 /* tcc */, 1 /* decal */, 0, 0, 0,
                           0, 0),
@@ -448,8 +462,18 @@ void RendererCoreAlphaMask::begin() {
   // NLOOP counts every register row - a mismatch stalls the GIF forever
   // (the shadow-map bracket's warning, and this packet froze a frame at
   // exactly the moment the first volume drew until the count was right).
-  // Rows: FRAME, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2, ZBUF = 8.
-  PACK_GIFTAG(q, GIF_SET_TAG(8, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Rows: FBA, FRAME, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2, ZBUF = 9.
+  PACK_GIFTAG(q, GIF_SET_TAG(9, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  // FBA = 0 - the same line maskClear() carries, for the same reason, and it
+  // was MISSING here: ps2sdk's draw_setup_environment programs FBA = 1 for a
+  // 16-bit frame PSM (RendererCoreGS::initDrawingEnvironment zeroes it at
+  // boot now), and with the MSB of every written alpha forced to 1 the clear
+  // below stores SHADOW over the whole raster. The counting path got its
+  // re-assert first; the convex path - which is what a 16-bit project runs -
+  // kept the bug, so the pool was back for exactly as long as the count
+  // target was allowed at 16-bit and gone again the moment it was refused.
+  PACK_GIFTAG(q, GS_SET_FBA(0), GS_REG_FBA_1);
   q++;
   // Same frame, color channels masked.
   PACK_GIFTAG(q,

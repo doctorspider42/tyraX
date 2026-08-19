@@ -14103,7 +14103,7 @@ void App::drawPreferencesWindow() {
     // on whether the third display buffer below fits at all.
     {
         int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
-        const char* depthNames[] = {"32-bit colour", "16-bit colour (2x VRAM)"};
+        const char* depthNames[] = {"32-bit colour", "16-bit colour"};
         if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
             prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
         prefHelp(
@@ -14115,7 +14115,9 @@ void App::drawPreferencesWindow() {
             "what most often decides whether triple buffering fits.\n"
             "The cost is 32 levels per channel instead of 256, so smooth\n"
             "gradients - skies, fog, bloom - band unless Dithering is on.\n"
-            "The z buffer stays 32-bit either way. See docs/gs-vram.md.");
+            "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
+            "GS needs the pair to share page geometry), so depth precision\n"
+            "drops with it: keep the near plane up. See docs/gs-vram.md.");
         ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
         ImGui::Indent(scaled(16));
         ImGui::Checkbox("Dithering", &prefSettings_.dither);

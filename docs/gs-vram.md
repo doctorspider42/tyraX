@@ -105,6 +105,18 @@ place now, `RendererCoreDepth`, which the StaPip and DynPip packet builders,
 the depth-of-field solve and the generated portal mask all read; it used to be
 five copies of `0xFFFFFF`.
 
+**One more thing a 16-bit frame changes, and the engine undoes:** ps2sdk's
+`draw_setup_environment` programs the GS's `FBA` ("alpha correction") to **1**
+for a `PSMCT16`/`PSMCT16S` frame and 0 for a 32-bit one — read off
+`libdraw.a`'s disassembly, the register at `0x4A + context` gets
+`(psm & ~8) == 2`. With `FBA = 1` every alpha the GS writes has its MSB forced
+to 1, which is harmless to a picture and fatal to anything that reads
+destination alpha back — the flashlight's `TEST.DATE` shadow mask read *shadow*
+over the whole raster and a 16-bit project drew no torch pool at all
+([flashlight](flashlight.md), "The shadow"). `RendererCoreGS::
+initDrawingEnvironment` writes `FBA = 0` straight after that call, so a 16-bit
+frame follows the same alpha contract as a 32-bit one: alpha lands as written.
+
 **The price of 16-bit colour is therefore depth precision**, and it is worth
 stating in units. The world-space step at distance `d` is `d² / (maxZ × near)`
 (`far` barely enters it):

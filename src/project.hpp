@@ -1101,8 +1101,9 @@ struct ProjectSettings {
     // and more at the taller scan modes - and hands all of it to the texture
     // heap, roughly doubling it. The price is 32 levels per channel instead
     // of 256: banding in skies, fog and the post-fx blur, which `dither`
-    // exists to break up. The z buffer is NOT affected (it stays 32-bit;
-    // a 16-bit z at this near/far ratio z-fights).
+    // exists to break up. The z buffer FOLLOWS it (PSMZ16 over a PSMCT16
+    // frame - the GS needs the pair to share page geometry), so depth
+    // precision drops with it: keep the near plane up.
     std::string colorDepth = "32bit";  // "32bit" | "16bit"
 
     // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers

@@ -1399,10 +1399,19 @@ banner both, so a previously built ELF still reports.
   allocated in the frame format so the blur chain never converts, while the
   film-grain noise stays PSMCT32 because it is uploaded rather than rendered),
   and the env-map / shadow-map brackets' restores. A hardcoded `GS_PSM_32`
-  there decodes a 16-bit frame as 32-bit garbage. The **z buffer stays 32-bit**
-  deliberately: 16-bit z would save as much again, but at `near` 0.1 / `far`
-  51200 its resolution collapses with distance and terrain fights baked
-  shadows. Two traps paid for here: **ps2sdk's `GS_SET_DIMX` masks each entry
+  there decodes a 16-bit frame as 32-bit garbage. The **z buffer FOLLOWS the
+  colour depth** (`RendererCoreDepth`): a colour buffer and the z it is tested
+  against must share page geometry on real hardware (64x32 pages at 32 bits,
+  64x64 at 16), so 16-bit colour runs a `PSMZ16` z with a 16-bit Z scale - and
+  pays for it in depth precision at distance (docs/gs-vram.md has the table).
+  Three traps paid for here: **ps2sdk's `draw_setup_environment` programs
+  `FBA = 1` for a 16-bit frame PSM** (disassembled from `libdraw.a`: the
+  register at `0x4A + context` gets `(psm & ~8) == 2`), which forces the MSB of
+  every written alpha to 1 and silently kills anything that reads destination
+  alpha - the flashlight's `TEST.DATE` shadow mask read SHADOW over the whole
+  raster and no DATE-gated torch pass drew; `initDrawingEnvironment` writes
+  `FBA = 0` straight after that call (the same shape as the CLAMP re-assert),
+  and `RendererCoreAlphaMask::begin()`/`maskClear()` re-assert it per frame; **ps2sdk's `GS_SET_DIMX` masks each entry
   with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
   half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
   dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;

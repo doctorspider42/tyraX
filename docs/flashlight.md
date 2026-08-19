@@ -328,7 +328,13 @@ keeps the 1:1 correspondence with the scene's depth exact; the band's first row
 must be a multiple of its own page-row height for the slide to be expressible.
 A shadow region
 taller than the band is counted band by band — the mask is an OR, so the bands
-compose and a tall shadow costs fill, not coverage. Then **one resolve pass per frame**
+compose and a tall shadow costs fill, not coverage. (The resolve of a slid band
+samples the target at its **own** base with `V = y − bandY0` — it used to bind
+the texture to the slid base *and* subtract `bandY0`, which for every band but
+the first read the memory below the band instead of the band; found by reading
+the address arithmetic, and invisible in a first-person torch because a shadow
+missing only in the bottom half of the screen reads as the torch's own
+"hides behind its caster" rule.) Then **one resolve pass per frame**
 samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
 expands to alpha 0, anything else to 0x80 — and ORs *count > 0* into the
 framebuffer's destination-alpha MSB through an alpha test. Counting is exact
@@ -361,9 +367,19 @@ forces the **MSB of every alpha it writes to 1**. That is a convenience for
 1-bit-alpha targets and death to a mask that lives in exactly that bit - the
 per-frame clear wrote alpha 0, the GS stored 1, `TEST.DATE` read *shadow* over
 the whole raster, and every DATE-gated torch pass was discarded: in a 16-bit
-project the projected pool simply did not draw. Nothing else in this engine
-programs `FBA`, so the mask clear re-asserts 0 once per frame, the way
-`Path3::clearScreen` re-asserts the REPEAT wrap contract.
+project the projected pool simply did not draw. Who sets it is known now:
+**ps2sdk's `draw_setup_environment` programs `FBA = 1` for a 16-bit frame
+PSM** (disassembled from `libdraw.a` — the register at `0x4A + context` gets
+`(psm & ~8) == 2`, i.e. `PSMCT16`/`PSMCT16S` — and 0 for a 32-bit one), which
+is why only 16-bit projects ever saw it. The engine zeroes it right after that
+call (`RendererCoreGS::initDrawingEnvironment`, the same shape as the REPEAT
+re-assert) and **both** mask brackets re-assert it at the top of the frame —
+the counting path's `maskClear()` and the convex path's `begin()`. That second
+one mattered: the first fix went into `maskClear()` alone, so the pool came
+back for exactly as long as counting was allowed at 16-bit and vanished again
+the moment the count target was refused there and the convex path took over —
+the per-vertex cone still lit the props (it is not DATE-gated), the ground and
+the walls stayed dark.
 
 The second:
 The mask writes have to touch alpha and nothing else, and `FBMSK`'s bit

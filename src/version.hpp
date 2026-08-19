@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.1 (the 16-bit torch pool, for the second time - and the last, because
+// the cause is NAMED now): after 1.58.0 sent every 16-bit project down the
+// convex 1-bit path, the flashlight drew no pool again on examples/night-walk
+// at 16-bit colour while the per-vertex cone still lit the bin and the shed
+// (it is not DATE-gated; the pool and the wall passes are). The FBA re-assert
+// that 1.57.0 added lived in maskClear() ALONE - the counting bracket - so the
+// convex begin() still cleared the mask under FBA = 1 and the GS stored SHADOW
+// over the whole raster. Who sets FBA was "whatever the environment left" in
+// 1.57.0; it is ps2sdk's draw_setup_environment, read off libdraw.a's
+// disassembly: the register at 0x4A + context gets `(psm & ~8) == 2`, i.e. 1
+// for PSMCT16/16S and 0 for PSMCT32, which is the whole reason only 16-bit
+// projects ever met it. The engine zeroes it right after that call now
+// (RendererCoreGS::initDrawingEnvironment, the REPEAT re-assert's twin), and
+// begin() carries the same qword maskClear() does, so the 16-bit frame
+// follows the 32-bit contract the rest of the engine was written against:
+// alpha lands as written. The colour-depth combo also drops its "(2x VRAM)"
+// tag (the buffers HALVE; the tooltip says what actually doubles) and stops
+// claiming the z buffer stays 32-bit - it has followed the colour depth since
+// 1.57.0. VERIFIED on a 16-bit copy of night-walk in PCSX2 (software
+// renderer) AND on the console (the game's own frame.tga over ps2link): the
+// pool is back on the wall and on the ground, VRAM 1.93; the 32-bit copy is
+// unchanged (FBA was already 0 there - the write is a no-op).
+//
+// One more thing found by READING the counting path while here, fixed, and
+// NOT demonstrated with a before/after picture: countResolve() bound its
+// texture to the SLID band base and ALSO subtracted bandY0 from V, so every
+// band but the first sampled the memory below the band instead of the band
+// (at 32-bit: the top of the z buffer plus the post-fx / shadow-map slots). It
+// samples at the band's own base now. A first-person torch hides most of a
+// shadow behind its caster, so "no shadow below screen row 256" was never
+// going to be reported; the fix is by arithmetic (FRAME at slid + pageRow(y)
+// == countAddress + pageRow(y - bandY0)) and the build that carries it boots
+// and draws the 32-bit pool as before. Worth a deliberate look on the console
+// with a low caster in the bottom half of the picture.
+//
 // 1.58.0 (mesh shadow volumes are 32-bit-colour only): with 16-bit colour, the
 // flashlight's shadow-volume COUNT RESOLVE - an alpha-only masked sprite over
 // the volumes' screen rect - is not colour-neutral at a PSMCT16 destination. It
@@ -1889,7 +1924,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 58
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

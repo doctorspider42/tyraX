@@ -613,8 +613,8 @@ void RendererCoreGS::enableZTests() {
 
 void RendererCoreGS::initDrawingEnvironment() {
   // Modified by TyraX: 40 qwords - draw_setup_environment's register block
-  // plus the CLAMP re-assert, the DIMX/DTHE dither pair, the XYOFFSET and
-  // the finish. An undersized packet2 here overruns its own buffer.
+  // plus the CLAMP/FBA re-assert, the DIMX/DTHE dither pair, the XYOFFSET
+  // and the finish. An undersized packet2 here overruns its own buffer.
   packet2_t* packet2 = packet2_create(40, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   packet2_update(packet2, draw_setup_environment(packet2->base, 0, frameBuffers,
                                                  &zBuffer));
@@ -626,12 +626,27 @@ void RendererCoreGS::initDrawingEnvironment() {
   // along both axes everywhere else. REPEAT is the contract here; Path3::
   // clearScreen re-asserts it every frame because the post-fx blits and 2D
   // texture uploads write the same register for their own purposes.
+  // Modified by TyraX: FBA = 0, whatever the frame format. ps2sdk's
+  // draw_setup_environment() programs FBA ("alpha correction") to 1 for a
+  // 16-bit frame PSM - disassembled from libdraw.a, the register at 0x4A +
+  // context gets `(psm & ~8) == 2`, i.e. PSMCT16/PSMCT16S - and to 0 for a
+  // 32-bit one. With FBA = 1 the GS forces the MSB of EVERY alpha it writes to
+  // 1, a convenience for 1-bit-alpha targets and death to anything that reads
+  // destination alpha back: the flashlight's shadow mask clears alpha to 0,
+  // the GS stores 1, TEST.DATE reads SHADOW over the whole raster and every
+  // DATE-gated torch pass is discarded - a 16-bit project drew no pool. The
+  // rest of this engine was written against 32-bit, where alpha lands as
+  // written, so 16-bit gets the same contract here: FBA is 0 from the first
+  // frame, like the CLAMP above, and RendererCoreAlphaMask re-asserts it at
+  // the top of each mask bracket so nothing can undo it behind its back.
   {
     qword_t* q = packet2->next;
-    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
     q++;
     PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
                 GS_REG_CLAMP_1);
+    q++;
+    PACK_GIFTAG(q, GS_SET_FBA(0), GS_REG_FBA_1);
     q++;
     packet2_update(packet2, q);
   }
