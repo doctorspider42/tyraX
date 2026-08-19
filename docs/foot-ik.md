@@ -337,10 +337,46 @@ fully procedural.
 
 ### Retraining
 
-`tools/train-foot-neural.py` (seed 2002, dependency-free) reproduces the
-committed weights from domain-randomized synthetic slopes, lips and descents plus
-the labelled PCSX2 trajectories in `tools/data/foot-neural-real.csv`. Its
-docstring carries the feature and target order.
+`tools/train-foot-neural.py` (seed 2002, dependency-free) trains from
+domain-randomized synthetic slopes, lips and descents plus the labelled PCSX2
+trajectories in `tools/data/foot-neural-real.csv`. Its docstring carries the
+feature and target order.
+
+```bash
+python tools/train-foot-neural.py                     # train, with a held-out check
+python tools/train-foot-neural.py --val-fraction 0    # reproduce the COMMITTED weights
+```
+
+**It holds 15% back and prints both numbers**, because a training loss on its own
+says nothing about whether a net learned the terrain or memorised the recording:
+
+```
+epoch   1: train=0.0559856  val=0.0432910  (n=805)
+epoch  70: train=0.0249517  val=0.0228848  (n=805)
+```
+
+`val` at or below `train` is the signal to want - it means nothing was
+memorised. A `val` that climbs while `train` falls is overfit, and the answer is
+fewer epochs or more real rows, not a smaller reported number.
+
+How the split is drawn matters more than its size, and the two halves of this
+dataset need different treatment:
+
+- **The synthetic rows are i.i.d.**, so the held-out batch is drawn from its OWN
+  generator stream (`seed + 104729`) rather than partitioned off. That is
+  stronger than a split: the validation rows are draws the training never made.
+- **The real rows are consecutive PCSX2 frames**, and each is then copied
+  `--real-repeat` times. So the held-out part is the **tail** - one contiguous
+  block - taken BEFORE the repeat. A random split would put frame N in training
+  and frame N+1 in validation, which are nearly the same sample; repeating first
+  would put the very same row on both sides. Either one reports a loss that
+  means nothing, which is exactly the trap
+  [neural-gait](https://github.com/doctorspider42/tyra-editor/tree/claude/character-stairs-animation-36b4b9)
+  named and this trainer had fallen into by having no split at all.
+
+`--val-fraction 0` disables the holdout and trains on everything, which is what
+the committed weight table was produced with - verified to reproduce it
+character for character, so the reproduction claim survives the change.
 
 New real trajectories come from the Foot IK regression runner
 (`.claude/skills/tyra-testing/scripts/foot-ik-regression.py`), which builds with

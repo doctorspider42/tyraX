@@ -251,9 +251,24 @@ def main() -> int:
         default=3,
         help="number of deterministic copies of real samples mixed per epoch",
     )
+    parser.add_argument(
+        "--val-fraction",
+        type=float,
+        default=0.15,
+        help="held-out share: a separately seeded synthetic batch plus the TAIL "
+             "of the real rows (0 disables, and then no val figure is printed)",
+    )
     args = parser.parse_args()
     rng = random.Random(args.seed)
     data = [synthetic_sample(rng) for _ in range(args.samples)]
+    # Validation synthetic rows come from their OWN generator seed, not from a
+    # split: synthetic_sample draws i.i.d., so a fresh batch is a cleaner test
+    # than partitioning one - these are draws training never saw.
+    val: list[tuple[list[float], list[float], float]] = []
+    if args.val_fraction > 0.0:
+        val_rng = random.Random(args.seed + 104729)  # a different stream
+        val_count = max(1, int(args.samples * args.val_fraction))
+        val = [synthetic_sample(val_rng) for _ in range(val_count)]
     default_real = Path(__file__).resolve().parent / "data" / "foot-neural-real.csv"
     real_paths = args.real if args.real is not None else (
         [default_real] if default_real.is_file() else []
@@ -262,8 +277,17 @@ def main() -> int:
     for path in real_paths:
         real = load_real(path)
         real_count += len(real)
+        # The rows are CONSECUTIVE PCSX2 frames, so the held-out part is the
+        # TAIL - a contiguous block - and it is taken BEFORE the repeat below.
+        # A random split would put frame N in training and N+1 in validation,
+        # which are nearly the same sample; repeating first would put the very
+        # same row in both. Either one reports a loss that means nothing.
+        cut = len(real)
+        if args.val_fraction > 0.0 and len(real) > 4:
+            cut = len(real) - max(1, int(len(real) * args.val_fraction))
+            val.extend(real[cut:])
         for _ in range(max(1, args.real_repeat)):
-            data.extend(real)
+            data.extend(real[:cut])
 
     scale = math.sqrt(2.0 / INPUTS)
     w1 = [[rng.uniform(-scale, scale) for _ in range(INPUTS)] for _ in range(HIDDEN)]
@@ -333,7 +357,26 @@ def main() -> int:
                         vh = r2[j] / (1.0 - 0.999**step)
                         row[j] -= rate * mh / (math.sqrt(vh) + 1e-8)
         if epoch in (0, args.epochs - 1):
-            print(f"epoch {epoch + 1:3d}: mse={total / total_weight:.7f}")
+            line = f"epoch {epoch + 1:3d}: train={total / total_weight:.7f}"
+            if val:
+                vs = 0.0
+                vw = 0.0
+                for features, target, sample_weight in val:
+                    hidden_raw = [
+                        b1[h] + sum(w1[h][i] * features[i] for i in range(INPUTS))
+                        for h in range(HIDDEN)
+                    ]
+                    hid = [max(0.0, value) for value in hidden_raw]
+                    out = [
+                        b2[o] + sum(w2[o][h] * hid[h] for h in range(HIDDEN))
+                        for o in range(OUTPUTS)
+                    ]
+                    for o in range(OUTPUTS):
+                        vs += (sample_weight * TARGET_WEIGHTS[o]
+                               * (out[o] - target[o]) ** 2 / target_weight_sum)
+                    vw += sample_weight
+                line += f"  val={vs / vw:.7f}  (n={len(val)})"
+            print(line)
 
     def cpp_row(values: list[float]) -> str:
         return "{" + ", ".join(f"{value:.9g}F" for value in values) + "}"
