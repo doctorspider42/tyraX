@@ -16,6 +16,43 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.56.0 (the console can be switched off from the desk - Build > Power Off
+// PS2, docs/ps2link-setup.md): the capability was there the whole time and
+// nothing exposed it. ps2link answers PKO_POWEROFF_CMD (0xbabe0204) on the same
+// UDP command port `reset` arrives on, with PoweroffShutdown() out of the
+// resident poweroff.irx - the registered shutdown callbacks (ps2dev9 parks the
+// expansion bay) and then the CDVD registers that drop the power rails, i.e.
+// the power button's own shutdown. Upstream ps2link, untouched by tyrax.patch;
+// the r4 priority fix is what makes it reach a console with a game on it,
+// because the command thread sits above the host: server a game polls ten times
+// a frame. So this is one Runner verb and one menu item, not a patch revision -
+// no r7, and every flashed card that can be Stopped can be powered off.
+//
+// Runner::powerOffPs2 clears the file server through claimPs2Channel first and
+// refuses on the same ownership rule as Stop, with more reason: a console
+// another editor is deploying to cannot be recovered from this PC once it is
+// off. The report is deliberately not a success claim - the command is
+// fire-and-forget UDP like every other one, so a console that was already off
+// answers identically, and the log says the standby light is the confirmation.
+//
+// Verified in three layers. The wire: a UDP listener bound to 127.0.0.1:18194
+// received `ba be 02 04 00 06` from the exact command line the Runner builds -
+// the command byte ps2link's cmdListener switches on. The editor:
+// `--ui-script "click Build; click 'Power Off PS2'"` against a scratch project
+// pointed at loopback put the same six bytes on that listener and logged
+// "[editor] Power-off sent...". THE CONSOLE: on real hardware, with an EE
+// payload resident (tools/silencer, deployed by execee) and a stray ps2client
+// holding the channel, the button reaped the orphan by its command line, sent
+// the command, and the PS2 went dark - `execee` returned ZERO console output
+// afterwards (the only liveness check that means anything here), ping went from
+// replying to "destination host unreachable" and the ARP entry vanished, which
+// is a machine with its NIC unpowered and not a wedge. What is still untested
+// is the same thing against a full game deploy, i.e. an EE polling host: ten
+// times a frame: that is the case the r4 priority fix is for, and the argument
+// for it is the source, not a measurement.
+//
+// MINOR: a new user-visible action, nothing on disk changes shape.
+//
 // 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
 // both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
 // dev checkout's build leftovers are not content" - and
@@ -1724,8 +1761,8 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 55
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 56
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

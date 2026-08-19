@@ -1564,6 +1564,13 @@ void App::drawMenuBar() {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                                   "console reboots back to its listening state.");
+            if (ImGui::MenuItem("Power Off PS2", nullptr, false, !busy && ps2Ready))
+                runner_.powerOffPs2(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Switches the console off - ps2link's own poweroff command,\n"
+                    "the same shutdown its power button performs. Nothing on the\n"
+                    "network can switch it back on again.");
             ImGui::Separator();
             if (ImGui::MenuItem("Live Link", nullptr,
                                 project_.settings.liveLink)) {

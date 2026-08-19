@@ -363,6 +363,8 @@ With a console on the LAN running the **TyraX ps2link**, **Build > Build && Run 
 PS2** (`F6`) boots the game over ethernet: the ELF and every asset are served from
 the project's `bin\` on this PC (no ISO, no SMB) and the console's log streams into
 *Output* as `[ps2]` lines. Set the IP in `Edit > Preferences > Real PS2`.
+**Stop on PS2** ends the session and hands the console back to ps2link;
+**Power Off PS2** switches the console itself off, without leaving the desk.
 
 The console side is always **our own** ps2link — a pinned upstream plus this repo's
 patch, built in Docker by [`tools/ps2link`](tools/ps2link/README.md) and flashed to
