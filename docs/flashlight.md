@@ -420,7 +420,7 @@ The second is a **paired sweep one knob apart**, eight vantages of
 
 | `countResolve()`'s `TEX0` base | frames with green | pixels |
 | --- | --- | --- |
-| the **slid** band base (what shipped until 1.58.1) | **8 of 8** | 800-4 800 |
+| the **slid** band base (what shipped until 1.59.1) | **8 of 8** | 800-4 800 |
 | the band's **own** base (the fix) | **0 of 8** | 0 |
 
 Flipping the knob back brings them straight back (A-B-A), and the columns are

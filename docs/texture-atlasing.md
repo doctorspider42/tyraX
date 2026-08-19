@@ -100,7 +100,7 @@ A texture joins a page only when **every consumer samples it with plain
 - baked size **≤128×128** (larger fills half a page alone — no sharing win);
 - the token may point into a **subdirectory** (`map_Kd Textures/wall.png`) —
   the page is still written into the `.mtl`'s own folder, so the rewritten
-  reference stays a same-directory token. Until 1.59.0 any token carrying a
+  reference stays a same-directory token. Until 1.60.0 any token carrying a
   separator was refused, which disqualified every asset pack that keeps its
   images in a `Textures/` subfolder — silently, and that is exactly what
   `night-walk` was.

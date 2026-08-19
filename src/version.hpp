@@ -16,11 +16,11 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.60.0 (the atlas page has a depth now, and it is the setting that decides
+// 1.61.0 (the atlas page has a depth now, and it is the setting that decides
 // whether atlasing is worth anything in a palettized project -
 // docs/texture-atlasing.md): a page was always quantized to 256 colours, so in
 // a 4-bit project its members went UP to 8 bits per pixel and the page cost
-// 65 KB - which is why 1.59.0 measured night-walk's atlas as costing 57 KB.
+// 65 KB - which is why 1.60.0 measured night-walk's atlas as costing 57 KB.
 // The page's depth follows the project's texture quality now (4-bit project ->
 // 4-bit page, 32.25 KB), and a member may ask for more through
 // AtlasControl::pageBits, the group taking the HIGHEST request - the rule
@@ -43,12 +43,12 @@
 // So the default is a modest loss against shipping the texture alone, and the
 // 8-bit page is actually a quality UPGRADE over a 4-bit project's own textures
 // - at twice the page. Both are one combo away per texture, the window and
-// --atlas-report print the depth per page, and the hue bucketing from 1.59.0
+// --atlas-report print the depth per page, and the hue bucketing from 1.60.0
 // is what keeps a shared palette survivable (it does not split a group below
 // one page's worth of content, which is why this two-member fixture shows the
 // trade at its worst).
 //
-// 1.59.0 (texture atlasing gets a window, a report and two knobs -
+// 1.60.0 (texture atlasing gets a window, a report and two knobs -
 // docs/texture-atlasing.md): the feature was one checkbox and one line in the
 // boot log. Nothing said which textures shared a page, so nothing warned that
 // a page had merged two rooms' props into one allocation both must then keep
@@ -93,8 +93,8 @@
 //    single member is dropped, because a lone texture on a 256x256 page pays a
 //    whole page and loses its own palette for nothing.
 //
-// 1.58.2 (mesh shadow volumes come back to 16-bit colour, and the reason they
-// left was a misdiagnosis): 1.58.0 refused the counting path at 16-bit because
+// 1.59.2 (mesh shadow volumes come back to 16-bit colour, and the reason they
+// left was a misdiagnosis): 1.59.0 refused the counting path at 16-bit because
 // the resolve laid dashed green marks down two fixed screen columns, and blamed
 // the masked write at a PSMCT16 destination. Both halves of that are now
 // MEASURED ON A CONSOLE and it is neither.
@@ -110,7 +110,7 @@
 // 16-bit, same pad script, fresh boot per arm: countResolve() binding TEX0 to
 // the SLID band base scores green on 8 of 8 frames (800-4800 px); binding it to
 // the band's OWN base scores 0 of 8; flipping back scores 8 of 8 (A-B-A). That
-// register was fixed in 1.58.1 as an arithmetic correction with no picture to
+// register was fixed in 1.59.1 as an arithmetic correction with no picture to
 // show for it - this is the picture. The fault was double compensation: the
 // count pass writes pixel (x, y) through a FRAME slid by bandY0 page rows, so
 // the texel lives at the band's own base with V = y - bandY0; sliding the read
@@ -119,7 +119,7 @@
 //
 // So allocateCount() no longer refuses at 16-bit: the band follows the frame's
 // PSM (PSMCT32 512 KB / PSMCT16 256 KB, page geometry matching the z buffer as
-// it has since 1.57.0) and a 16-bit project gets mesh-shaped volumes like any
+// it has since 1.58.0) and a 16-bit project gets mesh-shaped volumes like any
 // other. Verified on the console: eight vantages clean, VRAM 2.18, pools and
 // shadows drawing; PCSX2 shows nothing in either arm at any vantage, which is
 // what made the first diagnosis so easy to get wrong. STILL OPEN, and written
@@ -128,15 +128,15 @@
 // boundary where the slide is zero. The tooltip and docs/flashlight.md carry
 // the same account.
 //
-// 1.58.1 (the 16-bit torch pool, for the second time - and the last, because
-// the cause is NAMED now): after 1.58.0 sent every 16-bit project down the
+// 1.59.1 (the 16-bit torch pool, for the second time - and the last, because
+// the cause is NAMED now): after 1.59.0 sent every 16-bit project down the
 // convex 1-bit path, the flashlight drew no pool again on examples/night-walk
 // at 16-bit colour while the per-vertex cone still lit the bin and the shed
 // (it is not DATE-gated; the pool and the wall passes are). The FBA re-assert
-// that 1.57.0 added lived in maskClear() ALONE - the counting bracket - so the
+// that 1.58.0 added lived in maskClear() ALONE - the counting bracket - so the
 // convex begin() still cleared the mask under FBA = 1 and the GS stored SHADOW
 // over the whole raster. Who sets FBA was "whatever the environment left" in
-// 1.57.0; it is ps2sdk's draw_setup_environment, read off libdraw.a's
+// 1.58.0; it is ps2sdk's draw_setup_environment, read off libdraw.a's
 // disassembly: the register at 0x4A + context gets `(psm & ~8) == 2`, i.e. 1
 // for PSMCT16/16S and 0 for PSMCT32, which is the whole reason only 16-bit
 // projects ever met it. The engine zeroes it right after that call now
@@ -146,7 +146,7 @@
 // alpha lands as written. The colour-depth combo also drops its "(2x VRAM)"
 // tag (the buffers HALVE; the tooltip says what actually doubles) and stops
 // claiming the z buffer stays 32-bit - it has followed the colour depth since
-// 1.57.0. VERIFIED on a 16-bit copy of night-walk in PCSX2 (software
+// 1.58.0. VERIFIED on a 16-bit copy of night-walk in PCSX2 (software
 // renderer) AND on the console (the game's own frame.tga over ps2link): the
 // pool is back on the wall and on the ground, VRAM 1.93; the 32-bit copy is
 // unchanged (FBA was already 0 there - the write is a no-op).
@@ -163,7 +163,7 @@
 // and draws the 32-bit pool as before. Worth a deliberate look on the console
 // with a low caster in the bottom half of the picture.
 //
-// 1.58.0 (mesh shadow volumes are 32-bit-colour only): with 16-bit colour, the
+// 1.59.0 (mesh shadow volumes are 32-bit-colour only): with 16-bit colour, the
 // flashlight's shadow-volume COUNT RESOLVE - an alpha-only masked sprite over
 // the volumes' screen rect - is not colour-neutral at a PSMCT16 destination. It
 // laid dashed green marks down two fixed screen columns over whatever the torch
@@ -189,7 +189,7 @@
 // - the console and PCSX2 disagree about 0x7FFF7FFF - is open, and mesh volumes
 // can come back to 16-bit once it is answered (docs/flashlight.md).
 //
-// 1.57.0 (16-bit colour stops being broken on hardware - docs/gs-vram.md): a
+// 1.58.0 (16-bit colour stops being broken on hardware - docs/gs-vram.md): a
 // project switched to 16-bit colour rendered dark parallelogram BANDS across
 // ground and walls on a console while PCSX2 showed it perfectly. The rule
 // behind it applies to every render target this engine will ever depth-test: a
@@ -219,7 +219,7 @@
 // change. Measured VRAM on the fixture: 1.93 MB used at 16-bit against 3.95 at
 // 32-bit.
 //
-// 1.56.0 (a caster's shadow IS its mesh now): the flashlight's shadow
+// 1.57.0 (a caster's shadow IS its mesh now): the flashlight's shadow
 // volumes stop being cut from boxes - a model caster classifies its REAL
 // triangles against the torch, extrudes the silhouette edges to the light's
 // range (caps from the lit faces, pushed 0.05, plus their far projection;
@@ -327,6 +327,43 @@
 // pool, parity-contrast 2.0% against 7.8% before, and 22.0 FPS with the torch
 // on against 24.1 with it off at the same parked vantage - the scene's own
 // ~24 FPS is the ceiling there, not the volumes.
+// 1.56.0 (the console can be switched off from the desk - Build > Power Off
+// PS2, docs/ps2link-setup.md): the capability was there the whole time and
+// nothing exposed it. ps2link answers PKO_POWEROFF_CMD (0xbabe0204) on the same
+// UDP command port `reset` arrives on, with PoweroffShutdown() out of the
+// resident poweroff.irx - the registered shutdown callbacks (ps2dev9 parks the
+// expansion bay) and then the CDVD registers that drop the power rails, i.e.
+// the power button's own shutdown. Upstream ps2link, untouched by tyrax.patch;
+// the r4 priority fix is what makes it reach a console with a game on it,
+// because the command thread sits above the host: server a game polls ten times
+// a frame. So this is one Runner verb and one menu item, not a patch revision -
+// no r7, and every flashed card that can be Stopped can be powered off.
+//
+// Runner::powerOffPs2 clears the file server through claimPs2Channel first and
+// refuses on the same ownership rule as Stop, with more reason: a console
+// another editor is deploying to cannot be recovered from this PC once it is
+// off. The report is deliberately not a success claim - the command is
+// fire-and-forget UDP like every other one, so a console that was already off
+// answers identically, and the log says the standby light is the confirmation.
+//
+// Verified in three layers. The wire: a UDP listener bound to 127.0.0.1:18194
+// received `ba be 02 04 00 06` from the exact command line the Runner builds -
+// the command byte ps2link's cmdListener switches on. The editor:
+// `--ui-script "click Build; click 'Power Off PS2'"` against a scratch project
+// pointed at loopback put the same six bytes on that listener and logged
+// "[editor] Power-off sent...". THE CONSOLE: on real hardware, with an EE
+// payload resident (tools/silencer, deployed by execee) and a stray ps2client
+// holding the channel, the button reaped the orphan by its command line, sent
+// the command, and the PS2 went dark - `execee` returned ZERO console output
+// afterwards (the only liveness check that means anything here), ping went from
+// replying to "destination host unreachable" and the ARP entry vanished, which
+// is a machine with its NIC unpowered and not a wedge. What is still untested
+// is the same thing against a full game deploy, i.e. an EE polling host: ten
+// times a frame: that is the case the r4 priority fix is for, and the argument
+// for it is the source, not a measurement.
+//
+// MINOR: a new user-visible action, nothing on disk changes shape.
+//
 // 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
 // both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
 // dev checkout's build leftovers are not content" - and
@@ -1032,7 +1069,7 @@
 // volume - the GS cannot count like a stencil, which is also why true
 // mesh-shaped volumes (a bed's slats) need the era's full arrangement
 // (count in a spare color channel with add/sub blending + a resolve pass)
-// and are left as the named next step (landed in 1.56.0, further up this file).
+// and are left as the named next step (landed in 1.57.0, further up this file).
 //
 // 1.39.3 (thin things are transparent to the torch, in all three systems):
 // stand exactly on the street lamp's axis and the light died completely -
@@ -2035,7 +2072,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 60
+#define TYRAX_VERSION_MINOR 61
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

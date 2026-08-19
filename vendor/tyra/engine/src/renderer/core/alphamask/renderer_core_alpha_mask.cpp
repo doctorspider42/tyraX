@@ -111,7 +111,7 @@ void RendererCoreAlphaMask::allocateCount() {
   // right and the destination format is innocent. And a paired sweep, ONE
   // knob apart, over the same eight vantages of examples/night-walk at 16-bit
   // colour: with countResolve() binding TBP0 to the SLID band base (what this
-  // file did until 1.58.1) the marks are on 8 of 8 frames, 800-4800 pixels
+  // file did until 1.59.1) the marks are on 8 of 8 frames, 800-4800 pixels
   // each; with TBP0 at the band's OWN base they are on 0 of 8, and flipping
   // the knob back brings them straight back. The columns are the ones a
   // console screenshot from the field showed, to within two pixels.

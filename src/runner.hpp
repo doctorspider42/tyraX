@@ -38,6 +38,13 @@ public:
     // Stops the game running on the console: kills the ps2client file server
     // and resets ps2link, so the PS2 reboots back into its listening state.
     void stopPs2(const Project& p);
+    // Switches the CONSOLE off, the way its own power button does: kills the
+    // file server, then `ps2client poweroff`, which ps2link answers on the IOP
+    // with PoweroffShutdown() - the registered shutdown callbacks (ps2dev9
+    // parks the expansion bay) and then the CDVD cutting the power rails.
+    // Nothing answers afterwards, so the next deploy needs somebody to switch
+    // it back on by hand.
+    void powerOffPs2(const Project& p);
     // Closes the running PCSX2 instance that is booting THIS project's ELF (the
     // editor does not keep the emulator's handle after launch, so it is found by
     // the -elf path on its command line). Best-effort and instant; a no-op when

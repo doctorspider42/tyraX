@@ -782,6 +782,58 @@ void Runner::stopPs2(const Project& p) {
     });
 }
 
+// Switches the console off. This is ps2link's own `poweroff` command, not
+// anything this repo added to the patch: ps2client sends PKO_POWEROFF_CMD, the
+// IOP command thread answers it with PoweroffShutdown() from the resident
+// poweroff.irx, that runs the registered shutdown callbacks (ps2dev9's, which
+// parks the expansion bay) and then writes the CDVD registers that cut the
+// power. It is the same shutdown the console's own power button performs, and
+// it reaches a console with a game on it because the command thread runs at
+// USER_HIGHEST_PRIORITY - the priority fix r4 made for Stop (docs/ps2link-setup.md).
+//
+// The file server goes first for the same reason Stop kills it first, and the
+// same refusal applies with more force: powering off a console another editor
+// is deploying to would end their session on a button that promises to end
+// yours - and theirs cannot be recovered from this PC at all.
+void Runner::powerOffPs2(const Project& p) {
+    if (busy()) return;
+    join();
+    cancelRequested_ = false;
+    state_ = State::Running;
+    thread_ = std::thread([this, p] {
+        if (p.ps2LinkIp.empty()) {
+            appendLine("[editor] No PS2 address configured - set 'PS2 (ps2link) "
+                       "IP' in Edit > Preferences.");
+            state_ = State::Failed;
+            return;
+        }
+        appendLine("[editor] Switching the PS2 at " + p.ps2LinkIp + " off...");
+        if (!claimPs2Channel(p)) {
+            appendLine("[editor] Not powering the console off - the game running "
+                       "on it belongs to the session named above.");
+            state_ = State::Failed;
+            return;
+        }
+        const std::string client = findPs2Client();
+        if (exec(platform::shellArg(client) + " -h " + p.ps2LinkIp +
+                     " -t 10 poweroff",
+                 "") != 0) {
+            appendLine("[editor] Could not reach ps2link at " + p.ps2LinkIp + ".");
+            state_ = State::Failed;
+            return;
+        }
+        // Same fire-and-forget UDP as reset and execee: ps2client cannot tell a
+        // console that took the command from one that was never there, and this
+        // one deliberately has no witness to listen with - a console that obeys
+        // stops answering by definition. The light on the front is the report.
+        appendLine("[editor] Power-off sent. The command is fire-and-forget UDP, "
+                   "so the console's standby light is the only confirmation "
+                   "there is - and a console that was already off answers "
+                   "exactly the same way.");
+        state_ = State::Success;
+    });
+}
+
 void Runner::stopEmulator(const Project& p) {
     if (busy()) return;
     join();
