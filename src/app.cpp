@@ -935,6 +935,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawTextureAtlasWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
@@ -1641,6 +1642,17 @@ void App::drawMenuBar() {
                     "add and change objects, write flow graphs, switch scenes\n"
                     "and open windows. Uses the AI backend from Edit >\n"
                     "Preferences; every change it makes is one Ctrl+Z away.");
+            if (ImGui::MenuItem("Texture Atlas...")) {
+                showTextureAtlas_ = true;
+                atlasPlanDirty_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What the build packed into shared texture pages, what it\n"
+                    "refused and why, and what it costs in GS VRAM - plus the\n"
+                    "per-texture keep-out and grouping controls. A page is ONE\n"
+                    "allocation and ONE palette, so what shares one is worth\n"
+                    "looking at.");
             if (ImGui::MenuItem("Asset Browser...")) {
                 showAssetBrowser_ = true;
                 scanAssetTree();
@@ -4543,6 +4555,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
     if (key == "blss") return &showBlss_;
+    if (key == "atlas") return &showTextureAtlas_;
     if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
@@ -4566,7 +4579,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss",
+    "credits",  "vu",       "chat",     "blss",     "atlas",
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
@@ -14607,12 +14620,15 @@ void App::drawPreferencesWindow() {
     ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
     prefHelp(
         "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
-        "pages at build: one GS VRAM allocation (+~8 KB overhead) per page\n"
-        "instead of per texture, fewer texture switches. Conservative - tiled\n"
-        "terrain textures, emitters, decals, sphere maps and textures whose\n"
-        "model UVs leave 0..1 keep their own files. Palettized projects share\n"
-        "one 256-color palette per page (the era-authentic trade). The boot\n"
-        "log prints what was packed.");
+        "pages at build: one GS VRAM allocation per page instead of one per\n"
+        "texture, and fewer texture switches. Conservative - tiled terrain\n"
+        "textures, emitters, decals, sphere maps and textures whose model UVs\n"
+        "leave 0..1 keep their own files.\n"
+        "It does NOT always save bytes: a page is quantized as one image, so\n"
+        "in a palettized project its members go up to 8 bits per pixel while\n"
+        "the page is a full allocation whatever it holds. Tools > Texture\n"
+        "Atlas prints both numbers, says why each texture was refused, and is\n"
+        "where a texture is kept out or put in a group of your own.");
 
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"

@@ -233,6 +233,7 @@ add_executable(tyrax-editor
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
+    src/atlas_ui.cpp
     src/procui.cpp
     src/vu_ui.cpp
     src/props_ui.cpp

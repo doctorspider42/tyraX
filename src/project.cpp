@@ -1838,6 +1838,33 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// Per-texture atlas control: keep-out and author-declared groups
+// (docs/texture-atlasing.md). Conditional like every per-asset map - a
+// project that never touched it writes no key.
+static void writeAtlasSection(std::ostream& json, const Project& p) {
+    bool any = false;
+    for (const auto& [tex, c] : p.atlasControl)
+        any |= c.keepOut || !c.group.empty();
+    if (!any) return;
+    json << "\"atlasControl\": {";
+    bool first = true;
+    for (const auto& [tex, c] : p.atlasControl) {
+        if (!c.keepOut && c.group.empty()) continue;
+        json << (first ? " " : ", ") << "\"" << jsonEscape(tex) << "\": {";
+        bool inner = false;
+        if (c.keepOut) {
+            json << " \"keepOut\": true";
+            inner = true;
+        }
+        if (!c.group.empty())
+            json << (inner ? ", " : " ") << "\"group\": \""
+                 << jsonEscape(c.group) << "\"";
+        json << " }";
+        first = false;
+    }
+    json << " }";
+}
+
 // Also conditional: no custom LOD meshes = no key at all.
 static void writeModelLodsSection(std::ostream& json, const Project& p) {
     if (p.modelLods.empty()) return;
@@ -3055,6 +3082,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
         case Section::ModelLods: writeModelLodsSection(ss, p); break;
         case Section::ModelAo: writeModelAoSection(ss, p); break;
+        case Section::Atlas: writeAtlasSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -5558,6 +5586,20 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
     }
 }
 
+static void readAtlasSection(const json::Value& root, Project& out) {
+    out.atlasControl.clear();
+    if (const auto* ac = root.find("atlasControl");
+        ac && ac->type == json::Value::Type::Object) {
+        for (const auto& [tex, v] : ac->obj) {
+            if (v.type != json::Value::Type::Object) continue;
+            Project::AtlasControl c;
+            if (const auto* k = v.find("keepOut")) c.keepOut = k->boolOr(false);
+            if (const auto* g = v.find("group")) c.group = g->stringOr("");
+            if (c.keepOut || !c.group.empty()) out.atlasControl[tex] = c;
+        }
+    }
+}
+
 static void readModelLodsSection(const json::Value& root, Project& out) {
     out.modelLods.clear();
     if (const auto* ml = root.find("modelLods");
@@ -6338,6 +6380,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::TexQuality: readTexQualitySection(root, p); break;
         case Section::ModelLods: readModelLodsSection(root, p); break;
         case Section::ModelAo: readModelAoSection(root, p); break;
+        case Section::Atlas: readAtlasSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -6498,6 +6541,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAudioSection(root, out);
 
     readTexQualitySection(root, out);
+    readAtlasSection(root, out);
     readModelLodsSection(root, out);
     readModelAoSection(root, out);
     readModelUnitsSection(root, out);

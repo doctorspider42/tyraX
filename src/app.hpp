@@ -42,6 +42,7 @@
 #include "placement.hpp"
 #include "prefab.hpp"
 #include "project.hpp"
+#include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
 #include "session.hpp"
@@ -1936,6 +1937,15 @@ private:
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
+    // Tools > Texture Atlas (docs/texture-atlasing.md, src/atlas_ui.cpp): what
+    // the packer merged with what, why a texture was refused, and the VRAM
+    // arithmetic. The plan reads every candidate image off disk, so it is
+    // cached and recomputed only when something that feeds it changes.
+    bool showTextureAtlas_ = false;
+    bool atlasPlanDirty_ = true;
+    texatlas::Plan atlasPlan_;
+    texatlas::VramEstimate atlasVram_;
+    void drawTextureAtlasWindow();
     gibake::Baker giBaker_;
     // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
     // object's texture, from the button in Properties. Async because the bounce

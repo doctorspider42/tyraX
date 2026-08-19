@@ -86,8 +86,14 @@ bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
             std::string tex = toks.empty() ? "" : toks.back();
             for (char& c : tex)
                 if (c == '\\') c = '/';
-            if (!tex.empty() && tex.find('/') == std::string::npos) {
-                if (const texatlas::Entry* en = plan.find(dirRel + "/" + tex)) {
+            // Resolve the token against the .mtl's directory - a
+            // subdirectory reference ("Textures/wall.png") is an ordinary
+            // member now, and the page it is redirected to still sits in
+            // this .mtl's own folder, so the line stays same-directory.
+            if (!tex.empty()) {
+                const std::string rel =
+                    (fs::path(dirRel) / tex).lexically_normal().generic_string();
+                if (const texatlas::Entry* en = plan.find(rel)) {
                     // eligibility rejected tiling/options, so the line can
                     // be regenerated plain
                     out << "map_Kd "

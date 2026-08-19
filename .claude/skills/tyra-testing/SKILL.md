@@ -152,6 +152,7 @@ TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
 TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
 TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
+TYRAX --atlas-report <projectDir>    # what texture atlasing packed, refused (with reasons), and costs
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]

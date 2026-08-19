@@ -3063,6 +3063,23 @@ struct Project {
     // asset, not a reference to one, and counting it as a use would make every
     // imported model read as used.
     std::map<std::string, int> modelAoMode;
+    // Per-TEXTURE atlas control (docs/texture-atlasing.md), keyed by the
+    // texture's res-relative path ("res/models/kenney/Textures/wall.png").
+    // Two independent decisions, both absent by default:
+    //   keepOut - never pack this texture into a page. The escape hatch for
+    //     a texture whose colours must not share a page's palette, or that a
+    //     streamed layer should be able to drop on its own. (Pinning a
+    //     per-asset textureQuality has always had this side effect; this is
+    //     the same decision said out loud.)
+    //   group - pack it with everything carrying the SAME group name instead
+    //     of with its .mtl's directory. A page is one allocation and one
+    //     shared palette, so grouping should follow what is on screen
+    //     together - which the folder layout only approximates.
+    struct AtlasControl {
+        bool keepOut = false;
+        std::string group;
+    };
+    std::map<std::string, AtlasControl> atlasControl;
     // Real-world size of an imported model, keyed by its asset path:
     // how many METERS one unit of the file measures. An entry exists only
     // for models whose real size is known - written when a model is imported
@@ -3529,6 +3546,7 @@ enum class Section {
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
+    Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -3540,7 +3558,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 22,
+static_assert(kSectionCount == 23,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

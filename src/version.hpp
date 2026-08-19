@@ -16,6 +16,42 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.59.0 (texture atlasing gets a window, a report and two knobs -
+// docs/texture-atlasing.md): the feature was one checkbox and one line in the
+// boot log. Nothing said which textures shared a page, so nothing warned that
+// a page had merged two rooms' props into one allocation both must then keep
+// resident; nothing said when a texture was silently disqualified; and the
+// claim it saves VRAM was never measured.
+//
+// Measured now, on examples/night-walk (a 4-bit project): its members cost
+// 16 KB unpacked and 65 KB as a page - atlasing COSTS 49 KB there, because a
+// page is quantized as ONE image (members go 4 -> 8 bpp) and is a full
+// allocation whatever it holds. It still buys fewer allocations and fewer
+// texture switches; it does not buy bytes in that project, and the window and
+// --atlas-report print both sides in green or amber instead of asserting a
+// saving. The old "+~8 KB overhead per texture" line in the docs and the
+// tooltip described an engine that has not charged that padding since
+// getSize() was fixed.
+//
+// Four things landed with it:
+//  - Tools > Texture Atlas (src/atlas_ui.cpp): pages with a preview and their
+//    members, every refused texture WITH THE REASON, the VRAM arithmetic, and
+//    a warning when one page's members are used by more than one scene - the
+//    "different parish" case, where a page is one allocation and both scenes
+//    hold each other's textures resident.
+//  - tyrax-editor --atlas-report <dir>: the same, headless, plus a
+//    machine-readable [atlas] line.
+//  - Per-texture control (Project::atlasControl, format v32): KEEP OUT (never
+//    pack it) and GROUP (pack it with everything of the same name instead of
+//    with its .mtl's folder), both authored in that window.
+//  - Packing rules: a SUBDIRECTORY map_Kd token is a member now (refusing
+//    those silently disqualified every asset pack with a Textures/ folder -
+//    night-walk atlased NOTHING with the feature on, and said so nowhere);
+//    members are bucketed by average hue within a group so one page's shared
+//    CLUT is not split between clashing images; and a page that ends up with a
+//    single member is dropped, because a lone texture on a 256x256 page pays a
+//    whole page and loses its own palette for nothing.
+//
 // 1.58.2 (mesh shadow volumes come back to 16-bit colour, and the reason they
 // left was a misdiagnosis): 1.58.0 refused the counting path at 16-bit because
 // the resolve laid dashed green marks down two fixed screen columns, and blamed
@@ -1958,8 +1994,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 58
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 59
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2239,7 +2275,16 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 31;
+// v32 (per-texture atlas control, docs/texture-atlasing.md): the
+// "atlasControl" section - per texture, an optional "keepOut" (never pack it
+// into a page) and an optional "group" (pack it with everything carrying the
+// same name instead of with its .mtl's directory). A page is ONE VRAM
+// allocation and ONE shared palette, so what shares one is a judgement about
+// the scene, and it used to be inferred from the folder layout alone. Written
+// only for textures that carry a decision and the whole section is omitted
+// while empty, so a project that never opens the Texture Atlas window resaves
+// byte for byte. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 32;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

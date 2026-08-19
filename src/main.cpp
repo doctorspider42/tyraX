@@ -40,6 +40,7 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "texatlas.hpp"
 #include "runner.hpp"
 
 // tyrax-editor.exe --debug-state
@@ -604,6 +605,69 @@ static int listNodesFromCli(int argc, char** argv) {
     // agent needs - print the whole prompt minus nothing: it also documents
     // the JSON schema and link rules --apply-graph validates against.
     std::printf("%s", aigen::systemPrompt(p, -1).c_str());
+    return 0;
+}
+
+// tyrax-editor.exe --atlas-report <projectDir>
+// What the texture atlas did, and to whom (docs/texture-atlasing.md). The
+// headless twin of Tools > Texture Atlas: pages with their group and their
+// members, every rejected texture WITH THE REASON, and the VRAM arithmetic.
+// It exists because "one checkbox and a log line" is not a feature anyone can
+// judge - the shipped night-walk example atlased nothing at all and said so
+// nowhere.
+static int atlasReportFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --atlas-report <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (!p.settings.textureAtlas) {
+        std::printf("Texture atlasing is OFF for this project.\n");
+        return 0;
+    }
+    const texatlas::Plan plan = texatlas::plan(p);
+    const texatlas::VramEstimate v = texatlas::vram(plan, p);
+    std::printf("%s\n", plan.empty() ? "Texture atlas: nothing qualified"
+                                     : texatlas::info(plan).c_str());
+    for (size_t i = 0; i < plan.pages.size(); ++i) {
+        const std::string& grp = plan.groupOf((int)i);
+        std::string label;
+        if (!grp.empty() && grp[0] == '@')
+            label = "   [group " + grp.substr(1) + "]";
+        std::printf("\npage %zu  %s%s\n", i, plan.pages[i].c_str(),
+                    label.c_str());
+        for (const texatlas::Entry& e : plan.entries)
+            if (e.page == (int)i)
+                std::printf("    %-52s %3dx%-3d at %3d,%-3d\n",
+                            e.resRel.c_str(), e.w, e.h, e.x, e.y);
+    }
+    if (!plan.excluded.empty()) {
+        std::printf("\nnot atlased (%zu):\n", plan.excluded.size());
+        for (const texatlas::Excluded& e : plan.excluded)
+            std::printf("    %-52s %s\n", e.resRel.c_str(), e.reason.c_str());
+    }
+    if (!plan.empty()) {
+        std::printf(
+            "\nGS VRAM for these textures: %d KB unpacked, %d KB as pages "
+            "(%s%d KB)\n",
+            v.membersKb, v.pagesKb, v.savedKb >= 0 ? "saves " : "COSTS ",
+            v.savedKb >= 0 ? v.savedKb : -v.savedKb);
+        if (v.savedKb < 0)
+            std::printf(
+                "    A page is quantized as ONE image, so in a %s project "
+                "its members\n    go up to 8 bits per pixel: atlasing pays "
+                "off here in batching and\n    allocation count, not in "
+                "bytes.\n",
+                p.settings.textureQuant.c_str());
+    }
+    std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
+                plan.pages.size(), plan.entries.size(), plan.excluded.size(),
+                v.savedKb);
     return 0;
 }
 
@@ -3407,6 +3471,8 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--list-nodes") == 0)
         return listNodesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--atlas-report") == 0)
+        return atlasReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
