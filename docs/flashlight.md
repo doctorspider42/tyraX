@@ -287,7 +287,7 @@ shadow volumes*), because the two answers trade different things:
 | Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **mesh**, silhouette-extruded (boxes only past 1200 triangles) |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
 | Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
-| Cost | four 64×64 silhouette renders | the volume fill each frame + 448 KB of GS VRAM for the count buffer |
+| Cost | four 64×64 silhouette renders | the volume fill each frame + a 512 KB count band (32-bit colour; none at 16-bit, where the volumes fall back to convex boxes) |
 
 Volumes are the survival-horror era's own arrangement, on its own hardware
 trick. Each occluder is extruded away from the torch into a closed volume — a

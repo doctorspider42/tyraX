@@ -14639,16 +14639,20 @@ void App::drawPreferencesWindow() {
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
     prefHelp(
-        "How the player's torch throws shadows (docs/flashlight.md).\n"
-        "OFF - silhouette slots: mesh-accurate shadow shapes rendered from\n"
-        "the torch, but only for objects with 'Cast shadow (projected)', at\n"
-        "most four at once, and light still leaks through everything else.\n"
+        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md). Scene\n"
+        "lights - point and spot - are not affected: they cast through the\n"
+        "four projected-shadow slots in both modes and never use volumes.\n"
+        "OFF - the torch shares those slots: mesh-accurate silhouettes, but\n"
+        "only for objects with 'Cast shadow (projected)', at most four casters\n"
+        "for every light together, and light leaks through everything else.\n"
         "ON - shadow volumes, the survival-horror era's own arrangement:\n"
-        "every solid in the beam occludes, exactly per pixel against the\n"
-        "real depth buffer - model casters from their REAL triangles\n"
-        "(silhouette-extruded, stencil-counted in a dedicated buffer),\n"
-        "primitives from their boxes. Costs the volume fill each frame\n"
-        "plus 448 KB of GS VRAM for the counting buffer.");
+        "every solid in the beam occludes, exactly per pixel against the real\n"
+        "depth buffer - model casters from their REAL triangles (silhouette-\n"
+        "extruded, counted in a dedicated GS buffer), primitives from their\n"
+        "boxes - and the four slots are left to the scene's lights. Costs the\n"
+        "volume fill each frame plus a 512 KB count band at 32-bit colour; at\n"
+        "16-bit colour the counting is refused and the volumes fall back to\n"
+        "fitted convex boxes, no band (see the docs for why).");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
