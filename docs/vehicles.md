@@ -548,6 +548,7 @@ stores the name, so it has to.
 | R1 | nitrous, when the definition has a tank |
 | Triangle | cycle the camera |
 | left stick X | steer |
+| right stick | orbit the camera around the car (X) and lift the boom (Y); springs back on release |
 
 These are **raw pad reads**, which is a known deviation from this repo's rule that
 gameplay goes through named Input Map actions (docs/input-bindings.md) — only USE
@@ -564,6 +565,14 @@ does. The whole set wants to become `InputAction::Role`s; see docs/backlog.md.
   throws the whole view sideways and the car feels like it has let go. The same rig
   with the two opposite decisions is the reason to have both.
 - **2 far** — the chase rig at 1.9x the distance and 1.6x the height.
+
+The **right stick orbits the rig** (X walks around the car — a full circle in
+about two seconds at full deflection — Y lifts or sinks the boom), and both
+offsets **spring back to zero on release**: the stick is a glance at a rival
+or an apex, never a re-aim. The car stays the look-at, so the orbit cannot
+lose it, and the bumper cam ignores the stick on purpose — its whole point is
+being bolted to the body. Signs follow the steering stick's convention (stick
+right looks around the right side; stick up climbs and looks down).
 
 ## Where the code lives
 

@@ -36,6 +36,7 @@ seat). Press USE again to get out at the driver's door.
 | Circle | handbrake — this is the drift button |
 | R1 | nitrous — this car carries three seconds of it |
 | Triangle | cycle the camera: chase → bumper → far |
+| right stick | look around: orbit the car (X), lift the camera (Y) — springs back behind the car on release |
 
 L1 rather than Square for the brake is deliberate: Square is USE, and a brake
 there would throw the driver out on the same press.

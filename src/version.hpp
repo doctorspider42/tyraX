@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.67.0 (the glance - docs/vehicles.md, "The three cameras"): the right
+// stick orbits the chase/far camera around the car (X, a full circle in ~2 s)
+// and lifts or sinks the boom (Y); both offsets spring back to zero on
+// release, so the stick is a glance at a rival or an apex, never a re-aim.
+// The car stays the look-at, the bumper cam stays bolted to the body on
+// purpose, and the signs follow the steering stick's convention. Verified on
+// PCSX2: mid-drive front-quarter view under stick right, sprung back behind
+// the tail on release. MINOR.
+//
 // 1.66.0 (the world got solid - docs/vehicles.md): four driver reports, one
 // round. (1) Cars no longer drive INSIDE objects: the wall test grew from
 // four corners to eight points (a pillar narrower than the corner spacing
@@ -2079,7 +2088,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 66
+#define TYRAX_VERSION_MINOR 67
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

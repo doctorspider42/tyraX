@@ -27688,6 +27688,11 @@ static std::string vehicleMembers(const Project& p) {
   int vehicleCount_ = 0;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
+  // Right-stick look-around, degrees AROUND the boom yaw and a height bias.
+  // Both spring back to zero when the stick is released - the stick lets the
+  // driver check a rival or an apex, it never re-aims the rig for good.
+  float vehCamOrbit_ = 0.0F;
+  float vehCamLift_ = 0.0F;
   int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
@@ -28645,6 +28650,40 @@ void TerrainGame::updateVehicles(float dt) {
       vehCamYaw_ += dyaw * k;
       if (engine->pad.getClicked().Triangle)
         vehCamMode_ = (vehCamMode_ + 1) % 3;
+      // The RIGHT stick orbits the camera around the car (X) and lifts or
+      // drops the boom (Y). Held, it looks - full deflection walks the whole
+      // way around in about two seconds; released, both offsets spring back
+      // behind the car, so the stick is a glance, not a mode. The signs
+      // follow the steering stick's convention (h=0 is left, and left must
+      // orbit left); Y up looks down on the car, Y down sinks toward the
+      // bumper. The car stays the look-at, so the orbit never loses it.
+      {
+        const auto& rj = engine->pad.getRightJoyPad();
+        const float rx = ((float)rj.h - 128.0F) / 128.0F;
+        const float ry = ((float)rj.v - 128.0F) / 128.0F;
+        if (rx > 0.15F || rx < -0.15F)
+          vehCamOrbit_ -= rx * 180.0F * dt;
+        else {
+          // Spring home through the SHORT way, fast enough to feel snappy
+          // and slow enough to read as a camera, not a cut.
+          const float back = 260.0F * dt;
+          if (vehCamOrbit_ > back) vehCamOrbit_ -= back;
+          else if (vehCamOrbit_ < -back) vehCamOrbit_ += back;
+          else vehCamOrbit_ = 0.0F;
+        }
+        while (vehCamOrbit_ > 180.0F) vehCamOrbit_ -= 360.0F;
+        while (vehCamOrbit_ < -180.0F) vehCamOrbit_ += 360.0F;
+        if (ry > 0.15F || ry < -0.15F) {
+          vehCamLift_ -= ry * 2.2F * dt;
+          if (vehCamLift_ > 1.0F) vehCamLift_ = 1.0F;
+          if (vehCamLift_ < -0.55F) vehCamLift_ = -0.55F;
+        } else {
+          const float back = 2.6F * dt;
+          if (vehCamLift_ > back) vehCamLift_ -= back;
+          else if (vehCamLift_ < -back) vehCamLift_ += back;
+          else vehCamLift_ = 0.0F;
+        }
+      }
 
       // The three cameras. The chase pair ride the LAGGING boom yaw, which is
       // what makes a slide visible - the body rotates under the camera. The
@@ -28653,7 +28692,8 @@ void TerrainGame::updateVehicles(float dt) {
       // go. Same rig, two opposite choices, and that contrast is the reason to
       // have both.
       const float bodyC = cosf(v.yaw * kDeg), bodyS = sinf(v.yaw * kDeg);
-      const float bc = cosf(vehCamYaw_ * kDeg), bs = sinf(vehCamYaw_ * kDeg);
+      const float rigYaw = vehCamYaw_ + vehCamOrbit_;
+      const float bc = cosf(rigYaw * kDeg), bs = sinf(rigYaw * kDeg);
       float atY = v.pos[1] + s.camHeight * SC * 0.35F;
       if (vehCamMode_ == 1) {
         // Bumper: at the nose, low, looking where the CAR points. Pushed out
@@ -28669,11 +28709,11 @@ void TerrainGame::updateVehicles(float dt) {
       } else {
         // Chase (0) and far (2) differ only in how much rig there is.
         const float dMul = vehCamMode_ == 2 ? 1.9F : 1.0F;
-        const float hMul = vehCamMode_ == 2 ? 1.6F : 1.0F;
+        const float hMul = (vehCamMode_ == 2 ? 1.6F : 1.0F) + vehCamLift_;
         players[0].x = v.pos[0] - bs * s.camDist * SC * dMul;
         players[0].z = v.pos[2] - bc * s.camDist * SC * dMul;
         players[0].y = v.pos[1] + s.camHeight * SC * hMul;
-        players[0].yaw = vehCamYaw_;
+        players[0].yaw = rigYaw;
         cameraPosition.set(players[0].x, players[0].y, players[0].z, 1.0F);
         cameraLookAt.set(v.pos[0], atY, v.pos[2], 1.0F);
       }

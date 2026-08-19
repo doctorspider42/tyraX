@@ -708,6 +708,11 @@ class TerrainGame : public Tyra::Game {
   int vehicleCount_ = 0;
   int vehicleDriver_ = -1;  // which vehicle the player is in, -1 = on foot
   float vehCamYaw_ = 0.0F;  // chase-cam yaw - follows the car with lag
+  // Right-stick look-around, degrees AROUND the boom yaw and a height bias.
+  // Both spring back to zero when the stick is released - the stick lets the
+  // driver check a rival or an apex, it never re-aims the rig for good.
+  float vehCamOrbit_ = 0.0F;
+  float vehCamLift_ = 0.0F;
   int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
