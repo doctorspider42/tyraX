@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.74.1 (tail lamps in the dark - docs/backlog.md): tail/brake lamps and
+// the DpadUp lights toggle are IN (red quads on the rear face past
+// bodyOverhang, flared by inBrake, per-vehicle lightsOn seeded from the
+// definition), the d-pad lost its driving fallbacks by the author's call,
+// and all light points moved past the bumper overhang (they rendered
+// INSIDE the body mesh - z-tested away, "no lights" while the bag
+// submitted). What still does not show is the lamps themselves: the glow
+// bag provably submits them (telemetry probe) through three blend/winding
+// variants - filed OPEN in the backlog with the evidence and the next
+// probes. PATCH.
+//
 // 1.74.0 (the visual pack - docs/vehicles.md, "The visual pack"): skid
 // marks (a 96-quad terrain-flat ring under slipping rear wheels, distance
 // paced, colors-only fade so bboxVersion bumps only on spawn), backfire
@@ -2205,7 +2216,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 74
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

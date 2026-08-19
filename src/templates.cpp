@@ -27695,6 +27695,11 @@ static std::string vehicleMembers(const Project& p) {
     float skidAcc = 0.0F;
     float backfireT = 0.0F;
     int fxPrevGear = 0;
+    // Lights: -1 = take the definition's default on first update, else the
+    // driver's DpadUp toggle. brakeOn flares the tail lamps regardless -
+    // brake lights work with the headlights off, like a real car.
+    int lightsOn = -1;
+    int brakeOn = 0;
     // Weight transfer, presentation only - degrees ON TOP of the
     // terrain-derived pitch/roll, never fed back (slope gravity reads the
     // real pitch). Twin of DriveState::leanPitch/leanRoll.
@@ -27785,7 +27790,7 @@ static std::string vehicleMembers(const Project& p) {
   // The GLOW bag - everything a car ADDS light with, one additive submit:
   // backfire flashes at the exhaust on an upshift, and the headlight pools
   // painted on the terrain ahead (the scene lights' ground-pool trick).
-  enum { kVehGlowMax = 12 };
+  enum { kVehGlowMax = 16 };
   Tyra::Vec4 glowVerts_[kVehGlowMax * 6];
   Tyra::Color glowCols_[kVehGlowMax * 6];
   int glowCount_ = 0;
@@ -27982,9 +27987,9 @@ void TerrainGame::renderVehicleGlow() {
     const float SC = v.scale;
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     const float hz = 0.5F * s.wheelBase * SC;
-    if (s.headlights) {
-      const float nx = v.pos[0] + sy * (hz + 0.3F * SC);
-      const float nz = v.pos[2] + cy * (hz + 0.3F * SC);
+    if (v.lightsOn > 0) {
+      const float nx = v.pos[0] + sy * (hz + (s.bodyOverhang + 0.2F) * SC);
+      const float nz = v.pos[2] + cy * (hz + (s.bodyOverhang + 0.2F) * SC);
       const float fx2 = v.pos[0] + sy * (hz + 7.5F * SC);
       const float fz2 = v.pos[2] + cy * (hz + 7.5F * SC);
       const float nw = 0.55F * s.track * SC, fw = 1.1F * s.track * SC;
@@ -27999,15 +28004,58 @@ void TerrainGame::renderVehicleGlow() {
       g[3] = g[0];
       g[4] = g[2];
       g[5].set(fx2 - rxf, terrainHeightAt(fx2 - rxf, fz2 - rzf) + e, fz2 - rzf, 1.0F);
-      const Tyra::Color nearC(52.0F, 48.0F, 30.0F, 128.0F);
-      const Tyra::Color farC(0.0F, 0.0F, 0.0F, 128.0F);
+      const Tyra::Color nearC(210.0F, 200.0F, 140.0F, 64.0F);
+      const Tyra::Color farC(210.0F, 200.0F, 140.0F, 0.0F);
       c[0] = nearC; c[1] = nearC; c[2] = farC; c[3] = nearC; c[4] = farC; c[5] = farC;
       ++glowCount_;
     }
+    // Tail lamps: two small red quads on the rear face. Dim while the
+    // lights are on, FLARED while braking - and braking lights them even
+    // with the headlights off, like the real thing.
+    if ((v.lightsOn > 0 || v.brakeOn) && glowCount_ + 4 <= kVehGlowMax) {
+      const float bright = v.brakeOn ? 1.0F : 0.4F;
+      const float hw = (v.brakeOn ? 0.13F : 0.10F) * SC;
+      const float hh = (v.brakeOn ? 0.10F : 0.07F) * SC;
+      const float hxT = 0.32F * s.track * SC;
+      const float rxu = cy, rzu = -sy;  // unit right
+      // Behind the REAL rear face: the body reaches bodyOverhang past the
+      // axle line, and lamps hung at the axle rendered INSIDE the mesh -
+      // z-tested away, "no lights" on screen while the bag submitted fine.
+      const float rear = hz + (s.bodyOverhang + 0.10F) * SC;
+      for (int side = -1; side <= 1; side += 2) {
+        const float bx = v.pos[0] - sy * rear + rxu * hxT * (float)side;
+        const float bz = v.pos[2] - cy * rear + rzu * hxT * (float)side;
+        const float by = v.pos[1] + 0.10F * SC;
+        const float rx = rxu * hw, rz = rzu * hw;
+        Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
+        Tyra::Color* c = &glowCols_[glowCount_ * 6];
+        g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
+        g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
+        g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
+        g[3] = g[0];
+        g[4] = g[2];
+        g[5].set(bx - rx, by + hh, bz - rz, 1.0F);
+        const Tyra::Color red(235.0F, 22.0F, 16.0F, 110.0F * bright);
+        for (int j = 0; j < 6; ++j) c[j] = red;
+        ++glowCount_;
+        // DOUBLE-SIDED: a vertical quad has a back, and the chase camera
+        // lives exactly on the side the first winding faces away from -
+        // the pool never hit this because it lies flat. The probe said
+        // "3 quads submitted" while the screen said "no lights"; this is
+        // what the difference was.
+        Tyra::Vec4* g2 = &glowVerts_[glowCount_ * 6];
+        Tyra::Color* c2 = &glowCols_[glowCount_ * 6];
+        for (int j = 0; j < 6; ++j) {
+          g2[j] = g[5 - j];
+          c2[j] = red;
+        }
+        ++glowCount_;
+      }
+    }
     if (v.backfireT > 0.0F) {
       const float k = v.backfireT / 0.09F;
-      const float bx = v.pos[0] - sy * (hz + 0.22F * SC);
-      const float bz = v.pos[2] - cy * (hz + 0.22F * SC);
+      const float bx = v.pos[0] - sy * (hz + (s.bodyOverhang + 0.24F) * SC);
+      const float bz = v.pos[2] - cy * (hz + (s.bodyOverhang + 0.24F) * SC);
       const float by = v.pos[1] - 0.02F;
       const float hw = 0.22F * SC * (0.6F + 0.4F * k), hh = 0.18F * SC;
       const float rx = cy * hw, rz = -sy * hw;
@@ -28019,12 +28067,26 @@ void TerrainGame::renderVehicleGlow() {
       g[3] = g[0];
       g[4] = g[2];
       g[5].set(bx - rx, by + hh, bz - rz, 1.0F);
-      const Tyra::Color fire(120.0F * k, 62.0F * k, 14.0F * k, 128.0F);
+      const Tyra::Color fire(240.0F, 130.0F, 30.0F, 120.0F * k);
       for (int j = 0; j < 6; ++j) c[j] = fire;
       ++glowCount_;
+      if (glowCount_ < kVehGlowMax) {
+        Tyra::Vec4* g2 = &glowVerts_[glowCount_ * 6];
+        Tyra::Color* c2 = &glowCols_[glowCount_ * 6];
+        for (int j = 0; j < 6; ++j) {
+          g2[j] = g[5 - j];
+          c2[j] = fire;
+        }
+        ++glowCount_;
+      }
     }
   }
   if (glowCount_ <= 0) return;
+  static int glowLog = 0;
+  if (++glowLog >= 100) {
+    glowLog = 0;
+    TYRA_LOG("VEHGLOW n ", glowCount_);
+  }
   if (!glowBag_) {
     glowInfoBag_ = std::make_unique<StaPipInfoBag>();
     glowInfoBag_->model = &model;
@@ -28032,9 +28094,10 @@ void TerrainGame::renderVehicleGlow() {
     glowInfoBag_->fullClipChecks = true;
     glowInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     glowInfoBag_->zTestType = PipelineZTest_TestOnly;
-    // The additive equation: light is ADDED, never painted over - the
-    // reflective materials' blend, FIX = 128 (+1.0).
-    glowInfoBag_->additiveBlendFix = 128;
+    // Standard alpha-over, the smoke's PROVEN path - the additive FIX
+    // variant submitted five quads the probe could count and the screen
+    // could not see, and a light that only a telemetry line can observe is
+    // not a light. Alpha gradients do the falloff instead.
     glowColorBag_ = std::make_unique<StaPipColorBag>();
     glowColorBag_->many = glowCols_;
     glowBag_ = std::make_unique<StaPipBag>();
@@ -28254,12 +28317,12 @@ void TerrainGame::updateVehicles(float dt) {
       // a chord - reported as "I cannot steer and accelerate at once". The
       // d-pad buttons are independent booleans end to end, so they cannot
       // ghost against each other.
-      if (engine->pad.getPressed().DpadUp) inThrottle = 1.0F;
-      if (engine->pad.getPressed().DpadDown) inThrottle = -1.0F;
-      // Signs match the joy line above, where the negation already lives:
-      // left is joy.h = 0, i.e. inSteer = +1 in this local's convention.
-      if (engine->pad.getPressed().DpadLeft) inSteer = 1.0F;
-      if (engine->pad.getPressed().DpadRight) inSteer = -1.0F;
+      // The D-PAD is free of driving fallbacks now, by the author's call
+      // ("te fallbacki mozesz wywalic") - they were ghost-proofing for
+      // gas-on-the-stick VM keyboards, and the throttle lives on R2 since
+      // 1.69.0. DpadUp toggles the lights; the rest is unbound for future
+      // features.
+      if (engine->pad.getClicked().DpadUp) v.lightsOn = v.lightsOn ? 0 : 1;
       // L1 as the DEFAULT, not Square: Square is USE's default binding, so a
       // brake there would also throw the driver out on the same press.
       // Getting in and slowing down cannot share a button.
@@ -28890,6 +28953,11 @@ void TerrainGame::updateVehicles(float dt) {
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
     if (v.grounded && v.slip > 0.35F) {
+      // Lights bookkeeping: the definition's default lands on the first
+      // update, the brake state feeds the tail lamps (AI brakes flare too -
+      // both drivers fill the same inBrake).
+      if (v.lightsOn < 0) v.lightsOn = s.headlights ? 1 : 0;
+      v.brakeOn = inBrake > 0.01F ? 1 : 0;
       // Backfire: an upshift pops the exhaust for a tenth of a second -
       // the shift sound's visual twin, drawn by the glow bag.
       if (v.gear > v.fxPrevGear && v.fxPrevGear >= 0) v.backfireT = 0.09F;
