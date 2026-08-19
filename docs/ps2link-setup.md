@@ -428,7 +428,7 @@ Ports, if a firewall is in the way:
 | Port | Direction | What |
 |---|---|---|
 | TCP 18193 | PC → console | the file-request socket ps2link listens on; `ps2client` connects to it |
-| UDP 18194 | PC → console | commands (`reset`, `execee`) — fire-and-forget, no ack |
+| UDP 18194 | PC → console | commands (`reset`, `execee`, `poweroff`) — fire-and-forget, no ack |
 | UDP 18194 | console → PC | the console's `printf` output (udptty) — this is what the `[ps2]` lines are |
 
 Because the commands are fire-and-forget, a dead or wrong IP makes `reset` and
@@ -496,6 +496,38 @@ restarts its own image and reloads every IRX before it listens again, and
 landing a game in the middle of that gets a frozen Tyra logo waiting on a pad
 whose driver has not finished its handshake.
 
+### Switching the console off from the desk
+
+**Build > Power Off PS2** does what the console's own power button does. It is
+ps2link's `poweroff` command and not something this repo's patch added: the
+editor runs `ps2client -h <ip> poweroff`, which puts `PKO_POWEROFF_CMD`
+(`0xbabe0204`) on the same UDP command port `reset` uses; the IOP command thread
+answers it with `PoweroffShutdown()` out of the resident `poweroff.irx`, which
+runs the registered shutdown callbacks — `ps2dev9`'s parks the expansion bay, so
+an HDD is not cut off mid-spin — and then writes the CDVD registers that drop the
+power rails. It reaches a console with a game on it for the same reason *Stop*
+does: that thread runs at `USER_HIGHEST_PRIORITY`, above the `host:` file server
+a game polls ten times a frame (the r4 fix above).
+
+It clears the file server first and refuses on the same ownership rule as *Stop*
+and a deploy, only harder: powering off a console another editor is deploying to
+ends a session that cannot be recovered from this PC at all.
+
+Two things to expect. The command is **fire-and-forget UDP like every other
+ps2link command**, so a console that is off, on another address or not running
+ps2link answers exactly like one that obeyed — the standby light is the only
+report there is, and the editor says so rather than claiming success. And
+**nothing on the network can switch it back on**: ps2link is gone with the power,
+so the next `F6` needs somebody at the console.
+
+Measured on hardware (2026-08-19), with an EE payload resident and a stray
+`ps2client` holding the channel: the button reaped the orphan by its command
+line, sent the command, and the console went dark. Afterwards `execee` produced
+**no console output at all** — the liveness check that means something here —
+ping went from replying to *destination host unreachable*, and the ARP entry
+disappeared, which is a machine whose NIC has lost power rather than a wedged
+one (a wedge still answers ARP and usually ping).
+
 ## When it does not work
 
 | What you see | What it means |
@@ -521,6 +553,7 @@ whose driver has not finished its handshake.
 | Both drivers "ready" but nothing responds | The devices. `ps2kbd`/`ps2mouse` only speak the USB HID **boot protocol**; test them in uLaunchELF first. |
 | Devkit panels frozen, game still running | The editor (and with it `ps2client`) was closed. Redeploy. Before 1.22.0 a deploy of *any other* project did this to you too — see [One file server at a time](#one-file-server-at-a-time). |
 | `[editor] The ps2link channel is already taken: ps2client pid N serving host:<other>.elf` | Another editor is holding the file server; the deploy refused rather than killing its session. *Stop on PS2* in the editor it names, or close it, then run again. |
+| *Power Off PS2* says the command was sent and the console stays on | The packet went nowhere — wrong IP, console not in ps2link, link down. The command has no ack, so "sent" only ever means "the PC put it on the wire" ([above](#switching-the-console-off-from-the-desk)). |
 | `[editor] Reaping an orphaned file server` | A `ps2client` was left behind by an editor that is no longer running. Expected after a crash; the deploy continues. |
 
 ## Changing the patch
