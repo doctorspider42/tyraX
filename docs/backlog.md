@@ -289,6 +289,14 @@ gaps, each with a testable end:
   picks a path to a moving target) would go through navigation.gen.cpp the way
   the walkers do, and that is its own feature. Also still open: several AI
   cars avoiding EACH OTHER, which today they do not.
+- **The Runner's stale-emulator matcher misses a QUOTED -elf.** A PCSX2
+  launched out-of-band with `-elf '<path>'` (single quotes, as a shell passes
+  it) survived many `--build --run` cycles of the same project - two instances
+  then interleave writes into one bin/log.txt and both poll one livepad.bin,
+  which cost an hour of "the pad is dead / the car is not at spawn" phantoms
+  before `ps aux` told the truth. killEmulatorsFor should normalise quoting
+  before matching, and a diagnostic "N other emulator(s) on this ELF" line in
+  the Runner would have named it immediately.
 - **A car can escape the arena through a wall corner-case.** Observed once,
   machine-logged: after a long east-wall grind at (149..150, z varying), a
   reverse-plus-full-lock manoeuvre at the wall left the car at x=154 - BEYOND

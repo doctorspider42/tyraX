@@ -16,6 +16,15 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.65.2 (the wheel stays owned - docs/vehicles.md): the suspension's visual
+// clamp was symmetric, so on a crest a wheel could hang a FULL
+// suspensionTravel below the body (x1.5 instance scale = 0.27 units of
+// daylight) - "kolo za bardzo potrafi odejsc od karoserii". The clamp is
+// asymmetric now: full travel in compression, 45% in droop - real suspension
+// droops less than it compresses, a tyre still shows daylight on a crest, the
+// wheel just keeps reading as part of the car. One line, verified on a dune
+// saddle capture. PATCH.
+//
 // 1.65.1 (the body finally lifts its nose - docs/vehicles.md): the sim's
 // pitch is "positive = front higher" (slope gravity reads sin(pitch) with
 // that sign and has decelerated every climb correctly since day one), but a
@@ -2042,7 +2051,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 65
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

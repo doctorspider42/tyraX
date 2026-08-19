@@ -14057,7 +14057,13 @@ void TerrainGame::renderVehicleWheels() {
       // at full droop. rideHeight = wheelRadius keeps the flat-ground case
       // exactly where it always was.
       float ay = v.wheelY[w] + s.wheelRadius * SC;
-      const float lo = v.pos[1] - s.suspensionTravel * SC;
+      // ASYMMETRIC clamp: full travel in compression (a kerb shoves a wheel
+      // up into the arch), but only 45% in DROOP - a wheel hanging a whole
+      // travel below the body reads as falling off the car, which is exactly
+      // how it was reported ("kolo za bardzo potrafi odejsc od karoserii").
+      // Real suspension droops less than it compresses; the car still shows
+      // daylight under a tyre on a crest, it just keeps the wheel owned.
+      const float lo = v.pos[1] - s.suspensionTravel * SC * 0.45F;
       const float hi = v.pos[1] + s.suspensionTravel * SC;
       if (ay < lo) ay = lo;
       if (ay > hi) ay = hi;

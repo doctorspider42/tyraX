@@ -148,9 +148,11 @@ everything else a scene does.
 - **Suspension compression is presentation**, derived from each wheel's ground
   height against the *tilted* chassis plane — the residual the pitch and roll do
   not already express. On the console the wheel bag actually DRAWS it: each hub
-  rides one radius above its own wheel's sampled ground, clamped to
-  `suspensionTravel` around the chassis, so a kerb lifts one corner, a crest
-  drops the pair, and in the air all four hang at full droop. (The editor's
+  rides one radius above its own wheel's sampled ground, clamped
+  **asymmetrically** — full `suspensionTravel` in compression, 45% in droop.
+  A kerb still shoves a wheel up into the arch and a crest still shows daylight
+  under a tyre, but a wheel hanging a whole travel below the body read as
+  falling off the car, which is exactly how it was reported. (The editor's
   preview keeps the wheels at ride height — a known, stated divergence.) Measured against the mean instead, a constant slope reads
   as fully compressed at one axle and fully extended at the other while the body
   is in fact riding it level. Driving one wheel over a kerb gives
