@@ -28433,7 +28433,13 @@ void TerrainGame::updateVehicles(float dt) {
       o.data.position[0] = v.pos[0];
       o.data.position[1] = v.pos[1];
       o.data.position[2] = v.pos[2];
-      o.data.rotation[0] = v.pitch + v.leanPitch;
+      // NEGATED: the sim's pitch is "positive = nose up" (slope gravity
+      // reads sin(pitch) with that sign and decelerates a climb correctly),
+      // but a positive rotX takes a point at +Z toward -Y - nose DOWN. The
+      // unnegated write had the body pitching INTO every hill while the
+      // wheels rode up it ("przod sie nie podnosi"), and it survived until
+      // the map grew dunes because a flat arena never pitches anything.
+      o.data.rotation[0] = -(v.pitch + v.leanPitch);
       o.data.rotation[1] = v.yaw;
       o.data.rotation[2] = -(v.roll + v.leanRoll);
       // The promotion to the matrix path happens in renderScene and only once

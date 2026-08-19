@@ -289,6 +289,18 @@ gaps, each with a testable end:
   picks a path to a moving target) would go through navigation.gen.cpp the way
   the walkers do, and that is its own feature. Also still open: several AI
   cars avoiding EACH OTHER, which today they do not.
+- **A car can escape the arena through a wall corner-case.** Observed once,
+  machine-logged: after a long east-wall grind at (149..150, z varying), a
+  reverse-plus-full-lock manoeuvre at the wall left the car at x=154 - BEYOND
+  the wall at 152 (box 151.25..152.75) - wedged outside with spd10 0. Straight
+  tunnelling is ruled out (0.75 half-width against <=0.52 u/frame at nitrous
+  top speed); the suspect is the corner sweep during a fast yaw change while
+  REVERSING against the wall: blockedAt tests the corners at the CANDIDATE
+  position, but a pure yaw change moves a corner sideways through geometry
+  with no position delta for the axis-separated slide to refuse. Repro sketch:
+  grind the east wall, then stick-down + full-lock. Fix candidates: also test
+  the corners after the yaw integration (before the move), or refuse the yaw
+  change itself when it would sweep a corner into a solid.
 - **The editor test drive ignores instance scale.** The runtime multiplies
   track, wheelbase, ride height and the camera rig by the placed object's
   uniform scale; the host sim drives the raw spec, so a car authored at scale

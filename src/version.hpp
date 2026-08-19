@@ -16,6 +16,20 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.65.1 (the body finally lifts its nose - docs/vehicles.md): the sim's
+// pitch is "positive = front higher" (slope gravity reads sin(pitch) with
+// that sign and has decelerated every climb correctly since day one), but a
+// positive rotX takes a point at +Z toward -Y - nose DOWN. The unnegated
+// write had the BODY pitching into every hill while the wheels rode up it
+// ("przod sie nie podnosi... dziwnie to wyglada"), and it survived until the
+// map grew dunes because a flat arena never pitches anything. Negated at both
+// writers - the runtime's transform write and the editor test drive's - so
+// the weight transfer now reads correctly on screen too: squat is nose-up,
+// brake dive and the wall-hit dip are nose-down. Found by the user's eye;
+// verified by a dune climb capture and by the rollback physics (a car
+// released mid-climb rolls back down and the reverse gear engages - the
+// slope gravity sign was always right, only the picture lied). PATCH.
+//
 // 1.65.0 (AI drivers - docs/vehicles.md, "AI drivers"): a second car drives
 // itself. The whole feature is proof of one architectural bet placed on day
 // one: `DriveInput` is a struct a CALLER fills, never a pad read - so the AI
@@ -2028,7 +2042,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 65
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
