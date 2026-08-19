@@ -375,6 +375,9 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Front axle to rear axle. The turn radius follows from it, so a longer "
          "vehicle turns wider on its own."},
         {"track", &s.track, 0.4f, 6.0f, "Track", "Left wheel to right wheel."},
+        {"bodyOverhang", &s.bodyOverhang, 0.0f, 3.0f, "Body overhang",
+         "How far the body reaches past the axles at either end - what the "
+         "wall test adds to the wheelbase so the bumper cannot clip a wall."},
         {"wheelRadius", &s.wheelRadius, 0.05f, 2.0f, "Wheel radius",
          "Measured off the baked wheel; drives ride height and how fast the "
          "wheels appear to spin."},
@@ -777,7 +780,11 @@ void step(const DriveSpec& spec, const DriveInput& in, float dt,
     // being glued to them. Per-corner resolution is still off the table: it
     // would rotate a body a kinematic chassis has no way to represent.
     if (solid) {
-        const float hx = 0.5f * spec.track, hz = 0.5f * spec.wheelBase;
+        // The BODY rectangle, not the axle rectangle: the bumpers reach
+        // bodyOverhang past the wheelbase at both ends, and sampling only to
+        // the axles let the bonnet clip a bumper's length into any wall.
+        const float hx = 0.5f * spec.track;
+        const float hz = 0.5f * spec.wheelBase + std::max(spec.bodyOverhang, 0.0f);
         const float lx[8] = {-hx, hx, -hx, hx, 0.0f, 0.0f, -hx, hx};
         const float lz[8] = {hz, hz, -hz, -hz, hz, -hz, 0.0f, 0.0f};
         const float feet = state.pos[1] - spec.rideHeight;

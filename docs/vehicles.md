@@ -141,8 +141,11 @@ everything else a scene does.
   difference *is* the sideways slip, and grip is the cap on how fast the tyres
   kill it. Low slides, high is on rails, and `handbrakeGrip` replaces it while
   the handbrake is held — that is the entire drift knob.
-- **Walls are eight sample points** — the four body corners plus the edge
-  midpoints — through the runtime's own collider set (object boxes, generated
+- **Walls are eight sample points** — the four corners of the BODY rectangle
+  (the wheelbase plus `bodyOverhang`, the bumpers' reach past the axles,
+  measured off the baked body — the axle rectangle alone let the bonnet clip
+  a bumper's length into any wall) plus the edge midpoints — through the
+  runtime's own collider set (object boxes, generated
   prefab boxes, and mesh props), axis-separated so a glancing hit grinds and
   only a head-on stops. Corners alone let anything narrower than the corner
   spacing — a pillar, a post, a thin wall hit end-on — pass *between* the

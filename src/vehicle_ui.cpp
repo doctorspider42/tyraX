@@ -146,6 +146,7 @@ void App::vehicleRefreshBake(int index, bool force) {
             v.drive.track = r_geom(c.result.spec.track, def.track);
             v.drive.wheelRadius = r_geom(c.result.spec.wheelRadius, def.wheelRadius);
             v.drive.rideHeight = r_geom(c.result.spec.rideHeight, def.rideHeight);
+            v.drive.bodyOverhang = r_geom(c.result.spec.bodyOverhang, def.bodyOverhang);
             setDirty(true);
         }
     }

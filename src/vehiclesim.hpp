@@ -117,6 +117,12 @@ struct DriveSpec {
     float wheelBase = 2.0f;
     float track = 1.4f;
     float wheelRadius = 0.32f;
+    // How far the BODY reaches past the axle line at either end - the bumper
+    // overhang. The wall test samples the body rectangle, and without this it
+    // sampled the axle rectangle: the car stopped when its AXLES met the
+    // wall and the bonnet clipped a bumper's length inside ("dalej sie da
+    // wjechac w sciane maska"). Seeded from the baked body's real extent.
+    float bodyOverhang = 0.3f;
 
     // Longitudinal
     float topSpeed = 22.0f;         // units/s forward

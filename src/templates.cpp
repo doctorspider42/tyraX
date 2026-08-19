@@ -28448,7 +28448,12 @@ void TerrainGame::updateVehicles(float dt) {
     // Per-corner resolution stays off the table - it would rotate a body a
     // kinematic chassis cannot represent.
     {
-      const float hx2 = 0.5F * s.track * SC, hz2 = 0.5F * s.wheelBase * SC;
+      // The BODY rectangle, not the axle rectangle (the host twin's rule):
+      // the bumpers reach bodyOverhang past the wheelbase at both ends, and
+      // sampling only to the axles let the bonnet clip into any wall.
+      const float hx2 = 0.5F * s.track * SC;
+      const float hz2 = 0.5F * s.wheelBase * SC +
+                        (s.bodyOverhang > 0.0F ? s.bodyOverhang * SC : 0.0F);
       const float cx[8] = {-hx2, hx2, -hx2, hx2, 0.0F, 0.0F, -hx2, hx2};
       const float cz[8] = {hz2, hz2, -hz2, -hz2, hz2, -hz2, 0.0F, 0.0F};
       const float feet = v.pos[1] - s.rideHeight * SC;

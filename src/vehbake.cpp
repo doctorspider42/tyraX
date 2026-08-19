@@ -568,6 +568,15 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     out.spec.wheelBase = out.detection.wheelBase;
     out.spec.track = out.detection.track;
     out.spec.wheelRadius = out.detection.radius;
+    // The bumper overhang, off the BAKED body: how far it reaches past the
+    // axle line at either end (the body is re-origined to the axle centre,
+    // forward is +Z). This is what the wall test adds to the wheelbase - the
+    // axle rectangle alone let the bonnet clip a bumper's length into walls.
+    {
+        const float over = std::max(out.body.max[2], -out.body.min[2]) -
+                           0.5f * out.detection.wheelBase;
+        if (over > 0.0f) out.spec.bodyOverhang = over;
+    }
 
     // The radius comes from the BAKED wheel, not from the detected one. A
     // quadric collapse pulls a round silhouette inward - measured at 0.380

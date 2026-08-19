@@ -16,6 +16,18 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.0 (the bumper exists - docs/vehicles.md): the wall test sampled the
+// AXLE rectangle, so a car stopped when its axles met the wall and the
+// bonnet clipped a bumper's length inside ("dalej sie da wjechac w sciane
+// maska"). DriveSpec grew bodyOverhang - the bumpers' reach past the axle
+// line, measured off the BAKED body by the import (max extent vs half the
+// wheelbase), seeded like the other measured geometry, editable in the
+// panel like everything in specFields - and both twins sample the body
+// rectangle now. kFormatVersion 41, additive (no migration step: a missing
+// key reads as the 0.3 default, which is a typical sedan). Verified on
+// PCSX2: nose-first into the north wall stops with the bonnet clear.
+// MINOR.
+//
 // 1.69.0 (the car rides the world - docs/vehicles.md): the dig-in bug and
 // the driver's seat rearranged. (1) Wheels (and the chassis) ride OBJECT
 // floors: each ground sample is the max of the terrain and any mountable
@@ -2133,7 +2145,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 69
+#define TYRAX_VERSION_MINOR 70
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2414,7 +2426,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 40;
+inline constexpr int kFormatVersion = 41;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
