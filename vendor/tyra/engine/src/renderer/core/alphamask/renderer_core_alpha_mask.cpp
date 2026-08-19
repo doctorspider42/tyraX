@@ -99,33 +99,33 @@ void RendererCoreAlphaMask::allocateCount() {
   // 5-bit channels: N = 32 stores as 4, so seven overlapping front faces fit
   // before saturation, and a +N/-N pair still cancels at both extremes of the
   // dither matrix because the GS clamps at zero.
-  // ...and at 16-bit colour the counting path is REFUSED outright, which is
-  // why the rest of this function never sees a PSMCT16 frame.
   //
-  // The resolve is an alpha-only masked sprite, and at a PSMCT16 destination
-  // that write is not colour-neutral: it laid dashed green marks - the count
-  // values themselves, read as green - down two fixed screen columns, on the
-  // console and in PCSX2 alike, over whatever the torch had lit. Bisected to
-  // this pass and nothing else: with the resolve's ATEST forced to fail (same
-  // packet, same raster restore, same everything) a 24-vantage sweep scores
-  // 0 green against 14-17 hits for the control. It is not the mask constant -
-  // 0x00FFFFFF protects every colour bit in the RGBA8 positions FBMSK is
-  // always specified in, and the 16-bit PIXEL-layout mask (0x7FFF7FFF) is far
-  // worse: it exposes green's top bit and floods the frame (115 893 px against
-  // ~2 000). Nor the count band's format, the page slide, the volume draws,
-  // DATE, FBA, dithering, the flicker filter or PMODE - each excluded by its
-  // own A/B (docs/flashlight.md).
+  // COUNTING RUNS AT BOTH DEPTHS AGAIN. It was refused at 16-bit for one
+  // release because the resolve laid dashed green marks down two fixed screen
+  // columns over whatever the torch had lit - and the cause was NOT the
+  // masked write at a PSMCT16 destination, which is what that refusal
+  // assumed. Two measurements on a console settled it. A probe drawing the
+  // same flat sprite through four different FBMSK values into a PSMCT16 frame
+  // reads IDENTICALLY on hardware and in PCSX2: 0x00FFFFFF is colour-neutral
+  // and its alpha half reaches the mask bit per pixel, so the constant is
+  // right and the destination format is innocent. And a paired sweep, ONE
+  // knob apart, over the same eight vantages of examples/night-walk at 16-bit
+  // colour: with countResolve() binding TBP0 to the SLID band base (what this
+  // file did until 1.58.1) the marks are on 8 of 8 frames, 800-4800 pixels
+  // each; with TBP0 at the band's OWN base they are on 0 of 8, and flipping
+  // the knob back brings them straight back. The columns are the ones a
+  // console screenshot from the field showed, to within two pixels.
   //
-  // So a 16-bit project keeps the 1-bit convex sub-box path, which predates
-  // this feature, needs no count target and has never shown the marks: real
-  // shadows, fitted boxes rather than silhouettes. countReady() answers false,
-  // the generated game reads that and takes the fallback branch on its own.
-  if (settings->getFrameBufferPsm() == GS_PSM_16) {
-    TYRA_LOG("Shadow-volume counting is off at 16-bit colour (the resolve's ",
-             "alpha-only write is not colour-neutral there); mesh volumes ",
-             "fall back to convex sub-boxes.");
-    return;
-  }
+  // The reading fault was double compensation: the count pass writes pixel
+  // (x, y) through a FRAME slid by bandY0 worth of page rows, so the texel
+  // for that pixel lives at the band's OWN base with V = y - bandY0. Binding
+  // the texture to the slid base AS WELL made every band but the first sample
+  // bandY0 rows BELOW the band - at 16-bit, 256 KB below: the top of the
+  // scene z buffer and the projected-shadow slots. WHY garbage texels there
+  // end up tinting pixels the mask is only supposed to gate is not explained
+  // by anything measured here - the marks also appear above the band
+  // boundary - and that half is written down as open in docs/flashlight.md.
+  // What is settled is that they follow this one register and nothing else.
   const bool halfDepth = settings->getFrameBufferPsm() == GS_PSM_16;
   countPsm = halfDepth ? GS_PSM_16 : GS_PSM_32;
   countPageRows = halfDepth ? 64 : 32;

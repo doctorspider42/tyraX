@@ -287,7 +287,7 @@ shadow volumes*), because the two answers trade different things:
 | Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **mesh**, silhouette-extruded (boxes only past 1200 triangles) |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
 | Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
-| Cost | four 64×64 silhouette renders | the volume fill each frame + a 512 KB count band (32-bit colour; none at 16-bit, where the volumes fall back to convex boxes) |
+| Cost | four 64×64 silhouette renders | the volume fill each frame + a count band in GS VRAM: 512 KB at 32-bit colour, 256 KB at 16-bit |
 
 Volumes are the survival-horror era's own arrangement, on its own hardware
 trick. Each occluder is extruded away from the torch into a closed volume — a
@@ -397,33 +397,55 @@ projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the
 volumes fall back to the convex sub-boxes with the old 1-bit set/clear — one
 bracket per convex piece, a sliver artifact where pieces overlap.
 
-**Counting is 32-bit-colour only, and that is a measured limit rather than a
-choice.** In a 16-bit project the resolve — an alpha-only masked sprite over
-the volumes' screen rect — is not colour-neutral at a `PSMCT16` destination: it
-laid **dashed green marks down two fixed screen columns**, the count values
-themselves reading as green, over whatever the torch had lit, standing still in
-screen space as the camera moved. Reported from the console, and reproducible
-in PCSX2 once the search was wide enough (a 24-vantage sweep scores 14–17 hits;
-pointing the camera at dark sky scores 0 and "proves" the bug is hardware-only).
+**Counting works at BOTH colour depths, and the one release where it did not
+was a misdiagnosis worth writing down.** In a 16-bit project the resolve laid
+**dashed green marks down two fixed screen columns** over whatever the torch had
+lit, standing still in screen space as the camera moved. It was bisected to that
+one pass (forcing its alpha test to fail cleared a sweep), and from there the
+blame went to the *masked write at a `PSMCT16` destination* - so counting was
+refused at 16-bit and the volumes fell back to convex boxes.
 
-It was bisected to that one pass: forcing the resolve's alpha test to fail —
-same packet, same registers, same raster restore, everything else drawing —
-takes the sweep to **0 of 24**. Everything else was excluded by its own A/B and
-none of it is the cause: the silhouette draws, the count bracket's clear, the
-band's format and page slide, `DATE`, `FBA`, the per-channel `FBMSK` constant
-(`0x00FFFFFF` protects every colour bit in the RGBA8 positions `FBMSK` is
-always specified in; the 16-bit pixel-layout mask `0x7FFF7FFF` is far worse —
-115 893 flagged pixels against ~2 000), ordered dithering, protecting the
-colour with the blend equation instead of a mask, the interlaced flicker
-filter, and `PMODE.MMOD`.
+**That blame was wrong, and two console measurements say so.**
 
-So `allocateCount()` refuses outright at 16-bit colour, `countReady()` answers
-false, and a 16-bit project takes the convex sub-box path above: real shadows
-from fitted boxes instead of silhouettes, no green, and the count band's VRAM
-(0.25 MB) back. 32-bit projects are untouched. The GS-level question — what a
-masked write actually does to a `PSMCT16` pixel, given that the console and
-PCSX2 disagree about `0x7FFF7FFF` — is open and worth its own investigation
-before mesh volumes can come back to 16-bit.
+The first is a **probe with no shadows in it at all**: the same flat sprite
+drawn into a `PSMCT16` frame four times, through `FBMSK` `0xFFFFFFFF`,
+`0x00FFFFFF`, `0x7FFF7FFF` and `0`, each rect beside the next, plus a strip per
+mask whose alpha is cleared, half-set and then revealed with a `DATE`-gated
+sprite. On the console it reads **exactly as it does in PCSX2**: `0x00FFFFFF`
+leaves the colour untouched and its alpha half reaches the mask bit per pixel.
+The mask constant is right and the destination format is innocent.
+
+The second is a **paired sweep one knob apart**, eight vantages of
+`examples/night-walk` at 16-bit colour, same pad script, fresh boot per arm:
+
+| `countResolve()`'s `TEX0` base | frames with green | pixels |
+| --- | --- | --- |
+| the **slid** band base (what shipped until 1.58.1) | **8 of 8** | 800-4 800 |
+| the band's **own** base (the fix) | **0 of 8** | 0 |
+
+Flipping the knob back brings them straight back (A-B-A), and the columns are
+the ones the field screenshot showed, to within two pixels. PCSX2 shows nothing
+in either arm at any vantage tried - a hardware-only symptom, which is what made
+the first diagnosis so easy to get wrong.
+
+The reading fault was **double compensation**: the count pass writes pixel
+`(x, y)` through a `FRAME` slid by `bandY0` worth of page rows, so that pixel's
+texel lives at the band's own base with `V = y - bandY0`. Binding the texture to
+the slid base *as well* made every band but the first sample `bandY0` rows
+**below** the band - at 16-bit, 256 KB below: the top of the scene z buffer and
+the projected-shadow slots.
+
+**One half of it is still open**: why garbage texels sampled by a pass that only
+writes alpha end up *tinting* pixels at all. The marks also appear above the
+band boundary, where the slide is zero, so the mechanism is not simply "band 1
+reads rubbish". What is settled is that they follow that one register and
+nothing else, 8 of 8 against 0 of 8. If they ever come back, start there.
+
+So `allocateCount()` runs at either depth again: the band is `PSMCT32` and
+512 KB at 32-bit colour, `PSMCT16` and 256 KB at 16-bit (its page geometry
+follows the z buffer, as above), and a 16-bit project gets mesh-shaped shadow
+volumes like any other. Verified on the console: eight vantages clean, VRAM
+2.18 MB, pools and shadows drawing.
 
 Four rules keep the volumes honest, each paid for with a report from the
 yard. The occluder slots go to the four candidates NEAREST the torch, never

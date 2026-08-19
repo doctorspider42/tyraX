@@ -14650,9 +14650,9 @@ void App::drawPreferencesWindow() {
         "depth buffer - model casters from their REAL triangles (silhouette-\n"
         "extruded, counted in a dedicated GS buffer), primitives from their\n"
         "boxes - and the four slots are left to the scene's lights. Costs the\n"
-        "volume fill each frame plus a 512 KB count band at 32-bit colour; at\n"
-        "16-bit colour the counting is refused and the volumes fall back to\n"
-        "fitted convex boxes, no band (see the docs for why).");
+        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
+        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
+        "pixel format).");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);

@@ -198,13 +198,20 @@ packet restores CLAMP to REPEAT itself because emitRasterRestore does not
 know texture state. The GS cannot count in alpha - blending never writes A -
 which is why the count lives in color channels of a target that is never
 displayed; N=32 clears the 16-bit channel's 8-step quantization plus
-dithering's +-4, so DTHE needs no save/restore. COUNTING IS REFUSED AT 16-BIT
-COLOUR: the resolve's alpha-only masked write is not colour-neutral at a
-PSMCT16 destination and dashes green marks down two fixed screen columns
-(bisected to that single pass - forcing its ATEST to fail scores 0 of 24
-vantages against 14-17 for the control; the mask constant, the band format,
-FBA, DATE, dithering, the flicker filter and PMODE were each excluded). A
-16-bit project takes the convex 1-bit path instead, docs/flashlight.md),
+dithering's +-4, so DTHE needs no save/restore. COUNTING RUNS AT BOTH COLOUR
+DEPTHS (the band follows the frame's PSM: PSMCT32/512 KB, PSMCT16/256 KB). It
+was refused at 16-bit for one release over "dashed green marks down two fixed
+screen columns", blamed on the masked write at a PSMCT16 destination; BOTH
+halves of that were then measured on a console and it is neither. A four-mask
+FBMSK probe (flat sprite + a DATE-revealed alpha strip per mask) reads
+IDENTICALLY on hardware and in PCSX2 - 0x00FFFFFF is colour-neutral and its
+alpha half works - and a paired 8-vantage sweep one knob apart put the marks
+on countResolve's TEX0 base: the SLID band base scores 8/8, the band's own
+base 0/8, flipping back 8/8 (A-B-A). The write side slides FRAME by bandY0
+page rows, so the read must NOT slide as well as subtracting bandY0 from V.
+Still open: why texels sampled by an alpha-only masked pass tint the picture
+at all, and why the marks also appear above the band boundary,
+docs/flashlight.md),
 `RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot

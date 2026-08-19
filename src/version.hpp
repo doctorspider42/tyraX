@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.58.2 (mesh shadow volumes come back to 16-bit colour, and the reason they
+// left was a misdiagnosis): 1.58.0 refused the counting path at 16-bit because
+// the resolve laid dashed green marks down two fixed screen columns, and blamed
+// the masked write at a PSMCT16 destination. Both halves of that are now
+// MEASURED ON A CONSOLE and it is neither.
+//
+// First, an FBMSK probe with no shadows in it: one flat sprite drawn into a
+// PSMCT16 frame through 0xFFFFFFFF / 0x00FFFFFF / 0x7FFF7FFF / 0, plus a strip
+// per mask whose alpha is cleared, half-set and revealed with a DATE-gated
+// sprite. The console reads EXACTLY like PCSX2 - 0x00FFFFFF is colour-neutral
+// and its alpha half reaches the mask bit per pixel - so the constant is right
+// and the destination format is innocent.
+//
+// Second, a paired sweep one knob apart, eight vantages of night-walk at
+// 16-bit, same pad script, fresh boot per arm: countResolve() binding TEX0 to
+// the SLID band base scores green on 8 of 8 frames (800-4800 px); binding it to
+// the band's OWN base scores 0 of 8; flipping back scores 8 of 8 (A-B-A). That
+// register was fixed in 1.58.1 as an arithmetic correction with no picture to
+// show for it - this is the picture. The fault was double compensation: the
+// count pass writes pixel (x, y) through a FRAME slid by bandY0 page rows, so
+// the texel lives at the band's own base with V = y - bandY0; sliding the read
+// too made every band but the first sample 256 KB below itself (the top of the
+// z buffer and the projected-shadow slots).
+//
+// So allocateCount() no longer refuses at 16-bit: the band follows the frame's
+// PSM (PSMCT32 512 KB / PSMCT16 256 KB, page geometry matching the z buffer as
+// it has since 1.57.0) and a 16-bit project gets mesh-shaped volumes like any
+// other. Verified on the console: eight vantages clean, VRAM 2.18, pools and
+// shadows drawing; PCSX2 shows nothing in either arm at any vantage, which is
+// what made the first diagnosis so easy to get wrong. STILL OPEN, and written
+// down rather than glossed: why texels sampled by a pass that only writes alpha
+// tint the picture at all, and why the marks also appear ABOVE the band
+// boundary where the slide is zero. The tooltip and docs/flashlight.md carry
+// the same account.
+//
 // 1.58.1 (the 16-bit torch pool, for the second time - and the last, because
 // the cause is NAMED now): after 1.58.0 sent every 16-bit project down the
 // convex 1-bit path, the flashlight drew no pool again on examples/night-walk
@@ -1924,7 +1959,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 58
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
