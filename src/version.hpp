@@ -24,7 +24,7 @@
 // claim it saves VRAM was never measured.
 //
 // Measured now, on examples/night-walk (a 4-bit project): its members cost
-// 16 KB unpacked and 65 KB as a page - atlasing COSTS 49 KB there, because a
+// 8 KB unpacked and 65 KB as a page - atlasing COSTS 57 KB there, because a
 // page is quantized as ONE image (members go 4 -> 8 bpp) and is a full
 // allocation whatever it holds. It still buys fewer allocations and fewer
 // texture switches; it does not buy bytes in that project, and the window and
@@ -32,6 +32,15 @@
 // saving. The old "+~8 KB overhead per texture" line in the docs and the
 // tooltip described an engine that has not charged that padding since
 // getSize() was fixed.
+//
+// The estimate is the engine's own getSize PORTED rather than approximated
+// (GS memory is paged and swizzled, so an image occupies up to the highest
+// block its texels reach), and it was checked against the running game:
+// VRAMSTAT reads 0.115 MB free with atlasing off and 0.060 MB with it on -
+// 56.5 KB against the predicted 57. The first version of the estimator
+// rounded a texture to whole PAGES; a page is whole by construction, so
+// that error landed entirely on the "unpacked" side and flattered atlasing
+// (16 KB where the console charges 8).
 //
 // Four things landed with it:
 //  - Tools > Texture Atlas (src/atlas_ui.cpp): pages with a preview and their

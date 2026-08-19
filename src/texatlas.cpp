@@ -426,17 +426,51 @@ Plan plan(const Project& p) {
 }
 
 // The GS footprint of one texture, in words - the host twin of the engine's
-// RendererCoreVram::getSize (whole pages above one page; a palettized image
-// also carries its CLUT). menulayout.cpp holds the same arithmetic for the
-// menu bake; both mirror the engine, which is the authority.
+// RendererCoreGSVRam::getSize, ported rather than approximated. GS memory is
+// paged AND swizzled, so an image occupies up to the HIGHEST BLOCK its texels
+// reach: whole pages for everything but the last, plus that page's
+// bottom-right block in the format's Morton order. Rounding to whole pages
+// instead (which this did at first) charges a 64x64 4-bit texture 8 KB where
+// the engine charges 5.5 - and since a page is always whole, that error lands
+// entirely on the "unpacked" side and flatters atlasing. The numbers this
+// feature is judged on have to come from the same arithmetic the console
+// runs.
 static int gsWords(int w, int h, int bits) {
     if (w <= 0 || h <= 0) return 0;
-    const int pageW = bits == 32 ? 64 : 128;
-    const int pageH = bits == 32 ? 32 : bits == 8 ? 64 : 128;
+    // Morton block orders, from the engine (4x8 for the 4-bit and 16-bit
+    // layouts, 8x4 for 8-bit and 32-bit).
+    static const unsigned char order4x8[32] = {
+        0,  2,  8,  10, 1,  3,  9,  11, 4,  6,  12, 14, 5,  7,  13, 15,
+        16, 18, 24, 26, 17, 19, 25, 27, 20, 22, 28, 30, 21, 23, 29, 31};
+    static const unsigned char order8x4[32] = {
+        0,  1,  4,  5,  16, 17, 20, 21, 2,  3,  6,  7,  18, 19, 22, 23,
+        8,  9,  12, 13, 24, 25, 28, 29, 10, 11, 14, 15, 26, 27, 30, 31};
+    int pageW, pageH, blockW, blockH, cols, rows;
+    const unsigned char* order;
+    if (bits == 4) {
+        pageW = 128, pageH = 128, blockW = 32, blockH = 16, cols = 4, rows = 8;
+        order = order4x8;
+    } else if (bits == 8) {
+        pageW = 128, pageH = 64, blockW = 16, blockH = 16, cols = 8, rows = 4;
+        order = order8x4;
+    } else {
+        pageW = 64, pageH = 32, blockW = 8, blockH = 8, cols = 8, rows = 4;
+        order = order8x4;
+    }
+    // TBW rounding: the width the GS is handed is what is occupied.
+    if (w > 16) w = bits <= 8 ? ((w + 127) & -128) : ((w + 63) & -64);
     const int pagesW = (w + pageW - 1) / pageW;
     const int pagesH = (h + pageH - 1) / pageH;
+    int blocksW = (w - (pagesW - 1) * pageW + blockW - 1) / blockW;
+    int blocksH = (h - (pagesH - 1) * pageH + blockH - 1) / blockH;
+    blocksW = std::min(std::max(blocksW, 1), cols);
+    blocksH = std::min(std::max(blocksH, 1), rows);
+    const int lastBlock =
+        (pagesW * pagesH - 1) * 32 + order[(blocksH - 1) * cols + (blocksW - 1)];
+    // 64 words a block, and a palettized image also carries its CLUT (one
+    // block for 16 entries, four for 256).
     const int clut = bits == 4 ? 64 : bits == 8 ? 256 : 0;
-    return pagesW * pagesH * 2048 + clut;
+    return (lastBlock + 1) * 64 + clut;
 }
 
 VramEstimate vram(const Plan& plan, const Project& p) {

@@ -33,9 +33,15 @@ page itself is a full 256×256 allocation whatever it holds. Measured on
 
 | | |
 | --- | --- |
-| members, unpacked | 16 KB |
+| members, unpacked | 8 KB |
 | the page they share | 65 KB |
-| **net** | **costs 49 KB** |
+| **net** | **costs 57 KB** |
+
+That estimate is the engine's own arithmetic, ported rather than approximated
+(`RendererCoreGSVRam::getSize` - GS memory is paged *and* swizzled, so an image
+occupies up to the highest block its texels reach), and it was checked against
+the running game: `VRAMSTAT` reports **0.115 MB** free with atlasing off and
+**0.060 MB** with it on, i.e. 56.5 KB against the predicted 57.
 
 So on that project atlasing buys fewer allocations and fewer texture switches
 per frame, and **spends** bytes. On a project with many small full-colour
