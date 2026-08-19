@@ -30,6 +30,7 @@
 #include "livedbg.hpp"
 #include "livepad.hpp"
 #include "uiscript.hpp"
+#include "vehcheck.hpp"
 #include "vucap.hpp"
 #include "vuasm.hpp"
 #include "vugen.hpp"
@@ -3382,6 +3383,10 @@ static int vuReplayFromCli(int argc, char** argv) {
 int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
         return vuCheckFromCli(argc, argv);
+    // The drive model's property tests (docs/vehicles.md) - host-only, no
+    // project, no Docker, so a CI job or a pre-commit hook can gate on it.
+    if (argc > 1 && std::strcmp(argv[1], "--vehicle-check") == 0)
+        return vehcheck::run();
     if (argc > 1 && std::strcmp(argv[1], "--vu-emit") == 0)
         return vuEmitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--vu-list") == 0)

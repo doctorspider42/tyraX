@@ -15,6 +15,7 @@
 #include "procgraph.hpp"
 #include "screenfx.hpp"
 #include "sequence.hpp"
+#include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
 #include "version.hpp"
 
 struct TerrainConfig {
@@ -142,11 +143,18 @@ enum class PrimitiveType {
     // on screen several times at once. See scrollSegments below and
     // docs/endless-scroller.md.
     Scroller = 19,
+    // Vehicle instance (docs/vehicles.md): a driveable car. The object is only
+    // a PLACEMENT - everything the vehicle is (its model, its wheels, how it
+    // drives) lives in a project-wide VehicleDef the object names in
+    // `vehicleDef`, so one definition can be dropped into as many scenes as
+    // you like and tuned in one place. The editor draws the definition's body
+    // and wheels; the game builds two bags out of it and drives it.
+    Vehicle = 20,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scroller + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Vehicle + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -703,6 +711,23 @@ struct SceneObject {
     // shipping. Mirrors' reflections and particles still don't show.
     bool portalViewAll = false;
 
+    // Vehicle instance (used when type == Vehicle, docs/vehicles.md): the NAME
+    // of the Project::vehicles definition this is an instance of. Everything
+    // expensive - the model, the wheel table, the driving - belongs to the
+    // definition; an instance carries only its placement and the short list of
+    // overrides below. The split is the whole point: the moment a top speed can
+    // be set in two places, two cars of one name drive differently and nobody
+    // knows which is real.
+    std::string vehicleDef;
+    // AI route: a NAME PREFIX. Codegen collects every object in the scene
+    // whose name starts with it, sorted by name, and bakes their positions as
+    // this instance's waypoint loop - an Area per corner is the natural
+    // authoring (invisible at runtime, no collider). Empty = parked until the
+    // player takes it.
+    std::string vehicleRoute;
+    // Can the player get in? Off makes it scenery that still collides and can
+    // still be driven by a script, which is what parked traffic wants.
+    bool vehicleDriveable = true;
     // Endless scroller parameters (used when type == Scroller). The belt runs
     // along the object's local +Z (its forward, rotated by `rotation`). It
     // tiles `scrollSegments` in order and slides them along the axis at
@@ -929,6 +954,138 @@ inline bool operator==(const Prefab& a, const Prefab& b) {
 }
 inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
 
+// One wheel of a vehicle definition, as the AUTHOR decided it (docs/vehicles.md).
+// Deliberately not the wheel's geometry: the anchor, the radius and the width
+// are re-measured from the model, because they are facts about the asset and
+// storing a copy of a fact is how a definition goes stale against its own file.
+// What is stored is only what a person can disagree with the detector about.
+struct VehicleWheel {
+    // The model node this wheel is. parseSkel uniquifies node names, so this
+    // identifies a wheel across re-imports of an edited model.
+    std::string node;
+    bool steered = false;
+    bool driven = false;
+};
+
+inline bool operator==(const VehicleWheel& a, const VehicleWheel& b) {
+    return a.node == b.node && a.steered == b.steered && a.driven == b.driven;
+}
+inline bool operator!=(const VehicleWheel& a, const VehicleWheel& b) { return !(a == b); }
+
+// A vehicle, defined once per project and placed as many times as you like
+// (docs/vehicles.md). Project-wide like a Prefab or an AmbiencePreset, and
+// referenced BY NAME from SceneObject::vehicleDef.
+//
+// It is project data rather than a file in res/ on purpose: the file route
+// (.mtl, .flownode, .screenfx, .drone) is for things that honour somebody
+// else's format or carry C++, and this is neither. Being a Section buys the
+// collaboration wire, the AI Assistant's get_section/set_section and the
+// sectionJson edit guard with no code of its own.
+struct VehicleDef {
+    // Stable, opaque identity - the collaboration merge key, like Prefab::id.
+    // Every REFERENCE to a vehicle is by name.
+    std::string id;
+    std::string name;
+    std::string notes;
+
+    // The authored model: ONE .glb or .fbx holding the body and the wheels.
+    // An asset path, so it must appear in App::retargetAssetPath.
+    std::string modelPath;
+
+    // Import (see vehbake::Options - these are its authored twin).
+    int bodyTriBudget = 1500;
+    int wheelTriBudget = 700;
+    bool mergeUntextured = true;
+    // Paint shine 0..1: a reflection pass on the baked body's paint (the
+    // matte merge - rubber, near-black trim - is left out, and so are the
+    // wheels). 0 = matte and writes nothing, so an existing definition
+    // resaves byte for byte.
+    float bodyShine = 0.0f;
+    // What the paint mirrors: a res/ image used as a SPHERE MAP, or "" for
+    // the engine's dynamic "@sky" env map. An asset path - it joins
+    // App::retargetAssetPath and rebuildAssetUsage.
+    std::string bodyReflMap;
+    // The panel's answer when the importer could not tell which end is the
+    // nose. Flips the resolved forward axis and nothing else.
+    bool flipFront = false;
+
+    // Per-wheel author overrides, matched to the detection by node name. A
+    // wheel the detector finds and this list does not mention keeps the
+    // detector's seeding (front steers, rear drives).
+    std::vector<VehicleWheel> wheels;
+
+    // How it drives. Carried verbatim rather than flattened, so vehiclesim
+    // stays the one definition of what a vehicle's tuning IS.
+    vehiclesim::DriveSpec drive;
+
+    // The camera while the player is driving. Same rig shape as the
+    // third-person player camera, which is what the spring arm already knows.
+    float camDist = 6.5f;
+    float camHeight = 2.2f;
+    float camPitch = 12.0f;
+
+    // Where the player is put down on getting out, relative to the chassis in
+    // the canonical frame (x = right, y = up, z = forward): the driver's door.
+    float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
+
+    // The engine note (docs/vehicles.md, "Engine sound"). A path into the
+    // project's own sound list, NOT an index: an index would retarget itself
+    // the moment somebody reordered the Sounds panel. It must name a
+    // `*-loop.wav`, because the loop lives in the ENCODED sample (adpenc -L)
+    // and nothing at runtime can make a one-shot repeat. An asset path, so it
+    // belongs in App::retargetAssetPath and App::rebuildAssetUsage.
+    std::string engineSound;
+    // The pitch the sample plays at, as a multiple of its own encoded rate, at
+    // idle and at the redline. The runtime interpolates between them on the
+    // engine speed the powertrain already computes.
+    float enginePitchIdle = 0.75f;
+    float enginePitchRedline = 2.4f;
+    float engineVolume = 70.0f;  // 0..100, audsrv's own scale
+
+    // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
+    // vehicle authored before it existed still shows nothing.
+    bool showHud = false;
+    // A font NAME, like every other font reference in the project ("" = the
+    // default entry). It needs a glyph ATLAS, which is why a vehicle with the
+    // HUD on joins Project::atlasFontIndices().
+    std::string hudFont;
+    // Speed is in world units per second, and a unit is whatever the project
+    // decided it is - so what the number should READ as is an authoring
+    // question, not one this code can answer. 3.6 turns metres per second into
+    // km/h, which is the common case.
+    float hudSpeedScale = 3.6f;
+
+    bool valid() const { return !name.empty(); }
+};
+
+inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
+    if (a.id != b.id || a.name != b.name || a.notes != b.notes ||
+        a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
+        a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
+        a.bodyShine != b.bodyShine || a.bodyReflMap != b.bodyReflMap ||
+        a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
+        a.camHeight != b.camHeight || a.camPitch != b.camPitch ||
+        a.engineSound != b.engineSound ||
+        a.enginePitchIdle != b.enginePitchIdle ||
+        a.enginePitchRedline != b.enginePitchRedline ||
+        a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
+        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
+        return false;
+    for (int i = 0; i < 3; ++i)
+        if (a.exitOffset[i] != b.exitOffset[i]) return false;
+    // The spec is compared through its own field list, so a tunable added to
+    // DriveSpec joins undo's equality test by appearing in specFields() - the
+    // same single-list rule that makes it saveable.
+    vehiclesim::DriveSpec ca = a.drive, cb = b.drive;
+    const std::vector<vehiclesim::SpecField> fa = vehiclesim::specFields(ca);
+    const std::vector<vehiclesim::SpecField> fb = vehiclesim::specFields(cb);
+    if (fa.size() != fb.size()) return false;
+    for (size_t i = 0; i < fa.size(); ++i)
+        if (*fa[i].value != *fb[i].value) return false;
+    return true;
+}
+inline bool operator!=(const VehicleDef& a, const VehicleDef& b) { return !(a == b); }
+
 const char* primitiveTypeName(PrimitiveType t);
 
 // Animated models are .glb or .fbx files (serialized to .tskl at build);
@@ -1032,6 +1189,9 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalShowTerrain == b.portalShowTerrain &&
            a.portalTeleportObjects == b.portalTeleportObjects &&
            a.portalViewAll == b.portalViewAll &&
+           a.vehicleDef == b.vehicleDef &&
+           a.vehicleDriveable == b.vehicleDriveable &&
+           a.vehicleRoute == b.vehicleRoute &&
            a.scrollSegments == b.scrollSegments &&
            a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
            a.scrollBehind == b.scrollBehind &&
@@ -3148,6 +3308,13 @@ struct Project {
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
 
+    // Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Defined
+    // once, placed as often as you like: a Vehicle scene object names one of
+    // these. Project-wide like the prefabs above, so - as with them - editing
+    // one dirties the project and syncs to session peers but takes no undo
+    // step, because History carries the scenes alone.
+    std::vector<VehicleDef> vehicles;
+
     // World Facts (Tools > World Facts, docs/world-facts.md): the project's
     // central memory of game state - the declared catalog, the reusable named
     // conditions over it, the rules that react to it and the saved fact sets
@@ -3525,6 +3692,7 @@ enum class Section {
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    Vehicles,        // "vehicles" (driveable-car definitions)
     VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
     Facts,           // "facts", "factQueries", "factRules", "factScenarios"
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
@@ -3539,7 +3707,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 22,
+static_assert(kSectionCount == 23,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

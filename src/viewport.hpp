@@ -18,6 +18,7 @@
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
+#include "tmdl.hpp"  // vehicles draw from the import bake, not from an asset path
 
 // 3D preview of the project terrain and scene objects, rendered into an
 // offscreen texture shown inside an ImGui window. Orbit camera (drag+scroll).
@@ -887,7 +888,7 @@ private:
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
     // Spherical environment map (refl) preview - matcap on texture unit 1;
     // "@sky" dynamic mode approximated by the analytic sky gradient
-    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1, uPaintFx_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
     int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint
@@ -986,6 +987,38 @@ private:
         float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
         float mx[3] = {0, 0, 0};
     };
+    // Vehicles (docs/vehicles.md). A vehicle's geometry does not come from an
+    // asset path but from the IMPORT BAKE, which only the App has - so the App
+    // pushes the baked models in (setVehicleDraw) rather than the viewport
+    // resolving anything. That also keeps the preview and the console reading
+    // one bake instead of two: what is drawn here IS what ships.
+    struct VehicleDraw {
+        ModelDraw body;
+        ModelDraw wheel;  // ONE wheel, hub at the origin - drawn four times
+        // The palette's project-relative PATH, not its GL name: texCache_ is
+        // wiped (and its textures deleted) by invalidateAssets, so an id
+        // stored here goes dangling and samples black.
+        std::string palette;
+        float wheelBase = 2.0f, track = 1.4f, wheelRadius = 0.32f;
+        float rideHeight = 0.32f;
+    };
+    std::map<std::string, VehicleDraw> vehicleDraws_;  // by definition NAME
+
+   public:
+    // Publishes one definition's baked geometry. Cheap to call only when a
+    // bake changes - it uploads meshes.
+    void setVehicleDraw(const std::string& name, const tmdl::Model& body,
+                        const tmdl::Model& wheel, const std::string& paletteRel,
+                        float wheelBase, float track, float wheelRadius,
+                        float rideHeight);
+    void clearVehicleDraws();
+    // World-space bounds of a placed vehicle, body and wheels together - what
+    // a click tests against and what the selection outline wraps.
+    bool vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const;
+
+   private:
+    ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel);
+
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;
     const ModelDraw* modelDraw(const std::string& relPath,

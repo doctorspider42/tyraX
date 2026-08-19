@@ -80,6 +80,14 @@ class Pad {
   /** Overlay slots - see injectVirtual. */
   static const int VIRT_SLOTS = 2;
 
+  /** TyraX: the raw padRead() packet, pressures included. A DualShock 2
+   * reports 0..255 for the twelve pressure buttons (buttons.*_p), which is
+   * what an analog throttle reads; the stick clicks and Start/Select have no
+   * pressure and exist only in the digital mask. Valid for the last update()
+   * that had a controller - a game must gate on getPressed() first, because
+   * an unpressed button's pressure byte is stale, not zero, on some pads. */
+  const padButtonStatus& rawButtons() const { return buttons; }
+
  private:
   /** TyraX: how long waitPadReady() gives a controller to settle, in ~1 ms
    * polls. Generous, because it only ever costs this much when there is no

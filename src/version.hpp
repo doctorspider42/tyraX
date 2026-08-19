@@ -16,6 +16,444 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.71.0 (the sprung rig - docs/vehicles.md): the recurring "car breaks
+// apart on a bump" had ONE structural cause, not many small ones: the body
+// SNAPPED to the contact plane (pos = restY every frame - the four-sample
+// mean jumps across a ridge, so the body teleported vertically) while a
+// rate-limited pitch/roll hung mid-swing, wheels riding their own samples.
+// The body is a damped spring rig now, in both twins: heave at wn 14 (0.9
+// critical) with plane-velocity feed-forward (a plain spring rode half a
+// unit under every climb), attitude at wn 11 (0.8 - a crest gets the small
+// overshoot a snap never had), airborne glide at wn 4, landings keep their
+// fall speed for the spring to absorb, and grounded gained slack (the
+// binary test dropped steering and grip for a frame on every bump). The
+// planar handling - speed, grip, yaw, walls - is untouched, and the
+// pre-powertrain regression stays bit-exact (flat ground is the springs'
+// equilibrium). New vehicle-check property: full throttle across a
+// washboard keeps the frame height step under 0.3 (measured 0.097, the old
+// rig teleported ~0.5), attitude sane, pace kept. MINOR.
+//
+// 1.70.0 (the bumper exists - docs/vehicles.md): the wall test sampled the
+// AXLE rectangle, so a car stopped when its axles met the wall and the
+// bonnet clipped a bumper's length inside ("dalej sie da wjechac w sciane
+// maska"). DriveSpec grew bodyOverhang - the bumpers' reach past the axle
+// line, measured off the BAKED body by the import (max extent vs half the
+// wheelbase), seeded like the other measured geometry, editable in the
+// panel like everything in specFields - and both twins sample the body
+// rectangle now. kFormatVersion 41, additive (no migration step: a missing
+// key reads as the 0.3 default, which is a typical sedan). Verified on
+// PCSX2: nose-first into the north wall stops with the bonnet clear.
+// MINOR.
+//
+// 1.69.0 (the car rides the world - docs/vehicles.md): the dig-in bug and
+// the driver's seat rearranged. (1) Wheels (and the chassis) ride OBJECT
+// floors: each ground sample is the max of the terrain and any mountable
+// object top there (box tops within half a unit of the feet, mesh props'
+// walkable faces), gathered in the same one-pass collider sweep the walls
+// use. Before, a mesh slope was answered with "wall": the car nosed in, the
+// wheel read as buried in the ground, and the head-on refusal braked it
+// every frame ("kolo sie wbija w glebe, zostaje i hamuje"). (2) The default
+// drive is R2 gas / L2 brake / Cross nitrous / Circle handbrake - and the
+// throttle is ANALOG through the DualShock 2 button pressure (inputAnalog,
+// new engine Pad::rawButtons()); digital sources read as 1. (3) The first
+// REAL migration: v39 -> v40 rewrites bindings still at the old defaults,
+// with the editor's backup + prompt machinery exercised end to end.
+// Verified on PCSX2: R2 crosses a 0.45-high platform ON its top at full
+// speed, Cross drains the tank, the migration rewrote exactly the three
+// rows. MINOR.
+//
+// 1.68.0 (the driver's seat is rebindable - docs/vehicles.md,
+// docs/input-bindings.md): three fixes and the backlog's Input Map item.
+// (1) The wheel-arch clamp is measured from the TILTED body plane (terrain
+// pitch + lean), not the flat pos[1]: on a climb the front arch rides ~0.4
+// above the centre, so the window pinned the wheels - the front pair sank
+// into the slope, the rear pair floated over the deck, and the whole car
+// read as sheared ("co sie odpierdala, jak sie pod gorke jedzie"). This
+// subsumes 1.65.3's lean-only term. (2) Engine: Pad::reset() never cleared
+// pressed.L3/R3/Start/Select - the very four a previous fix ADDED to the
+// pressed set - so the first R3 latched the rear view for the rest of the
+// run. (3) Six Input Map roles cover every vehicle button (throttle, brake,
+// handbrake, nitrous, camera, rear view), seeds matching the old hardcoded
+// pads, per-role constexpr fallback for maps that deleted an action; the
+// analog reads stay hardwired (an axis is not an action). Proven by
+// rebinding the fixture's throttle to L2 and driving on it. kFormatVersion
+// 39: the seeded vehicle actions are new .tyra content an older editor
+// would round-trip into role-less custom actions. MINOR.
+//
+// 1.67.1 (al dente - docs/vehicles.md, "The three cameras"): the glance
+// capped at +-60 degrees and R3 held = an instant rear view. The full orbit
+// tanked the frame rate exactly broadside - the widest view of the map is
+// also the most expensive one - and the only thing it bought over a glance,
+// looking straight back, is now a cut that never sweeps through those views
+// at all. The rear view takes the BODY yaw, not the lagging boom: mid-slide,
+// "what is behind the car" is a question about the car. Verified on PCSX2:
+// the glance stops at the three-quarter view, R3 mid-drive shows the grille
+// and the road falling away behind. PATCH.
+//
+// 1.67.0 (the glance - docs/vehicles.md, "The three cameras"): the right
+// stick orbits the chase/far camera around the car (X, a full circle in ~2 s)
+// and lifts or sinks the boom (Y); both offsets spring back to zero on
+// release, so the stick is a glance at a rival or an apex, never a re-aim.
+// The car stays the look-at, the bumper cam stays bolted to the body on
+// purpose, and the signs follow the steering stick's convention. Verified on
+// PCSX2: mid-drive front-quarter view under stick right, sprung back behind
+// the tail on release. MINOR.
+//
+// 1.66.0 (the world got solid - docs/vehicles.md): four driver reports, one
+// round. (1) Cars no longer drive INSIDE objects: the wall test grew from
+// four corners to eight points (a pillar narrower than the corner spacing
+// drove between four), an object floor >0.5 over the car's feet blocks (a
+// mesh prop's walkable face was a door into its inside), and the overlapped
+// case moves only AWAY from the blocked points' centroid - which also closes
+// the backlog's arena-escape bug, reproduced live (x 232, wall at 152) before
+// closing. Colliders gather once per vehicle per frame; the runtime is now
+// structurally the host twin. (2) Tyre smoke stopped punching holes in the
+// car: the billboard submit moved to the frame's translucent tail and never
+// writes Z (PipelineZTest_TestOnly). (3) The wheel-arch clamp tightened to
+// 65% in compression (wheels rode through the bonnet at full travel).
+// (4) The AI rival un-sticks itself (reverse-out + waypoint advance) - the
+// walls holding is what parked it against a pillar forever - and far
+// vehicles skip their shine pass (35u), wheels and smoke (70u). Verified on
+// PCSX2 GS captures + telemetry; --vehicle-check grew pillar/overlapped/
+// thin-wall properties. MINOR.
+//
+// 1.65.3 (the wheels lean WITH the car - docs/vehicles.md): the droop clamp
+// was the right cap but the wrong diagnosis - the daylight in the report came
+// from the LEAN, not the travel. The weight-transfer squat/roll rotates the
+// body while the wheels stayed glued to flat ground, so a corner exit lifted
+// an arch ~0.18 units off its own wheel. Each hub now adds the body plane's
+// lean offset at its anchor (lz*sin(leanPitch) - lx*sin(leanRoll), signs
+// mirroring the render's rotX/rotZ exactly); terrain pitch/roll stay out - the
+// wheels answer those with their own ground sampling, which IS the suspension
+// look. Verified on GS frame captures mid-donut: wheels tucked at full lean.
+// PATCH.
+//
+// 1.65.2 (the wheel stays owned - docs/vehicles.md): the suspension's visual
+// clamp was symmetric, so on a crest a wheel could hang a FULL
+// suspensionTravel below the body (x1.5 instance scale = 0.27 units of
+// daylight) - "kolo za bardzo potrafi odejsc od karoserii". The clamp is
+// asymmetric now: full travel in compression, 45% in droop - real suspension
+// droops less than it compresses, a tyre still shows daylight on a crest, the
+// wheel just keeps reading as part of the car. One line, verified on a dune
+// saddle capture. PATCH.
+//
+// 1.65.1 (the body finally lifts its nose - docs/vehicles.md): the sim's
+// pitch is "positive = front higher" (slope gravity reads sin(pitch) with
+// that sign and has decelerated every climb correctly since day one), but a
+// positive rotX takes a point at +Z toward -Y - nose DOWN. The unnegated
+// write had the BODY pitching into every hill while the wheels rode up it
+// ("przod sie nie podnosi... dziwnie to wyglada"), and it survived until the
+// map grew dunes because a flat arena never pitches anything. Negated at both
+// writers - the runtime's transform write and the editor test drive's - so
+// the weight transfer now reads correctly on screen too: squat is nose-up,
+// brake dive and the wall-hit dip are nose-down. Found by the user's eye;
+// verified by a dune climb capture and by the rollback physics (a car
+// released mid-climb rolls back down and the reverse gear engages - the
+// slope gravity sign was always right, only the picture lied). PATCH.
+//
+// 1.65.0 (AI drivers - docs/vehicles.md, "AI drivers"): a second car drives
+// itself. The whole feature is proof of one architectural bet placed on day
+// one: `DriveInput` is a struct a CALLER fills, never a pad read - so the AI
+// is ~25 lines that fill the identical four numbers, and the gearbox, the
+// kickdown, the wall grind, the tyre smoke and the weight transfer all come
+// along for free, because the AI is just another caller of the same sim.
+//
+// Authoring is a NAME PREFIX (SceneObject::vehicleRoute): codegen collects
+// every object in the scene whose name starts with it, sorted by name, and
+// bakes their positions as the instance's waypoint loop - an Area per corner
+// is the natural marker (invisible at runtime, no collider), and the baked
+// table means no runtime name matching at all. The controller is pure
+// pursuit: steer from the heading error, throttle backed off in tight
+// corners, advance within a radius. A player can HIJACK a patrolling car -
+// the pad branch simply outranks the AI branch while they drive, and getting
+// out resumes the patrol where it stood.
+//
+// The acceptance line is VEHAI telemetry every ~2 s (position, waypoint,
+// speed), so `grep VEHAI` proves a patrol advanced its loop with no pad
+// attached - the backlog's own "done when" criterion, machine-checked.
+//
+// kFormatVersion 37 -> 38: "route" inside the object's vehicle block, written
+// only when non-empty. Additive, reader defaults, no migration step. MINOR.
+//
+// 1.64.0 (tyre smoke - docs/vehicles.md): DriveState::slip finally has its
+// consumer. Past 0.35 the rear anchors feed a 48-puff ring at a rate
+// proportional to the slip - burnouts, handbrake slides and wall grinds all
+// smoke, because they all ARE slip, and one number feeding both the smoke and
+// the telemetry is what keeps them from disagreeing. Camera-facing billboards
+// in ONE submit (the particle system's exact bag shape - VU1 expands centre +
+// 2x2 basis weights into a quad), untextured grey with per-puff alpha,
+// swirling and swelling as they fade (the fog puff's recipe). A dead puff is a
+// degenerate quad and the bag is skipped when the pool is empty, so a clean
+// drive pays nothing. Ticks under the same !menuActive gate as the emitters,
+// so puffs hang frozen behind the pause menu. Verified mid-handbrake-spin on
+// PCSX2: a grey trail behind the sliding car. No format change. MINOR.
+//
+// 1.63.0 (the wet lacquer - docs/vehicles.md, "A shiny body"): the NFS paint
+// pass, and WITHOUT the dedicated VU1 program everyone assumed it needed. A
+// fresnel rim (0.3 + 0.7*(1-|N.V|)) rides the env pass's per-vertex RGB and a
+// Blinn-Phong (N.H)^8 white specular rides the per-vertex ALPHA, drawn with
+// the GS's HIGHLIGHT2 texture function - RGB = Tex*Cv>>7 + Av - so both
+// effects share the ONE existing env submit and the additive FIX blend still
+// carries the authored Body shine. HIGHLIGHT2 was always in the GS; the
+// engine just never selected it. One new engine field
+// (StaPipTextureBag::textureFunction, per-bag TFX - safe on a shared texture
+// because TEX0 is re-emitted per bag) and a per-frame EE loop over the env
+// colours, the wheel-bag precedent, ~1100 vertices of a few flops each.
+//
+// Scoped to vehicles (vehiclePaintFor), so chrome and mirror balls elsewhere
+// keep their exact look. Three rules from the fields underneath: write through
+// envColorBag->many (LOD tiers re-aim it), never bump bboxVersion (the env
+// bag shares the base pass's frustum cache entry - worth 4-6% of frame rate),
+// and alpha >= 1, because the GS alpha test is NOTEQUAL 0 and a zero specular
+// would erase the reflection with it. Also --vehicle-check (the sim's
+// property tests as a CLI verb, CI-ready) and the suspension the wheels now
+// actually DRAW (each hub rides its own wheel's sampled ground within the
+// travel). Viewport per-pixel program mirrors the paint terms; the
+// PS2-shading GS variant keeps plain reflection, stated in the doc.
+//
+// No format change. MINOR.
+//
+// 1.62.0 (the shine you can SEE - docs/vehicles.md, "A shiny body"): the
+// user's verdict on 1.60's reflection was "szczerze to nie widze, zeby sie
+// cokolwiek odbijalo", and they were right for a structural reason: the
+// "@sky" env map is a SMOOTH GRADIENT, and a gradient reflection is nearly
+// invisible by construction - there are no features to see move. The era's
+// answer was a static high-contrast sphere map (Underground's wet lacquer is
+// vertical light streaks in exactly such a texture), so a vehicle's paint
+// now mirrors an AUTHORED map: VehicleDef::bodyReflMap, a res/ image, with
+// tools/nfs-streak-map.py generating the classic streaks (deterministic, no
+// RNG - a re-run is byte-identical). Empty keeps "@sky".
+//
+// MATTE TYRES, because the user asked whether the engine even allows it: it
+// does - tmdl reflection is PER PART - and the bake now uses that. The
+// untextured merge splits into "merged" (paint) and "merged-matte" (rubber
+// and near-black trim, by name first and luminance under 0.12 second; glass
+// forces shiny by name, or a deep-blue window would land under the
+// threshold). The reflection pass attaches to the paint alone. One more
+// submit, paid only when shine is on, and the Cost tab reports it.
+//
+// THE WHEELS WERE OFF because the body kept the EXPORTER's origin: the sim
+// places wheel anchors at +-wheelBase/2 around the chassis origin, and the
+// reference car's pivot sat 0.25 behind the axle midpoint - every wheel rode
+// visibly forward of its arch. The bake re-origins the body to the AXLE
+// CENTRE at HUB HEIGHT (mean of the detected wheel centres in the canonical
+// frame), which also makes rideHeight = wheelRadius put the tyres exactly on
+// the ground.
+//
+// Also: the D-PAD drives (a keyboard emulating a stick - PCSX2 in a VM above
+// all - can drop chorded key events, and full-lock-plus-throttle is exactly a
+// chord; the d-pad is independent booleans end to end), and the body lean got
+// a knob (DriveSpec::leanAmount, a spec field, so it serializes and edits by
+// existing) plus a stiffer 35 deg/s follow - 25 read as a boat from the
+// driver's seat.
+//
+// kFormatVersion 36 -> 37: bodyReflMap plus leanAmount (which rides
+// specFields, the one list). Additive, readers default, no migration step.
+// MINOR.
+//
+// 1.61.0 (four reports from the driver's seat - docs/vehicles.md): the
+// steering was INVERTED, cornering killed the throttle, hills swallowed the
+// car, and the wheels rode outside the arches. All four were real.
+//
+// THE STEERING: in the canonical frame (forward +Z, up +Y, right-handed) the
+// body's right is -X - cross(forward, up) - while positive steerAngle turns
+// the yaw toward +X, and screen X runs opposite world X besides. So "stick
+// left" turned the car screen-right, and the original acceptance test never
+// saw it because it only proved yaw MOVED under stick input, not which way
+// the car went on screen. DriveInput.steer keeps its "positive = the
+// driver's right" meaning and is negated once, inside the sim (both twins),
+// so the test drive's A/D and the pad fix together. The doc's telemetry
+// samples flip their yaw signs with it.
+//
+// CORNERING-KILLS-THE-GAS was an input truth, not a physics bug: the stick's
+// throttle is its vertical deflection, and a stick at full lock has none
+// left - so a stick-only driver lost the gas exactly when steering hard,
+// then engine braking ground them to zero. R2 is a second throttle button
+// now (the era's racers put the gas on a button for exactly this reason).
+//
+// HILLS: with gearTorque 1 the top gear pulls 0.43x, which loses to a
+// 15-degree dune, and the passive downshift waits for 50% of redline - the
+// car wallowed through two gears before any torque came back. KICKDOWN: flat
+// out with the engine under 72% of redline drops a gear immediately. The
+// landing guard leaves 0.15 of headroom under the up-shift point, not 0.05,
+// because the shift CUT itself decays the speed - with the tighter margin
+// the box kicked down into its own up-shift for ever and the harness car
+// crawled 170 units in 50 seconds ON THE FLAT. Harness: launch to top gear
+// on the flat, kick down on a 15-degree ramp, hold >= 5 u/s, climb 314
+// units - PASS, with the pre-powertrain regression still 0.000000000.
+//
+// THE WHEELS: the example's .tyra carried the struct DEFAULTS (track 1.40
+// against a 1.414-wide body - wheel centres exactly on the paint, tyres
+// fully outside the arches; radius 0.32 against a 0.232 baked wheel - the
+// car floated). The editor adopts measured geometry on import but only in
+// the GUI tick, and this example was authored headless, so nothing ever
+// said so. The build log states the measurement now ("[vehicle] ...
+// measured wheelBase 2.066 track 1.248 radius 0.232 ...") and the example
+// carries the measured numbers. gearTorque softened 1 -> 0.6 while there,
+// so the top gear holds the dunes it drives on.
+//
+// No format change. MINOR for the kickdown and R2.
+//
+// 1.60.0 (the drive, perfected - docs/vehicles.md): an adversarial review of
+// the whole vehicle branch plus the fixes it demanded, three physics upgrades,
+// a reflective paint option and a four-times-bigger playground.
+//
+// THE REVIEW (an agent told to refute, then everything verified here) found
+// ten real defects. The ones worth remembering: the engine note's voice
+// base+23 was EMITTER SLOT 7 - all 24 SPU2 voices of a bus were already spoken
+// for, so a continuous loop could only get a channel by taking one, and the
+// emitter bank is now generated one slot short in a vehicle project
+// ({{SND_SLOTS}}); the HUD font was emitted in the WRONG INDEX SPACE (project
+// fonts index where FONTS[] is indexed by atlas position - it worked only
+// because the example has one font); setupVehicles REUSED array slots across
+// scenes without a reset, so a revisited scene's car kept the previous
+// scene's gear, nitrous and - because the scene-load mute had zeroed that
+// voice - a stale engineCh that suppressed the re-play and left the engine
+// permanently silent; the pause menu froze the engine note at its last pitch
+// (updateVehicles is gated on !menuActive and was the only volume writer);
+// shiftTimer never ticked in reverse, so a car that rolled backwards
+// mid-shift kept its throttle cut; and the adpenc cache was mtime-only, so a
+// bin/sfx/x-loop.adpcm encoded BEFORE -L existed would never re-encode - the
+// staleness test now reads the encoded header's own loop byte back.
+//
+// PHYSICS: walls SLIDE now - axis-separated, the grind scrubbing speed by
+// impact angle, with "a slide is only a slide if that axis carries real
+// motion" (the first cut let a head-on grind in place at a phantom 5 u/s -
+// the harness caught it); weight transfer (squat/dive/lean, presentation-only
+// and deliberately never fed back into the pitch the slope gravity reads);
+// and five host/runtime divergences closed - the handbrake now actually
+// SLOWS the car on the console, maxSlopeCos stopped being a slider that did
+// nothing there, pitch/roll are rate-limited (they feed sin(pitch) gravity,
+// so this is longitudinal behaviour, not cosmetics), and airborne attitude
+// settles level.
+//
+// THE PAINT: VehicleDef::bodyShine bakes refl "@sky" into the body's .tmdl
+// parts - fields the format already carried. What made it POSSIBLE is an
+// engine-side change: reflective parts were banned from the matrix fast path
+// because their env normals were baked in world space, frozen at the
+// promotion pose. The local bake captures LOCAL normals now and renderEnvPass
+// folds the object's rotation into the env camera basis (dot(R n, e) =
+// dot(n, R^T e) - a constant per mesh per frame, zero per-vertex work), so a
+// shiny car keeps both its two submits and a correct reflection while
+// yawing. The viewport preview reads the same tmdl fields, so the editor
+// shows the shine the console draws.
+//
+// kFormatVersion 35 -> 36: "bodyShine" plus writers that no longer DROP
+// authored values when their switch is off (unticking the HUD used to reset
+// hudSpeedScale on the next load). All additive, readers default, no
+// migration step. MINOR.
+//
+// 1.59.0 (the driver gets instruments - docs/vehicles.md, "The HUD"): speed,
+// gear and the nitrous tank on screen while driving. The powertrain already
+// supplied every input, so this is the drawing and nothing else.
+//
+// It is RUNTIME text, so a vehicle with the HUD on joins
+// Project::atlasFontIndices() - without that the font ships no glyph atlas and
+// the readout draws nothing at all, which reads as a broken feature rather than
+// as a missing asset. Horizontal positions carry the widescreen squeeze, the
+// same 4:3-over-window-aspect factor the menus use, because anamorphic
+// widescreen keeps the framebuffer's shape and lets the TV stretch it.
+//
+// The trap worth keeping: the first version put the nitrous line at 0.945 of the
+// frame height, where a screenshot showed the EMULATOR'S OWN picture cutting it
+// in half - on a CRT it would not have been there at all. Layout is title-safe
+// now (docs/safe-areas.md) and the bottom row is what to re-check. Verified on
+// PCSX2 reading 88 / gear 5 / NOS 3 at top speed under nitrous.
+//
+// kFormatVersion 34 -> 35: `hud`, `hudFont` and `hudSpeedScale`, written only
+// when a definition HAS the HUD on, so a project without it resaves byte for
+// byte. No migration step. MINOR.
+//
+// 1.58.0 (a drive is no longer silent - docs/vehicles.md, "Engine sound"): a
+// looping engine note whose SPU2 PITCH follows the engine speed the powertrain
+// computes. It closes the oldest entry on the vehicles backlog.
+//
+// The blocker was never the pitch. SD_VPARAM_PITCH is reachable, libsd is
+// already linked into the engine and logVoiceState already READS that very
+// register - what was missing was that nothing could LOOP. The loop turns out
+// to live in the encoded sample rather than in the play call: `adpenc -L` sets
+// the SPU2 block loop flags, so the build now encodes any `res/sfx/*-loop.wav`
+// that way and the convention is in the file name because adpenc runs over a
+// directory and has no access to the model (the *-lit.png arrangement). The
+// engine fork gains exactly one function, AudioAdpcm::setPitch.
+//
+// Two costs shape the runtime. sceSdSetParam is a BLOCKING SifCallRpc, so the
+// register is quantised to 32 steps and written only when it moves - no calls
+// at all at a steady cruise. And a looping voice cannot be stopped (audsrv's
+// own doc comment), so getting out sets the volume to zero.
+//
+// Verified on PCSX2 two ways. The telemetry proves the tracking: idle 800 rpm
+// -> pitch 1408 (the sample's own 1881 times the authored 0.75), 6585 rpm ->
+// 4192, and the register DROPS at every upshift. And PCSX2's own audio output,
+// captured and analysed, proves it is audible: the spectral centroid runs
+// 194 Hz at idle -> 417 Hz at the first-gear redline -> 243 Hz once it has
+// changed up, i.e. the RPM sawtooth, heard.
+//
+// kFormatVersion 33 -> 34: `engineSound` plus its pitch pair and volume, all
+// written only when a definition HAS a sound, so a project without one resaves
+// byte for byte - the bump is so an older editor refuses a file carrying them
+// rather than dropping them on its next save. No migration step. MINOR.
+//
+// 1.57.0 (the powertrain - docs/vehicles.md, "The gearbox"): a driven car now
+// has a GEARBOX, an engine speed and nitrous, which is what everything an
+// arcade racer is made of hangs off - the engine sound's pitch, a tacho, and
+// the shift the player hears.
+//
+// The load-bearing decision is that the gearbox is DERIVED, not simulated. The
+// gear and the RPM are computed from the speed the existing longitudinal model
+// already produces and feed nothing back, so `accel` means exactly what it
+// meant before and every vehicle authored without a gearbox accelerates
+// identically with one - checked by a harness that reproduces the
+// pre-powertrain arithmetic independently and reads a worst-case difference of
+// 0.000000000 over 14 s of full throttle. Two knobs let it bite and BOTH
+// default to off: `shiftTime` (a throttle cut between gears) and `gearTorque`
+// (the ratio shaping acceleration, geometric and centred on the middle gear so
+// it changes a car's character rather than its performance - the geometric mean
+// of the multipliers is 1.0000). Nitrous is gated on `nosCapacity`, seconds of
+// boost, defaulting to 0: the TANK is the switch, so there is no second flag
+// that could disagree with it.
+//
+// The down-shift threshold is COMPUTED rather than validated (`safeShiftDownFrac`
+// / `vehShiftDownFrac`): an author is free to dial shift-up and shift-down into
+// a contradiction, and the point is held below where an up-shift lands so the
+// box cannot hunt between two gears for ever. Measured with deliberately
+// contradictory thresholds: 4 gear changes over 14 s, which is a clean climb.
+//
+// kFormatVersion 32 -> 33, purely additive: twelve new keys inside a vehicle's
+// existing "drive" object. The writer emits every specFields() entry, so a
+// project WITH a vehicle gains those keys on its next save - which is the whole
+// reason for the bump, so an older editor refuses the file instead of silently
+// dropping them. The reader defaults each one to the struct's own value, so an
+// older file opens unchanged and needs no migration step. A project with no
+// vehicle still resaves byte for byte. MINOR by this file's own rule.
+//
+// 1.56.0 (cars you can drive - docs/vehicles.md): a Vehicle object type, a
+// project-wide VehicleDef the instances name, and an importer that takes one
+// authored .glb/.fbx and finds the wheels in it.
+//
+// The wheels are found by GEOMETRY, not by node name. The reference asset
+// (CC96/car1.fbx, CC0) names its nodes Cube and Cylinder.001..003 - Blender
+// defaults - so a name-matching importer fails on the first real model. Mesh
+// nodes are clustered by shape and clusters of 2/4/6 scored on roundness,
+// thinness, height in the model and size; names and materials are a bonus
+// only. The vehicle's own frame falls out of the cluster (the axle is the axis
+// a wheel is thinnest along; of the rest, the one the centres barely spread
+// along is up), so no exporter axis metadata is read anywhere. What the
+// importer CANNOT decide is which end is the nose, and it says so rather than
+// guessing quietly - there is a flip in the panel.
+//
+// The reference car is 40 materials and 36 mesh parts, and a .tmdl part is one
+// bag at ~1 ms of fixed EE time: 36 submits is nearly two PAL frames for one
+// parked car. Because pushVert folds a material's kd into the vertex colours,
+// untextured materials merge losslessly - they become one part whose vertices
+// point at cells of a generated palette texture. 36 parts -> 2 submits.
+//
+// kFormatVersion 31 -> 32, purely additive: PrimitiveType::Vehicle (20), the
+// per-object "vehicle" block and Section::Vehicles, all of which an existing
+// project simply does not carry - a project with no vehicles resaves byte for
+// byte. MINOR by this file's own rule. (Authored as 1.55.0; renumbered in the
+// merge - main had independently taken 1.55 for the packaging fixes below.)
+//
 // 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
 // both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
 // dev checkout's build leftovers are not content" - and
@@ -1724,8 +2162,8 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 55
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 71
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2005,7 +2443,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 31;
+inline constexpr int kFormatVersion = 41;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

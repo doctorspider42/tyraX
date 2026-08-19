@@ -41,6 +41,7 @@
 #include "livelogic.hpp"
 #include "placement.hpp"
 #include "prefab.hpp"
+#include "vehbake.hpp"  // the import bake cached per vehicle definition
 #include "project.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
@@ -753,6 +754,42 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+
+    // Tools > Vehicle Editor (docs/vehicles.md): define a car once - model,
+    // wheels, driving - and place it in as many scenes as you like. Lives in
+    // vehicle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawVehicleWindow();
+    // Runs the import bake for one definition and caches the result. Called
+    // when the model or a budget changes, never per frame - it parses a .fbx.
+    void vehicleRefreshBake(int index, bool force);
+    // Per-frame, from drawUI: keeps definitions baked so placed instances draw
+    // even with the window shut (the giBakerPoll rule).
+    void vehicleTick();
+    // Test drive (docs/vehicles.md): runs vehiclesim::step on a placed vehicle
+    // straight in the viewport, against the real scene's terrain. The whole
+    // point of vehiclesim being host-only - tuning grip and acceleration in a
+    // "slider, feel, slider" loop instead of "slider, four minutes, PCSX2".
+    void vehicleDriveTick();
+    void vehicleDriveStart(int objectIndex);
+    void vehicleDriveStop();
+    // Scene-object index being test-driven, -1 = nobody.
+    int vehicleDriveObj_ = -1;
+    vehiclesim::DriveState vehicleDriveState_;
+    // The transform the object had before the drive. A test drive is a way of
+    // LOOKING at a vehicle, never an edit - it must put the car back exactly
+    // where the author left it (the procedural seed-sweep rule).
+    float vehicleDriveHome_[6] = {0, 0, 0, 0, 0, 0};
+    // Panel-driven controls, alongside the keyboard. Not a testing hook: when
+    // you are tuning grip you want the car to keep going while both hands are
+    // on the sliders, and a held key cannot do that.
+    bool vehicleDriveHoldThrottle_ = false;
+    float vehicleDriveSteer_ = 0.0f;
+    // Renaming a definition retargets every instance in every scene. The
+    // renameFont precedent: a reference stores the NAME, so it has to follow.
+    void renameVehicleDef(int index, const std::string& newName);
+    // Body bounds of a placed Vehicle, for placement/collision (the
+    // ModelAabbFn a Vehicle takes - only the App knows the definitions).
+    bool vehicleBodyBounds(const SceneObject& o, float* mn, float* mx);
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // Training, evaluation, cross-validation, the input-channel report, the
@@ -1749,6 +1786,25 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    bool showVehicles_ = false;
+    int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
+    // Cached import bakes, one per definition, keyed by what the bake depends
+    // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
+    // frame - so the window shows the last result and re-runs it only when
+    // that key changes or the author asks.
+    struct VehicleBakeCache {
+        std::string key;          // model path + budgets + merge flag
+        bool ok = false;
+        std::string error;
+        vehbake::Result result;
+    };
+    std::map<std::string, VehicleBakeCache> vehicleBakes_;  // by definition id
+    // The Vehicle Editor's own undo stack. Definitions are project-wide, so
+    // commitChange() dirties without pushing a step (History carries the
+    // scenes alone) - and a window full of sliders needs an undo of its own.
+    // The Material Editor and the Menu Editor's Style tab made the same call.
+    std::vector<std::vector<VehicleDef>> vehicleUndo_;
+    int vehicleUndoAt_ = -1;
     // Tools > World Facts (docs/world-facts.md). Project-wide like Prefabs, so
     // the window is a tabbed list with an index and nothing about it is per
     // scene.

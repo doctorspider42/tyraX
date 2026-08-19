@@ -99,6 +99,8 @@ for people building games with it. Internals live in code comments, the git log
   authored segments forever; the train-window level generator.
 - [Two-player games](multiplayer.md) — shared or split screen, pad-2 hot-join,
   and what the second player costs.
+- [Vehicles](vehicles.md) — driveable cars: one model in, wheels found by
+  geometry, 36 submits merged down to two, and a bicycle-model chassis.
 - [NavMesh + NPC AI](navigation-ai.md) — the host-side navigation bake, A* on
   the EE, and the guard-wiring flow nodes.
 - [Configurable buttons & keys](input-bindings.md) — named actions, binding

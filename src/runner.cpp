@@ -7,6 +7,7 @@
 #include "platform.hpp"
 #include "templates.hpp"
 #include "texbake.hpp"
+#include "vehbake.hpp"
 #include "wavconvert.hpp"
 
 #include <cstdlib>
@@ -970,6 +971,14 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             }
         }
 
+        // Vehicle bake: the .glb/.fbx of every definition -> body + wheel
+        // .tmdl + colour palette in .res-baked/vehicles/ (docs/vehicles.md).
+        // Before texbake, because texbake owns the .res-baked sweep.
+        if (auto err = vehbake::bakeProject(
+                p, [this](const std::string& l) { appendLine(l); });
+            !err.empty())
+            appendLine("[editor] Warning: " + err);
+
         // Texture bake: res/ -> .res-baked/ (PNG quantization per the project
         // policy; the generated Makefile copies .res-baked next to the ELF).
         if (auto err = texbake::bake(p, [this](const std::string& l) { appendLine(l); });
@@ -1279,6 +1288,34 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // CONTAINER's shell - without it /bin/sh empties them on the host.)
         // Globs cover two levels of sfx subfolders (res/sfx/steps/wood.wav);
         // an unmatched glob stays a literal word, which the -e test skips.
+        //
+        // A WAV whose name ends in `-loop.wav` is encoded with adpenc's `-L`,
+        // which sets the SPU2 block loop flags so the voice REPEATS instead of
+        // ending (docs/sound.md, "Looping samples"). That is the only way to
+        // hold a continuous sound - an engine note, a siren - on this hardware:
+        // the loop is a property of the ENCODED sample and not of the play
+        // call, so nothing at runtime can turn a one-shot into a loop. The
+        // convention is in the file name rather than in the project because
+        // adpenc runs over `res/sfx` as a directory and has no access to the
+        // model; it is the `*-lit.png` arrangement.
+        // The staleness test is mtime PLUS, for a loop file, the encoded
+        // header's own loop byte (offset 6 of the .adpcm): a project built
+        // before -L existed has a bin/sfx/x-loop.adpcm NEWER than its WAV,
+        // encoded as a one-shot - mtime alone would skip it for ever and the
+        // engine note would play for a fifth of a second and stop, with no
+        // error anywhere. Reading the byte back asks the FILE what it is
+        // instead of trusting the calendar.
+        // NO QUOTES OF ANY KIND may appear in this fragment. The block comment
+        // above already says double quotes cannot survive the cmd.exe /S +
+        // docker.exe argv unquoting - the first version of the loop-byte test
+        // used them anyway and every Windows build died with the shell's
+        // *Syntax error: end of file unexpected*: the quotes were stripped on
+        // the way in and the -c string stopped PARSING, so no build with a
+        // sound in it could succeed on that platform while Linux passed
+        // cleanly. Hence: x$L = x-L instead of [ -n "$L" ], and a case
+        // pattern over od's raw (space-padded) output instead of tr -d " " -
+        // case words are not field-split, so *1 matches however od pads, and
+        // the only values our own encoder writes are 0 and 1.
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "cd /src && IFS= && for f in res/sfx/*.wav "
@@ -1286,8 +1323,13 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                            "[ -e $f ] || continue; "
                            "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
                            "mkdir -p $(dirname $o); "
-                           "if [ ! $o -nt $f ]; then "
-                           "echo [editor] adpenc $f && adpenc $f $o || exit 1; "
+                           "L= && case $f in *-loop.wav) L=-L;; esac; "
+                           "R=0; if [ x$L = x-L ] && [ -e $o ]; then "
+                           "B=$(od -An -tu1 -j6 -N1 $o); "
+                           "case $B in *1) R=0;; *) R=1;; esac; fi; "
+                           "if [ ! $o -nt $f ] || [ $R = 1 ]; then "
+                           "echo [editor] adpenc $L $f && "
+                           "adpenc $L $f $o || exit 1; "
                           "fi; done"),
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");

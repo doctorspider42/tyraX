@@ -411,6 +411,12 @@ void StaPipQBufferRenderer::sendObjectData(
     if (texBuffers != nullptr) {
       rendererCore->texture.updateClutBuffer(texBuffers->clut);
 
+      // Added by TyraX: per-bag GS texture function (StaPipTextureBag - the
+      // NFS paint pass draws HIGHLIGHT2). TEX0 is emitted per bag right
+      // here, so writing the shared texbuffer_t immediately before the emit
+      // gives every bag its own TFX - the next bag on the same texture
+      // overwrites it again, which is exactly why the mutation is safe.
+      texBuffers->core->info.function = bag->texture->textureFunction;
       packet2_utils_gs_add_texbuff_clut(objectDataPacket, texBuffers->core,
                                         &rendererCore->texture.clut);
     }

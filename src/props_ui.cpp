@@ -84,6 +84,7 @@ static const char* typeLabel(PrimitiveType t) {
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Vehicle: return "Vehicle";
     }
     return "Object";
 }
@@ -335,6 +336,57 @@ void App::drawPropertiesWindow() {
                     "into\nfull-height diagonal stripes that more Detail only "
                     "makes narrower.\nLeave it off otherwise - the rings are "
                     "then triangles nothing shades.");
+        }
+    }
+    if (o.type == PrimitiveType::Vehicle) {
+        // An instance names its definition; everything else about the vehicle
+        // lives there (docs/vehicles.md). A dangling name is REPORTED here
+        // rather than repaired, because deleting a definition must not
+        // silently edit scenes.
+        const std::string current = o.vehicleDef.empty() ? "<none>" : o.vehicleDef;
+        if (ImGui::BeginCombo("Vehicle", current.c_str())) {
+            for (size_t i = 0; i < project_.vehicles.size(); ++i) {
+                const std::string& n = project_.vehicles[i].name;
+                // Explicit ##id: a Selectable's LABEL is its ImGui id, and a
+                // definition being renamed can momentarily collide.
+                if (ImGui::Selectable((n + "##vehpick" + std::to_string(i)).c_str(),
+                                      n == o.vehicleDef) &&
+                    n != o.vehicleDef) {
+                    o.vehicleDef = n;
+                    committed = true;
+                }
+            }
+            if (project_.vehicles.empty())
+                ImGui::TextDisabled("None - make one in Tools > Vehicle Editor.");
+            ImGui::EndCombo();
+        }
+        bool known = o.vehicleDef.empty();
+        for (const VehicleDef& v : project_.vehicles)
+            if (v.name == o.vehicleDef) known = true;
+        if (!known) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().danger);
+            ImGui::TextWrapped("No vehicle called \"%s\" - pick another.",
+                               o.vehicleDef.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::Checkbox("Player can drive it", &o.vehicleDriveable))
+            committed = true;
+        prefHelp(
+            "Off makes it scenery that still collides and can still be moved by\n"
+            "a script - what parked traffic wants.");
+        {
+            char rt[96];
+            std::snprintf(rt, sizeof(rt), "%s", o.vehicleRoute.c_str());
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::InputText("AI route prefix", rt, sizeof(rt))) {
+                o.vehicleRoute = rt;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            prefHelp(
+                "An AI drives this car around every object whose name starts\n"
+                "with this prefix, sorted by name - place Areas as the\n"
+                "corners (invisible, no collider). Empty = parked until the\n"
+                "player takes it. The player taking THIS car pauses its AI.");
         }
     }
     if (o.type == PrimitiveType::Model) {

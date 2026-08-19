@@ -254,6 +254,7 @@ uniform vec4 uEmisCol[8];        // rgb = light color, w = brightness
 uniform float uEmisRange[8];     // world units the light reaches
 uniform int uEmisObj[8];         // scene-object index (never lights itself)
 uniform int uReflOn;             // refl pass: 0 off, 1 sphere map, 2 live sky
+uniform int uPaintFx;            // vehicle paint: fresnel rim + white specular
 uniform sampler2D uRefl;         // sphere map, texture unit 1
 uniform float uReflStrength;     // additive gain, 1.0 = full chrome
 uniform vec3 uReflSkyHorizon;    // "@sky" dynamic env: scene sky colors
@@ -760,7 +761,21 @@ void main() {
         vec3 n = uReflRounded != 0
             ? normalize(vWorld - uReflCenter)
             : normalize(cross(dFdx(vWorld), dFdy(vWorld)));
-        color += uReflStrength * envColor(envSt(n));
+        // The vehicle paint pass (docs/vehicles.md): fresnel rim scaling the
+        // reflection + a white Blinn-Phong hot spot, the GLSL twin of the
+        // console's HIGHLIGHT2 env pass in renderEnvPass. Same 0.3 floor,
+        // same fixed key light, same p=8. The PS2-shading GS variant keeps
+        // the plain reflection - stated divergence, not an accident.
+        float pf = 1.0;
+        vec3 pspec = vec3(0.0);
+        if (uPaintFx != 0) {
+            pf = 0.30 + 0.70 * (1.0 - abs(dot(n, uFogFwd)));
+            vec3 h = normalize(vec3(0.35, 0.85, 0.35) - uFogFwd);
+            float sp = max(dot(n, h), 0.0);
+            sp = sp * sp; sp = sp * sp; sp = sp * sp;
+            pspec = vec3(uReflStrength * 220.0 * sp / 128.0);
+        }
+        color += uReflStrength * pf * envColor(envSt(n)) + pspec;
     }
     // Decals carry the texture's alpha (cutout above + blend here), mirror
     // glass a constant opacity; everything else outputs opaque.
@@ -1398,6 +1413,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     uFlashCut2_ = glGetUniformLocation(prog, "uFlashCut2");
     uFlashSoft_ = glGetUniformLocation(prog, "uFlashSoft");
     uReflOn_ = glGetUniformLocation(prog, "uReflOn");
+    uPaintFx_ = glGetUniformLocation(prog, "uPaintFx");
     uRefl_ = glGetUniformLocation(prog, "uRefl");
     uReflStrength_ = glGetUniformLocation(prog, "uReflStrength");
     uReflSkyHorizon_ = glGetUniformLocation(prog, "uReflSkyHorizon");
@@ -2782,6 +2798,15 @@ void Viewport::pickBounds(const SceneObject& o, float mn[3], float mx[3]) {
             if (modelLocalBounds(o, bmn, bmx)) useModel(bmn, bmx);
             break;  // unloadable model draws the placeholder box
         }
+        case PrimitiveType::Vehicle: {
+            // What a click tests is what the car DRAWS - body plus the wheels
+            // that stick out past it. Without this a vehicle's hit box is the
+            // unit cube in the middle of its cabin, which is the single
+            // most-reported "I cannot click my object".
+            float bmn[3], bmx[3];
+            if (vehicleLocalBounds(o, bmn, bmx)) useModel(bmn, bmx);
+            break;  // no definition yet: the placeholder box is what draws
+        }
         case PrimitiveType::Player: {
             // A third-person Player previews as its own avatar model
             // (renderScene's tppAvatar); everything else is the humanoid
@@ -3806,6 +3831,95 @@ const Viewport::ModelDraw* Viewport::modelDraw(const std::string& relPath,
     }
     modelCache_[key] = draw;
     return modelCache_[key].parts.empty() ? nullptr : &modelCache_[key];
+}
+
+// --- vehicles (docs/vehicles.md) -------------------------------------------
+// A tmdl::Model straight into GL parts. The vertex layout is already the one
+// modelDraw builds - position, normal, uv - so this is the same fold of Kd
+// into the shaded vertex colour, and the merged part's colours arrive through
+// the palette TEXTURE exactly as they will on the console.
+Viewport::ModelDraw Viewport::uploadTmdl(const tmdl::Model& m,
+                                         const std::string& paletteRel) {
+    ModelDraw draw;
+    for (int k = 0; k < 3; ++k) draw.mn[k] = m.min[k], draw.mx[k] = m.max[k];
+    for (const tmdl::Part& sp : m.parts) {
+        std::vector<float> interleaved;
+        interleaved.reserve(sp.verts.size());
+        for (size_t i = 0; i + 7 < sp.verts.size(); i += 8) {
+            const Vec3 s = shadeOf({sp.verts[i + 3], sp.verts[i + 4], sp.verts[i + 5]});
+            interleaved.insert(interleaved.end(),
+                               {sp.verts[i], sp.verts[i + 1], sp.verts[i + 2],
+                                s.x * sp.kd[0], s.y * sp.kd[1], s.z * sp.kd[2],
+                                sp.verts[i + 6], sp.verts[i + 7]});
+        }
+        ModelPart part;
+        part.mesh = uploadMesh(interleaved);
+        for (int k = 0; k < 3; ++k) part.ke[k] = sp.ke[k];
+        // Reflection travels in the .tmdl part (vehbake's bodyShine writes
+        // refl "@sky"), and the preview must show the same shine the console
+        // draws - the matcap machinery is the model path's, reused.
+        if (!sp.reflTexture.empty()) {
+            part.reflSky = sp.reflTexture == "@sky";
+            // A tmdl carries BIN-relative texture paths ("textures/x.png");
+            // the editor's cache resolves project-relative ones, and the
+            // Makefile's resources step is what maps res/* onto bin/* - so
+            // the inverse mapping here is prepending "res/".
+            if (!part.reflSky) part.reflTex = glTexture("res/" + sp.reflTexture);
+            part.reflStrength = sp.reflStrength;
+            part.reflRounded = sp.reflRounded;
+            const size_t n = sp.verts.size() / 8;
+            for (size_t i = 0; i + 7 < sp.verts.size(); i += 8) {
+                part.centroid[0] += sp.verts[i];
+                part.centroid[1] += sp.verts[i + 1];
+                part.centroid[2] += sp.verts[i + 2];
+            }
+            if (n > 0)
+                for (float& c : part.centroid) c /= (float)n;
+        }
+        // The palette is resolved AT DRAW TIME from its path, never cached as a
+        // GL name here: invalidateAssets() wipes texCache_ and DELETES the
+        // texture objects in it (the asset scan calls it whenever anything on
+        // disk moves), so a stored id becomes a dangling handle and every
+        // sampler reading it returns black. That is exactly what happened -
+        // the car rendered pure black against a palette, UVs and .tmdl that
+        // were all provably correct, because the id had been deleted under it.
+        part.tex = 0;
+        draw.parts.push_back(part);
+    }
+    return draw;
+}
+
+void Viewport::setVehicleDraw(const std::string& name, const tmdl::Model& body,
+                              const tmdl::Model& wheel, const std::string& paletteRel,
+                              float wheelBase, float track, float wheelRadius,
+                              float rideHeight) {
+    if (name.empty()) return;
+    VehicleDraw v;
+    v.body = uploadTmdl(body, paletteRel);
+    v.wheel = uploadTmdl(wheel, paletteRel);
+    v.palette = paletteRel;
+    v.wheelBase = wheelBase;
+    v.track = track;
+    v.wheelRadius = wheelRadius;
+    v.rideHeight = rideHeight;
+    vehicleDraws_[name] = std::move(v);
+}
+
+void Viewport::clearVehicleDraws() { vehicleDraws_.clear(); }
+
+bool Viewport::vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const {
+    if (o.type != PrimitiveType::Vehicle) return false;
+    auto it = vehicleDraws_.find(o.vehicleDef);
+    if (it == vehicleDraws_.end()) return false;
+    const VehicleDraw& v = it->second;
+    for (int a = 0; a < 3; ++a) mn[a] = v.body.mn[a], mx[a] = v.body.mx[a];
+    // The wheels stand outside the paint on both counts: wider than the body
+    // at the arches, and lower than it at the contact patch. A pick box that
+    // stops at the body is a box you cannot click by aiming at a wheel.
+    mn[0] = std::min(mn[0], -0.5f * v.track - 0.5f * v.wheelRadius);
+    mx[0] = std::max(mx[0], 0.5f * v.track + 0.5f * v.wheelRadius);
+    mn[1] = std::min(mn[1], -v.rideHeight);
+    return true;
 }
 
 // Animated .glb model: bake once (CPU-side clips kept for the playback
@@ -5112,6 +5226,69 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     continue;
                 }
                 // unusable .glb falls through to the placeholder box
+            }
+            // A vehicle is TWO draws, and that is the feature: the body under
+            // the object's own matrix, and one wheel mesh repeated at the four
+            // anchors vehiclesim computes. The console does the same thing with
+            // the same numbers (the wheels merged into one bag there), so what
+            // is on screen here is what ships - anchors included.
+            if (o.type == PrimitiveType::Vehicle) {
+                auto vit = vehicleDraws_.find(o.vehicleDef);
+                if (vit != vehicleDraws_.end()) {
+                    const VehicleDraw& vd = vit->second;
+                    // Resolved here, every frame: see uploadTmdl.
+                    const uint32_t palTex =
+                        vd.palette.empty() ? 0 : glTexture(vd.palette);
+                    auto drawParts = [&](const ModelDraw& md2, const Mat4& mm) {
+                        const Mat4 mvp2 = mul(viewProj, mm);
+                        for (const ModelPart& part : md2.parts) {
+                            for (int a = 0; a < 3; ++a)
+                                emissive[a] =
+                                    asLines ? 0.0f : o.color[a] * tintScale * part.ke[a];
+                            // World centroid for the rounded env normals -
+                            // the model path's own arithmetic.
+                            float c[3] = {0, 0, 0};
+                            if (part.reflRounded) {
+                                const float* m2 = mm.m;
+                                for (int a = 0; a < 3; ++a)
+                                    c[a] = m2[a] * part.centroid[0] +
+                                           m2[a + 4] * part.centroid[1] +
+                                           m2[a + 8] * part.centroid[2] + m2[a + 12];
+                            }
+                            draw(part.mesh, GL_TRIANGLES, mvp2, o.color[0] * tintScale,
+                                 o.color[1] * tintScale, o.color[2] * tintScale,
+                                 asLines ? 0 : palTex, lit ? &mm : nullptr, false,
+                                 1.0f, asLines ? 0 : part.reflTex, part.reflStrength,
+                                 asLines ? false : part.reflSky, part.reflRounded, c);
+                        }
+                    };
+                    // The paint pass is vehicles-only, like the console's.
+                    glUniform1i(uPaintFx_, 1);
+                    drawParts(vd.body, model);
+                    // The wheels ride in the vehicle's own frame, so they are
+                    // the object matrix times a local offset - never a second
+                    // world-space computation that could disagree with it.
+                    const float hx = 0.5f * vd.track, hz = 0.5f * vd.wheelBase;
+                    const float local[4][3] = {{-hx, 0.0f, hz},
+                                               {hx, 0.0f, hz},
+                                               {-hx, 0.0f, -hz},
+                                               {hx, 0.0f, -hz}};
+                    for (int w = 0; w < 4; ++w) {
+                        Mat4 wm = model;
+                        // Translate in the object's own basis: m * T(local).
+                        for (int a = 0; a < 3; ++a)
+                            wm.m[12 + a] = model.m[a] * local[w][0] +
+                                           model.m[4 + a] * local[w][1] +
+                                           model.m[8 + a] * local[w][2] +
+                                           model.m[12 + a];
+                        drawParts(vd.wheel, wm);
+                    }
+                    glUniform1i(uPaintFx_, 0);
+                    continue;
+                }
+                // No definition (or none imported yet): fall through to the
+                // placeholder box, so an unresolved vehicle is VISIBLE and
+                // selectable rather than an invisible hole in the scene.
             }
             // .obj models draw one part per MTL material (an assigned .mtl
             // overrides the model's own libraries - same rule as the game)

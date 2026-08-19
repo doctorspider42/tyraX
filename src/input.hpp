@@ -47,6 +47,16 @@ struct InputAction {
         RoleMoveBack,
         RoleMoveLeft,
         RoleMoveRight,
+        // The driver's seat (docs/vehicles.md). Steering itself stays the
+        // analog stick - an axis is not an action - but every button of the
+        // drive is a role, which is what makes a rebind (or a wheel) possible
+        // at all. Append-only, like everything in this enum.
+        RoleVehThrottle,   // held: accelerate (was hardcoded Cross)
+        RoleVehBrake,      // held: brake (was L1)
+        RoleVehHandbrake,  // held: the drift button (was Circle)
+        RoleVehNitrous,    // held: nitrous while the tank lasts (was R1)
+        RoleVehCamera,     // clicked: cycle chase/bumper/far (was Triangle)
+        RoleVehRearView,   // held: the look-back mirror (was R3)
         RoleCount,
     };
     int role = RoleNone;

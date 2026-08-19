@@ -453,6 +453,17 @@ void Pad::reset() {
   this->pressed.L2 = 0;
   this->pressed.R1 = 0;
   this->pressed.R2 = 0;
+  // Modified by TyraX: the four digital-mask buttons too. The modification
+  // that ADDED them to handlePressedButtons() (they have no pressure value,
+  // so they were missing from `pressed` entirely) forgot this clear side, so
+  // the first R3 press latched pressed.R3 = 1 for the rest of the run - the
+  // exact mirror image of the bug it fixed ("the press was seen once - and
+  // then nothing ever held it down" became "held down forever after one
+  // press"; reported as the rear-view camera staying on for good).
+  this->pressed.L3 = 0;
+  this->pressed.R3 = 0;
+  this->pressed.Start = 0;
+  this->pressed.Select = 0;
 }
 
 /** Center both sticks - the resting state a game must see for a pad that has

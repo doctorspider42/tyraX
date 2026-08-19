@@ -241,23 +241,100 @@ currently reproduces the sprite exactly, which is the defensible half.
 
 ## Medium
 
-### ANSWERED: the guard does run under ps2link, and guards nothing
+### Vehicles: what a drive still owes (docs/vehicles.md)
 
-```
-SIF RPC guard: seen 306,   guarded 0
-SIF RPC guard: seen 14329, guarded 0     <- ~150 completions/second
-SIF RPC guard: seen 29483, guarded 0
-```
+The feature drives - enter, steer, drift and wall collision are all
+machine-verified on the emulator via the VEH telemetry - and these are the
+gaps, each with a testable end:
 
-Fresh boot verified by the protocol below (two boot lines in the capture, first
-`VRAMSTAT` at `f=120`). So the handler **is** on the dispatch path on hardware -
-~29 500 completions in ~200 s - and none of them needed guarding. Every earlier
-zero was therefore a real negative, not a handler that was never asked. It also
-works in PCSX2 (429 completions), so both targets are covered.
+- ~~**A drive is silent.**~~ DONE, and the interesting part is that the blocker
+  was never the pitch. `SD_VPARAM_PITCH` was always reachable, libsd was already
+  linked and `logVoiceState` already READ that register - what was missing was
+  that nothing could LOOP, and looping turned out to live in the ENCODED sample
+  rather than in the play call (`adpenc -L` sets the SPU2 block loop flags). So
+  the build encodes any `res/sfx/*-loop.wav` that way, the engine fork gained one
+  function (`AudioAdpcm::setPitch`), and the runtime quantises the register to 32
+  steps because `sceSdSetParam` is a blocking `SifCallRpc`. Two instruments were
+  needed to call it done: the telemetry for the TRACKING (idle 800 rpm -> pitch
+  1408, 6585 -> 4192, dropping at every upshift) and a capture of PCSX2's own
+  audio output for the AUDIBILITY (spectral centroid 194 Hz idle -> 417 Hz at the
+  first-gear redline -> 243 Hz after changing up). Left here for the rule: a
+  sound feature needs both, because a correct register nobody can hear and an
+  audible noise that ignores the sim look identical in a log.
 
-Getting to that took three retracted conclusions, and the protocol that survives
-is the useful residue:
-
+- ~~**Hide a third-person avatar while driving.**~~ DONE. `vehicleDrivingAnd`
+  ANDs `vehicleDriver_ < 0` into the line that already applies a cutscene's *Hide
+  player*, so the condition is the driver state itself - no flag to clear, and
+  getting out restores the avatar with no second writer. Left here for the fact
+  that produced it: that line exists TWICE, once per game-cpp head, and a
+  placeholder that reached only one of them would work in an orbit project and not
+  in an FPP one.
+- **The distant one-submit tier.** vehbake already produces a body with the
+  wheels' geometry available; what is missing is a merged body+wheels bake and
+  a distance switch in renderVehicleWheels/the body row, so a parked fleet far
+  away costs one submit per car instead of two. Done when the telemetry (or a
+  bag count in the Stats tab) shows the switch happening at the distance.
+- **Hardware frame cost.** The two submits are a design property, not a
+  measurement - nothing has timed a driven frame on a real PS2 (docs/profiling.md
+  has the method). Done when docs/vehicles.md quotes measured EE ms for one
+  car driving, the way the BLSS page quotes its fill numbers.
+- **Vehicle-vs-vehicle and vehicle-vs-physics.** A car stops at walls and
+  pillars; it does not yet trade momentum with physics crates (PHYS_PUSH is
+  the player's shove, unused here) or with another car. Done when driving into
+  the physics-playground crates scatters them.
+- ~~**AI traffic.**~~ DONE in 1.65.0 - a `rival` patrols the example's
+  four-Area circuit with no pad attached, proven by VEHAI telemetry. What
+  remains of the original idea is the A* half: the patrol is a baked waypoint
+  loop, not navigation - a car that ROUTES (avoids walls it did not author,
+  picks a path to a moving target) would go through navigation.gen.cpp the way
+  the walkers do, and that is its own feature. Also still open: several AI
+  cars avoiding EACH OTHER, which today they do not.
+- **The Runner's stale-emulator matcher misses a QUOTED -elf.** A PCSX2
+  launched out-of-band with `-elf '<path>'` (single quotes, as a shell passes
+  it) survived many `--build --run` cycles of the same project - two instances
+  then interleave writes into one bin/log.txt and both poll one livepad.bin,
+  which cost an hour of "the pad is dead / the car is not at spawn" phantoms
+  before `ps aux` told the truth. killEmulatorsFor should normalise quoting
+  before matching, and a diagnostic "N other emulator(s) on this ELF" line in
+  the Runner would have named it immediately.
+- **~~A car can escape the arena through a wall corner-case.~~ FIXED** - the
+  suspect was right (a yaw change sweeps a corner through geometry with no
+  position delta to refuse), and the fix is the overlapped-case rule in both
+  twins: a car with blocked sample points may only move AWAY from their
+  centroid, so a swept-in corner can grind and back out but never cross. The
+  same round widened the test to eight points (a pillar narrower than the
+  corner spacing drove straight between four) and reproduced the escape live
+  (x 232 with the wall at 152) before closing it; --vehicle-check holds it as
+  three properties (pillar, overlapped, thin wall). What remains open is the
+  ROTATION itself: yaw is still never collision-checked, so a corner can
+  still sweep INTO an overlap (and now gets stuck grinding instead of
+  escaping) - refusing the yaw change is still a candidate polish.
+- **The editor test drive ignores instance scale.** The runtime multiplies
+  track, wheelbase, ride height and the camera rig by the placed object's
+  uniform scale; the host sim drives the raw spec, so a car authored at scale
+  1.5 handles differently in the two. The example's car IS scale 1.5. Done when
+  the test drive takes the instance's scale - probably a scale argument on
+  step() rather than pre-scaled spec copies, so specFields stays the one list.
+- **The editor test drive's walls are approximate.** World AABBs via
+  placement, not the console's slide resolver - a rotated wall blocks a wider
+  footprint in the editor than on the console. Fine for tuning; worth one
+  sentence of honesty in the panel if anyone reports it.
+- ~~**No speedometer.**~~ DONE - speed, gear and the nitrous tank through
+  `drawFontText`, verified on the console reading 88 / gear 5 / NOS 3. A TACHO is
+  still open, and the reason it is not a small addition is that a PS2 sprite is
+  AXIS-ALIGNED: a swinging needle is not a sprite rotation but either a pre-baked
+  sheet per angle or a small bag of geometry. Left here for the trap the first
+  version hit - the nitrous line sat at 0.945 of the frame height, where the
+  emulator's own picture already cut it in half and a CRT would have lost it
+  entirely. Anything added to that readout gets checked against
+  docs/safe-areas.md, from the bottom row up.
+- **~~Vehicle buttons bypass the Input Map.~~ DONE** - six roles
+  (`veh-throttle/brake/handbrake/nitrous/camera/rearview`) with seeds matching
+  the old hardcoded buttons, single-slot codegen constants, and a hardwired
+  fallback per role for maps that deleted an action. Proven the way the entry
+  asked: the fixture's throttle rebound from Cross to L2 drove on L2. The
+  analog reads (steering stick, stick throttle, d-pad ghost fallback, R2's
+  extra gas) stay hardwired by design - an axis is not an action.
 - **A deploy is only fresh if the capture proves it.** Require a boot line
   (`Clut set` / `Pad initialized`) or a low first `VRAMSTAT f=`. `bin/livedbg.bin`
   appearing proves nothing: a game still running from an earlier deploy resumes
