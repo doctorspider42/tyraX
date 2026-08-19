@@ -28148,6 +28148,15 @@ void TerrainGame::updateVehicles(float dt) {
       const float reach = hx + hz + 1.5F + spd * dt;
       for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
         if (oi == v.object || oi == carryIndex) continue;  // never itself
+        // Another VEHICLE is not a wall: car-vs-car is the momentum pass
+        // after this loop - both cars move, neither dead-stops. A wall
+        // answer here was "nieklimatyczne jeb i oba stoja w miejscu".
+        {
+          bool otherVeh = false;
+          for (int vk = 0; vk < vehicleCount_ && !otherVeh; ++vk)
+            otherVeh = vehicles_[vk].active && vehicles_[vk].object == oi;
+          if (otherVeh) continue;
+        }
         const RuntimeObject& o = runtimeObjects[oi];
         if (!o.active || !o.visible || !objectCollides(o.data)) continue;
         const GameModel* gm = nullptr;
@@ -28865,6 +28874,118 @@ void TerrainGame::updateVehicles(float dt) {
                  " mtx ",
                  (int)(v.object >= 0 ? runtimeObjects[v.object].onMatrixPath
                                      : 0));
+      }
+    }
+  }
+
+  // CAR vs CAR: momentum, not walls (runtime-only - the editor's test drive
+  // has one car, the way it has collidePlayer). Each body is two discs on
+  // its forward axis (a capsule - long like a car, cheap like a circle);
+  // the deepest overlapping pair defines the contact. The response is the
+  // arcade impulse: exchange velocity along the contact normal with the
+  // authored masses and a bit of restitution, separate the bodies
+  // mass-weighted, and let the existing rigs sell it - the lean dips the
+  // nose off the speed change and the heave spring shrugs on its own.
+  for (int a = 0; a < vehicleCount_; ++a) {
+    VehicleRt& va = vehicles_[a];
+    if (!va.active || va.def < 0) continue;
+    const VehicleDefData& sa = VEHICLE_DEFS[va.def];
+    for (int b = a + 1; b < vehicleCount_; ++b) {
+      VehicleRt& vb = vehicles_[b];
+      if (!vb.active || vb.def < 0) continue;
+      const VehicleDefData& sb = VEHICLE_DEFS[vb.def];
+      // Two discs per car: at +-30% of the wheelbase, radius half the track
+      // plus a margin - covers the body's length without a full OBB test.
+      const float ca = cosf(va.yaw * kDeg), sna = sinf(va.yaw * kDeg);
+      const float cb = cosf(vb.yaw * kDeg), snb = sinf(vb.yaw * kDeg);
+      const float ra = (0.5F * sa.track + 0.35F) * va.scale;
+      const float rb = (0.5F * sb.track + 0.35F) * vb.scale;
+      const float da = 0.3F * sa.wheelBase * va.scale;
+      const float db = 0.3F * sb.wheelBase * vb.scale;
+      float worst = 0.0F, nx = 0.0F, nz = 0.0F;
+      for (int ia = -1; ia <= 1; ia += 2)
+        for (int ib = -1; ib <= 1; ib += 2) {
+          const float ax = va.pos[0] + sna * da * (float)ia;
+          const float az = va.pos[2] + ca * da * (float)ia;
+          const float bx = vb.pos[0] + snb * db * (float)ib;
+          const float bz = vb.pos[2] + cb * db * (float)ib;
+          const float dx = bx - ax, dz = bz - az;
+          const float d2 = dx * dx + dz * dz;
+          const float rr = ra + rb;
+          if (d2 >= rr * rr) continue;
+          const float d = sqrtf(d2 > 1e-6F ? d2 : 1e-6F);
+          const float pen = rr - d;
+          if (pen > worst) {
+            worst = pen;
+            nx = dx / d;
+            nz = dz / d;
+          }
+        }
+      if (worst <= 0.0F) continue;
+      // Vertical sanity: a car on a platform does not trade paint with one
+      // underneath it.
+      {
+        const float dy = vb.pos[1] - va.pos[1];
+        if (dy > 1.5F || dy < -1.5F) continue;
+      }
+      // World-frame velocities from each car's own (speed, lateral) frame.
+      const float vax = va.speed * sna + va.lateral * ca;
+      const float vaz = va.speed * ca - va.lateral * sna;
+      const float vbx = vb.speed * snb + vb.lateral * cb;
+      const float vbz = vb.speed * cb - vb.lateral * snb;
+      const float rel = (vbx - vax) * nx + (vbz - vaz) * nz;
+      const float ma = sa.mass > 0.1F ? sa.mass : 0.1F;
+      const float mb = sb.mass > 0.1F ? sb.mass : 0.1F;
+      if (rel < -0.8F) {
+        // A HIT: the impulse, restitution 0.35 - a thump with a bit of
+        // bounce, the era's crash feel, not a snooker ball and not glue.
+        const float imp = -(1.35F * rel) / (1.0F / ma + 1.0F / mb);
+        const float ax2 = vax - nx * imp / ma, az2 = vaz - nz * imp / ma;
+        const float bx2 = vbx + nx * imp / mb, bz2 = vbz + nz * imp / mb;
+        // Back into each frame: speed = v . forward, lateral = v . right.
+        va.speed = ax2 * sna + az2 * ca;
+        va.lateral = ax2 * ca - az2 * sna;
+        vb.speed = bx2 * snb + bz2 * cb;
+        vb.lateral = bx2 * cb - bz2 * snb;
+      } else if (rel < 0.5F) {
+        // RESTING contact: bumper against bumper. The first cut kept firing
+        // the bouncy impulse here and the per-frame separation ate the
+        // pusher's throttle - the pair STALLED nose-to-tail with the gas
+        // held ("I stop dead pushing a parked car"). Momentum-conserving
+        // velocity MATCH along the normal instead (e = 0): the pusher's
+        // drive carries both, so traffic can be bulldozed - the era's shove.
+        const float vaN = vax * nx + vaz * nz;
+        const float vbN = vbx * nx + vbz * nz;
+        const float mean = (ma * vaN + mb * vbN) / (ma + mb);
+        const float ax2 = vax + nx * (mean - vaN), az2 = vaz + nz * (mean - vaN);
+        const float bx2 = vbx + nx * (mean - vbN), bz2 = vbz + nz * (mean - vbN);
+        va.speed = ax2 * sna + az2 * ca;
+        va.lateral = ax2 * ca - az2 * sna;
+        vb.speed = bx2 * snb + bz2 * cb;
+        vb.lateral = bx2 * cb - bz2 * snb;
+      }
+      // Separation, inverse-mass weighted and PARTIAL (60% of the
+      // penetration per frame): full separation acted as glue, cancelling
+      // exactly the distance the pusher's throttle bought each frame.
+      const float wa = (1.0F / ma) / (1.0F / ma + 1.0F / mb);
+      const float sep = worst * 0.6F;
+      va.pos[0] -= nx * sep * wa;
+      va.pos[2] -= nz * sep * wa;
+      vb.pos[0] += nx * sep * (1.0F - wa);
+      vb.pos[2] += nz * sep * (1.0F - wa);
+      // Both bodies moved: the matrix path has to hear about it, or one of
+      // them keeps rendering at the pre-impact transform.
+      if (va.object >= 0) {
+        RuntimeObject& oa = runtimeObjects[va.object];
+        oa.data.position[0] = va.pos[0];
+        oa.data.position[2] = va.pos[2];
+        if (oa.onMatrixPath) updateObjMat(va.object); else oa.dirty = true;
+      }
+      if (vb.object >= 0) {
+        RuntimeObject& ob = runtimeObjects[vb.object];
+        ob.data.position[0] = vb.pos[0];
+        ob.data.position[2] = vb.pos[2];
+        if (ob.onMatrixPath) updateObjMat(vb.object); else ob.dirty = true;
       }
     }
   }

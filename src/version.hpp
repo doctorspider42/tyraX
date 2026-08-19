@@ -16,6 +16,21 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.72.0 (trading paint - docs/vehicles.md): car vs car stopped being a
+// wall ("nieklimatyczne jeb i oba stoja w miejscu") and became momentum.
+// Vehicles leave each other's wall gather; a pair pass after the vehicle
+// loop tests two-disc capsules and answers in two modes: a closing hit is
+// an impulse along the contact normal (authored masses, restitution 0.35 -
+// a thump with bounce), a resting contact velocity-matches the pair
+// (e = 0), because the bouncy impulse plus full separation acted as glue
+// and stalled a pusher nose-to-tail with the gas held. Separation resolves
+// 60% per frame, inverse-mass weighted; both matrix paths are notified.
+// Verified on PCSX2 against a parked rival: the hit exchanges 8.8 -> 4.1
+// u/s and launches it, and holding the gas bulldozes it 28 units to the
+// platform with the pair rolling at ~8 u/s - tyre smoke off the shove for
+// free, since the slip consumer never knew where the slip came from.
+// MINOR.
+//
 // 1.71.0 (the sprung rig - docs/vehicles.md): the recurring "car breaks
 // apart on a bump" had ONE structural cause, not many small ones: the body
 // SNAPPED to the contact plane (pos = restY every frame - the four-sample
@@ -2162,7 +2177,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 71
+#define TYRAX_VERSION_MINOR 72
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

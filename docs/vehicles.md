@@ -160,6 +160,20 @@ everything else a scene does.
   per frame (the trig lives in the gather, the eight points cost multiplies),
   and the host twin holds all of it as `--vehicle-check` properties: pillar,
   overlapped, thin wall.
+- **Car vs car is MOMENTUM, not a wall** (runtime-only, the
+  solid()/collidePlayer split again — the editor's test drive has one car).
+  Each body is two discs on its forward axis (a capsule: long like a car,
+  cheap like a circle); the deepest overlapping pair defines the contact,
+  and the response has two modes. A closing hit exchanges velocity along the
+  contact normal with the authored `mass`es and 0.35 restitution — a thump
+  with a bit of bounce, both cars keep moving ("nieklimatyczne jeb i oba
+  stoją" is the wall answer this replaces). A *resting* contact instead
+  velocity-matches the pair along the normal (momentum-conserving, e = 0),
+  because the bouncy impulse plus full per-frame separation acted as glue
+  and stalled a pusher nose-to-tail with the gas held — bumper against
+  bumper now bulldozes traffic, the era's shove. Separation resolves 60% of
+  the penetration per frame, inverse-mass weighted, and both bodies' matrix
+  paths are told they moved.
 - **The AI driver un-sticks itself.** Pure pursuit has no obstacle avoidance,
   so a pillar on the racing line parks the rival against itself forever the
   moment walls actually hold. Throttle held for over a second with no motion
