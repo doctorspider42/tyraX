@@ -28013,9 +28013,13 @@ void TerrainGame::renderVehicleGlow() {
     // lights are on, FLARED while braking - and braking lights them even
     // with the headlights off, like the real thing.
     if ((v.lightsOn > 0 || v.brakeOn) && glowCount_ + 4 <= kVehGlowMax) {
-      const float bright = v.brakeOn ? 1.0F : 0.4F;
-      const float hw = (v.brakeOn ? 0.13F : 0.10F) * SC;
-      const float hh = (v.brakeOn ? 0.10F : 0.07F) * SC;
+      const float bright = v.brakeOn ? 1.0F : 0.45F;
+      // Sized to read as LAMPS: the first cut's 0.2-unit quads vanished
+      // into the rear trim's black band (the giant probe proved the quads
+      // themselves render fine), so these are wide enough to shoulder past
+      // it and the brake flare grows them again.
+      const float hw = (v.brakeOn ? 0.30F : 0.24F) * SC;
+      const float hh = (v.brakeOn ? 0.16F : 0.11F) * SC;
       const float hxT = 0.32F * s.track * SC;
       const float rxu = cy, rzu = -sy;  // unit right
       // Behind the REAL rear face: the body reaches bodyOverhang past the
@@ -28082,18 +28086,13 @@ void TerrainGame::renderVehicleGlow() {
     }
   }
   if (glowCount_ <= 0) return;
-  static int glowLog = 0;
-  if (++glowLog >= 100) {
-    glowLog = 0;
-    TYRA_LOG("VEHGLOW n ", glowCount_);
-  }
   if (!glowBag_) {
     glowInfoBag_ = std::make_unique<StaPipInfoBag>();
     glowInfoBag_->model = &model;
     glowInfoBag_->shadingType = TyraShadingGouraud;
     glowInfoBag_->fullClipChecks = true;
     glowInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
-    glowInfoBag_->zTestType = PipelineZTest_TestOnly;
+    glowInfoBag_->zTestType = PipelineZTest_Standard;  // BISECT: TestOnly suspect
     // Standard alpha-over, the smoke's PROVEN path - the additive FIX
     // variant submitted five quads the probe could count and the screen
     // could not see, and a light that only a telemetry line can observe is
@@ -28387,6 +28386,16 @@ void TerrainGame::updateVehicles(float dt) {
         v.aiStuckT = 0.0F;
       }
     }
+
+    // Lights bookkeeping - HERE, on every vehicle every frame, not in some
+    // gated block downstream: the first cut sat inside the smoke's
+    // slip-gated section, so a car that never slipped never initialised its
+    // lights (the probe showed the DRIFTING rival lit while the parked
+    // player stayed dark, which is what finally named the bug). The
+    // definition's default lands once; the brake state feeds the tail
+    // lamps, AI brakes included - both drivers fill the same inBrake.
+    if (v.lightsOn < 0) v.lightsOn = s.headlights ? 1 : 0;
+    v.brakeOn = inBrake > 0.01F ? 1 : 0;
 
     // Steering, with the lock shrinking toward top speed: without the taper
     // a full-lock flick at speed spins the car on the spot, and a d-pad is
@@ -28953,11 +28962,6 @@ void TerrainGame::updateVehicles(float dt) {
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
     if (v.grounded && v.slip > 0.35F) {
-      // Lights bookkeeping: the definition's default lands on the first
-      // update, the brake state feeds the tail lamps (AI brakes flare too -
-      // both drivers fill the same inBrake).
-      if (v.lightsOn < 0) v.lightsOn = s.headlights ? 1 : 0;
-      v.brakeOn = inBrake > 0.01F ? 1 : 0;
       // Backfire: an upshift pops the exhaust for a tenth of a second -
       // the shift sound's visual twin, drawn by the glow bag.
       if (v.gear > v.fxPrevGear && v.fxPrevGear >= 0) v.backfireT = 0.09F;

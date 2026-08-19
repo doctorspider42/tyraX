@@ -16,6 +16,19 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.74.2 (the lamps light up - docs/backlog.md entry closed): two stacked
+// causes, neither of them the suspected blend path. (1) The lights
+// bookkeeping sat inside the smoke's SLIP-GATED block, so a car that never
+// slipped never initialised its lights - the numeric probe showed the
+// drifting rival lit while the parked player stayed dark, which named it.
+// Moved to once-per-vehicle-per-frame, before anything mutates inBrake.
+// (2) The lamp quads were sized entirely under the rear trim's black band -
+// a giant-quad probe proved vertical quads render fine, so they are sized
+// past the trim now, with the brake flare growing them again. Verified on
+// camera: dim slivers + beam pool with the lights on, unmistakable red
+// flares while braking. The glow bag stays on standard z from the bisect -
+// TestOnly was exonerated but never needed. PATCH.
+//
 // 1.74.1 (tail lamps in the dark - docs/backlog.md): tail/brake lamps and
 // the DpadUp lights toggle are IN (red quads on the rear face past
 // bodyOverhang, flared by inBrake, per-vehicle lightsOn seeded from the
@@ -2216,7 +2229,7 @@
 
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 74
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -297,7 +297,16 @@ gaps, each with a testable end:
   before `ps aux` told the truth. killEmulatorsFor should normalise quoting
   before matching, and a diagnostic "N other emulator(s) on this ELF" line in
   the Runner would have named it immediately.
-- **Tail/brake lamps submit and do not show - OPEN.** The glow bag counts
+- **~~Tail/brake lamps submit and do not show.~~ FIXED** - two stacked
+  causes, neither the suspected blend path: the lights BOOKKEEPING sat in
+  the smoke's slip-gated block (a car that never slipped never initialised
+  its lights - the probe showed the drifting rival lit while the parked
+  player stayed dark), and the lamp quads were sized under the rear trim's
+  black band (the giant-quad probe proved vertical quads render fine).
+  Per-frame bookkeeping + lamps sized past the trim; verified dim vs flare
+  on camera.
+
+- **(old entry, resolved)** The glow bag counts
   them (probe: n=5 = beam pool + two double-sided lamps) and the screen
   shows nothing, through THREE variants: additive FIX blend, reversed
   winding (double-sided verticals), and the smoke's proven alpha-over. The
