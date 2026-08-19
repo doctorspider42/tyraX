@@ -16,6 +16,38 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.60.0 (the atlas page has a depth now, and it is the setting that decides
+// whether atlasing is worth anything in a palettized project -
+// docs/texture-atlasing.md): a page was always quantized to 256 colours, so in
+// a 4-bit project its members went UP to 8 bits per pixel and the page cost
+// 65 KB - which is why 1.59.0 measured night-walk's atlas as costing 57 KB.
+// The page's depth follows the project's texture quality now (4-bit project ->
+// 4-bit page, 32.25 KB), and a member may ask for more through
+// AtlasControl::pageBits, the group taking the HIGHEST request - the rule
+// textureQuality already uses.
+//
+// WHAT IT BUYS, measured on night-walk and checked against the running game:
+// the page halves, 65 -> 32.25 KB, the atlas's net cost falls 57 -> 24 KB, and
+// VRAMSTAT reports free 0.115234 (no atlas) / 0.0600586 (8-bit page) /
+// 0.092041 MB (4-bit page) - 56.5 and 23.7 KB against predictions of 57 and 24.
+// The break-even moves with it: about EIGHT 64x64 members instead of about
+// sixteen, and sixteen is a full page, i.e. atlasing a palettized project
+// could not pay for itself before.
+//
+// WHAT IT COSTS, measured per texture as mean absolute error against the
+// source art (not asserted - a 16-colour page shared by a red door and a blue
+// garage door is the worst case, and this fixture is exactly that):
+//   ship it alone at the project's own 4 bits ... 6.2 / 6.4
+//   4-bit page (16 colours shared) ............. 10.6 / 9.9
+//   8-bit page (256 colours shared) ............  1.4 / 1.4
+// So the default is a modest loss against shipping the texture alone, and the
+// 8-bit page is actually a quality UPGRADE over a 4-bit project's own textures
+// - at twice the page. Both are one combo away per texture, the window and
+// --atlas-report print the depth per page, and the hue bucketing from 1.59.0
+// is what keeps a shared palette survivable (it does not split a group below
+// one page's worth of content, which is why this two-member fixture shows the
+// trade at its worst).
+//
 // 1.59.0 (texture atlasing gets a window, a report and two knobs -
 // docs/texture-atlasing.md): the feature was one checkbox and one line in the
 // boot log. Nothing said which textures shared a page, so nothing warned that
@@ -2003,7 +2035,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 59
+#define TYRAX_VERSION_MINOR 60
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2293,7 +2325,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // only for textures that carry a decision and the whole section is omitted
 // while empty, so a project that never opens the Texture Atlas window resaves
 // byte for byte. Purely additive - no migration step.
-inline constexpr int kFormatVersion = 32;
+// v33 (the atlas page's depth, docs/texture-atlasing.md): "pageBits" joins the
+// atlasControl entry - a per-texture REQUEST for how deep the page it lands on
+// is quantized (4 / 8 / 32; absent = follow the project's texture quality), and
+// the group takes the highest request any member makes. Written only when a
+// texture asks, so a project that never opens the window resaves byte for byte.
+// Purely additive - no migration step. (v32, this branch's own, shipped hours
+// earlier with keepOut/group; the same section gains a key rather than changing
+// one, so an older reader drops a request it never honoured anyway.)
+inline constexpr int kFormatVersion = 33;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

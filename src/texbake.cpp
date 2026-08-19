@@ -672,12 +672,17 @@ std::string bake(const Project& p,
                 baked / fs::path(atlasPlan.pages[pi].substr(4));
             fs::create_directories(dst.parent_path(), ec);
             std::string err;
+            // A page is quantized AS ONE IMAGE, at the depth its group asked
+            // for (docs/texture-atlasing.md): 4 bits is half the VRAM of 8 and
+            // is what makes atlasing pay in a 4-bit project, at the price of
+            // one 16-colour palette for everything on the page.
+            const int bits = atlasPlan.bitsOf((int)pi);
             const bool ok =
-                atlasPlan.fullColor
+                bits == 32
                     ? pngquant::writePngRGBA(dst.string(), page.data(), S, S,
                                              err)
                     : pngquant::quantizeRGBA(dst.string(), page.data(), S, S,
-                                             256, err);
+                                             bits == 4 ? 16 : 256, err);
             if (!ok)
                 log("[editor] texture atlas: " + atlasPlan.pages[pi] + ": " +
                     err);

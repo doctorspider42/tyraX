@@ -323,10 +323,35 @@ Plan plan(const Project& p) {
         return a.resRel < b.resRel;
     });
 
+    // --- how deep a page is --------------------------------------------------
+    // A page is quantized AS ONE IMAGE, so its depth belongs to the group, not
+    // to a member. It follows the project's own texture quality, which is what
+    // makes atlasing worth doing in a 4-bit project at all: an 8-bit page is
+    // 65 KB and a 4-bit one 32.25 KB, so the break-even moves from about
+    // sixteen 64x64 members (a FULL page - i.e. never, in practice) to about
+    // eight. The price is one 16-colour palette for the whole page, which is
+    // why a member may ask for more depth - and the group takes the HIGHEST
+    // request, the rule textureQuality already uses.
+    const int projectBits = p.settings.textureQuant == "none"  ? 32
+                            : p.settings.textureQuant == "8bit" ? 8
+                                                                : 4;
+    std::map<std::string, int> groupBits;
+    for (const Member& m : members) {
+        int want = projectBits;
+        if (auto it = p.atlasControl.find(m.resRel);
+            it != p.atlasControl.end() && it->second.pageBits != 0)
+            want = it->second.pageBits;
+        auto g = groupBits.find(m.group);
+        if (g == groupBits.end())
+            groupBits[m.group] = want;
+        else if (want > g->second)
+            g->second = want;
+    }
+
     // --- shelf-pack per directory, 2px gutter all around ---------------------
     constexpr int S = 256, G = 2;
     out.pageSize = S;
-    out.fullColor = p.settings.textureQuant == "none";
+    out.fullColor = projectBits == 32;
     // The page FILE always lands in the .mtl's own directory (so the rewritten
     // map_Kd stays a same-directory token); the GROUP only decides who shares
     // it, and its pages are numbered per directory so two groups in one folder
@@ -340,6 +365,8 @@ Plan plan(const Project& p) {
         out.pages.push_back(dirRel + "/tyra-atlas-" +
                             std::to_string(pageInDir) + ".png");
         out.pageGroup.push_back(group);
+        out.pageBits.push_back(groupBits.count(group) ? groupBits[group]
+                                                      : projectBits);
     };
     for (const Member& m : members) {
         if (m.group != curGroup) {
@@ -381,6 +408,7 @@ Plan plan(const Project& p) {
         for (const Entry& e : out.entries) countPerPage[e.page]++;
         std::vector<Entry> kept;
         std::vector<std::string> keptPages, keptGroups;
+        std::vector<int> keptBits;
         std::map<int, int> remap;
         for (int i = 0; i < (int)out.pages.size(); ++i) {
             if (countPerPage[i] < 2) continue;
@@ -389,6 +417,7 @@ Plan plan(const Project& p) {
             keptGroups.push_back(i < (int)out.pageGroup.size()
                                      ? out.pageGroup[i]
                                      : std::string());
+            keptBits.push_back(out.bitsOf(i));
         }
         for (Entry& e : out.entries) {
             auto it = remap.find(e.page);
@@ -417,6 +446,7 @@ Plan plan(const Project& p) {
         out.entries = std::move(kept);
         out.pages = std::move(keptPages);
         out.pageGroup = std::move(keptGroups);
+        out.pageBits = std::move(keptBits);
         std::sort(out.excluded.begin(), out.excluded.end(),
                   [](const Excluded& a, const Excluded& b) {
                       return a.resRel < b.resRel;
@@ -482,12 +512,12 @@ VramEstimate vram(const Plan& plan, const Project& p) {
     const int memberBits = p.settings.textureQuant == "none"  ? 32
                            : p.settings.textureQuant == "8bit" ? 8
                                                                : 4;
-    const int pageBits = plan.fullColor ? 32 : 8;
     long long memberWords = 0;
     for (const Entry& e : plan.entries)
         memberWords += gsWords(e.w, e.h, memberBits);
-    const long long pageWords =
-        (long long)plan.pages.size() * gsWords(plan.pageSize, plan.pageSize, pageBits);
+    long long pageWords = 0;
+    for (size_t i = 0; i < plan.pages.size(); ++i)
+        pageWords += gsWords(plan.pageSize, plan.pageSize, plan.bitsOf((int)i));
     out.membersKb = (int)(memberWords * 4 / 1024);
     out.pagesKb = (int)(pageWords * 4 / 1024);
     out.savedKb = out.membersKb - out.pagesKb;

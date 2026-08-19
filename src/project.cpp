@@ -1844,21 +1844,25 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
 static void writeAtlasSection(std::ostream& json, const Project& p) {
     bool any = false;
     for (const auto& [tex, c] : p.atlasControl)
-        any |= c.keepOut || !c.group.empty();
+        any |= c.keepOut || !c.group.empty() || c.pageBits != 0;
     if (!any) return;
     json << "\"atlasControl\": {";
     bool first = true;
     for (const auto& [tex, c] : p.atlasControl) {
-        if (!c.keepOut && c.group.empty()) continue;
+        if (!c.keepOut && c.group.empty() && c.pageBits == 0) continue;
         json << (first ? " " : ", ") << "\"" << jsonEscape(tex) << "\": {";
         bool inner = false;
         if (c.keepOut) {
             json << " \"keepOut\": true";
             inner = true;
         }
-        if (!c.group.empty())
+        if (!c.group.empty()) {
             json << (inner ? ", " : " ") << "\"group\": \""
                  << jsonEscape(c.group) << "\"";
+            inner = true;
+        }
+        if (c.pageBits != 0)
+            json << (inner ? ", " : " ") << "\"pageBits\": " << c.pageBits;
         json << " }";
         first = false;
     }
@@ -5595,7 +5599,12 @@ static void readAtlasSection(const json::Value& root, Project& out) {
             Project::AtlasControl c;
             if (const auto* k = v.find("keepOut")) c.keepOut = k->boolOr(false);
             if (const auto* g = v.find("group")) c.group = g->stringOr("");
-            if (c.keepOut || !c.group.empty()) out.atlasControl[tex] = c;
+            if (const auto* b = v.find("pageBits")) {
+                const int bits = (int)b->numberOr(0);
+                if (bits == 4 || bits == 8 || bits == 32) c.pageBits = bits;
+            }
+            if (c.keepOut || !c.group.empty() || c.pageBits != 0)
+                out.atlasControl[tex] = c;
         }
     }
 }

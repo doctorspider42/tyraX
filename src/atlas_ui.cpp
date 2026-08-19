@@ -128,12 +128,11 @@ void App::drawTextureAtlasWindow() {
             saved >= 0 ? "saves" : "COSTS", saved >= 0 ? saved : -saved);
         if (saved < 0)
             helpMarker(
-                "A page is quantized as ONE image, so in a palettized project "
-                "its members go up to 8 bits per pixel while they were 4 on "
-                "their own. Atlasing still buys fewer allocations and fewer "
-                "texture switches per frame - but in this project it does not "
-                "buy bytes, and that is worth knowing before trusting it as a "
-                "VRAM lever.");
+                "A page is a full 256x256 allocation whatever it holds, so it "
+                "only pays once enough textures share it: about eight 64x64 "
+                "members at 4 bits per pixel, about sixteen at 8. Below that "
+                "atlasing still buys fewer allocations and fewer texture "
+                "switches per frame - it just does not buy bytes yet.");
     }
     ImGui::Separator();
 
@@ -186,8 +185,32 @@ void App::drawTextureAtlasWindow() {
                 "allocation and one shared palette, so group by what is on "
                 "screen together - a page shared by two rooms keeps both "
                 "resident.");
+        ImGui::SameLine();
+        // The depth REQUEST. A page is quantized as one image, so this asks
+        // for the whole group and the highest request wins; the page header
+        // shows what the group settled on.
+        const char* bitNames[] = {"page: project", "page: 4-bit", "page: 8-bit",
+                                  "page: full"};
+        int bitIdx = ctl.pageBits == 4    ? 1
+                     : ctl.pageBits == 8  ? 2
+                     : ctl.pageBits == 32 ? 3
+                                          : 0;
+        ImGui::PushID((resRel + "#b").c_str());
+        ImGui::SetNextItemWidth(scaled(120));
+        if (ImGui::Combo("##bits", &bitIdx, bitNames, 4)) {
+            ctl.pageBits = bitIdx == 1 ? 4 : bitIdx == 2 ? 8 : bitIdx == 3 ? 32 : 0;
+            changed = true;
+        }
+        ImGui::PopID();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How deep the PAGE this texture lands on is quantized. It "
+                "follows the project's texture quality by default; a 4-bit "
+                "page is half the VRAM of an 8-bit one and shares one "
+                "16-colour palette between everything on it. The group takes "
+                "the highest request any of its members makes.");
         if (changed) {
-            if (ctl.keepOut || !ctl.group.empty())
+            if (ctl.keepOut || !ctl.group.empty() || ctl.pageBits != 0)
                 project_.atlasControl[resRel] = ctl;
             else
                 project_.atlasControl.erase(resRel);
@@ -201,7 +224,9 @@ void App::drawTextureAtlasWindow() {
             for (size_t pi = 0; pi < plan.pages.size(); ++pi) {
                 const std::string& grp = plan.groupOf((int)pi);
                 std::string title = fs::path(plan.pages[pi]).filename().string() +
-                                    "  -  " + plan.pages[pi];
+                                    "  -  " + plan.pages[pi] + "   " +
+                                    std::to_string(plan.bitsOf((int)pi)) +
+                                    "-bit";
                 if (!grp.empty() && grp[0] == '@')
                     title += "   [group " + grp.substr(1) + "]";
                 ImGui::PushID((int)pi);

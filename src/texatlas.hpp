@@ -59,10 +59,24 @@ struct Plan {
     std::vector<Entry> entries;      // sorted deterministically
     std::vector<std::string> pages;      // res-relative page paths, by index
     std::vector<std::string> pageGroup;  // per page: the group it packs
+    // Per page: 4, 8 or 32 bits per pixel. A page is quantized as ONE image,
+    // so its depth is the group's, not the members' - it follows the project's
+    // texture quality unless a member asked for more (Project::AtlasControl::
+    // pageBits, highest wins). A 4-bit page is HALF the VRAM of an 8-bit one
+    // (32.25 KB against 65) and moves the break-even from about sixteen 64x64
+    // members to about eight; it costs one 16-colour palette for the whole
+    // page, which is why the hue bucketing below matters more at 4 bits than
+    // it ever did at 8.
+    std::vector<int> pageBits;
     std::vector<Excluded> excluded;      // rejected candidates + why
     // page quantization: false = palettized 256-color page (the shared-CLUT
     // trade of the era), true = full color (project quantization is "none")
     bool fullColor = false;
+    // The depth of one page (32 when the plan predates the field).
+    int bitsOf(int page) const {
+        return page >= 0 && page < (int)pageBits.size() ? pageBits[page]
+                                                        : (fullColor ? 32 : 8);
+    }
     const Entry* find(const std::string& resRel) const {
         for (const Entry& e : entries)
             if (e.resRel == resRel) return &e;

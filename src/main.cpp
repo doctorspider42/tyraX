@@ -639,8 +639,8 @@ static int atlasReportFromCli(int argc, char** argv) {
         std::string label;
         if (!grp.empty() && grp[0] == '@')
             label = "   [group " + grp.substr(1) + "]";
-        std::printf("\npage %zu  %s%s\n", i, plan.pages[i].c_str(),
-                    label.c_str());
+        std::printf("\npage %zu  %s   %d-bit%s\n", i, plan.pages[i].c_str(),
+                    plan.bitsOf((int)i), label.c_str());
         for (const texatlas::Entry& e : plan.entries)
             if (e.page == (int)i)
                 std::printf("    %-52s %3dx%-3d at %3d,%-3d\n",
@@ -659,11 +659,11 @@ static int atlasReportFromCli(int argc, char** argv) {
             v.savedKb >= 0 ? v.savedKb : -v.savedKb);
         if (v.savedKb < 0)
             std::printf(
-                "    A page is quantized as ONE image, so in a %s project "
-                "its members\n    go up to 8 bits per pixel: atlasing pays "
-                "off here in batching and\n    allocation count, not in "
-                "bytes.\n",
-                p.settings.textureQuant.c_str());
+                "    A page is a full 256x256 allocation whatever it holds, "
+                "so it only pays\n    once enough textures share it - about "
+                "eight 64x64 members at 4 bits,\n    about sixteen at 8. "
+                "Until then atlasing buys batching and allocation\n    "
+                "count, not bytes.\n");
     }
     std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
                 plan.pages.size(), plan.entries.size(), plan.excluded.size(),

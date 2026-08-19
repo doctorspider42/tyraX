@@ -44,9 +44,43 @@ the running game: `VRAMSTAT` reports **0.115 MB** free with atlasing off and
 **0.060 MB** with it on, i.e. 56.5 KB against the predicted 57.
 
 So on that project atlasing buys fewer allocations and fewer texture switches
-per frame, and **spends** bytes. On a project with many small full-colour
-textures it goes the other way. The window prints the same two numbers in
+per frame, and **spends** bytes. The window prints the same two numbers in
 green or amber; there is no need to guess which case you are in.
+
+## The page's depth
+
+A page is quantized as one image, and **how deep** decides everything above.
+It follows the project's own texture quality — a 4-bit project gets a 4-bit
+page — and any texture can ask for more (*page: 4-bit / 8-bit / full* on its
+row); the group takes the **highest** request its members make.
+
+| page | VRAM | break-even (64×64 members) |
+| --- | --- | --- |
+| 8-bit, 256 colours | 65 KB | ~16 — and 16 is a **full** page |
+| 4-bit, 16 colours | 32.25 KB | ~8 |
+
+That is the difference between "atlasing a palettized project can never pay for
+itself" and "it pays from half a page onwards". On `night-walk` the net cost
+falls from 57 KB to 24 KB; `VRAMSTAT` reads 0.115234 MB free with no atlas,
+0.0600586 with an 8-bit page and 0.092041 with a 4-bit one — 56.5 KB and
+23.7 KB against predictions of 57 and 24.
+
+**What the shared palette costs, measured** (mean absolute error against the
+source art, on the worst case: a red door and a blue-grey garage door on one
+page):
+
+| | doors | wall_garage |
+| --- | --- | --- |
+| shipped alone, project's own 4 bits | 6.2 | 6.4 |
+| **4-bit page** (16 colours shared) | 10.6 | 9.9 |
+| **8-bit page** (256 colours shared) | **1.4** | **1.4** |
+
+Two things worth taking from that. The default is a *modest* loss against
+shipping the texture on its own — not the collapse "16 colours for everything"
+suggests — because a 4-bit project's textures only had 16 colours each to begin
+with. And an 8-bit page is a quality **upgrade** for a 4-bit project (256
+shared colours beat 16 private ones) that you pay for in VRAM: pin one member
+of the group to *page: 8-bit* when a page carries art that deserves it.
 
 (An earlier version of this page claimed a flat "+~8 KB allocation overhead per
 texture", which was true of an engine that charged every allocation a fixed
@@ -112,7 +146,8 @@ goes*.
 
 Within a group, members are bucketed by a coarse average hue (six colour
 buckets plus one for near-grey) and pages are cut per bucket, so a vivid red
-sign does not spend a page's 256 colours against a blue crate. The split only
+sign does not spend a page's palette against a blue crate — which matters far
+more at 4 bits than it ever did at 8. The split only
 happens for a group with **more than one page's worth of content** — below
 that, splitting a half-empty page costs more VRAM than the palette buys back.
 Greys go together on purpose: they sit happily on any palette and would

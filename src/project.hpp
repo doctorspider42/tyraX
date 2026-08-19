@@ -3078,6 +3078,12 @@ struct Project {
     struct AtlasControl {
         bool keepOut = false;
         std::string group;
+        // Requested page depth for the GROUP this texture lands in: 0 = follow
+        // the project's texture quality, else 4 / 8 / 32 bits per pixel. A
+        // group takes the HIGHEST depth any member asks for - the same
+        // "highest wins" rule textureQuality uses - so pinning one texture
+        // lifts the page it shares instead of splitting it.
+        int pageBits = 0;
     };
     std::map<std::string, AtlasControl> atlasControl;
     // Real-world size of an imported model, keyed by its asset path:
