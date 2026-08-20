@@ -418,6 +418,10 @@ private:
     // Roads (docs/roads.md): flatten the heightfield to the selected
     // road's interpolated line, smooth shoulder falloff, one undo step.
     void alignTerrainToRoad(int objIndex);
+    // Road viewport editing (docs/roads.md): click empty ground = append a
+    // point, click a point = drag it, click the line = insert there.
+    bool roadEdit_ = false;
+    int roadDragPoint_ = -1;
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -

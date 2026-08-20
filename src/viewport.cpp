@@ -2958,7 +2958,7 @@ bool Viewport::placementRaycast(float u, float v,
         // procedural volume's is usually map-sized - resting on its front face
         // would put the object in mid-air.
         if (o.type == PrimitiveType::Area || o.type == PrimitiveType::Scatter ||
-            !o.procSource.empty())
+            o.type == PrimitiveType::Road || !o.procSource.empty())
             continue;
         float mn[3], mx[3];
         pickBounds(o, mn, mx);

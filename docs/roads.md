@@ -27,6 +27,20 @@ geometry to store, ship or stream.
   survives), then every cell within `width/2 + 3` units is levelled to it
   with the flatten brush's own falloff. One undo step, like a brush stroke.
 
+- **Lift** (the third column in the points table): a per-point height above
+  the terrain, Catmull-Rom interpolated along the spline like the XZ — a
+  ramp climbs smoothly between anchors. 0 = glued flat.
+- **Edit in viewport**: click the ground to APPEND a point, click a point
+  marker to DRAG it, click the line between points to INSERT one there;
+  Esc stops, every operation is one undo step. Every road draws as a
+  filled strip (the selected one gets edges and markers).
+- The road OBJECT does not collide (`objectCollides` excludes it) — the
+  surface is procChunks, and the box at the object's position was an
+  invisible wall you could hit.
+- **Align terrain to road** is FLAT across the road's width (full strength
+  inside `width/2`), with the cosine falloff only on the ±3-unit
+  shoulders — the per-station flatten brush crowned the surface.
+
 ## How it runs
 
 The object itself emits **no runtime geometry** (type 21 is authoring-only in

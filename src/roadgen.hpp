@@ -42,8 +42,12 @@ inline constexpr float kLift = 0.05f;
 // triangle list, three Vertex per triangle, two triangles per segment.
 // Endpoints are clamped (the spline passes through the first and last
 // point). Returns the total arc length; `out` is cleared first.
+// `lifts` (optional, one per point) raises the surface above the terrain -
+// Catmull-Rom interpolated along the spline like the XZ, so a ramp climbs
+// smoothly between anchors. Empty = glued flat (all zero).
 float tessellate(const std::vector<float>& pointsXZ, float width,
-                 const HeightFn& height, std::vector<Vertex>& out);
+                 const HeightFn& height, std::vector<Vertex>& out,
+                 const std::vector<float>& lifts = {});
 
 // The spline position alone (for the align-terrain pass and the editor's
 // point handles): world XZ at parameter t in [0, 1] over the whole polyline.

@@ -794,6 +794,10 @@ struct SceneObject {
     // world space (the object's own position is cosmetic for roads - points
     // are absolute, which is what lets "align terrain" mean one thing).
     std::vector<float> roadPoints;
+    // Per-point LIFT above the terrain (units; empty = all glued flat).
+    // Catmull-Rom interpolated along the spline like the XZ, so a ramp
+    // climbs smoothly between anchors - dunes-jump material.
+    std::vector<float> roadHeights;
     float roadWidth = 6.0f;
     std::string roadTexture;  // project texture path; "" = untextured grey
     // Set on the chunk objects a Scatter bake produced: the id of the Scatter
@@ -1251,7 +1255,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
-           a.roadPoints == b.roadPoints && a.roadWidth == b.roadWidth &&
+           a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
+           a.roadWidth == b.roadWidth &&
            a.roadTexture == b.roadTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
            a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&

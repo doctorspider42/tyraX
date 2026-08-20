@@ -590,7 +590,45 @@ void App::drawVehicleWindow() {
                     "guessed: 3.6 turns metres per second into km/h.");
             }
 
-            // --- Engine note --------------------------------------------------
+            ImGui::EndTabItem();
+        }
+
+        // --- Sounds -----------------------------------------------------------
+        // The sound pack past the base engine loop (which lives in Driver,
+        // next to the pitch curve it rides): the high-rev loop it crossfades
+        // with, the tyre squeal riding the ONE slip number, and the gear
+        // change one-shot.
+        if (ImGui::BeginTabItem("Sounds")) {
+            std::vector<const std::string*> loops2;
+            for (const std::string& snd : project_.sounds) {
+                const size_t slash = snd.rfind('/');
+                const std::string base = slash == std::string::npos
+                                             ? snd
+                                             : snd.substr(slash + 1);
+                if (base.size() >= 9 &&
+                    base.compare(base.size() - 9, 9, "-loop.wav") == 0)
+                    loops2.push_back(&snd);
+            }
+            const auto loopPicker = [&](const char* label, const char* tid,
+                                        std::string& path, const char* tip) {
+                ImGui::SetNextItemWidth(scaled(300));
+                const std::string cur = path.empty() ? "(none)" : path;
+                if (ImGui::BeginCombo(label, cur.c_str())) {
+                    if (ImGui::Selectable(
+                            (std::string("(none)##") + tid).c_str(),
+                            path.empty()))
+                        path.clear();
+                    for (size_t k = 0; k < loops2.size(); ++k) {
+                        const std::string l =
+                            *loops2[k] + "##" + tid + std::to_string(k);
+                        if (ImGui::Selectable(l.c_str(), path == *loops2[k]))
+                            path = *loops2[k];
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp(tip);
+            };
+            // --- Engine note (moved from Driver - all sound in ONE tab) --------------------------------------------------
             // The list is the project's own sounds, and only the LOOPING ones:
             // the loop lives in the encoded sample (adpenc -L over a
             // *-loop.wav), so a one-shot picked here would play for a fifth of
@@ -645,47 +683,7 @@ void App::drawVehicleWindow() {
                 ImGui::SetNextItemWidth(scaled(220));
                 ImGui::SliderFloat("Volume", &v.engineVolume, 0.0f, 100.0f, "%.0f");
             }
-            ImGui::EndTabItem();
-        }
 
-        // --- Sounds -----------------------------------------------------------
-        // The sound pack past the base engine loop (which lives in Driver,
-        // next to the pitch curve it rides): the high-rev loop it crossfades
-        // with, the tyre squeal riding the ONE slip number, and the gear
-        // change one-shot.
-        if (ImGui::BeginTabItem("Sounds")) {
-            std::vector<const std::string*> loops2;
-            for (const std::string& snd : project_.sounds) {
-                const size_t slash = snd.rfind('/');
-                const std::string base = slash == std::string::npos
-                                             ? snd
-                                             : snd.substr(slash + 1);
-                if (base.size() >= 9 &&
-                    base.compare(base.size() - 9, 9, "-loop.wav") == 0)
-                    loops2.push_back(&snd);
-            }
-            const auto loopPicker = [&](const char* label, const char* tid,
-                                        std::string& path, const char* tip) {
-                ImGui::SetNextItemWidth(scaled(300));
-                const std::string cur = path.empty() ? "(none)" : path;
-                if (ImGui::BeginCombo(label, cur.c_str())) {
-                    if (ImGui::Selectable(
-                            (std::string("(none)##") + tid).c_str(),
-                            path.empty()))
-                        path.clear();
-                    for (size_t k = 0; k < loops2.size(); ++k) {
-                        const std::string l =
-                            *loops2[k] + "##" + tid + std::to_string(k);
-                        if (ImGui::Selectable(l.c_str(), path == *loops2[k]))
-                            path = *loops2[k];
-                    }
-                    ImGui::EndCombo();
-                }
-                prefHelp(tip);
-            };
-            ImGui::TextDisabled(
-                "The base engine loop and its pitch curve live in the Driver "
-                "tab.");
             ImGui::Checkbox("Headlights", &v.headlights);
             prefHelp(
                 "Two additive beam pools painted on the terrain ahead of the\n"

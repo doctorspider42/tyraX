@@ -574,11 +574,17 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Points");
         int removeAt = -1, insertAfter = -1;
         const int np = (int)(o.roadPoints.size() / 2);
+        if (o.roadHeights.size() != (size_t)np)
+            o.roadHeights.resize((size_t)np, 0.0f);
         for (int i = 0; i < np; ++i) {
             ImGui::PushID(i);
             float* px = &o.roadPoints[(size_t)i * 2];
             ImGui::SetNextItemWidth(scaled(170));
             ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(64));
+            ImGui::DragFloat("##lift", &o.roadHeights[(size_t)i], 0.1f, 0.0f,
+                             30.0f, "^%.1f");
             ImGui::SameLine();
             if (ImGui::SmallButton("+")) insertAfter = i;
             ImGui::SameLine();
@@ -597,10 +603,27 @@ void App::drawPropertiesWindow() {
                 nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
             }
             o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
+            if (o.roadHeights.size() >= (size_t)(insertAfter + 1))
+                o.roadHeights.insert(
+                    o.roadHeights.begin() + (insertAfter + 1),
+                    0.5f * (o.roadHeights[(size_t)insertAfter] +
+                            (insertAfter + 1 < (int)o.roadHeights.size()
+                                 ? o.roadHeights[(size_t)insertAfter + 1]
+                                 : o.roadHeights[(size_t)insertAfter])));
         }
-        if (removeAt >= 0)
+        if (removeAt >= 0) {
             o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
                                o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
+            if ((size_t)removeAt < o.roadHeights.size())
+                o.roadHeights.erase(o.roadHeights.begin() + removeAt);
+        }
+        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
+            roadEdit_ = !roadEdit_;
+        prefHelp(
+            "Click the ground to APPEND a point, click a point to DRAG it,\n"
+            "click the line between points to INSERT one there. Esc stops.\n"
+            "Every operation is one undo step (Ctrl+Z).");
+        ImGui::SameLine();
         if (ImGui::Button("Align terrain to road"))
             alignTerrainToRoad(selectedObject_);
         prefHelp(
@@ -2837,9 +2860,48 @@ void App::alignTerrainToRoad(int objIndex) {
         }
         for (int i = 0; i <= stations; ++i) line[(size_t)i].h = sm[(size_t)i];
     }
-    const float radius = 0.5f * o.roadWidth + 3.0f;  // shoulders included
-    for (const St& st : line)
-        project::flattenHeightmap(project_, st.x, st.z, radius, st.h, 1.0f);
+    // FLAT under the asphalt, falloff only on the SHOULDERS: the first cut
+    // ran the flatten brush (cosine from the centre) per station, which
+    // crowned the road - the surface must be level across its own width.
+    // Direct heightfield pass: every cell within reach of the line takes the
+    // height of its NEAREST station, full strength inside halfWidth, cosine
+    // out to the shoulder edge.
+    {
+        SceneData& sc = project_.active();
+        if (sc.hmW >= 2 && sc.hmD >= 2) {
+            const float w = (float)sc.terrain.width, d = (float)sc.terrain.depth;
+            const float stepX = w / (sc.hmW - 1), stepZ = d / (sc.hmD - 1);
+            const float halfW = 0.5f * o.roadWidth + 0.4f;
+            const float shoulder = 3.0f;
+            const float reach = halfW + shoulder;
+            for (int z = 0; z < sc.hmD; ++z) {
+                for (int x = 0; x < sc.hmW; ++x) {
+                    const float vx = -w * 0.5f + x * stepX;
+                    const float vz = -d * 0.5f + z * stepZ;
+                    float best = 1e30f;
+                    float bh = 0.0f;
+                    for (const St& st : line) {
+                        const float dx = vx - st.x, dz = vz - st.z;
+                        const float d2 = dx * dx + dz * dz;
+                        if (d2 < best) {
+                            best = d2;
+                            bh = st.h;
+                        }
+                    }
+                    const float dist = std::sqrt(best);
+                    if (dist >= reach) continue;
+                    float k = 1.0f;
+                    if (dist > halfW) {
+                        const float t = (dist - halfW) / shoulder;
+                        k = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+                    }
+                    float& h = sc.heights[(size_t)z * sc.hmW + x];
+                    h += (bh - h) * k;
+                }
+            }
+        }
+    }
+    const float radius = 0.5f * o.roadWidth + 3.0f;  // viewport rebuild reach
     // Rebuild the viewport terrain under the whole line (region updates per
     // station - the sculpt brush's own path, so chunk rebuilds stay local).
     for (const St& st : line)

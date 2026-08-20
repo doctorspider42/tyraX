@@ -34,10 +34,26 @@ inline P sample(const std::vector<float>& pts, int seg, float t) {
     return {cr(p0.x, p1.x, p2.x, p3.x, t), cr(p0.z, p1.z, p2.z, p3.z, t)};
 }
 
+inline float liftOf(const std::vector<float>& lifts, int n, int i) {
+    if (lifts.empty()) return 0.0f;
+    if (i < 0) i = 0;
+    if (i > n - 1) i = n - 1;
+    return i < (int)lifts.size() ? (lifts[(size_t)i] > 0.0f ? lifts[(size_t)i] : 0.0f)
+                                 : 0.0f;
+}
+
+inline float sampleLift(const std::vector<float>& lifts, int n, int seg, float t) {
+    if (lifts.empty()) return 0.0f;
+    const float l = cr(liftOf(lifts, n, seg - 1), liftOf(lifts, n, seg),
+                       liftOf(lifts, n, seg + 1), liftOf(lifts, n, seg + 2), t);
+    return l > 0.0f ? l : 0.0f;
+}
+
 }  // namespace
 
 float tessellate(const std::vector<float>& pointsXZ, float width,
-                 const HeightFn& height, std::vector<Vertex>& out) {
+                 const HeightFn& height, std::vector<Vertex>& out,
+                 const std::vector<float>& lifts) {
     out.clear();
     const int n = (int)(pointsXZ.size() / 2);
     if (n < 2) return 0.0f;
@@ -75,15 +91,16 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
                              (c.z - prev.z) * (c.z - prev.z));
             prev = c;
             const float v = arc / kTexLen;
+            const float lift = sampleLift(lifts, n, seg, t);
             Vertex l, r;
             l.x = c.x - rx;
             l.z = c.z - rz;
-            l.y = (height ? height(l.x, l.z) : 0.0f) + kLift;
+            l.y = (height ? height(l.x, l.z) : 0.0f) + kLift + lift;
             l.u = 0.0f;
             l.v = v;
             r.x = c.x + rx;
             r.z = c.z + rz;
-            r.y = (height ? height(r.x, r.z) : 0.0f) + kLift;
+            r.y = (height ? height(r.x, r.z) : 0.0f) + kLift + lift;
             r.u = 1.0f;
             r.v = v;
             left.push_back(l);

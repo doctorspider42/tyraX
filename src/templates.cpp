@@ -14193,6 +14193,7 @@ bool TerrainGame::objectCollides(const SceneObjectData& d) {
     case 9:   // point light
     case 11:  // empty
     case 13:  // decal
+    case 21:  // road - the surface is procChunks; the OBJECT is authoring only
     case 14:  // camera marker
     case 17:  // area (a volume, not a wall)
     case 18:  // procedural volume (authoring only)
@@ -25139,6 +25140,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         {
             std::vector<std::string> roadTex;
             std::vector<float> roadPts;
+            std::vector<float> roadLift;
             struct RoadRow { int scene, first, count, tex; float width; std::string name; };
             std::vector<RoadRow> roadRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
@@ -25164,6 +25166,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     roadRows.push_back(r);
                     roadPts.insert(roadPts.end(), o.roadPoints.begin(),
                                    o.roadPoints.end());
+                    for (size_t k = 0; k < o.roadPoints.size() / 2; ++k)
+                        roadLift.push_back(k < o.roadHeights.size()
+                                               ? o.roadHeights[k]
+                                               : 0.0f);
                 }
             if (!roadRows.empty()) {
                 out << "\n// Roads (docs/roads.md): points in, geometry at boot.\n"
@@ -25183,6 +25189,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << "] = {";
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
+                out << "};\n"
+                    << "constexpr float ROAD_LIFT[" << roadLift.size()
+                    << "] = {";
+                for (size_t k = 0; k < roadLift.size(); ++k)
+                    out << (k ? ", " : "") << floatLit(roadLift[k]);
                 out << "};\n";
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
@@ -29922,6 +29933,7 @@ void TerrainGame::buildRoads(int scene) {
       tex = roadTextures_[rd.tex];
     }
     const float* pts = &ROAD_POINTS[rd.first];
+    const float* lifts = &ROAD_LIFT[rd.first / 2];
     const int n = rd.pointCount;
     const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
     // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
@@ -29936,6 +29948,16 @@ void TerrainGame::buildRoads(int scene) {
       return 0.5F * ((2.0F * p1) + (-p0 + p2) * t +
                      (2.0F * p0 - 5.0F * p1 + 4.0F * p2 - p3) * t2 +
                      (-p0 + 3.0F * p1 - 3.0F * p2 + p3) * t3);
+    };
+    auto liftAt = [&](int i) {
+      if (i < 0) i = 0;
+      if (i > n - 1) i = n - 1;
+      return lifts[i] > 0.0F ? lifts[i] : 0.0F;
+    };
+    auto sampleLift = [&](int seg, float t) {
+      const float l = cr(liftAt(seg - 1), liftAt(seg), liftAt(seg + 1),
+                         liftAt(seg + 2), t);
+      return l > 0.0F ? l : 0.0F;
     };
     auto sampleAt = [&](int seg, float t, float* x, float* z) {
       float x0, z0, x1, z1, x2, z2, x3, z3;
@@ -29985,8 +30007,9 @@ void TerrainGame::buildRoads(int scene) {
         const float v = arc / 4.0F;
         const float nlx = cx2 - rxu, nlz = cz2 - rzu;
         const float nrx = cx2 + rxu, nrz = cz2 + rzu;
-        const float nly = terrainHeightAt(nlx, nlz) + 0.05F;
-        const float nry = terrainHeightAt(nrx, nrz) + 0.05F;
+        const float lift = sampleLift(seg, t);
+        const float nly = terrainHeightAt(nlx, nlz) + 0.05F + lift;
+        const float nry = terrainHeightAt(nrx, nrz) + 0.05F + lift;
         if (havePrev) {
           if (!c || stationsInChunk >= 24) {
             procChunks.push_back(ProcChunk());

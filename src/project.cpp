@@ -946,6 +946,14 @@ std::string objectJson(const SceneObject& o) {
         for (size_t k = 0; k < o.roadPoints.size(); ++k)
             json += (k ? ", " : "") + fmtFloat(o.roadPoints[k]);
         json += "], \"roadWidth\": " + fmtFloat(o.roadWidth);
+        bool anyLift = false;
+        for (float h : o.roadHeights) anyLift |= h != 0.0f;
+        if (anyLift) {
+            json += ", \"roadHeights\": [";
+            for (size_t k = 0; k < o.roadHeights.size(); ++k)
+                json += (k ? ", " : "") + fmtFloat(o.roadHeights[k]);
+            json += "]";
+        }
         if (!o.roadTexture.empty())
             json += ", \"roadTexture\": \"" + jsonEscape(o.roadTexture) + "\"";
     }
@@ -5131,6 +5139,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* rw = jo.find("roadWidth"))
             o.roadWidth = (float)rw->numberOr(6.0);
+        if (const auto* rh = jo.find("roadHeights")) {
+            o.roadHeights.clear();
+            if (rh->type == json::Value::Type::Array)
+                for (const json::Value& v : rh->arr)
+                    o.roadHeights.push_back((float)v.numberOr(0.0));
+        }
         if (const auto* rt = jo.find("roadTexture"))
             o.roadTexture = rt->stringOr("");
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");

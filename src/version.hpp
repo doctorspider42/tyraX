@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.77.0 (roads, second pass): the road OBJECT no longer collides (its box
+// was an invisible wall), align-terrain is FLAT across the width (the
+// flatten brush's cosine crowned it - shoulders keep the falloff),
+// per-point LIFT above the terrain (Catmull-Rom along the spline, ramps
+// climb smoothly; ROAD_LIFT table + twin arithmetic in buildRoads), every
+// road previews as a FILLED strip (selected gets edges/markers), a
+// viewport EDIT mode (click ground = append, click point = drag, click
+// line = insert; Esc stops; one undo step per operation), and the engine
+// sound moved from Driver into the Sounds tab where the rest of the pack
+// lives. kFormatVersion 46 (roadHeights, additive). MINOR.
+//
 // 1.76.0 (lamps off the materials - docs/vehicles.md): "zalatwic swiatla
 // materialem, bo kazdy pojazd ma inny ksztalt". The import pools the
 // canonical AABBs of lamp-named materials (lamp/light/brake/tail/stop/head,
@@ -2255,7 +2266,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 76
+#define TYRAX_VERSION_MINOR 77
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2536,7 +2547,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 45;
+inline constexpr int kFormatVersion = 46;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
