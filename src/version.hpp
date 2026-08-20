@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.61.3 (the atlas window draws the page it is TALKING about): the preview
+// was the PNG the last build wrote, so it lagged every edit - group two
+// textures and page 0 kept showing its previous thirty members above a list
+// of two, while the page the plan had just invented showed nothing at all
+// ("build the project to see the page"). A preview that contradicts the list
+// beside it is worse than no preview, and the plan is computable now, so the
+// window composites each page from the member PNGs itself: correct before any
+// build, and correct the instant a group or a keep-out changes. Reported from
+// the window, with a screenshot of exactly that mismatch.
+//
 // 1.61.2 (a scene where atlasing actually pays, and the bug building it found
 // - examples/texture-atlas): thirty crates, each with its own 32x32 texture,
 // packed onto ONE 256x256 4-bit page. Measured from the game's own VRAMSTAT,
@@ -2125,7 +2135,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 61
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

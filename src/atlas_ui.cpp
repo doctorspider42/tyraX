@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <set>
@@ -28,7 +29,11 @@
 
 #include <imgui.h>
 
+#include <stb_image.h>
+
+#include "gl_loader.h"
 #include "objparser.hpp"
+#include "pngquant.hpp"
 #include "texatlas.hpp"
 
 namespace fs = std::filesystem;
@@ -81,6 +86,66 @@ void helpMarker(const char* tip) {
 
 }  // namespace
 
+// The page as the PLAN describes it, composited here from the member PNGs -
+// NOT the file the last build wrote. That distinction is the whole point: the
+// baked page lags every edit, so a re-grouped project showed page 0 with its
+// previous thirty members while its list underneath had two, and a page the
+// plan had just invented showed nothing at all. A preview that contradicts the
+// list beside it is worse than no preview.
+void App::rebuildAtlasPreviews() {
+    for (auto& [page, tex] : atlasPagePreview_)
+        if (tex.tex) {
+            const GLuint id = tex.tex;
+            glDeleteTextures(1, &id);
+        }
+    atlasPagePreview_.clear();
+    const int S = atlasPlan_.pageSize;
+    if (S <= 0) return;
+    for (size_t pi = 0; pi < atlasPlan_.pages.size(); ++pi) {
+        // Mid grey rather than black: a page is mostly empty at these sizes
+        // and black reads as "nothing was packed".
+        std::vector<unsigned char> page((size_t)S * S * 4, 60);
+        for (size_t i = 3; i < page.size(); i += 4) page[i] = 255;
+        bool any = false;
+        for (const texatlas::Entry& e : atlasPlan_.entries) {
+            if (e.page != (int)pi) continue;
+            int w = 0, h = 0, comp = 0;
+            const std::string full =
+                (fs::path(project_.dir) / e.resRel).string();
+            unsigned char* px = stbi_load(full.c_str(), &w, &h, &comp, 4);
+            if (!px) continue;
+            // The bake resizes a member to its power-of-two size; the plan
+            // already carries that size, so the preview uses the same one.
+            std::vector<unsigned char> fit;
+            const unsigned char* src = px;
+            if (w != e.w || h != e.h) {
+                fit = pngquant::resizeRGBA(px, w, h, e.w, e.h);
+                src = fit.data();
+            }
+            for (int y = 0; y < e.h; ++y) {
+                const int dy = e.y + y;
+                if (dy < 0 || dy >= S) continue;
+                for (int x = 0; x < e.w; ++x) {
+                    const int dx = e.x + x;
+                    if (dx < 0 || dx >= S) continue;
+                    std::memcpy(&page[((size_t)dy * S + dx) * 4],
+                                &src[((size_t)y * e.w + x) * 4], 4);
+                }
+            }
+            stbi_image_free(px);
+            any = true;
+        }
+        if (!any) continue;
+        HudTexture entry;
+        GLuint tex = 0;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUploadTexRgba(S, S, page.data());
+        entry = {tex, S, S};
+        atlasPagePreview_[(int)pi] = entry;
+    }
+}
+
 void App::drawTextureAtlasWindow() {
     if (!showTextureAtlas_) return;
     ImGui::SetNextWindowSize(ImVec2(scaled(820), scaled(620)),
@@ -118,6 +183,7 @@ void App::drawTextureAtlasWindow() {
     if (atlasPlanDirty_) {
         atlasPlan_ = texatlas::plan(project_);
         atlasVram_ = texatlas::vram(atlasPlan_, project_);
+        rebuildAtlasPreviews();
         atlasPlanDirty_ = false;
     }
     const texatlas::Plan& plan = atlasPlan_;
@@ -241,16 +307,19 @@ void App::drawTextureAtlasWindow() {
                 ImGui::PushID((int)pi);
                 if (ImGui::CollapsingHeader(title.c_str(),
                                             ImGuiTreeNodeFlags_DefaultOpen)) {
-                    // The baked page, when a build has already composited it.
-                    const std::string bakedRel =
-                        ".res-baked/" + plan.pages[pi].substr(4);
-                    if (const HudTexture* t = hudTexture(bakedRel)) {
+                    // The page the plan describes, composited on the spot -
+                    // so it matches the list beside it even before a build.
+                    if (auto it = atlasPagePreview_.find((int)pi);
+                        it != atlasPagePreview_.end()) {
                         const float s = scaled(180);
-                        ImGui::Image((ImTextureID)(intptr_t)t->tex,
+                        ImGui::Image((ImTextureID)(intptr_t)it->second.tex,
                                      ImVec2(s, s));
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "The page as it will be BAKED - composited "
+                                "from the members listed here, not read back "
+                                "from the last build.");
                         ImGui::SameLine();
-                    } else {
-                        ImGui::TextDisabled("(build the project to see the page)");
                     }
                     ImGui::BeginGroup();
                     // Cross-scene warning: the "different parish" problem.

@@ -1946,6 +1946,10 @@ private:
     texatlas::Plan atlasPlan_;
     texatlas::VramEstimate atlasVram_;
     void drawTextureAtlasWindow();
+    // Page previews are composited from the plan rather than read back from
+    // the bake (which lags every edit) - the map lives beside HudTexture,
+    // which is declared further down.
+    void rebuildAtlasPreviews();
     gibake::Baker giBaker_;
     // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
     // object's texture, from the button in Properties. Async because the bounce
@@ -2818,6 +2822,9 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture Atlas page previews, composited from the plan (see
+    // rebuildAtlasPreviews): keyed by page index, rebuilt with the plan.
+    std::map<int, HudTexture> atlasPagePreview_;
     // The generated drawing of a built-in text icon as a GL texture. Lets the
     // Button icons manager preview an icon whose PNG the project has not baked
     // yet, and show what "restore default" gives back. Null for a name that is

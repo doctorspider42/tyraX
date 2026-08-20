@@ -193,6 +193,10 @@ how PS2 games did it), a full-color project gets full-color pages.
 
 ## Notes
 
+- The window's page previews are **composited from the plan**, not read back
+  from the last build - so they are right before the first build and right the
+  moment a group or a keep-out changes. The baked PNG under `.res-baked/` is
+  what the console gets; the preview is what the next build will write.
 - The plan re-computes every build; adding/removing textures reshuffles
   pages safely (the baked `.mtl` rewrite and the pages always move
   together). The window's *Recompute* button re-reads it on demand.
