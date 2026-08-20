@@ -1040,6 +1040,15 @@ struct VehicleDef {
     // the canonical frame (x = right, y = up, z = forward): the driver's door.
     float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
 
+    // Lamp clusters, measured off the model's own MATERIALS by the import
+    // (names saying head/tail/brake/lamp/light - docs/vehicles.md, "The
+    // visual pack"): {sideways |x| offset, y, z, half-size}, canonical frame.
+    // size 0 = the model marked no lamps and the runtime falls back to its
+    // shape-blind heuristic positions. This is what makes the glow fit EVERY
+    // body: the material says where the lamps are on THIS shape.
+    float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
     // the moment somebody reordered the Sounds panel. It must name a
@@ -1101,6 +1110,10 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
         a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
         a.headlights != b.headlights ||
+        a.lampRear[0] != b.lampRear[0] || a.lampRear[1] != b.lampRear[1] ||
+        a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
+        a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
+        a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale)
         return false;
     for (int i = 0; i < 3; ++i)

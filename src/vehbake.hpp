@@ -110,6 +110,11 @@ struct Result {
     int bodyParts = 0, bodyTris = 0;
     int wheelParts = 0, wheelTris = 0;
 
+    // Lamp clusters measured off lamp-named materials, canonical frame:
+    // {|x| offset, y, z, half-size}; size 0 = none found (fallback).
+    float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+
     std::vector<std::string> notes;
 };
 

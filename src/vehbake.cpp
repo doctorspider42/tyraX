@@ -577,6 +577,77 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
                            0.5f * out.detection.wheelBase;
         if (over > 0.0f) out.spec.bodyOverhang = over;
     }
+    // Lamp clusters, off the model's own MATERIALS (docs/vehicles.md, "The
+    // visual pack"): parts whose material name says lamp get their canonical
+    // AABBs pooled into a rear (z < 0) and a front (z > 0) cluster, and the
+    // runtime draws its glow AT those spots instead of guessing from the
+    // wheelbase - the material says where the lamps are on THIS shape. No
+    // lamp-named material = size 0 = the shape-blind fallback, so a model
+    // authored before this existed changes nothing.
+    {
+        auto isLamp = [](const std::string& mat, bool* front) {
+            std::string n;
+            for (char c : mat)
+                n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+            auto has = [&](const char* w) {
+                return n.find(w) != std::string::npos;
+            };
+            const bool lampish = has("lamp") || has("light") || has("brake") ||
+                                 has("tail") || has("stop") || has("head") ||
+                                 has("swiatl");
+            if (!lampish) return false;
+            *front = has("head") || has("front") || has("przod");
+            return true;
+        };
+        float mnR[3] = {1e30f, 1e30f, 1e30f}, mxR[3] = {-1e30f, -1e30f, -1e30f};
+        float mnF[3] = {1e30f, 1e30f, 1e30f}, mxF[3] = {-1e30f, -1e30f, -1e30f};
+        bool anyR = false, anyF = false;
+        const std::vector<M4> g2 = globals(sk);
+        for (const glbparser::SkelPart& p : sk.parts) {
+            bool front = false;
+            if (!isLamp(p.material, &front)) continue;
+            const int node = ownerNode(sk, p, nullptr);
+            if (node < 0) continue;
+            if (std::find(out.detection.bodyNodes.begin(),
+                          out.detection.bodyNodes.end(),
+                          node) == out.detection.bodyNodes.end())
+                continue;
+            const M4 xf = M4::mul(canon, g2[node]);
+            for (int c = 0; c < p.vertexCount; ++c) {
+                float w[3];
+                xf.point(&p.positions[(size_t)c * 3], w);
+                for (int a = 0; a < 3; ++a) w[a] -= bodyOrigin[a];
+                // A "light" material can wrap the whole body on junk models;
+                // classify by the VERTEX end when the name did not say.
+                const bool isFront = front || w[2] > 0.0f;
+                float* mn = isFront ? mnF : mnR;
+                float* mx = isFront ? mxF : mxR;
+                for (int a = 0; a < 3; ++a) {
+                    if (w[a] < mn[a]) mn[a] = w[a];
+                    if (w[a] > mx[a]) mx[a] = w[a];
+                }
+                (isFront ? anyF : anyR) = true;
+            }
+        }
+        auto pack = [](const float* mn, const float* mx, float outv[4]) {
+            outv[0] = 0.5f * (std::fabs(mn[0]) + std::fabs(mx[0]));  // |x| offset
+            outv[1] = 0.5f * (mn[1] + mx[1]);
+            outv[2] = 0.5f * (mn[2] + mx[2]);
+            float sz = 0.5f * (mx[1] - mn[1]);
+            const float sx = 0.25f * (mx[0] - mn[0]);
+            if (sx > sz) sz = sx;
+            outv[3] = sz > 0.04f ? sz : 0.04f;
+        };
+        if (anyR) pack(mnR, mxR, out.lampRear);
+        if (anyF) pack(mnF, mxF, out.lampFront);
+        if (anyR || anyF) {
+            char buf[128];
+            snprintf(buf, sizeof(buf),
+                     "Lamp materials measured: rear %s, front %s.",
+                     anyR ? "yes" : "no", anyF ? "yes" : "no");
+            out.notes.push_back(buf);
+        }
+    }
 
     // The radius comes from the BAKED wheel, not from the detected one. A
     // quadric collapse pulls a round silhouette inward - measured at 0.380

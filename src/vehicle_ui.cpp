@@ -147,6 +147,13 @@ void App::vehicleRefreshBake(int index, bool force) {
             v.drive.wheelRadius = r_geom(c.result.spec.wheelRadius, def.wheelRadius);
             v.drive.rideHeight = r_geom(c.result.spec.rideHeight, def.rideHeight);
             v.drive.bodyOverhang = r_geom(c.result.spec.bodyOverhang, def.bodyOverhang);
+            // Lamp clusters follow the bake unconditionally: they are pure
+            // measurement (there is no authored value to respect), and a
+            // re-import of a re-textured model must move the glow with it.
+            for (int k = 0; k < 4; ++k) {
+                v.lampRear[k] = c.result.lampRear[k];
+                v.lampFront[k] = c.result.lampFront[k];
+            }
             setDirty(true);
         }
     }

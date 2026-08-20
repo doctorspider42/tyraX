@@ -2519,6 +2519,14 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
             json << ", \"shiftSound\": \"" << jsonEscape(v.shiftSound)
                  << "\", \"shiftVolume\": " << fmtFloat(v.shiftVolume);
         if (v.headlights) json << ", \"headlights\": true";
+        if (v.lampRear[3] > 0.0f)
+            json << ", \"lampRear\": [" << fmtFloat(v.lampRear[0]) << ", "
+                 << fmtFloat(v.lampRear[1]) << ", " << fmtFloat(v.lampRear[2])
+                 << ", " << fmtFloat(v.lampRear[3]) << "]";
+        if (v.lampFront[3] > 0.0f)
+            json << ", \"lampFront\": [" << fmtFloat(v.lampFront[0]) << ", "
+                 << fmtFloat(v.lampFront[1]) << ", " << fmtFloat(v.lampFront[2])
+                 << ", " << fmtFloat(v.lampFront[3]) << "]";
         if (!v.wheels.empty()) {
             json << ", \"wheels\": [";
             for (size_t k = 0; k < v.wheels.size(); ++k)
@@ -2586,6 +2594,14 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             v.shiftVolume = (float)x->numberOr(80.0);
         if (const json::Value* x = e.find("headlights"))
             v.headlights = x->boolOr(false);
+        if (const json::Value* x = e.find("lampRear"))
+            if (x->type == json::Value::Type::Array && x->arr.size() == 4)
+                for (int k = 0; k < 4; ++k)
+                    v.lampRear[k] = (float)x->arr[(size_t)k].numberOr(0.0);
+        if (const json::Value* x = e.find("lampFront"))
+            if (x->type == json::Value::Type::Array && x->arr.size() == 4)
+                for (int k = 0; k < 4; ++k)
+                    v.lampFront[k] = (float)x->arr[(size_t)k].numberOr(0.0);
         if (const json::Value* x = e.find("enginePitch"))
             if (x->type == json::Value::Type::Array && x->arr.size() >= 2) {
                 v.enginePitchIdle = (float)x->arr[0].numberOr(v.enginePitchIdle);

@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.76.0 (lamps off the materials - docs/vehicles.md): "zalatwic swiatla
+// materialem, bo kazdy pojazd ma inny ksztalt". The import pools the
+// canonical AABBs of lamp-named materials (lamp/light/brake/tail/stop/head,
+// vertex-end split when the name does not say which end) into rear and
+// front clusters on the definition; the tail-lamp glow draws AT the
+// measured spots and the headlight beam starts from the measured front.
+// Pure measurement, re-seeded on every re-import; size 0 = the shape-blind
+// heuristic stays the fallback (verified on-console: the CC96 has no lamp
+// materials and its lamps look exactly as before, on the new road no
+// less). kFormatVersion 45, additive. MINOR.
+//
 // 1.75.0 (roads - docs/roads.md): a Road object is a polyline, a width and
 // ONE texture; a Catmull-Rom spline threads the points and the surface is
 // tessellated AT BOOT into procChunks (owner -3, ~24 stations each) - the
@@ -2244,7 +2255,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 75
+#define TYRAX_VERSION_MINOR 76
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2525,7 +2536,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 44;
+inline constexpr int kFormatVersion = 45;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

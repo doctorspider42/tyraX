@@ -317,6 +317,17 @@ nothing when idle:
   only when a quad SPAWNS. One alpha-over submit, skipped when empty.
 - **Backfire**: an upshift pops a vertical additive quad at the exhaust for
   a tenth of a second — the shift sound's visual twin.
+- **The lamps follow the MATERIALS.** The import pools the canonical AABBs
+  of body parts whose material name says lamp (`lamp/light/brake/tail/stop/
+  head/front`, plus a vertex-end split when the name does not say which end)
+  into a rear and a front cluster, stored on the definition (`lampRear`,
+  `lampFront`: |x| offset, y, z, half-size). The tail-lamp glow draws AT the
+  measured spots and the headlight beam starts from the measured front — so
+  the glow fits every body shape, because the material is the one thing
+  that knows where the lamps are on THIS model. No lamp-named material =
+  the shape-blind heuristic (trim-shouldering sizes pushed past
+  `bodyOverhang`) stays the fallback, and a model authored before this
+  existed changes nothing.
 - **Headlights** (`headlights` on the definition, off by default): an
   additive beam trapezoid painted on the terrain ahead of the nose, bright
   at the bumper and gone at the far end (gouraud does the falloff) — the

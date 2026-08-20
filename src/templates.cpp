@@ -25046,6 +25046,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  int engineHighSnd; int screechSnd; int shiftSnd;\n"
                "  int screechVolume; int shiftVolume;\n"
                "  int headlights;  // additive terrain pools ahead of the nose\n"
+               "  // Lamp clusters measured off lamp-named MATERIALS by the\n"
+               "  // import ({|x|, y, z, half-size}, canonical frame; size 0 =\n"
+               "  // unmeasured, the glow falls back to heuristic spots).\n"
+               "  float lampRear[4]; float lampFront[4];\n"
                "  // Driver readout: a FONTS slot (-1 = no HUD) and what a world\n"
                "  // unit per second should READ as on it.\n"
                "  int hudFont; float hudSpeedScale;\n"
@@ -25060,7 +25064,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             out << "    {-1, -1";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
-                   " -1, -1, -1, 80, 80, 0, -1, 1.0F}\n";
+                   " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
+                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, 1.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -25114,7 +25119,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << vol100(v->engineVolume) << ", " << sndHigh << ", "
                     << sndScr << ", " << sndShift << ", "
                     << vol100(v->screechVolume) << ", " << vol100(v->shiftVolume)
-                    << ", " << (v->headlights ? 1 : 0)
+                    << ", " << (v->headlights ? 1 : 0) << ", {"
+                    << floatLit(v->lampRear[0]) << ", " << floatLit(v->lampRear[1])
+                    << ", " << floatLit(v->lampRear[2]) << ", "
+                    << floatLit(v->lampRear[3]) << "}, {"
+                    << floatLit(v->lampFront[0]) << ", "
+                    << floatLit(v->lampFront[1]) << ", "
+                    << floatLit(v->lampFront[2]) << ", "
+                    << floatLit(v->lampFront[3]) << "}"
                     << ", " << hudFont << ", " << floatLit(v->hudSpeedScale)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
@@ -28081,8 +28093,13 @@ void TerrainGame::renderVehicleGlow() {
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     const float hz = 0.5F * s.wheelBase * SC;
     if (v.lightsOn > 0) {
-      const float nx = v.pos[0] + sy * (hz + (s.bodyOverhang + 0.2F) * SC);
-      const float nz = v.pos[2] + cy * (hz + (s.bodyOverhang + 0.2F) * SC);
+      // The beam starts at the measured front lamps when the model marked
+      // them, else just past the bumper.
+      const float nose = s.lampFront[3] > 0.0F
+                             ? s.lampFront[2] * SC + 0.15F * SC
+                             : hz + (s.bodyOverhang + 0.2F) * SC;
+      const float nx = v.pos[0] + sy * nose;
+      const float nz = v.pos[2] + cy * nose;
       const float fx2 = v.pos[0] + sy * (hz + 7.5F * SC);
       const float fz2 = v.pos[2] + cy * (hz + 7.5F * SC);
       const float nw = 0.55F * s.track * SC, fw = 1.1F * s.track * SC;
@@ -28107,22 +28124,29 @@ void TerrainGame::renderVehicleGlow() {
     // with the headlights off, like the real thing.
     if ((v.lightsOn > 0 || v.brakeOn) && glowCount_ + 4 <= kVehGlowMax) {
       const float bright = v.brakeOn ? 1.0F : 0.45F;
-      // Sized to read as LAMPS: the first cut's 0.2-unit quads vanished
-      // into the rear trim's black band (the giant probe proved the quads
-      // themselves render fine), so these are wide enough to shoulder past
-      // it and the brake flare grows them again.
-      const float hw = (v.brakeOn ? 0.30F : 0.24F) * SC;
-      const float hh = (v.brakeOn ? 0.16F : 0.11F) * SC;
-      const float hxT = 0.32F * s.track * SC;
+      // MEASURED lamps first (docs/vehicles.md): the import pools the AABBs
+      // of lamp-named materials, so the glow sits where THIS body's lamps
+      // are - every shape is different, and the material is the one thing
+      // that knows. Size 0 = the model marked nothing; the shape-blind
+      // heuristic (sized to shoulder past the trim band, pushed past
+      // bodyOverhang so the body mesh cannot z-eat it) stays the fallback.
+      const bool measured = s.lampRear[3] > 0.0F;
+      const float flare = v.brakeOn ? 1.3F : 1.0F;
+      const float hw = measured ? s.lampRear[3] * SC * flare
+                                : (v.brakeOn ? 0.30F : 0.24F) * SC;
+      const float hh = measured ? s.lampRear[3] * SC * 0.7F * flare
+                                : (v.brakeOn ? 0.16F : 0.11F) * SC;
+      const float hxT =
+          measured ? s.lampRear[0] * SC : 0.32F * s.track * SC;
       const float rxu = cy, rzu = -sy;  // unit right
-      // Behind the REAL rear face: the body reaches bodyOverhang past the
-      // axle line, and lamps hung at the axle rendered INSIDE the mesh -
-      // z-tested away, "no lights" on screen while the bag submitted fine.
-      const float rear = hz + (s.bodyOverhang + 0.10F) * SC;
+      const float rear = measured
+                             ? -s.lampRear[2] * SC + 0.06F * SC
+                             : hz + (s.bodyOverhang + 0.10F) * SC;
       for (int side = -1; side <= 1; side += 2) {
         const float bx = v.pos[0] - sy * rear + rxu * hxT * (float)side;
         const float bz = v.pos[2] - cy * rear + rzu * hxT * (float)side;
-        const float by = v.pos[1] + 0.10F * SC;
+        const float by = v.pos[1] +
+                         (measured ? s.lampRear[1] * SC : 0.10F * SC);
         const float rx = rxu * hw, rz = rzu * hw;
         Tyra::Vec4* g = &glowVerts_[glowCount_ * 6];
         Tyra::Color* c = &glowCols_[glowCount_ * 6];
