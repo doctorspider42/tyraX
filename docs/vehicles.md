@@ -675,6 +675,9 @@ whole point is being bolted to the body. Signs follow the steering stick's
 convention (stick right looks around the right side; stick up climbs and
 looks down).
 
+See also **docs/roads.md** — spline streets glued to the terrain, the thing
+these cars drive on.
+
 ## Where the code lives
 
 | File | What it is |

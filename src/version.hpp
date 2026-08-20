@@ -16,6 +16,22 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.75.0 (roads - docs/roads.md): a Road object is a polyline, a width and
+// ONE texture; a Catmull-Rom spline threads the points and the surface is
+// tessellated AT BOOT into procChunks (owner -3, ~24 stations each) - the
+// proc pipeline's AABB culling and bag economy for free, and a kilometre of
+// road costs a few hundred .tyra floats plus one texture in VRAM. The
+// tessellator is a twin (src/roadgen.* on the host, its raw-string copy in
+// buildRoads - CHANGE ONE CHANGE BOTH); the editor previews the exact strip
+// and edits points in the panel; "Align terrain to road" flattens the
+// heightfield to the smoothed grade along the line, one undo step. Three
+// integration lessons paid for on-console: the object type must be
+// authoring-only in rebuildObjectGeometry (it rendered as a white box), the
+// setup call must run AFTER the proc build (which clears procChunks - five
+// chunks built and wiped ten lines later), and ROAD_TEXTURE_PATHS strip the
+// res/ prefix (the game's asset root is bin/ - "Texture missing" named it).
+// kFormatVersion 44. MINOR.
+//
 // 1.74.2 (the lamps light up - docs/backlog.md entry closed): two stacked
 // causes, neither of them the suspected blend path. (1) The lights
 // bookkeeping sat inside the smoke's SLIP-GATED block, so a car that never
@@ -2228,8 +2244,8 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 74
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 75
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2509,7 +2525,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 43;
+inline constexpr int kFormatVersion = 44;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

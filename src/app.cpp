@@ -1,5 +1,6 @@
 ﻿#include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -3019,6 +3020,62 @@ void App::drawViewportWindow() {
                                 2.0f);
                 prev = pt;
                 prevOk = ok;
+            }
+        }
+
+        // --- Road preview (docs/roads.md): the SELECTED road's tessellated
+        // edges plus a marker per authored point - the exact strip the game
+        // will build, because it comes from the same roadgen::tessellate the
+        // runtime twin transcribes. Selected-only: a map of roads as
+        // permanent overlays would be noise.
+        if (selectedObject_ >= 0 &&
+            selectedObject_ < (int)project_.objects().size() &&
+            project_.objects()[selectedObject_].type == PrimitiveType::Road &&
+            project_.objects()[selectedObject_].roadPoints.size() >= 4) {
+            const SceneObject& ro = project_.objects()[selectedObject_];
+            auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
+                const float* V = viewport_.viewMatrix();
+                const float* P = viewport_.projMatrix();
+                const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                const float cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                if (cw <= 0.001f) return false;
+                out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                             imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
+                return true;
+            };
+            std::vector<roadgen::Vertex> strip;
+            roadgen::tessellate(
+                ro.roadPoints, ro.roadWidth,
+                [&](float x, float z) { return viewport_.terrainHeight(x, z); },
+                strip);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
+            // The strip is triangles; stations repeat every 6 verts as
+            // L0 R0 R1 L0 R1 L1 - edges connect L0->L1 and R0->R1.
+            for (size_t i = 0; i + 5 < strip.size(); i += 6) {
+                ImVec2 a, b;
+                if (worldToImage(strip[i].x, strip[i].y + 0.05f, strip[i].z, a) &&
+                    worldToImage(strip[i + 5].x, strip[i + 5].y + 0.05f,
+                                 strip[i + 5].z, b))
+                    dl->AddLine(a, b, edgeCol, 2.0f);
+                if (worldToImage(strip[i + 1].x, strip[i + 1].y + 0.05f,
+                                 strip[i + 1].z, a) &&
+                    worldToImage(strip[i + 2].x, strip[i + 2].y + 0.05f,
+                                 strip[i + 2].z, b))
+                    dl->AddLine(a, b, edgeCol, 2.0f);
+            }
+            for (size_t k = 0; k + 1 < ro.roadPoints.size(); k += 2) {
+                const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
+                ImVec2 pt;
+                if (worldToImage(px, viewport_.terrainHeight(px, pz) + 0.15f, pz,
+                                 pt)) {
+                    dl->AddCircleFilled(pt, 5.0f, IM_COL32(255, 220, 60, 235));
+                    dl->AddCircle(pt, 5.0f, IM_COL32(20, 20, 20, 235), 0, 1.5f);
+                }
             }
         }
 
@@ -7903,6 +7960,17 @@ void App::drawAddObjectMenu() {
             addObject(PrimitiveType::Vehicle, /*commit=*/false);
             if (!project_.vehicles.empty())
                 project_.objects().back().vehicleDef = project_.vehicles.front().name;
+            commitChange();
+        }
+        // A spline road (docs/roads.md): points in, terrain-hugging textured
+        // chunks at boot. A fresh one gets three points around the placement
+        // spot so there is something to see and grab immediately.
+        if (ImGui::MenuItem("Road")) {
+            addObject(PrimitiveType::Road, /*commit=*/false);
+            SceneObject& r = project_.objects().back();
+            r.roadPoints = {r.position[0] - 12.0f, r.position[2],
+                            r.position[0],         r.position[2],
+                            r.position[0] + 12.0f, r.position[2]};
             commitChange();
         }
         // Linked pair of surfaces: a live view through to the target portal

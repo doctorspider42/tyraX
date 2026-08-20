@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -84,6 +85,7 @@ static const char* typeLabel(PrimitiveType t) {
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
         case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Road: return "Road";
         case PrimitiveType::Vehicle: return "Vehicle";
     }
     return "Object";
@@ -548,6 +550,64 @@ void App::drawPropertiesWindow() {
     // (local +Z); the scroller-specific block (segments, speed) sits below.
     // Scale/color are the marker's own - it has no geometry in the game.
     const bool isScroller = o.type == PrimitiveType::Scroller;
+    const bool isRoad = o.type == PrimitiveType::Road;
+    if (isRoad) {
+        ImGui::TextDisabled(
+            "Road: a spline through the points below, tessellated onto the "
+            "terrain at boot.");
+        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
+        prefHelp("Full width of the surface, world units.");
+        {
+            char buf[256];
+            std::snprintf(buf, sizeof(buf), "%s", o.roadTexture.c_str());
+            ImGui::SetNextItemWidth(scaled(300));
+            if (ImGui::InputText("Texture", buf, sizeof(buf)))
+                o.roadTexture = buf;
+            prefHelp(
+                "A project-relative image (e.g. res/textures/road.png), tiled\n"
+                "along the road - one repeat per 4 units, so ONE small texture\n"
+                "carries a street of any length. Empty = untextured grey.");
+        }
+        // The points, world-space XZ. A table, not a gizmo (yet): blunt but
+        // complete - insert after, remove, drag both axes.
+        ImGui::SeparatorText("Points");
+        int removeAt = -1, insertAfter = -1;
+        const int np = (int)(o.roadPoints.size() / 2);
+        for (int i = 0; i < np; ++i) {
+            ImGui::PushID(i);
+            float* px = &o.roadPoints[(size_t)i * 2];
+            ImGui::SetNextItemWidth(scaled(170));
+            ImGui::DragFloat2("##pt", px, 0.25f, 0.0f, 0.0f, "%.1f");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+")) insertAfter = i;
+            ImGui::SameLine();
+            if (np > 2 && ImGui::SmallButton("-")) removeAt = i;
+            ImGui::PopID();
+        }
+        if (insertAfter >= 0) {
+            // Midway to the next point (or extended past the end).
+            const size_t at = (size_t)(insertAfter + 1) * 2;
+            float nx, nz;
+            if (insertAfter + 1 < np) {
+                nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
+                nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
+            } else {
+                nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
+                nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
+            }
+            o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
+        }
+        if (removeAt >= 0)
+            o.roadPoints.erase(o.roadPoints.begin() + (size_t)removeAt * 2,
+                               o.roadPoints.begin() + (size_t)removeAt * 2 + 2);
+        if (ImGui::Button("Align terrain to road"))
+            alignTerrainToRoad(selectedObject_);
+        prefHelp(
+            "Flattens the heightfield to the road's interpolated line -\n"
+            "the surface under the asphalt becomes the asphalt's own grade,\n"
+            "with a smooth shoulder falloff. Undoable like any edit.");
+    }
     if (isScatter) {
         ImGui::TextDisabled(
             "Procedural region: position and scale are the box the graph fills.");
@@ -2733,4 +2793,57 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
                 if (!seen) names.push_back(n.str);
             }
     return names;
+}
+
+
+// Align the terrain to the selected road (docs/roads.md). The GRADE is
+// snapshotted FIRST - the spline's height read off the terrain as it is now,
+// smoothed along the line - and only then flattened toward, so the pass
+// cannot chase its own edits. One undo step, like a brush stroke.
+void App::alignTerrainToRoad(int objIndex) {
+    if (objIndex < 0 || objIndex >= (int)project_.objects().size()) return;
+    SceneObject& o = project_.objects()[objIndex];
+    if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) return;
+
+    // Dense stations along the spline, ~1 unit apart.
+    float total = 0.0f;
+    for (size_t k = 2; k + 1 < o.roadPoints.size(); k += 2) {
+        const float dx = o.roadPoints[k] - o.roadPoints[k - 2];
+        const float dz = o.roadPoints[k + 1] - o.roadPoints[k - 1];
+        total += std::sqrt(dx * dx + dz * dz);
+    }
+    const int stations = std::max(8, (int)(total / 1.0f));
+    struct St { float x, z, h; };
+    std::vector<St> line((size_t)stations + 1);
+    for (int i = 0; i <= stations; ++i) {
+        St& st = line[(size_t)i];
+        roadgen::splineAt(o.roadPoints, (float)i / (float)stations, &st.x, &st.z);
+        st.h = project::heightAtWorld(project_, st.x, st.z);
+    }
+    // Smooth the grade (a 5-tap box) so the road never inherits a single
+    // cell's spike - the whole point of aligning is a drivable surface.
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<float> sm((size_t)stations + 1);
+        for (int i = 0; i <= stations; ++i) {
+            float acc = 0.0f;
+            int n = 0;
+            for (int k = -2; k <= 2; ++k) {
+                const int j = i + k;
+                if (j < 0 || j > stations) continue;
+                acc += line[(size_t)j].h;
+                ++n;
+            }
+            sm[(size_t)i] = acc / (float)n;
+        }
+        for (int i = 0; i <= stations; ++i) line[(size_t)i].h = sm[(size_t)i];
+    }
+    const float radius = 0.5f * o.roadWidth + 3.0f;  // shoulders included
+    for (const St& st : line)
+        project::flattenHeightmap(project_, st.x, st.z, radius, st.h, 1.0f);
+    // Rebuild the viewport terrain under the whole line (region updates per
+    // station - the sculpt brush's own path, so chunk rebuilds stay local).
+    for (const St& st : line)
+        viewport_.updateTerrainRegion(project_.active().heights, st.x, st.z, radius);
+    commitChange();
+    statusMessage_ = "Terrain aligned to the road";
 }

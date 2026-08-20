@@ -27,6 +27,10 @@ high-rev loops crossfaded on the revs), a tyre squeal riding the slip, and a
 gear-shift thunk — all generated deterministically by
 `tools/veh-sound-pack.py` and `tools/engine-loop-wav.py`.
 
+A **road** (docs/roads.md) runs from south of the spawn through the pillar
+field toward the north-east: a five-point spline, tessellated onto the
+terrain at boot, textured by `tools/road-texture.py`'s deterministic asphalt.
+
 Walk up to the car and press **USE** (Square by default). The camera moves to a
 lagged boom behind the car;
 while driving, the on-foot controls are fully off (no jumping from the driver's

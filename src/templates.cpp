@@ -1377,6 +1377,7 @@ class TerrainGame : public Tyra::Game {
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
 {{VEHICLE_MEMBERS}}
+{{ROADS_MEMBERS}}
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -2751,6 +2752,7 @@ class TerrainGame : public Tyra::Game {
   // matrix path so they cost no per-frame vertex re-bake.
   void updateSpinners();
 {{VEHICLE_MEMBERS}}
+{{ROADS_MEMBERS}}
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so
   // a blocked step still transfers its push into the crate.
@@ -8790,6 +8792,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       lsPump(8);
     }
   }
+
+  // Roads AFTER the procedural build: that block clears procChunks (nothing
+  // generated survives a scene switch), and the first placement of this call
+  // sat ten lines above it - five road chunks built and wiped before the
+  // first frame, a road only the boot log ever saw.
+{{ROADS_SETUP}}
 
   // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
   // before the lazy geometry rebuild binds them to the glass quads.
@@ -15261,6 +15269,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
           addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
         break;
       case 18: break;  // scatter volume - editor authoring region only
+      case 21: break;  // road - buildRoads tessellates it into procChunks
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -16419,6 +16428,7 @@ void TerrainGame::procFinishChunks() {
 }
 
 {{VEHICLE_IMPL}}
+{{ROADS_IMPL}}
 void TerrainGame::renderProcChunks() {
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
@@ -25111,6 +25121,78 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
         }
         out << "};\n";
 
+        // Roads (docs/roads.md): the whole road is DATA - points, width, a
+        // texture slot - and the game tessellates at boot. Gated zero-cost:
+        // no roads, no tables (and no members/impl either, same switch).
+        {
+            std::vector<std::string> roadTex;
+            std::vector<float> roadPts;
+            struct RoadRow { int scene, first, count, tex; float width; std::string name; };
+            std::vector<RoadRow> roadRows;
+            for (size_t si = 0; si < p.scenes.size(); ++si)
+                for (const SceneObject& o : p.scenes[si].objects) {
+                    if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
+                        continue;
+                    int tix = -1;
+                    if (!o.roadTexture.empty()) {
+                        for (size_t k = 0; k < roadTex.size(); ++k)
+                            if (roadTex[k] == o.roadTexture) tix = (int)k;
+                        if (tix < 0) {
+                            tix = (int)roadTex.size();
+                            roadTex.push_back(o.roadTexture);
+                        }
+                    }
+                    RoadRow r;
+                    r.scene = (int)si;
+                    r.first = (int)roadPts.size();
+                    r.count = (int)(o.roadPoints.size() / 2);
+                    r.tex = tix;
+                    r.width = o.roadWidth;
+                    r.name = o.name;
+                    roadRows.push_back(r);
+                    roadPts.insert(roadPts.end(), o.roadPoints.begin(),
+                                   o.roadPoints.end());
+                }
+            if (!roadRows.empty()) {
+                out << "\n// Roads (docs/roads.md): points in, geometry at boot.\n"
+                    << "constexpr int ROAD_COUNT = " << roadRows.size() << ";\n"
+                    << "constexpr int ROAD_TEXTURE_COUNT = " << roadTex.size()
+                    << ";\n"
+                    << "struct RoadDefRt { int scene; int first; int pointCount;"
+                       " float width; int tex; };\n"
+                    << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
+                    << "] = {\n";
+                for (const RoadRow& r : roadRows)
+                    out << "    {" << r.scene << ", " << r.first << ", "
+                        << r.count << ", " << floatLit(r.width) << ", " << r.tex
+                        << "},  // " << escapeCString(r.name) << "\n";
+                out << "};\n"
+                    << "constexpr float ROAD_POINTS[" << roadPts.size()
+                    << "] = {";
+                for (size_t k = 0; k < roadPts.size(); ++k)
+                    out << (k ? ", " : "") << floatLit(roadPts[k]);
+                out << "};\n";
+                if (roadTex.empty()) {
+                    out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
+                           "{\"\"};\n";
+                } else {
+                    out << "constexpr const char* ROAD_TEXTURE_PATHS["
+                        << roadTex.size() << "] = {";
+                    for (size_t k = 0; k < roadTex.size(); ++k) {
+                        // The game's asset root is bin/, which holds
+                        // .res-baked's CONTENT - so the res/ prefix comes off
+                        // here, the binReflPath rule ("Texture missing:
+                        // res/..." was this exact line with the prefix on).
+                        std::string t = roadTex[k];
+                        if (t.rfind("res/", 0) == 0) t = t.substr(4);
+                        out << (k ? ", " : "") << "\"" << escapeCString(t)
+                            << "\"";
+                    }
+                    out << "};\n";
+                }
+            }
+        }
+
         std::ostringstream irecs;
         std::vector<float> wpTable;  // x,y,z per waypoint, sliced per instance
         int instCount = 0;
@@ -29763,6 +29845,168 @@ static std::string vehicleUseCall(const Project& p) {
     return "";
 }
 
+// Roads (docs/roads.md). Zero-cost rule: a project with no road of at least
+// two points emits no tables, no members, no impl and no setup call.
+static bool projectHasRoads(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4)
+                return true;
+    return false;
+}
+
+static std::string roadsMembers(const Project& p) {
+    if (!projectHasRoads(p)) return "";
+    return R"(  // --- roads (docs/roads.md) ---
+  // Built at scene load from ROAD_DEFS: the tessellated chunks live in
+  // procChunks under owner -3, textures in this small cache (acquired once,
+  // shared by every chunk of every road using them).
+  Tyra::Texture* roadTextures_[ROAD_TEXTURE_COUNT > 0 ? ROAD_TEXTURE_COUNT : 1] = {};
+  void buildRoads(int scene);
+)";
+}
+
+static std::string roadsSetupCall(const Project& p) {
+    if (!projectHasRoads(p)) return "";
+    return "  buildRoads(sceneIndex);\n";
+}
+
+static std::string roadsImpl(const Project& p) {
+    if (!projectHasRoads(p)) return "";
+    return R"(
+// Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
+// transcribed - CHANGE ONE AND CHANGE BOTH (the vehiclesim rule). The whole
+// road is data: at scene load the spline is sampled every 2 units, two edge
+// vertices per station glued to the terrain, V riding the arc length so one
+// small texture tiles the entire street, and the stations are packed into
+// procChunks (owner -3) roughly 24 per chunk - each chunk its own AABB, so
+// the frustum culls a road the way it culls everything else.
+void TerrainGame::buildRoads(int scene) {
+  // A scene revisit rebuilds: drop the previous scene's road chunks only.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -3)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  bool any = false;
+  for (int ri = 0; ri < ROAD_COUNT; ++ri) {
+    const RoadDefRt& rd = ROAD_DEFS[ri];
+    if (rd.scene != scene || rd.pointCount < 2) continue;
+    any = true;
+    Tyra::Texture* tex = nullptr;
+    if (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[rd.tex])
+        roadTextures_[rd.tex] = acquireTexture(ROAD_TEXTURE_PATHS[rd.tex]);
+      tex = roadTextures_[rd.tex];
+    }
+    const float* pts = &ROAD_POINTS[rd.first];
+    const int n = rd.pointCount;
+    const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
+    // Catmull-Rom, clamped ends - the roadgen twin's cr()/pointAt()/sample().
+    auto ptAt = [&](int i, float* x, float* z) {
+      if (i < 0) i = 0;
+      if (i > n - 1) i = n - 1;
+      *x = pts[i * 2];
+      *z = pts[i * 2 + 1];
+    };
+    auto cr = [](float p0, float p1, float p2, float p3, float t) {
+      const float t2 = t * t, t3 = t2 * t;
+      return 0.5F * ((2.0F * p1) + (-p0 + p2) * t +
+                     (2.0F * p0 - 5.0F * p1 + 4.0F * p2 - p3) * t2 +
+                     (-p0 + 3.0F * p1 - 3.0F * p2 + p3) * t3);
+    };
+    auto sampleAt = [&](int seg, float t, float* x, float* z) {
+      float x0, z0, x1, z1, x2, z2, x3, z3;
+      ptAt(seg - 1, &x0, &z0);
+      ptAt(seg, &x1, &z1);
+      ptAt(seg + 1, &x2, &z2);
+      ptAt(seg + 2, &x3, &z3);
+      *x = cr(x0, x1, x2, x3, t);
+      *z = cr(z0, z1, z2, z3, t);
+    };
+    ProcChunk* c = nullptr;
+    int stationsInChunk = 0;
+    float lx0 = 0.0F, lz0 = 0.0F, ly0 = 0.0F, lv0 = 0.0F;
+    float rx0 = 0.0F, rz0 = 0.0F, ry0 = 0.0F;
+    bool havePrev = false;
+    float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
+    sampleAt(0, 0.0F, &prevX, &prevZ);
+    for (int seg = 0; seg < n - 1; ++seg) {
+      float ax, az, bx, bz;
+      ptAt(seg, &ax, &az);
+      ptAt(seg + 1, &bx, &bz);
+      const float segLen =
+          sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
+      const int steps = segLen > 2.0F ? (int)(segLen / 2.0F) + 1 : 1;
+      for (int k = (seg == 0 ? 0 : 1); k <= steps; ++k) {
+        const float t = (float)k / (float)steps;
+        float cx2, cz2, dx2, dz2;
+        sampleAt(seg, t, &cx2, &cz2);
+        if (t + 0.05F <= 1.0F)
+          sampleAt(seg, t + 0.05F, &dx2, &dz2);
+        else
+          sampleAt(seg + 1, 0.05F, &dx2, &dz2);
+        float tx = dx2 - cx2, tz = dz2 - cz2;
+        const float tl = sqrtf(tx * tx + tz * tz);
+        if (tl > 1e-6F) {
+          tx /= tl;
+          tz /= tl;
+        } else {
+          tx = 0.0F;
+          tz = 1.0F;
+        }
+        const float rxu = tz * hw, rzu = -tx * hw;
+        arc += sqrtf((cx2 - prevX) * (cx2 - prevX) +
+                     (cz2 - prevZ) * (cz2 - prevZ));
+        prevX = cx2;
+        prevZ = cz2;
+        const float v = arc / 4.0F;
+        const float nlx = cx2 - rxu, nlz = cz2 - rzu;
+        const float nrx = cx2 + rxu, nrz = cz2 + rzu;
+        const float nly = terrainHeightAt(nlx, nlz) + 0.05F;
+        const float nry = terrainHeightAt(nrx, nrz) + 0.05F;
+        if (havePrev) {
+          if (!c || stationsInChunk >= 24) {
+            procChunks.push_back(ProcChunk());
+            c = &procChunks.back();
+            c->owner = -3;
+            c->roadTex = tex;
+            stationsInChunk = 0;
+          }
+          // Two triangles, CCW seen from above - the twin's stitch, but
+          // emitted station by station so a chunk boundary never leaves a
+          // gap (the previous station's pair is re-used as the base).
+          const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
+          Tyra::Vec4 L0(lx0, ly0, lz0, 1.0F), R0(rx0, ry0, rz0, 1.0F);
+          Tyra::Vec4 L1(nlx, nly, nlz, 1.0F), R1(nrx, nry, nrz, 1.0F);
+          const Tyra::Vec4 sL0(0.0F, lv0, 1.0F, 0.0F), sR0(1.0F, lv0, 1.0F, 0.0F);
+          const Tyra::Vec4 sL1(0.0F, v, 1.0F, 0.0F), sR1(1.0F, v, 1.0F, 0.0F);
+          c->vertices.push_back(L0); c->sts.push_back(sL0); c->colors.push_back(grey);
+          c->vertices.push_back(R0); c->sts.push_back(sR0); c->colors.push_back(grey);
+          c->vertices.push_back(R1); c->sts.push_back(sR1); c->colors.push_back(grey);
+          c->vertices.push_back(L0); c->sts.push_back(sL0); c->colors.push_back(grey);
+          c->vertices.push_back(R1); c->sts.push_back(sR1); c->colors.push_back(grey);
+          c->vertices.push_back(L1); c->sts.push_back(sL1); c->colors.push_back(grey);
+          ++stationsInChunk;
+        }
+        lx0 = nlx; lz0 = nlz; ly0 = nly;
+        rx0 = nrx; rz0 = nrz; ry0 = nry;
+        lv0 = v;
+        havePrev = true;
+      }
+    }
+  }
+  if (any) procFinishChunks();
+  int roadChunks = 0;
+  for (const ProcChunk& c : procChunks)
+    if (c.owner == -3) ++roadChunks;
+  float y0 = 0.0F;
+  for (const ProcChunk& c : procChunks)
+    if (c.owner == -3 && !c.vertices.empty()) { y0 = c.vertices[0].y; break; }
+  TYRA_LOG("ROADS scene ", scene, " chunks ", roadChunks, " y0x10 ",
+           (int)(y0 * 10.0F));
+}
+)";
+}
+
 static std::string vehicleSetupCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     return "  setupVehicles(sceneIndex);\n";
@@ -30117,6 +30361,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     // sounds (the zero-cost rule).
     s = replaceAll(s, "{{SND_SLOTS}}", projectHasVehicles(p) ? "4" : "8");
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
+    s = replaceAll(s, "{{ROADS_MEMBERS}}", roadsMembers(p));
+    s = replaceAll(s, "{{ROADS_IMPL}}", roadsImpl(p));
+    s = replaceAll(s, "{{ROADS_SETUP}}", roadsSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
     s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));

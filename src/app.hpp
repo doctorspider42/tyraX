@@ -415,6 +415,9 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // Roads (docs/roads.md): flatten the heightfield to the selected
+    // road's interpolated line, smooth shoulder falloff, one undo step.
+    void alignTerrainToRoad(int objIndex);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -
