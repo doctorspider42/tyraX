@@ -289,6 +289,7 @@ wait for their polish pass.
 | [raytraced-mirror](examples/raytraced-mirror) | Reflections ray-traced per pixel on VU0. On a PS2. There's a resolution knob |
 | [reflections](examples/reflections) | Static sphere maps vs the live `@sky` mode — with a sky cycler so you can catch the difference |
 | [probe-aim](examples/probe-aim) | A chrome ball that shows what's behind you: probes aimed along the reflected ray |
+| [texture-atlas](examples/texture-atlas) | Thirty crates, thirty tiny textures, one shared GS page - and 65 KB of VRAM back, measured both ways |
 | [texture-feeds](examples/texture-feeds) | Two monitors on a wall — one plays live CCTV, the other a raytraced mirror |
 | [lighting](examples/lighting) | One dusk plaza wearing everything at once: torches, shafts, flare, god rays, shadows, a flashlight |
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |

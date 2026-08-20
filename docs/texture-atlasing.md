@@ -88,6 +88,13 @@ padding. `RendererCoreVram::getSize` computes the real swizzled footprint now,
 so the saving has to come from sharing pages — not from an overhead that no
 longer exists.)
 
+`examples/texture-atlas` is the scene where it pays: thirty 32×32 crate
+textures on one page, **65 KB** back, measured from the game's own `VRAMSTAT`
+(0.2349 MB free with atlasing off, 0.2986 with it on) against the 65 KB the
+report predicted. Its README explains why small palettized textures are so
+wasteful on their own - the GS rounds a 4-bit texture's width up to 128 texels,
+so a 32×32 prop holds 512 bytes and occupies 3.25 KB.
+
 ## What gets packed (conservative by design)
 
 A texture joins a page only when **every consumer samples it with plain
@@ -116,6 +123,11 @@ Excluded, and the window says which of these applied:
   (`textureQuality`) — a pinned quality is deliberate, and pages re-quantize
   as one image;
 - a texture the author **kept out** (below);
+- a texture outside `res/models`, `res/materials` and `res/textures` - the bake
+  only rewrites materials and quantizes textures there, so packing one from
+  anywhere else would drop its own PNG from the bake while its `.mtl` kept
+  pointing at it: the model comes out **untextured**. Found by building the
+  example above with its props in `res/props/` - thirty white boxes;
 - **the only member of its group** — a lone texture on a 256×256 page pays a
   whole page and loses its own palette for nothing, so that page is dropped
   and the texture ships on its own;

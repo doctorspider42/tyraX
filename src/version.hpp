@@ -16,6 +16,34 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.61.2 (a scene where atlasing actually pays, and the bug building it found
+// - examples/texture-atlas): thirty crates, each with its own 32x32 texture,
+// packed onto ONE 256x256 4-bit page. Measured from the game's own VRAMSTAT,
+// both ways: 0.234863 MB free with atlasing off and 0.298584 with it on - 65.3
+// KB back, against the 65 KB --atlas-report predicted, and 34 resident texture
+// allocations down to 5. The example exists because the feature is easy to
+// switch on and hard to judge: this is the arithmetic in a form you can walk
+// around in, and the README says why small palettized textures are so wasteful
+// alone (the GS rounds a 4-bit texture's width up to 128 texels, so a 32x32
+// prop holds 512 bytes and occupies 3.25 KB).
+//
+// THE BUG IT FOUND. The first cut kept its props in res/props/ and came back
+// as thirty WHITE boxes. texbake only rewrites a .mtl and quantizes a .png
+// under res/models, res/materials and res/textures, while the atlas plan
+// packed from anywhere - so the member's own PNG was dropped from the bake
+// (correctly: it ships inside the page) while its .mtl was copied verbatim,
+// still pointing at the file that no longer existed. Worse than not atlasing,
+// and silent. The plan refuses those folders now, with that sentence as the
+// reason in the report and the window. Nothing in-tree hit it, because every
+// project so far kept materials where the convention says.
+//
+// Two authoring points the fixture makes on purpose: every prop is drawn from
+// ONE 16-colour palette, which is what makes a 4-bit page free of quality cost
+// (art with thirty independent palettes is what makes it lossy), and every
+// texture carries its own number, so a mis-mapped UV reads as the wrong crate
+// rather than as a subtle shift. That is also how the box primitive's V
+// orientation was found: an upside-down "5" is a convincing "2".
+//
 // 1.61.1 (two Preferences widgets were dead on arrival, and the reason
 // generalises): clicking *Project > Preferences > Rendering > Texture
 // atlasing* did nothing - the tick appeared and was gone on the next frame,
@@ -2097,7 +2125,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 61
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

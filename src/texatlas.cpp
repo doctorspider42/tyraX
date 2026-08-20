@@ -59,9 +59,32 @@ struct Gather {
     // leaving the author to infer it from a page that never appeared.
     std::map<std::string, std::string> ineligible;
 
+    // The bake only processes model/material assets under these three
+    // top-level folders (texbake's `top ==` gates: it rewrites a .mtl and
+    // quantizes a .png only there). A texture outside them cannot be packed
+    // even though nothing about its UVs objects - and packing it anyway is
+    // WORSE than not atlasing, because the member's own PNG is dropped from
+    // the bake while its .mtl keeps pointing at it: the model comes out
+    // untextured. Found by building an example that kept its props in
+    // res/props/ - thirty white boxes and no diagnostic anywhere.
+    static bool bakedFolder(const std::string& resRel) {
+        const std::string t = fs::path(resRel).begin()->generic_string() == "res"
+                                  ? std::next(fs::path(resRel).begin())
+                                        ->generic_string()
+                                  : std::string();
+        return t == "models" || t == "materials" || t == "textures";
+    }
+
     void candidate(const std::string& dirRel, const std::string& tok) {
         const std::string rel = texRel(dirRel, tok);
         if (rel.empty()) return;
+        if (!bakedFolder(rel)) {
+            ineligible.emplace(
+                rel,
+                "it lives outside res/models, res/materials and res/textures - "
+                "the bake only rewrites materials there");
+            return;
+        }
         auto it = candidates.find(rel);
         if (it == candidates.end())
             candidates.emplace(rel, dirRel);
