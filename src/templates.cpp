@@ -12610,8 +12610,27 @@ void TerrainGame::updateAndRenderLightPools() {
       b.wSts.clear();
       b.wColors.clear();
       {
+        // THE BUDGET IS SHARED, AND IT USED TO BE FIRST COME FIRST SERVED.
+        // The receivers are walked nearest first and the backstop below was a
+        // test against the whole buffer, so ONE detailed model in the beam
+        // filled all 3997 vertices and every receiver behind it got NOTHING -
+        // no torch light on the wall two metres past it, and therefore no
+        // shadow on that wall either, since the mask can only darken light
+        // that is drawn. Reported as "I shine at the robot and the light on
+        // the wall disappears", and measured: recv[0] obj=1 sliceVerts=3999,
+        // recv[1] obj=4 (the wall) sliceVerts=0.
+        //
+        // Each receiver gets an equal SHARE now, plus whatever the ones in
+        // front of it did not use. A heavy model therefore lights partially
+        // (its far triangles drop out of this additive pass and keep the
+        // cheap per-vertex cone) instead of silently taking the wall's light
+        // with it - the wall is what the pool is FOR.
+        const int wBudget = 3997;
+        const int wShare = recvN > 0 ? wBudget / recvN : wBudget;
+        int wAllowance = wShare;
         for (int ri = 0; ri < recvN; ++ri) {
           wSliceStart[ri] = (int)b.wVerts.size();
+          const int wLimit = wSliceStart[ri] + wAllowance;
           const int oi = recvObj[ri];
           if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
           // A statically batched receiver owns no solo geometry - bake it on
@@ -12644,7 +12663,10 @@ void TerrainGame::updateAndRenderLightPools() {
             if (!part.bag) continue;
             const size_t nvt = part.vertices.size() / 3 * 3;
             for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
-              if (b.wVerts.size() >= 3997) break;  // fill-rate backstop
+              // Two ceilings: this receiver's share, and the buffer itself.
+              if ((int)b.wVerts.size() >= wLimit ||
+                  b.wVerts.size() >= 3997)
+                break;  // fill-rate backstop
               const Vec4& a3 = part.vertices[vi];
               const Vec4& b3 = part.vertices[vi + 1];
               const Vec4& c3 = part.vertices[vi + 2];
@@ -12681,6 +12703,10 @@ void TerrainGame::updateAndRenderLightPools() {
             }
           }
           wSliceCount[ri] = (int)b.wVerts.size() - wSliceStart[ri];
+          // Whatever this receiver left unused rolls forward, so a wall
+          // behind two small props still gets a full slice.
+          const int unused = wAllowance - wSliceCount[ri];
+          wAllowance = wShare + (unused > 0 ? unused : 0);
         }
       }
       // Grazing dim from the hit face when the beam actually meets one square

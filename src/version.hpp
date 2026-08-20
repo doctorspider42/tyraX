@@ -16,6 +16,34 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.61.4 (one prop in the beam took every other receiver's torch light):
+// reported from a hand-made scene - two models with "Cast shadow (projected)"
+// on, flashlight shadow volumes on, and no torch shadows anywhere; plus "when
+// I shine at the robot the light on the wall disappears".
+//
+// The flashlight's second pass - the one that lands the projected pool on
+// solid geometry - fills ONE 3997-vertex buffer, and the receivers are walked
+// nearest first. The backstop tested the whole buffer, so the nearest receiver
+// could consume all of it: measured in that scene as recv[0] (a barrel model)
+// sliceVerts=3999 and recv[1] (the wall behind it) sliceVerts=0. The wall got
+// no torch light at all - and therefore no shadow either, because the volume
+// mask can only darken light that is drawn. Each receiver now gets an equal
+// share plus whatever the ones in front left unused, so a heavy model lights
+// partially (its far triangles fall back to the per-vertex cone) instead of
+// starving the surface the pool exists for.
+//
+// HOW IT WAS FOUND, because the method is worth more than the fix and is
+// written up in the tyra-engine-dev skill: the mask machinery was cleared
+// step by step with probes that each answered ONE question - forcing the
+// resolve to paint alpha 0x80 over its rect (the pool vanished: DATE gating
+// works), then painting the count band's texels as COLOUR into the frame (the
+// counts were there, hugging each caster), then logging the receiver slices
+// (recvN, per-slice vertex counts) - which named the buffer in one line.
+// Two of my own probes were inconclusive by construction and are recorded
+// with the rest: forcing the resolve's ATEST to pass does not change the
+// alpha it WRITES (that comes from the texel), and a probe that skips a pass
+// also skips whatever state that pass restores.
+//
 // 1.61.3 (the atlas window draws the page it is TALKING about): the preview
 // was the PNG the last build wrote, so it lagged every edit - group two
 // textures and page 0 kept showing its previous thirty members above a list
@@ -2135,7 +2163,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 61
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

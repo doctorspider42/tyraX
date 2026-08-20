@@ -1078,6 +1078,54 @@ Related: the engine's error blocks now print `==============  TYRAX  ===========
 (`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
 banner both, so a previously built ELF still reports.
 
+## Debugging a GS pass you cannot see: one probe, one question
+
+Written up because it found three separate faults in one evening (the 16-bit
+FBA regression, the green count-band marks, and a torch that lit no walls), and
+because every wrong turn in that evening came from a probe that answered a
+DIFFERENT question than the one being asked.
+
+The pattern: a multi-stage GS pipeline (build a mask -> resolve it -> gate a
+later pass on it) fails silently, and reasoning about which stage is at fault
+is what costs the days. So make each stage VISIBLE, one build at a time, and
+make each probe answer exactly one question:
+
+1. **Is the CONSUMER gated at all?** Force the mask to its extreme - have the
+   resolve paint the "shadow" value over its whole rect. If the gated pass
+   disappears, the gate works and the fault is upstream. (Do not force the
+   ALPHA TEST instead: that changes which fragments are written, not what
+   value they write, so it proves nothing about the mask's contents.)
+2. **What does the intermediate buffer actually hold?** Drop the write mask
+   for one build (`FBMSK = 0`) so the resolve paints the buffer's texels into
+   the visible frame as COLOUR. A count buffer written with N = 32 shows up as
+   (32,32,32) - a screenshot plus a five-line histogram then tells you both
+   the VALUE and its SHAPE on screen, which is what says "the counts are
+   there, they just hug the caster".
+3. **Which inputs reached the stage?** One `TYRA_LOG` per frame-group in the
+   generated game (take ownership of `src/terrain_game.cpp` by deleting its
+   marker line first) beats any amount of reading: `recvN=2, recv[0] obj=1
+   sliceVerts=3999, recv[1] obj=4 sliceVerts=0` named a shared-budget bug in
+   one line, after two hours of theories about z-tests and page geometry.
+4. **A/B the whole feature.** Build the same scene with the feature's switch
+   off and diff the frames: "0 pixels changed" is the fastest proof that a
+   pass contributes nothing, and it needs no theory about why.
+
+Rules the same evening paid for:
+
+- **A probe that skips a pass also skips whatever that pass restores** - the
+  raster restore rides in the same packet, so the rest of the frame then draws
+  somewhere else and the result means nothing.
+- **Forcing a test to pass is not forcing a value to be written.** With
+  `TFX = DECAL` the fragment's alpha comes from the TEXEL (through `TEXA`), so
+  an all-zero texel still writes zero however permissive the test is.
+- **Instrument OUTSIDE the loop you are perturbing**, and log once every N
+  frames - a `TYRA_LOG` per frame over `host:` is network I/O that changes the
+  timing you are measuring.
+- **Revert the engine probes before anything else** when you are done: they
+  live in `vendor/tyra`, which is shared by every project on the machine, and
+  a forgotten `FBMSK = 0` looks exactly like a new rendering bug to whoever
+  builds next (it was reported back as "jakieś pojebane rzeczy się dzieją").
+
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**

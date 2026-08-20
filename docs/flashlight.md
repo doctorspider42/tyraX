@@ -168,6 +168,17 @@ projection changes for it — `goboST` is a function of the world position alone
 
 Three things worth knowing about how the receivers are found and drawn:
 
+- **The light budget is SHARED between receivers, and it is split fairly.**
+  The second pass has a 3997-vertex ceiling per frame, and it used to be first
+  come first served by distance: one detailed model in the beam filled the
+  whole buffer and every receiver behind it got **nothing** - no torch light on
+  the wall two metres past it, and therefore no shadow on that wall either,
+  since a mask can only darken light that is drawn. ("I shine at the robot and
+  the light on the wall disappears", measured as `recv[0] sliceVerts=3999,
+  recv[1] sliceVerts=0`.) Each receiver gets an equal share now, plus whatever
+  the ones in front of it did not use - so a heavy model lights *partially*
+  (its far triangles keep the cheap per-vertex cone) rather than taking the
+  wall's light with it. The wall is what the pool is for.
 - Receivers are **everything the cone touches** — the nearest three solids whose
   oriented boxes (the same rotated basis an [Area](areas.md) uses) intersect the
   beam — not merely the object the beam hits. That distinction closed two
