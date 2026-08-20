@@ -97,7 +97,16 @@ void App::drawTextureAtlasWindow() {
             "allocation per page instead of one per texture and draw batches "
             "switch textures less.");
         ImGui::Spacing();
-        if (ImGui::Button("Open Project Preferences")) showProjectPrefs_ = true;
+        // Straight to the tab the switch is on - this button exists to answer
+        // "where do I turn it on", and Preferences opens on whichever tab it
+        // was last left on otherwise.
+        if (ImGui::Button("Open Project Preferences")) {
+            showProjectPrefs_ = true;
+            prefsFocusTab_ = "Rendering";
+            // ...and in FRONT of this window, which is where the click came
+            // from and would otherwise cover what it just opened.
+            pendingFocusWindow_ = "Project Preferences";
+        }
         ImGui::End();
         return;
     }

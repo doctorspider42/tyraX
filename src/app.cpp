@@ -14012,8 +14012,18 @@ void App::drawPreferencesWindow() {
         ImGui::End();
         return;
     }
+    // A caller can ask for a TAB, not just for the window: the Texture Atlas
+    // window's "Open Project Preferences" means "take me to the switch I am
+    // talking about", and landing on Display with five tabs to read is the
+    // same dead end as opening the window at all. One-shot - the request is
+    // cleared as it is honoured, so the tab the author picks afterwards sticks.
     auto beginTab = [&](const char* name) {
-        if (!ImGui::BeginTabItem(name)) return false;
+        ImGuiTabItemFlags tabFlags = ImGuiTabItemFlags_None;
+        if (!prefsFocusTab_.empty() && prefsFocusTab_ == name) {
+            tabFlags = ImGuiTabItemFlags_SetSelected;
+            prefsFocusTab_.clear();
+        }
+        if (!ImGui::BeginTabItem(name, nullptr, tabFlags)) return false;
         // BeginTabItem pushes the tab's id, so one child name serves them all.
         ImGui::BeginChild("##body", ImVec2(0, -footerH));
         return true;
