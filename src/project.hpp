@@ -3345,6 +3345,23 @@ struct TripleBufferFit {
     std::string mode;     // the display-mode key this answer is for
 };
 TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s);
+
+// What is left for TEXTURES after the renderer has taken its permanent region,
+// in KB, for the project's boot display mode. The same arithmetic the fit
+// above runs, asked the other way round - because the question an author hits
+// in practice is not "does a third buffer fit" but "why is my scene suddenly
+// re-uploading textures every frame". Flashlight shadow volumes are the usual
+// answer: their count band is 512 KB at 32-bit colour, and a 512x512 project
+// has about that much left in the first place (measured on a hand-made scene:
+// 0.375 MB free with the volumes off, 0.000 MB and ~1.6 texture re-uploads per
+// FRAME with them on). Preferences shows this beside the switch.
+struct TextureHeapEstimate {
+    int freeKb = 0;      // with the current settings
+    int withoutKb = 0;   // the same project with shadow volumes off
+    int countBandKb = 0; // what the volumes' count band takes
+};
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s);
 // The same question for an EXPLICIT display mode, which is the form that
 // matters: the boot mode is not the only one the game runs in.
 // RendererCore::setDisplayOutput re-lays the whole VRAM region on a runtime

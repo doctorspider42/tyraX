@@ -220,6 +220,37 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
     return tripleBufferingFit(p, s, bootDisplayMode(s));
 }
 
+// The texture heap, from the same numbers. tripleBufferingFit already knows
+// what the renderer's permanent region costs - this asks what is LEFT when the
+// project keeps its usual two display buffers, which is the number an author
+// needs when the game starts thrashing textures.
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s) {
+    TextureHeapEstimate e;
+    // leftWords in the fit is "after taking a THIRD buffer", so add one back:
+    // this project is not asking for one.
+    const TripleBufferFit on = tripleBufferingFit(p, s, bootDisplayMode(s));
+    ProjectSettings off = s;
+    off.flashShadowVolumes = false;
+    const TripleBufferFit noVol = tripleBufferingFit(p, off, bootDisplayMode(s));
+    // What the fit reserves for post fx, the optional targets and the shadow
+    // slots is real and not available to textures either; leftWords already
+    // has it in, so subtract the same reserve the engine checks against
+    // (kNeed's texture floor is what we are reporting, so only the renderer
+    // half comes off).
+    constexpr int kRendererReserveWords = 98304;  // == kThirdBufferReserveWords
+    auto toKb = [](long long words) {
+        return (int)(words * 4 / 1024);
+    };
+    e.freeKb = toKb((long long)on.leftWords + on.bufferWords -
+                    kRendererReserveWords);
+    e.withoutKb = toKb((long long)noVol.leftWords + noVol.bufferWords -
+                       kRendererReserveWords);
+    e.countBandKb = e.withoutKb - e.freeKb;
+    if (e.freeKb < 0) e.freeKb = 0;
+    return e;
+}
+
 TripleBufferModes tripleBufferingModes(const Project& p,
                                        const ProjectSettings& s) {
     TripleBufferModes m;

@@ -403,6 +403,19 @@ wherever the torch lit something and a 16-bit project came back magenta,
 (208, 56, 144) measured on a warm cream lamp post. One constant, `0x00FFFFFF`,
 is correct at both depths.
 
+**And it can take the last of the texture heap, which does not look like a
+VRAM problem at all.** The band is 512 KB at 32-bit colour, and a project in a
+512x512 display mode has about that much heap in the first place - so switching
+the volumes on can leave the textures with nothing, and the symptom is not a
+missing shadow: it is every texture in the scene evicting and re-uploading
+*once a frame*. Measured on a hand-made scene (two models, a wall, PAL full
+height, 32-bit colour): `VRAMSTAT` reads **0.375 MB free and 0 re-uploads**
+with the volumes off, **0.000 MB and ~1.6 re-uploads per frame** with them on.
+Preferences warns beside the switch when the band is most of what is left; the
+authoritative number is the game's own `VRAMSTAT` line in `bin/log.txt`. The
+cheapest fix is 16-bit colour, which halves both the display buffers and the
+band.
+
 If the count target's VRAM is refused (it is claimed at boot, right after the
 projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the
 volumes fall back to the convex sub-boxes with the old 1-bit set/clear — one

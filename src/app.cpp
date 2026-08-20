@@ -14671,6 +14671,28 @@ void App::drawPreferencesWindow() {
             "grounds them visually for one quad each. Project-wide.");
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
+    // WHAT IT COSTS, in the currency that actually runs out. The count band is
+    // 512 KB at 32-bit colour and a 512x512 project has about that much
+    // texture heap in the first place, so switching this on can take the last
+    // of it - and the symptom is not a missing shadow, it is every texture in
+    // the scene evicting and re-uploading once a frame. Measured on the scene
+    // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
+    // ~1.6 re-uploads per frame with them on.
+    if (prefSettings_.flashShadowVolumes) {
+        // The DIFFERENCE is exact (it is one buffer, sized by the same
+        // arithmetic the engine uses); the absolute headroom is not - the
+        // model reads ~256 KB high against what a running game reports,
+        // because the reserve it subtracts is the engine's third-buffer
+        // constant rather than the real post-init allocations. So the warning
+        // states the cost and points at the number that IS authoritative.
+        const project::TextureHeapEstimate heap =
+            project::textureHeapEstimate(project_, prefSettings_);
+        if (heap.freeKb < 512)
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.7f, 0.3f, 1),
+                "  Takes a %d KB count band - little texture VRAM left here",
+                heap.countBandKb);
+    }
     prefHelp(
         "How the PLAYER'S TORCH throws shadows (docs/flashlight.md). Scene\n"
         "lights - point and spot - are not affected: they cast through the\n"
