@@ -1658,11 +1658,34 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
+static_assert(sizeof(ProjectSettings) == 696,
+              "ProjectSettings changed size - a field was added or removed. "
+              "Add it to operator== below as well, or its Preferences widget "
+              "will silently do nothing; then update this number.");
+
+// EVERY FIELD MUST BE LISTED HERE. This is not tidiness: Project Preferences
+// edits a COPY of this struct and writes it back only when this operator says
+// something changed, so a field missing here makes its widget DEAD - the click
+// registers, the copy changes, the comparison says "no", and the next frame
+// re-seeds the widget from the unchanged model. It looks exactly like a
+// checkbox that does not work, with nothing in any log.
+//
+// It happened: `textureQuant` and `textureAtlas` were never added when texture
+// atlasing landed, so *Preferences > Rendering > Texture atlasing* and the
+// texture-quality combo beside it could not be changed from the UI at all -
+// only by editing the .tyra. Reported as "I click it and nothing happens".
+//
+// The static_assert below is the guard that outlives this comment: add a field
+// to ProjectSettings and the size changes, the assert fires, and you are made
+// to come here. It is a REMINDER, not a proof - if you have added your field to
+// this operator and the number is merely stale, update it.
 inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.textureQuant == b.textureQuant &&
+           a.textureAtlas == b.textureAtlas &&
            a.displayMode == b.displayMode &&
            a.palFullHeight == b.palFullHeight &&
            a.colorDepth == b.colorDepth && a.dither == b.dither &&

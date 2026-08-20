@@ -16,6 +16,30 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.61.1 (two Preferences widgets were dead on arrival, and the reason
+// generalises): clicking *Project > Preferences > Rendering > Texture
+// atlasing* did nothing - the tick appeared and was gone on the next frame,
+// with nothing in any log. The combo beside it, *Textures* (the 4/8-bit/full
+// quantization), was the same.
+//
+// Preferences edits a COPY of ProjectSettings and writes it back only when
+// `operator==` says something changed. `textureQuant` and `textureAtlas` were
+// never added to that operator when texture atlasing landed, so the comparison
+// answered "identical", the model was never updated, and the next frame
+// re-seeded the widget from it. The settings could only be changed by editing
+// the .tyra by hand - which is exactly what every test of atlasing on this
+// branch had done, so nothing caught it until someone clicked the box.
+//
+// Both fields are in the operator now, and a static_assert on
+// sizeof(ProjectSettings) sits above it: add a field and the size changes, the
+// assert fires, and the next person is made to read the comment instead of
+// shipping another widget that does nothing. It is a reminder, not a proof -
+// the message says so, and says to update the number once the field is listed.
+//
+// Verified with --ui-script on a copy of examples/night-walk: click, then
+// `expect-checked` (which FAILED before the fix and passes after), then ctrl+s
+// and the key in the .tyra - "textureAtlas": true and "textureQuant": "8bit".
+//
 // 1.61.0 (the atlas page has a depth now, and it is the setting that decides
 // whether atlasing is worth anything in a palettized project -
 // docs/texture-atlasing.md): a page was always quantized to 256 colours, so in
@@ -2073,7 +2097,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 61
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
