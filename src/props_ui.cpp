@@ -820,20 +820,56 @@ void App::drawPropertiesWindow() {
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
 
-        // Real-shape projected shadow - the RUNTIME one, distinct from the
-        // baked ambient-occlusion "Cast shadow" below: a silhouette
-        // rendered from the sun into a small VRAM target and projected onto
-        // the terrain. The caster pays a second render, hence opt-in.
-        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Real silhouette shadow on the terrain: the object renders a\n"
-                "second time each frame (64x64, from the sun) and the shape\n"
-                "is projected under it. The 4 casters nearest the camera are\n"
-                "active at a time - mark hero objects, not everything.\n"
-                "Follows animation and movement; game-only (no preview).\n"
-                "'Cast shadow' below is the baked, static one.");
+        // THE RUNTIME shadow, distinct from the baked ambient-occlusion
+        // "Cast shadow" below - and a choice per object rather than a
+        // project-wide one (docs/shadows.md): a blob is one soft quad that
+        // costs almost nothing and has no shape, a projected silhouette is a
+        // second 64x64 render of this object every frame. "Default" is what
+        // every project did before the choice existed, so an untouched object
+        // behaves exactly as it always has.
+        {
+            const char* shadowNames[] = {"Default (follow the project)",
+                                         "None", "Blob (soft quad)",
+                                         "Projected silhouette"};
+            int mode = o.shadowMode;
+            if (mode < 0 || mode > 3) mode = 0;
+            // A real label rather than "##dynshadow" plus a SameLine caption:
+            // it is the idiom the rest of these panels use, and a hidden label
+            // is a widget no UI script can name (docs/ui-scripting.md).
+            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+                o.shadowMode = mode;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What this object casts while the game runs.\n"
+                    "DEFAULT - the project decides: a blob under the moving\n"
+                    "things (avatar, animated models, physics) if Preferences\n"
+                    "has blob shadows on, plus the silhouette below if it is\n"
+                    "ticked.\n"
+                    "NONE - nothing, whatever the project says.\n"
+                    "BLOB - one soft dark quad that follows the ground under\n"
+                    "it. Cheap enough for a crowd, and it works on a static\n"
+                    "prop too; it has no shape of its own.\n"
+                    "PROJECTED - the real silhouette: the object renders a\n"
+                    "second time each frame (64x64, from the sun) and the\n"
+                    "shape is projected under it. The 4 casters nearest the\n"
+                    "camera are active at a time, so mark hero objects.\n"
+                    "Game-only (no preview). 'Cast shadow' below is the\n"
+                    "BAKED, static one - a different thing entirely.");
+            // The old flag still means "projected" while the mode follows the
+            // project, so it stays reachable - and stays the thing every
+            // existing .tyra carries.
+            if (o.shadowMode == 0) {
+                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The project-default form of the choice above. Pick\n"
+                        "\"Projected silhouette\" in the combo to say it on the\n"
+                        "object instead.");
+            }
+        }
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).

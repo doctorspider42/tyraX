@@ -413,6 +413,15 @@ struct SceneObject {
     // casters are active at a time, each costing a 64x64 silhouette render
     // plus a small terrain patch.
     bool projShadow = false;
+    // Which DYNAMIC shadow this object casts, chosen on the object rather than
+    // for the whole project (docs/shadows.md): 0 = follow the project - which
+    // is exactly what every file written before this key did, i.e. a blob if
+    // Preferences has blob shadows on and the object is one of the moving
+    // things that get them, and a projected silhouette if projShadow is set;
+    // 1 = none; 2 = blob; 3 = projected silhouette. A mode other than 0
+    // OVERRIDES both, so "a model with a blob instead of the full cast" is one
+    // combo away and costs one quad instead of a 64x64 silhouette render.
+    int shadowMode = 0;
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material

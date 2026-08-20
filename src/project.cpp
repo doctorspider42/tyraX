@@ -744,6 +744,11 @@ std::string objectJson(const SceneObject& o) {
              : ", \"prelitSource\": \"" + jsonEscape(o.prelitSource) + "\"") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
+        // per-object dynamic shadow choice; 0 = follow the project, and that
+        // is what every file written before this key meant, so it stays out
+        (o.shadowMode != 0
+             ? ", \"shadowMode\": " + std::to_string(o.shadowMode)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -4663,6 +4668,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("prelitSource"))
             o.prelitSource = v->stringOr("");
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
+        if (const auto* v = jo.find("shadowMode")) {
+            const int m = (int)v->numberOr(0);
+            if (m >= 0 && m <= 3) o.shadowMode = m;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -6885,6 +6894,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
+    fnvMix(h, (uint64_t)o.shadowMode);
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
@@ -7798,7 +7808,10 @@ std::string refreshGenerated(const Project& p) {
     // Blob shadows reuse the soft glow as their alpha mask - bake it even
     // when the flare is off (kind 0 only; the flare block above already
     // wrote it otherwise).
-    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+    bool blobWanted = p.settings.blobShadows;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) blobWanted |= o.shadowMode == 2;
+    if (!templates::projectUsesFlare(p) && blobWanted) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlarePNG(0, png))
             return "Blob shadow sprite bake failed";

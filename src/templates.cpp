@@ -6819,8 +6819,10 @@ void TerrainGame::buildScene() {
     if (FLASHLIGHT_USED)
       flashGoboTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flashlight-gobo.png"));
-    // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
-    if (BLOB_SHADOWS)
+    // Blob shadows: the glow sprite doubles as the shadow's alpha mask. The
+    // gate is BLOB_SHADOWS_USED, not the preference - one object asking for a
+    // blob is enough to need the sprite (docs/shadows.md).
+    if (BLOB_SHADOWS_USED)
       blobShadowTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-glow.png"));
     // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
@@ -13351,11 +13353,21 @@ void TerrainGame::updateAndRenderLightPools() {
 // spawn-pool clones cast none - authored objects only.)
 void TerrainGame::setupBlobShadows() {
   blobShadows.clear();
-  if (!BLOB_SHADOWS) return;
+  if (!BLOB_SHADOWS_USED) return;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     const bool avatar = i == PLAYER_INDEX && PLAYER_MODE == 2;
-    if (!avatar && d.animModel < 0 && !d.physics) continue;
+    // THE OBJECT DECIDES FIRST (docs/shadows.md). Mode 2 asks for a blob
+    // whatever it is - a static prop, a model that would otherwise have paid
+    // for a projected silhouette - and modes 1 and 3 keep it out of this
+    // system entirely. Only mode 0 falls through to what the project always
+    // did: the moving things (the third-person avatar, animated models,
+    // physics bodies) get one while the preference is on.
+    if (d.shadowMode == 1 || d.shadowMode == 3) continue;
+    if (d.shadowMode != 2) {
+      if (!BLOB_SHADOWS) continue;
+      if (!avatar && d.animModel < 0 && !d.physics) continue;
+    }
     if (d.type == 9 || d.type == 4 || d.type == 8 || d.type == 11 ||
         d.type == 13 || d.type == 14)
       continue;  // lights/markers never cast
@@ -13452,8 +13464,15 @@ void TerrainGame::setupProjShadows() {
   projShadows.clear();
   projCasters.clear();
   if (!PROJ_SHADOWS_USED) return;
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (SCENE_OBJECTS[i].projShadow) projCasters.push_back(i);
+  // The per-object mode overrides the flag both ways: 3 casts a silhouette
+  // whatever the flag says, 1 and 2 keep the object out of the slots even
+  // when it is set (docs/shadows.md). Mode 0 is the flag, i.e. every project
+  // written before the mode existed.
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const int m = SCENE_OBJECTS[i].shadowMode;
+    if (m == 3 || (m == 0 && SCENE_OBJECTS[i].projShadow))
+      projCasters.push_back(i);
+  }
   if (projCasters.empty()) return;
 
   const int slots = (int)projCasters.size() < Tyra::RendererCoreShadowMap::slots
@@ -23854,6 +23873,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << o.lightBeam << ", " << (o.saveState ? 1 : 0) << ", "
         << o.collisionMode << ", " << floatLit(o.drawDistance) << ", "
         << (o.reflected ? 1 : 0) << ", " << (o.projShadow ? 1 : 0) << ", "
+        << o.shadowMode << ", "
         << (o.dynamicLighting ? 1 : 0) << ", " << (o.prelit ? 1 : 0) << ", "
         << animModelIndexOf(p, o)
         << ", \"" << escapeCString(o.animClip) << "\", "
@@ -24857,6 +24877,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  int reflected;  // 1 = rendered into the dynamic (\"@sky\") env map\n"
            "  int projShadow; // 1 = live projected silhouette shadow (the\n"
            "                  // per-object AO 'castShadow' is baked, not here)\n"
+           "  int shadowMode; // which DYNAMIC shadow this object casts:\n"
+           "                  // 0 = follow the project (a blob if BLOB_SHADOWS\n"
+           "                  // is on and the object is one of the moving\n"
+           "                  // things that get one, a projected silhouette if\n"
+           "                  // projShadow), 1 = none, 2 = blob, 3 = projected\n"
            "  int dynLit;     // 1 = lit by the LIT VU1 program from the probe\n"
            "                  // grid every frame instead of baked vertex colors\n"
            "                  // (docs/global-illumination.md)\n"
@@ -26600,6 +26625,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // sprite doubles as the shadow's alpha mask, baked when either is on).
     out << "constexpr int BLOB_SHADOWS = " << (p.settings.blobShadows ? 1 : 0)
         << ";\n";
+    // ...and whether the system exists AT ALL, which is no longer the same
+    // question: an object can ask for a blob with the project preference off
+    // (SceneObject::shadowMode == 2, docs/shadows.md). This is what gates the
+    // sprite load and the setup - the per-object rule then decides who is in.
+    {
+        bool anyBlob = p.settings.blobShadows;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects) anyBlob |= o.shadowMode == 2;
+        out << "constexpr int BLOB_SHADOWS_USED = " << (anyBlob ? 1 : 0)
+            << ";\n";
+    }
     // The neural upscaler (docs/neural-upscaler.md). Mostly project-wide, like
     // the blob shadows above: the scale, the jitter, the sharpen/temporal
     // tuning and the debug view are one net's properties and are plain
@@ -26672,9 +26708,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // Projected silhouette shadows: any caster anywhere -> the game
     // allocates the engine's shadow-map VRAM at boot (lazy otherwise).
     {
+        // A projected caster is one that ASKS for a silhouette: the explicit
+        // per-object mode, or the old flag while the object still follows the
+        // project's defaults (docs/shadows.md).
         bool any = false;
         for (const SceneData& sc : p.scenes)
-            for (const SceneObject& o : sc.objects) any |= o.projShadow;
+            for (const SceneObject& o : sc.objects)
+                any |= (o.shadowMode == 3) ||
+                       (o.shadowMode == 0 && o.projShadow);
         out << "constexpr int PROJ_SHADOWS_USED = " << (any ? 1 : 0) << ";\n";
     }
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });

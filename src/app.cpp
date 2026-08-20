@@ -14668,7 +14668,11 @@ void App::drawPreferencesWindow() {
         ImGui::SetTooltip(
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
-            "grounds them visually for one quad each. Project-wide.");
+            "grounds them visually for one quad each.\n"
+            "This is the DEFAULT now, not the whole story: any object can ask\n"
+            "for a blob, a silhouette or nothing in Properties > Dynamic\n"
+            "shadow - including a static prop, and with this switch off\n"
+            "(docs/shadows.md).");
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
     // WHAT IT COSTS, in the currency that actually runs out. The count band is

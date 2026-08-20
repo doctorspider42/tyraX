@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.62.0 (a dynamic shadow is chosen on the OBJECT now - docs/shadows.md):
+// "I put in a model that has a dynamic shadow, but instead of the full cast I
+// pick the blob option." Blob shadows were a project-wide switch that only
+// ever applied to the things that MOVE (the third-person avatar, animated
+// models, physics bodies), and the projected silhouette was a per-object flag;
+// there was no way to say "this one, cheaply".
+//
+// SceneObject::shadowMode says it per object: Default / None / Blob /
+// Projected, in Properties, with the project switch left as the default for
+// everything that does not override. Blob mode works on a STATIC prop too -
+// the moving-things rule only gates the default - and it is one soft quad
+// against a projected caster's second 64x64 render per frame, which is the
+// trade the tooltip states.
+//
+// Three things had to follow the object rather than the project: the sprite
+// bake (the blob's alpha mask is the flare glow, and one object asking for a
+// blob is enough to need it), BLOB_SHADOWS_USED (the new codegen constant that
+// gates the texture load and the setup, where BLOB_SHADOWS alone used to), and
+// PROJ_SHADOWS_USED (which decides whether the engine's shadow-map VRAM is
+// claimed at boot at all). The spawn-recipe hash takes the mode too - two
+// objects that differ only in what they cast are not interchangeable
+// templates.
+//
 // 1.61.4 (one prop in the beam took every other receiver's torch light):
 // reported from a hand-made scene - two models with "Cast shadow (projected)"
 // on, flashlight shadow volumes on, and no torch shadows anywhere; plus "when
@@ -2162,8 +2185,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 61
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_MINOR 62
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2460,7 +2483,15 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Purely additive - no migration step. (v32, this branch's own, shipped hours
 // earlier with keepOut/group; the same section gains a key rather than changing
 // one, so an older reader drops a request it never honoured anyway.)
-inline constexpr int kFormatVersion = 33;
+// v34 (a dynamic shadow is a per-OBJECT choice, docs/shadows.md):
+// SceneObject::shadowMode - 0 = follow the project (which is what every file
+// written before this key meant: a blob under the moving things while the
+// preference is on, a projected silhouette where projShadow is set), 1 = none,
+// 2 = blob, 3 = projected. Written only when it is not 0 and the key is absent
+// otherwise, so an untouched project resaves byte for byte and an older editor
+// reading a newer file simply falls back to the flag it already knows. Purely
+// additive - no migration step.
+inline constexpr int kFormatVersion = 34;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
