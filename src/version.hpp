@@ -16,6 +16,16 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.78.0 (lamps ARE the body - docs/vehicles.md): lamp-material geometry
+// splits out of the palette merge into its own parts (lamp-rear/lamp-front,
+// fixed order so the recorded indices survive rebakes), baked FULLBRIGHT
+// (ke = kd), and the runtime writes those parts' vertex colors PER INSTANCE
+// every frame - dark red, lit red, brake flare; warm white headlamps. Mesh
+// lamps stick to every shape by construction; the heuristic glow quads
+// remain the fallback for models with no lamp materials (regression-booted
+// on the CC96). This is the one thing the engine asks of a model: name
+// your lamp materials. kFormatVersion 47. MINOR.
+//
 // 1.77.0 (roads, second pass): the road OBJECT no longer collides (its box
 // was an invisible wall), align-terrain is FLAT across the width (the
 // flatten brush's cosine crowned it - shoulders keep the falloff),
@@ -2266,7 +2276,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 77
+#define TYRAX_VERSION_MINOR 78
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2547,7 +2557,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 46;
+inline constexpr int kFormatVersion = 47;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

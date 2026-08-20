@@ -299,6 +299,21 @@ std::vector<unsigned char> encodePng(const std::vector<unsigned char>& rgba, int
 // which mirror the sky on a real car. The threshold is deliberately low
 // (0.12 of full scale) so dark PAINT still shines; glass forces shiny by name
 // because a deep-blue window would otherwise land under it.
+// Is this a LAMP material, and which end? (docs/vehicles.md, "The visual
+// pack"). Shared by the AABB measuring pass and the part split - one
+// definition of "lamp" or the two drift.
+bool lampMaterial(const std::string& mat, bool* front) {
+    std::string n;
+    for (char c : mat) n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    auto has = [&](const char* w) { return n.find(w) != std::string::npos; };
+    const bool lampish = has("lamp") || has("light") || has("brake") ||
+                         has("tail") || has("stop") || has("head") ||
+                         has("swiatl");
+    if (!lampish) return false;
+    *front = has("head") || has("front") || has("przod");
+    return true;
+}
+
 bool shinyMaterial(const glbparser::SkelPart& p) {
     std::string n;
     for (char c : p.material) n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
@@ -330,6 +345,9 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
              int& srcParts, int& srcTris, bool shineSplit = false) {
     std::vector<float> mergedVerts;
     std::vector<float> matteVerts;
+    std::vector<float> lampRearVerts, lampFrontVerts;
+    float lampRearKd[3] = {-1.0f, 0.0f, 0.0f};
+    float lampFrontKd[3] = {-1.0f, 0.0f, 0.0f};
     // Textured materials keep their own part - real UVs cannot be rewritten.
     std::map<std::string, tmdl::Part> textured;
 
@@ -358,6 +376,34 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
             dst = &part.verts;
             v = 0.0f;  // real UVs, nothing to patch later
         } else {
+            // LAMP materials become their own parts ("lamp-rear"/"lamp-front",
+            // docs/vehicles.md): the runtime brightens their vertex colors per
+            // instance (brake flare, the lights toggle), which only works if
+            // the lamp geometry is addressable - inside the palette merge it
+            // would be just more body texels. Fullbright via ke below.
+            bool lampFront = false;
+            if (shineSplit && lampMaterial(p.material, &lampFront)) {
+                dst = lampFront ? &lampFrontVerts : &lampRearVerts;
+                float* lkd = lampFront ? lampFrontKd : lampRearKd;
+                if (lkd[0] < 0.0f)
+                    for (int a = 0; a < 3; ++a) lkd[a] = p.baseColor[a];
+                u = 0.0f;
+                v = 0.0f;  // real (dummy) UVs - never palette-marked
+                for (int c = 0; c < p.vertexCount; ++c) {
+                    Corner k;
+                    xf.point(&p.positions[(size_t)c * 3], k.p);
+                    for (int a = 0; a < 3; ++a) k.p[a] -= offset[a];
+                    xf.dir(&p.normals[(size_t)c * 3], k.n);
+                    const float len = std::sqrt(k.n[0] * k.n[0] +
+                                                k.n[1] * k.n[1] +
+                                                k.n[2] * k.n[2]);
+                    if (len > 1e-8f)
+                        for (int a = 0; a < 3; ++a) k.n[a] /= len;
+                    dst->insert(dst->end(), {k.p[0], k.p[1], k.p[2], k.n[0],
+                                             k.n[1], k.n[2], 0.0f, 0.0f});
+                }
+                continue;
+            }
             // The palette CELL INDEX rides in the u slot with v = -1 as the
             // marker, and resolvePaletteUvs turns both into a real coordinate
             // once the palette's final size is known. The alternative is
@@ -405,6 +451,30 @@ void collect(const glbparser::Skel& sk, const std::vector<M4>& g, const M4& cano
         part.texture = paletteTex;
         part.kd[0] = part.kd[1] = part.kd[2] = 1.0f;
         part.verts.swap(matteVerts);
+        out.parts.push_back(std::move(part));
+    }
+    // Lamp parts LAST and in a fixed order (rear before front), so the part
+    // INDEX the definition records survives every rebake of the same model.
+    // Untextured, own kd, and ke = kd: FULLBRIGHT - a lamp is a light source,
+    // the scene's shading must never darken it (the era's fullbright trick).
+    if (!lampRearVerts.empty()) {
+        tmdl::Part part;
+        part.name = "lamp-rear";
+        for (int a = 0; a < 3; ++a) {
+            part.kd[a] = lampRearKd[0] < 0.0f ? 1.0f : lampRearKd[a];
+            part.ke[a] = part.kd[a];
+        }
+        part.verts.swap(lampRearVerts);
+        out.parts.push_back(std::move(part));
+    }
+    if (!lampFrontVerts.empty()) {
+        tmdl::Part part;
+        part.name = "lamp-front";
+        for (int a = 0; a < 3; ++a) {
+            part.kd[a] = lampFrontKd[0] < 0.0f ? 1.0f : lampFrontKd[a];
+            part.ke[a] = part.kd[a];
+        }
+        part.verts.swap(lampFrontVerts);
         out.parts.push_back(std::move(part));
     }
     for (auto& kv : textured) out.parts.push_back(std::move(kv.second));
@@ -523,6 +593,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             opt.bodyReflMap.empty() ? std::string("@sky") : opt.bodyReflMap;
         for (tmdl::Part& p : out.body.parts) {
             if (p.name == "merged-matte") continue;
+            if (p.name.rfind("lamp-", 0) == 0) continue;  // lights, not paint
             std::string n2;
             for (char c : p.name)
                 n2 += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
@@ -548,6 +619,10 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
 
     computeBounds(out.body);
     computeBounds(out.wheel);
+    for (size_t k = 0; k < out.body.parts.size(); ++k) {
+        if (out.body.parts[k].name == "lamp-rear") out.lampRearPart = (int)k;
+        if (out.body.parts[k].name == "lamp-front") out.lampFrontPart = (int)k;
+    }
     out.bodyParts = (int)out.body.parts.size();
     out.wheelParts = (int)out.wheel.parts.size();
     out.bodyTris = modelTris(out.body);
@@ -585,20 +660,7 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
     // lamp-named material = size 0 = the shape-blind fallback, so a model
     // authored before this existed changes nothing.
     {
-        auto isLamp = [](const std::string& mat, bool* front) {
-            std::string n;
-            for (char c : mat)
-                n += (char)(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
-            auto has = [&](const char* w) {
-                return n.find(w) != std::string::npos;
-            };
-            const bool lampish = has("lamp") || has("light") || has("brake") ||
-                                 has("tail") || has("stop") || has("head") ||
-                                 has("swiatl");
-            if (!lampish) return false;
-            *front = has("head") || has("front") || has("przod");
-            return true;
-        };
+        const auto isLamp = lampMaterial;
         float mnR[3] = {1e30f, 1e30f, 1e30f}, mxR[3] = {-1e30f, -1e30f, -1e30f};
         float mnF[3] = {1e30f, 1e30f, 1e30f}, mxF[3] = {-1e30f, -1e30f, -1e30f};
         bool anyR = false, anyF = false;

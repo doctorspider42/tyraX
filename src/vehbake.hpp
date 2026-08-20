@@ -114,6 +114,11 @@ struct Result {
     // {|x| offset, y, z, half-size}; size 0 = none found (fallback).
     float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // Body part indices of the emissive lamp PARTS ("lamp-rear"/"lamp-front"
+    // - lamp materials split out of the merge so the runtime can brighten
+    // their vertex colors per instance). -1 = the model marked no lamps.
+    int lampRearPart = -1;
+    int lampFrontPart = -1;
 
     std::vector<std::string> notes;
 };

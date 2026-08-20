@@ -25051,6 +25051,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                "  // import ({|x|, y, z, half-size}, canonical frame; size 0 =\n"
                "  // unmeasured, the glow falls back to heuristic spots).\n"
                "  float lampRear[4]; float lampFront[4];\n"
+               "  int lampRearPart; int lampFrontPart;  // emissive body parts\n"
                "  // Driver readout: a FONTS slot (-1 = no HUD) and what a world\n"
                "  // unit per second should READ as on it.\n"
                "  int hudFont; float hudSpeedScale;\n"
@@ -25066,7 +25067,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
             out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
-                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, 1.0F}\n";
+                   " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -25128,6 +25129,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     << floatLit(v->lampFront[1]) << ", "
                     << floatLit(v->lampFront[2]) << ", "
                     << floatLit(v->lampFront[3]) << "}"
+                    << ", " << v->lampRearPart << ", " << v->lampFrontPart
                     << ", " << hudFont << ", " << floatLit(v->hudSpeedScale)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
@@ -28103,6 +28105,31 @@ void TerrainGame::renderVehicleGlow() {
     const float SC = v.scale;
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     const float hz = 0.5F * s.wheelBase * SC;
+    // EMISSIVE LAMP PARTS (docs/vehicles.md): a model whose materials marked
+    // its lamps carries them as their own body parts, and the runtime
+    // brightens those parts' vertex colors PER INSTANCE - lamps that are
+    // body mesh stick to every shape by construction. Written every frame:
+    // a lamp part is a few dozen verts, and bookkeeping a rebuild
+    // generation would cost more than the writes.
+    if (v.object >= 0 && v.object < (int)objectGeometry.size()) {
+      ObjectGeometry& og2 = objectGeometry[(size_t)v.object];
+      if (s.lampRearPart >= 0 && s.lampRearPart < (int)og2.parts.size()) {
+        auto& cols = og2.parts[(size_t)s.lampRearPart].colors;
+        const Tyra::Color rc =
+            v.brakeOn ? Tyra::Color(255.0F, 45.0F, 35.0F, 128.0F)
+                      : (v.lightsOn > 0
+                             ? Tyra::Color(175.0F, 32.0F, 24.0F, 128.0F)
+                             : Tyra::Color(78.0F, 14.0F, 12.0F, 128.0F));
+        for (Tyra::Color& c2 : cols) c2 = rc;
+      }
+      if (s.lampFrontPart >= 0 && s.lampFrontPart < (int)og2.parts.size()) {
+        auto& cols = og2.parts[(size_t)s.lampFrontPart].colors;
+        const Tyra::Color fc =
+            v.lightsOn > 0 ? Tyra::Color(255.0F, 245.0F, 210.0F, 128.0F)
+                           : Tyra::Color(96.0F, 94.0F, 86.0F, 128.0F);
+        for (Tyra::Color& c2 : cols) c2 = fc;
+      }
+    }
     if (v.lightsOn > 0) {
       // The beam starts at the measured front lamps when the model marked
       // them, else just past the bumper.
@@ -28133,7 +28160,8 @@ void TerrainGame::renderVehicleGlow() {
     // Tail lamps: two small red quads on the rear face. Dim while the
     // lights are on, FLARED while braking - and braking lights them even
     // with the headlights off, like the real thing.
-    if ((v.lightsOn > 0 || v.brakeOn) && glowCount_ + 4 <= kVehGlowMax) {
+    if (s.lampRearPart < 0 && (v.lightsOn > 0 || v.brakeOn) &&
+        glowCount_ + 4 <= kVehGlowMax) {
       const float bright = v.brakeOn ? 1.0F : 0.45F;
       // MEASURED lamps first (docs/vehicles.md): the import pools the AABBs
       // of lamp-named materials, so the glow sits where THIS body's lamps

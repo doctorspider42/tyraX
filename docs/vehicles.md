@@ -317,6 +317,16 @@ nothing when idle:
   only when a quad SPAWNS. One alpha-over submit, skipped when empty.
 - **Backfire**: an upshift pops a vertical additive quad at the exhaust for
   a tenth of a second — the shift sound's visual twin.
+- **Lamps can BE body mesh** — the one thing the engine asks of the model:
+  name your lamp materials. Lamp-material geometry is split out of the
+  palette merge into its own parts (`lamp-rear`/`lamp-front`), baked
+  FULLBRIGHT (ke = kd — a lamp is a light source, shading must never
+  darken it), and the runtime brightens those parts' vertex colors **per
+  instance** every frame: rear dark red → red with the lights → bright
+  flare on the brake; front warm white with the lights. Mesh lamps stick
+  to every body shape by construction, because they ARE the body. The
+  definition records the part indices (`lampRearPart`/`lampFrontPart`);
+  models without lamp materials keep the fallback below.
 - **The lamps follow the MATERIALS.** The import pools the canonical AABBs
   of body parts whose material name says lamp (`lamp/light/brake/tail/stop/
   head/front`, plus a vertex-end split when the name does not say which end)

@@ -2531,6 +2531,10 @@ static void writeVehiclesSection(std::ostream& json, const Project& p) {
             json << ", \"lampRear\": [" << fmtFloat(v.lampRear[0]) << ", "
                  << fmtFloat(v.lampRear[1]) << ", " << fmtFloat(v.lampRear[2])
                  << ", " << fmtFloat(v.lampRear[3]) << "]";
+        if (v.lampRearPart >= 0)
+            json << ", \"lampRearPart\": " << v.lampRearPart;
+        if (v.lampFrontPart >= 0)
+            json << ", \"lampFrontPart\": " << v.lampFrontPart;
         if (v.lampFront[3] > 0.0f)
             json << ", \"lampFront\": [" << fmtFloat(v.lampFront[0]) << ", "
                  << fmtFloat(v.lampFront[1]) << ", " << fmtFloat(v.lampFront[2])
@@ -2606,6 +2610,10 @@ static void readVehiclesSection(const json::Value& root, Project& out) {
             if (x->type == json::Value::Type::Array && x->arr.size() == 4)
                 for (int k = 0; k < 4; ++k)
                     v.lampRear[k] = (float)x->arr[(size_t)k].numberOr(0.0);
+        if (const json::Value* x = e.find("lampRearPart"))
+            v.lampRearPart = (int)x->numberOr(-1.0);
+        if (const json::Value* x = e.find("lampFrontPart"))
+            v.lampFrontPart = (int)x->numberOr(-1.0);
         if (const json::Value* x = e.find("lampFront"))
             if (x->type == json::Value::Type::Array && x->arr.size() == 4)
                 for (int k = 0; k < 4; ++k)

@@ -154,6 +154,8 @@ void App::vehicleRefreshBake(int index, bool force) {
                 v.lampRear[k] = c.result.lampRear[k];
                 v.lampFront[k] = c.result.lampFront[k];
             }
+            v.lampRearPart = c.result.lampRearPart;
+            v.lampFrontPart = c.result.lampFrontPart;
             setDirty(true);
         }
     }
