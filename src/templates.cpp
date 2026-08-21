@@ -541,6 +541,9 @@ constexpr float TERRAIN_LOD_DISTANCE = {{TERRAIN_LOD_DISTANCE}};
 // REAL triangles, counted in a dedicated GS target and resolved into the
 // destination-alpha mask; primitives extrude their boxes.
 constexpr int FLASH_SHADOW_VOLUMES = {{FLASH_SHADOW_VOLUMES}};
+// Hidden console diagnostic (project.hpp shadowVolumesDebug): 1 = count but
+// never resolve, 2 = clear + resolve with no volume drawn.
+constexpr int SHADOW_VOLUMES_DEBUG = {{SHADOW_VOLUMES_DEBUG}};
 
 // The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
 // "Spot-light shadow volumes"). This is the project-wide DEFAULT; a light can
@@ -6904,6 +6907,9 @@ void TerrainGame::buildScene() {
     // user asking is enough and neither allocates a second one.
     if ((FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED) || SPOT_SHADOW_VOLUMES_USED)
       engine->renderer.core.alphaMask.allocateCount();
+    // Hidden console diagnostic: draw the count band's texels on screen
+    // instead of the mask (project.hpp shadowVolumesDebug == 3).
+    engine->renderer.core.alphaMask.debugShowCount = SHADOW_VOLUMES_DEBUG == 3;
 
     // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
     // here: a font atlas reaches the repository (and VRAM) on the first frame
@@ -12846,19 +12852,20 @@ void TerrainGame::updateAndRenderLightPools() {
       // every prefix, so the running sum never dips below zero and the GS's
       // clamp-at-0 never eats a legitimate count.
       rc.alphaMask.countBegin(rx0, ry0, rx1, ry1, by);
-      if (!front.empty()) {
+      if (!front.empty() && SHADOW_VOLUMES_DEBUG != 2) {
         setBag->vertices = front.data();
         setBag->count = (u32)front.size();
         setBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(setBag);
       }
-      if (!back.empty()) {
+      if (!back.empty() && SHADOW_VOLUMES_DEBUG != 2) {
         clrBag->vertices = back.data();
         clrBag->count = (u32)back.size();
         clrBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(clrBag);
       }
-      rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
+      if (SHADOW_VOLUMES_DEBUG != 1)
+        rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
     }
     return true;
   };
@@ -28764,6 +28771,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                    st.flashShadowVolumes ? "1" : "0");
     s = replaceAll(s, "{{SPOT_SHADOW_VOLUMES}}",
                    st.spotShadowVolumes ? "1" : "0");
+    s = replaceAll(s, "{{SHADOW_VOLUMES_DEBUG}}",
+                   std::to_string(st.shadowVolumesDebug));
     s = replaceAll(s, "{{SHADOW_MESH_MAX_TRIS}}",
                    std::to_string(meshlod::kShadowProxyMaxTris));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));

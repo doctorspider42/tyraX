@@ -540,6 +540,28 @@ wherever the torch lit something and a 16-bit project came back magenta,
 (208, 56, 144) measured on a warm cream lamp post. One constant, `0x00FFFFFF`,
 is correct at both depths.
 
+**The count runs with the GS dither OFF, and that is a console-only finding
+(1.69.1).** The project's ordered dither (`DTHE` + the 4x4 `DIMX` offsets) is
+meant for the 16-bit picture, and the manual's "16-bit destinations only"
+reading let it stay armed during the count bracket - PCSX2 draws the band
+exactly either way. The real GS does not: every `+N` front face and every
+`-N` back face took its own matrix offset, the pair no longer cancelled, and
+the band came back with residues on alternate rows and every fourth column
+(read on a console through the hidden `shadowVolumesDebug: 3`, which draws
+the band's texels on screen instead of the mask: `4,0,4,0` down a column that
+should be all zero). The resolve turned each residue into a mask bit and the
+picture showed it three ways: a **one-pixel checkerboard carved out of the
+pool** at 32-bit colour; at 16-bit **dashed green slivers along every
+silhouette edge** (the mask bit through the 5551 layout) and a **dark halo in
+the volume's shape** (the same bit reaching the CRTC's flicker filter). The
+field report also had the ground texture eaten into blue-spotted holes after
+a while, which was not reproduced in the fix session and is still open.
+Bisected live on the console with `shadowVolumesDebug` 1 (count, no resolve:
+clean), 2 (resolve, no volumes: clean) and the project's `dither: false`
+(clean in one boot); `countBegin` now writes `DTHE = 0` and `countResolve`
+restores the project's value. Two reports that used to read as unexplained
+green marks in fixed columns were this.
+
 **And it can take the last of the texture heap, which does not look like a
 VRAM problem at all.** The band is 512 KB at 32-bit colour, and a project in a
 512x512 display mode has about that much heap in the first place - so switching

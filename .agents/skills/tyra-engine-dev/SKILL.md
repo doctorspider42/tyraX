@@ -1135,6 +1135,17 @@ Rules the same evening paid for:
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
+- **The GS dithers render-to-texture COUNTS; PCSX2 never will.** `DTHE` is
+  global GS state and the project leaves it on for the 16-bit picture. On a
+  console it also applied to the shadow-volume count band (`+N` / `-N` per
+  face, each with its own `DIMX` offset), so the pair stopped cancelling and
+  the mask came back with residues - green slivers along silhouettes and a
+  dark halo at 16-bit, a one-pixel checkerboard in the pool at 32-bit - while
+  PCSX2 drew the band exactly. Any arithmetic render target must bracket
+  itself with `DTHE = 0` (`countBegin` does; `emitRasterRestore` does NOT
+  carry DTHE, so restore it yourself). Bisect a console-only GS symptom with
+  the hidden `shadowVolumesDebug` key (1/2/3, docs/flashlight.md) and
+  `--capture-frame` - a PCSX2 screenshot cannot see this class at all.
 - **3D texture wrap is REPEAT, asserted once per frame - it used to be
   whatever the last unrelated draw left behind.** `GS_REG_CLAMP` is global GS
   state and NOTHING in the static or dynamic 3D pipeline emits it per mesh

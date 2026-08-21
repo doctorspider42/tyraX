@@ -1610,6 +1610,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
                  : "")
+         << (p.settings.shadowVolumesDebug
+                 ? "    \"shadowVolumesDebug\": " +
+                       std::to_string(p.settings.shadowVolumesDebug) + ",\n"
+                 : "")
          << (p.settings.spotShadowVolumes
                  ? "    \"spotShadowVolumes\": true,\n"
                  : "")
@@ -5233,6 +5237,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.flashShadowVolumes = v->boolOr(false);
         if (const auto* v = s->find("spotShadowVolumes"))
             st.spotShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("shadowVolumesDebug"))
+            st.shadowVolumesDebug = (int)v->numberOr(0);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))

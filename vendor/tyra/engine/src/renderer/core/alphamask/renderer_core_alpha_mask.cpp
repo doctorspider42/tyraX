@@ -274,9 +274,26 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
 
   packet2_reset(countBeginPacket, false);
   qword_t* q = countBeginPacket->next;
-  // Rows: FRAME, SCISSOR, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2 = 8. NLOOP
-  // counts every register row - a mismatch stalls the GIF forever.
-  PACK_GIFTAG(q, GIF_SET_TAG(8, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // Rows: DTHE, FRAME, SCISSOR, TEST, ZBUF, RGBAQ, PRIM, XYZ2, XYZ2 = 9.
+  // NLOOP counts every register row - a mismatch stalls the GIF forever.
+  PACK_GIFTAG(q, GIF_SET_TAG(9, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  // DITHERING OFF FOR THE WHOLE BRACKET, and this line is what makes the
+  // count usable on a console. The project's GS dither (DTHE, the 4x4 DIMX
+  // offsets) is meant for the 16-bit picture, and the manual's "16-bit
+  // destinations only" reading let it stay armed here - PCSX2 draws the
+  // band exactly either way. The real GS does NOT: every +N front face and
+  // every -N back face took its own matrix offset, and the pair no longer
+  // cancelled to zero. The band came back with residues on alternate rows
+  // and every fourth column (read back on a console through debugShowCount:
+  // 4,0,4,0 down a column that should be all zero), the resolve turned
+  // each residue into a mask bit, and the picture showed it three ways -
+  // a one-pixel checkerboard carved out of the pool at 32-bit colour, and
+  // at 16-bit the dashed green slivers along every silhouette edge and the
+  // dark halo in the volume's shape (the alpha bit reaching the CRTC's
+  // flicker filter). Turning the project's dither off cleared all of it
+  // in one boot; this turns it off for the count and the resolve only.
+  PACK_GIFTAG(q, GS_SET_DTHE(0), GS_REG_DTHE);
   q++;
   // FRAME -> the count band, at the RASTER's stride and SLID by the band's
   // page rows, so screen row bandY0 lands on the band's own row 0. PSMCT32
@@ -330,7 +347,9 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
 
   const RendererCoreGS::RasterTarget t = gs->getRasterTarget();
   const int psm = settings->getFrameBufferPsm();
-  const unsigned fbmsk = kAlphaOnlyFbmsk;
+  // Diagnostic (debugShowCount): write every channel, test nothing - the
+  // band's own texels land on screen where the mask would have gone.
+  const unsigned fbmsk = debugShowCount ? 0u : kAlphaOnlyFbmsk;
   const int w = static_cast<int>(settings->getWidth());
   const int h = static_cast<int>(settings->getRenderHeightF());
   bandY0 = bandY0 / countH * countH;
@@ -345,8 +364,9 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   packet2_reset(countResolvePacket, false);
   qword_t* q = countResolvePacket->next;
   // Rows: TEXFLUSH, TEX0, TEX1, TEXA, CLAMP, FRAME, SCISSOR, TEST, ZBUF,
-  // RGBAQ, PRIM, UV, XYZ2, UV, XYZ2, CLAMP-restore, TEXA-restore = 17.
-  PACK_GIFTAG(q, GIF_SET_TAG(17, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  // RGBAQ, PRIM, UV, XYZ2, UV, XYZ2, CLAMP-restore, TEXA-restore,
+  // DTHE-restore = 18.
+  PACK_GIFTAG(q, GIF_SET_TAG(18, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
   q++;
   // The count target was a render target a microsecond ago - invalidate the
   // texture cache before sampling it.
@@ -383,8 +403,9 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   PACK_GIFTAG(q,
               GS_SET_TEX0(countAddress >> 6,
                           t.frameWidth >> 6, resolvePsm, lg2up(countW),
-                          lg2up(countH), 1 /* tcc */, 1 /* decal */, 0, 0, 0,
-                          0, 0),
+                          lg2up(countH), 1 /* tcc */,
+                          debugShowCount ? 0 /* modulate */ : 1 /* decal */,
+                          0, 0, 0, 0, 0),
               GS_REG_TEX0_1);
   q++;
   PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 0, 0, 0, 0, 0), GS_REG_TEX1_1);
@@ -410,16 +431,25 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // ATEST != 0 with AFAIL = write NOTHING is what makes this an OR: a
   // zero-count texel expands to fragment alpha 0, fails, and leaves the
   // mask bit an earlier caster set. Z writes masked, test all-pass.
-  PACK_GIFTAG(q,
-              GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
-                          ATEST_KEEP_ALL, 0, 0, 1, ZTEST_METHOD_ALLPASS),
-              GS_REG_TEST_1);
+  if (debugShowCount)
+    PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+                GS_REG_TEST_1);
+  else
+    PACK_GIFTAG(q,
+                GS_SET_TEST(DRAW_ENABLE, ATEST_METHOD_NOTEQUAL, 0x00,
+                            ATEST_KEEP_ALL, 0, 0, 1, ZTEST_METHOD_ALLPASS),
+                GS_REG_TEST_1);
   q++;
   PACK_GIFTAG(q,
               GS_SET_ZBUF(gs->zBuffer.address >> 11, gs->zBuffer.zsm, 1),
               GS_REG_ZBUF_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_RGBAQ(0, 0, 0, 0, 0x3F800000), GS_REG_RGBAQ);
+  // Diagnostic: MODULATE by 0xFF/0x80 doubles the count texel's brightness
+  // (a count of 32 reads as 64 grey - visible); the real pass is DECAL.
+  PACK_GIFTAG(q,
+              debugShowCount ? GS_SET_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x3F800000)
+                             : GS_SET_RGBAQ(0, 0, 0, 0, 0x3F800000),
+              GS_REG_RGBAQ);
   q++;
   PACK_GIFTAG(q,
               GS_SET_PRIM(6 /* sprite */, 0, 1 /* tme */, 0, 0, 0,
@@ -447,6 +477,10 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // ATEST that DELETES black pixels of ordinary textures. Restore the
   // environment default (the value BLSS and the frame profiler restore to).
   PACK_GIFTAG(q, GS_SET_TEXA(0x80, 0, 0x80), GS_REG_TEXA);
+  q++;
+  // The project's dither comes back for the picture (countBegin turned it
+  // off; emitRasterRestore does not carry DTHE).
+  PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
   q++;
   packet2_update(countResolvePacket, q);
   packet2_update(countResolvePacket,

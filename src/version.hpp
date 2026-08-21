@@ -16,6 +16,26 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.69.1 (shadow volumes on a real console: the GS dither was counting):
+// the 16-bit report - green dashes along silhouette edges, a dark halo in
+// the volume's shape - plus a one-pixel checkerboard carved out of the pool
+// at 32-bit, all on hardware and none in PCSX2. Bisected live over ps2link
+// with a hidden project key, shadowVolumesDebug (project.hpp; never in the
+// UI): 1 = count without the resolve (clean), 2 = resolve without the
+// volumes (clean), 3 = draw the band's texels on screen instead of the mask
+// (RendererCoreAlphaMask::debugShowCount) - which showed residues of 4,0,4,0
+// down columns that must be all zero, and the project's `dither: false`
+// cleared them in one boot. The real GS applies DTHE to the count band's
+// +N / -N writes with a different matrix offset each, so the pair no longer
+// cancels; PCSX2 never dithers there. countBegin writes DTHE = 0 for the
+// bracket and countResolve restores the project's value. Verified on the
+// console at both depths: the pool on the wall smooth again at 32-bit
+// (neighbour-pixel difference 52 -> 10), and at 16-bit a lamp-post vantage
+// with the volume across the whole screen at 0 green pixels where the
+// report's frame had 216, the pole's shadow carved on the wall. The
+// blue-spotted ground texture from the same report did not reproduce in
+// this session and stays open. --capture-frame did every picture.
+//
 // 1.69.0 (--capture-frame: the game's own screenshot from a shell): the
 // test enabler for a console report (docs/devkit.md). A 16-bit night-walk on
 // real hardware showed green dashes in fixed columns, a dark halo in the
@@ -2661,7 +2681,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 69
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

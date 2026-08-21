@@ -1395,6 +1395,11 @@ struct ProjectSettings {
     // the real z buffer, for EVERY solid in the beam, no caster flag needed.
     // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
     bool flashShadowVolumes = false;
+    // HIDDEN diagnostic for the count bracket on real hardware ("shadowVolumesDebug"
+    // in the .tyra, no UI, never written unless set): 0 = normal, 1 = skip the
+    // resolve (count, never write the mask), 2 = skip the volume draws (clear
+    // and resolve an empty band). Bisects "who wrote that pixel" on a console.
+    int shadowVolumesDebug = 0;
     // The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
     // "Spot-light shadow volumes"): a placed light with `lightSpot` on carves
     // its own occlusion instead of leaving the street lamp shining through the
@@ -1701,7 +1706,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 696,
+static_assert(sizeof(ProjectSettings) == 704,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -1761,6 +1766,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
+           a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&

@@ -152,6 +152,12 @@ class RendererCoreAlphaMask {
    * SAME rect and band countBegin was given, and restore the whole raster
    * environment (emitRasterRestore puts the scissor back). */
   void countResolve(int x0, int y0, int x1, int y1, int bandY0);
+  /** Modified by TyraX: hardware diagnostic. When set, countResolve() draws
+   * the count band's texels VISIBLY - colour unmasked, no alpha test, RGB
+   * scaled by 8 - instead of writing the mask bit, so a console capture shows
+   * what the GS actually reads back from the band (PCSX2 and the GS disagree
+   * here; docs/flashlight.md). Never set by a shipping build. */
+  bool debugShowCount = false;
 
   /**
    * Repaint the raster's ALPHA byte to the scene's neutral 0x80, colors and
