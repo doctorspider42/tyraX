@@ -11069,6 +11069,35 @@ void TerrainGame::updateSunFx() {
 
   const auto& scr = engine->renderer.core.getSettings();
   const float W = scr.getWidth(), H = scr.getHeight();
+  // THE PROJECTION IS NOT NDC, and its y is not flipped either. Tyra's
+  // perspective matrix is built for the VU1 pipeline's fixed 2048 scale:
+  // after the homogeneous divide the frustum edges sit at
+  // |x| = w * rasterW / 4096 and |y| = w * rasterH / 4096, not at |x| = w
+  // (see the tyra-engine-dev skill - "the screen edge is at width/4096 of
+  // w, 0.125 at 512 px"). The matrix also already carries the GS's
+  // downward y (its data[5] is -h), so raster y is rasterH/2 + 2048 * y/w
+  // with no second flip - which is what the engine itself does in
+  // RendererCoreBlss::addBagSphere, in Renderer3DUtility::convertVertices
+  // and in the shadow-map STs.
+  //
+  // Reading x/w as [-1, 1] and flipping y therefore pulled the sun
+  // 4096/rasterW (8x at 512 px) toward the middle of the screen AND put it
+  // on the wrong side of it. Measured on the dawn plaza of examples/
+  // day-night: the sun disc the 3D pipeline drew at (410, 127) of a
+  // 512x512 raster was reported at (275, 272), so the god rays zoomed
+  // toward a point near the screen centre instead of the sun, the flare
+  // ghosts walked the wrong axis, and the 80 px / 220 px edge bands (and
+  // the "sun off screen" decision) faded at the wrong angles. The
+  // flashlight's count rect had the same NDC mistake until 1.65.0.
+  //
+  // Both consumers want DISPLAY pixels: RendererCorePostFx scales raysSunX
+  // by the frame width and raysSunY by getHeight(), and the ghosts are 2D
+  // sprites in display space. So normalise against the RASTER the
+  // projection was built for - it differs from the display size only under
+  // the BLSS raster scale or field rendering - and land the result on the
+  // display size.
+  const float sunSx = 4096.0F / scr.getRasterWidthF();
+  const float sunSy = 4096.0F / scr.getRasterHeightF();
 
   float target = 0.0F, px = 0.0F, py = 0.0F, raysVis = 0.0F;
   float edge = 0.0F;
@@ -11077,8 +11106,8 @@ void TerrainGame::updateSunFx() {
                       cameraPosition.z + szd * 500.0F, 1.0F);
   const Vec4 clip = engine->renderer.core.renderer3D.getViewProj() * sunWorld;
   if (clip.w > 0.0F) {
-    px = (clip.x / clip.w * 0.5F + 0.5F) * W;
-    py = (0.5F - clip.y / clip.w * 0.5F) * H;
+    px = (clip.x / clip.w * sunSx * 0.5F + 0.5F) * W;
+    py = (clip.y / clip.w * sunSy * 0.5F + 0.5F) * H;
     const float mx = px < 0.0F ? -px : (px > W ? px - W : 0.0F);
     const float my = py < 0.0F ? -py : (py > H ? py - H : 0.0F);
     const float m = mx > my ? mx : my;
@@ -11132,6 +11161,18 @@ void TerrainGame::updateSunFx() {
   // ghosts draw after the pass (renderFlare) so they stay crisp.
   if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
   const float axc = W * 0.5F - px, ayc = H * 0.5F - py;
+  // A ghost is a 2D SPRITE, and the 2D renderer does not author sprites in
+  // display rows: RendererCore2D lays them out in the stock 512x448 space and
+  // letterboxes THAT into the raster (SPRITE_SPACE_HEIGHT and its originY
+  // term), so in a scan mode with more than 448 rows the sprite at row n lands
+  // (renderHeight - 448) / 2 rows further down the picture. The god rays want
+  // display pixels (RendererCorePostFx divides by getHeight()), but a flare
+  // has to sit on the SUN rather than on the HUD's layout, so the sprites get
+  // that offset taken back off. Zero in the stock 512x448 and in
+  // InterlacedField (same logical height); 32 rows in Pal576i, 46 in
+  // HiDef1080i - measured as a glow hanging ~29 px below the sun disc on the
+  // 512x512 dawn plaza of examples/day-night.
+  const float spriteDy = (H - 448.0F) * 0.5F;
   // t = position on the sun -> screen-center axis (1 = at the sun,
   // 0 = center, negative = mirrored past center).
   struct Ghost { float t, size, alpha; };
@@ -11147,7 +11188,7 @@ void TerrainGame::updateSunFx() {
     const float gx = px + axc * (1.0F - g.t), gy = py + ayc * (1.0F - g.t);
     const float size = g.size * (0.6F + 0.4F * flareAmt);
     s.size = Vec2(size, size);
-    s.position = Vec2(gx - size * 0.5F, gy - size * 0.5F);
+    s.position = Vec2(gx - size * 0.5F, gy - size * 0.5F - spriteDy);
     const float a = 128.0F * flareAmt * flareVis * g.alpha;
     // Tint by the scene light color (128 = unmodulated texel).
     s.color = Tyra::Color(128.0F * lr, 128.0F * lg, 128.0F * lb, a);

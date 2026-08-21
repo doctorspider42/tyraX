@@ -16,6 +16,38 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.65.1 (the god rays and the lens flare radiate from the sun again):
+// reported over a dusk shot with the shafts converging on nothing in
+// particular near the middle of the picture while the sun sat up in the
+// corner - "the rays don't come from the sun".
+//
+// The same mistake 1.65.0 found in the flashlight's count rect, one function
+// over and one worse. updateSunFx projected the sun with
+// px = (x/w * 0.5 + 0.5) * W and py = (0.5 - y/w * 0.5) * H, but Tyra's
+// perspective matrix is built for the VU1 pipeline's fixed 2048 scale - the
+// frustum edge is at |x| = w * rasterW / 4096, and the matrix already carries
+// the GS's downward y in its data[5] = -h. So the reported position was
+// 4096/rasterW (8x at 512 px) too close to the centre of the screen AND
+// mirrored across it. Measured on the dawn plaza of examples/day-night in
+// PCSX2: the sun disc the 3D pipeline itself drew at (410, 127) of a 512x512
+// raster was reported at (275, 272). The god rays zoom toward that point, the
+// four flare ghosts walk the sun -> screen-centre axis through it, and the
+// 80 px / 220 px edge bands decide from it when the sun has left the screen -
+// so all three were aimed at a point that had nothing to do with the sun. It
+// is normalised against getRasterWidthF/getRasterHeightF now (the raster the
+// projection was built for) and landed on the display size both consumers
+// want. After the fix the same frame reports (410.3, 126.3): the glow sits on
+// the disc and the ghosts march down the axis, checked against their
+// predicted centres to within 2 px on the isolated ring.
+//
+// The A/B also caught a second space mismatch under it, which only a
+// non-448-row scan mode shows: RendererCore2D authors sprites in the stock
+// 512x448 layout and letterboxes THAT into the raster, so a flare ghost given
+// a display row lands (renderHeight - 448) / 2 rows too low - 32 in Pal576i,
+// 46 in HiDef1080i, 0 in the stock modes, which is why it had never been
+// seen. The god rays keep taking display pixels (RendererCorePostFx divides by
+// getHeight()); only the sprites take the offset back off.
+//
 // 1.65.0 (primitives cast their own shape under the torch, and the count
 // rect stops slicing shadows flat): "add it to the primitives too - and tell
 // me why a primitive has a different set of rights at all, this is the n-th
@@ -2326,7 +2358,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 65
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

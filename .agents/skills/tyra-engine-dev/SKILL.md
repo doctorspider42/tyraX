@@ -1729,7 +1729,22 @@ legacy compatibility mode. See docs/vu1-clipping.md.
   against the VIEW frustum — the screen edge — while VU1 cuts against the near/far
   pair and an X/Y band at `VU1_CLIP_XY_BAND` (0.9) of w. The projection divides
   by `projectionScale` 4096, so the screen edge is at `width/4096` of w — **0.125**
-  at 512 px — and the band is about SEVEN times that: a triangle may hang ~1590 px
+  at 512 px (so **any EE-side world→screen projection is `px = W/2 + x/w·2048`,
+  `py = H/2 + y/w·2048`, never `(x/w·0.5+0.5)·W` and never with a second y flip** —
+  the matrix already carries the GS's downward y in its `data[5] = -h`, which is why
+  `RendererCoreBlss::addBagSphere`, `Renderer3DUtility::convertVertices` and the
+  shadow-map STs all just ADD `2048·y/w`. **This mistake has now been made twice, so
+  suspect it wherever the EE places something from a world position**: the
+  flashlight's count-rect scissor had the NDC form and sliced every mesh shadow flat
+  at its rows until 1.65.0, and the god-rays / lens-flare sun (`updateSunFx` in the
+  generated game) had the NDC form *and* the extra flip until 1.65.1 — measured on
+  the dawn plaza of `examples/day-night`, a sun disc the 3D pipeline drew at
+  (410, 127) of a 512×512 raster was reported at (275, 272), i.e. 8× closer to the
+  screen centre and mirrored across it. Note also that a 2D SPRITE is not in that
+  space at all: `RendererCore2D` authors sprites in the stock 512×448 layout and
+  letterboxes it into the raster, so anything world-anchored drawn as a sprite must
+  subtract `(getHeight() − 448) / 2` — 0 in the stock modes, 32 in Pal576i, 46 in
+  HiDef1080i) — and the band is about SEVEN times that: a triangle may hang ~1590 px
   past either edge before anything is cut, and the GS scissor crops the raster
   (it acts during DDA, so unseen pixels cost no fill). So a package straddling the
   screen border typically crosses no VU clip plane at all, and it used to be split

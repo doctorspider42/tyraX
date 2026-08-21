@@ -15,6 +15,24 @@ git log -p --follow -- PROGRESS.md
 
 ## Small
 
+### The flashlight count rect still mirrors its y
+
+Fixing the god-rays sun projection (1.65.1) proved the engine's screen
+convention: raster `y = rasterH / 2 + 2048 * clip.y / clip.w`, with **no**
+second flip, because `M4x4::perspective` already carries the GS's downward y
+in its `data[5] = -h`. Three independent engine sites agree
+(`RendererCoreBlss::addBagSphere`, `Renderer3DUtility::convertVertices`, the
+shadow-map STs) and it was confirmed in PCSX2 against a sun disc the 3D
+pipeline drew itself.
+
+The count bracket's scissor rect in `updateAndRenderLightPools` was corrected
+for the 2048 scale in 1.65.0 but kept the flip: `py2 = (0.5F - ndy * 0.5F) *
+volH`. That mirrors the rect about the middle row, so a shadow volume away
+from the vertical centre should be masked in the wrong rows. It was left alone
+here on purpose - the fix is one sign, but it needs its own PCSX2 fixture (a
+caster well above or below the centre of the picture, projected shadow on) to
+prove rather than to argue. Do that before changing it.
+
 ### The guard band, on the other two routes
 
 `docs/vu1-clipping.md` moved screen-edge packages off the clipper and onto the
