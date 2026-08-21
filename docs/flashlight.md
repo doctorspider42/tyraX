@@ -349,7 +349,7 @@ shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |
 | --- | --- | --- |
-| Shadow shape | the caster's **mesh**, rendered from the torch — soft-edged, the same picture the sun's shadows make | the caster's **mesh**, silhouette-extruded (a model past 1200 triangles casts from a **decimated shadow proxy** the build bakes for it) — but a **primitive always extrudes its BOX**, which is why a sphere casts a hard-edged rectangle here |
+| Shadow shape | the caster's **mesh**, rendered from the torch — soft-edged, the same picture the sun's shadows make | the caster's **mesh**, silhouette-extruded — a model's real triangles (past 1200 of them, a **decimated shadow proxy** the build bakes), a primitive's own unit mesh at the highest detail under that budget; hard-edged, exact per pixel |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
 | Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
 | Cost | four 64×64 silhouette renders | the volume fill each frame + a count band in GS VRAM: 512 KB at 32-bit colour, 256 KB at 16-bit |
@@ -360,7 +360,13 @@ model from its **real triangles** (the lit faces, pushed 5 cm down their rays,
 are the near caps; their projection at the light's range the far caps; and the
 silhouette edges, where a lit and an unlit face meet, become the extruded side
 walls — an *open* edge, and these models are not watertight, silhouettes
-whenever its one face is lit). A primitive extrudes its box. A model past
+whenever its one face is lit). A primitive - box, sphere, cylinder, cone -
+extrudes its **own unit mesh**, built by the same generators that draw it,
+once per (type, detail) and placed with the caster's basis and scale like a
+model's; its detail steps down until the mesh fits the budget below (a
+detail-64 sphere is 5760 triangles), so a sphere casts a circle, not its
+bounding box. (A plane or a decal is one-sided and has no unlit side to cap
+on, so those two still extrude their thin box.) A model past
 **1200 triangles** is too dear to classify on the EE every frame, so the build
 bakes it a **shadow proxy**: every part welded together by position (a shadow
 has no uv seams), decimated with the same quadric collapse the mesh LODs use
@@ -414,7 +420,12 @@ samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
 expands to alpha 0, anything else to 0x80 — and ORs *count > 0* into the
 framebuffer's destination-alpha MSB through an alpha test. Counting is exact
 over any pile of volumes, so every caster lands in ONE bracket — one clear,
-one resolve, scissored to the volumes' projected screen bbox, and the far
+one resolve, scissored to the volumes' projected screen bbox (the bbox of
+the volume VERTICES themselves, mapped through the VU1 pipeline's fixed 2048
+scale - `x/w` is not NDC in this engine, the frustum edge sits at
+`w * rasterW / 4096`; it used to be the casters' box corners divided as NDC,
+a rect shrunk toward the screen centre that sliced every shadow flat at its
+rows once a mesh volume reached past its caster's box), and the far
 caps are skipped outright (they only ever subtract at pixels beyond the
 light's range, where the reach falloff has already taken the light to zero).
 Each of those three was measured, not assumed: per-caster brackets with

@@ -16,6 +16,34 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.65.0 (primitives cast their own shape under the torch, and the count
+// rect stops slicing shadows flat): "add it to the primitives too - and tell
+// me why a primitive has a different set of rights at all, this is the n-th
+// time we step on that mine".
+//
+// The why: a model is a shared LOCAL-space asset (gameModels) with triangles
+// the volume code can read; a primitive has no asset - addBox/addSphere/
+// addCylinder/addCone emit its triangles straight into WORLD space, per
+// object, shaded, through pushVert, and that is the only copy. Every feature
+// that reads geometry back (collision mesh, shadow mesh, highlight proxy,
+// now this) trips on it. Here the same generators run once per (type,
+// detail, rings) on an identity object (primShadowMesh), which IS the unit
+// mesh in local space, and emitMeshShadowVolume places it with the caster's
+// basis and scale exactly like a model. Detail steps down until the mesh fits
+// kShadowMeshMaxTris (a detail-64 sphere is 5760 triangles). Planes and
+// decals stay on boxes: one-sided, no unlit face to cap on.
+//
+// Measuring that exposed an older bug the rectangle had hidden: the count
+// bracket's scissor rect took the casters' BOX corners through x/w as if it
+// were NDC. Tyra's projection is built for the VU1 pipeline's fixed 2048
+// scale - the frustum edge is at |x| = w * rasterW / 4096 - so the rect was
+// shrunk toward the centre by 4096 / rasterW, and the mask only ever covered
+// that rect: a sphere's shadow was a circle with its top and bottom sliced
+// flat (logged rect rows 226-328 of 512 for a caster sitting at rows
+// 245-371). A box shadow that fit inside the shrunken rect never showed it.
+// The rect is now the bbox of the volume vertices themselves, mapped through
+// the 2048 scale (the portal carve already did it right).
+//
 // 1.64.0 (a big model's torch shadow is its OUTLINE now, not its box):
 // reported over a shot of a rifle on a wall wearing a hard-edged rectangle,
 // with the reminder that "this whole feature was only ever for the pretty
@@ -2297,7 +2325,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 64
+#define TYRAX_VERSION_MINOR 65
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

@@ -12143,8 +12143,81 @@ static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
   }
 }
 
-// A model caster's volume: the silhouette mesh when the budget allows, its
-// tight sub-boxes otherwise. Appends into outFront/outBack. Shared by the
+// A PRIMITIVE caster's silhouette mesh. A model has a shared local-space
+// asset (gameModels) the volume code reads its triangles from; a primitive
+// has none - addBox/addSphere/addCylinder/addCone emit its triangles straight
+// into WORLD space per object, shaded, through pushVert - which is why the
+// primitives were the one caster that kept extruding a bounding box after the
+// models stopped. So the same builders run here once per (type, detail,
+// rings) on an identity object, giving the unit mesh in local space that
+// emitMeshShadowVolume then places with the caster's own basis and scale,
+// exactly as it does a model. The detail steps down until the mesh fits the
+// triangle budget (a detail-64 sphere is 5760 triangles), so a curved
+// primitive casts its curve at whatever resolution the EE can afford rather
+// than its box. Planes and decals stay out: a one-sided sheet has no unlit
+// side to cap on, so its volume would never close.
+struct PrimShadowKey {
+  int type, detail, rings;
+};
+static std::vector<std::pair<PrimShadowKey, ShadowMesh>> g_primShadowMeshes;
+static const ShadowMesh* primShadowMesh(const SceneObjectData& cdd) {
+  if (cdd.type < 0 || cdd.type > 3) return nullptr;
+  const PrimShadowKey key{cdd.type, cdd.primDetail, cdd.primRings ? 1 : 0};
+  for (const auto& e : g_primShadowMeshes)
+    if (e.first.type == key.type && e.first.detail == key.detail &&
+        e.first.rings == key.rings)
+      return e.second.tri.empty() ? nullptr : &e.second;
+  g_primShadowMeshes.push_back({key, ShadowMesh()});
+  ShadowMesh& sm = g_primShadowMeshes.back().second;
+  // pushVert feeds several side channels of the scene build; none is live
+  // at render time, but a stale pointer would be a silent write into a
+  // freed vector, so they are parked for the duration.
+  std::vector<Vec4>* litSave = g_litNormals;
+  std::vector<Vec4>* envSave = g_envNormals;
+  std::vector<Vec4>* aoStsSave = g_aoSts;
+  const bool aoAtlasSave = g_aoAtlas;
+  g_litNormals = nullptr, g_envNormals = nullptr, g_aoSts = nullptr;
+  g_aoAtlas = false;
+  SceneObjectData unit = cdd;
+  unit.position[0] = unit.position[1] = unit.position[2] = 0.0F;
+  unit.rotation[0] = unit.rotation[1] = unit.rotation[2] = 0.0F;
+  unit.scale[0] = unit.scale[1] = unit.scale[2] = 1.0F;
+  for (int detail = cdd.primDetail < 1 ? 1 : cdd.primDetail; detail >= 1;
+       detail = detail > 3 ? detail * 3 / 4 : detail - 1) {
+    unit.primDetail = detail;
+    std::vector<Vec4> verts;
+    std::vector<Color> cols;
+    std::vector<Vec4> sts;
+    switch (cdd.type) {
+      case 0: addBox(verts, cols, sts, unit); break;
+      case 1: addSphere(verts, cols, sts, unit); break;
+      case 2: addCylinder(verts, cols, sts, unit); break;
+      default: addCone(verts, cols, sts, unit); break;
+    }
+    // buildShadowMesh reads flat xyz at a stride; repack the Vec4s
+    std::vector<float> flat;
+    flat.reserve(verts.size() * 3);
+    for (const Vec4& v : verts) {
+      flat.push_back(v.x);
+      flat.push_back(v.y);
+      flat.push_back(v.z);
+    }
+    std::vector<const std::vector<float>*> pv;
+    pv.push_back(&flat);
+    buildShadowMesh(pv, sm, 3);
+    if (!sm.tri.empty()) break;
+    // the curved builders clamp their detail at 3 - below that nothing
+    // changes, so stop rather than rebuild the same mesh
+    if (cdd.type != 0 && detail <= 3) break;
+  }
+  g_litNormals = litSave, g_envNormals = envSave, g_aoSts = aoStsSave;
+  g_aoAtlas = aoAtlasSave;
+  return sm.tri.empty() ? nullptr : &sm;
+}
+
+// A caster's volume: the silhouette mesh when the budget allows (a model's
+// real triangles or its baked proxy, a primitive's unit mesh), its tight
+// sub-boxes otherwise. Appends into outFront/outBack. Shared by the
 // counting pre-pass. (A template over the model table because GameModel is
 // a class-nested type this file-scope helper cannot name; `auto` never has
 // to.)
@@ -12154,7 +12227,7 @@ static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
                              const Vec4& cam, float range, bool farCaps,
                              std::vector<Vec4>& outFront,
                              std::vector<Vec4>& outBack) {
-  const ShadowMesh* mesh = nullptr;
+  const ShadowMesh* mesh = primShadowMesh(cdd);
   if (cdd.type == 5 && cdd.model >= 0 &&
       cdd.model < (int)gameModels.size()) {
     if (g_shadowMeshes.size() != gameModels.size()) {
@@ -12945,54 +13018,52 @@ void TerrainGame::updateAndRenderLightPools() {
           // a full-raster clear plus a full-raster resolve every frame
           // measurably halved PCSX2's software renderer (50 -> 25 on the
           // night yard's four-caster vantage). The bbox is the projection
-          // of every caster's box corners plus their far extrusions; any
-          // corner behind the near plane makes the projection unreliable
-          // and falls back to the whole raster.
+          // of THE VOLUME VERTICES THEMSELVES - every cap corner and every
+          // extruded silhouette point just pushed into volFront/volBack.
+          // It used to be the casters' BOX corners plus their far
+          // extrusions, which is not the same set: a mesh volume's
+          // silhouette ring leaves the box (a sphere's tangent cone is wider
+          // than its box's corner rays), and the torch's parallax (held
+          // below and beside the eye) slides the shadow on a wall behind
+          // the caster past the box's screen footprint - so a sphere's
+          // round shadow came back as a circle with its top and bottom
+          // sliced flat at the rect's rows (measured: rect 226-328 of a
+          // 512-row raster, the dark band exactly those rows). Any vertex
+          // behind the near plane makes the projection unreliable and
+          // falls back to the whole raster.
+          //
+          // THE PROJECTION IS NOT NDC. Tyra's perspective matrix is built
+          // for the VU1 pipeline's fixed 2048 scale: after the divide the
+          // frustum edges sit at |x| = w * rasterW / 4096 (see the portal
+          // carve below, which clips against exactly that), not at |x| = w.
+          // Treating x/w as [-1, 1] shrank the rect toward the screen
+          // centre by 4096 / rasterW, and the mask only ever covered that
+          // shrunken rect - a sphere's shadow came back as a circle with
+          // its top and bottom sliced flat (measured rect rows 226-328 of
+          // 512 for a caster whose own footprint was rows 245-371).
           const auto& vscr = engine->renderer.core.getSettings();
-          const float volW = vscr.getWidth();
-          const float volH = vscr.getRenderHeightF();
+          const float volW = vscr.getRasterWidthF();
+          const float volH = vscr.getRasterHeightF();
+          const float ndcSx = 4096.0F / volW, ndcSy = 4096.0F / volH;
           float bx0 = 1e9F, by0 = 1e9F, bx1 = -1e9F, by1 = -1e9F;
           bool bWhole = false;
           const M4x4 volVp = engine->renderer.core.renderer3D.getViewProj();
-          for (int pj = 0; pj < volCount && !bWhole; ++pj) {
-            const ProjBox& pb2 = *volPick[pj];
-            for (int ci = 0; ci < 8 && !bWhole; ++ci) {
-              const float sx2 = (ci & 1) ? 1.0F : -1.0F;
-              const float sy2 = (ci & 2) ? 1.0F : -1.0F;
-              const float sz2 = (ci & 4) ? 1.0F : -1.0F;
-              const float wx = pb2.o[0] + pb2.ax[0] * pb2.h[0] * sx2 +
-                               pb2.ay[0] * pb2.h[1] * sy2 +
-                               pb2.az[0] * pb2.h[2] * sz2;
-              const float wy = pb2.o[1] + pb2.ax[1] * pb2.h[0] * sx2 +
-                               pb2.ay[1] * pb2.h[1] * sy2 +
-                               pb2.az[1] * pb2.h[2] * sz2;
-              const float wz = pb2.o[2] + pb2.ax[2] * pb2.h[0] * sx2 +
-                               pb2.ay[2] * pb2.h[1] * sy2 +
-                               pb2.az[2] * pb2.h[2] * sz2;
-              for (int k3 = 0; k3 < 2; ++k3) {
-                Vec4 p3(wx, wy, wz, 1.0F);
-                if (k3 == 1) {
-                  float ddx2 = wx - vTorch.x, ddy2 = wy - vTorch.y,
-                        ddz2 = wz - vTorch.z;
-                  const float dl2 =
-                      sqrtf(ddx2 * ddx2 + ddy2 * ddy2 + ddz2 * ddz2);
-                  const float inv2 = dl2 > 0.05F ? 1.0F / dl2 : 20.0F;
-                  p3 = Vec4(vTorch.x + ddx2 * inv2 * FLASHLIGHT_RANGE,
-                            vTorch.y + ddy2 * inv2 * FLASHLIGHT_RANGE,
-                            vTorch.z + ddz2 * inv2 * FLASHLIGHT_RANGE, 1.0F);
-                }
-                const Vec4 clip2 = volVp * p3;
-                if (clip2.w < 0.05F) {
-                  bWhole = true;
-                  break;
-                }
-                const float px2 = (clip2.x / clip2.w * 0.5F + 0.5F) * volW;
-                const float py2 = (0.5F - clip2.y / clip2.w * 0.5F) * volH;
-                if (px2 < bx0) bx0 = px2;
-                if (py2 < by0) by0 = py2;
-                if (px2 > bx1) bx1 = px2;
-                if (py2 > by1) by1 = py2;
+          for (int half = 0; half < 2 && !bWhole; ++half) {
+            const std::vector<Vec4>& vv = half ? b.volBack : b.volFront;
+            for (const Vec4& p3 : vv) {
+              const Vec4 clip2 = volVp * p3;
+              if (clip2.w < 0.05F) {
+                bWhole = true;
+                break;
               }
+              const float ndx = clip2.x / clip2.w * ndcSx;
+              const float ndy = clip2.y / clip2.w * ndcSy;
+              const float px2 = (ndx * 0.5F + 0.5F) * volW;
+              const float py2 = (0.5F - ndy * 0.5F) * volH;
+              if (px2 < bx0) bx0 = px2;
+              if (py2 < by0) by0 = py2;
+              if (px2 > bx1) bx1 = px2;
+              if (py2 > by1) by1 = py2;
             }
           }
           if (bWhole) {

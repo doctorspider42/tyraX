@@ -1795,7 +1795,9 @@ legacy compatibility mode. See docs/vu1-clipping.md.
   against the VIEW frustum — the screen edge — while VU1 cuts against the near/far
   pair and an X/Y band at `VU1_CLIP_XY_BAND` (0.9) of w. The projection divides
   by `projectionScale` 4096, so the screen edge is at `width/4096` of w — **0.125**
-  at 512 px — and the band is about SEVEN times that: a triangle may hang ~1590 px
+  at 512 px (so **any EE-side world→screen projection is `px = W/2 + x/w·2048`, never
+  `(x/w·0.5+0.5)·W`** — the flashlight's count-rect scissor had the NDC form and
+  sliced every mesh shadow flat at its rows until 1.65.0) — and the band is about SEVEN times that: a triangle may hang ~1590 px
   past either edge before anything is cut, and the GS scissor crops the raster
   (it acts during DDA, so unseen pixels cost no fill). So a package straddling the
   screen border typically crosses no VU clip plane at all, and it used to be split
