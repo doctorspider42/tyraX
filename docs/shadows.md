@@ -72,11 +72,24 @@ volumes***, and override it on any one light in *Properties > Point light >
 tri-state idiom as *Dynamic shadow* above. The override only means anything
 while *Spot (cone)* is on; a point light has no cone to carve.
 
-**What gets carved is the lamp's ground pool** — the projected patch under its
-cone (flashlight.md, "What the pool does"). Everything the cone reaches that is
-*not* that patch still takes its light per vertex, unshadowed; the torch's
-second pass on walls and props has no spot equivalent yet. So the shape to
-expect is the one in the picture a lamp throws on the floor.
+**What gets carved is the lamp's ground pool and its light on the solids in
+its cone** (1.70.0). The pool is the projected patch under the cone
+(flashlight.md, "What the pool does"). The solids are the torch's **receiver
+pass** on a scene lamp: the nearest three solids the cone touches - the
+torch's rules, so thin things and grouping-cell sized things are skipped - are
+rendered a second time, additively, with the lamp's projective STQ per vertex,
+through the same mask the pool drew through, from a shared 3997-vertex budget
+split fairly between them. What made that honest is a new engine lever:
+`PipelineInfoBag::dynLightSkipSlot` names ONE scene light a bag's per-vertex
+slot must ignore, and every wall-sized receiver (the torch's 1.4 u rule - a
+crate lit all over reads better than one bright face and three black ones)
+skips the carving lamp for as long as it is a receiver, so the wall takes that
+lamp's light once, projected, with the shadow carved out of all of it. The
+wall's falloff is half the torch's slope, because the lamp's pool beside it has
+none - a wall that faded faster than the floor at its foot read as a seam.
+Smaller solids keep their per-vertex light from the lamp AND get the projected
+pass on top (the torch does the same). A statically batched receiver takes the
+skip only when its batch holds nothing else, exactly as `setFlashSpotOff`.
 
 ### Only one spot casts per frame
 
@@ -104,20 +117,11 @@ one you get depend on where the camera happens to be.
 
 ### What it will not do
 
-- **Only the ground pool is carved** (above), and the reason is not effort. A
-  wall pass would draw the lamp's light on the wall's own triangles a second
-  time, additively, while the wall is *already* taking that lamp per vertex
-  through the engine's dynamic-light slot — so the wall would read twice as
-  bright and the carved shadow would only darken half of it, which looks like a
-  bug rather than a shadow. The torch has no such problem: it turns its own
-  cone off per receiver (`spotLit = false`, flashlight.md), and there is no
-  per-object way to say "not *this* scene light". `dynLightPick = false` is the
-  only lever and it removes **every** dynamic light from the bag. It is closer
-  than it sounds — the engine picks ONE light per bag, so a wall inside a
-  lamp's cone is usually lit by that lamp and nothing else — but which light a
-  bag picked is decided on the console, so switching the pick off host-side can
-  silently darken a wall that was being lit by a different lamp. That is the
-  problem to solve before this pass can ship.
+- **Animated models and physics bodies are not receivers** (skinned buffers
+  and local-space vertices - the torch's rule), and a receiver whose batch is
+  shared keeps the lamp per vertex as well as the projected pass, so it can
+  read brighter than its lone neighbour. One lamp must not unlight everything
+  batched beside its wall.
 - **A scene with no terrain has no spot pool at all** ([terrain.md](terrain.md)),
   so there is nothing for a lamp to carve. The torch's pool is projected onto
   whatever its beam lands on and is unaffected.

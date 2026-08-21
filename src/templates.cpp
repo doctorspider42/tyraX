@@ -1909,6 +1909,17 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> volInfo, volClrInfo;
     std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
     std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
+    // The carving spot light's RECEIVER pass (docs/shadows.md): its light on
+    // the solids its cone touches, drawn a second time per pixel through the
+    // mask - the torch's wall pass on a scene lamp. Its own buffers, on the
+    // torch's pool like the volume buffers: one spot carves per frame.
+    std::vector<Tyra::Vec4> sWVerts, sWSts;
+    std::vector<Tyra::Color> sWColors;
+    Tyra::Color sWColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> sWInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> sWColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> sWTexBag;
+    std::unique_ptr<Tyra::StaPipBag> sWBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -2004,6 +2015,14 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> flashSpotExtra;
   void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
+  // The objects the carving spot light lit through its receiver pass this
+  // frame: their per-vertex slot must skip THAT lamp (dynLightSkipSlot), or
+  // the wall is lit twice and the carved shadow darkens only half of it.
+  // Re-applied every frame, like the torch's list; reset when the lamp moves
+  // on. The lone-batch rule is setFlashSpotOff's.
+  std::vector<int> spotSkipList;
+  std::unique_ptr<Tyra::StaPipInfoBag> batchSkipInfoBag;
+  void setDynLightSkip(int obj, int slot);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
@@ -3283,6 +3302,17 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipInfoBag> volInfo, volClrInfo;
     std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
     std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
+    // The carving spot light's RECEIVER pass (docs/shadows.md): its light on
+    // the solids its cone touches, drawn a second time per pixel through the
+    // mask - the torch's wall pass on a scene lamp. Its own buffers, on the
+    // torch's pool like the volume buffers: one spot carves per frame.
+    std::vector<Tyra::Vec4> sWVerts, sWSts;
+    std::vector<Tyra::Color> sWColors;
+    Tyra::Color sWColor;
+    std::unique_ptr<Tyra::StaPipInfoBag> sWInfo;
+    std::unique_ptr<Tyra::StaPipColorBag> sWColorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> sWTexBag;
+    std::unique_ptr<Tyra::StaPipBag> sWBag;
     Tyra::M4x4 mat;
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -3378,6 +3408,14 @@ class TerrainGame : public Tyra::Game {
   std::vector<int> flashSpotExtra;
   void updateFlashSpotOff();
   void setFlashSpotOff(int obj, bool lit);
+  // The objects the carving spot light lit through its receiver pass this
+  // frame: their per-vertex slot must skip THAT lamp (dynLightSkipSlot), or
+  // the wall is lit twice and the carved shadow darkens only half of it.
+  // Re-applied every frame, like the torch's list; reset when the lamp moves
+  // on. The lone-batch rule is setFlashSpotOff's.
+  std::vector<int> spotSkipList;
+  std::unique_ptr<Tyra::StaPipInfoBag> batchSkipInfoBag;
+  void setDynLightSkip(int obj, int slot);
 
   // Runtime texts (font_data.gen.hpp): one slot per Display Text node, drawn
   // glyph by glyph from a font atlas because the string is only known now.
@@ -3876,6 +3914,9 @@ struct DynLightRt {
   // written by updateDynLights - the visible light beams reuse it so the
   // corona breathes with the pool of light.
   float lastLevel = 1.0F;
+  // The engine slot this light took this frame (-1 = not registered: off,
+  // hidden, dark) - what a receiver names to be skipped by the slot pick.
+  int slot = -1;
 };
 std::vector<DynLightRt> g_dynLights;
 float g_dynLightTime = 0.0F;
@@ -3929,6 +3970,7 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
       ctx.lightIntensity[L.objIndex] = -1.0F;
     }
     L.lastLevel = 0.0F;
+    L.slot = -1;
     if (!L.on || !ctx.objects || L.objIndex >= ctx.objectCount) continue;
     const RuntimeObject& ro = ctx.objects[L.objIndex];
     if (!ro.visible || !ro.active) continue;
@@ -3953,7 +3995,7 @@ void updateDynLights(Tyra::Engine* engine, ScriptContext& ctx) {
       // The cone points down the object's local -Y: unrotated, a lamp
       // shines straight down; the rotation gizmo aims it.
       const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
-      core.addDynSpotLight(
+      L.slot = core.addDynSpotLight(
           Tyra::Color(ch(d.color[0]), ch(d.color[1]), ch(d.color[2])),
           Tyra::Vec4(d.position[0], d.position[1], d.position[2], 1.0F),
           Tyra::Vec4(sd.x, sd.y, sd.z, 0.0F),
@@ -12579,6 +12621,34 @@ void TerrainGame::setupLightPools() {
       b.wBag->texture = b.wTexBag.get();
       b.wBag->vertices = b.wVerts.data();
       b.wBag->count = (u32)b.wVerts.size();
+      // The carving spot's receiver pass: the torch's wall pass with its own
+      // buffers (the torch refills wVerts later in the same frame).
+      if (SPOT_SHADOW_VOLUMES_USED) {
+        b.sWVerts.reserve(4096);
+        b.sWSts.reserve(4096);
+        b.sWColors.reserve(4096);
+        b.sWColor = b.color;
+        b.sWInfo = std::make_unique<StaPipInfoBag>();
+        b.sWInfo->model = &b.mat;
+        b.sWInfo->shadingType = TyraShadingGouraud;
+        b.sWInfo->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        b.sWInfo->zTestType = PipelineZTest_TestOnly;
+        b.sWInfo->dynLightPick = false;
+        b.sWInfo->spotLit = false;
+        b.sWInfo->fogDisabled = true;
+        b.sWInfo->fullClipChecks = true;
+        b.sWColorBag = std::make_unique<StaPipColorBag>();
+        b.sWColorBag->single = &b.sWColor;
+        b.sWTexBag = std::make_unique<StaPipTextureBag>();
+        b.sWTexBag->texture = flashGoboTex ? flashGoboTex : b.texBag->texture;
+        b.sWTexBag->coordinates = b.sWSts.data();
+        b.sWBag = std::make_unique<StaPipBag>();
+        b.sWBag->info = b.sWInfo.get();
+        b.sWBag->color = b.sWColorBag.get();
+        b.sWBag->texture = b.sWTexBag.get();
+        b.sWBag->vertices = b.sWVerts.data();
+        b.sWBag->count = 0;
+      }
       // ONE SET OF VOLUME BUFFERS FOR THE WHOLE FRAME, and they live on the
       // torch's pool because that pool always exists. The torch and the
       // frame's one carving spot light (docs/shadows.md) never build volumes
@@ -12689,6 +12759,10 @@ void TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
 
 void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
+  // Last frame's receivers get their lamp back; this frame's pass re-applies
+  // (a rebuilt part arrives with a fresh info bag, so it is every frame).
+  for (int prev : spotSkipList) setDynLightSkip(prev, -1);
+  spotSkipList.clear();
   auto& rc = engine->renderer.core;
   // The volume buffers and their two bags, allocated on the torch's pool
   // because that pool always exists (setupLightPools). Whichever light is
@@ -13964,9 +14038,11 @@ void TerrainGame::updateAndRenderLightPools() {
     if (!ro.active || !ro.visible) continue;
     const SceneObjectData& d = ro.data;
     float level = 0.0F;
+    int spotSlot = -1;  // the engine slot this lamp took (receivers skip it)
     for (const DynLightRt& L : g_dynLights)
       if (L.objIndex == b.objIndex) {
         level = L.lastLevel;
+        spotSlot = L.slot;
         break;
       }
     const float k = d.lightBright * level;
@@ -14062,6 +14138,168 @@ void TerrainGame::updateAndRenderLightPools() {
     b.info->dateLit = spotVol;
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
+    // --- the carving spot's RECEIVER pass ----------------------------------
+    // The torch's wall pass on a scene lamp (docs/shadows.md): the solids
+    // its cone touches - nearest three, the torch's rules - are rendered a
+    // second time, additively, with the lamp's projective STQ per vertex,
+    // through the same mask the pool just drew through. What made this
+    // honest is dynLightSkipSlot: each receiver's per-vertex slot skips THIS
+    // lamp for as long as it is a receiver, so the wall takes the lamp's
+    // light once, projected, with the shadow carved out of all of it.
+    if (spotVol && d.lightSpot && volBags && volBags->sWBag && spotSlot >= 0) {
+      const V3 sd = rotated({0.0F, -1.0F, 0.0F}, d.rotation);
+      const float lx = d.position[0], ly = d.position[1], lz = d.position[2];
+      const float tanS = tanf(d.lightSpotAngle * 3.14159265F / 180.0F);
+      float srx, sry, srz;
+      if (sd.y > 0.995F || sd.y < -0.995F) {
+        srx = sd.y, sry = -sd.x, srz = 0.0F;
+      } else {
+        srx = -sd.z, sry = 0.0F, srz = sd.x;
+      }
+      const float srl = sqrtf(srx * srx + sry * sry + srz * srz);
+      if (srl > 0.0001F) {
+        srx /= srl, sry /= srl, srz /= srl;
+        const float sux = sry * sd.z - srz * sd.y;
+        const float suy = srz * sd.x - srx * sd.z;
+        const float suz = srx * sd.y - sry * sd.x;
+        const float kP = 0.43F / tanS;
+        // Receivers: the cone's solids, nearest first, at most three; thin
+        // things and grouping-cell sized things keep their slot.
+        int recv[3] = {-1, -1, -1};
+        float recvT[3] = {0.0F, 0.0F, 0.0F};
+        int recvN = 0;
+        for (const ProjBox& pb : g_projBoxes) {
+          const float ex2 = pb.o[0] - lx, ey2 = pb.o[1] - ly, ez2 = pb.o[2] - lz;
+          const float t = ex2 * sd.x + ey2 * sd.y + ez2 * sd.z;
+          const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
+                                 pb.h[2] * pb.h[2]);
+          if (br > 20.0F) continue;
+          float hthin = pb.h[0] < pb.h[1] ? pb.h[0] : pb.h[1];
+          if (pb.h[2] < hthin) hthin = pb.h[2];
+          if (hthin < 0.25F) continue;
+          if (t < -br || t > d.lightRadius) continue;
+          const float px2 = ex2 - sd.x * t, py2 = ey2 - sd.y * t,
+                      pz2 = ez2 - sd.z * t;
+          if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) >
+              (t > 0.0F ? t : 0.0F) * tanS * 1.3F + br)
+            continue;
+          int at = recvN < 3 ? recvN : 3;
+          for (int k2 = 0; k2 < recvN && k2 < 3; ++k2)
+            if (t < recvT[k2]) { at = k2; break; }
+          if (at >= 3) continue;
+          for (int k2 = (recvN < 3 ? recvN : 2); k2 > at; --k2) {
+            recv[k2] = recv[k2 - 1];
+            recvT[k2] = recvT[k2 - 1];
+          }
+          recv[at] = pb.obj;
+          recvT[at] = t;
+          if (recvN < 3) ++recvN;
+        }
+        LightPool& w = *volBags;
+        w.sWVerts.clear();
+        w.sWSts.clear();
+        w.sWColors.clear();
+        const int wBudget = 3997;
+        const int wShare = recvN > 0 ? wBudget / recvN : wBudget;
+        int wAllowance = wShare;
+        for (int ri = 0; ri < recvN; ++ri) {
+          const int start = (int)w.sWVerts.size();
+          const int wLimit = start + wAllowance;
+          const int oi = recv[ri];
+          if (oi < 0 || oi >= (int)objectGeometry.size()) continue;
+          const bool batched =
+              oi < (int)objectBatchOf.size() && objectBatchOf[oi] >= 0;
+          if (batched) {
+            if (objectGeometry[oi].parts.empty() && !runtimeObjects[oi].dirty)
+              rebuildObjectGeometry(oi);
+          } else if (runtimeObjects[oi].dirty) {
+            rebuildObjectGeometry(oi);
+          }
+          ObjectGeometry& g = objectGeometry[oi];
+          if (g.parts.empty() || g.matrixMode) continue;
+          const float* oc = runtimeObjects[oi].data.position;
+          for (GeoPart& part : g.parts) {
+            if (!part.bag) continue;
+            const size_t nvt = part.vertices.size() / 3 * 3;
+            for (size_t vi = 0; vi + 3 <= nvt; vi += 3) {
+              if ((int)w.sWVerts.size() >= wLimit || w.sWVerts.size() >= 3997)
+                break;
+              const Vec4& a3 = part.vertices[vi];
+              const Vec4& b3 = part.vertices[vi + 1];
+              const Vec4& c3 = part.vertices[vi + 2];
+              float nx2 = (b3.y - a3.y) * (c3.z - a3.z) -
+                          (b3.z - a3.z) * (c3.y - a3.y);
+              float ny2 = (b3.z - a3.z) * (c3.x - a3.x) -
+                          (b3.x - a3.x) * (c3.z - a3.z);
+              float nz2 = (b3.x - a3.x) * (c3.y - a3.y) -
+                          (b3.y - a3.y) * (c3.x - a3.x);
+              const float cx3 = (a3.x + b3.x + c3.x) / 3.0F;
+              const float cy3 = (a3.y + b3.y + c3.y) / 3.0F;
+              const float cz3 = (a3.z + b3.z + c3.z) / 3.0F;
+              if (nx2 * (cx3 - oc[0]) + ny2 * (cy3 - oc[1]) +
+                      nz2 * (cz3 - oc[2]) < 0.0F)
+                nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
+              if (nx2 * (lx - cx3) + ny2 * (ly - cy3) + nz2 * (lz - cz3) <=
+                  0.0F)
+                continue;  // faces away from the lamp
+              const Vec4 tri3[3] = {a3, b3, c3};
+              for (int k3 = 0; k3 < 3; ++k3) {
+                w.sWVerts.push_back(tri3[k3]);
+                const float ex = tri3[k3].x - lx, ey = tri3[k3].y - ly,
+                            ez = tri3[k3].z - lz;
+                float fwd = ex * sd.x + ey * sd.y + ez * sd.z;
+                if (fwd < 0.05F) fwd = 0.05F;
+                w.sWSts.push_back(
+                    Vec4(0.5F * fwd + kP * (ex * srx + ey * sry + ez * srz),
+                         0.5F * fwd - kP * (ex * sux + ey * suy + ez * suz),
+                         fwd, 0.0F));
+                // The lamp's ground pool has no reach term of its own (the
+                // gobo's falloff is the picture), so the wall must not fade
+                // faster than the floor beside it: half the torch's slope.
+                float reach = 1.0F - 0.5F * fwd / d.lightRadius;
+                if (reach < 0.0F) reach = 0.0F;
+                if (reach > 1.0F) reach = 1.0F;
+                w.sWColors.push_back(Color(128.0F * d.color[0] * reach,
+                                           128.0F * d.color[1] * reach,
+                                           128.0F * d.color[2] * reach,
+                                           128.0F));
+              }
+            }
+          }
+          const int got = (int)w.sWVerts.size() - start;
+          const int unused = wAllowance - got;
+          wAllowance = wShare + (unused > 0 ? unused : 0);
+          // The torch's size rule (docs/flashlight.md): only a WALL-sized
+          // receiver gives up its slot for the projected light - a crate lit
+          // all over reads better than one bright face and three black ones.
+          bool wallSized = false;
+          for (const ProjBox& pb : g_projBoxes) {
+            if (pb.obj != oi) continue;
+            float h0 = pb.h[0], h1 = pb.h[1], h2 = pb.h[2];
+            if (h0 < h1) { const float tq = h0; h0 = h1, h1 = tq; }
+            if (h1 < h2) { const float tq = h1; h1 = h2, h2 = tq; }
+            if (h0 < h1) { const float tq = h0; h0 = h1, h1 = tq; }
+            wallSized = sqrtf(h0 * h0 + h1 * h1) > 1.4F;
+            break;
+          }
+          if (got > 0 && wallSized) {
+            spotSkipList.push_back(oi);
+            setDynLightSkip(oi, spotSlot);
+          }
+        }
+        if (!w.sWVerts.empty()) {
+          w.sWInfo->dateLit = true;
+          w.sWInfo->additiveBlendFix = b.info->additiveBlendFix;
+          w.sWBag->vertices = w.sWVerts.data();
+          w.sWBag->count = (u32)w.sWVerts.size();
+          w.sWTexBag->coordinates = w.sWSts.data();
+          w.sWColorBag->many = w.sWColors.data();
+          w.sWColorBag->single = nullptr;
+          w.sWBag->bboxVersion = ++g_bboxStamp;
+          stapip.core.render(w.sWBag.get());
+        }
+      }
+    }
     // The mask lives in the framebuffer's ALPHA, and on the SDTV interlaced
     // modes that channel is live display state (the flicker filter blends its
     // two read circuits by per-pixel alpha) - leave it and the CRTC shows the
@@ -14595,6 +14833,48 @@ void TerrainGame::setFlashSpotOff(int obj, bool spot) {
   // once would then be silently lost for as long as the beam stayed on that
   // wall - which is exactly when it matters.
   apply(obj, spot);
+}
+
+// The carving spot light's receivers skip THAT lamp in the per-vertex slot
+// (PipelineInfoBag::dynLightSkipSlot): their light from it is drawn by the
+// receiver pass, projected per pixel with the volumes carved out, and the
+// slot adding it a second time would light the wall twice - with the shadow
+// darkening only the projected half. slot = -1 hands the lamp back. The
+// lone-batch rule is setFlashSpotOff's: a batch shared with other objects is
+// left alone, because one lamp's pass must not unlight everything batched
+// beside its receiver.
+void TerrainGame::setDynLightSkip(int obj, int slot) {
+  if (obj < 0 || obj >= (int)objectGeometry.size()) return;
+  for (GeoPart& part : objectGeometry[obj].parts)
+    if (part.infoBag) part.infoBag->dynLightSkipSlot = slot;
+  if (objectGeometry[obj].animInfoBag)
+    objectGeometry[obj].animInfoBag->dynLightSkipSlot = slot;
+  if (obj < (int)objectBatchOf.size()) {
+    const int bi = objectBatchOf[obj];
+    if (bi >= 0 && bi < (int)staticBatches.size()) {
+      StaticBatch* sb = &staticBatches[bi];
+      if (sb->members.size() == 1 && sb->bag) {
+        if (slot < 0) {
+          if (sb->bag->info == batchSkipInfoBag.get() && batchInfoBag)
+            sb->bag->info = batchInfoBag.get();
+        } else {
+          if (!batchSkipInfoBag) {
+            batchSkipInfoBag = std::make_unique<StaPipInfoBag>();
+            batchSkipInfoBag->model = &model;
+            batchSkipInfoBag->shadingType = TyraShadingFlat;
+            batchSkipInfoBag->frustumCulling =
+                PipelineInfoBagFrustumCulling_Precise;
+            batchSkipInfoBag->fullClipChecks = true;
+          }
+          // One spot carves per frame, so one bag serves every lone batch.
+          batchSkipInfoBag->dynLightSkipSlot = slot;
+          batchSkipInfoBag->spotLit =
+              sb->bag->info ? sb->bag->info->spotLit : true;
+          sb->bag->info = batchSkipInfoBag.get();
+        }
+      }
+    }
+  }
 }
 
 float TerrainGame::projSurfaceAt(float x, float z) {

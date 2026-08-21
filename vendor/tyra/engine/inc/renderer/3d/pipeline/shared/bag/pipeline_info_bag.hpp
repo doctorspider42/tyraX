@@ -38,6 +38,7 @@ class PipelineInfoBag {
     additiveBlendFix = 0;
     subtractiveBlendFix = 0;
     dynLightPick = true;
+    dynLightSkipSlot = -1;
     spotLit = true;
     dateLit = false;
     blssProxy = true;
@@ -108,6 +109,18 @@ class PipelineInfoBag {
    * instead. Also for bags a nearby light must never tint (the sky dome).
    */
   bool dynLightPick;
+
+  /**
+   * Modified by TyraX: one scene light this bag must NOT be lit by through
+   * the per-vertex slot (an index into RendererCore's dynLights, -1 = none).
+   * The generated game's spot-light shadow pass draws a receiver's light a
+   * second time, projected per pixel with the volumes carved out of it, and
+   * the same lamp reaching the receiver per vertex as well would light it
+   * twice and darken only half of it. The torch has spotLit for this; a
+   * scene lamp needs its slot named (docs/shadows.md). pickDynLight skips
+   * it and picks the next best light - or the torch - for that bag.
+   */
+  int dynLightSkipSlot;
 
   /**
    * Modified by TyraX: opt-out from the camera SPOT light (the flashlight)

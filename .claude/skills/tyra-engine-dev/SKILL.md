@@ -1135,6 +1135,13 @@ Rules the same evening paid for:
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
+- **One light per bag, and now one light a bag may REFUSE.** The colour
+  programs carry a single dynamic-light slot; `RendererCore::pickDynLight`
+  chooses it by score, and `PipelineInfoBag::dynLightSkipSlot` names a
+  `dynLights` index the pick must skip (the generated game's spot receiver
+  pass draws that lamp projected instead). `dynLightPick = false` still means
+  "no scene light at all", `spotLit = false` "no torch" - three different
+  levers, do not conflate them.
 - **The GS dithers render-to-texture COUNTS; PCSX2 never will.** `DTHE` is
   global GS state and the project leaves it on for the 16-bit picture. On a
   console it also applied to the shadow-volume count band (`+N` / `-N` per

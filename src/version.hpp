@@ -16,6 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.0 (a spot light's shadow lands on walls): the receiver pass the
+// 1.67.0 entry left on the backlog, unblocked by the lever it asked for.
+// PipelineInfoBag::dynLightSkipSlot names one scene light a bag's per-vertex
+// slot must ignore; RendererCore::pickDynLight skips that dynLights index and
+// picks the next best (or the torch). The generated game remembers each
+// light's engine slot per frame (DynLightRt::slot, from addDynSpotLight), and
+// the carving lamp's receiver pass - the torch's wall pass with the lamp's
+// origin, aim, cone and reach, its own sW* buffers on the torch's pool,
+// inside the lamp's bracket after its pool - sets the skip on every
+// wall-sized receiver it lit (setDynLightSkip, the torch's 1.4 u rule and
+// its lone-batch rule) and hands the lamp back next frame. Two things found
+// on the way: a 0.4 u thick wall is "thin" to the torch's receiver rules
+// (half-extent < 0.25) and gets nothing, which is the rule working; and the
+// torch's reach term (1 - fwd / range) on a lamp whose pool has no reach
+// term at all left the wall a quarter as bright as the floor at its foot -
+// the pass was drawing and invisible (proved with a debug build at full
+// colour and no DATE), so the wall takes half the torch's slope. A/B on the
+// spotvol fixture, wall 0.8 u thick 9 u down the cone: override on draws
+// the lamp's gobo on the wall with the slot skipped, off keeps the old
+// per-vertex wash; the caster's shadow on the floor unchanged. 50/50.
+//
 // 1.69.1 (shadow volumes on a real console: the GS dither was counting):
 // the 16-bit report - green dashes along silhouette edges, a dark halo in
 // the volume's shape - plus a one-pixel checkerboard carved out of the pool
@@ -2680,8 +2701,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 69
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 70
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

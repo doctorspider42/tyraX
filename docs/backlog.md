@@ -264,7 +264,11 @@ is separate again - the rig is PCSX2 only.
 
 ## Medium
 
-### A spot light's shadow on a WALL
+### DONE 1.70.0: a spot light's shadow on a WALL
+
+Shipped: `PipelineInfoBag::dynLightSkipSlot` is the engine lever this entry
+asked for, and the receiver pass is the torch's with the lamp substituted
+([shadows.md](shadows.md)). The original note follows for the reasoning.
 
 Spot-light shadow volumes ship in 1.67.0 ([shadows.md](shadows.md)) and carve
 the lamp's ground pool only. The torch also draws its light on the solid
