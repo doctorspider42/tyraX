@@ -183,8 +183,12 @@ the game re-submits the caster's existing bags under a `pushEnvView` "light
 camera" and draws a terrain patch sampling the slot's VRAM-resident texture
 by light-space UVs; `allocate()` is called by generated games only when a
 project has "Cast shadow" objects, and init() re-places the buffers after a
-display-mode VRAM reset), `RendererCoreAlphaMask` (the flashlight shadow
-volumes' destination-alpha mask, docs/flashlight.md "The shadow": begin/
+display-mode VRAM reset), `RendererCoreAlphaMask` (the shadow
+volumes' destination-alpha mask - the torch's and, since 1.67.0, the frame's
+one carving spot light's, docs/flashlight.md "The shadow" +
+docs/shadows.md "Spot-light shadow volumes"; ONE band and ONE bracket per
+LIGHT per frame, so each user clears, counts, draws its own passes and
+repaints before the next one starts: begin/
 beginKeep/end bracket FBMSK to the alpha bits for the convex 1-bit set/clear,
 repaintAlpha() is MANDATORY after the last DATE pass because the SDTV flicker
 filter displays per-pixel framebuffer alpha - and the COUNTING half for true

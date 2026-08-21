@@ -58,13 +58,9 @@ four you get unpredictable. Blobs have no such limit; they are a quad each.
 
 ## Spot-light shadow volumes
 
-> The runtime half of this lands in **1.67.0**. The setting, the per-light
-> override and the generated constants are in place; a build made with an
-> editor that has them and an engine that does not simply does not cast.
-
 The two shadows above are about an OBJECT and the sun. This one is about a
 **light**: a placed point light with *Spot (cone)* on
-([flashlight.md](flashlight.md), "A scene light with the same trick") can carve
+([flashlight.md](flashlight.md), "A scene light with the same trick") carves
 its own occlusion per pixel, exactly the way the player's torch does
 (flashlight.md, "The shadow"). Without it a street lamp bolted to a wall lights
 the wall and the alley behind it equally — the cone is a lighting term and
@@ -76,6 +72,12 @@ volumes***, and override it on any one light in *Properties > Point light >
 tri-state idiom as *Dynamic shadow* above. The override only means anything
 while *Spot (cone)* is on; a point light has no cone to carve.
 
+**What gets carved is the lamp's ground pool** — the projected patch under its
+cone (flashlight.md, "What the pool does"). Everything the cone reaches that is
+*not* that patch still takes its light per vertex, unshadowed; the torch's
+second pass on walls and props has no spot equivalent yet. So the shape to
+expect is the one in the picture a lamp throws on the floor.
+
 ### Only one spot casts per frame
 
 Volumes are counted in a dedicated GS buffer — the **count band** — and a
@@ -84,11 +86,43 @@ six shadow-casting lamps does not cost six times a single lamp: **the one
 nearest the camera is the one that casts**, and the others light their cones
 without occluding them.
 
+Precisely: among the lights that are active, visible, spot, asked for volumes
+and actually **lit** (a lamp a *Set Light* node switched off, or one flickering
+dark, is not a candidate) and whose reach is not wholly behind the eye, the
+nearest to the camera holds the slot. The hand-over uses **hysteresis** — a
+challenger has to be 15 % or 1.5 units nearer, whichever it reaches first, for
+ten consecutive frames — so two lamps at nearly equal distance cannot trade the
+slot every frame and make the scene's shadows blink. A lamp that loses its
+qualification (switched off, streamed out, walked out of view) hands over at
+once, because there is nothing left to flicker against.
+
 That is the reason the per-light override earns its place. In a room of lamps,
 setting one to **On** and leaving the rest on *Default* in a project whose
 switch is off is how you say *this* is the lamp whose shadow the scene is
 about. Setting them all to On does not buy more shadows; it only makes which
 one you get depend on where the camera happens to be.
+
+### What it will not do
+
+- **Only the ground pool is carved** (above). A shadow on a wall from a scene
+  lamp needs the receiver pass the torch has, and that is not written yet.
+- **A scene with no terrain has no spot pool at all** ([terrain.md](terrain.md)),
+  so there is nothing for a lamp to carve. The torch's pool is projected onto
+  whatever its beam lands on and is unaffected.
+- **The caster whose shadow you are standing in is dropped** for that frame.
+  The count is z-*pass*: it asks how many volume faces sit in front of the
+  scene's depth, which is the shadow's depth only while the eye is outside
+  every volume. A torch is held at the eye and can never be inside one; a lamp
+  on a wall throws a shadow you can walk into. Your own shadow fading as you
+  step into it is a far smaller lie than the whole mask inverting.
+- **No count band, no shadow.** If the GS refuses the band's VRAM the lamp
+  lights its cone plainly. (The torch has a 1-bit fallback for that case; it
+  works by interleaving each receiver's light with the volumes in front of it,
+  and a lamp's receiver is one patch, so there is nothing to interleave.)
+- **Casters follow the same rules as the torch's**: everything solid inside the
+  cone, nearest first, at most four, nothing bigger than a grouping cell, and
+  nothing whose *Dynamic shadow* is **None** — that setting now keeps an object
+  out of the volumes too, for both lights.
 
 ### What it costs
 
@@ -104,7 +138,17 @@ not a missing shadow but every texture in the scene re-uploading once a frame.
 What is left is the per-frame volume fill for the one active light, and the
 same geometry rules the torch's volumes follow: models cast from their real
 triangles (a decimated **shadow proxy** past 1200 of them), primitives from
-their own unit mesh (flashlight.md, "The shadow").
+their own unit mesh (flashlight.md, "The shadow"). The count bracket is
+scissored to the volumes' own screen rectangle, so a lamp whose shadow is a
+few hundred pixels costs a few hundred pixels of fill and not a full raster.
+Measured on a scratch fixture (one lamp, one box, PCSX2 software renderer):
+50.0/50 with the switch on and 50.0/50 with it off.
+
+One thing a project that has never had a flashlight gains here: the lamp's
+projected pool is drawn through the same **gobo** image the torch uses, and
+that image used to be baked and loaded only for projects with a torch. A
+project whose only user of it is a shadow-casting spot now bakes and loads it
+too — a 128×128 texture, and without it there is no pool to carve.
 
 A project that uses none of this generates none of it. `SPOT_SHADOW_VOLUMES_USED`
 is **resolved**, not read off the project switch, because the two disagree in

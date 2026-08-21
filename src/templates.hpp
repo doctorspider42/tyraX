@@ -109,6 +109,10 @@ bool projectUsesBeams(const Project& p);
 // Gates the res/hud/flashlight-gobo.png bake and FLASHLIGHT_USED in
 // scene_data.hpp - keep them equal, like projectUsesFlare and FLARE_USED.
 bool projectUsesFlashlight(const Project& p);
+// Does any spot light in the project carve shadow volumes? The ONE
+// answer - scene_data.hpp's SPOT_SHADOW_VOLUMES_USED, the gobo bake and
+// the VRAM gate all read it (docs/shadows.md).
+bool projectUsesSpotVolumes(const Project& p);
 
 // The enabled day/night cycle a scene resolves to through its ambience preset,
 // or null (docs/day-night-cycle.md). The single answer codegen, the sky-disc

@@ -7935,7 +7935,8 @@ std::string refreshGenerated(const Project& p) {
     // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
     // with no flashlight pays no GS VRAM for it. Written through writeFile so
     // an unchanged bake keeps its mtime and the build stays incremental.
-    if (templates::projectUsesFlashlight(p)) {
+    if (templates::projectUsesFlashlight(p) ||
+        templates::projectUsesSpotVolumes(p)) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlashGoboPNG(png))
             return "Flashlight gobo bake failed";

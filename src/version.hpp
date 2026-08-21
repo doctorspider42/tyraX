@@ -16,8 +16,9 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
-// 1.67.0 (in progress): spot-light shadow volumes - data model, format, UI,
-// codegen. The torch has carved real per-pixel occlusion since 1.62.0
+// 1.67.0 (a scene's spot lights carve their own shadows): the setting, the
+// per-light override, the codegen AND the runtime that draws them. The
+// torch has carved real per-pixel occlusion since 1.62.0
 // (docs/flashlight.md, "The shadow") and the scene's own spot lights have
 // not: a street lamp bolted to a wall lit the wall and the alley behind it
 // equally, and the flashlight tooltip said so in as many words - "scene
@@ -73,14 +74,85 @@
 // is also full - 16 floats, v[15] is the spot angle - so carrying it would
 // have meant a stride bump for a value that must not be live anyway.
 //
-// The runtime is the sibling change and lands in this same release; this half
-// is the contract it builds on. Verified: the editor builds clean; a scratch
-// project round-trips both keys through --resave (and a project carrying
-// neither resaves md5-identical, so no existing project's manifest moves); a
-// formatVersion 35 file still opens; --refresh-gen emits SPOT_SHADOW_VOLUMES,
-// SPOT_SHADOW_VOLUMES_USED, the struct field and the table column, and flips
-// USED to false when the light's override says off; and both new widgets were
-// driven by name with --ui-script.
+// That half was the contract. THE RUNTIME is the rest of this release, and it
+// is mostly a refactor: the torch's "candidates -> volumes -> mask bracket" was
+// one 200-line block inside the flashlight's branch of
+// updateAndRenderLightPools, written in terms of `torch`, `dx/dy/dz`,
+// FLASHLIGHT_RANGE and FLASHLIGHT_ANGLE. It is now two lambdas at the top of
+// that function - pickVolCasters and buildVolMask - taking a light's origin,
+// aim, cone tangent, reach and the buffers to fill, and the torch calls them
+// with exactly the numbers it used to inline. That is why the flashlight A/B
+// below could come out BYTE-IDENTICAL rather than merely similar, and it is
+// the whole reason to refactor before adding a second caller: a second copy
+// of this block would have been a second answer to every trap the first one
+// paid for (the screen rect is not NDC, front faces before back faces, the
+// mask is cleared once per light and repainted before anything else touches
+// alpha).
+//
+// ONE spot carves per frame, and the choice is made once, before the pool
+// loop: among the lights that are active, visible, spot, asked for volumes and
+// LIT (lightBright * the live g_dynLights level > 0.01 - a lamp a flow node
+// switched off must not hold the slot against one that is on), the nearest to
+// the camera whose sphere is not wholly behind the eye. The hand-over is
+// HYSTERESIS and not a plain minimum: a challenger has to be 15 % or 1.5 units
+// nearer, whichever it reaches first, for ten consecutive frames. Without it
+// two lamps at nearly equal distance trade the slot on the frame the camera
+// drifts between them and the scene's shadows blink; with it, three captures a
+// second apart at a deliberately near-equidistant vantage are identical inside
+// the game raster. A holder that loses its qualification hands over at once -
+// there is nothing left to flicker against.
+//
+// Three things differ from the torch, and all three follow from a lamp not
+// being in the eye. (1) The extrusion origin is the LIGHT ITSELF, where the
+// torch uses a virtual origin pushed a metre or two down the beam - that push
+// exists only because a light held at the eye hides every shadow behind its
+// caster, and a lamp on a wall has real parallax already. (2) The eye can be
+// INSIDE a volume, which z-PASS counting cannot answer (it asks how many
+// volume faces sit in front of the scene's depth, which is the shadow depth
+// only if the ray starts outside every volume). So pickVolCasters takes an
+// optional eye guard and drops the caster whose shadow the camera is standing
+// in - your own shadow fading as you step into it is a far smaller lie than
+// the whole mask inverting, and the torch passes no guard because its volumes
+// always point away from it. (3) There is no 1-bit fallback for a spot: that
+// path's correctness comes from interleaving each receiver's light with the
+// volumes in front of it, and a spot's receiver is one ground patch, so with
+// the count target refused the lamp lights its cone plainly.
+//
+// One gate had to be widened, and it is the "test enablers first" rule in
+// miniature: a SCENE spot's pool is projected through the flashlight's gobo,
+// and the gobo was baked and loaded only when the project had a flashlight.
+// So the first fixture - a lamp, a box, no torch - drew a soft corona blob
+// with nothing to carve, and the feature looked broken while the code was
+// right. projectUsesSpotVolumes is now the ONE answer to "does this project
+// carve spot shadows": scene_data.hpp's SPOT_SHADOW_VOLUMES_USED, the gobo
+// bake in refreshGenerated and the runtime load all read it. Nothing existing
+// moves - a project would have to have turned the new setting on to reach it.
+//
+// The shadowMode disagreement is fixed in the same place. An object whose
+// Dynamic shadow is None was out of the blob and silhouette systems and NOT
+// out of the torch's volumes; pickVolCasters skips it now, for both lights,
+// which is what "None" has always claimed to mean.
+//
+// Verified. Codegen: --refresh-gen on a scratch project emits
+// SPOT_SHADOW_VOLUMES_USED = true and bakes res/hud/flashlight-gobo.png in a
+// project with no flashlight at all, and the generated game compiles clean in
+// Docker. Flashlight regression: the frozen-camera night-walk fixture (Player
+// at [0,0,0] rotation [4,180,0], facing the yard's wall, truck and pallets,
+// clipping vu1, the lamp's flicker turned off so the fixture is deterministic
+// - two captures two seconds apart differ only in PCSX2's own FPS overlay)
+// built with the 1.66.3 editor and with this one is BYTE-IDENTICAL inside the
+// game raster; 50.0/50 both ways. The feature: a scratch fpp fixture with a
+// grazing spot, a 1.5 u box under it and a frozen camera carves a plainly
+// visible trapezoid of shadow into the ground pool, and the same fixture with
+// that light's override set to Off draws the pool with no shadow and nothing
+// else changed. With a second lamp beside the first, only the nearer one's
+// caster has a shadow; walk the camera over to the second and the shadow
+// moves with the slot. 50.0/50 in every arm (PCSX2 software renderer).
+//
+// What is NOT in this: the receiver (wall) second pass. The torch draws its
+// light on solid geometry through wBag/wTexBag/wColorBag with the shared
+// 3997-vertex budget, and a spot has no such pass yet - so a spot's shadow
+// lands on the GROUND POOL and nowhere else. docs/shadows.md says so plainly.
 
 // 1.66.3 (the pool still cut off along a straight line when the torch was
 // aimed FAR, flat ground included): 1.66.2's hull was real but not the
@@ -2509,8 +2581,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 66
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_MINOR 67
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

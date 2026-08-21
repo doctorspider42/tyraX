@@ -6867,9 +6867,12 @@ void TerrainGame::buildScene() {
           FileUtils::fromCwd("hud/flare-corona.png"));
     // The camera flashlight's gobo (docs/flashlight.md): the pool patch takes
     // its STs from the light's own frustum, so this 128x128 IS the shape of the
-    // beam. FLASHLIGHT_USED matches the refreshGenerated predicate that bakes
-    // it, so a project with no flashlight pays no VRAM for it.
-    if (FLASHLIGHT_USED)
+    // beam. A SCENE spot light's pool is projected through the same image, and
+    // a carved shadow needs a pool to carve - so a project with no flashlight
+    // but with a shadow-casting spot loads it too (docs/shadows.md). The two
+    // gates match the refreshGenerated predicates that bake it, so a project
+    // with neither pays no VRAM for it.
+    if (FLASHLIGHT_USED || SPOT_SHADOW_VOLUMES_USED)
       flashGoboTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flashlight-gobo.png"));
     // Blob shadows: the glow sprite doubles as the shadow's alpha mask. The
@@ -11686,6 +11689,57 @@ struct ProjBox {
 };
 std::vector<ProjBox> g_projBoxes;
 
+// Does this spot light carve its own occlusion? The per-light override wins
+// and 0 falls through to the project switch (docs/shadows.md, "Spot-light
+// shadow volumes"). Compiles away to `false` in a project that asked for
+// neither, which is what keeps SPOT_SHADOW_VOLUMES_USED honest.
+static inline bool spotVolumesOn(const SceneObjectData& d) {
+  return d.lightShadowVolumes == 2 ||
+         (d.lightShadowVolumes == 0 && SPOT_SHADOW_VOLUMES);
+}
+
+// Does this box stand between two points? The ordinary slab test in the box's
+// own frame, over the SEGMENT rather than a ray. Used to keep the EYE out of a
+// spot light's shadow volume - see pickVolCasters.
+static bool boxBlocksSegment(const ProjBox& pb, const Vec4& from,
+                             const Vec4& to) {
+  const float sx = to.x - from.x, sy = to.y - from.y, sz = to.z - from.z;
+  const float ox = from.x - pb.o[0], oy = from.y - pb.o[1],
+              oz = from.z - pb.o[2];
+  float t0 = 0.0F, t1 = 1.0F;
+  for (int ai = 0; ai < 3; ++ai) {
+    const float* ax = ai == 0 ? pb.ax : (ai == 1 ? pb.ay : pb.az);
+    const float p = ox * ax[0] + oy * ax[1] + oz * ax[2];
+    const float q = sx * ax[0] + sy * ax[1] + sz * ax[2];
+    const float h = pb.h[ai];
+    if (q > -1e-5F && q < 1e-5F) {
+      if (p < -h || p > h) return false;
+      continue;
+    }
+    float lo = (-h - p) / q, hi = (h - p) / q;
+    if (lo > hi) {
+      const float tmp = lo;
+      lo = hi, hi = tmp;
+    }
+    if (lo > t0) t0 = lo;
+    if (hi < t1) t1 = hi;
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+// WHICH SPOT LIGHT CARVES THIS FRAME (docs/shadows.md, "Only one spot casts
+// per frame"). The count band is a single GS buffer and a counting bracket is
+// per light per frame, so a scene holding six shadow-casting lamps must not
+// cost six times one lamp: the nearest lit one holds the slot and the rest
+// light their cones plainly. g_spotVolWant is the challenger that has to
+// out-stay the hysteresis before it may take the slot over - without it two
+// lamps at nearly equal distance trade it every frame and the scene's shadows
+// blink.
+int g_spotVolObj = -1;
+int g_spotVolWant = -1;
+int g_spotVolWantFrames = 0;
+
 // The shadow volumes are cut from BOXES, and one AABB around a sparse model
 // lies about its shape: a lamp post's box (pole plus arm) is a slab of
 // mostly air, and its "shadow" blotted out whole walls. So a model's volume
@@ -12365,6 +12419,11 @@ static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
 // in RGB - additive bags ignore texture alpha), tinted by the light color.
 void TerrainGame::setupLightPools() {
   lightPools.clear();
+  // Which spot holds the volume slot is per-scene state - the object indices
+  // it names mean nothing in the next scene.
+  g_spotVolObj = -1;
+  g_spotVolWant = -1;
+  g_spotVolWantFrames = 0;
   if (!beamCoronaTex && !flashGoboTex) return;
   // A scene light's pool is a patch dropped ON THE GROUND: with no terrain
   // (docs/terrain.md) there is nothing to drop it onto, so those simply do not
@@ -12514,7 +12573,13 @@ void TerrainGame::setupLightPools() {
       b.wBag->texture = b.wTexBag.get();
       b.wBag->vertices = b.wVerts.data();
       b.wBag->count = (u32)b.wVerts.size();
-      if (FLASH_SHADOW_VOLUMES) {
+      // ONE SET OF VOLUME BUFFERS FOR THE WHOLE FRAME, and they live on the
+      // torch's pool because that pool always exists. The torch and the
+      // frame's one carving spot light (docs/shadows.md) never build volumes
+      // at the same moment - each opens its own bracket, fills these, counts
+      // and repaints - so a per-lamp copy would be several kilobytes of EE
+      // RAM per light to hold what one light at a time uses.
+      if (FLASH_SHADOW_VOLUMES || SPOT_SHADOW_VOLUMES_USED) {
         // Untextured, unfogged, TestOnly against the real scene z: the test
         // IS the algorithm. Two shapes, decided once per scene load by
         // whether the count target got its VRAM. COUNTING (the default):
@@ -12618,6 +12683,269 @@ void TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
 
 void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
+  auto& rc = engine->renderer.core;
+  // The volume buffers and their two bags, allocated on the torch's pool
+  // because that pool always exists (setupLightPools). Whichever light is
+  // building a mask this frame borrows them.
+  LightPool* volBags = nullptr;
+  for (LightPool& p : lightPools)
+    if (p.objIndex < 0) {
+      volBags = &p;
+      break;
+    }
+
+  // --- ONE LIGHT'S SHADOW VOLUMES, twice over ----------------------------
+  // The torch and a scene spot light differ in exactly four numbers - where
+  // the light is, which way it points, how wide its cone is and how far it
+  // reaches - so the two steps between "there is a light" and "the mask says
+  // what it cannot see" are written once, here, and called from both.
+
+  // Step one: the occluder candidates, NEAREST first - never object-table
+  // order (the scene's merged facades used to eat every slot and the props
+  // between the torch and them never cast; reported as "no dynamic shadows").
+  // minT is how close to the light a caster may be: a volume extruded from
+  // BEHIND its caster points back at the light, and z-pass counting is wrong
+  // with the eye inside a volume. eyeGuard is the other half of that, and it
+  // only matters for a light that is NOT in the eye - see the spot below.
+  auto pickVolCasters = [&](const Vec4& o, float ldx, float ldy, float ldz,
+                            float range, float tanA, float minT,
+                            const Vec4* eyeGuard, const ProjBox* picks[4],
+                            float pickT[4]) -> int {
+    int n = 0;
+    for (const ProjBox& pb : g_projBoxes) {
+      // OFF MEANS OFF, and it means the same thing to both lights: an object
+      // whose Dynamic shadow is None is out of every shadow system
+      // (docs/shadows.md). The torch used to carve with it anyway - the one
+      // place the two paths disagreed.
+      if (runtimeObjects[pb.obj].data.shadowMode == 1) continue;
+      const float ex2 = pb.o[0] - o.x, ey2 = pb.o[1] - o.y,
+                  ez2 = pb.o[2] - o.z;
+      const float t = ex2 * ldx + ey2 * ldy + ez2 * ldz;
+      const float br =
+          sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] + pb.h[2] * pb.h[2]);
+      if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
+      if (t < minT || t > range) continue;
+      const float px2 = ex2 - ldx * t, py2 = ey2 - ldy * t,
+                  pz2 = ez2 - ldz * t;
+      if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) > t * tanA * 1.3F + br)
+        continue;
+      // THE EYE MAY NOT BE INSIDE THE VOLUME. Counting is z-PASS: it asks how
+      // many volume faces sit in front of the scene's own depth, which is only
+      // the shadow depth if the ray starts outside every volume. The torch is
+      // held AT the eye, so its volumes always point away from it and this can
+      // never happen; a lamp on a wall casts a shadow the player can stand in.
+      // The caster whose shadow the eye is in is dropped for that frame - your
+      // own shadow fading as you step into it is a far smaller lie than the
+      // whole mask inverting.
+      if (eyeGuard && boxBlocksSegment(pb, o, *eyeGuard)) continue;
+      int at = n < 4 ? n : 4;
+      for (int k2 = 0; k2 < n && k2 < 4; ++k2)
+        if (t < pickT[k2]) {
+          at = k2;
+          break;
+        }
+      if (at >= 4) continue;
+      for (int k2 = (n < 4 ? n : 3); k2 > at; --k2) {
+        picks[k2] = picks[k2 - 1];
+        pickT[k2] = pickT[k2 - 1];
+      }
+      picks[at] = &pb;
+      pickT[at] = t;
+      if (n < 4) ++n;
+    }
+    return n;
+  };
+
+  // Step two: MESH-SHAPED COUNTING, one bracket per LIGHT. Counting is exact
+  // over any pile of overlapping volumes, so every caster's volume -
+  // silhouette mesh or sub-boxes - lands in ONE count pass: one clear, one
+  // resolve, whatever the caster count (per-caster brackets cost two full
+  // raster passes each and, measured in PCSX2's software renderer on the
+  // night yard, halved the frame rate). Returns whether the mask now holds
+  // this light's shadows; the caller's light passes then draw with dateLit,
+  // and the caller owes a repaintAlpha before anything else touches alpha.
+  auto buildVolMask = [&](std::vector<Vec4>& front, std::vector<Vec4>& back,
+                          StaPipBag* setBag, StaPipBag* clrBag,
+                          const ProjBox* const picks[4], int n,
+                          const Vec4& vOrigin, float range) -> bool {
+    front.clear();
+    back.clear();
+    for (int vj = 0; vj < n; ++vj)
+      emitCasterVolume(*picks[vj], gameModels,
+                       runtimeObjects[picks[vj]->obj].data, vOrigin,
+                       cameraPosition, range, /*farCaps=*/false, front, back);
+    if (front.empty() && back.empty()) return false;
+    // The counting bracket is SCISSORED to the volumes' screen bbox - a
+    // full-raster clear plus a full-raster resolve every frame measurably
+    // halved PCSX2's software renderer (50 -> 25 on the night yard's
+    // four-caster vantage). The bbox is the projection of THE VOLUME
+    // VERTICES THEMSELVES - every cap corner and every extruded silhouette
+    // point just pushed into front/back. It used to be the casters' BOX
+    // corners plus their far extrusions, which is not the same set: a mesh
+    // volume's silhouette ring leaves the box (a sphere's tangent cone is
+    // wider than its box's corner rays), and a light off the view axis
+    // slides the shadow on a wall behind the caster past the box's screen
+    // footprint - so a sphere's round shadow came back as a circle with its
+    // top and bottom sliced flat at the rect's rows (measured: rect 226-328
+    // of a 512-row raster, the dark band exactly those rows). Any vertex
+    // behind the near plane makes the projection unreliable and falls back
+    // to the whole raster.
+    //
+    // THE PROJECTION IS NOT NDC. Tyra's perspective matrix is built for the
+    // VU1 pipeline's fixed 2048 scale: after the divide the frustum edges
+    // sit at |x| = w * rasterW / 4096 (see the portal carve below, which
+    // clips against exactly that), not at |x| = w. Treating x/w as [-1, 1]
+    // shrank the rect toward the screen centre by 4096 / rasterW, and the
+    // mask only ever covered that shrunken rect.
+    const auto& vscr = rc.getSettings();
+    const float volW = vscr.getRasterWidthF();
+    const float volH = vscr.getRasterHeightF();
+    const float ndcSx = 4096.0F / volW, ndcSy = 4096.0F / volH;
+    float bx0 = 1e9F, by0 = 1e9F, bx1 = -1e9F, by1 = -1e9F;
+    bool bWhole = false;
+    const M4x4 volVp = rc.renderer3D.getViewProj();
+    for (int half = 0; half < 2 && !bWhole; ++half) {
+      const std::vector<Vec4>& vv = half ? back : front;
+      for (const Vec4& p3 : vv) {
+        const Vec4 clip2 = volVp * p3;
+        if (clip2.w < 0.05F) {
+          bWhole = true;
+          break;
+        }
+        const float ndx = clip2.x / clip2.w * ndcSx;
+        const float ndy = clip2.y / clip2.w * ndcSy;
+        const float px2 = (ndx * 0.5F + 0.5F) * volW;
+        // No second flip: perspective() carries the GS's downward y in its
+        // data[5] = -h (proved against the sun disc, 1.65.1).
+        const float py2 = (ndy * 0.5F + 0.5F) * volH;
+        if (px2 < bx0) bx0 = px2;
+        if (py2 < by0) by0 = py2;
+        if (px2 > bx1) bx1 = px2;
+        if (py2 > by1) by1 = py2;
+      }
+    }
+    if (bWhole) {
+      bx0 = 0.0F, by0 = 0.0F, bx1 = volW, by1 = volH;
+    }
+    int rx0 = (int)(bx0 - 4.0F), ry0 = (int)(by0 - 4.0F);
+    const int rx1 = (int)(bx1 + 5.0F), ry1 = (int)(by1 + 5.0F);
+    if (rx0 < 0) rx0 = 0;
+    if (ry0 < 0) ry0 = 0;
+    // The mask's alpha is cleared ONCE per light ("everything lit"), then the
+    // rect is counted BAND BY BAND. The count target is 32-bit for
+    // page-geometry parity with the scene z it tests against (a 16-bit one
+    // put a 32-pixel checkerboard of wrong depth comparisons on real hardware
+    // while PCSX2 showed nothing), and a full raster at 32 bits does not fit
+    // in VRAM - so it is a band that FRAME.FBP slides over the rect. The mask
+    // is an OR, so the bands compose and a tall shadow costs fill, not
+    // coverage.
+    rc.alphaMask.maskClear();
+    const int bandRows = rc.alphaMask.countBandRows();
+    for (int by = ry0 / bandRows * bandRows; by < ry1; by += bandRows) {
+      // Front faces FIRST: along any ray the entries outnumber the exits at
+      // every prefix, so the running sum never dips below zero and the GS's
+      // clamp-at-0 never eats a legitimate count.
+      rc.alphaMask.countBegin(rx0, ry0, rx1, ry1, by);
+      if (!front.empty()) {
+        setBag->vertices = front.data();
+        setBag->count = (u32)front.size();
+        setBag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(setBag);
+      }
+      if (!back.empty()) {
+        clrBag->vertices = back.data();
+        clrBag->count = (u32)back.size();
+        clrBag->bboxVersion = ++g_bboxStamp;
+        stapip.core.render(clrBag);
+      }
+      rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
+    }
+    return true;
+  };
+
+  // --- WHICH SPOT CARVES THIS FRAME --------------------------------------
+  // There is ONE count band and a bracket is per light per frame, so a scene
+  // holding six shadow-casting lamps must not cost six times one lamp: the
+  // one NEAREST THE CAMERA among the lights that are on, asked for volumes
+  // and can reach anything in view holds the slot, and the rest light their
+  // cones plainly (docs/shadows.md, "Only one spot casts per frame").
+  //
+  // The hand-over is HYSTERESIS and not a plain minimum: two lamps at nearly
+  // equal distance would otherwise trade the slot on the frame the camera
+  // drifts between them, and the scene's shadows blink. A challenger has to
+  // be a CLEAR margin nearer - 15 % or 1.5 units, whichever it reaches first
+  // - for ten consecutive frames before it takes over. The holder losing its
+  // qualification (switched off, streamed out, walked out of view) hands over
+  // at once: there is nothing to flicker against.
+  if (SPOT_SHADOW_VOLUMES_USED) {
+    float fx = cameraLookAt.x - cameraPosition.x;
+    float fy = cameraLookAt.y - cameraPosition.y;
+    float fz = cameraLookAt.z - cameraPosition.z;
+    const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+    if (fl > 0.0001F) {
+      fx /= fl, fy /= fl, fz /= fl;
+    }
+    int best = -1;
+    float bestT = 0.0F, curT = 0.0F;
+    bool curOk = false;
+    for (const LightPool& p : lightPools) {
+      if (p.objIndex < 0 || p.objIndex >= (int)runtimeObjects.size()) continue;
+      const RuntimeObject& lo = runtimeObjects[p.objIndex];
+      if (!lo.active || !lo.visible) continue;
+      const SceneObjectData& ld = lo.data;
+      if (!ld.lightSpot || !spotVolumesOn(ld)) continue;
+      // The LIVE level, the same one the pool's own brightness comes from:
+      // a lamp turned off by a flow node, flickered dark or streamed out has
+      // no cone to carve and must not hold the slot against a lit one.
+      float lvl = 0.0F;
+      for (const DynLightRt& L : g_dynLights)
+        if (L.objIndex == p.objIndex) {
+          lvl = L.lastLevel;
+          break;
+        }
+      if (ld.lightBright * lvl <= 0.01F) continue;
+      const float ex = ld.position[0] - cameraPosition.x;
+      const float ey = ld.position[1] - cameraPosition.y;
+      const float ez = ld.position[2] - cameraPosition.z;
+      // Wholly behind the eye: nothing its cone reaches can be in view. A
+      // cheap sphere-against-the-half-space test rather than a frustum one -
+      // a light that is in front but off to the side still carves, and the
+      // count rect is scissored to its volumes anyway, so being generous
+      // here costs a few pixels of fill and never a whole bracket.
+      if (ex * fx + ey * fy + ez * fz < -ld.lightRadius) continue;
+      const float t = sqrtf(ex * ex + ey * ey + ez * ez);
+      if (best < 0 || t < bestT) {
+        best = p.objIndex;
+        bestT = t;
+      }
+      if (p.objIndex == g_spotVolObj) {
+        curOk = true;
+        curT = t;
+      }
+    }
+    if (!curOk) {
+      g_spotVolObj = best;
+      g_spotVolWant = -1;
+      g_spotVolWantFrames = 0;
+    } else if (best >= 0 && best != g_spotVolObj &&
+               (bestT < curT * 0.85F || bestT < curT - 1.5F)) {
+      if (best == g_spotVolWant) {
+        ++g_spotVolWantFrames;
+      } else {
+        g_spotVolWant = best;
+        g_spotVolWantFrames = 1;
+      }
+      if (g_spotVolWantFrames >= 10) {
+        g_spotVolObj = best;
+        g_spotVolWant = -1;
+        g_spotVolWantFrames = 0;
+      }
+    } else {
+      g_spotVolWant = -1;
+      g_spotVolWantFrames = 0;
+    }
+  }
+
   for (LightPool& b : lightPools) {
     if (b.objIndex < 0) {
       // The camera flashlight (docs/flashlight.md). Per-vertex lighting cannot
@@ -13009,7 +13337,6 @@ void TerrainGame::updateAndRenderLightPools() {
                         torch.y + dy * volPush,
                         torch.z + dz * volPush, 1.0F);
       bool volMask = false;
-      auto& rc = engine->renderer.core;
       const bool volCounting =
           FLASH_SHADOW_VOLUMES && rc.alphaMask.countReady();
       auto renderSlice = [&](int ri) {
@@ -13024,154 +13351,28 @@ void TerrainGame::updateAndRenderLightPools() {
         b.wBag->bboxVersion = ++g_bboxStamp;
         stapip.core.render(b.wBag.get());
       };
-      // Occluder candidates, NEAREST first - never object-table order (the
-      // scene's merged facades used to eat every slot and the props between
-      // the torch and them never cast; reported as "no dynamic shadows").
+      // The occluder candidates (pickVolCasters above, shared with the
+      // scene's spot lights). Nothing nearer than the VIRTUAL torch may
+      // cast - a volume extruded from behind its caster points back at the
+      // eye - and the torch needs no eye guard, being held in the eye.
       const ProjBox* volPick[4] = {nullptr, nullptr, nullptr, nullptr};
       float volPickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
       int volCount = 0;
-      if (FLASH_SHADOW_VOLUMES) {
-        for (const ProjBox& pb : g_projBoxes) {
-          const float ex2 = pb.o[0] - torch.x,
-                      ey2 = pb.o[1] - torch.y,
-                      ez2 = pb.o[2] - torch.z;
-          const float t = ex2 * dx + ey2 * dy + ez2 * dz;
-          const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
-                                 pb.h[2] * pb.h[2]);
-          if (br > 20.0F) continue;  // grouping-cell sized: not an occluder
-          // Nothing nearer than the virtual torch may cast: a volume
-          // extruded from BEHIND its caster points back at the eye, and
-          // z-pass counting is wrong with the eye inside a volume.
-          if (t < volPush + 0.3F || t > FLASHLIGHT_RANGE) continue;
-          const float px2 = ex2 - dx * t, py2 = ey2 - dy * t,
-                      pz2 = ez2 - dz * t;
-          if (sqrtf(px2 * px2 + py2 * py2 + pz2 * pz2) >
-              t * tanARecv * 1.3F + br)
-            continue;
-          int at = volCount < 4 ? volCount : 4;
-          for (int k2 = 0; k2 < volCount && k2 < 4; ++k2)
-            if (t < volPickT[k2]) { at = k2; break; }
-          if (at >= 4) continue;
-          for (int k2 = (volCount < 4 ? volCount : 3); k2 > at; --k2) {
-            volPick[k2] = volPick[k2 - 1];
-            volPickT[k2] = volPickT[k2 - 1];
-          }
-          volPick[at] = &pb;
-          volPickT[at] = t;
-          if (volCount < 4) ++volCount;
-        }
-      }
+      if (FLASH_SHADOW_VOLUMES)
+        volCount =
+            pickVolCasters(torch, dx, dy, dz, FLASHLIGHT_RANGE, tanARecv,
+                           volPush + 0.3F, nullptr, volPick, volPickT);
       if (volCounting) {
-        // MESH-SHAPED COUNTING, one bracket per FRAME. Counting is exact
-        // over any pile of overlapping volumes, so every caster's volume -
-        // silhouette mesh or sub-boxes - lands in ONE count pass: one clear,
-        // one resolve, whatever the caster count (per-caster brackets cost
-        // two full-raster passes each and, measured in PCSX2's software
-        // renderer on the night yard, halved the frame rate). The interleave
-        // goes with them: a caster's own lit surface sits OUTSIDE its exact
-        // volume by construction (the near caps are its own faces, pushed
-        // 0.05 down the ray), so every light pass can draw after the mask
-        // is complete.
-        b.volFront.clear();
-        b.volBack.clear();
-        for (int vj = 0; vj < volCount; ++vj)
-          emitCasterVolume(*volPick[vj], gameModels,
-                           runtimeObjects[volPick[vj]->obj].data, vTorch,
-                           cameraPosition, FLASHLIGHT_RANGE,
-                           /*farCaps=*/false, b.volFront, b.volBack);
-        if (!b.volFront.empty() || !b.volBack.empty()) {
-          // The counting bracket is SCISSORED to the volumes' screen bbox -
-          // a full-raster clear plus a full-raster resolve every frame
-          // measurably halved PCSX2's software renderer (50 -> 25 on the
-          // night yard's four-caster vantage). The bbox is the projection
-          // of THE VOLUME VERTICES THEMSELVES - every cap corner and every
-          // extruded silhouette point just pushed into volFront/volBack.
-          // It used to be the casters' BOX corners plus their far
-          // extrusions, which is not the same set: a mesh volume's
-          // silhouette ring leaves the box (a sphere's tangent cone is wider
-          // than its box's corner rays), and the torch's parallax (held
-          // below and beside the eye) slides the shadow on a wall behind
-          // the caster past the box's screen footprint - so a sphere's
-          // round shadow came back as a circle with its top and bottom
-          // sliced flat at the rect's rows (measured: rect 226-328 of a
-          // 512-row raster, the dark band exactly those rows). Any vertex
-          // behind the near plane makes the projection unreliable and
-          // falls back to the whole raster.
-          //
-          // THE PROJECTION IS NOT NDC. Tyra's perspective matrix is built
-          // for the VU1 pipeline's fixed 2048 scale: after the divide the
-          // frustum edges sit at |x| = w * rasterW / 4096 (see the portal
-          // carve below, which clips against exactly that), not at |x| = w.
-          // Treating x/w as [-1, 1] shrank the rect toward the screen
-          // centre by 4096 / rasterW, and the mask only ever covered that
-          // shrunken rect - a sphere's shadow came back as a circle with
-          // its top and bottom sliced flat (measured rect rows 226-328 of
-          // 512 for a caster whose own footprint was rows 245-371).
-          const auto& vscr = engine->renderer.core.getSettings();
-          const float volW = vscr.getRasterWidthF();
-          const float volH = vscr.getRasterHeightF();
-          const float ndcSx = 4096.0F / volW, ndcSy = 4096.0F / volH;
-          float bx0 = 1e9F, by0 = 1e9F, bx1 = -1e9F, by1 = -1e9F;
-          bool bWhole = false;
-          const M4x4 volVp = engine->renderer.core.renderer3D.getViewProj();
-          for (int half = 0; half < 2 && !bWhole; ++half) {
-            const std::vector<Vec4>& vv = half ? b.volBack : b.volFront;
-            for (const Vec4& p3 : vv) {
-              const Vec4 clip2 = volVp * p3;
-              if (clip2.w < 0.05F) {
-                bWhole = true;
-                break;
-              }
-              const float ndx = clip2.x / clip2.w * ndcSx;
-              const float ndy = clip2.y / clip2.w * ndcSy;
-              const float px2 = (ndx * 0.5F + 0.5F) * volW;
-              // No second flip: perspective() carries the GS's downward y
-              // in its data[5] = -h (proved against the sun disc, 1.65.1).
-              const float py2 = (ndy * 0.5F + 0.5F) * volH;
-              if (px2 < bx0) bx0 = px2;
-              if (py2 < by0) by0 = py2;
-              if (px2 > bx1) bx1 = px2;
-              if (py2 > by1) by1 = py2;
-            }
-          }
-          if (bWhole) {
-            bx0 = 0.0F, by0 = 0.0F, bx1 = volW, by1 = volH;
-          }
-          int rx0 = (int)(bx0 - 4.0F), ry0 = (int)(by0 - 4.0F);
-          const int rx1 = (int)(bx1 + 5.0F), ry1 = (int)(by1 + 5.0F);
-          if (rx0 < 0) rx0 = 0;
-          if (ry0 < 0) ry0 = 0;
-          // The mask's alpha is cleared ONCE per frame ("everything lit"),
-          // then the rect is counted BAND BY BAND. The count target is
-          // 32-bit for page-geometry parity with the scene z it tests
-          // against (a 16-bit one put a 32-pixel checkerboard of wrong
-          // depth comparisons on real hardware while PCSX2 showed nothing),
-          // and a full raster at 32 bits does not fit in VRAM - so it is a
-          // band that FRAME.FBP slides over the rect. The mask is an OR, so
-          // the bands compose and a tall shadow costs fill, not coverage.
-          rc.alphaMask.maskClear();
-          const int bandRows = rc.alphaMask.countBandRows();
-          for (int by = ry0 / bandRows * bandRows; by < ry1; by += bandRows) {
-            // Front faces FIRST: along any ray the entries outnumber the
-            // exits at every prefix, so the running sum never dips below
-            // zero and the GS's clamp-at-0 never eats a legitimate count.
-            rc.alphaMask.countBegin(rx0, ry0, rx1, ry1, by);
-            if (!b.volFront.empty()) {
-              b.volSetBag->vertices = b.volFront.data();
-              b.volSetBag->count = (u32)b.volFront.size();
-              b.volSetBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volSetBag.get());
-            }
-            if (!b.volBack.empty()) {
-              b.volClrBag->vertices = b.volBack.data();
-              b.volClrBag->count = (u32)b.volBack.size();
-              b.volClrBag->bboxVersion = ++g_bboxStamp;
-              stapip.core.render(b.volClrBag.get());
-            }
-            rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
-          }
-          volMask = true;
-        }
+        // The counting path (buildVolMask above): every caster's volume in
+        // ONE bracket, extruded from the virtual torch, and then every
+        // receiver's light drawn through the finished mask. The interleave
+        // the fallback needs is unnecessary here - a caster's own lit
+        // surface sits OUTSIDE its exact volume by construction (the near
+        // caps are its own faces, pushed 0.05 down the ray).
+        volMask =
+            buildVolMask(b.volFront, b.volBack, b.volSetBag.get(),
+                         b.volClrBag.get(), volPick, volCount, vTorch,
+                         FLASHLIGHT_RANGE);
         for (int ri = 0; ri < recvN; ++ri) renderSlice(ri);
       } else {
         int li = 0, vj = 0;
@@ -13763,6 +13964,9 @@ void TerrainGame::updateAndRenderLightPools() {
       }
     const float k = d.lightBright * level;
     if (k <= 0.01F) continue;
+    // Does THIS light's pool draw through a shadow mask this frame? Set every
+    // frame, like the torch's: the flag would outlive the mask otherwise.
+    bool spotVol = false;
     if (d.lightSpot && b.texBag->texture == flashGoboTex) {
       // The flashlight's projection, from a SCENE light: march the cone's
       // axis to the ground, drop the patch on the landing, and hand every
@@ -13808,6 +14012,37 @@ void TerrainGame::updateAndRenderLightPools() {
                  0.5F * fwd - kP * (ex * sux + ey * suy + ez * suz), fwd,
                  0.0F);
       }
+      // --- and its SHADOW VOLUMES, for the one light holding the slot -----
+      // The torch's machinery on a scene light (docs/shadows.md): the same
+      // caster pick, the same extrusion, the same scissored count band - the
+      // light's own position, aim, cone and reach in place of the torch's.
+      //
+      // Three things differ, and all three follow from the lamp not being in
+      // the eye. The extrusion origin is the light ITSELF rather than a
+      // virtual one pushed down the beam: the torch's parallax exists only
+      // because a light at the eye hides every shadow behind its caster, and
+      // a lamp on a wall has real parallax already. The eye can be INSIDE a
+      // volume here, which z-pass counting cannot answer, so pickVolCasters
+      // is given the camera and drops the caster whose shadow the eye is
+      // standing in. And there is no 1-bit fallback: with the count target
+      // refused this light simply lights its cone plainly, because the
+      // fallback's correctness comes from interleaving each receiver's light
+      // with the volumes in front of it and a ground pool is one patch.
+      if (SPOT_SHADOW_VOLUMES_USED && b.objIndex == g_spotVolObj && volBags &&
+          volBags->volSetBag && rc.alphaMask.countReady()) {
+        projCollectBoxes(lx, lz, d.lightRadius + 2.0F);
+        const Vec4 lightAt(lx, ly, lz, 1.0F);
+        const ProjBox* picks[4] = {nullptr, nullptr, nullptr, nullptr};
+        float pickT[4] = {0.0F, 0.0F, 0.0F, 0.0F};
+        const int nPick =
+            pickVolCasters(lightAt, sd.x, sd.y, sd.z, d.lightRadius, tanS,
+                           0.35F, &cameraPosition, picks, pickT);
+        if (nPick > 0)
+          spotVol = buildVolMask(volBags->volFront, volBags->volBack,
+                                 volBags->volSetBag.get(),
+                                 volBags->volClrBag.get(), picks, nPick,
+                                 lightAt, d.lightRadius);
+      }
     } else {
       buildPoolPatch(b, d.position[0], d.position[2], d.lightRadius * 0.9F,
                      0.04F);  // under the shadows' 0.05/0.06
@@ -13817,8 +14052,16 @@ void TerrainGame::updateAndRenderLightPools() {
     float fix = 96.0F * (k > 1.4F ? 1.4F : k);
     b.info->additiveBlendFix =
         fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
+    b.info->dateLit = spotVol;
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
+    // The mask lives in the framebuffer's ALPHA, and on the SDTV interlaced
+    // modes that channel is live display state (the flicker filter blends its
+    // two read circuits by per-pixel alpha) - leave it and the CRTC shows the
+    // volume shapes as translucent wedges over the picture. So the bracket
+    // closes here, before the next light (or the torch, which is last in this
+    // list) clears the mask for its own.
+    if (spotVol) rc.alphaMask.repaintAlpha();
   }
 }
 
@@ -27224,23 +27467,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     // itself (2) or because it follows a project that has the setting on? This
     // is what makes the boot path claim the count band, exactly like
     // PROJ_SHADOWS_USED gates the shadow-map slots, so a project whose lights
-    // all resolve to "off" pays nothing at all.
-    //
-    // Resolved rather than read off the project switch, because the two
-    // disagree in both directions: a light with the override ON in a project
-    // with the setting OFF still needs the band, and a project with the
-    // setting on but no spot light anywhere must not allocate it.
-    {
-        bool any = false;
-        for (const SceneData& sc : p.scenes)
-            for (const SceneObject& o : sc.objects)
-                any |= o.lightSpot &&
-                       (o.lightShadowVolumes == 2 ||
-                        (o.lightShadowVolumes == 0 &&
-                         p.settings.spotShadowVolumes));
-        out << "constexpr bool SPOT_SHADOW_VOLUMES_USED = "
-            << (any ? "true" : "false") << ";\n";
-    }
+    // all resolve to "off" pays nothing at all. projectUsesSpotVolumes is the
+    // ONE answer - the gobo bake reads it too, and the two must not drift.
+    out << "constexpr bool SPOT_SHADOW_VOLUMES_USED = "
+        << (projectUsesSpotVolumes(p) ? "true" : "false") << ";\n";
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
     sceneFloats("POSTFX_DOF_FOCUSES",
                 [&](int si) { return floatLit(rs[si].dofFocus); });
@@ -28724,6 +28954,20 @@ bool projectUsesBeams(const Project& p) {
     // (projectUsesFlashlight), but the corona is still the fallback when that
     // texture is missing, so a flashlight project keeps loading it.
     return projectUsesFlashlight(p);
+}
+
+bool projectUsesSpotVolumes(const Project& p) {
+    // RESOLVED, never the project switch on its own: the two disagree in both
+    // directions - a light with the override ON in a project with the setting
+    // OFF still needs the count band, and a project with the setting on but no
+    // spot light anywhere must not allocate one.
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.lightSpot &&
+                (o.lightShadowVolumes == 2 ||
+                 (o.lightShadowVolumes == 0 && p.settings.spotShadowVolumes)))
+                return true;
+    return false;
 }
 
 bool projectUsesFlashlight(const Project& p) {

@@ -83,10 +83,12 @@ coarse the ground is. It follows *Set Light*, flicker and Move Object like
 any dynamic light, and pairs naturally with the visible beam (*Beam: corona*)
 - night-walk's street lamp is the demo. A spot light takes no part in the
 torch's RECEIVER machinery - one torch is the per-pixel protagonist there -
-but since 1.67.0 it can carve **shadow volumes** of its own, the same
-technique "The shadow" below describes, switched on project-wide or per lamp
-and limited to one casting spot per frame: see [shadows.md](shadows.md),
-"Spot-light shadow volumes".
+but since 1.67.0 it carves **shadow volumes** of its own, through literally
+the same code "The shadow" below describes: the caster pick and the counting
+bracket are shared, and a lamp supplies its own position, aim, cone and reach
+where the torch supplies the player's. It is switched on project-wide or per
+lamp, one casting spot per frame, and what it carves is the lamp's ground
+pool. See [shadows.md](shadows.md), "Spot-light shadow volumes".
 
 The corona itself is a depth-tested additive billboard, and two details keep
 it clean on the fixture that carries it. It is drawn **pulled toward the
@@ -406,7 +408,14 @@ shadow volumes*), because the two answers trade different things:
 | Cost | four 64×64 silhouette renders | the volume fill each frame + a count band in GS VRAM: 512 KB at 32-bit colour, 256 KB at 16-bit |
 
 Volumes are the survival-horror era's own arrangement, on its own hardware
-trick. Each occluder is extruded away from the torch into a closed volume — a
+trick. **The machinery below is shared with the scene's spot lights** since
+1.67.0 ([shadows.md](shadows.md), "Spot-light shadow volumes"): the caster
+pick and the counting bracket take a light's origin, aim, cone tangent and
+reach, and the torch passes the player's. Two things are the torch's alone -
+the virtual origin pushed down the beam (a lamp on a wall has real parallax
+already) and the 1-bit fallback, whose correctness comes from interleaving
+each receiver's light with the volumes in front of it. Each occluder is
+extruded away from the torch into a closed volume — a
 model from its **real triangles** (the lit faces, pushed 5 cm down their rays,
 are the near caps; their projection at the light's range the far caps; and the
 silhouette edges, where a lit and an unlit face meet, become the extruded side
