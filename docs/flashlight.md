@@ -144,8 +144,12 @@ not only where its axis does. Three landings, tried in order: the axis meets
 the floor; the axis meets a wall first, in which case the canvas lands at the
 wall's foot (a step short of the face, or it would climb onto the wall's top);
 the axis misses the floor altogether, in which case the cone's **lower edge**
-is marched instead and its hit is the far end of the footprint, from which the
-canvas is laid back toward the player. Before 1.66.0 only the axis was marched
+is marched instead - the steep edge, so its hit is the footprint's NEAR end
+and the canvas is laid outward from it to the light's reach (1.66.0 laid it
+toward the player, where the gobo is black, and the pool cut off along a
+straight line at that hit as the torch was raised across open ground; fixed
+in 1.66.1). The canvas's own far edge fades over its last quarter, so the
+fill-rate backstop on its length never shows as a straight edge either. Before 1.66.0 only the axis was marched
 and it ignored walls: aim a pixel above the wall/ground edge and the axis
 landed on the ground *behind* the wall, where the z test hid the canvas - so
 the pool on the ground **snapped off** while the lower half of the cone

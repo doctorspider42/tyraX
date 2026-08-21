@@ -13349,8 +13349,15 @@ void TerrainGame::updateAndRenderLightPools() {
           }
         }
       }
-      bool farEnd = false;   // the landing is the footprint's FAR end
-      float backSpan = 0.0F;  // ground to cover toward the player from it
+      // The lower edge is the STEEP edge of the cone, so its hit is the
+      // footprint's NEAR end - every floor point beyond it, out to the
+      // light's reach, sits inside the cone. (Laying the canvas toward the
+      // player from it, as 1.66.0 did, put it exactly where the gobo is
+      // black and cut the pool along a straight line at that hit whenever
+      // the torch was raised slowly across open ground.)
+      bool farEnd = false;   // the landing is the footprint's FAR end (wall)
+      bool nearEnd = false;  // the landing is its NEAR end (lower edge)
+      float backSpan = 0.0F;  // ground to cover toward the player from a far end
       if (hitAxis > 0.0F && (wallFoot < 0.0F || hitAxis < wallFoot)) {
         hit = hitAxis;
       } else if (wallFoot > 0.0F) {
@@ -13362,11 +13369,10 @@ void TerrainGame::updateAndRenderLightPools() {
       } else if (hitLow > 0.0F) {
         hit = hitLow;
         ldx = lowDx, ldy = lowDy, ldz = lowDz;
-        farEnd = true;
+        nearEnd = true;
       } else {
         hit = -1.0F;
       }
-      const bool lowerEdge = farEnd;
       if (hit < 0.0F) {
         // Nothing on the ground to light; the receivers already got theirs.
         finishVolMask();
@@ -13449,8 +13455,12 @@ void TerrainGame::updateAndRenderLightPools() {
         if (along < backSpan + across) along = backSpan + across;
         if (along > across * 8.0F) along = across * 8.0F;
       }
-      const float shift =
-          lowerEdge ? -(along - across) * 0.5F : (along - across) * 0.55F;
+      if (nearEnd) along = across * 8.0F;  // the reach is what ends it
+      // A far end lays the canvas back toward the player; a near end lays
+      // it outward, starting a cell behind the hit so the rim fades in.
+      const float shift = farEnd    ? -(along - across) * 0.5F
+                          : nearEnd ? along * 0.85F
+                                    : (along - across) * 0.55F;
       const float px0 = gx + ax * shift, pz0 = gz + az * shift;
       // ...and the NEAR edge may not reach behind the lens. Measuring
       // horizontal distance along the beam's ground run as t, a patch point has
@@ -13558,6 +13568,18 @@ void TerrainGame::updateAndRenderLightPools() {
             float reach = 1.0F - ps[k2].z / FLASHLIGHT_RANGE;
             if (reach < 0.0F) reach = 0.0F;
             if (reach > 1.0F) reach = 1.0F;
+            // The canvas's own far edge fades over its last quarter: the
+            // fill-rate backstop on `along` can end the canvas while the
+            // gobo still has light there, and a hard straight edge across
+            // the ground is the one artifact that reads as wrong. This is
+            // a fade in POSITION along the canvas, present on every frame -
+            // not the coverage fade that was non-monotonic in pitch.
+            {
+              const float aHere = (k2 == 1 || k2 == 2) ? a1 : a0;
+              const float aEnd = along * 1.4F;
+              const float edge = (aEnd - aHere) / (aEnd * 0.25F);
+              if (edge < 1.0F) reach *= edge < 0.0F ? 0.0F : edge;
+            }
             pcv[k2] = Color(FLASHLIGHT_R * reach, FLASHLIGHT_G * reach,
                             FLASHLIGHT_B * reach, 128.0F);
           }

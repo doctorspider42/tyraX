@@ -16,6 +16,17 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.66.1 (the pool cut off along a straight line as the torch was raised
+// across open ground): reported with two screenshots right after 1.66.0, and
+// it was 1.66.0's own mistake. The cone's lower edge is its STEEP edge, so
+// where it meets the floor is the footprint's NEAR end - everything beyond,
+// out to the reach, is inside the cone - and the canvas was laid toward the
+// player from it, exactly where the gobo is black. The wall fixture hid it
+// (the wall bounded the far side). Laid outward now; and the canvas's far
+// edge fades over its last quarter, so the along backstop (across * 8) never
+// shows as a hard edge when a flat beam's light outruns it. Open ground at
+// 2 and 4 degrees of pitch: a soft tail to the horizon, no edge.
+//
 // 1.66.0 (the torch's pool no longer snaps off at a wall's foot, and a
 // fixture can author the player's pitch): reported with four screenshots -
 // "I shine at the corner of the wall and the ground; move a pixel up so the
@@ -2393,7 +2404,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 66
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
