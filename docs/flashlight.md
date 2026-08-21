@@ -471,15 +471,50 @@ follows the z buffer, as above), and a 16-bit project gets mesh-shaped shadow
 volumes like any other. Verified on the console: eight vantages clean, VRAM
 2.18 MB, pools and shadows drawing.
 
+**And then the band's own format ate the whole feature at 32-bit colour, for
+one release, in silence.** The count is turned into the mask bit by `TEXA`'s
+AEM expansion — *an all-zero texel is transparent, anything else is `0x80`* —
+and the GS only expands an alpha it has to **invent**: `PSMCT16` (one bit) and
+`PSMCT24` (none at all). A `PSMCT32` texel carries its own alpha byte and
+`TEXA` is ignored for it. The count pass deliberately writes **alpha 0** (the
+count lives in the RGB channels, so the band's A bit can never trip the
+resolve), so with the band bound as `PSMCT32` the resolve sampled alpha 0 for
+every pixel, failed its `ATEST != 0` on every pixel, and wrote **not one mask
+bit**: at 32-bit colour the torch cast no shadow whatsoever, while 16-bit —
+where AEM does apply — worked. That asymmetry is why it survived a console
+pass and a screenshot review: every shot that proved the feature had been
+taken while chasing the 16-bit bugs above. The resolve binds `PSMCT24` when
+the band is 32-bit — the same memory, minus the byte we do not want.
+
+Diagnosing it took one probe and one question, the recipe in the
+`tyra-engine-dev` skill: **skip `maskClear()` for one build**. The alpha then
+starts each frame at the 0x80 the repaint left, so a live gate must discard
+*everything* the torch draws. Half the picture went dark and the ground pool
+did not — which said the gate was live, the mask was empty, and the fault was
+between the count pass and the frame's alpha. Nothing else had to be guessed.
+
 Four rules keep the volumes honest, each paid for with a report from the
 yard. The occluder slots go to the four candidates NEAREST the torch, never
 in object-table order (three merged facades used to eat every slot and the
 props between the torch and them never cast). A thin thing - a lamp post, a
 sign - never claims a receiver slot; it keeps its cheap per-vertex cone (the
 slot it stole was the facade's). Self-shadowing is excluded BY CONSTRUCTION
-under counting: a caster's lit surface sits just outside its own volume's
-near caps (its own faces, pushed 0.05 down their rays), so the whole mask
-can be built before any light pass draws - where the 1-bit fallback instead
+under counting: **the near caps are the caster's faces turned AWAY from the
+light**, so the volume starts at its far side and the caster is never inside
+it, and the whole mask can be built before any light pass draws.
+
+That cap used to sit on the LIT faces (pushed 0.05 down their rays, which
+only ever broke a depth tie), and the difference is not subtle - it is most
+of what a shadow looked like. A volume capped on the lit side **contains its
+own occluder**: every surface the real mesh recesses behind the hull that
+stands in for it counted as shadow. A barrel came back with its panel lines
+in stripes of black, and - because a model past 1200 triangles is represented
+by a BOX - a hard-edged rectangle of that box's footprint sat on the ground
+around it, which reads as the shadow and is not one. Capping on the unlit
+faces costs nothing and moves nothing: the silhouette ring is shared by both
+halves, so the shape on screen is identical.
+
+Where the 1-bit fallback instead
 walks casters and receivers TOGETHER, sorted by distance, each receiver's
 light drawn before its own volume enters the mask (a proud proxy used to
 swallow its own caster whole - "a black hole" - and that interleave is what
@@ -509,6 +544,36 @@ What the silhouette mode needs and costs:
   the light is your eye. It reveals itself at the edges (the silhouette is
   bigger than the caster by the light's divergence), on casters off the beam's
   axis, and whenever the camera is anywhere other than the torch.
+
+### How much of a volume shadow you will actually SEE
+
+Read this before filing "the shadows are missing", because the honest answer
+is geometry rather than a bug. **A light on the view axis casts every shadow
+exactly behind the thing that casts it.** In first person the torch *is* your
+eye, so the only part of a correct shadow that can reach the screen is a rim
+as wide as the virtual torch's parallax - `volPush`, 5% of the beam's range,
+clamped to 0.5-2 units. Beside a barrel three metres away that rim is a
+sliver a few pixels across. It is not a defect and no amount of mask fixing
+widens it.
+
+What *does* show a volume shadow in full:
+
+- **a surface well behind the caster** - a wall several metres past it, where
+  the shadow's silhouette is magnified far beyond the caster's own screen
+  size (the wall in `examples/night-walk`);
+- **a caster off the beam's axis**, which throws its shadow across the pool
+  rather than into its own hiding place;
+- **a third-person camera**, where the torch really is off the view axis, and
+  the shadows are as plain as any other light's.
+
+Two ways to widen the rim were tried and measured, and both are dead ends
+worth not repeating: dropping the virtual torch to chest height (0.55 units)
+moves a few degrees at a caster's distance and changed almost nothing; and
+widening `volPush` past a caster's own distance **disqualifies that caster**,
+since nothing closer than `volPush + 0.3` may cast at all (at 3.5 units the
+prop the torch was pointed at stopped casting entirely). For big, obvious,
+always-visible shadows use the sun/moon's per-object *Projected silhouette*
+([shadows.md](shadows.md)); that light is never where the camera is.
 
 One era artifact, inherited honestly: the wall pass has no self-shadowing, so
 the silhouette lands on the far wall even when the beam's own light got there

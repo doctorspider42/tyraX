@@ -367,9 +367,22 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // 256 looks like the FPP torch's own "the shadow hides behind its caster"
   // rule. TBP is in 64-word blocks, FBP in 2048-word pages, hence the
   // different shifts.
+  // READ AS 24-BIT WHEN THE BAND IS 32-BIT, and the whole feature hangs off
+  // this word. The mask bit is produced by TEXA's AEM expansion below - "an
+  // all-zero texel is transparent, anything else is 0x80" - and the GS only
+  // EXPANDS an alpha it has to invent: PSMCT16 (1 bit) and PSMCT24 (none).
+  // A PSMCT32 texel carries its own alpha byte, TEXA is ignored, and the
+  // count pass deliberately writes alpha 0 (the count lives in RGB, so the
+  // target's A bit can never trip the resolve). Bound as PSMCT32 the resolve
+  // therefore sampled alpha 0 for EVERY pixel, failed the alpha test on all
+  // of them, and wrote no mask bit at all: at 32-bit colour the flashlight
+  // cast no shadow whatsoever, while the 16-bit band - where AEM does apply -
+  // worked, which is why this survived a console pass. PSMCT24 is the same
+  // memory with the byte we do not want left out.
+  const int resolvePsm = countPsm == GS_PSM_32 ? GS_PSM_24 : countPsm;
   PACK_GIFTAG(q,
               GS_SET_TEX0(countAddress >> 6,
-                          t.frameWidth >> 6, countPsm, lg2up(countW),
+                          t.frameWidth >> 6, resolvePsm, lg2up(countW),
                           lg2up(countH), 1 /* tcc */, 1 /* decal */, 0, 0, 0,
                           0, 0),
               GS_REG_TEX0_1);

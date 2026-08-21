@@ -16,6 +16,46 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.62.1 (the torch's shadow mask was never written at 32-bit colour):
+// reported as "still no shadows" on a hand-made scene, with a screenshot
+// showing only the moon's. The mask was being BUILT - four casters picked,
+// 144 volume vertices submitted, mask=1 in the game's own log - and not one
+// bit of it reached the framebuffer.
+//
+// countResolve() turns "this pixel has a non-zero count" into the mask bit
+// through TEXA's AEM expansion, and the GS applies TEXA only to formats whose
+// alpha it has to INVENT: PSMCT16 (one bit) and PSMCT24 (none). The count band
+// is PSMCT32 at 32-bit colour - for page-geometry parity with the scene z it
+// is tested against - and a PSMCT32 texel carries its own alpha, which the
+// count pass deliberately leaves at 0 so the band's A bit can never trip the
+// resolve. So the resolve sampled alpha 0 everywhere, failed its ATEST on
+// every pixel, and wrote nothing: no shadow at 32-bit, ever. 16-bit projects,
+// where AEM does apply, worked - which is exactly why this survived a console
+// pass, since every shot that proved the feature was taken at 16-bit while
+// chasing the FBA bug. The resolve now binds PSMCT24 when the band is 32-bit:
+// the same memory, minus the byte we do not want. Found with one probe -
+// skipping maskClear() for one build, so a live gate must discard everything.
+//
+// Fixing it exposed a second fault that had never been visible: the volume's
+// near caps sat on the caster's LIT faces, so the volume CONTAINED its own
+// occluder. Every surface the real mesh recesses behind the hull that stands
+// in for it counted as shadow - a barrel came back striped along its panel
+// lines - and because a model past 1200 triangles is represented by a BOX, a
+// hard-edged rectangle of that box's footprint sat on the ground around it,
+// which reads as the shadow and is not one. The caps go on the UNLIT faces
+// now: the volume starts at the caster's far side, and the silhouette ring is
+// shared by both halves, so the shape on screen does not move.
+//
+// Measured on the reporter's own scene, one word apart, same pad script and a
+// fresh boot per arm: dark pixels inside the pool 622 (mask dead) -> 1538 (lit
+// caps: shadow plus the box artifact) -> 896 (shipped: the honest rim, no
+// self-shadowing). docs/flashlight.md gained "How much of a volume shadow you
+// will actually SEE", because the answer to the report is finally geometry
+// and not a bug: a torch held at the eye hides its shadows behind whatever
+// casts them. Two ways to widen that rim were tried and measured as dead ends
+// - dropping the virtual torch to chest height moves a few degrees, and
+// widening volPush past a caster's distance disqualifies that caster outright.
+//
 // 1.62.0 (a dynamic shadow is chosen on the OBJECT now - docs/shadows.md):
 // "I put in a model that has a dynamic shadow, but instead of the full cast I
 // pick the blob option." Blob shadows were a project-wide switch that only
@@ -2186,7 +2226,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 62
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

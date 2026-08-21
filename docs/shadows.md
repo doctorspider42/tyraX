@@ -13,7 +13,11 @@ They are not the same thing as **"Cast shadow"** further down that panel, which
 is the *baked* ambient occlusion ([ambient-occlusion.md](ambient-occlusion.md)):
 that one is painted into the lighting at build time and never moves. Nor is it
 the flashlight's own shadow machinery, which is a separate system with its own
-page ([flashlight.md](flashlight.md), "The shadow").
+page ([flashlight.md](flashlight.md), "The shadow"). If what you want is a big,
+plainly visible dynamic shadow, it is the **projected silhouette** below that
+gives it: a torch held at the eye hides its own shadows behind whatever casts
+them, by geometry rather than by any bug (flashlight.md, "How much of a volume
+shadow you will actually SEE").
 
 ## The choice, and what "Default" means
 

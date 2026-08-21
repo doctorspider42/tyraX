@@ -11912,8 +11912,13 @@ static void emitMeshShadowVolume(const ShadowMesh& m,
                 cy = (a[1] + b[1] + c[1]) / 3.0F,
                 cz = (a[2] + b[2] + c[2]) / 3.0F;
     lit[t] = nx * (vL.x - cx) + ny * (vL.y - cy) + nz * (vL.z - cz) > 0.0F;
-    if (!lit[t]) continue;
-    // Near cap (the lit face, pushed) - and its far projection only when
+    if (lit[t]) continue;
+    // Near cap - the face turned AWAY from the light, so the volume starts
+    // beyond the caster and never swallows it (emitBoxShadowVolume carries
+    // the full reasoning). It matters twice over here: a DECIMATED hull
+    // stands proud of every surface the real mesh recesses, so a lit-side
+    // cap put the panel lines of a barrel into their own shadow.
+    // And its far projection only when
     // asked: a far cap only ever SUBTRACTS at pixels whose surface lies
     // beyond the light's range, where the reach falloff has already taken
     // the light to zero, so the counting path skips the fill entirely.
@@ -12044,9 +12049,21 @@ static void emitBoxShadowVolume(const ProjBox& pb, const Vec4& origin,
                  (fc[1] - origin.y) * ax2[1] * kFaceSign[f] +
                  (fc[2] - origin.z) * ax2[2] * kFaceSign[f] <
              0.0F;
-    if (lit[f]) {
+    // THE CAP GOES ON THE DARK SIDE, and everything about how a shadow
+    // LOOKS here follows from that one word. Capped on the LIT faces the
+    // volume contains the box - and with it the caster's whole mesh, which
+    // the box only stands in for. Counting is exact, so every one of those
+    // pixels resolved as shadow: the prop the torch was pointed at came
+    // back black in patches and the BOX's own footprint sat on the ground
+    // around it as a hard-edged rectangle, which reads as a shadow and is
+    // not one (a 2092-triangle barrel is over kShadowMeshMaxTris, so its
+    // volume IS this box). The 0.05 push only ever broke a depth tie.
+    // Capping on the UNLIT faces starts the volume at the caster's far side
+    // instead; the silhouette ring is shared by both halves, so the shape
+    // the shadow makes on screen does not move.
+    if (!lit[f]) {
       const int* q4 = kFace[f];
-      // near cap (the occluder's lit side) and - for the 1-bit fallback,
+      // near cap (the occluder's dark side) and - for the 1-bit fallback,
       // whose set/clear needs the closed volume - its far projection; the
       // counting path skips far caps (they only subtract beyond the reach)
       pushTri(nearP[q4[0]], nearP[q4[1]], nearP[q4[2]]);
@@ -12762,6 +12779,18 @@ void TerrainGame::updateAndRenderLightPools() {
       float volPush = FLASHLIGHT_RANGE * 0.05F;
       if (volPush < 0.5F) volPush = 0.5F;
       if (volPush > 2.0F) volPush = 2.0F;
+      // How much of that shadow the EYE can see is bounded by this push and
+      // nothing else, which is worth knowing before reading a screenshot: a
+      // light on the view axis casts every shadow exactly behind its caster,
+      // so what reaches the screen is a rim as wide as the parallax. Two
+      // measured dead ends: DROPPING the virtual torch to chest height
+      // (0.55 units) moved almost nothing - at a caster's distance the
+      // offset is a few degrees - and widening the push to 3.5 units
+      // DISQUALIFIES the near casters it was meant to help, since nothing
+      // closer than volPush + 0.3 may cast at all. A torch you hold at your
+      // eye lights what it hides. The shadows this system draws in full are
+      // the ones on surfaces well BEHIND the caster, and a third-person
+      // camera - where the torch really is off the view axis.
       const Vec4 vTorch(cameraPosition.x + dx * volPush,
                         cameraPosition.y + dy * volPush,
                         cameraPosition.z + dz * volPush, 1.0F);
