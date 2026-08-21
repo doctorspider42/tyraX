@@ -149,10 +149,21 @@
 // caster has a shadow; walk the camera over to the second and the shadow
 // moves with the slot. 50.0/50 in every arm (PCSX2 software renderer).
 //
-// What is NOT in this: the receiver (wall) second pass. The torch draws its
-// light on solid geometry through wBag/wTexBag/wColorBag with the shared
-// 3997-vertex budget, and a spot has no such pass yet - so a spot's shadow
-// lands on the GROUND POOL and nowhere else. docs/shadows.md says so plainly.
+// What is NOT in this: the receiver (wall) second pass, and the reason is
+// worth writing down because it is not effort. The torch draws its light on
+// solid geometry through wBag/wTexBag/wColorBag with the shared 3997-vertex
+// budget, and it can do that honestly only because it turns its OWN cone off
+// on each receiver first (setFlashSpotOff -> PipelineInfoBag::spotLit). There
+// is no per-object way to say "not this SCENE light": dynLightPick is the only
+// lever and it drops every dynamic light from the bag. So a spot's wall pass
+// as written would light the wall twice - once per vertex through the engine's
+// slot, once projected - and the carved shadow would darken only half of that,
+// which reads as a bug rather than as a shadow. It is closer than it sounds,
+// because the engine picks ONE light per bag and a wall inside a lamp's cone
+// is usually lit by that lamp alone; but which light a bag picked is decided
+// on the console, so switching the pick off from the host can darken a wall
+// that some other lamp was lighting. A spot's shadow therefore lands on its
+// GROUND POOL and nowhere else, and docs/shadows.md says so plainly.
 
 // 1.66.3 (the pool still cut off along a straight line when the torch was
 // aimed FAR, flat ground included): 1.66.2's hull was real but not the

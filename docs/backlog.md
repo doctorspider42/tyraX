@@ -241,6 +241,33 @@ currently reproduces the sprite exactly, which is the defensible half.
 
 ## Medium
 
+### A spot light's shadow on a WALL
+
+Spot-light shadow volumes ship in 1.67.0 ([shadows.md](shadows.md)) and carve
+the lamp's ground pool only. The torch also draws its light on the solid
+geometry in its beam - a second, additive pass over the receiver's own
+triangles with the gobo's projective STQ, `wBag`/`wTexBag`/`wColorBag` and a
+shared 3997-vertex budget - and that is what gives a torch shadow on a wall.
+The machinery is already shared for the volumes themselves (`pickVolCasters`,
+`buildVolMask` in `updateAndRenderLightPools`), so the fill is a third lambda
+away.
+
+**What blocks it is double lighting, not the fill.** The torch turns its own
+cone off on each receiver first (`setFlashSpotOff` -> `PipelineInfoBag::
+spotLit`); there is no equivalent for one SCENE light, and `dynLightPick =
+false` removes every dynamic light from the bag. A wall drawn by both paths
+reads twice as bright and its carved shadow darkens only half of it, which
+looks like a bug.
+
+The likely shape of an answer: the engine picks ONE light per bag
+(`RendererCore::pickDynLight`), so an opt-out that names a light index - "this
+bag skips light N, keeps the rest" - would be the exact analogue of `spotLit`
+and is a small engine change. Then the wall pass is the torch's, with the
+lamp's origin/aim/cone/reach substituted, inside the bracket the lamp already
+opens. Verify with the `spotvol` fixture recipe in the 1.67.0 commit: a wall
+3 u behind the caster, one capture with the override on and one with it off.
+
+
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 
 ```

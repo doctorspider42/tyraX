@@ -104,8 +104,20 @@ one you get depend on where the camera happens to be.
 
 ### What it will not do
 
-- **Only the ground pool is carved** (above). A shadow on a wall from a scene
-  lamp needs the receiver pass the torch has, and that is not written yet.
+- **Only the ground pool is carved** (above), and the reason is not effort. A
+  wall pass would draw the lamp's light on the wall's own triangles a second
+  time, additively, while the wall is *already* taking that lamp per vertex
+  through the engine's dynamic-light slot — so the wall would read twice as
+  bright and the carved shadow would only darken half of it, which looks like a
+  bug rather than a shadow. The torch has no such problem: it turns its own
+  cone off per receiver (`spotLit = false`, flashlight.md), and there is no
+  per-object way to say "not *this* scene light". `dynLightPick = false` is the
+  only lever and it removes **every** dynamic light from the bag. It is closer
+  than it sounds — the engine picks ONE light per bag, so a wall inside a
+  lamp's cone is usually lit by that lamp and nothing else — but which light a
+  bag picked is decided on the console, so switching the pick off host-side can
+  silently darken a wall that was being lit by a different lamp. That is the
+  problem to solve before this pass can ship.
 - **A scene with no terrain has no spot pool at all** ([terrain.md](terrain.md)),
   so there is nothing for a lamp to carve. The torch's pool is projected onto
   whatever its beam lands on and is unaffected.
