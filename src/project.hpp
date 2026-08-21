@@ -984,7 +984,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.primDetail == b.primDetail && a.primRings == b.primRings &&
            a.drawDistance == b.drawDistance &&
            a.reflected == b.reflected && a.castShadow == b.castShadow &&
-           a.projShadow == b.projShadow &&
+           a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
            a.bakedLighting == b.bakedLighting &&
            a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
            a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
