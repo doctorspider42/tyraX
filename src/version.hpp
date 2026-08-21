@@ -16,6 +16,33 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.63.1 (the torch's SILHOUETTE shadow was thrown from the eye too):
+// reported as "the torch shadow is not as nice as the moon's" over a shot of a
+// sphere wearing a hard-edged rectangle, with the helpful question - "could the
+// flashlight shadow not be drawn the same way as the moon's?"
+//
+// It already can: that IS the default mode (Preferences > Rendering >
+// Flashlight shadow volumes, OFF), and the rectangle is the volume mode being
+// honest about a PRIMITIVE, which always extrudes its bounding box. But
+// switching the preference off drew nothing at all, which measured worse than
+// the rectangle - and worse than doing nothing, because the torch WINS the
+// scoring for the slot and the moon's perfectly good shadow stopped being
+// drawn.
+//
+// renderProjShadows still lit from cameraPosition. 1.63.0 moved the torch off
+// the view axis for the pool, the receivers, the volumes and the cone, and
+// missed this path; a light AT the eye lands its silhouette exactly behind its
+// caster on screen, so the slot held a correct round shadow that no vantage
+// could ever show. It takes the same held origin now - the cone test, the
+// line-of-sight query, the consider() call and the fromTorch identity test,
+// which compares the very floats consider() stored.
+//
+// Measured on the reporter's scene, one vantage, three builds: volumes = a
+// hard rectangle; silhouette from the eye = nothing (and no moon shadow
+// either); silhouette from the held torch = the soft round shadow the moon
+// makes, at 0.2 / 0.25. docs/flashlight.md says up front that BOTH modes need
+// the torch off the eye before either is worth judging.
+//
 // 1.63.0 (the torch is HELD now, not implanted in the eye - format v35):
 // asked for as "could we give the flashlight a slight offset, so it does not
 // shoot from the eye but a little lower and to the side?" - and it is also the
@@ -2248,7 +2275,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 63
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

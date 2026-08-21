@@ -14051,6 +14051,16 @@ void TerrainGame::renderProjShadows() {
         fbz = cameraLookAt.z - cameraPosition.z;
   const float fbl = sqrtf(fbx * fbx + fby * fby + fbz * fbz);
   if (fbl > 0.0001F) fbx /= fbl, fby /= fbl, fbz /= fbl;
+  // The torch's silhouette is thrown from where the torch is HELD, exactly
+  // like its pool and its volumes (docs/flashlight.md, "Off the eye"). It has
+  // to be: a light AT the eye lands its shadow precisely behind its caster on
+  // screen, so this path drew a perfect round silhouette nobody could ever
+  // see - and, worse, it WON the slot from the moon, whose shadow had been
+  // visible. Reported as "the torch shadow is not as nice as the moon's".
+  // With the offset at 0,0 this is the eye, exactly as before.
+  const Vec4 torchPos = flashHeldOrigin(cameraPosition, fbx, fby, fbz,
+                                        FLASHLIGHT_OFF_RIGHT,
+                                        FLASHLIGHT_OFF_DOWN);
 
   for (const Cand& c : cands) {
     if (used >= (int)projShadows.size()) break;
@@ -14153,8 +14163,8 @@ void TerrainGame::renderProjShadows() {
     // (Volumes mode carries the torch's shadows in the destination alpha
     // instead - the slots stay free for the scene's own lights there.)
     if (!FLASH_SHADOW_VOLUMES && g_flashEnabled && g_flashOn) {
-      const float tx2 = cx - cameraPosition.x, ty2 = cy - cameraPosition.y,
-                  tz2 = cz - cameraPosition.z;
+      const float tx2 = cx - torchPos.x, ty2 = cy - torchPos.y,
+                  tz2 = cz - torchPos.z;
       const float td = sqrtf(tx2 * tx2 + ty2 * ty2 + tz2 * tz2);
       if (td > 0.05F) {
         const float ca2 = (tx2 * fbx + ty2 * fby + tz2 * fbz) / td;
@@ -14168,24 +14178,24 @@ void TerrainGame::renderProjShadows() {
           // before this test existed). One slab query along torch->caster,
           // stopped a little short so the caster's own box cannot occlude
           // itself.
-          projCollectBoxes(cameraPosition.x + tx2 * 0.5F,
-                           cameraPosition.z + tz2 * 0.5F, td * 0.5F + 2.0F);
+          projCollectBoxes(torchPos.x + tx2 * 0.5F,
+                           torchPos.z + tz2 * 0.5F, td * 0.5F + 2.0F);
           float lt = 0.0F, ls = 0.0F;
           int la = -1;
           ProjBox lb;
           const bool blocked =
-              projWallHit(cameraPosition, tx2 / td, ty2 / td, tz2 / td,
+              projWallHit(torchPos, tx2 / td, ty2 / td, tz2 / td,
                           td - r * 0.8F, lt, la, ls, lb) &&
               lb.obj != i;
           if (!blocked)
-            consider(cameraPosition.x, cameraPosition.y, cameraPosition.z,
+            consider(torchPos.x, torchPos.y, torchPos.z,
                      FLASHLIGHT_RANGE, 2.0F, 1.0F, 0.35F);
         }
       }
     }
     // Exact-equality test on purpose: consider() stored these very floats.
-    const bool fromTorch = !bestSun && lpx == cameraPosition.x &&
-                           lpy == cameraPosition.y && lpz == cameraPosition.z;
+    const bool fromTorch = !bestSun && lpx == torchPos.x &&
+                           lpy == torchPos.y && lpz == torchPos.z;
     if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
 
     // Light camera. For a point light the eye sits AT the light, so the

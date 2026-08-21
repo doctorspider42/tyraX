@@ -337,12 +337,19 @@ position into a shadow-map slot, the ground patch samples it as before, and the
 wall behind the caster is re-rendered — the same second-pass trick as the light —
 with the silhouette sampled through the light's view-proj, exactly per pixel.
 
+**Both modes need the torch to be OFF THE EYE to show anything** ("Off the
+eye" above). A light on the view axis lands its shadow exactly behind its
+caster on screen: the volume mode leaks a rim, and the silhouette mode - which
+draws the *right* shape - draws it precisely where the caster hides it, so it
+looks like nothing at all while quietly taking the slot the moon had been
+using. Set *Held right* / *Held below eye* first, then judge either mode.
+
 **The technique is a project setting** (*Preferences > Rendering > Flashlight
 shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |
 | --- | --- | --- |
-| Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **mesh**, silhouette-extruded (boxes only past 1200 triangles) |
+| Shadow shape | the caster's **mesh**, rendered from the torch — soft-edged, the same picture the sun's shadows make | the caster's **mesh**, silhouette-extruded — but a **primitive always extrudes its BOX**, and so does a model past 1200 triangles, which is why a sphere casts a hard-edged rectangle here |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
 | Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
 | Cost | four 64×64 silhouette renders | the volume fill each frame + a count band in GS VRAM: 512 KB at 32-bit colour, 256 KB at 16-bit |
