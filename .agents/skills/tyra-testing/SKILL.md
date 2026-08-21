@@ -833,7 +833,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -1676,7 +1676,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL
@@ -1727,10 +1727,10 @@ The motion gate is the other half:
 
 ```powershell
 # one arm = one four-leg run of the fixed route
-powershell -File .claude\skills\tyra-testing\scripts\motion-gate.ps1 `
+powershell -File .agents\skills\tyra-testing\scripts\motion-gate.ps1 `
     -Project $env:TEMP\tyra-editor-test\mgate -Out <scratch>\armB -NoAnalyse
 # then compare it against the arm with ONE knob changed
-python .claude\skills\tyra-testing\scripts\motion-gate.py <scratch>\armB `
+python .agents\skills\tyra-testing\scripts\motion-gate.py <scratch>\armB `
     --baseline <scratch>\armC --bands 8
 ```
 
@@ -1971,6 +1971,142 @@ docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/
   build.
 - **PCSX2 only.** Admissible for correctness (which is all this measures);
   never quote a GS-fill or per-function number from it.
+
+### The shadow A/B rig: one command per switch
+
+Dynamic shadows (docs/shadows.md, docs/flashlight.md) are the case the layers
+above are awkward for: the change is a **switch**, the evidence is **where the
+picture got darker**, and the honest test is the same authored frame rendered
+twice with one setting moved. Two scripts make that one command.
+
+```powershell
+# 1. the fixture, once - headless, no Docker, SHORT path
+powershell -File .agents\skills\tyra-testing\scripts\make-shadow-fixture.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Force
+
+# 2. the A/B, per switch
+powershell -File .agents\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe `
+    -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false `
+    -OutDir <scratchpad>\spotab
+```
+
+`-Toggle` is any key the manifest writes on a line of its own —
+`spotShadowVolumes`, `flashShadowVolumes`, `blobShadows` — and it is **inserted**
+when the file does not carry it, which every project that never touched the
+setting does not. For each (value x vantage) the rig patches the setting and the
+Player's pose, runs `--build --run` under a hard timeout, waits `-Settle`
+(14 s), screenshots **the emulator whose command line names this project**,
+greps the game's own `bin/log.txt` for `Assertion` / `=======` banners, and
+writes `report.md` with a per-row table plus a delta table. Build logs and a
+copy of each boot's `log.txt` land beside the screenshots.
+
+**The fixture** (`%TEMP%\tyra-editor-test\spotab`, from the `fpp` template):
+flat 100x100 terrain, **two** lamp+caster+wall groups 20 u apart — a spot light
+4 u up (half-angle 30, radius 12, `"shadowVolumes": 0` so the PROJECT switch is
+what decides), a 1.5 u box 0.9 u off the cone axis, an 8x4x1 wall 3 u behind it
+— and a frozen Player with the flashlight on. Two groups because the
+interesting failure of a per-light feature is not "does one lamp work" but
+whether the second one starves: the count band is one buffer for the whole
+frame. `vantages.json` frames lamp 1 from 8 u, **both** groups from 20 u back
+midway between them (from 8 u they are 51 degrees off the axis and a 60-degree
+frame holds neither), and lamp 2 from 8 u.
+
+Five things it had to get right, each of which produced a confident, wrong
+answer first:
+
+- **A torch that sits on the eye casts no visible shadow at all.** The camera
+  occludes exactly what the light does, so every shadow hides behind the thing
+  casting it and both switch positions photograph identically — measured, with
+  the volumes demonstrably working: **d centre 0.004, d lower third 0.000**. The
+  fixture drops the torch by the clamp's full metre (`offsetDown`) and 0.6 m to
+  the side, which puts the caster's shadow on the wall as a band ABOVE its own
+  silhouette. Same trap for a spot: a light co-located with the camera is not a
+  test.
+- **A new project applies an AMBIENCE PRESET on top of its settings.** `--new`
+  ships one ("Default", blue sky, ambient 0.55) with `defaultAmbience: 0`, so a
+  manifest that says `ambient: 0.1` still renders a sunny afternoon and every
+  shadow is washed out. The fixture sets `defaultAmbience: -1`.
+- **`-Trim` cannot be used, and neither can a plain content bounding box.** The
+  crop is found from the FIRST capture and reused for every one after it (the
+  motion gate's rule: a crop that follows the content re-registers two different
+  pictures into the same rectangle). Finding it needs a **coverage** rule rather
+  than a bounding box — PCSX2 paints its own `FPS 58.35 [P]` overlay inside the
+  black letterbox, and that one line of thin text stretched the measured picture
+  from 959x691 to 959x829, which put the FPS-strip region on pure black.
+- **`powershell -File` does not split `-Values true,false`**, so the rig gets one
+  string, writes `"key": true,false,` into the manifest, and the build fails with
+  `spotab.tyra is malformed` — which points at nothing. It splits on commas
+  itself now.
+- **A region metric reports 0.0000 for "nothing changed" AND for "the subject
+  was not in my rectangle."** The `between` vantage frames two lamp groups, so
+  both sit at the EDGES: its centre region read exactly 0.0000 for a switch the
+  whole frame scored 0.00005 on, against a 0.00000 control. There is a
+  whole-frame column for that reason — read it first, then the regions to say
+  *where*.
+
+**Read the numbers, not the pictures.** Each row reports the mean luma (0..1) of
+the **whole frame**, of the **centre region** (the caster and the wall behind
+it) and of the **lower third** (the ground), plus the **ink coverage of the FPS
+strip** — which is a liveness check and NOT a reading of the counter: a black
+window measures as a beautiful shadow everywhere, and 0.000 ink is what catches
+it.
+
+**Pass the same value twice for the noise floor.** `-Values true,true` boots one
+configuration twice; the delta table is indexed by variant, so the second row is
+what two boots of an unchanged project differ by. A delta smaller than that is
+not a finding. Measured on this fixture (frozen camera, `progressive` display,
+`--pad` never touched) the noise floor is **exactly 0.00000** — nine boots
+across three vantages produced byte-identical means for the two `false` arms, on
+every region. That zero is what makes a 0.0134 mean something.
+
+**Everything that can reach Docker is bounded** and killed with its children on
+timeout, because a `docker` call on this machine blocks forever instead of
+failing. And nothing is ever killed by name: the emulator the rig captures and
+closes is the one whose `-elf` names the project, the same discriminator
+`Runner::killEmulatorsFor` uses — a parallel worktree's PCSX2 is neither
+captured nor reaped.
+
+**Windows only so far**, like `motion-gate.ps1`: the capture is
+`screenshot-window.ps1`, the measurement is System.Drawing and the emulator is
+found through `Win32_Process`. Nothing in the design is platform-specific — a
+Linux twin swaps the first for `wayland-control.py shot --area`, the second for
+ten lines of PIL and the third for `/proc/<pid>/cmdline`. Say which OS a
+reported number came from.
+
+#### Proven on the flashlight (2026-08-21)
+
+The spot runtime does not exist yet, so the rig was proven on
+`flashShadowVolumes`, whose volumes have worked since 1.62.0. Nine boots
+(`-Values true,false,false` — the repeated value is the control), three
+vantages, PCSX2 software renderer, 959x691 picture, **all nine logs clean**:
+
+| vantage | frame mean, `true` -> `false` | d frame | d centre | control (arm 2 - arm 1) |
+|---|---|---|---|---|
+| lamp1-8u | 0.14608 -> 0.14846 | **+0.00238** | **+0.0134** | 0.00000 |
+| between  | 0.11111 -> 0.11115 | +0.00005 | 0.0000 | 0.00000 |
+| lamp2-8u | 0.13705 -> 0.14004 | **+0.00299** | **+0.0173** | 0.00000 |
+
+Turning the volumes OFF makes the picture BRIGHTER, which is the right sign:
+the shadow is what was removed. The control column is the load-bearing one —
+the two `false` arms came back byte-identical on every region of every vantage,
+so the fixture is deterministic to the digit and the deltas are the switch and
+nothing else. `between` is the honest 0: at 20 u the torch barely reaches those
+casters, and that vantage exists for the SPOT test, where each lamp lights its
+own group regardless of where the camera stands.
+
+The screenshots show it as plainly as the numbers do: with the switch on, the
+box lays a hard-edged rectangle across the wall and a wedge across the ground;
+with it off, the wall is evenly lit and there is no shadow anywhere.
+
+**`-Toggle spotShadowVolumes` is already wired end to end on the same fixture**,
+even without a runtime: flipping it and running `--refresh-gen` moves
+`SPOT_SHADOW_VOLUMES_USED` in `inc/scene_data.hpp` between `false` and `true`
+(the two lamps resolve the predicate). So when the runtime lands, the rig is a
+one-liner away from a number — see docs/backlog.md, "Run the shadow A/B rig
+against the spot runtime".
 
 ## Verifying the AI Assistant (docs/ai-chat.md)
 
@@ -2224,4 +2360,5 @@ deliberate) and that the binary was relaunched.
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |
+| A dynamic-shadow switch (spot/flashlight volumes, blob shadows, a per-object shadow mode) | Layer 3 + **the shadow A/B rig** — `make-shadow-fixture.ps1` then `shadow-ab.ps1 -Toggle <key> -Values a,b`. Quote the `report.md` deltas against a same-value control run, not a pair of screenshots |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |

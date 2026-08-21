@@ -81,6 +81,25 @@
 // SPOT_SHADOW_VOLUMES_USED, the struct field and the table column, and flips
 // USED to false when the light's override says off; and both new widgets were
 // driven by name with --ui-script.
+//
+// A pre-existing bug in the same area went with it: SceneObject::shadowMode
+// was missing from SceneObject::operator==, so the undo system could not see
+// a per-object dynamic-shadow edit at all - switching an object from Default
+// to Blob compared equal to what it replaced, nothing was pushed, and the
+// change read as "undo drops my shadow edits". The field has been in the
+// comparison since this commit; nothing else about it moves.
+//
+// The other sibling is a REPEATABLE A/B for anything that changes how a
+// dynamic shadow is drawn, because "look at these two screenshots" is not a
+// verification and the runtime half needs one:
+// .claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1 builds a
+// two-lamp, two-caster fixture headlessly and shadow-ab.ps1 runs ONE command
+// per switch - patch, build, boot, screenshot the emulator that is running
+// this project BY PID, grep the game's own bin/log.txt, and write a report.md
+// whose numbers say where the picture changed. It was proven on
+// flashShadowVolumes, whose volumes already work, so it is trusted before the
+// spot runtime exists; the tyra-testing skill has the one-liner, the numbers
+// and the traps.
 
 // 1.66.3 (the pool still cut off along a straight line when the torch was
 // aimed FAR, flat ground included): 1.66.2's hull was real but not the

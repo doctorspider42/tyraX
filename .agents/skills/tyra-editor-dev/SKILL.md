@@ -326,7 +326,10 @@ Before coding, list which of these your change needs — most features need most
 
 **New scene-object property** → `SceneObject` in project.hpp **including its
 `operator==`** (History::push() short-circuits on equality — miss this and undo
-silently drops your field) → `objectJson` + `readObjectsArray` in project.cpp
+silently drops your field; `shadowMode` shipped in 1.62.0 without it and every
+Default→Blob edit compared equal to what it replaced, so nothing was pushed —
+fixed in 1.67.0, and the symptom read as a broken undo, never as a missing
+comparison) → `objectJson` + `readObjectsArray` in project.cpp
 (save AND load; default the read for backward compatibility, and match the
 emission style of a similar field — some bools are always emitted, some omitted
 at their default) → properties UI in app.cpp (+ `commitChange()`) →

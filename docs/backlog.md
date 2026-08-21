@@ -239,6 +239,29 @@ PCSX2's software blending of a 16-bit target, or a second draw of the same
 quad. Settle it before making either side match the other - the viewport
 currently reproduces the sprite exactly, which is the defensible half.
 
+### Run the shadow A/B rig against the spot runtime
+
+`.claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1` +
+`shadow-ab.ps1` exist and are proven on `flashShadowVolumes` (see the
+tyra-testing skill, "The shadow A/B rig"), but the switch they were built for -
+`spotShadowVolumes` - has only the data model, format, UI and codegen behind it
+so far. When the runtime lands, run
+
+```powershell
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false -OutDir <scratch>\spotab
+```
+
+and quote the deltas. Two things the fixture is already shaped for and nobody
+has read a number off yet: the `between` vantage sees both lamp groups at once,
+which is where "only the nearest spot is active" should be visible as one group
+having a shadow and the other not; and setting `"shadowVolumes": 1` or `2` on
+ONE lamp's `objects/<id>.json` turns the same run into a test of the per-light
+override, where only the other lamp may move between the arms. A real-PS2 pass
+is separate again - the rig is PCSX2 only.
+
 ## Medium
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
