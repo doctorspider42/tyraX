@@ -288,7 +288,17 @@ keys onto the pad. It takes an overlay **slot** (`Pad::VIRT_SLOTS`, one
 `virtPrev` per slot): 0 is this keyboard/mouse fold, 1 is the editor's Remote
 Pad (docs/remote-pad.md). A second source must never reuse slot 0 — the two
 would each read as the other releasing everything, so every held button
-re-clicks every frame; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
+re-clicks every frame. **`Pad::setState` and `KbdMouse::setState` are the
+OTHER shape and exist for the input recorder** (docs/input-replay.md): they
+REPLACE the polled state instead of merging into it, because a recording has to
+win over whatever a physical controller is doing — a hand resting on a stick
+must not change the run being reproduced. Two details are load-bearing.
+`Pad::setState` re-seeds **every** `virtPrev` slot from the state it wrote, or
+the first frame after a replay ends fabricates click edges out of the
+difference. And `KbdMouse` grew a `forced` flag that `isEnabled()` ORs in,
+because every reader in a generated game gates on it — without it a replayed
+keystroke is silently dropped on any machine with no USB keyboard attached,
+which is most of them; **skipped under ps2link**: ps2kbd/ps2mouse import usbd's
 symbols and drivers added to an already-running ps2link's un-reset IOP never
 come up cleanly (PS2MouseInit then spins forever on an RPC server that never
 registered — a boot freeze on the Tyra logo). The

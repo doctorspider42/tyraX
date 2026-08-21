@@ -244,6 +244,7 @@ add_executable(tyrax-editor
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp
+    src/livereplay.cpp
     src/livetime.cpp
     src/logview.cpp
     src/vucap.cpp

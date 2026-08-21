@@ -886,6 +886,7 @@ void App::drawUI() {
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
     livetimeTick();
+    replayTick();     // what the input recorder is doing (docs/input-replay.md)
     remotePadTick();  // the editor holds the controller (docs/remote-pad.md)
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
@@ -5273,6 +5274,16 @@ void App::closeProject() {
     // A build has no UI left once the toolbar goes away (Stop lives there), so
     // it would run to completion with no way to cancel it.
     if (runner_.busy()) runner_.cancel();
+    // The input recorder's staging is keyed by a path INSIDE this project, so
+    // it must not survive into whichever project opens next.
+    replayArm_ = ReplayArm::None;
+    replayFile_.clear();
+    replayFiles_.clear();
+    replayScanAt_ = 0.0;
+    replayHaveStatus_ = false;
+    replayMsg_.clear();
+    replaySaveName_.clear();
+    runner_.replay_ = Runner::ReplayLaunch();
     // The Drone Generator, in the same order the shutdown path uses (audio
     // first: the device callback holds the LiveSynth, and the render thread
     // writes into droneRenderResult_). The audition has to stop because its
@@ -14976,6 +14987,20 @@ void App::drawPreferencesWindow() {
         "an unattended input test possible. Works on real hardware over\n"
         "ps2link too (polled less often - it is a network round-trip there).\n"
         "Release builds carry none of it. See docs/remote-pad.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Input recorder", &prefSettings_.inputRecorder);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Records every frame's input - both pads, the USB keyboard and mouse,\n"
+        "and the frame's own dt - into a file next to the ELF, and plays one\n"
+        "back over the top of whatever a real controller is doing. So a bug\n"
+        "somebody hit once can be reproduced on demand, with the Live Debugger\n"
+        "and the time machine open beside it. Only the INPUT travels, which is\n"
+        "what keeps ten minutes at about a megabyte; a saved recording lives in\n"
+        "the project's recordings/ folder and is meant to be committed next to\n"
+        "the bug it reproduces. Off by default - a recording is a file that\n"
+        "grows while the game runs. Debugger > Replay, or the command line\n"
+        "(tyrax-editor --record / --replay). See docs/input-replay.md.");
     ImGui::BeginDisabled(profile == 0);
     ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
     ImGui::EndDisabled();

@@ -159,6 +159,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Remote Pad (hold the running game's controller)](remote-pad.md) — a
   clickable DualShock in the editor and a scriptable `--pad` CLI, no window
   focus needed anywhere.
+- [Input recorder (record a session, perform it again)](input-replay.md) —
+  every frame's input written to a small committable file, replayed over the top
+  of a real controller; `--replay` exits 0 when the run reproduced exactly.
 - [UI scripting (drive the editor without a human)](ui-scripting.md) —
   `--ui-script` clicks widgets by name, with assertions; where every unattended
   editor test starts.

@@ -102,6 +102,33 @@ the parser rejects it (put the call in a `.ps1` with the script as a literal),
 and the writer can lose a race replacing `bin/livepad.bin` while the game reads
 it - a lost refresh is now a warning it prints, not a silent stop.
 
+## Recording a run and proving it reproduces
+
+```
+"{TYRAX_EXE}" --record <projectDir> recordings/smoke.tyrarep \
+    --pad "wait 6; stick l 0 -127; wait 3; press cross; neutral" --seconds 12
+"{TYRAX_EXE}" --replay <projectDir> recordings/smoke.tyrarep
+```
+
+The input recorder writes every frame's input (both pads, the USB keyboard and
+mouse, the frame time and every procedural seed) into a small file, and replays
+it over the top of whatever a real controller is doing. **`--replay`'s exit code
+is the verdict: 0 = the run reproduced exactly, 3 = it diverged, 1 = it could
+not be run.** So a recording is a regression test for a whole play session -
+which `--pad` alone can never be, because it can drive the game but nothing
+afterwards says whether the game did the same thing.
+
+The game logs its own report, every line prefixed `Replay:`:
+`Replay: finished 705 frames, 0 divergences`, or
+`Replay: diverged at frame 400: pos (...) expected (...)`.
+
+Needs a debug build with the *Input recorder* preference on. Unlike the other
+devkit channels it is **off by default** - it writes a file that grows while the
+game runs. Recordings live in the project's `recordings/` folder and are meant
+to be committed next to the bug they reproduce; everything in `bin/replay.*` is
+the working channel and is gitignored. Saves on a memory card are NOT reproduced
+(`--clear-saves` covers the host-side fallback files only).
+
 ## Verification etiquette
 
 After changing project data or scripts: `--refresh-gen` + diff first (cheap),
