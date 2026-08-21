@@ -16,6 +16,25 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.66.3 (the pool still cut off along a straight line when the torch was
+// aimed FAR, flat ground included): 1.66.2's hull was real but not the
+// report. Logged from the game and projected with the view-proj, the cut's
+// screen row was the canvas's NEAR row to the pixel: the near edge sat a
+// fixed `along` behind the canvas's centre, and aimed far (2 degrees of
+// pitch: the axis lands 25 u out, the centre 15 u past that, `along` capped
+// at 35) that put it 5.5 u in front of the player while the cone's lower edge
+// had been on the ground since 3.9 u - bright gobo with no canvas under it.
+// The lower edge is marched every frame now and the near edge goes a unit
+// short of its floor hit (the feet when it never lands). The canvas is also
+// a trapezoid, each row as wide as the cone at its own distance, instead of
+// a strip as wide as the cone at the landing: aimed far the strip's straight
+// sides were the light's sides. Two dead ends, both measured on the same
+// frozen frame: the VU1 and EE clippers draw it identically (the "ee" value
+// is not a clipping mode - it silently falls back to vu1; "precise" is the
+// EE clipper), and the hull alone changed nothing there. A/B at (-6, 14)
+// pitch 2 on night-walk: a hard line at screen row 612 before, a pool fading
+// toward the feet after; (12, 74) aimed 1 up unchanged.
+//
 // 1.66.2 (the pool cut off square across the screen when the torch was aimed
 // UPHILL): reported with three screenshots from night-walk - fine at the
 // feet, a dead-straight horizontal line through the pool the moment the
@@ -2425,7 +2444,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 66
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

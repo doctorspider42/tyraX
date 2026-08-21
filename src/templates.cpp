@@ -13320,7 +13320,9 @@ void TerrainGame::updateAndRenderLightPools() {
       float hitLow = -1.0F;
       float ldx = dx, ldy = dy, ldz = dz;  // the ray the landing is on
       float lowDx = dx, lowDy = dy, lowDz = dz;
-      if (hitAxis < 0.0F || wallFoot > 0.0F) {
+      // Marched on EVERY frame, not only when the axis misses: the near
+      // edge of the canvas below is laid at this hit whatever landed.
+      {
         const float dxz0 = sqrtf(dx * dx + dz * dz);
         if (dxz0 > 1e-4F) {
           const float elev0 =
@@ -13472,6 +13474,26 @@ void TerrainGame::updateAndRenderLightPools() {
       // it survived the switch to per-pixel mapping, because the geometry was
       // the half at fault.) Solve for fwd = 0.3 and put the near edge there.
       float aNear = -along;
+      // ...and it MUST reach the cone's lower edge. The near edge used to sit
+      // `along` behind the canvas's centre, which is not a distance that
+      // knows where the light starts: aimed far across the ground (a 2-degree
+      // pitch lands 25 u out, the centre goes 15 u past that, and `along`
+      // caps at 35) the near edge fell 5.5 u in front of the player while the
+      // cone's lower edge had been on the ground since 3.9 u - bright gobo,
+      // no canvas, and the pool cut off along the canvas's own straight near
+      // edge. Reported twice from night-walk ("a straight line through the
+      // pool as soon as I aim far / up a slope"), and measured: the cut's
+      // screen row was the near row's projection to the pixel. So the near
+      // edge goes a unit short of where the lower edge meets the floor; a
+      // lower edge that never lands (aimed above level) starts it at the
+      // feet.
+      {
+        const float lowDist =
+            hitLow > 0.0F ? hitLow * sqrtf(lowDx * lowDx + lowDz * lowDz)
+                          : 0.3F;
+        const float aLow = (lowDist - 1.0F) - (tLand + shift);
+        if (aLow < aNear) aNear = aLow;
+      }
       if (dxz > 1e-4F) {
         const float tMin =
             (0.3F - (torch.y - baseY) * -ldy) / dxz - (tLand + shift);
@@ -13542,6 +13564,25 @@ void TerrainGame::updateAndRenderLightPools() {
       }
       for (int i = 0; i <= cellsC; ++i)
         cOff[i] = ((float)i / cellsC * 2.0F - 1.0F) * across;
+      // THE CANVAS IS A TRAPEZOID, NOT A STRIP. `across` is the cone's half
+      // width AT THE LANDING, capped at 7 - and the canvas runs on past the
+      // landing by along * 1.4, where a 23-degree cone is twenty units wide.
+      // Aimed far across flat ground the pool was a strip 14 units wide with
+      // the cone's light cut off at the strip's own straight sides and far
+      // row: a bright trapezoid with hard edges, reported from night-walk as
+      // "still happening, even on flat ground, only when I aim far". So each
+      // row is as wide as the cone is at ITS OWN distance along the beam
+      // (capped at the cone's width at the reach), and the landing's width
+      // only shapes the grid and the lift. The hull sampling below uses the
+      // same widths, so it measures the ground the canvas actually covers.
+      auto rowHalfWidth = [&](float a) {
+        float d = tLand + shift + a;  // horizontal distance from the player
+        if (d < 0.5F) d = 0.5F;
+        float w = d * tanA * 1.3F + 0.35F;
+        const float wMax = FLASHLIGHT_RANGE * tanA * 1.3F + 0.35F;
+        if (w > wMax) w = wMax;
+        return w < across ? across : w;
+      };
       // THE CANVAS RIDES THE RELIEF'S HULL, NOT ITS SAMPLES. A vertex at the
       // ground's own height under it leaves the CHORD to the next vertex
       // below every bulge between them, and a cell is metres long - so on a
@@ -13577,7 +13618,8 @@ void TerrainGame::updateAndRenderLightPools() {
         for (int ia = 0; ia <= nA; ++ia) {
           const float a = aNear + (along * 1.4F - aNear) * ((float)ia / nA);
           for (int ic = 0; ic <= nC; ++ic) {
-            const float c = ((float)ic / nC * 2.0F - 1.0F) * across;
+            const float c =
+                ((float)ic / nC * 2.0F - 1.0F) * rowHalfWidth(a);
             sub[ia][ic] = terrainHeightAt(px0 + ax * a + cx2 * c,
                                           pz0 + az * a + cz2 * c);
           }
@@ -13616,14 +13658,18 @@ void TerrainGame::updateAndRenderLightPools() {
       for (int iz = 0; iz < cellsA; ++iz) {
         for (int ix = 0; ix < cellsC; ++ix) {
           const float a0 = aOff[iz], a1 = aOff[iz + 1];
+          const float w0 = rowHalfWidth(a0) / across;
+          const float w1 = rowHalfWidth(a1) / across;
           const float c0 = cOff[ix], c1 = cOff[ix + 1];
           // Corner order matches buildPoolPatch's winding (along first, then
           // across): the beam basis is right-handed the other way round, and
           // reversing it here keeps every pool submitting the same way.
-          const float qx[4] = {px0 + ax * a0 + cx2 * c0, px0 + ax * a1 + cx2 * c0,
-                               px0 + ax * a1 + cx2 * c1, px0 + ax * a0 + cx2 * c1};
-          const float qz[4] = {pz0 + az * a0 + cz2 * c0, pz0 + az * a1 + cz2 * c0,
-                               pz0 + az * a1 + cz2 * c1, pz0 + az * a0 + cz2 * c1};
+          const float qx[4] = {
+              px0 + ax * a0 + cx2 * c0 * w0, px0 + ax * a1 + cx2 * c0 * w1,
+              px0 + ax * a1 + cx2 * c1 * w1, px0 + ax * a0 + cx2 * c1 * w0};
+          const float qz[4] = {
+              pz0 + az * a0 + cz2 * c0 * w0, pz0 + az * a1 + cz2 * c0 * w1,
+              pz0 + az * a1 + cz2 * c1 * w1, pz0 + az * a0 + cz2 * c1 * w0};
           Vec4 pv[4], ps[4];
           Color pcv[4];
           for (int k2 = 0; k2 < 4; ++k2) {

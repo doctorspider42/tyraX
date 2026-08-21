@@ -171,6 +171,21 @@ landing: a canvas lifted past the lens is seen from below and covers nothing.
 (Which is why the lift alone cannot keep the canvas above a convex slope —
 the hull above does that, and it owes nothing to the torch's height.)
 
+**The patch starts where the light starts, too.** The near edge is laid a
+unit short of where the cone's *lower* edge meets the floor (that edge is
+marched every frame for it). It used to sit a fixed `along` behind the
+canvas's centre, which knows nothing about where the light begins: aimed far
+across open ground — a 2-degree pitch lands 25 u out, the centre goes 15 u
+past that and `along` caps — the near edge fell 5.5 u in front of the player
+while the cone had been on the ground since 3.9 u. Bright gobo, no canvas,
+and the pool **cut off along the canvas's own straight near edge**, reported
+twice from night-walk ("a straight line through the pool as soon as I aim far
+or walk up a slope") and measured: the cut's screen row was the near row's
+projection to the pixel (1.66.3). The same canvas is a **trapezoid** now,
+each row as wide as the cone at its own distance, rather than a strip as wide
+as the cone at the landing: aimed far, the strip's straight sides were the
+light's sides.
+
 **The patch reaches as far as the beam does.** The footprint of a beam runs away
 as it flattens — the lower edge of the cone meets a level floor further and
 further off until it never does — and a patch that stops while the beam is still
