@@ -13542,6 +13542,76 @@ void TerrainGame::updateAndRenderLightPools() {
       }
       for (int i = 0; i <= cellsC; ++i)
         cOff[i] = ((float)i / cellsC * 2.0F - 1.0F) * across;
+      // THE CANVAS RIDES THE RELIEF'S HULL, NOT ITS SAMPLES. A vertex at the
+      // ground's own height under it leaves the CHORD to the next vertex
+      // below every bulge between them, and a cell is metres long - so on a
+      // convex slope (a hill flattening toward its crest) the chord dives
+      // under the ground and the z test eats it. The lift above was the only
+      // defence, and it is capped by the torch's height over the landing -
+      // which is NEGATIVE the moment the beam lands up a hill, so a torch
+      // aimed uphill had 2 cm of lift over 10-unit chords. Seen at a grazing
+      // angle a 5 cm dip is half a unit of depth, past the view-ray bias,
+      // and the chord plane meets the ground plane along a STRAIGHT LINE:
+      // the pool cut off square across the whole screen, the near half dark
+      // when the player stood on the steep part looking at the flat
+      // (reported with three screenshots from night-walk), the far half dark
+      // when the canvas ran over the crest. So every cell measures how far
+      // the ground BULGES above the bilinear sheet through its four corners,
+      // and each corner is raised by the largest bulge of the cells around
+      // it - both ends of every chord then sit above every sample between
+      // them, and the chord clears the bulge by construction. The bulge,
+      // NOT the plain highest ground within a cell: on a straight slope the
+      // highest ground is a cell's length up the hill, and a canvas raised
+      // by that floated at the lens's own height and was seen edge-on -
+      // the pool left the ground and glowed in the SKY over the crest
+      // (measured, one build). A planar slope bulges nothing and lifts
+      // nothing. Bilinear terrain peaks at its own nodes, so a quarter-cell
+      // sampling pitch misses at most a slope's worth of a quarter cell.
+      // About 300 height reads per frame; the lift still rides on top, for
+      // the triangle split the bilinear read does not see.
+      float hull[9][5];
+      if (!onGeometry) {
+        constexpr int kSub = 4;
+        static float sub[8 * kSub + 1][4 * kSub + 1];
+        const int nA = cellsA * kSub, nC = cellsC * kSub;
+        for (int ia = 0; ia <= nA; ++ia) {
+          const float a = aNear + (along * 1.4F - aNear) * ((float)ia / nA);
+          for (int ic = 0; ic <= nC; ++ic) {
+            const float c = ((float)ic / nC * 2.0F - 1.0F) * across;
+            sub[ia][ic] = terrainHeightAt(px0 + ax * a + cx2 * c,
+                                          pz0 + az * a + cz2 * c);
+          }
+        }
+        float bulge[9][5];
+        for (int ia = 0; ia <= cellsA; ++ia)
+          for (int ic = 0; ic <= cellsC; ++ic) bulge[ia][ic] = 0.0F;
+        for (int ia = 0; ia < cellsA; ++ia) {
+          for (int ic = 0; ic < cellsC; ++ic) {
+            const float h00 = sub[ia * kSub][ic * kSub];
+            const float h10 = sub[(ia + 1) * kSub][ic * kSub];
+            const float h01 = sub[ia * kSub][(ic + 1) * kSub];
+            const float h11 = sub[(ia + 1) * kSub][(ic + 1) * kSub];
+            float worst = 0.0F;
+            for (int sa = 0; sa <= kSub; ++sa) {
+              const float fa = (float)sa / kSub;
+              for (int sc = 0; sc <= kSub; ++sc) {
+                const float fc = (float)sc / kSub;
+                const float sheet = (h00 * (1.0F - fa) + h10 * fa) * (1.0F - fc) +
+                                    (h01 * (1.0F - fa) + h11 * fa) * fc;
+                const float d = sub[ia * kSub + sa][ic * kSub + sc] - sheet;
+                if (d > worst) worst = d;
+              }
+            }
+            if (worst > bulge[ia][ic]) bulge[ia][ic] = worst;
+            if (worst > bulge[ia + 1][ic]) bulge[ia + 1][ic] = worst;
+            if (worst > bulge[ia][ic + 1]) bulge[ia][ic + 1] = worst;
+            if (worst > bulge[ia + 1][ic + 1]) bulge[ia + 1][ic + 1] = worst;
+          }
+        }
+        for (int ia = 0; ia <= cellsA; ++ia)
+          for (int ic = 0; ic <= cellsC; ++ic)
+            hull[ia][ic] = sub[ia * kSub][ic * kSub] + bulge[ia][ic];
+      }
       int v = 0;
       for (int iz = 0; iz < cellsA; ++iz) {
         for (int ix = 0; ix < cellsC; ++ix) {
@@ -13557,8 +13627,9 @@ void TerrainGame::updateAndRenderLightPools() {
           Vec4 pv[4], ps[4];
           Color pcv[4];
           for (int k2 = 0; k2 < 4; ++k2) {
-            const float py =
-                (onGeometry ? baseY : terrainHeightAt(qx[k2], qz[k2])) + lift;
+            const int hA = iz + ((k2 == 1 || k2 == 2) ? 1 : 0);
+            const int hC = ix + (k2 >= 2 ? 1 : 0);
+            const float py = (onGeometry ? baseY : hull[hA][hC]) + lift;
             // The ST comes from the TRUE surface point: the depth bias must
             // move the patch in z only, never slide the beam across it.
             ps[k2] = goboST(qx[k2], py, qz[k2]);

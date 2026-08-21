@@ -118,7 +118,18 @@ rather than less of one.
   reaches much further than it is wide. What you see is an ellipse that
   stretches as you lower the torch, and a circle when you point it straight down.
 - **Follows the relief.** On terrain, each patch vertex sits on the ground under
-  it, so a pool crossing a ridge bends over it.
+  it, so a pool crossing a ridge bends over it — and it rides the relief's
+  **hull**, not its samples: every cell measures how far the ground bulges
+  above the sheet through its four corners, and the corners are raised by
+  the largest bulge around them, so a chord never dives under a convex
+  slope. Before 1.66.2 the only defence was the lift, which is capped by the
+  torch's height over the landing — negative the moment the beam lands *up* a
+  hill — so a torch aimed uphill had 2 cm of lift over 10-unit chords, and
+  the pool cut off along a dead-straight line across the whole screen (the
+  chord plane meeting the ground plane), the near half dark from a steep
+  slope looking at the flat, the far half dark over a crest. The bulge, not
+  the highest ground within a cell: a canvas raised by a slope's own rise
+  floated at the lens's height and glowed in the sky over the crest.
 - **Lands on what you built.** Placed floors, platforms, walls and props take the
   pool as well as the terrain, so a torch works in a room made of geometry —
   including in a scene with [no terrain at all](terrain.md), which had no pool
@@ -157,6 +168,8 @@ plainly still lit it (reported with screenshots, and the same cliff sat at the
 side of every prop). Aimed level, it had no canvas at all. The lift that keeps
 the canvas above the relief is also capped at half the torch's height over the
 landing: a canvas lifted past the lens is seen from below and covers nothing.
+(Which is why the lift alone cannot keep the canvas above a convex slope —
+the hull above does that, and it owes nothing to the torch's height.)
 
 **The patch reaches as far as the beam does.** The footprint of a beam runs away
 as it flattens — the lower edge of the cone meets a level floor further and

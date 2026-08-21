@@ -16,6 +16,27 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.66.2 (the pool cut off square across the screen when the torch was aimed
+// UPHILL): reported with three screenshots from night-walk - fine at the
+// feet, a dead-straight horizontal line through the pool the moment the
+// player walks up a slope, the near half dark. The canvas follows the relief
+// per VERTEX, and its cells are metres long: on a convex slope (a hill
+// flattening toward its crest) the chord between two vertices dives under the
+// ground and the z test eats it, along the straight line where the chord
+// plane meets the ground plane. The lift was the only defence, and 1.66.0
+// capped it at half the torch's height over the landing - which is NEGATIVE
+// when the beam lands up a hill, so uphill meant 2 cm of lift over 10-unit
+// chords, and at a grazing view 5 cm of dip is half a unit of depth, past
+// the view-ray bias. Every cell now measures the ground's BULGE above the
+// bilinear sheet through its corners and raises the corners by the largest
+// bulge around them, so every chord clears the relief by construction; a
+// planar slope lifts nothing. The first attempt took the plain highest
+// ground within a cell instead and the canvas floated at the lens's height,
+// glowing in the sky over the crest - the bulge is the right quantity.
+// Frozen-camera A/B on night-walk at (12, 74) aimed 1 degree up a hill and
+// at (12, 64) aimed 5 up: a dark band the width of the screen before, the
+// pool fading out to the crest after. ~300 height reads per frame.
+//
 // 1.66.1 (the pool cut off along a straight line as the torch was raised
 // across open ground): reported with two screenshots right after 1.66.0, and
 // it was 1.66.0's own mistake. The cone's lower edge is its STEEP edge, so
@@ -2404,7 +2425,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 66
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
