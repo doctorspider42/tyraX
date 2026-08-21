@@ -32,3 +32,16 @@ bin/*.tmp
 # them next to the sources), so they are artifacts, not source.
 src/gen/livedbg.sym
 src/gen/livelogic.built
+
+# Pictures the running game took of itself, kept by the Debugger's Screen tab
+# (docs/devkit.md). Yours to look at and to throw away.
+screenshots/
+
+# The input recorder's working files (docs/input-replay.md). These are the
+# CHANNEL, not the recordings: a recording you want to keep is saved into
+# recordings/*.tyrarep, which IS tracked on purpose.
+bin/replay.in
+bin/replay.arm
+bin/replay.out
+bin/replay.stop
+bin/replay.st

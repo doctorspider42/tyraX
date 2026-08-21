@@ -794,6 +794,288 @@ void App::drawTimeMachinePanel() {
         "latches.\n\n"
         "NOT put back: sequences mid-play, menus, audio and particles.\n"
         "See docs/time-machine.md.");
+    ImGui::TextDisabled("Rewinding during a replay diverges it");
+    prefHelp(
+        "A recording is a list of INPUTS, not of states - it reproduces a run\n"
+        "by performing it again. Moving the world out from under it makes\n"
+        "every following frame describe a different situation, which the\n"
+        "Replay tab will report as a divergence. That is often exactly what\n"
+        "you want (rewind, patch a graph, watch the fix) - just do not read\n"
+        "the divergence count as a bug afterwards.");
+}
+
+// --- The input recorder -----------------------------------------------------
+// docs/input-replay.md. Almost everything here is about the NEXT run: the
+// mode is staged into the Runner, which prepares bin/ before it launches. The
+// only thing that talks to a running game is replayTick(), which reads the
+// status the game writes.
+
+void App::replayRescan(bool force) {
+    namespace fs = std::filesystem;
+    const double now = ImGui::GetTime();
+    if (!force && now < replayScanAt_) return;
+    replayScanAt_ = now + 1.0;
+    replayFiles_.clear();
+    if (!hasProject_) return;
+    std::error_code ec;
+    const fs::path dir = fs::path(project_.dir) / "recordings";
+    if (!fs::is_directory(dir, ec)) return;
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        if (!e.is_regular_file(ec)) continue;
+        if (e.path().extension() != ".tyrarep") continue;
+        replayFiles_.push_back(e.path().filename().string());
+    }
+    std::sort(replayFiles_.begin(), replayFiles_.end());
+}
+
+void App::replayTick() {
+    namespace fs = std::filesystem;
+    const bool on = hasProject_ && project_.settings.inputRecorder &&
+                    project_.settings.buildProfile == "debug";
+    // Keep the Runner's staging in step with the radio button rather than
+    // setting it at each of the fifteen places a build or a run starts. The
+    // worker only READS it while a launch is in flight and the UI thread only
+    // writes it while the Runner is idle, which is the same contract every
+    // other launch input here has.
+    if (!runner_.busy()) {
+        Runner::ReplayLaunch want;
+        if (on && replayArm_ == ReplayArm::Record) {
+            want.mode = Runner::ReplayLaunch::Record;
+        } else if (on && replayArm_ == ReplayArm::Play && !replayFile_.empty()) {
+            want.mode = Runner::ReplayLaunch::Play;
+            want.file = (fs::path(project_.dir) / "recordings" / replayFile_)
+                            .string();
+        }
+        runner_.replay_ = want;
+    }
+    if (!on) {
+        replayHaveStatus_ = false;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (now < replayNextTick_) return;
+    // The game rewrites replay.st on chunk boundaries - once or twice a second
+    // at the PCSX2 cadence - so reading faster only costs disk hits.
+    replayNextTick_ = now + 0.25;
+    livereplay::Status s;
+    if (!livereplay::readStatus(
+            (fs::path(project_.dir) / "bin" / "replay.st").string(), s))
+        return;  // not running, or a torn write - retry next tick
+    replayStatus_ = s;
+    replayHaveStatus_ = true;
+}
+
+std::string App::replayStopAndSave(const std::string& name) {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return "no project is open";
+    std::string clean = sanitizeAssetName(name);
+    if (clean.empty()) return "give the recording a name first";
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    const fs::path raw = binDir / "replay.out";
+    std::error_code ec;
+    if (!fs::exists(raw, ec))
+        return "there is no recording in bin/ - was this run recorded?";
+
+    // Ask the game to finish cleanly, then give it a moment to write its
+    // terminal chunk. Not waiting is survivable (the parser tolerates a
+    // truncated tail and Save canonicalizes what parsed), so a game that has
+    // already exited costs a short pause and nothing else.
+    {
+        std::ofstream f(binDir / "replay.stop");
+        if (f) f << "stop\n";
+    }
+    const auto sizeOf = [&](const fs::path& p) -> uintmax_t {
+        std::error_code e;
+        const uintmax_t n = fs::file_size(p, e);
+        return e ? 0 : n;
+    };
+    uintmax_t last = sizeOf(raw);
+    for (int i = 0; i < 20; ++i) {  // up to ~2 s
+        platform::sleepMs(100);
+        livereplay::Status s;
+        if (livereplay::readStatus((binDir / "replay.st").string(), s) && s.done)
+            break;
+        const uintmax_t now = sizeOf(raw);
+        if (now == last && i >= 5) break;  // the game is not writing any more
+        last = now;
+    }
+    fs::remove(binDir / "replay.stop", ec);
+
+    const fs::path dest =
+        fs::path(project_.dir) / "recordings" / (clean + ".tyrarep");
+    const std::string err = livereplay::finalize(raw.string(), dest.string());
+    if (!err.empty()) return err;
+    replayRescan(true);
+    replayFile_ = dest.filename().string();
+    return "";
+}
+
+void App::drawReplayPanel() {
+    namespace fs = std::filesystem;
+    if (project_.settings.buildProfile != "debug") {
+        ImGui::TextDisabled(
+            "Recording and replaying need the debug build profile\n"
+            "(Project > Preferences > Build).");
+        return;
+    }
+    if (!project_.settings.inputRecorder) {
+        ImGui::TextDisabled(
+            "The input recorder is off for this project\n"
+            "(Project > Preferences > Build > Input recorder).");
+        return;
+    }
+    replayRescan(false);
+
+    // What the NEXT run does. Staged into the Runner, which prepares bin/
+    // before it launches - so a choice made here needs a Build & Run (F5) or a
+    // Run to take effect, and says so.
+    ImGui::TextDisabled("Next run");
+    int arm = (int)replayArm_;
+    bool changed = ImGui::RadioButton("Live", &arm, 0);
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("Record", &arm, 1);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(replayFiles_.empty());
+    // "Play back", not "Replay": the TAB is called Replay, and an ImGui label
+    // IS its id - two widgets sharing one makes the radio unreachable from
+    // --ui-script (there is no way to say which of the two you meant) and
+    // reads ambiguously to a person as well.
+    changed |= ImGui::RadioButton("Play back", &arm, 2);
+    ImGui::EndDisabled();
+    if (replayFiles_.empty() && ImGui::IsItemHovered())
+        ImGui::SetTooltip("No recordings yet - record a run and Save it.");
+    if (changed) replayArm_ = (ReplayArm)arm;
+
+    if (replayArm_ == ReplayArm::Play) {
+        if (replayFile_.empty() && !replayFiles_.empty())
+            replayFile_ = replayFiles_.front();
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo("##replayfile", replayFile_.c_str())) {
+            for (size_t i = 0; i < replayFiles_.size(); ++i) {
+                const bool sel = replayFiles_[i] == replayFile_;
+                // An explicit id: two recordings can share a display name only
+                // by accident, but a Selectable's LABEL is its id and a
+                // collision breaks the click silently.
+                if (ImGui::Selectable(
+                        (replayFiles_[i] + "##rep" + std::to_string(i)).c_str(),
+                        sel))
+                    replayFile_ = replayFiles_[i];
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Show file")) {
+            platform::revealInFileManager(
+                (fs::path(project_.dir) / "recordings" / replayFile_).string());
+        }
+        // What the file itself says, so a mismatch is visible before the run
+        // rather than as a hundred divergences during it.
+        livereplay::Recording rec;
+        std::string err;
+        if (!replayFile_.empty() &&
+            livereplay::read((fs::path(project_.dir) / "recordings" /
+                              replayFile_).string(), rec, err)) {
+            const float hz = rec.header.frameRate ? (float)rec.header.frameRate
+                                                  : 50.0f;
+            ImGui::TextDisabled("%u frames, %.1f s at %u Hz%s",
+                                (unsigned)rec.frames.size(),
+                                (float)rec.frames.size() / hz,
+                                rec.header.frameRate,
+                                rec.truncated ? " (truncated)" : "");
+            const float projHz =
+                project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+            if ((float)rec.header.frameRate != projHz)
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                                   "This project runs at %.0f Hz - the game "
+                                   "will refuse this recording.",
+                                   projHz);
+            else if (rec.header.layout != project::inputLayoutHash(project_))
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                                   "The project changed since this was "
+                                   "recorded - expect divergences.");
+        } else if (!replayFile_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s",
+                               err.c_str());
+        }
+    }
+    ImGui::TextDisabled("Takes effect on the next Build & Run (F5) or Run.");
+
+    ImGui::Separator();
+
+    // What the RUNNING game is doing, straight out of bin/replay.st.
+    if (!replayHaveStatus_) {
+        ImGui::TextDisabled("The game is not recording or replaying.");
+    } else if (replayStatus_.mode == livereplay::Status::Record) {
+        ImGui::Text("Recording: frame %u", replayStatus_.frame);
+        if (replayStatus_.done) ImGui::TextDisabled("(stopped)");
+    } else if (replayStatus_.mode == livereplay::Status::Replay) {
+        if (replayStatus_.done)
+            ImGui::Text("Replay finished: %u frames, %u divergence(s)",
+                        replayStatus_.frame, replayStatus_.divergences);
+        else
+            ImGui::Text("Replay: %u / %u", replayStatus_.frame,
+                        replayStatus_.total);
+        if (replayStatus_.divergences)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                               "Diverged at frame %u (%u frame(s) differ)",
+                               replayStatus_.firstDivergent,
+                               replayStatus_.divergences);
+        else if (replayStatus_.done)
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.5f, 1.0f),
+                               "Reproduced exactly.");
+    } else {
+        ImGui::TextDisabled("The game is not recording or replaying.");
+    }
+
+    ImGui::Separator();
+
+    // Saving is what turns bin/replay.out - a raw, possibly half-written
+    // append log - into a canonical file worth committing.
+    ImGui::SetNextItemWidth(scaled(200));
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "%s", replaySaveName_.c_str());
+    if (ImGui::InputTextWithHint("##repname", "recording name", buf,
+                                 sizeof(buf)))
+        replaySaveName_ = buf;
+    ImGui::SameLine();
+    const bool haveRaw = hasProject_ &&
+                         fs::exists(fs::path(project_.dir) / "bin" / "replay.out");
+    ImGui::BeginDisabled(!haveRaw || replaySaveName_.empty());
+    if (ImGui::Button("Save recording")) {
+        const std::string err = replayStopAndSave(replaySaveName_);
+        replayMsg_ = err.empty()
+                         ? "Saved recordings/" + replayFile_
+                         : "Save failed: " + err;
+    }
+    ImGui::EndDisabled();
+    if (!haveRaw && ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Nothing to save: bin/replay.out does not exist, so this run was\n"
+            "not recorded. Pick Record above and run again.");
+    if (ImGui::IsItemHovered() && haveRaw)
+        ImGui::SetTooltip(
+            "Asks the game to finish the recording, then writes it into the\n"
+            "project's recordings/ folder - whole chunks, a frame count and a\n"
+            "clean end. A recording killed with the emulator still saves: the\n"
+            "unfinished tail is dropped and everything before it is kept.");
+
+    if (!replayMsg_.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", replayMsg_.c_str());
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("What a replay reproduces");
+    prefHelp(
+        "Both pads (buttons, click edges and stick axes), the USB keyboard\n"
+        "and mouse, the frame time, and the seed of every runtime procedural\n"
+        "volume. That is everything the game's own behaviour depends on, so\n"
+        "the run repeats itself.\n\n"
+        "NOT reproduced: memory-card saves (PCSX2 keeps its card between\n"
+        "runs) and anything you change while it plays - a rewind, a Live\n"
+        "Logic patch or a Live Link edit all move the world out from under\n"
+        "the recording on purpose. See docs/input-replay.md.");
 }
 
 void App::livedbgTick() {
@@ -1821,6 +2103,13 @@ void App::drawDebuggerWindow() {
     // the state it was in on frame N (docs/time-machine.md).
     if (ImGui::BeginTabItem("Rewind")) {
         drawTimeMachinePanel();
+        ImGui::EndTabItem();
+    }
+
+    // Replay: the other axis again. Rewind moves the world back; this makes
+    // the game DO the same thing again from the boot (docs/input-replay.md).
+    if (ImGui::BeginTabItem("Replay")) {
+        drawReplayPanel();
         ImGui::EndTabItem();
     }
 

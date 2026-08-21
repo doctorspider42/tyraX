@@ -63,6 +63,24 @@ public:
     // build just finds warm objects.
     void cancel();
 
+    // What the NEXT launch should do about the input recorder
+    // (docs/input-replay.md). Set it before buildAndRun/runEmulatorOnly and
+    // the worker consumes it - and CLEARS it - as part of preparing bin/, so a
+    // record run is never accidentally repeated by the next plain F5.
+    //
+    // It lives here rather than on Project because it is not project data: it
+    // is a property of one launch, like the rebuild flag.
+    struct ReplayLaunch {
+        enum Mode { None, Record, Play } mode = None;
+        std::string file;  // Play: absolute path of the .tyrarep to perform
+        // Delete the host-side save files first. A recording that starts from
+        // a fresh boot replays into whatever save state happens to be on disk
+        // otherwise, and "the run diverges because the game remembered
+        // something" is the hardest divergence to read.
+        bool clearSaves = false;
+    };
+    ReplayLaunch replay_;
+
     State state() const { return state_.load(); }
     bool busy() const { return state_.load() == State::Running; }
     // True while the ps2client file server from the last PS2 deploy is alive
@@ -92,6 +110,13 @@ private:
     // Runs a command through the platform shell in `cwd`, streams output to
     // log. Returns process exit code, or -1 on spawn failure.
     int exec(const std::string& cmdline, const std::string& cwd);
+    // Prepares bin/ for the input recorder (docs/input-replay.md) and CONSUMES
+    // replay_. Order matters and is the same on both transports: clear every
+    // channel file first (a leftover replay.in would make the fresh boot
+    // perform the last session's run), then stage what this launch asked for.
+    // Worker-side, like everything else it sits between; the UI thread only
+    // writes replay_ while the Runner is idle.
+    void stageReplayChannel(const std::string& binDir);
     bool launchPCSX2(const Project& p);
     bool deployToPs2(const Project& p);
     void killPs2Client();

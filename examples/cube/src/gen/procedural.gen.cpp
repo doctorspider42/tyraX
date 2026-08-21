@@ -112,7 +112,7 @@ float remap01(float v, float lo, float hi) {
 
 void clearPt(Pt& p) {
   p.x = p.y = p.z = 0.0F; p.rx = p.ry = p.rz = 0.0F; p.sc = 1.0F;
-  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63;
+  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63; p.block = 0;
   for (int i = 0; i < PROC_ATTR_SLOTS; ++i) p.a[i] = 0.0F;
 }
 // Volume local -> world, the twin of procgen's Volume::localToWorld.
