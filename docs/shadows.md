@@ -136,6 +136,26 @@ one you get depend on where the camera happens to be.
   nothing whose *Dynamic shadow* is **None** — that setting now keeps an object
   out of the volumes too, for both lights.
 
+### In the editor
+
+The viewport previews the carve in **Solid** shading (the default): the spot
+that would hold the slot in the game — the nearest to the editor camera among
+the dynamic spots that resolve to "on" — shadows through the same casters the
+game's `pickVolCasters` would pick (everything solid in its cone, nearest four
+to the light, nothing grouping-cell sized, nothing whose *Dynamic shadow* is
+None), while every other dynamic light keeps the older preview rule (its
+nearest four *Cast shadow (projected)* objects). Two honest differences: the
+preview's shadow is the analytic box or sphere the AO occluders use, where the
+console extrudes a model's real triangles, so a tree throws a box; and there
+is no hysteresis — an editor camera does not drift between two lamps frame to
+frame. The same change uploads the occluders whenever a dynamic light is in
+the scene, not only with ambient occlusion on (the lamp-shadow preview was
+silently off without AO), and lets the ground take point and spot light with
+GI *off* — the terrain's "never probe-lit" flag used to read as "lit by GI"
+and skipped every lamp. **PS2 shading** is unchanged: the terrain is shaded
+flat per cell there, so a per-pixel cone comes out as cells, and a spot's
+gobo pool is not drawn in that mode ([ps2-viewport.md](ps2-viewport.md)).
+
 ### What it costs
 
 **No extra VRAM next to the flashlight.** The torch and the frame's active spot

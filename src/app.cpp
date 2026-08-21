@@ -13528,6 +13528,7 @@ void App::applyProjectToViewport() {
                                 player->flashlightAngle);
     else
         viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
+    viewport_.setSpotShadowVolumes(project_.settings.spotShadowVolumes);
 }
 
 void App::drawTerrainWindow() {

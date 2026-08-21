@@ -16,6 +16,36 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.68.0 (a spot light's carved shadow previews in the viewport): the
+// viewport already shadowed every dynamic light per pixel through the
+// analytic box/sphere occluders (the AO shapes), hard-edged and quantized to
+// the silhouette's coarseness - so the whole change is in WHICH casters and
+// WHICH light. The spot that would hold the game's slot (nearest to the
+// camera among the dynamic spots resolving to "on" - the light's override,
+// or the project switch when it says follow) picks its casters the way the
+// game's pickVolCasters does: everything solid in the cone, nearest four to
+// the light, nothing grouping-cell sized, nothing whose Dynamic shadow is
+// None. Every other light keeps its nearest-four Cast-shadow-projected rule.
+// No hysteresis - an editor camera does not drift between lamps.
+//
+// Two preview holes surfaced on the way and are closed here. The occluders
+// were uploaded only with ambient occlusion on (or an emissive light in the
+// scene), so with AO off every lamp previewed shadowless; a dynamic light in
+// the scene uploads them now. And the terrain's "never probe-lit" flag set
+// giHere, which the per-pixel path reads as "the baked answer has the lights
+// already" - true with GI on, and with GI OFF it meant the ground took no
+// point or spot light at all (a lamp over a field previewed as darkness while
+// the console drew its pool). giHere now follows uGiOn there.
+//
+// Tried and reverted: giving the slot spot a per-pixel cone with the same
+// shadow test in PS2 shading. The terrain is shaded flat per cell in that
+// mode (as the console shades it), so the cone came out as metre-wide
+// tiles - worse than the mode's honest "a spot's gobo pool is not drawn".
+// A/B on the spotvol fixture through --ui-script `shot`: the switch on
+// carves the caster's shadow under the lamp holding the slot and leaves the
+// other lamp's caster alone; off draws both pools whole; Solid shading is
+// byte-identical before and after the PS2-mode revert.
+//
 // 1.67.0 (a scene's spot lights carve their own shadows): the setting, the
 // per-light override, the codegen AND the runtime that draws them. The
 // torch has carved real per-pixel occlusion since 1.62.0
@@ -2611,7 +2641,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 67
+#define TYRAX_VERSION_MINOR 68
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
