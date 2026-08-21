@@ -16,6 +16,72 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.67.0 (in progress): spot-light shadow volumes - data model, format, UI,
+// codegen. The torch has carved real per-pixel occlusion since 1.62.0
+// (docs/flashlight.md, "The shadow") and the scene's own spot lights have
+// not: a street lamp bolted to a wall lit the wall and the alley behind it
+// equally, and the flashlight tooltip said so in as many words - "scene
+// lights are not affected: they cast through the four projected-shadow slots
+// in both modes and never use volumes". The slots are the wrong instrument
+// for a lamp with a cone: four for every light in the scene TOGETHER, each
+// caster needing its own flag, and the leak everywhere a flag is missing.
+// This is the switch that hands a spot the machinery the torch already has.
+//
+// Two settings, because the answer is not the same for every lamp in a
+// project. ProjectSettings::spotShadowVolumes is the project-wide default,
+// false - which is precisely what every existing file did. SceneObject::
+// lightShadowVolumes is the per-light override, and it is deliberately the
+// shadowMode idiom rather than a bool: 0 = follow the project, 1 = off,
+// 2 = on. A tri-state costs nothing on disk (both keys are written only when
+// they are not their default) and it is what makes the interesting cases
+// sayable in one combo - "this lamp, in a project that leaves the rest
+// alone", and "every lamp but this one".
+//
+// The reason a per-light override is not a luxury is the COUNT BAND. Volumes
+// are counted in a dedicated GS buffer (1.62.1 has the format story), there
+// is ONE of it, and a bracket is per light per frame - so a scene can hold
+// more shadow-casting spots than a frame can serve, and only one of them is
+// active at a time (the nearest to the camera). A project with six lamps
+// therefore costs what one lamp costs, and which one it is, is an authoring
+// question. Setting 2 on the lamp that matters is the answer to it; the
+// combo's tooltip and docs/shadows.md both say so, because a feature whose
+// selection rule is invisible reads as a feature that half works.
+//
+// What it costs in VRAM is nothing that was not already spent: the band is
+// the SAME buffer the torch's volumes count into. So the boot allocation is
+// `(FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED) || SPOT_SHADOW_VOLUMES_USED`
+// rather than a second allocateCount, project::textureHeapEstimate charges
+// the band once for the pair (its "without" arm clears BOTH switches, or a
+// project with the torch off and spots on would report a 0 KB band), and the
+// Preferences warning is shown for either user, once, worded for the pair.
+//
+// SPOT_SHADOW_VOLUMES_USED is RESOLVED rather than read off the project
+// switch, and that is the load-bearing half of the codegen: the two disagree
+// in both directions. A light with the override ON in a project with the
+// setting OFF still needs the band; a project with the setting ON but no spot
+// light anywhere must not allocate one. So it is "any scene holds a spot light
+// for which lightShadowVolumes == 2 || (lightShadowVolumes == 0 &&
+// spotShadowVolumes)" - the PROJ_SHADOWS_USED / FLASHLIGHT_USED discipline,
+// which is what keeps a project that uses none of this paying for none of it.
+//
+// The per-light field rides in liveLinkRecipeHash and NOT in the streaming
+// record, which is the honest reading of what it is rather than an omission.
+// A light's brightness, radius, flicker and spot angle stream (livelink v4)
+// because the game reads them out of object data every frame; whether the
+// light carves volumes decides what the BOOT path allocates and which spot
+// the frame counts into the band, so an edit of it is a rebuild. The record
+// is also full - 16 floats, v[15] is the spot angle - so carrying it would
+// have meant a stride bump for a value that must not be live anyway.
+//
+// The runtime is the sibling change and lands in this same release; this half
+// is the contract it builds on. Verified: the editor builds clean; a scratch
+// project round-trips both keys through --resave (and a project carrying
+// neither resaves md5-identical, so no existing project's manifest moves); a
+// formatVersion 35 file still opens; --refresh-gen emits SPOT_SHADOW_VOLUMES,
+// SPOT_SHADOW_VOLUMES_USED, the struct field and the table column, and flips
+// USED to false when the light's override says off; and both new widgets were
+// driven by name with --ui-script.
+
 // 1.66.3 (the pool still cut off along a straight line when the torch was
 // aimed FAR, flat ground included): 1.66.2's hull was real but not the
 // report. Logged from the game and projected with the view-proj, the cut's
@@ -2749,7 +2815,18 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // otherwise, so an untouched project resaves byte for byte and an older editor
 // reading a newer file simply falls back to the flag it already knows. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 35;
+// v36 (spot-light shadow volumes, docs/shadows.md "Spot-light shadow
+// volumes"): ProjectSettings::spotShadowVolumes - the project-wide switch that
+// lets a placed SPOT light carve its own occlusion the way the torch already
+// can - plus "shadowVolumes" on a light object's light block, the per-light
+// override (SceneObject::lightShadowVolumes: 0 = follow the project, 1 = off,
+// 2 = on - the shadowMode idiom). The setting is written only when true and
+// the per-light key only when it is not 0, so a project that touches neither
+// resaves byte for byte; both defaults reproduce exactly what every earlier
+// file did, which is spot lights taking no part in the volume machinery at
+// all. An older editor reading a newer file drops two keys whose absence is
+// the old behaviour. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 36;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

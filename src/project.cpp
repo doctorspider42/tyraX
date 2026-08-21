@@ -202,8 +202,12 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // than re-deriving codegen's FLASHLIGHT_USED predicate: erring toward
     // two buffers is the safe direction (the engine's own refusal is
     // graceful either way - the volumes fall back to sub-boxes).
+    // ONE band serves both: the torch and the frame's active spot light count
+    // into the same buffer, so a project with both on allocates it once and
+    // this must not charge it twice.
     int countWords = 0;
-    if (s.flashShadowVolumes) countWords = pageUp((w * h + 1) / 2);
+    if (s.flashShadowVolumes || s.spotShadowVolumes)
+        countWords = pageUp((w * h + 1) / 2);
 
     TripleBufferFit f;
     f.bufferWords = bufferWords;
@@ -231,7 +235,11 @@ TextureHeapEstimate textureHeapEstimate(const Project& p,
     // this project is not asking for one.
     const TripleBufferFit on = tripleBufferingFit(p, s, bootDisplayMode(s));
     ProjectSettings off = s;
+    // Both users of the band go off together - countBandKb is the cost of the
+    // BAND, and clearing only one of them would report 0 for a project that
+    // has the other on.
     off.flashShadowVolumes = false;
+    off.spotShadowVolumes = false;
     const TripleBufferFit noVol = tripleBufferingFit(p, off, bootDisplayMode(s));
     // What the fit reserves for post fx, the optional targets and the shadow
     // slots is real and not available to textures either; leftWords already
@@ -875,6 +883,13 @@ std::string objectJson(const SceneObject& o) {
                 (o.lightSpot ? ", \"spot\": true, \"spotAngle\": " +
                                    fmtFloat(o.lightSpotAngle)
                              : std::string()) +
+                // Per-light shadow-volume override, written only when it is
+                // not "follow the project" - so a project that never touches
+                // the setting resaves byte for byte (the shadowMode idiom).
+                (o.lightShadowVolumes != 0
+                     ? ", \"shadowVolumes\": " +
+                           std::to_string(o.lightShadowVolumes)
+                     : std::string()) +
                 ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
@@ -1594,6 +1609,9 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
+                 : "")
+         << (p.settings.spotShadowVolumes
+                 ? "    \"spotShadowVolumes\": true,\n"
                  : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
@@ -4862,6 +4880,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightSpotAngle = (float)v->numberOr(25.0);
             if (o.lightSpotAngle < 5.0f) o.lightSpotAngle = 5.0f;
             if (o.lightSpotAngle > 60.0f) o.lightSpotAngle = 60.0f;
+            if (const auto* v = lt->find("shadowVolumes")) {
+                const int m = (int)v->numberOr(0.0);
+                if (m >= 0 && m <= 2) o.lightShadowVolumes = m;
+            }
             if (const auto* v = lt->find("beam"))
                 o.lightBeam = (int)v->numberOr(0.0);
             if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
@@ -5209,6 +5231,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("spotShadowVolumes"))
+            st.spotShadowVolumes = v->boolOr(false);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -7057,6 +7081,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         }
         fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f);
         fnvMixF(h, o.lightSpot ? 1.0f : 0.0f);
+        // The per-light shadow-volume override is a BUILD-time statement like
+        // the spot style beside it: whether the light carves volumes decides
+        // what the boot path allocates (the count band) and which spot the
+        // frame counts into it, and the streaming record is full at 16 floats
+        // with no slot to carry it. So an edit of it flips the chip amber and
+        // asks for a rebuild rather than pretending to be live.
+        fnvMixF(h, (float)o.lightShadowVolumes);
         fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were

@@ -131,7 +131,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
 - **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
-  silhouette, chosen per object; the cheap one works on a static prop too.
+  silhouette, chosen per object; the cheap one works on a static prop too. A
+  scene's spot lights can carve per-pixel shadow volumes of their own, so a
+  street lamp stops lighting the alley behind the wall it hangs on.
 - **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
   lands on walls and props, an offset that takes the light out of the
   player's eye, where it could only ever cast shadows nobody can see, and

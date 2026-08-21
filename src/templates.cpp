@@ -542,6 +542,14 @@ constexpr float TERRAIN_LOD_DISTANCE = {{TERRAIN_LOD_DISTANCE}};
 // destination-alpha mask; primitives extrude their boxes.
 constexpr int FLASH_SHADOW_VOLUMES = {{FLASH_SHADOW_VOLUMES}};
 
+// The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+// "Spot-light shadow volumes"). This is the project-wide DEFAULT; a light can
+// say otherwise on itself through SceneObjectData::lightShadowVolumes, and
+// SPOT_SHADOW_VOLUMES_USED in scene_data.hpp is what the two resolve to for
+// the project as a whole. Only ONE spot casts volumes per frame - the count
+// band is a single buffer, shared with the torch's.
+constexpr int SPOT_SHADOW_VOLUMES = {{SPOT_SHADOW_VOLUMES}};
+
 constexpr float EYE_HEIGHT = {{EYE_HEIGHT}};
 constexpr float WALK_SPEED = {{WALK_SPEED}};
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is
@@ -6888,8 +6896,10 @@ void TerrainGame::buildScene() {
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
     // Shadow volumes: the counting target, same discipline. Refusal is
-    // graceful - the volumes fall back to the convex 1-bit path.
-    if (FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED)
+    // graceful - the volumes fall back to the convex 1-bit path. ONE band
+    // serves the torch and the frame's active spot light alike, so either
+    // user asking is enough and neither allocates a second one.
+    if ((FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED) || SPOT_SHADOW_VOLUMES_USED)
       engine->renderer.core.alphaMask.allocateCount();
 
     // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
@@ -24355,6 +24365,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         << floatLit(o.lightBright) << ", " << floatLit(o.lightRadius) << ", "
         << (o.lightDynamic ? 1 : 0) << ", " << floatLit(o.lightFlicker) << ", "
         << (o.lightSpot ? 1 : 0) << ", " << floatLit(o.lightSpotAngle) << ", "
+        << o.lightShadowVolumes << ", "
         << o.lightBeam << ", " << (o.saveState ? 1 : 0) << ", "
         << o.collisionMode << ", " << floatLit(o.drawDistance) << ", "
         << (o.reflected ? 1 : 0) << ", " << (o.projShadow ? 1 : 0) << ", "
@@ -25353,6 +25364,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
            "  float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble\n"
            "  int lightSpot;     // dynamic lights: 1 = cone down local -Y\n"
            "  float lightSpotAngle; // spot lights: cone half-angle, degrees\n"
+           "  int lightShadowVolumes; // spot lights: does this one carve\n"
+           "                     // shadow volumes? 0 = follow the project\n"
+           "                     // (SPOT_SHADOW_VOLUMES), 1 = off, 2 = on.\n"
+           "                     // Only one spot casts per frame - the count\n"
+           "                     // band is one buffer (docs/shadows.md)\n"
            "  int lightBeam;     // point lights: 0 none, 1 glow corona,\n"
            "                     // 2 corona + cone shaft (additive, at the source)\n"
            "  int saveState;  // 1 = position/color/visibility persisted in saves\n"
@@ -27203,6 +27219,28 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                        (o.shadowMode == 0 && o.projShadow);
         out << "constexpr int PROJ_SHADOWS_USED = " << (any ? 1 : 0) << ";\n";
     }
+    // Spot-light shadow volumes (docs/shadows.md): does ANY scene hold a spot
+    // light that resolves to casting them - either because it says so on
+    // itself (2) or because it follows a project that has the setting on? This
+    // is what makes the boot path claim the count band, exactly like
+    // PROJ_SHADOWS_USED gates the shadow-map slots, so a project whose lights
+    // all resolve to "off" pays nothing at all.
+    //
+    // Resolved rather than read off the project switch, because the two
+    // disagree in both directions: a light with the override ON in a project
+    // with the setting OFF still needs the band, and a project with the
+    // setting on but no spot light anywhere must not allocate it.
+    {
+        bool any = false;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                any |= o.lightSpot &&
+                       (o.lightShadowVolumes == 2 ||
+                        (o.lightShadowVolumes == 0 &&
+                         p.settings.spotShadowVolumes));
+        out << "constexpr bool SPOT_SHADOW_VOLUMES_USED = "
+            << (any ? "true" : "false") << ";\n";
+    }
     sceneInts("POSTFX_DOFS", [&](int si) { return fx128(rs[si].dofAmount); });
     sceneFloats("POSTFX_DOF_FOCUSES",
                 [&](int si) { return floatLit(rs[si].dofFocus); });
@@ -28494,6 +28532,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{TERRAIN_LOD_DISTANCE}}", floatLit(st.terrainLodDistance));
     s = replaceAll(s, "{{FLASH_SHADOW_VOLUMES}}",
                    st.flashShadowVolumes ? "1" : "0");
+    s = replaceAll(s, "{{SPOT_SHADOW_VOLUMES}}",
+                   st.spotShadowVolumes ? "1" : "0");
     s = replaceAll(s, "{{SHADOW_MESH_MAX_TRIS}}",
                    std::to_string(meshlod::kShadowProxyMaxTris));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));

@@ -1690,6 +1690,35 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
                                  5.0f, 60.0f, "%.0f deg");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                // Whether this cone carves shadow volumes, said on the light
+                // rather than for the whole project - the "Dynamic shadow"
+                // idiom further up this panel. A real label, not a "##id":
+                // a hidden label is a widget no UI script can name
+                // (docs/ui-scripting.md). The name does not collide with
+                // "Dynamic shadow" above, and there is no other "Shadow
+                // volumes" widget in this window - a label IS the ImGui id.
+                const char* volNames[] = {"Default (follow the project)",
+                                          "Off", "On"};
+                int vol = o.lightShadowVolumes;
+                if (vol < 0 || vol > 2) vol = 0;
+                if (ImGui::Combo("Shadow volumes", &vol, volNames, 3)) {
+                    o.lightShadowVolumes = vol;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Whether this spot light's cone is occluded per pixel\n"
+                        "by the solids inside it, the way the player's torch\n"
+                        "can be (docs/shadows.md).\n"
+                        "DEFAULT - the project decides (Preferences >\n"
+                        "Rendering > Spot light shadow volumes).\n"
+                        "OFF - this lamp shines through everything, whatever\n"
+                        "the project says.\n"
+                        "ON - this lamp casts, even in a project that leaves\n"
+                        "the rest of them off.\n"
+                        "Only ONE spot light casts volumes per frame - the\n"
+                        "nearest to the camera. Setting this to On is how you\n"
+                        "say which lamp deserves it. Game-only (no preview).");
             }
         }
         if (o.lightDynamic) {

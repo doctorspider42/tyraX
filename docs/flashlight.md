@@ -81,10 +81,12 @@ pool patch takes the gobo's projective STQ from the LIGHT's own frustum
 instead of the round corona, so a lamp's pool is shaped per pixel however
 coarse the ground is. It follows *Set Light*, flicker and Move Object like
 any dynamic light, and pairs naturally with the visible beam (*Beam: corona*)
-- night-walk's street lamp is the demo. Spot lights do not take part in the
-torch's shadow machinery: no receivers, no volumes - one torch is the
-per-pixel protagonist, a scene spot is set dressing that finally lights its
-own street.
+- night-walk's street lamp is the demo. A spot light takes no part in the
+torch's RECEIVER machinery - one torch is the per-pixel protagonist there -
+but since 1.67.0 it can carve **shadow volumes** of its own, the same
+technique "The shadow" below describes, switched on project-wide or per lamp
+and limited to one casting spot per frame: see [shadows.md](shadows.md),
+"Spot-light shadow volumes".
 
 The corona itself is a depth-tested additive billboard, and two details keep
 it clean on the fixture that carries it. It is drawn **pulled toward the

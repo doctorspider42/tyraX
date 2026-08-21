@@ -614,6 +614,17 @@ struct SceneObject {
     // frustum (docs/flashlight.md, "A scene light with the same trick").
     bool lightSpot = false;
     float lightSpotAngle = 25.0f;  // cone half-angle, degrees
+    // Whether THIS spot light carves shadow volumes (docs/shadows.md,
+    // "Spot-light shadow volumes"), said on the light rather than for the
+    // whole project - the SceneObject::shadowMode idiom: 0 = follow the
+    // project (ProjectSettings::spotShadowVolumes), which is what every file
+    // written before this key meant; 1 = off; 2 = on. Only read while
+    // `lightSpot` is set - a point light has no cone to carve.
+    //
+    // A scene may hold more shadow-casting spots than the count band can
+    // serve, so only ONE is active per frame (the nearest to the camera).
+    // Setting 2 on the lamp that matters is how you say which.
+    int lightShadowVolumes = 0;
     // Visible beam drawn at the light source (additive, follows the light's
     // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
     // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
@@ -1029,6 +1040,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightSpot == b.lightSpot && a.lightSpotAngle == b.lightSpotAngle &&
+           a.lightShadowVolumes == b.lightShadowVolumes &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
@@ -1383,6 +1395,18 @@ struct ProjectSettings {
     // the real z buffer, for EVERY solid in the beam, no caster flag needed.
     // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
     bool flashShadowVolumes = false;
+    // The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+    // "Spot-light shadow volumes"): a placed light with `lightSpot` on carves
+    // its own occlusion instead of leaving the street lamp shining through the
+    // wall beside it. Project-wide default; a light overrides it on itself
+    // through SceneObject::lightShadowVolumes. false is what every earlier
+    // file did - spot lights took no part in the volume machinery at all.
+    //
+    // The count band it needs is the SAME buffer the torch's volumes use (one
+    // per frame, whoever is counting into it), so switching this on next to
+    // the flashlight costs no second allocation - which is why
+    // textureHeapEstimate charges the band once for the pair.
+    bool spotShadowVolumes = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
@@ -1737,6 +1761,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
+           a.spotShadowVolumes == b.spotShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
            a.eyeHeight == b.eyeHeight &&

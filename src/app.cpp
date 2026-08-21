@@ -14675,6 +14675,40 @@ void App::drawPreferencesWindow() {
             "(docs/shadows.md).");
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
+    // The help marker belongs to the checkbox it FOLLOWS - it used to sit
+    // below the VRAM warning, so on a tight project it chained onto the amber
+    // line instead and the checkbox had none.
+    prefHelp(
+        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md).\n"
+        "Point lights are not affected either way; SPOT lights have their own\n"
+        "switch below (docs/shadows.md).\n"
+        "OFF - the torch shares the projected-shadow slots: mesh-accurate\n"
+        "silhouettes, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four casters for every light together, and light leaks through\n"
+        "everything else.\n"
+        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
+        "every solid in the beam occludes, exactly per pixel against the real\n"
+        "depth buffer - model casters from their REAL triangles (silhouette-\n"
+        "extruded, counted in a dedicated GS buffer), primitives from their\n"
+        "boxes - and the four slots are left to the scene's lights. Costs the\n"
+        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
+        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
+        "pixel format).");
+    ImGui::Checkbox("Spot light shadow volumes",
+                    &prefSettings_.spotShadowVolumes);
+    prefHelp(
+        "The same technique for the scene's SPOT LIGHTS (docs/shadows.md) -\n"
+        "a placed light with 'Spot (cone)' on. Without it a street lamp lights\n"
+        "the wall it is bolted to and the alley behind it alike; with it the\n"
+        "cone is occluded per pixel like the torch's, for every solid in it.\n"
+        "This is the project-wide DEFAULT - a light can say otherwise on\n"
+        "itself in Properties > Point light > Shadow volumes.\n"
+        "ONE spot light casts volumes per frame - the one nearest the camera.\n"
+        "The count bracket is per light per frame, so a room full of lamps\n"
+        "costs what a single one does; which lamp it is, is what the\n"
+        "per-light override is for.\n"
+        "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
+        "band, so a project with either one on has already paid for it.");
     // WHAT IT COSTS, in the currency that actually runs out. The count band is
     // 512 KB at 32-bit colour and a 512x512 project has about that much
     // texture heap in the first place, so switching this on can take the last
@@ -14682,7 +14716,10 @@ void App::drawPreferencesWindow() {
     // the scene evicting and re-uploading once a frame. Measured on the scene
     // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
     // ~1.6 re-uploads per frame with them on.
-    if (prefSettings_.flashShadowVolumes) {
+    //
+    // Shown for EITHER user of the band, and only once: the two share one
+    // buffer, so the warning is about the pair rather than about the torch.
+    if (prefSettings_.flashShadowVolumes || prefSettings_.spotShadowVolumes) {
         // The DIFFERENCE is exact (it is one buffer, sized by the same
         // arithmetic the engine uses); the absolute headroom is not - the
         // model reads ~256 KB high against what a running game reports,
@@ -14697,21 +14734,6 @@ void App::drawPreferencesWindow() {
                 "  Takes a %d KB count band - little texture VRAM left here",
                 heap.countBandKb);
     }
-    prefHelp(
-        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md). Scene\n"
-        "lights - point and spot - are not affected: they cast through the\n"
-        "four projected-shadow slots in both modes and never use volumes.\n"
-        "OFF - the torch shares those slots: mesh-accurate silhouettes, but\n"
-        "only for objects with 'Cast shadow (projected)', at most four casters\n"
-        "for every light together, and light leaks through everything else.\n"
-        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
-        "every solid in the beam occludes, exactly per pixel against the real\n"
-        "depth buffer - model casters from their REAL triangles (silhouette-\n"
-        "extruded, counted in a dedicated GS buffer), primitives from their\n"
-        "boxes - and the four slots are left to the scene's lights. Costs the\n"
-        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
-        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
-        "pixel format).");
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
