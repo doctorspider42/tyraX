@@ -5631,6 +5631,30 @@ void renderFrame(Engine* engine, int sceneIdx, float fraction) {
 }
 }  // namespace loadingscreen
 
+// Where the torch is HELD, relative to the eye. A first-person flashlight
+// normally sits exactly in the eye, and a light on the view axis lights
+// precisely the surfaces it hides: its shadows fall behind their casters and
+// only a rim ever reaches the screen (docs/flashlight.md, "Off the eye").
+// Moving it right and down gives the beam a hand.
+//
+// The offset is taken in the BEAM's own frame, never the world's: right is
+// the beam crossed with world up, and "down" is the beam's own up negated, so
+// the light never slides ALONG the beam - which would change its reach and
+// could drop it past a caster, where a shadow volume points back at the eye.
+// Looking straight up or down leaves "right" undefined; there the offset
+// direction has stopped meaning anything, so the eye is returned unchanged.
+static Vec4 flashHeldOrigin(const Vec4& eye, float dx, float dy, float dz,
+                            float offRight, float offDown) {
+  if (offRight == 0.0F && offDown == 0.0F) return eye;
+  const float hl = sqrtf(dx * dx + dz * dz);
+  if (hl < 0.001F) return eye;
+  const float rx = -dz / hl, rz = dx / hl;          // right, unit, horizontal
+  const float ux = -dx * dy / hl, uy = hl, uz = -dz * dy / hl;  // beam up
+  return Vec4(eye.x + rx * offRight - ux * offDown,
+              eye.y - uy * offDown,
+              eye.z + rz * offRight - uz * offDown, 1.0F);
+}
+
 }  // namespace
 )";
 
@@ -6161,9 +6185,20 @@ void TerrainGame::loop() {
     // as a bag of bright shards. A wide, gentle ramp spreads the same change
     // over enough geometry that the interpolation stops being visible. It costs
     // a fuzzier beam edge, which is what a torch beam has anyway.
+    // The cone comes from where the torch is HELD, like the pool and the
+    // shadows - one light, one origin, or the fill would disagree with the
+    // beam it is filling in.
+    const float sdl = sqrtf(flashDir.x * flashDir.x + flashDir.y * flashDir.y +
+                            flashDir.z * flashDir.z);
+    const Vec4 spotPos =
+        sdl < 0.0001F
+            ? cameraPosition
+            : flashHeldOrigin(cameraPosition, flashDir.x / sdl,
+                              flashDir.y / sdl, flashDir.z / sdl,
+                              FLASHLIGHT_OFF_RIGHT, FLASHLIGHT_OFF_DOWN);
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R * 0.7F, FLASHLIGHT_G * 0.7F, FLASHLIGHT_B * 0.7F),
-        cameraPosition, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
+        spotPos, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
   } else {
     engine->renderer.core.disableSpotLight();
   }
@@ -12441,27 +12476,39 @@ void TerrainGame::updateAndRenderLightPools() {
       const float dl = sqrtf(dx * dx + dy * dy + dz * dz);
       if (dl < 0.0001F) continue;
       dx /= dl, dy /= dl, dz /= dl;
+      // WHERE THE TORCH IS HELD. Everything below - the projection that
+      // shapes the pool, the receivers, the march that lands it, and the
+      // shadow volumes - takes its origin from `torch` rather than from the
+      // eye, so a project can move the light off the view axis and give the
+      // beam a hand. FLASHLIGHT_OFF_RIGHT / _DOWN of 0 return the eye
+      // exactly, which is what every project did before this existed. The
+      // AIM stays the view direction (dx,dy,dz above): a torch is pointed
+      // where you look, and a converged aim would swing the pool about
+      // whenever a receiver changed distance.
+      const Vec4 torch =
+          flashHeldOrigin(cameraPosition, dx, dy, dz, FLASHLIGHT_OFF_RIGHT,
+                          FLASHLIGHT_OFF_DOWN);
       // What the beam can land on, collected ONCE for the whole march (the
       // point-light dcache lesson - never scan the object table per step).
       // yMax is the EYE: a wall taller than the player is not a floor, and
       // admitting one as a receiver would put a bright ellipse on top of it.
       // Excluded, the beam runs past it to the ground behind, where the patch's
       // z test hides it - exactly what the old terrain-only march did.
-      projCollectReceivers(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
-                           cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+      projCollectReceivers(torch.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                           torch.z + dz * FLASHLIGHT_RANGE * 0.5F,
                            FLASHLIGHT_RANGE * 0.5F + 2.0F, cameraPosition.y);
       // A WALL first, because a beam meets one before it meets the ground
       // behind it. Exact slab intersection against the solid boxes in reach -
       // vertical faces only; a box's TOP is a floor and the ground path below
       // already finds it through projSurfaceAt.
-      projCollectBoxes(cameraPosition.x + dx * FLASHLIGHT_RANGE * 0.5F,
-                       cameraPosition.z + dz * FLASHLIGHT_RANGE * 0.5F,
+      projCollectBoxes(torch.x + dx * FLASHLIGHT_RANGE * 0.5F,
+                       torch.z + dz * FLASHLIGHT_RANGE * 0.5F,
                        FLASHLIGHT_RANGE * 0.5F + 2.0F);
       float wallT = 0.0F, wallSign = 0.0F;
       int wallAxis = -1;
       ProjBox wallBox;
       bool onWall = false;
-      if (projWallHit(cameraPosition, dx, dy, dz, FLASHLIGHT_RANGE, wallT,
+      if (projWallHit(torch, dx, dy, dz, FLASHLIGHT_RANGE, wallT,
                       wallAxis, wallSign, wallBox)) {
         // The face's outward normal, in world. A face pointing mostly UP is a
         // floor, and the ground path below already lands the pool on it through
@@ -12488,9 +12535,9 @@ void TerrainGame::updateAndRenderLightPools() {
       int recvN = 0;
       flashSpotExtra.clear();
       for (const ProjBox& pb : g_projBoxes) {
-        const float ex2 = pb.o[0] - cameraPosition.x,
-                    ey2 = pb.o[1] - cameraPosition.y,
-                    ez2 = pb.o[2] - cameraPosition.z;
+        const float ex2 = pb.o[0] - torch.x,
+                    ey2 = pb.o[1] - torch.y,
+                    ez2 = pb.o[2] - torch.z;
         const float t = ex2 * dx + ey2 * dy + ez2 * dz;
         const float br =
             sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] + pb.h[2] * pb.h[2]);
@@ -12590,8 +12637,8 @@ void TerrainGame::updateAndRenderLightPools() {
       // outside the frustum takes the black border per pixel.
       const float kProj = 0.43F / tanA;
       auto goboST = [&](float x, float y, float z) {
-        const float ex = x - cameraPosition.x, ey = y - cameraPosition.y,
-                    ez = z - cameraPosition.z;
+        const float ex = x - torch.x, ey = y - torch.y,
+                    ez = z - torch.z;
         float fwd = ex * dx + ey * dy + ez * dz;
         if (fwd < 0.05F) fwd = 0.05F;  // at or behind the lens
         return Vec4(0.5F * fwd + kProj * (ex * rx + ey * ry + ez * rz),
@@ -12610,9 +12657,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // triangulation).
       auto zBias = [&](float x, float y, float z) {
         constexpr float k = 0.975F;
-        return Vec4(cameraPosition.x + (x - cameraPosition.x) * k,
-                    cameraPosition.y + (y - cameraPosition.y) * k,
-                    cameraPosition.z + (z - cameraPosition.z) * k, 1.0F);
+        return Vec4(torch.x + (x - torch.x) * k,
+                    torch.y + (y - torch.y) * k,
+                    torch.z + (z - torch.z) * k, 1.0F);
       };
 
       // --- the beam ON solid geometry: fill, per receiver -------------------
@@ -12702,9 +12749,9 @@ void TerrainGame::updateAndRenderLightPools() {
                       nz2 * (cz3 - oc[2]) <
                   0.0F)
                 nx2 = -nx2, ny2 = -ny2, nz2 = -nz2;
-              if (nx2 * (cameraPosition.x - cx3) +
-                      ny2 * (cameraPosition.y - cy3) +
-                      nz2 * (cameraPosition.z - cz3) <=
+              if (nx2 * (torch.x - cx3) +
+                      ny2 * (torch.y - cy3) +
+                      nz2 * (torch.z - cz3) <=
                   0.0F)
                 continue;  // faces away from the torch
               const Vec4 tri3[3] = {a3, b3, c3};
@@ -12791,9 +12838,9 @@ void TerrainGame::updateAndRenderLightPools() {
       // eye lights what it hides. The shadows this system draws in full are
       // the ones on surfaces well BEHIND the caster, and a third-person
       // camera - where the torch really is off the view axis.
-      const Vec4 vTorch(cameraPosition.x + dx * volPush,
-                        cameraPosition.y + dy * volPush,
-                        cameraPosition.z + dz * volPush, 1.0F);
+      const Vec4 vTorch(torch.x + dx * volPush,
+                        torch.y + dy * volPush,
+                        torch.z + dz * volPush, 1.0F);
       bool volMask = false;
       auto& rc = engine->renderer.core;
       const bool volCounting =
@@ -12818,9 +12865,9 @@ void TerrainGame::updateAndRenderLightPools() {
       int volCount = 0;
       if (FLASH_SHADOW_VOLUMES) {
         for (const ProjBox& pb : g_projBoxes) {
-          const float ex2 = pb.o[0] - cameraPosition.x,
-                      ey2 = pb.o[1] - cameraPosition.y,
-                      ez2 = pb.o[2] - cameraPosition.z;
+          const float ex2 = pb.o[0] - torch.x,
+                      ey2 = pb.o[1] - torch.y,
+                      ez2 = pb.o[2] - torch.z;
           const float t = ex2 * dx + ey2 * dy + ez2 * dz;
           const float br = sqrtf(pb.h[0] * pb.h[0] + pb.h[1] * pb.h[1] +
                                  pb.h[2] * pb.h[2]);
@@ -13019,7 +13066,7 @@ void TerrainGame::updateAndRenderLightPools() {
             // The fallback keeps extruding from the eye, exactly as it
             // always did - the virtual-torch parallax is the counting
             // path's refinement.
-            emitBoxShadowVolume(subBox[si], cameraPosition, cameraPosition,
+            emitBoxShadowVolume(subBox[si], torch, cameraPosition,
                                 FLASHLIGHT_RANGE, /*farCaps=*/true,
                                 b.volFront, b.volBack);
             if (b.volFront.empty() && b.volBack.empty()) continue;
@@ -13067,15 +13114,15 @@ void TerrainGame::updateAndRenderLightPools() {
       // ray; no hit inside the beam's reach = nothing to light.
       float hit = -1.0F, prev = 0.0F;
       for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
-        if (cameraPosition.y + dy * t <=
-            projSurfaceAt(cameraPosition.x + dx * t,
-                          cameraPosition.z + dz * t)) {
+        if (torch.y + dy * t <=
+            projSurfaceAt(torch.x + dx * t,
+                          torch.z + dz * t)) {
           float lo = prev, hi2 = t;
           for (int k2 = 0; k2 < 6; ++k2) {
             const float mid = (lo + hi2) * 0.5F;
-            if (cameraPosition.y + dy * mid <=
-                projSurfaceAt(cameraPosition.x + dx * mid,
-                              cameraPosition.z + dz * mid))
+            if (torch.y + dy * mid <=
+                projSurfaceAt(torch.x + dx * mid,
+                              torch.z + dz * mid))
               hi2 = mid;
             else
               lo = mid;
@@ -13090,8 +13137,8 @@ void TerrainGame::updateAndRenderLightPools() {
         finishVolMask();
         continue;
       }
-      const float gx = cameraPosition.x + dx * hit;
-      const float gz = cameraPosition.z + dz * hit;
+      const float gx = torch.x + dx * hit;
+      const float gz = torch.z + dz * hit;
       // What the patch lies on is decided ONCE, at the landing point, never
       // per vertex: projSurfaceAt answers "the top of any receiver over this
       // point", so a prop standing inside the patch would otherwise punch a
@@ -13154,7 +13201,7 @@ void TerrainGame::updateAndRenderLightPools() {
         const float elev = asinf(sinE > 1.0F ? 1.0F : sinE);
         float lower = elev - FLASHLIGHT_ANGLE * 3.14159265F / 180.0F;
         if (lower < 0.03F) lower = 0.03F;
-        float need = (cameraPosition.y - baseY) / tanf(lower);  // horizontal
+        float need = (torch.y - baseY) / tanf(lower);  // horizontal
         if (need > FLASHLIGHT_RANGE) need = FLASHLIGHT_RANGE;
         const float want = (need - tLand) / 1.4F;  // the far edge is along*1.4
         if (want > along) along = want;
@@ -13175,7 +13222,7 @@ void TerrainGame::updateAndRenderLightPools() {
       float aNear = -along;
       if (dxz > 1e-4F) {
         const float tMin =
-            (0.3F - (cameraPosition.y - baseY) * -dy) / dxz - (tLand + shift);
+            (0.3F - (torch.y - baseY) * -dy) / dxz - (tLand + shift);
         if (tMin > aNear) aNear = tMin > along ? along * 0.05F : tMin;
       }
 
@@ -21888,9 +21935,20 @@ void TerrainGame::loop() {
     // as a bag of bright shards. A wide, gentle ramp spreads the same change
     // over enough geometry that the interpolation stops being visible. It costs
     // a fuzzier beam edge, which is what a torch beam has anyway.
+    // The cone comes from where the torch is HELD, like the pool and the
+    // shadows - one light, one origin, or the fill would disagree with the
+    // beam it is filling in.
+    const float sdl = sqrtf(flashDir.x * flashDir.x + flashDir.y * flashDir.y +
+                            flashDir.z * flashDir.z);
+    const Vec4 spotPos =
+        sdl < 0.0001F
+            ? cameraPosition
+            : flashHeldOrigin(cameraPosition, flashDir.x / sdl,
+                              flashDir.y / sdl, flashDir.z / sdl,
+                              FLASHLIGHT_OFF_RIGHT, FLASHLIGHT_OFF_DOWN);
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R * 0.7F, FLASHLIGHT_G * 0.7F, FLASHLIGHT_B * 0.7F),
-        cameraPosition, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
+        spotPos, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
   } else {
     engine->renderer.core.disableSpotLight();
   }
@@ -26780,6 +26838,16 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
     sceneFloats("FLASHLIGHT_ANGLES", [&](int si) {
         return floatLit(players[0][si] ? players[0][si]->flashlightAngle : 20.0f);
     });
+    // Where the torch is HELD, relative to the eye: right of the view axis
+    // and below it, in world units (docs/flashlight.md, "Off the eye").
+    sceneFloats("FLASHLIGHT_OFF_RIGHTS", [&](int si) {
+        return floatLit(players[0][si] ? players[0][si]->flashlightOffsetRight
+                                       : 0.0f);
+    });
+    sceneFloats("FLASHLIGHT_OFF_DOWNS", [&](int si) {
+        return floatLit(players[0][si] ? players[0][si]->flashlightOffsetDown
+                                       : 0.0f);
+    });
     // Ground-pool sprite of the beam ("" = the built-in procedural corona).
     // Stored res-relative; the game loads cwd-relative, so drop the "res/".
     out << "constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {";
@@ -27124,6 +27192,8 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_OFF_RIGHT FLASHLIGHT_OFF_RIGHTS[g_activeScene]
+#define FLASHLIGHT_OFF_DOWN FLASHLIGHT_OFF_DOWNS[g_activeScene]
 #define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]

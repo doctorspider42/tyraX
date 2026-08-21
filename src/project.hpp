@@ -533,6 +533,14 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Where the torch is HELD, relative to the eye, in world units: right of
+    // the view axis and below it. 0,0 puts the light exactly in the eye,
+    // which is what every project did before this existed - and what makes a
+    // torch light precisely the surfaces it hides (docs/flashlight.md, "How
+    // much of a volume shadow you will actually SEE"). A small offset gives
+    // the beam a hand and its shadows somewhere to fall.
+    float flashlightOffsetRight = 0.0f;
+    float flashlightOffsetDown = 0.0f;
     // Texture of the beam's ground pool (res-relative PNG, e.g.
     // "res/hud/beam.png"). Empty = the built-in procedural corona. The
     // shape must live in the RGB channels: the pool draws additively and
@@ -1003,6 +1011,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightOffsetRight == b.flashlightOffsetRight &&
+           a.flashlightOffsetDown == b.flashlightOffsetDown &&
            a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&

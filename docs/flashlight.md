@@ -271,6 +271,53 @@ To use your own, set *Properties > Flashlight > Pool texture* to a PNG in
 | The pool dies too close | *Reach* — the fade is measured against it |
 | Props look like flat white cutouts | *Light colour* — the cone has no N·L, so a near-white torch saturates them |
 | Nothing lights at all | *Enabled* is the master; a `Set Flashlight` node may have turned it off |
+| The beam has no shadows worth seeing | *Held right* / *Held below eye* — see below; at 0,0 the light is your eye |
+
+## Off the eye
+
+A first-person torch sits, by default, exactly where the camera is. That is the
+cheapest thing to compute and the worst thing to look at: **a light on the view
+axis lights precisely the surfaces it hides.** Its shadows fall behind their
+casters, where you cannot see them, and every prop is lit flat-on with no
+modelling at all.
+
+*Properties > Flashlight > **Held right** and **Held below eye*** move the
+light's origin off that axis, in world units — a torch in a hand rather than in
+an eye socket. **0,0 is the default and returns the eye exactly**, so nothing
+moves in an existing project until you ask for it. About **0.2 right and 0.3
+down** reads as hand-held; the value is clamped to a metre either way, past
+which it is a lamp on a pole and the per-vertex cone (a coarse fill that has
+always been eye-shaped) stops agreeing with the pool.
+
+Three things follow, and the middle one is the reason people ask for this:
+
+- **the pool moves with the light.** The beam still AIMS where you look — a
+  torch is pointed, not converged — so an origin 0.25 units down puts the lit
+  ellipse 0.25 units nearer your feet at every distance. That is the offset
+  doing its job, not drift.
+- **shadows get somewhere to fall.** With the light off the axis, a caster's
+  shadow is thrown clear of the caster instead of hiding behind it. Measured on
+  a barrel three metres out: dark pixels inside the lit pool went from **896**
+  (light in the eye - two slivers at its edges) to **5994** (0.2 / 0.25 - a
+  shadow you can see).
+- **props gain a lit side and a dark side.** The top of a barrel lit from below
+  the eye is no longer the brightest thing in frame, which is most of what
+  "torchlit" looks like.
+
+The offset is taken in the **beam's** frame, never the world's: right is the
+beam crossed with world up, and down is the beam's own up negated. So the light
+never slides ALONG the beam - which would quietly change its reach, and could
+drop it PAST a near caster, where a shadow volume points back at the eye and
+z-pass counting is wrong. Aiming straight up or down leaves "right" undefined;
+there the offset stops meaning anything and the eye is used unchanged (verified:
+a vertical beam still lands its pool).
+
+One origin feeds everything the torch does - the projection that shapes the
+pool, the receiver collection, the wall hit, the march that lands the pool, the
+shadow volumes, and the per-vertex cone in both game templates. What stays the
+CAMERA on purpose is the aim direction, the receiver height cap (a wall taller
+than the player is not a floor) and the shadow volumes' front/back
+classification, which is a question about the eye rather than about the light.
 
 ## What the editor shows
 
@@ -564,7 +611,10 @@ What *does* show a volume shadow in full:
 - **a caster off the beam's axis**, which throws its shadow across the pool
   rather than into its own hiding place;
 - **a third-person camera**, where the torch really is off the view axis, and
-  the shadows are as plain as any other light's.
+  the shadows are as plain as any other light's;
+- **an offset torch** — *Held right* / *Held below eye* ("Off the eye" above),
+  which is the knob that changes this answer: the same barrel measured 896 dark
+  pixels inside the pool with the light in the eye and 5994 at 0.2 / 0.25.
 
 Two ways to widen the rim were tried and measured, and both are dead ends
 worth not repeating: dropping the virtual torch to chest height (0.55 units)

@@ -132,6 +132,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [visible beams](docs/flashlight.md) drawn the game's way.
 - **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
   silhouette, chosen per object; the cheap one works on a static prop too.
+- **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
+  lands on walls and props, and an offset that takes the light out of the
+  player's eye, where it could only ever cast shadows nobody can see.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
 - **Models** — `.obj` compiled into a binary

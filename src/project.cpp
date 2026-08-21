@@ -816,6 +816,14 @@ std::string objectJson(const SceneObject& o) {
                      ? ""
                      : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
                            "\"") +
+                // Written only when the torch is off the view axis, so every
+                // project that never touched it resaves byte for byte.
+                (o.flashlightOffsetRight == 0.0f && o.flashlightOffsetDown == 0.0f
+                     ? ""
+                     : ", \"offsetRight\": " +
+                           fmtFloat(o.flashlightOffsetRight) +
+                           ", \"offsetDown\": " +
+                           fmtFloat(o.flashlightOffsetDown)) +
                 " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
@@ -4746,6 +4754,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightToggleButton = v->stringOr("");
                 if (const auto* v = fl->find("texture"))
                     o.flashlightTexture = v->stringOr("");
+                if (const auto* v = fl->find("offsetRight"))
+                    o.flashlightOffsetRight = (float)v->numberOr(0.0);
+                if (const auto* v = fl->find("offsetDown"))
+                    o.flashlightOffsetDown = (float)v->numberOr(0.0);
+                // A metre either way is a hand; more is a lamp on a pole, and
+                // the cone (which is still computed from the EYE) stops
+                // agreeing with the pool.
+                auto clampOff = [](float& f) {
+                    if (f < -1.0f) f = -1.0f;
+                    if (f > 1.0f) f = 1.0f;
+                };
+                clampOff(o.flashlightOffsetRight);
+                clampOff(o.flashlightOffsetDown);
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -6949,6 +6970,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.flashlightEnabled ? 1 : 0);
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
+    fnvMixF(h, o.flashlightOffsetRight), fnvMixF(h, o.flashlightOffsetDown);
     fnvMixS(h, o.flashlightToggleButton);
     fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);

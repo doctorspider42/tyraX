@@ -16,6 +16,28 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.63.0 (the torch is HELD now, not implanted in the eye - format v35):
+// asked for as "could we give the flashlight a slight offset, so it does not
+// shoot from the eye but a little lower and to the side?" - and it is also the
+// answer to the shadow report of 1.62.1, which ended in "a light on the view
+// axis casts every shadow exactly behind its caster".
+//
+// The player's flashlight gains an offset: Held right / Held below eye, world
+// units, clamped to a metre either way, default 0,0 - which returns the eye
+// exactly, so every existing project is untouched until someone moves it. The
+// offset is taken in the BEAM's frame, never the world's (right = beam x world
+// up, down = the beam's own up negated), so the light never slides ALONG the
+// beam: sliding would change its reach and could drop it past a caster, where
+// a shadow volume points back at the eye and z-pass counting is wrong.
+//
+// One origin feeds everything the torch does - the gobo projection that shapes
+// the pool, the receiver collection, the wall hit, the march that lands the
+// pool, the shadow volumes AND the per-vertex cone in both game templates.
+// Three uses of the camera stay the camera on purpose: the aim direction (a
+// torch points where you look), the receiver height cap (a wall taller than
+// the PLAYER is not a floor), and the volume's front/back classification,
+// which is a question about the eye and not about the light.
+//
 // 1.62.1 (the torch's shadow mask was never written at 32-bit colour):
 // reported as "still no shadows" on a hand-made scene, with a screenshot
 // showing only the moon's. The mask was being BUILT - four casters picked,
@@ -2225,8 +2247,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 62
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 63
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2531,7 +2553,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // otherwise, so an untouched project resaves byte for byte and an older editor
 // reading a newer file simply falls back to the flag it already knows. Purely
 // additive - no migration step.
-inline constexpr int kFormatVersion = 34;
+inline constexpr int kFormatVersion = 35;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

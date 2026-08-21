@@ -2090,6 +2090,27 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Cone half-angle (deg)", &o.flashlightAngle, 0.5f, 2.0f,
                              80.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Where the torch is HELD. At 0,0 the light sits exactly in the
+            // eye, which is what a first-person torch did until now - and a
+            // light on the view axis lights precisely the surfaces it hides,
+            // so its shadows fall behind their casters where nobody can see
+            // them.
+            ImGui::DragFloat("Held right (units)", &o.flashlightOffsetRight,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Held below eye (units)", &o.flashlightOffsetDown,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled("0,0 = the light is your eye (no visible shadows).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Moves the beam origin off the view axis, like a torch\n"
+                    "in a hand: the pool shifts a little and the shadows\n"
+                    "it casts stop hiding behind whatever casts them.\n"
+                    "The AIM still follows where you look. About 0.2\n"
+                    "right and 0.3 down reads as hand-held; past a\n"
+                    "metre it is a lamp on a pole and the cone stops\n"
+                    "agreeing with it.");
         }
         // Optional pad button the player presses to turn the beam on/off. The
         // on/off state only shows while Enabled (it respects Enabled), and the
