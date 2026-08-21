@@ -162,7 +162,9 @@ editor's `src/tmdl.hpp`, **keep the two in sync**. It returns the same
 `LeanObjMesh` so the game keeps one geometry path, with two differences the
 caller must know: texture names are already **cwd-relative** — do NOT prepend
 a directory — and `LeanObjMaterial::lods` may carry decimated tiers, which an
-`.obj` never has. Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
+`.obj` never has (and `LeanObjMesh::shadowVertices`, v3, a positions-only
+shadow proxy the flashlight's volumes extrude when the real mesh is over
+budget). Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
@@ -198,13 +200,20 @@ packet restores CLAMP to REPEAT itself because emitRasterRestore does not
 know texture state. The GS cannot count in alpha - blending never writes A -
 which is why the count lives in color channels of a target that is never
 displayed; N=32 clears the 16-bit channel's 8-step quantization plus
-dithering's +-4, so DTHE needs no save/restore. COUNTING IS REFUSED AT 16-BIT
-COLOUR: the resolve's alpha-only masked write is not colour-neutral at a
-PSMCT16 destination and dashes green marks down two fixed screen columns
-(bisected to that single pass - forcing its ATEST to fail scores 0 of 24
-vantages against 14-17 for the control; the mask constant, the band format,
-FBA, DATE, dithering, the flicker filter and PMODE were each excluded). A
-16-bit project takes the convex 1-bit path instead, docs/flashlight.md),
+dithering's +-4, so DTHE needs no save/restore. COUNTING RUNS AT BOTH COLOUR
+DEPTHS (the band follows the frame's PSM: PSMCT32/512 KB, PSMCT16/256 KB). It
+was refused at 16-bit for one release over "dashed green marks down two fixed
+screen columns", blamed on the masked write at a PSMCT16 destination; BOTH
+halves of that were then measured on a console and it is neither. A four-mask
+FBMSK probe (flat sprite + a DATE-revealed alpha strip per mask) reads
+IDENTICALLY on hardware and in PCSX2 - 0x00FFFFFF is colour-neutral and its
+alpha half works - and a paired 8-vantage sweep one knob apart put the marks
+on countResolve's TEX0 base: the SLID band base scores 8/8, the band's own
+base 0/8, flipping back 8/8 (A-B-A). The write side slides FRAME by bandY0
+page rows, so the read must NOT slide as well as subtracting bandY0 from V.
+Still open: why texels sampled by an alpha-only masked pass tint the picture
+at all, and why the marks also appear above the band boundary,
+docs/flashlight.md),
 `RendererCoreEnvMap` (128×128 VRAM render target for
 `VU1_ENV_BASIS_ADDR`), the StaPip `billboard` program family
 (`StaPipBillboardBag`: the vertex slot carries PARTICLE CENTERS, the ST slot
@@ -1071,6 +1080,54 @@ Related: the engine's error blocks now print `==============  TYRAX  ===========
 (`inc/debug/debug.hpp`, two places); the editor parses that and the old TYRA
 banner both, so a previously built ELF still reports.
 
+## Debugging a GS pass you cannot see: one probe, one question
+
+Written up because it found three separate faults in one evening (the 16-bit
+FBA regression, the green count-band marks, and a torch that lit no walls), and
+because every wrong turn in that evening came from a probe that answered a
+DIFFERENT question than the one being asked.
+
+The pattern: a multi-stage GS pipeline (build a mask -> resolve it -> gate a
+later pass on it) fails silently, and reasoning about which stage is at fault
+is what costs the days. So make each stage VISIBLE, one build at a time, and
+make each probe answer exactly one question:
+
+1. **Is the CONSUMER gated at all?** Force the mask to its extreme - have the
+   resolve paint the "shadow" value over its whole rect. If the gated pass
+   disappears, the gate works and the fault is upstream. (Do not force the
+   ALPHA TEST instead: that changes which fragments are written, not what
+   value they write, so it proves nothing about the mask's contents.)
+2. **What does the intermediate buffer actually hold?** Drop the write mask
+   for one build (`FBMSK = 0`) so the resolve paints the buffer's texels into
+   the visible frame as COLOUR. A count buffer written with N = 32 shows up as
+   (32,32,32) - a screenshot plus a five-line histogram then tells you both
+   the VALUE and its SHAPE on screen, which is what says "the counts are
+   there, they just hug the caster".
+3. **Which inputs reached the stage?** One `TYRA_LOG` per frame-group in the
+   generated game (take ownership of `src/terrain_game.cpp` by deleting its
+   marker line first) beats any amount of reading: `recvN=2, recv[0] obj=1
+   sliceVerts=3999, recv[1] obj=4 sliceVerts=0` named a shared-budget bug in
+   one line, after two hours of theories about z-tests and page geometry.
+4. **A/B the whole feature.** Build the same scene with the feature's switch
+   off and diff the frames: "0 pixels changed" is the fastest proof that a
+   pass contributes nothing, and it needs no theory about why.
+
+Rules the same evening paid for:
+
+- **A probe that skips a pass also skips whatever that pass restores** - the
+  raster restore rides in the same packet, so the rest of the frame then draws
+  somewhere else and the result means nothing.
+- **Forcing a test to pass is not forcing a value to be written.** With
+  `TFX = DECAL` the fragment's alpha comes from the TEXEL (through `TEXA`), so
+  an all-zero texel still writes zero however permissive the test is.
+- **Instrument OUTSIDE the loop you are perturbing**, and log once every N
+  frames - a `TYRA_LOG` per frame over `host:` is network I/O that changes the
+  timing you are measuring.
+- **Revert the engine probes before anything else** when you are done: they
+  live in `vendor/tyra`, which is shared by every project on the machine, and
+  a forgotten `FBMSK = 0` looks exactly like a new rendering bug to whoever
+  builds next (it was reported back as "jakieś pojebane rzeczy się dzieją").
+
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Rendering**
@@ -1399,10 +1456,19 @@ banner both, so a previously built ELF still reports.
   allocated in the frame format so the blur chain never converts, while the
   film-grain noise stays PSMCT32 because it is uploaded rather than rendered),
   and the env-map / shadow-map brackets' restores. A hardcoded `GS_PSM_32`
-  there decodes a 16-bit frame as 32-bit garbage. The **z buffer stays 32-bit**
-  deliberately: 16-bit z would save as much again, but at `near` 0.1 / `far`
-  51200 its resolution collapses with distance and terrain fights baked
-  shadows. Two traps paid for here: **ps2sdk's `GS_SET_DIMX` masks each entry
+  there decodes a 16-bit frame as 32-bit garbage. The **z buffer FOLLOWS the
+  colour depth** (`RendererCoreDepth`): a colour buffer and the z it is tested
+  against must share page geometry on real hardware (64x32 pages at 32 bits,
+  64x64 at 16), so 16-bit colour runs a `PSMZ16` z with a 16-bit Z scale - and
+  pays for it in depth precision at distance (docs/gs-vram.md has the table).
+  Three traps paid for here: **ps2sdk's `draw_setup_environment` programs
+  `FBA = 1` for a 16-bit frame PSM** (disassembled from `libdraw.a`: the
+  register at `0x4A + context` gets `(psm & ~8) == 2`), which forces the MSB of
+  every written alpha to 1 and silently kills anything that reads destination
+  alpha - the flashlight's `TEST.DATE` shadow mask read SHADOW over the whole
+  raster and no DATE-gated torch pass drew; `initDrawingEnvironment` writes
+  `FBA = 0` straight after that call (the same shape as the CLAMP re-assert),
+  and `RendererCoreAlphaMask::begin()`/`maskClear()` re-assert it per frame; **ps2sdk's `GS_SET_DIMX` masks each entry
   with `0x03`** while a DIMX entry is 3-bit SIGNED (-4..3), so the negative
   half of the standard dither matrix (encoded 4..7) collapses to 0..3 and the
   dither comes out one-sided — `renderer_core_gs.cpp` packs the qword by hand;

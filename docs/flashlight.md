@@ -137,6 +137,23 @@ the texture mapping, one for the near plane and one for the depth test — becau
 it was none of those. Overlays that ARE light or shadow (the pools, the blob
 shadows, the projected shadows) set `spotLit = false` for this reason.
 
+**The patch is a canvas, not the light.** The gobo is projected per pixel
+from the torch onto wherever the patch lies, so the patch only has to COVER
+the ground the cone reaches - and it is laid where the *cone* meets the floor,
+not only where its axis does. Three landings, tried in order: the axis meets
+the floor; the axis meets a wall first, in which case the canvas lands at the
+wall's foot (a step short of the face, or it would climb onto the wall's top);
+the axis misses the floor altogether, in which case the cone's **lower edge**
+is marched instead and its hit is the far end of the footprint, from which the
+canvas is laid back toward the player. Before 1.66.0 only the axis was marched
+and it ignored walls: aim a pixel above the wall/ground edge and the axis
+landed on the ground *behind* the wall, where the z test hid the canvas - so
+the pool on the ground **snapped off** while the lower half of the cone
+plainly still lit it (reported with screenshots, and the same cliff sat at the
+side of every prop). Aimed level, it had no canvas at all. The lift that keeps
+the canvas above the relief is also capped at half the torch's height over the
+landing: a canvas lifted past the lens is seen from below and covers nothing.
+
 **The patch reaches as far as the beam does.** The footprint of a beam runs away
 as it flattens — the lower edge of the cone meets a level floor further and
 further off until it never does — and a patch that stops while the beam is still
@@ -423,9 +440,11 @@ over any pile of volumes, so every caster lands in ONE bracket — one clear,
 one resolve, scissored to the volumes' projected screen bbox (the bbox of
 the volume VERTICES themselves, mapped through the VU1 pipeline's fixed 2048
 scale - `x/w` is not NDC in this engine, the frustum edge sits at
-`w * rasterW / 4096`; it used to be the casters' box corners divided as NDC,
-a rect shrunk toward the screen centre that sliced every shadow flat at its
-rows once a mesh volume reached past its caster's box), and the far
+`w * rasterW / 4096`, and with NO vertical flip - the projection's `-h`
+already carries the GS's downward y, proved against the sun disc in 1.65.1; it
+used to be the casters' box corners divided as NDC, a rect shrunk toward the
+screen centre that sliced every shadow flat at its rows once a mesh volume
+reached past its caster's box), and the far
 caps are skipped outright (they only ever subtract at pixels beyond the
 light's range, where the reach falloff has already taken the light to zero).
 Each of those three was measured, not assumed: per-caster brackets with

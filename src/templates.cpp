@@ -8805,9 +8805,24 @@ void TerrainGame::loadScene(int sceneIndex) {
     P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
               ? SCENE_OBJECTS[P.objIndex].position[1]
               : terrainHeightAt(P.x, P.z);
-    P.yaw = SCENE_OBJECTS[P.objIndex].rotation[1] * PI / 180.0F;
+    // Heading AND elevation from the authored rotation, read the way every
+    // other object's is: the player's local forward (+Z, the axis
+    // sin(yaw)/cos(yaw) walks along) through rotated(). Reading rotation[1]
+    // alone was wrong twice over - a triple the gizmo wraps as
+    // [-180, 89, -180] means yaw 91 and pitch 0, not yaw 89 - and it left
+    // the start pitch unauthorable, which made every "aim the torch just
+    // above the wall's foot" fixture a pad-driven guess (docs/player.md).
+    // Positive rotation[0] tilts the look DOWN, like tilting any object.
+    {
+      const V3 fwd = rotated(V3{0.0F, 0.0F, 1.0F},
+                             SCENE_OBJECTS[P.objIndex].rotation);
+      P.yaw = atan2f(fwd.x, fwd.z);
+      float el = fwd.y > 1.0F ? 1.0F : (fwd.y < -1.0F ? -1.0F : fwd.y);
+      P.pitch = asinf(el);
+      if (P.pitch > 1.35F) P.pitch = 1.35F;
+      if (P.pitch < -1.35F) P.pitch = -1.35F;
+    }
     P.velY = 0.0F;
-    P.pitch = 0.0F;
     // Third person: the avatar starts facing its authored yaw and its
     // locomotion clip names resolve to the model's clip indices. The Player
     // object is a rendered avatar only in this mode - in FPP/noclip its model
@@ -13100,7 +13115,9 @@ void TerrainGame::updateAndRenderLightPools() {
               const float ndx = clip2.x / clip2.w * ndcSx;
               const float ndy = clip2.y / clip2.w * ndcSy;
               const float px2 = (ndx * 0.5F + 0.5F) * volW;
-              const float py2 = (0.5F - ndy * 0.5F) * volH;
+              // No second flip: perspective() carries the GS's downward y
+              // in its data[5] = -h (proved against the sun disc, 1.65.1).
+              const float py2 = (ndy * 0.5F + 0.5F) * volH;
               if (px2 < bx0) bx0 = px2;
               if (py2 < by0) by0 = py2;
               if (px2 > bx1) bx1 = px2;
@@ -13272,13 +13289,91 @@ void TerrainGame::updateAndRenderLightPools() {
         }
         prev = t;
       }
+      // THE PATCH IS A CANVAS, NOT THE LIGHT - the gobo projection paints
+      // the pool per pixel wherever the canvas lies. So the canvas must be
+      // wherever the CONE meets the floor, not only where its AXIS does:
+      //
+      // - A WALL in the way (onWall): the axis marches through it (the
+      //   march reads surface heights, not faces) and lands on the ground
+      //   BEHIND, where the z test hides the canvas - so the ground at the
+      //   foot of the wall, which the lower half of the cone plainly lights,
+      //   had nothing to show it on. Reported as "the pool on the ground
+      //   vanishes the moment the torch's centre crosses the wall/ground
+      //   edge". The landing is clamped to the wall hit, a step short of the
+      //   face (ON the face, projSurfaceAt answers the wall's TOP and the
+      //   canvas would climb onto it).
+      // - The axis misses the floor (level or upward aim): the cone's
+      //   LOWER EDGE may still meet it within reach. That ray is marched
+      //   instead; its hit is the FAR end of the lit footprint, so the
+      //   canvas is laid toward the player from there and the pool fades
+      //   with the falloff instead of snapping off a pixel above the
+      //   horizon.
+      // Three candidate landings, nearest-sensible first:
+      //   hitAxis  - the axis meets the floor (the march above);
+      //   wallFoot - the axis meets a wall first: the floor at its foot;
+      //   hitLow   - the cone's lower edge meets the floor.
+      // Where the footprint is bounded by the lower edge on the near side
+      // (the axis never reached the floor), the canvas is laid from its far
+      // end back toward the player over `backSpan` of ground.
+      const float hitAxis = hit;
+      const float wallFoot = onWall && wallT > 0.5F ? wallT - 0.15F : -1.0F;
+      float hitLow = -1.0F;
+      float ldx = dx, ldy = dy, ldz = dz;  // the ray the landing is on
+      float lowDx = dx, lowDy = dy, lowDz = dz;
+      if (hitAxis < 0.0F || wallFoot > 0.0F) {
+        const float dxz0 = sqrtf(dx * dx + dz * dz);
+        if (dxz0 > 1e-4F) {
+          const float elev0 =
+              asinf(dy > 1.0F ? 1.0F : (dy < -1.0F ? -1.0F : dy));
+          const float eLow = elev0 - FLASHLIGHT_ANGLE * 3.14159265F / 180.0F;
+          lowDx = dx / dxz0 * cosf(eLow), lowDz = dz / dxz0 * cosf(eLow);
+          lowDy = sinf(eLow);
+          prev = 0.0F;
+          for (float t = 0.3F; t <= FLASHLIGHT_RANGE; t += 0.3F) {
+            if (torch.y + lowDy * t <=
+                projSurfaceAt(torch.x + lowDx * t, torch.z + lowDz * t)) {
+              float lo = prev, hi2 = t;
+              for (int k2 = 0; k2 < 6; ++k2) {
+                const float mid = (lo + hi2) * 0.5F;
+                if (torch.y + lowDy * mid <=
+                    projSurfaceAt(torch.x + lowDx * mid,
+                                  torch.z + lowDz * mid))
+                  hi2 = mid;
+                else
+                  lo = mid;
+              }
+              hitLow = hi2;
+              break;
+            }
+            prev = t;
+          }
+        }
+      }
+      bool farEnd = false;   // the landing is the footprint's FAR end
+      float backSpan = 0.0F;  // ground to cover toward the player from it
+      if (hitAxis > 0.0F && (wallFoot < 0.0F || hitAxis < wallFoot)) {
+        hit = hitAxis;
+      } else if (wallFoot > 0.0F) {
+        hit = wallFoot;
+        if (hitLow > 0.0F && hitLow < wallFoot) {
+          farEnd = true;
+          backSpan = (wallFoot - hitLow) * sqrtf(dx * dx + dz * dz);
+        }
+      } else if (hitLow > 0.0F) {
+        hit = hitLow;
+        ldx = lowDx, ldy = lowDy, ldz = lowDz;
+        farEnd = true;
+      } else {
+        hit = -1.0F;
+      }
+      const bool lowerEdge = farEnd;
       if (hit < 0.0F) {
         // Nothing on the ground to light; the receivers already got theirs.
         finishVolMask();
         continue;
       }
-      const float gx = torch.x + dx * hit;
-      const float gz = torch.z + dz * hit;
+      const float gx = torch.x + ldx * hit;
+      const float gz = torch.z + ldz * hit;
       // What the patch lies on is decided ONCE, at the landing point, never
       // per vertex: projSurfaceAt answers "the top of any receiver over this
       // point", so a prop standing inside the patch would otherwise punch a
@@ -13310,11 +13405,11 @@ void TerrainGame::updateAndRenderLightPools() {
       const float cx2 = -az, cz2 = ax;  // across the beam
       // Horizontal distance from the player to where the beam lands: the axis
       // every extent below is measured along.
-      const float dxz = sqrtf(dx * dx + dz * dz);
+      const float dxz = sqrtf(ldx * ldx + ldz * ldz);
       const float tLand = hit * dxz;
       float across = hit * tanA * 1.3F + 0.35F;
       if (across > 7.0F) across = 7.0F;
-      float sinE = -dy;  // sine of the incidence angle with a level floor
+      float sinE = -ldy;  // sine of the incidence angle with a level floor
       if (sinE < 0.22F) sinE = 0.22F;
       // Grazing beams spread the same cone over several times the ground, so
       // they really are weaker per square metre. Applied per vertex, with the
@@ -13347,8 +13442,15 @@ void TerrainGame::updateAndRenderLightPools() {
         if (want > along) along = want;
         if (along > across * 8.0F) along = across * 8.0F;  // fill-rate backstop
       }
-      // The stretch belongs BEYOND the landing point, not around it.
-      const float shift = (along - across) * 0.55F;
+      // The stretch belongs BEYOND the landing point, not around it - or,
+      // when the lower edge landed, TOWARD the player: that hit is the far
+      // end of the footprint and everything lit lies on the near side.
+      if (farEnd && backSpan > 0.0F) {
+        if (along < backSpan + across) along = backSpan + across;
+        if (along > across * 8.0F) along = across * 8.0F;
+      }
+      const float shift =
+          lowerEdge ? -(along - across) * 0.5F : (along - across) * 0.55F;
       const float px0 = gx + ax * shift, pz0 = gz + az * shift;
       // ...and the NEAR edge may not reach behind the lens. Measuring
       // horizontal distance along the beam's ground run as t, a patch point has
@@ -13362,7 +13464,7 @@ void TerrainGame::updateAndRenderLightPools() {
       float aNear = -along;
       if (dxz > 1e-4F) {
         const float tMin =
-            (0.3F - (torch.y - baseY) * -dy) / dxz - (tLand + shift);
+            (0.3F - (torch.y - baseY) * -ldy) / dxz - (tLand + shift);
         if (tMin > aNear) aNear = tMin > along ? along * 0.05F : tMin;
       }
 
@@ -13412,6 +13514,13 @@ void TerrainGame::updateAndRenderLightPools() {
       // the pool that survived the z test between the crests that ate it.
       float lift = 0.10F + 0.07F * across + 0.02F * along;
       if (lift > 1.2F) lift = 1.2F;
+      // ...but never above the TORCH: a patch lifted past the lens is seen
+      // from below and covers no ground pixel at all (a crouched or
+      // hand-low torch a hair above the floor lost its whole pool to this).
+      {
+        const float headroom = (torch.y - baseY) * 0.5F;
+        if (lift > headroom) lift = headroom > 0.02F ? headroom : 0.02F;
+      }
       float aOff[9], cOff[9];
       for (int i = 0; i <= cellsA; ++i) {
         const float s = (float)i / cellsA;                // 0 .. 1

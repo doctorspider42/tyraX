@@ -32,6 +32,25 @@ wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
 human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
 the honesty convention outlived the file.)
 
+**If the thing you need for a clean test does not exist, ADD IT - now, in the
+same change, not in a backlog entry.** "The start pitch cannot be authored, so
+I aimed the torch with a pad script" cost an afternoon of guessed `stick r`
+pushes before the one-line fix (the Player's rotation X is the pitch, 1.66.0,
+docs/player-start.md) made the fixture a JSON edit. The pattern recurs: a
+constant that should be a setting, a state only reachable by a human at the
+pad, a value the game computes but never logs. Each one is a small, honest
+feature (or a `--flag`, or a `TYRA_LOG` line) that makes the test repeatable
+for everyone after you - and an A/B that depends on a hand-driven input is not
+an A/B. Ask "what would make this a file edit + one command?" and build that
+first; the user has asked for exactly this.
+
+**Frozen-camera fixture** (every PCSX2 A/B of a rendering change): on the
+Player object set `walkSpeed: 0`, `lookSpeed: 0`, the `position` that frames
+the shot and `rotation: [pitchDownDeg, headingDeg, 0]` (rotation X is the
+pitch, positive = down - docs/player-start.md), plus `"keyboardMouse": false`
+in the `.tyra`. Then `--build <dir> --run`, wait ~12 s, `-PrintWindow`
+screenshot. Same frame every boot, no pad needed.
+
 ## Layer 0 — build the editor
 
 The editor builds and runs on **Windows and Linux**. Pick the script for the

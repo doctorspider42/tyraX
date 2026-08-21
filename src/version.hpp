@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.66.0 (the torch's pool no longer snaps off at a wall's foot, and a
+// fixture can author the player's pitch): reported with four screenshots -
+// "I shine at the corner of the wall and the ground; move a pixel up so the
+// centre aims above the wall/ground edge and the blob on the ground is gone,
+// same at the edge of an object".
+//
+// The pool's patch is a CANVAS - the gobo is projected per pixel wherever it
+// lies - and it was landed by marching the beam's AXIS alone, against surface
+// heights that know nothing of walls. So a centre just above the edge marched
+// through the wall and landed on the ground behind it, where the z test hid
+// the canvas; aimed level it never landed at all. Three landings now, in
+// order: the axis meets the floor; the axis meets a wall first (projWallHit
+// already knew) and the canvas goes to the wall's FOOT, a step short of the
+// face; the axis misses the floor and the cone's LOWER EDGE is marched
+// instead, its hit being the footprint's far end, from which the canvas is
+// laid back toward the player over the span to the wall or the edge's own
+// reach. A/B at a 2-degree pitch toward a wall 6 u away: the old build drew
+// nothing on the ground, the new one spills the pool over the wall's foot.
+// The relief lift is also capped at half the torch's height over the landing
+// (a hand-low torch had its canvas floating above the lens, covering no
+// ground pixel).
+//
+// The fixture for that A/B did not exist and was built first, per the new
+// testing rule (tyra-testing skill): the Player object's ROTATION X is its
+// start pitch now (positive = down), and heading + pitch both come from the
+// rotated forward vector like every other object's transform - which also
+// reads a gizmo-wrapped [-180, 89, -180] as heading 91, not 89
+// (docs/player-start.md). Before, the pitch was unauthorable and every
+// "aim just above the edge" shot was a pad-driven guess.
+//
+// And the count rect's vertical flip from 1.65.0 is gone (1.65.1 proved the
+// convention against the sun disc; three engine sites agree). The rect in
+// that fixture was the whole raster either way - the far extrusions spread
+// it - so the sign rests on the measurement, not on a shadow that moved.
+//
 // 1.65.1 (the god rays and the lens flare radiate from the sun again):
 // reported over a dusk shot with the shafts converging on nothing in
 // particular near the middle of the picture while the sun sat up in the
@@ -2357,8 +2392,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 65
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 66
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
