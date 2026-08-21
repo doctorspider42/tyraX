@@ -16,6 +16,25 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.69.0 (--capture-frame: the game's own screenshot from a shell): the
+// test enabler for a console report (docs/devkit.md). A 16-bit night-walk on
+// real hardware showed green dashes in fixed columns, a dark halo in the
+// shape of a shadow volume and, after a while, a ground texture eaten into
+// blue-spotted holes - three faces of something writing VRAM it does not own.
+// PCSX2 at 16-bit on the same vantage is clean, so the only picture that
+// counts is the console's, and the Debugger's Capture frame was a button.
+// It is a command now: write bin/livedbg.cmd with captureFrame and a
+// clock-derived seq, wait for bin/frame.tga by its PROGRESS (the GUI's rule:
+// a growing file is a write in flight, ~3 s a shot over ps2link), decode the
+// TGA to PNG. With it: deployed to the console over ps2link, a frozen yard
+// vantage at 0/60/120 s and two pad-driven walks (1.5 and 5 minutes, 9
+// captures, pixel-counted for green dashes and blue spots) came back CLEAN
+// on 1.68.0 at 16-bit with the torch's volumes on - so the report is not
+// reproduced over host:, where the game runs at 24-44 FPS instead of 50. The
+// difference left to test is speed: a USB/ISO run at full frame rate, A/B
+// with flashShadowVolumes off, is the next step and needs the console's own
+// display.
+//
 // 1.68.0 (a spot light's carved shadow previews in the viewport): the
 // viewport already shadowed every dynamic light per pixel through the
 // analytic box/sphere occluders (the AO shapes), hard-edged and quantized to
@@ -2641,7 +2660,7 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 68
+#define TYRAX_VERSION_MINOR 69
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x

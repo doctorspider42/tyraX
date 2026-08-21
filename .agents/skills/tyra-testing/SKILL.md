@@ -748,7 +748,10 @@ Notes:
   file* opens. No desktop, no window, no focus, and it is the ONLY one that
   exists on real hardware. Reach for it whenever a host-side grab is in doubt:
   an occluded window, a locked or disconnected session, a parallel worktree's
-  emulator, or a console.
+  emulator, or a console. Headless: `TYRAX --capture-frame <projectDir> -o
+  shot.png` writes the command, waits for the file and decodes it - the
+  console A/B recipe is `--build <dir> --run-ps2 <ip>` (the process that stays
+  up IS the host: server), `--pad` to move, `--capture-frame` per vantage.
 
   **It works on a console since 1.55.1 and did not before**, which is worth
   knowing when reading anything measured with it earlier: ps2sdk's
@@ -833,7 +836,7 @@ Notes:
   screenshot instead of one read per moment:
 
   ```powershell
-  powershell -File .agents\skills\tyra-testing\scripts\screenshot-window.ps1 `
+  powershell -File .claude\skills\tyra-testing\scripts\screenshot-window.ps1 `
       -ProcessName pcsx2-qt -Watch <scratchpad>\w -Auto -Trim -Every 0.9 -Count 10 -Tile 224
   ```
 
@@ -1676,7 +1679,7 @@ $S = "<scratchpad>"
 build\tyrax-editor.exe --new padtest "$env:TEMP\tyra-editor-test" 100 100 fpp
 build\tyrax-editor.exe --build $P --run        # boot it
 Start-Sleep 22                                 # Tyra logo + splash + scene load
-$shot = ".agents\skills\tyra-testing\scripts\screenshot-window.ps1"
+$shot = ".claude\skills\tyra-testing\scripts\screenshot-window.ps1"
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle1.png"
 Start-Sleep 3
 powershell -File $shot -ProcessName pcsx2-qt -OutFile "$S\idle2.png"   # CONTROL
@@ -1727,10 +1730,10 @@ The motion gate is the other half:
 
 ```powershell
 # one arm = one four-leg run of the fixed route
-powershell -File .agents\skills\tyra-testing\scripts\motion-gate.ps1 `
+powershell -File .claude\skills\tyra-testing\scripts\motion-gate.ps1 `
     -Project $env:TEMP\tyra-editor-test\mgate -Out <scratch>\armB -NoAnalyse
 # then compare it against the arm with ONE knob changed
-python .agents\skills\tyra-testing\scripts\motion-gate.py <scratch>\armB `
+python .claude\skills\tyra-testing\scripts\motion-gate.py <scratch>\armB `
     --baseline <scratch>\armC --bands 8
 ```
 
@@ -1981,11 +1984,11 @@ twice with one setting moved. Two scripts make that one command.
 
 ```powershell
 # 1. the fixture, once - headless, no Docker, SHORT path
-powershell -File .agents\skills\tyra-testing\scripts\make-shadow-fixture.ps1 `
+powershell -File .claude\skills\tyra-testing\scripts\make-shadow-fixture.ps1 `
     -Editor build-dev\tyrax-editor.exe -Force
 
 # 2. the A/B, per switch
-powershell -File .agents\skills\tyra-testing\scripts\shadow-ab.ps1 `
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
     -Editor build-dev\tyrax-editor.exe `
     -Project $env:TEMP\tyra-editor-test\spotab `
     -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `

@@ -28,6 +28,7 @@
 #include "modelao.hpp"
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
+#include <stb_image_write.h>
 #include "livepad.hpp"
 #include "uiscript.hpp"
 #include "vucap.hpp"
@@ -1692,6 +1693,106 @@ static int uiScriptFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
+//   tyrax-editor.exe --capture-frame <projectDir> [-o out.png] [--timeout s]
+//
+// The game's own screenshot, from a shell: writes bin/livedbg.cmd with the
+// one-shot captureFrame flag (the same channel Debugger > Screen > Capture
+// frame uses), waits for the game to finish writing bin/frame.tga, and decodes
+// it to a PNG. It is the ONLY picture that exists on a real console
+// (docs/devkit.md, "The game's own screenshot"), so it is what an unattended
+// A/B over ps2link reads. The command carries the full desired state, like
+// every livedbg command - no breakpoints, no halt - and a clock-derived seq so
+// any previous command (the GUI's, or an earlier call) reads as changed.
+// Needs a debug build with Live Debugger on; waiting is decided by the file's
+// PROGRESS (a growing file is a write in flight, ~3 s over ps2link).
+static int captureFrameFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --capture-frame <projectDir> [-o out.png] "
+                     "[--timeout seconds]\n");
+        return 1;
+    }
+    const fs::path dir(argv[2]);
+    std::string out = (dir / "screenshots" / "frame-cli.png").string();
+    double timeoutS = 40.0;
+    for (int i = 3; i + 1 < argc; ++i) {
+        if (std::strcmp(argv[i], "-o") == 0) out = argv[++i];
+        else if (std::strcmp(argv[i], "--timeout") == 0) timeoutS = std::atof(argv[++i]);
+    }
+    const fs::path tga = dir / "bin" / "frame.tga";
+    std::error_code ec;
+    fs::remove(tga, ec);
+    livedbg::Command c;
+    c.seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+    c.captureFrame = true;
+    const std::string err = livedbg::writeCommand((dir / "bin" / "livedbg.cmd").string(), c);
+    if (!err.empty()) {
+        std::fprintf(stderr, "capture-frame: %s\n", err.c_str());
+        return 1;
+    }
+    // Wait for a complete file: header says the size; growth restarts the wait.
+    const auto t0 = std::chrono::steady_clock::now();
+    size_t lastSize = 0;
+    int stalled = 0;
+    std::vector<unsigned char> bytes;
+    for (;;) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        const double el = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+        const auto sz = fs::file_size(tga, ec);
+        const size_t size = ec ? 0 : (size_t)sz;
+        if (size >= 18) {
+            std::ifstream f(tga, std::ios::binary);
+            unsigned char head[18] = {};
+            f.read(reinterpret_cast<char*>(head), 18);
+            const int w = (int)head[12] | ((int)head[13] << 8);
+            const int h = (int)head[14] | ((int)head[15] << 8);
+            const size_t want = 18 + (size_t)w * (size_t)h * 4;
+            if (head[2] == 2 && head[16] == 32 && w > 0 && h > 0 && size >= want) {
+                bytes.resize(want);
+                f.seekg(0);
+                f.read(reinterpret_cast<char*>(bytes.data()), (std::streamsize)want);
+                if (f.gcount() == (std::streamsize)want) break;
+            }
+        }
+        if (size == lastSize) {
+            if (++stalled > 15 && size > 0) {
+                std::fprintf(stderr, "capture-frame: bin/frame.tga stopped growing at %zu bytes\n", size);
+                return 1;
+            }
+        } else {
+            stalled = 0;
+            lastSize = size;
+        }
+        if (el > timeoutS) {
+            std::fprintf(stderr,
+                         "capture-frame: no complete bin/frame.tga after %.0f s (%zu bytes) - "
+                         "is the game running a debug build with Live Debugger on?\n",
+                         timeoutS, size);
+            return 1;
+        }
+    }
+    const int w = (int)bytes[12] | ((int)bytes[13] << 8);
+    const int h = (int)bytes[14] | ((int)bytes[15] << 8);
+    std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4);
+    for (int y = 0; y < h; ++y) {
+        const unsigned char* sp = &bytes[18 + (size_t)(h - 1 - y) * (size_t)w * 4];
+        unsigned char* d = &rgba[(size_t)y * (size_t)w * 4];
+        for (int x = 0; x < w; ++x, sp += 4, d += 4) {
+            d[0] = sp[2], d[1] = sp[1], d[2] = sp[0], d[3] = 255;
+        }
+    }
+    fs::create_directories(fs::path(out).parent_path(), ec);
+    if (!stbi_write_png(out.c_str(), w, h, 4, rgba.data(), w * 4)) {
+        std::fprintf(stderr, "capture-frame: cannot write %s\n", out.c_str());
+        return 1;
+    }
+    std::printf("capture-frame: %dx%d -> %s\n", w, h, out.c_str());
+    return 0;
+}
+
 //   tyrax-editor.exe --dump-vucap <projectDir>
 //
 // Decodes bin/vucap.bin - the VU1 DMA chain the game handed over - so the
@@ -3456,6 +3557,8 @@ int main(int argc, char** argv) {
         return debugStateFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-vucap") == 0)
         return dumpVuCapFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--capture-frame") == 0)
+        return captureFrameFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--symbolize") == 0)
         return symbolizeFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--audit-release") == 0)
@@ -3526,6 +3629,8 @@ int main(int argc, char** argv) {
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
             "on this machine right now\n"
+            "  --capture-frame <projectDir> [-o out.png]  the game's own "
+            "screenshot (works over ps2link)\n"
             "  --dump-vucap <projectDir>               decode the last VU1 "
             "capture\n"
             "  --pad <projectDir> \"<script>\"           drive the running "

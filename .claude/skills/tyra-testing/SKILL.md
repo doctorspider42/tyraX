@@ -748,7 +748,10 @@ Notes:
   file* opens. No desktop, no window, no focus, and it is the ONLY one that
   exists on real hardware. Reach for it whenever a host-side grab is in doubt:
   an occluded window, a locked or disconnected session, a parallel worktree's
-  emulator, or a console.
+  emulator, or a console. Headless: `TYRAX --capture-frame <projectDir> -o
+  shot.png` writes the command, waits for the file and decodes it - the
+  console A/B recipe is `--build <dir> --run-ps2 <ip>` (the process that stays
+  up IS the host: server), `--pad` to move, `--capture-frame` per vantage.
 
   **It works on a console since 1.55.1 and did not before**, which is worth
   knowing when reading anything measured with it earlier: ps2sdk's
