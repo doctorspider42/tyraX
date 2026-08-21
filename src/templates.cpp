@@ -984,6 +984,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
+    // Shadow proxy baked into the .tmdl (xyz per corner, under
+    // kShadowMeshMaxTris): the flashlight's shadow volumes extrude THIS when
+    // the real mesh is over budget, instead of the model's sub-boxes. Empty
+    // = cast from the real triangles (they fit) or the boxes.
+    std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
@@ -2353,6 +2358,11 @@ class TerrainGame : public Tyra::Game {
     std::vector<GameModelPart> parts;  // empty = missing/unparseable model
     float mn[3] = {-0.5F, -0.5F, -0.5F};
     float mx[3] = {0.5F, 0.5F, 0.5F};
+    // Shadow proxy baked into the .tmdl (xyz per corner, under
+    // kShadowMeshMaxTris): the flashlight's shadow volumes extrude THIS when
+    // the real mesh is over budget, instead of the model's sub-boxes. Empty
+    // = cast from the real triangles (they fit) or the boxes.
+    std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
   };
@@ -6988,6 +6998,7 @@ void TerrainGame::loadModelAsset(int i) {
     gm.mn[k] = mesh->min[k];
     gm.mx[k] = mesh->max[k];
   }
+  gm.shadowVerts.swap(mesh->shadowVertices);  // .tmdl v3 proxy (empty = none)
   // A .tmdl stores cwd-relative texture paths; an .obj's map_Kd names resolve
   // relative to the file that defined them (the override .mtl when one is
   // assigned, the model otherwise).
@@ -11777,13 +11788,22 @@ struct ShadowMesh {
 static std::vector<ShadowMesh> g_shadowMeshes;
 static std::vector<char> g_shadowMeshTried;
 // Past this budget the per-frame classification stops being cheap on the EE
-// and the caster keeps its sub-boxes (through the same counting bracket).
-constexpr int kShadowMeshMaxTris = 1200;
+// - so the build bakes a decimated SHADOW PROXY under it into the .tmdl
+// (GameModel::shadowVerts, meshlod::generateShadowProxy) and the caster
+// extrudes that; only a model the decimator could not bring under budget
+// keeps its sub-boxes (through the same counting bracket). The number is
+// spliced from the editor's meshlod::kShadowProxyMaxTris, so the bake and
+// this check can never disagree.
+constexpr int kShadowMeshMaxTris = {{SHADOW_MESH_MAX_TRIS}};
 
+// `stride` = floats per corner: 8 for the drawn parts (x y z nx ny nz u v),
+// 3 for the baked shadow proxy (positions only).
 static void buildShadowMesh(
-    const std::vector<const std::vector<float>*>& parts, ShadowMesh& out) {
+    const std::vector<const std::vector<float>*>& parts, ShadowMesh& out,
+    size_t stride = 8) {
   size_t triCount = 0;
-  for (const std::vector<float>* pv : parts) triCount += pv->size() / 24;
+  for (const std::vector<float>* pv : parts)
+    triCount += pv->size() / stride / 3;
   if (triCount == 0 || triCount > (size_t)kShadowMeshMaxTris) return;
   // Corner positions, in triangle order. The model pipeline duplicates a
   // shared position VERBATIM per corner (one source position, many
@@ -11793,11 +11813,11 @@ static void buildShadowMesh(
   corner.reserve(triCount * 9);
   for (const std::vector<float>* pv : parts) {
     const std::vector<float>& v = *pv;
-    const size_t n = v.size() / 8 / 3 * 3;
+    const size_t n = v.size() / stride / 3 * 3;
     for (size_t i = 0; i < n; ++i) {
-      corner.push_back(v[i * 8 + 0]);
-      corner.push_back(v[i * 8 + 1]);
-      corner.push_back(v[i * 8 + 2]);
+      corner.push_back(v[i * stride + 0]);
+      corner.push_back(v[i * stride + 1]);
+      corner.push_back(v[i * stride + 2]);
     }
   }
   const int nc = (int)(corner.size() / 3);
@@ -12148,6 +12168,14 @@ static void emitCasterVolume(const ProjBox& castPb, const ModelVec& gameModels,
       for (const auto& gp : gameModels[cdd.model].parts)
         pv.push_back(&gp.verts);
       buildShadowMesh(pv, sm);
+      // Over budget: the build's decimated proxy, when it baked one. The
+      // real mesh is tried first so a model that fits never casts from an
+      // approximation.
+      if (sm.tri.empty() && !gameModels[cdd.model].shadowVerts.empty()) {
+        pv.clear();
+        pv.push_back(&gameModels[cdd.model].shadowVerts);
+        buildShadowMesh(pv, sm, 3);
+      }
     }
     if (!sm.tri.empty()) mesh = &sm;
   }
@@ -28106,6 +28134,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{TERRAIN_LOD_DISTANCE}}", floatLit(st.terrainLodDistance));
     s = replaceAll(s, "{{FLASH_SHADOW_VOLUMES}}",
                    st.flashShadowVolumes ? "1" : "0");
+    s = replaceAll(s, "{{SHADOW_MESH_MAX_TRIS}}",
+                   std::to_string(meshlod::kShadowProxyMaxTris));
     s = replaceAll(s, "{{EYE_HEIGHT}}", floatLit(st.eyeHeight));
     s = replaceAll(s, "{{WALK_SPEED}}", floatLit(st.walkSpeed));
     s = replaceAll(s, "{{RUN_SPEED}}", floatLit(project::settingsRunSpeed(st)));
@@ -41375,6 +41405,31 @@ std::vector<File> bakeStaticModels(const Project& p,
             }
 
             out.parts.push_back(std::move(part));
+        }
+
+        // Shadow proxy: with the flashlight's shadow volumes on, a model
+        // past the per-model triangle budget used to cast its sub-boxes - a
+        // hard rectangle where its silhouette should be. Decimated here to
+        // fit (positions only, parts welded together); the game tries the
+        // real mesh first and reaches for this only when it is over budget.
+        // Gated on the preference: ~40 KB of RAM per big model is not free,
+        // and a project without volumes never reads it.
+        if (p.settings.flashShadowVolumes) {
+            std::vector<const std::vector<float>*> pv;
+            size_t tris = 0;
+            for (const tmdl::Part& part : out.parts) {
+                pv.push_back(&part.verts);
+                tris += part.verts.size() / 24;
+            }
+            if (tris > meshlod::kShadowProxyMaxTris) {
+                out.shadowVerts = meshlod::generateShadowProxy(pv);
+                if (out.shadowVerts.empty())
+                    warn(relPath + ": " + std::to_string(tris) +
+                         " triangles and the shadow proxy could not be "
+                         "decimated under " +
+                         std::to_string(meshlod::kShadowProxyMaxTris) +
+                         " - the flashlight casts its bounding boxes");
+            }
         }
 
         files.push_back(

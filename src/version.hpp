@@ -16,6 +16,29 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.64.0 (a big model's torch shadow is its OUTLINE now, not its box):
+// reported over a shot of a rifle on a wall wearing a hard-edged rectangle,
+// with the reminder that "this whole feature was only ever for the pretty
+// Silent Hill shadows".
+//
+// The shadow volumes classify a model's real triangles on the EE every frame,
+// and past kShadowMeshMaxTris (1200) that stops being cheap - so a big model
+// extruded its bounding sub-boxes instead, and a 6194-triangle rifle cast a
+// box. The build now bakes a SHADOW PROXY for such a model: every part welded
+// together by position (a shadow has no uv seams), decimated by the mesh-LOD
+// quadric collapse with open borders UNLOCKED (a game prop is mostly open
+// borders; locked, the collapse stalls far above any useful budget - they
+// carry Garland's perpendicular-plane penalty instead, so an outline edge is
+// dear to break but free to slide along itself) until the triangle count fits,
+// stored positions-only in the .tmdl (format 3, trailing section, ~40 KB; v2
+// files read as before). The game tries the real mesh first and reaches for
+// the proxy only over budget; a model the decimator cannot bring under budget
+// warns in the build log and keeps the boxes. The budget is one constant,
+// meshlod::kShadowProxyMaxTris, spliced into the game's kShadowMeshMaxTris.
+// Baked only while the preference is on. Measured: rifle 6194 -> 877,
+// barrel 4180 -> 1167, trilobite 8338 -> 1022; the rifle's shadow shows its
+// sight, grip and the hole in the trigger guard in PCSX2.
+//
 // 1.63.1 (the torch's SILHOUETTE shadow was thrown from the eye too):
 // reported as "the torch shadow is not as nice as the moon's" over a shot of a
 // sphere wearing a hard-edged rectangle, with the helpful question - "could the
@@ -2274,8 +2297,8 @@
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 63
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_MINOR 64
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

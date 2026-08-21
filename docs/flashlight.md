@@ -349,7 +349,7 @@ shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |
 | --- | --- | --- |
-| Shadow shape | the caster's **mesh**, rendered from the torch — soft-edged, the same picture the sun's shadows make | the caster's **mesh**, silhouette-extruded — but a **primitive always extrudes its BOX**, and so does a model past 1200 triangles, which is why a sphere casts a hard-edged rectangle here |
+| Shadow shape | the caster's **mesh**, rendered from the torch — soft-edged, the same picture the sun's shadows make | the caster's **mesh**, silhouette-extruded (a model past 1200 triangles casts from a **decimated shadow proxy** the build bakes for it) — but a **primitive always extrudes its BOX**, which is why a sphere casts a hard-edged rectangle here |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
 | Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
 | Cost | four 64×64 silhouette renders | the volume fill each frame + a count band in GS VRAM: 512 KB at 32-bit colour, 256 KB at 16-bit |
@@ -360,9 +360,19 @@ model from its **real triangles** (the lit faces, pushed 5 cm down their rays,
 are the near caps; their projection at the light's range the far caps; and the
 silhouette edges, where a lit and an unlit face meet, become the extruded side
 walls — an *open* edge, and these models are not watertight, silhouettes
-whenever its one face is lit). A primitive extrudes its box, and a model past
-1200 triangles falls back to up to three tight sub-boxes (median split, then
-leaves merge back wherever splitting bought nothing).
+whenever its one face is lit). A primitive extrudes its box. A model past
+**1200 triangles** is too dear to classify on the EE every frame, so the build
+bakes it a **shadow proxy**: every part welded together by position (a shadow
+has no uv seams), decimated with the same quadric collapse the mesh LODs use
+but with open borders free to slide along themselves, down to under the
+budget, and stored positions-only in the `.tmdl` (~40 KB for a 1200-triangle
+proxy; only baked while the preference is on). A 6194-triangle rifle casts
+from 877 triangles and its shadow still shows the sight, the grip and the hole
+in the trigger guard - where it used to cast a hard rectangle, its bounding
+box. Only a model the decimator cannot bring under the budget (the build log
+says so, `[model bake] ...shadow proxy could not be decimated`) still falls
+back to up to three tight sub-boxes (median split, then leaves merge back
+wherever splitting bought nothing).
 
 Such a volume is thoroughly **concave** and overlaps itself constantly, which
 is exactly what 1-bit destination alpha cannot express: the GS cannot COUNT in
@@ -562,9 +572,9 @@ only ever broke a depth tie), and the difference is not subtle - it is most
 of what a shadow looked like. A volume capped on the lit side **contains its
 own occluder**: every surface the real mesh recesses behind the hull that
 stands in for it counted as shadow. A barrel came back with its panel lines
-in stripes of black, and - because a model past 1200 triangles is represented
-by a BOX - a hard-edged rectangle of that box's footprint sat on the ground
-around it, which reads as the shadow and is not one. Capping on the unlit
+in stripes of black, and - because a model past 1200 triangles was, at the
+time, represented by a BOX - a hard-edged rectangle of that box's footprint sat
+on the ground around it, which reads as the shadow and is not one. Capping on the unlit
 faces costs nothing and moves nothing: the silhouette ring is shared by both
 halves, so the shape on screen is identical.
 

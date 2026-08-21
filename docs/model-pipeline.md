@@ -48,7 +48,10 @@ The PS2 side is a sequential read plus a memory copy per material.
 The `.tmdl` carries the triangulated mesh, flat face normals, the resolved
 material assignment (including a per-object `.mtl` override), texture-atlas
 UV rectangles already folded into the UVs, texture paths as the game will
-open them, and the LOD levels below.
+open them, the LOD levels below - and, when the project has *Flashlight shadow
+volumes* on and the model is over the volumes' 1200-triangle budget, a
+positions-only **shadow proxy** decimated under that budget, which is what the
+torch extrudes the model's shadow from (docs/flashlight.md, "The shadow").
 
 ## What this means for your project
 
@@ -146,6 +149,20 @@ separately - their geometry is folded into the model's `.tmdl` - and they do
 not need their own scene objects. A practical setup is `tree.obj`,
 `tree_lod1.obj`, `tree_lod2.obj` exported from the same source with the
 material names kept intact.
+
+## The shadow proxy
+
+Distinct from the LOD levels and baked whether or not mesh LOD is on: with
+**Flashlight shadow volumes** enabled, a model past 1200 triangles gets one
+extra, positions-only mesh under that budget, from which the torch extrudes
+its shadow volume (a per-frame EE classification of every triangle is what
+the budget protects). It is welded across all parts by position and decimated
+with open borders unlocked, so it keeps the outline rather than the surface -
+which is all a shadow needs. About 40 KB per model; the game tries the real
+mesh first and reads the proxy only when the real one is over budget. A model
+the decimator cannot bring under budget prints
+`[model bake] <model>: N triangles and the shadow proxy could not be decimated
+under 1200` and casts its bounding sub-boxes, as every big model used to.
 
 ## What LOD never touches
 

@@ -133,8 +133,10 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
   silhouette, chosen per object; the cheap one works on a static prop too.
 - **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
-  lands on walls and props, and an offset that takes the light out of the
-  player's eye, where it could only ever cast shadows nobody can see.
+  lands on walls and props, an offset that takes the light out of the
+  player's eye, where it could only ever cast shadows nobody can see, and
+  shadow volumes that carve a big model's real outline (the build decimates a
+  shadow proxy for it), not its bounding box.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
 - **Models** — `.obj` compiled into a binary

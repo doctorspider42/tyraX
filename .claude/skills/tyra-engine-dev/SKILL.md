@@ -162,7 +162,9 @@ editor's `src/tmdl.hpp`, **keep the two in sync**. It returns the same
 `LeanObjMesh` so the game keeps one geometry path, with two differences the
 caller must know: texture names are already **cwd-relative** — do NOT prepend
 a directory — and `LeanObjMaterial::lods` may carry decimated tiers, which an
-`.obj` never has. Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
+`.obj` never has (and `LeanObjMesh::shadowVertices`, v3, a positions-only
+shadow proxy the flashlight's volumes extrude when the real mesh is over
+budget). Loading a 9216-vertex model went 286 ms -> 39 ms), per-bag additive blending for the
 reflective-material env pass (`PipelineInfoBag::additiveBlendFix` — non-zero
 makes `StaPipCore::render` drain PATH1 via `sync.align3D()` and switch the
 global GS `ALPHA` register to `Cs*FIX/128 + Cd` through
