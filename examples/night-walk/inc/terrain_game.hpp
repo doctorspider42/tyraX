@@ -1216,14 +1216,15 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> wColorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> wTexBag;
     std::unique_ptr<Tyra::StaPipBag> wBag;
-    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the extruded
-    // occluder boxes, split by CAMERA facing. Front faces write destination
-    // alpha 0x80 where they are closer than the scene, back faces write 0
-    // where THEY are - two plain TestOnly draws inside the alpha-mask
-    // bracket, and the bit that survives is "this pixel is inside a volume".
+    // Shadow volumes (FLASH_SHADOW_VOLUMES, docs/flashlight.md): the
+    // silhouette-extruded volumes, split by CAMERA facing. With the count
+    // target up (alphaMask.countReady) front faces ADD +32 into it and back
+    // faces SUBTRACT it back - TestOnly vs the scene depth - and one resolve
+    // per caster ORs count>0 into the destination-alpha mask; without it the
+    // convex sub-box fallback writes the alpha bit directly (0x80 / 0).
     std::vector<Tyra::Vec4> volFront, volBack;
     Tyra::Color volSetColor, volClrColor;
-    std::unique_ptr<Tyra::StaPipInfoBag> volInfo;
+    std::unique_ptr<Tyra::StaPipInfoBag> volInfo, volClrInfo;
     std::unique_ptr<Tyra::StaPipColorBag> volSetBagC, volClrBagC;
     std::unique_ptr<Tyra::StaPipBag> volSetBag, volClrBag;
     Tyra::M4x4 mat;

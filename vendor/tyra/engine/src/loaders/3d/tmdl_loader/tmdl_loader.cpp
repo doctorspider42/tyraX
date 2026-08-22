@@ -93,7 +93,7 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
   u32 version = 0, partCount = 0;
   auto mesh = std::make_unique<LeanObjMesh>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TMDL", 4) != 0 ||
-      !in.u32le(&version) || version < 1 || version > 2) {
+      !in.u32le(&version) || version < 1 || version > 3) {
     TYRA_WARN("TmdlLoader: bad header in ", relativePath.c_str());
     return nullptr;
   }
@@ -138,6 +138,25 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
         TYRA_WARN("TmdlLoader: malformed lod in ", relativePath.c_str());
         return nullptr;
       }
+    }
+  }
+  // Shadow proxy (version 3). A v2 file ends here and casts from its full
+  // mesh or boxes, as it always did.
+  if (version >= 3) {
+    u32 shadowCorners = 0;
+    if (!in.u32le(&shadowCorners) || shadowCorners % 3 != 0 ||
+        shadowCorners > kMaxVertices) {
+      TYRA_WARN("TmdlLoader: malformed shadow proxy in ",
+                relativePath.c_str());
+      return nullptr;
+    }
+    mesh->shadowVertices.resize((size_t)shadowCorners * 3);
+    if (shadowCorners &&
+        !in.bytes(mesh->shadowVertices.data(),
+                  (size_t)shadowCorners * 3 * sizeof(float))) {
+      TYRA_WARN("TmdlLoader: truncated shadow proxy in ",
+                relativePath.c_str());
+      return nullptr;
     }
   }
   return mesh;

@@ -9,6 +9,7 @@
 */
 
 #include "renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -52,7 +53,7 @@ void DynPipVU1Program::addStandardBufferDataToPacket(packet2_t* packet,
     packet2_add_float(packet, 2048.0F);  // scale
     // Modified by TyraX: 16x the upstream Z scale - packed XYZF2
     // reads Z from bits 4-27 (see stapip_vu1_program.cpp).
-    packet2_add_float(packet, static_cast<float>(0xFFFFFF) / 2.0F);  // scale
+    packet2_add_float(packet, RendererCoreDepth::scale);  // scale
     packet2_add_u32(packet, bag->count);  // vertex count
 
     packet2_utils_gs_add_prim_giftag(packet, prim, bag->count, reglist,

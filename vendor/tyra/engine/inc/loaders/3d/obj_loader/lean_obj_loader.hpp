@@ -68,6 +68,11 @@ struct LeanObjMesh {
   std::vector<LeanObjMaterial> materials;  // first-use order of usemtl
   float min[3] = {0, 0, 0};                // AABB over all vertices
   float max[3] = {0, 0, 0};
+  // Shadow proxy (TmdlLoader, .tmdl version 3+): a positions-only triangle
+  // list (xyz per corner) decimated by the TyraX build to the flashlight
+  // shadow volumes' per-model budget. Empty = none baked (the full mesh
+  // already fits, or the project casts no volume shadows).
+  std::vector<float> shadowVertices;
   u32 vertexCount() const {
     u32 n = 0;
     for (const auto& m : materials) n += m.vertices.size() / 8;

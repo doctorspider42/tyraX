@@ -130,6 +130,15 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [the console does](docs/ps2-viewport.md) — GS raster, per-vertex flat-shaded
   lighting, 16-bit colour with the GS dither, and the lights' own
   [visible beams](docs/flashlight.md) drawn the game's way.
+- **[Dynamic shadows](docs/shadows.md)** - a blob or a real projected
+  silhouette, chosen per object; the cheap one works on a static prop too. A
+  scene's spot lights can carve per-pixel shadow volumes of their own, so a
+  street lamp stops lighting the alley behind the wall it hangs on.
+- **[A torch you hold](docs/flashlight.md)** - a per-pixel projected pool that
+  lands on walls and props, an offset that takes the light out of the
+  player's eye, where it could only ever cast shadows nobody can see, and
+  shadow volumes that carve a big model's real outline (the build decimates a
+  shadow proxy for it), not its bounding box.
 - **[Terrain](docs/terrain.md)** — optional per scene, sculpted with a brush and
   [painted with blended material layers](docs/terrain-painting.md).
 - **Models** — `.obj` compiled into a binary
@@ -289,6 +298,7 @@ wait for their polish pass.
 | [raytraced-mirror](examples/raytraced-mirror) | Reflections ray-traced per pixel on VU0. On a PS2. There's a resolution knob |
 | [reflections](examples/reflections) | Static sphere maps vs the live `@sky` mode — with a sky cycler so you can catch the difference |
 | [probe-aim](examples/probe-aim) | A chrome ball that shows what's behind you: probes aimed along the reflected ray |
+| [texture-atlas](examples/texture-atlas) | Thirty crates, thirty tiny textures, one shared GS page - and 65 KB of VRAM back, measured both ways |
 | [texture-feeds](examples/texture-feeds) | Two monitors on a wall — one plays live CCTV, the other a raytraced mirror |
 | [lighting](examples/lighting) | One dusk plaza wearing everything at once: torches, shafts, flare, god rays, shadows, a flashlight |
 | [glow](examples/glow) | A midnight walk through four stations of things that glow |

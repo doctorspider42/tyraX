@@ -81,10 +81,14 @@ pool patch takes the gobo's projective STQ from the LIGHT's own frustum
 instead of the round corona, so a lamp's pool is shaped per pixel however
 coarse the ground is. It follows *Set Light*, flicker and Move Object like
 any dynamic light, and pairs naturally with the visible beam (*Beam: corona*)
-- night-walk's street lamp is the demo. Spot lights do not take part in the
-torch's shadow machinery: no receivers, no volumes - one torch is the
-per-pixel protagonist, a scene spot is set dressing that finally lights its
-own street.
+- night-walk's street lamp is the demo. A spot light takes no part in the
+torch's RECEIVER machinery - one torch is the per-pixel protagonist there -
+but since 1.67.0 it carves **shadow volumes** of its own, through literally
+the same code "The shadow" below describes: the caster pick and the counting
+bracket are shared, and a lamp supplies its own position, aim, cone and reach
+where the torch supplies the player's. It is switched on project-wide or per
+lamp, one casting spot per frame, and what it carves is the lamp's ground
+pool. See [shadows.md](shadows.md), "Spot-light shadow volumes".
 
 The corona itself is a depth-tested additive billboard, and two details keep
 it clean on the fixture that carries it. It is drawn **pulled toward the
@@ -118,7 +122,18 @@ rather than less of one.
   reaches much further than it is wide. What you see is an ellipse that
   stretches as you lower the torch, and a circle when you point it straight down.
 - **Follows the relief.** On terrain, each patch vertex sits on the ground under
-  it, so a pool crossing a ridge bends over it.
+  it, so a pool crossing a ridge bends over it — and it rides the relief's
+  **hull**, not its samples: every cell measures how far the ground bulges
+  above the sheet through its four corners, and the corners are raised by
+  the largest bulge around them, so a chord never dives under a convex
+  slope. Before 1.66.2 the only defence was the lift, which is capped by the
+  torch's height over the landing — negative the moment the beam lands *up* a
+  hill — so a torch aimed uphill had 2 cm of lift over 10-unit chords, and
+  the pool cut off along a dead-straight line across the whole screen (the
+  chord plane meeting the ground plane), the near half dark from a steep
+  slope looking at the flat, the far half dark over a crest. The bulge, not
+  the highest ground within a cell: a canvas raised by a slope's own rise
+  floated at the lens's height and glowed in the sky over the crest.
 - **Lands on what you built.** Placed floors, platforms, walls and props take the
   pool as well as the terrain, so a torch works in a room made of geometry —
   including in a scene with [no terrain at all](terrain.md), which had no pool
@@ -136,6 +151,44 @@ diagonal seams following the patch's triangulation, and it survived a fix for
 the texture mapping, one for the near plane and one for the depth test — because
 it was none of those. Overlays that ARE light or shadow (the pools, the blob
 shadows, the projected shadows) set `spotLit = false` for this reason.
+
+**The patch is a canvas, not the light.** The gobo is projected per pixel
+from the torch onto wherever the patch lies, so the patch only has to COVER
+the ground the cone reaches - and it is laid where the *cone* meets the floor,
+not only where its axis does. Three landings, tried in order: the axis meets
+the floor; the axis meets a wall first, in which case the canvas lands at the
+wall's foot (a step short of the face, or it would climb onto the wall's top);
+the axis misses the floor altogether, in which case the cone's **lower edge**
+is marched instead - the steep edge, so its hit is the footprint's NEAR end
+and the canvas is laid outward from it to the light's reach (1.66.0 laid it
+toward the player, where the gobo is black, and the pool cut off along a
+straight line at that hit as the torch was raised across open ground; fixed
+in 1.66.1). The canvas's own far edge fades over its last quarter, so the
+fill-rate backstop on its length never shows as a straight edge either. Before 1.66.0 only the axis was marched
+and it ignored walls: aim a pixel above the wall/ground edge and the axis
+landed on the ground *behind* the wall, where the z test hid the canvas - so
+the pool on the ground **snapped off** while the lower half of the cone
+plainly still lit it (reported with screenshots, and the same cliff sat at the
+side of every prop). Aimed level, it had no canvas at all. The lift that keeps
+the canvas above the relief is also capped at half the torch's height over the
+landing: a canvas lifted past the lens is seen from below and covers nothing.
+(Which is why the lift alone cannot keep the canvas above a convex slope —
+the hull above does that, and it owes nothing to the torch's height.)
+
+**The patch starts where the light starts, too.** The near edge is laid a
+unit short of where the cone's *lower* edge meets the floor (that edge is
+marched every frame for it). It used to sit a fixed `along` behind the
+canvas's centre, which knows nothing about where the light begins: aimed far
+across open ground — a 2-degree pitch lands 25 u out, the centre goes 15 u
+past that and `along` caps — the near edge fell 5.5 u in front of the player
+while the cone had been on the ground since 3.9 u. Bright gobo, no canvas,
+and the pool **cut off along the canvas's own straight near edge**, reported
+twice from night-walk ("a straight line through the pool as soon as I aim far
+or walk up a slope") and measured: the cut's screen row was the near row's
+projection to the pixel (1.66.3). The same canvas is a **trapezoid** now,
+each row as wide as the cone at its own distance, rather than a strip as wide
+as the cone at the landing: aimed far, the strip's straight sides were the
+light's sides.
 
 **The patch reaches as far as the beam does.** The footprint of a beam runs away
 as it flattens — the lower edge of the cone meets a level floor further and
@@ -168,6 +221,17 @@ projection changes for it — `goboST` is a function of the world position alone
 
 Three things worth knowing about how the receivers are found and drawn:
 
+- **The light budget is SHARED between receivers, and it is split fairly.**
+  The second pass has a 3997-vertex ceiling per frame, and it used to be first
+  come first served by distance: one detailed model in the beam filled the
+  whole buffer and every receiver behind it got **nothing** - no torch light on
+  the wall two metres past it, and therefore no shadow on that wall either,
+  since a mask can only darken light that is drawn. ("I shine at the robot and
+  the light on the wall disappears", measured as `recv[0] sliceVerts=3999,
+  recv[1] sliceVerts=0`.) Each receiver gets an equal share now, plus whatever
+  the ones in front of it did not use - so a heavy model lights *partially*
+  (its far triangles keep the cheap per-vertex cone) rather than taking the
+  wall's light with it. The wall is what the pool is for.
 - Receivers are **everything the cone touches** — the nearest three solids whose
   oriented boxes (the same rotated basis an [Area](areas.md) uses) intersect the
   beam — not merely the object the beam hits. That distinction closed two
@@ -183,8 +247,8 @@ Three things worth knowing about how the receivers are found and drawn:
 
 One era artifact comes with the era's method: the pass has no shadows of its
 own, so a beam on a hut's outer wall also lights the *inner* face of that wall
-for someone standing inside. Silent Hill spent its shadow volumes on exactly
-this; here it is simply the deal.
+for someone standing inside. The era’s games spent their shadow volumes on
+exactly this; here it is simply the deal.
 
 **Both patches are live at once.** A beam sweeping off the floor and up a wall
 lights the two together for as long as it straddles the join, so the flashlight
@@ -260,6 +324,53 @@ To use your own, set *Properties > Flashlight > Pool texture* to a PNG in
 | The pool dies too close | *Reach* — the fade is measured against it |
 | Props look like flat white cutouts | *Light colour* — the cone has no N·L, so a near-white torch saturates them |
 | Nothing lights at all | *Enabled* is the master; a `Set Flashlight` node may have turned it off |
+| The beam has no shadows worth seeing | *Held right* / *Held below eye* — see below; at 0,0 the light is your eye |
+
+## Off the eye
+
+A first-person torch sits, by default, exactly where the camera is. That is the
+cheapest thing to compute and the worst thing to look at: **a light on the view
+axis lights precisely the surfaces it hides.** Its shadows fall behind their
+casters, where you cannot see them, and every prop is lit flat-on with no
+modelling at all.
+
+*Properties > Flashlight > **Held right** and **Held below eye*** move the
+light's origin off that axis, in world units — a torch in a hand rather than in
+an eye socket. **0,0 is the default and returns the eye exactly**, so nothing
+moves in an existing project until you ask for it. About **0.2 right and 0.3
+down** reads as hand-held; the value is clamped to a metre either way, past
+which it is a lamp on a pole and the per-vertex cone (a coarse fill that has
+always been eye-shaped) stops agreeing with the pool.
+
+Three things follow, and the middle one is the reason people ask for this:
+
+- **the pool moves with the light.** The beam still AIMS where you look — a
+  torch is pointed, not converged — so an origin 0.25 units down puts the lit
+  ellipse 0.25 units nearer your feet at every distance. That is the offset
+  doing its job, not drift.
+- **shadows get somewhere to fall.** With the light off the axis, a caster's
+  shadow is thrown clear of the caster instead of hiding behind it. Measured on
+  a barrel three metres out: dark pixels inside the lit pool went from **896**
+  (light in the eye - two slivers at its edges) to **5994** (0.2 / 0.25 - a
+  shadow you can see).
+- **props gain a lit side and a dark side.** The top of a barrel lit from below
+  the eye is no longer the brightest thing in frame, which is most of what
+  "torchlit" looks like.
+
+The offset is taken in the **beam's** frame, never the world's: right is the
+beam crossed with world up, and down is the beam's own up negated. So the light
+never slides ALONG the beam - which would quietly change its reach, and could
+drop it PAST a near caster, where a shadow volume points back at the eye and
+z-pass counting is wrong. Aiming straight up or down leaves "right" undefined;
+there the offset stops meaning anything and the eye is used unchanged (verified:
+a vertical beam still lands its pool).
+
+One origin feeds everything the torch does - the projection that shapes the
+pool, the receiver collection, the wall hit, the march that lands the pool, the
+shadow volumes, and the per-vertex cone in both game templates. What stays the
+CAMERA on purpose is the aim direction, the receiver height cap (a wall taller
+than the player is not a floor) and the shadow volumes' front/back
+classification, which is a question about the eye rather than about the light.
 
 ## What the editor shows
 
@@ -279,48 +390,295 @@ position into a shadow-map slot, the ground patch samples it as before, and the
 wall behind the caster is re-rendered — the same second-pass trick as the light —
 with the silhouette sampled through the light's view-proj, exactly per pixel.
 
+**Both modes need the torch to be OFF THE EYE to show anything** ("Off the
+eye" above). A light on the view axis lands its shadow exactly behind its
+caster on screen: the volume mode leaks a rim, and the silhouette mode - which
+draws the *right* shape - draws it precisely where the caster hides it, so it
+looks like nothing at all while quietly taking the slot the moon had been
+using. Set *Held right* / *Held below eye* first, then judge either mode.
+
 **The technique is a project setting** (*Preferences > Rendering > Flashlight
 shadow volumes*), because the two answers trade different things:
 
 | | Silhouette slots (default) | Shadow volumes |
 | --- | --- | --- |
-| Shadow shape | the caster's **mesh**, rendered from the torch | the caster's **box**, extruded |
+| Shadow shape | the caster's **mesh**, rendered from the torch — soft-edged, the same picture the sun's shadows make | the caster's **mesh**, silhouette-extruded — a model's real triangles (past 1200 of them, a **decimated shadow proxy** the build bakes), a primitive's own unit mesh at the highest detail under that budget; hard-edged, exact per pixel |
 | Who occludes | objects with *Cast shadow (projected)*, nearest four | **every solid in the beam**, no flag, no limit |
-| Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer, self-shadowing included |
-| Cost | four 64×64 silhouette renders | the volume fill each frame |
+| Occlusion | patches on ground and wall; light still leaks through unflagged solids | **exact per pixel** against the real z buffer |
+| Cost | four 64×64 silhouette renders | the volume fill each frame + a count band in GS VRAM: 512 KB at 32-bit colour, 256 KB at 16-bit |
 
 Volumes are the survival-horror era's own arrangement, on its own hardware
-trick: each occluder box is extruded away from the torch into a closed volume,
-the volume's camera-front faces **set** the framebuffer's destination-alpha MSB
-where they beat the scene's depth, its back faces **clear** it where they do —
-plain z-testing is the entire algorithm — and every torch light pass then draws
-with the GS's destination-alpha test (`TEST.DATE`), only where the mask says
-lit. The mask gates *light*; nothing ever paints darkness. Stand behind a crate
-and the torch genuinely does not reach you.
+trick. **The machinery below is shared with the scene's spot lights** since
+1.67.0 ([shadows.md](shadows.md), "Spot-light shadow volumes"): the caster
+pick and the counting bracket take a light's origin, aim, cone tangent and
+reach, and the torch passes the player's. Two things are the torch's alone -
+the virtual origin pushed down the beam (a lamp on a wall has real parallax
+already) and the 1-bit fallback, whose correctness comes from interleaving
+each receiver's light with the volumes in front of it. Each occluder is
+extruded away from the torch into a closed volume — a
+model from its **real triangles** (the lit faces, pushed 5 cm down their rays,
+are the near caps; their projection at the light's range the far caps; and the
+silhouette edges, where a lit and an unlit face meet, become the extruded side
+walls — an *open* edge, and these models are not watertight, silhouettes
+whenever its one face is lit). A primitive - box, sphere, cylinder, cone -
+extrudes its **own unit mesh**, built by the same generators that draw it,
+once per (type, detail) and placed with the caster's basis and scale like a
+model's; its detail steps down until the mesh fits the budget below (a
+detail-64 sphere is 5760 triangles), so a sphere casts a circle, not its
+bounding box. (A plane or a decal is one-sided and has no unlit side to cap
+on, so those two still extrude their thin box.) A model past
+**1200 triangles** is too dear to classify on the EE every frame, so the build
+bakes it a **shadow proxy**: every part welded together by position (a shadow
+has no uv seams), decimated with the same quadric collapse the mesh LODs use
+but with open borders free to slide along themselves, down to under the
+budget, and stored positions-only in the `.tmdl` (~40 KB for a 1200-triangle
+proxy; only baked while the preference is on). A 6194-triangle rifle casts
+from 877 triangles and its shadow still shows the sight, the grip and the hole
+in the trigger guard - where it used to cast a hard rectangle, its bounding
+box. Only a model the decimator cannot bring under the budget (the build log
+says so, `[model bake] ...shadow proxy could not be decimated`) still falls
+back to up to three tight sub-boxes (median split, then leaves merge back
+wherever splitting bought nothing).
 
-A model caster casts from up to three TIGHT sub-boxes fitted to its
-triangles (median split, then leaves merge back wherever splitting bought
-nothing), never from its one AABB - a lamp post's AABB is a slab of mostly
-air, and a slab's shadow is a lie. Each sub-box is convex, which is what the
-1-bit destination-alpha trick genuinely requires: the GS cannot COUNT like a
-stencil, so a non-convex volume's set/clear order lies. (True mesh-shaped
-volumes - the hospital-bed slats - need the era's full arrangement: count in
-a spare framebuffer channel with add/subtract blending, then one resolve
-pass converts count into the mask bit. The machinery exists here; it is a
-planned step, not this one.)
+Such a volume is thoroughly **concave** and overlaps itself constantly, which
+is exactly what 1-bit destination alpha cannot express: the GS cannot COUNT in
+the alpha channel — blending never writes A — so a set/clear order over a
+concave volume lies. The era's answer, reproduced here: the GS *can* add and
+subtract in **color** channels. The volume's camera-front faces add +32 and
+its back faces subtract it, both plain TestOnly z against the scene's depth,
+into a dedicated 32-bit count target that shares the scene's own z buffer.
+Any pixel the light cannot reach ends net-positive; everything else returns to
+exact zero, whatever the overlap count.
+
+**Why that target is 32-bit, and why it is a BAND** — the most expensive thing
+this feature knows, and it was found on a physical console after every
+emulator test had passed. A GS colour buffer and the z buffer it is
+depth-tested against must share **page geometry**: 32- and 24-bit pages are
+64×32 pixels, 16-bit pages are 64×64. The count target started out PSMCT16
+(to fit VRAM) over the scene's 32-bit z, and on hardware the depth comparison
+then read shifted words for half of every page — the torch's light landed in a
+**checkerboard of 32-pixel tiles** wherever a volume was counted. PCSX2
+addresses each buffer from its own PSM, so it showed nothing at all, at any
+vantage, ever.
+
+A full raster at 32 bits is 1 MB, which no project can spare, so the target is
+a **band** (256 rows × the raster width = 512 KB, exactly what the broken
+16-bit full-raster target cost) and `FRAME.FBP` is slid by whole page *rows* so
+the band covers the volumes' screen rect. `ZBP` never moves, which is what
+keeps the 1:1 correspondence with the scene's depth exact; the band's first row
+must be a multiple of its own page-row height for the slide to be expressible.
+A shadow region
+taller than the band is counted band by band — the mask is an OR, so the bands
+compose and a tall shadow costs fill, not coverage. (The resolve of a slid band
+samples the target at its **own** base with `V = y − bandY0` — it used to bind
+the texture to the slid base *and* subtract `bandY0`, which for every band but
+the first read the memory below the band instead of the band; found by reading
+the address arithmetic, and invisible in a first-person torch because a shadow
+missing only in the bottom half of the screen reads as the torch's own
+"hides behind its caster" rule.) Then **one resolve pass per frame**
+samples the count target as a texture with `TEXA.AEM = 1` — an all-zero texel
+expands to alpha 0, anything else to 0x80 — and ORs *count > 0* into the
+framebuffer's destination-alpha MSB through an alpha test. Counting is exact
+over any pile of volumes, so every caster lands in ONE bracket — one clear,
+one resolve, scissored to the volumes' projected screen bbox (the bbox of
+the volume VERTICES themselves, mapped through the VU1 pipeline's fixed 2048
+scale - `x/w` is not NDC in this engine, the frustum edge sits at
+`w * rasterW / 4096`, and with NO vertical flip - the projection's `-h`
+already carries the GS's downward y, proved against the sun disc in 1.65.1; it
+used to be the casters' box corners divided as NDC, a rect shrunk toward the
+screen centre that sliced every shadow flat at its rows once a mesh volume
+reached past its caster's box), and the far
+caps are skipped outright (they only ever subtract at pixels beyond the
+light's range, where the reach falloff has already taken the light to zero).
+Each of those three was measured, not assumed: per-caster brackets with
+full-raster clears and resolves halved PCSX2's software renderer on the
+night yard's four-caster vantage (50 → 25 FPS); the scissor, the folded
+single-drain bracket entry and the dropped far caps put it back at 50.
+Every torch light pass then
+draws with the GS's destination-alpha test (`TEST.DATE`), only where the mask
+says lit. The mask gates *light*; nothing ever paints darkness. Stand behind a
+crate and the torch genuinely does not reach you.
+
+Two geometric facts shape the implementation. **The torch sits exactly in the
+eye**, and a light in the eye casts shadows exactly hidden behind their own
+casters — so the volumes extrude from a *virtual* torch pushed a short way
+down the beam (5% of the range, clamped to 0.5–2 units): the hand-held
+parallax that makes every shadow diverge and show around what casts it, the
+same reason the silhouette mode projects with a wider FOV. And **face
+orientation is geometric, never winding-trusted**: caps orient toward/away
+from the light, side walls away from an interior sample — a model with flipped
+winding degrades to casting from its back faces, whose silhouette is the same.
+
+**It works at either colour depth, and getting there cost two more GS rules.**
+The first is `FBA`, the GS's "alpha correction": with `FBA = 1` the hardware
+forces the **MSB of every alpha it writes to 1**. That is a convenience for
+1-bit-alpha targets and death to a mask that lives in exactly that bit - the
+per-frame clear wrote alpha 0, the GS stored 1, `TEST.DATE` read *shadow* over
+the whole raster, and every DATE-gated torch pass was discarded: in a 16-bit
+project the projected pool simply did not draw. Who sets it is known now:
+**ps2sdk's `draw_setup_environment` programs `FBA = 1` for a 16-bit frame
+PSM** (disassembled from `libdraw.a` — the register at `0x4A + context` gets
+`(psm & ~8) == 2`, i.e. `PSMCT16`/`PSMCT16S` — and 0 for a 32-bit one), which
+is why only 16-bit projects ever saw it. The engine zeroes it right after that
+call (`RendererCoreGS::initDrawingEnvironment`, the same shape as the REPEAT
+re-assert) and **both** mask brackets re-assert it at the top of the frame —
+the counting path's `maskClear()` and the convex path's `begin()`. That second
+one mattered: the first fix went into `maskClear()` alone, so the pool came
+back for exactly as long as counting was allowed at 16-bit and vanished again
+the moment the count target was refused there and the convex path took over —
+the per-vertex cone still lit the props (it is not DATE-gated), the ground and
+the walls stayed dark.
+
+The second:
+The mask writes have to touch alpha and nothing else, and `FBMSK`'s bit
+positions are **always 32-bit RGBA8** - R 0..7, G 8..15, B 16..23, A 24..31 -
+whatever PSM the framebuffer is in; the GS maps them onto a 16-bit target's
+5551 layout itself. Reasoning from the 16-bit PIXEL layout instead (two pixels
+per word, alpha at bit 15 of each half) gives `0x7FFF7FFF`, which exposes bit
+15 - the top bit of GREEN - so every "alpha only" write also halved green
+wherever the torch lit something and a 16-bit project came back magenta,
+(208, 56, 144) measured on a warm cream lamp post. One constant, `0x00FFFFFF`,
+is correct at both depths.
+
+**The count runs with the GS dither OFF, and that is a console-only finding
+(1.69.1).** The project's ordered dither (`DTHE` + the 4x4 `DIMX` offsets) is
+meant for the 16-bit picture, and the manual's "16-bit destinations only"
+reading let it stay armed during the count bracket - PCSX2 draws the band
+exactly either way. The real GS does not: every `+N` front face and every
+`-N` back face took its own matrix offset, the pair no longer cancelled, and
+the band came back with residues on alternate rows and every fourth column
+(read on a console through the hidden `shadowVolumesDebug: 3`, which draws
+the band's texels on screen instead of the mask: `4,0,4,0` down a column that
+should be all zero). The resolve turned each residue into a mask bit and the
+picture showed it three ways: a **one-pixel checkerboard carved out of the
+pool** at 32-bit colour; at 16-bit **dashed green slivers along every
+silhouette edge** (the mask bit through the 5551 layout) and a **dark halo in
+the volume's shape** (the same bit reaching the CRTC's flicker filter). The
+field report also had the ground texture eaten into blue-spotted holes after
+a while, which was not reproduced in the fix session and is still open.
+Bisected live on the console with `shadowVolumesDebug` 1 (count, no resolve:
+clean), 2 (resolve, no volumes: clean) and the project's `dither: false`
+(clean in one boot); `countBegin` now writes `DTHE = 0` and `countResolve`
+restores the project's value. Two reports that used to read as unexplained
+green marks in fixed columns were this.
+
+**And it can take the last of the texture heap, which does not look like a
+VRAM problem at all.** The band is 512 KB at 32-bit colour, and a project in a
+512x512 display mode has about that much heap in the first place - so switching
+the volumes on can leave the textures with nothing, and the symptom is not a
+missing shadow: it is every texture in the scene evicting and re-uploading
+*once a frame*. Measured on a hand-made scene (two models, a wall, PAL full
+height, 32-bit colour): `VRAMSTAT` reads **0.375 MB free and 0 re-uploads**
+with the volumes off, **0.000 MB and ~1.6 re-uploads per frame** with them on.
+Preferences warns beside the switch when the band is most of what is left; the
+authoritative number is the game's own `VRAMSTAT` line in `bin/log.txt`. The
+cheapest fix is 16-bit colour, which halves both the display buffers and the
+band.
+
+If the count target's VRAM is refused (it is claimed at boot, right after the
+projected-shadow slots, and `allocateBuffer` refuses rather than evicts), the
+volumes fall back to the convex sub-boxes with the old 1-bit set/clear — one
+bracket per convex piece, a sliver artifact where pieces overlap.
+
+**Counting works at BOTH colour depths, and the one release where it did not
+was a misdiagnosis worth writing down.** In a 16-bit project the resolve laid
+**dashed green marks down two fixed screen columns** over whatever the torch had
+lit, standing still in screen space as the camera moved. It was bisected to that
+one pass (forcing its alpha test to fail cleared a sweep), and from there the
+blame went to the *masked write at a `PSMCT16` destination* - so counting was
+refused at 16-bit and the volumes fell back to convex boxes.
+
+**That blame was wrong, and two console measurements say so.**
+
+The first is a **probe with no shadows in it at all**: the same flat sprite
+drawn into a `PSMCT16` frame four times, through `FBMSK` `0xFFFFFFFF`,
+`0x00FFFFFF`, `0x7FFF7FFF` and `0`, each rect beside the next, plus a strip per
+mask whose alpha is cleared, half-set and then revealed with a `DATE`-gated
+sprite. On the console it reads **exactly as it does in PCSX2**: `0x00FFFFFF`
+leaves the colour untouched and its alpha half reaches the mask bit per pixel.
+The mask constant is right and the destination format is innocent.
+
+The second is a **paired sweep one knob apart**, eight vantages of
+`examples/night-walk` at 16-bit colour, same pad script, fresh boot per arm:
+
+| `countResolve()`'s `TEX0` base | frames with green | pixels |
+| --- | --- | --- |
+| the **slid** band base (what shipped until 1.59.1) | **8 of 8** | 800-4 800 |
+| the band's **own** base (the fix) | **0 of 8** | 0 |
+
+Flipping the knob back brings them straight back (A-B-A), and the columns are
+the ones the field screenshot showed, to within two pixels. PCSX2 shows nothing
+in either arm at any vantage tried - a hardware-only symptom, which is what made
+the first diagnosis so easy to get wrong.
+
+The reading fault was **double compensation**: the count pass writes pixel
+`(x, y)` through a `FRAME` slid by `bandY0` worth of page rows, so that pixel's
+texel lives at the band's own base with `V = y - bandY0`. Binding the texture to
+the slid base *as well* made every band but the first sample `bandY0` rows
+**below** the band - at 16-bit, 256 KB below: the top of the scene z buffer and
+the projected-shadow slots.
+
+**One half of it is still open**: why garbage texels sampled by a pass that only
+writes alpha end up *tinting* pixels at all. The marks also appear above the
+band boundary, where the slide is zero, so the mechanism is not simply "band 1
+reads rubbish". What is settled is that they follow that one register and
+nothing else, 8 of 8 against 0 of 8. If they ever come back, start there.
+
+So `allocateCount()` runs at either depth again: the band is `PSMCT32` and
+512 KB at 32-bit colour, `PSMCT16` and 256 KB at 16-bit (its page geometry
+follows the z buffer, as above), and a 16-bit project gets mesh-shaped shadow
+volumes like any other. Verified on the console: eight vantages clean, VRAM
+2.18 MB, pools and shadows drawing.
+
+**And then the band's own format ate the whole feature at 32-bit colour, for
+one release, in silence.** The count is turned into the mask bit by `TEXA`'s
+AEM expansion — *an all-zero texel is transparent, anything else is `0x80`* —
+and the GS only expands an alpha it has to **invent**: `PSMCT16` (one bit) and
+`PSMCT24` (none at all). A `PSMCT32` texel carries its own alpha byte and
+`TEXA` is ignored for it. The count pass deliberately writes **alpha 0** (the
+count lives in the RGB channels, so the band's A bit can never trip the
+resolve), so with the band bound as `PSMCT32` the resolve sampled alpha 0 for
+every pixel, failed its `ATEST != 0` on every pixel, and wrote **not one mask
+bit**: at 32-bit colour the torch cast no shadow whatsoever, while 16-bit —
+where AEM does apply — worked. That asymmetry is why it survived a console
+pass and a screenshot review: every shot that proved the feature had been
+taken while chasing the 16-bit bugs above. The resolve binds `PSMCT24` when
+the band is 32-bit — the same memory, minus the byte we do not want.
+
+Diagnosing it took one probe and one question, the recipe in the
+`tyra-engine-dev` skill: **skip `maskClear()` for one build**. The alpha then
+starts each frame at the 0x80 the repaint left, so a live gate must discard
+*everything* the torch draws. Half the picture went dark and the ground pool
+did not — which said the gate was live, the mask was empty, and the fault was
+between the count pass and the frame's alpha. Nothing else had to be guessed.
 
 Four rules keep the volumes honest, each paid for with a report from the
 yard. The occluder slots go to the four candidates NEAREST the torch, never
 in object-table order (three merged facades used to eat every slot and the
 props between the torch and them never cast). A thin thing - a lamp post, a
 sign - never claims a receiver slot; it keeps its cheap per-vertex cone (the
-slot it stole was the facade's). Casters and receivers are walked TOGETHER,
-sorted by distance, each receiver's light drawn BEFORE its own volume enters
-the mask - a volume only ever shadows what is behind its caster, so
-nearest-first is the dependency order, and an object structurally cannot
-shadow itself (a model's AABB stands proud of its real walls - a roof
-overhang - and the shed's own volume used to swallow the shed: "a black
-hole"). And once the last DATE-gated pass has drawn, the raster's ALPHA is
+slot it stole was the facade's). Self-shadowing is excluded BY CONSTRUCTION
+under counting: **the near caps are the caster's faces turned AWAY from the
+light**, so the volume starts at its far side and the caster is never inside
+it, and the whole mask can be built before any light pass draws.
+
+That cap used to sit on the LIT faces (pushed 0.05 down their rays, which
+only ever broke a depth tie), and the difference is not subtle - it is most
+of what a shadow looked like. A volume capped on the lit side **contains its
+own occluder**: every surface the real mesh recesses behind the hull that
+stands in for it counted as shadow. A barrel came back with its panel lines
+in stripes of black, and - because a model past 1200 triangles was, at the
+time, represented by a BOX - a hard-edged rectangle of that box's footprint sat
+on the ground around it, which reads as the shadow and is not one. Capping on the unlit
+faces costs nothing and moves nothing: the silhouette ring is shared by both
+halves, so the shape on screen is identical.
+
+Where the 1-bit fallback instead
+walks casters and receivers TOGETHER, sorted by distance, each receiver's
+light drawn before its own volume enters the mask (a proud proxy used to
+swallow its own caster whole - "a black hole" - and that interleave is what
+makes the class impossible there). And once
+the last DATE-gated pass has drawn, the raster's ALPHA is
 repainted to the neutral 0x80 - the mask lives in the framebuffer's alpha,
 and the SDTV flicker filter blends its two read circuits by that very
 channel, so a mask left in place is SHOWN by the CRTC as translucent wedges.
@@ -340,16 +698,49 @@ What the silhouette mode needs and costs:
   arrangement for a light that walks around, and without the check its
   silhouette painted *through* the wall.
 - A torch level with the caster throws **no ground shadow** (there is no ground
-  the ray reaches) but still paints the wall — which is the Silent Hill shot.
+  the ray reaches) but still paints the wall — the era’s signature shot.
 - In first person the shadow hides *behind* its caster from your point of view —
   the light is your eye. It reveals itself at the edges (the silhouette is
   bigger than the caster by the light's divergence), on casters off the beam's
   axis, and whenever the camera is anywhere other than the torch.
 
+### How much of a volume shadow you will actually SEE
+
+Read this before filing "the shadows are missing", because the honest answer
+is geometry rather than a bug. **A light on the view axis casts every shadow
+exactly behind the thing that casts it.** In first person the torch *is* your
+eye, so the only part of a correct shadow that can reach the screen is a rim
+as wide as the virtual torch's parallax - `volPush`, 5% of the beam's range,
+clamped to 0.5-2 units. Beside a barrel three metres away that rim is a
+sliver a few pixels across. It is not a defect and no amount of mask fixing
+widens it.
+
+What *does* show a volume shadow in full:
+
+- **a surface well behind the caster** - a wall several metres past it, where
+  the shadow's silhouette is magnified far beyond the caster's own screen
+  size (the wall in `examples/night-walk`);
+- **a caster off the beam's axis**, which throws its shadow across the pool
+  rather than into its own hiding place;
+- **a third-person camera**, where the torch really is off the view axis, and
+  the shadows are as plain as any other light's;
+- **an offset torch** — *Held right* / *Held below eye* ("Off the eye" above),
+  which is the knob that changes this answer: the same barrel measured 896 dark
+  pixels inside the pool with the light in the eye and 5994 at 0.2 / 0.25.
+
+Two ways to widen the rim were tried and measured, and both are dead ends
+worth not repeating: dropping the virtual torch to chest height (0.55 units)
+moves a few degrees at a caster's distance and changed almost nothing; and
+widening `volPush` past a caster's own distance **disqualifies that caster**,
+since nothing closer than `volPush + 0.3` may cast at all (at 3.5 units the
+prop the torch was pointed at stopped casting entirely). For big, obvious,
+always-visible shadows use the sun/moon's per-object *Projected silhouette*
+([shadows.md](shadows.md)); that light is never where the camera is.
+
 One era artifact, inherited honestly: the wall pass has no self-shadowing, so
 the silhouette lands on the far wall even when the beam's own light got there
-through the gap *beside* the caster rather than through it. Silent Hill spent
-its shadow volumes on exactly this class of correctness; here four slots and a
+through the gap *beside* the caster rather than through it. The era spent its
+shadow volumes on exactly this class of correctness; here four slots and a
 64×64 silhouette are the whole budget.
 
 ## What is still on the model, and what to do about it

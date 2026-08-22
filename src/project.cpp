@@ -193,11 +193,28 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
         lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
     }
 
+    // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
+    // shadow"): a raster-sized PSMCT16 buffer the generated init() claims
+    // right after the shadow-map slots whenever the technique is on and a
+    // scene has a flashlight. Allocated after the engine's own headroom
+    // check, like the upscaler's low-res target - so this twin subtracts it
+    // by hand too. Approximated as "any flashlight in the project" rather
+    // than re-deriving codegen's FLASHLIGHT_USED predicate: erring toward
+    // two buffers is the safe direction (the engine's own refusal is
+    // graceful either way - the volumes fall back to sub-boxes).
+    // ONE band serves both: the torch and the frame's active spot light count
+    // into the same buffer, so a project with both on allocates it once and
+    // this must not charge it twice.
+    int countWords = 0;
+    if (s.flashShadowVolumes || s.spotShadowVolumes)
+        countWords = pageUp((w * h + 1) / 2);
+
     TripleBufferFit f;
     f.bufferWords = bufferWords;
     f.needWords = kNeed;
-    f.leftWords =
-        kVramWords - (2 * bufferWords + zWords + lowWords) - bufferWords;
+    f.leftWords = kVramWords -
+                  (2 * bufferWords + zWords + lowWords + countWords) -
+                  bufferWords;
     f.fits = f.leftWords >= kNeed;
     f.mode = d.key;
     return f;
@@ -205,6 +222,41 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
 
 TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s) {
     return tripleBufferingFit(p, s, bootDisplayMode(s));
+}
+
+// The texture heap, from the same numbers. tripleBufferingFit already knows
+// what the renderer's permanent region costs - this asks what is LEFT when the
+// project keeps its usual two display buffers, which is the number an author
+// needs when the game starts thrashing textures.
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s) {
+    TextureHeapEstimate e;
+    // leftWords in the fit is "after taking a THIRD buffer", so add one back:
+    // this project is not asking for one.
+    const TripleBufferFit on = tripleBufferingFit(p, s, bootDisplayMode(s));
+    ProjectSettings off = s;
+    // Both users of the band go off together - countBandKb is the cost of the
+    // BAND, and clearing only one of them would report 0 for a project that
+    // has the other on.
+    off.flashShadowVolumes = false;
+    off.spotShadowVolumes = false;
+    const TripleBufferFit noVol = tripleBufferingFit(p, off, bootDisplayMode(s));
+    // What the fit reserves for post fx, the optional targets and the shadow
+    // slots is real and not available to textures either; leftWords already
+    // has it in, so subtract the same reserve the engine checks against
+    // (kNeed's texture floor is what we are reporting, so only the renderer
+    // half comes off).
+    constexpr int kRendererReserveWords = 98304;  // == kThirdBufferReserveWords
+    auto toKb = [](long long words) {
+        return (int)(words * 4 / 1024);
+    };
+    e.freeKb = toKb((long long)on.leftWords + on.bufferWords -
+                    kRendererReserveWords);
+    e.withoutKb = toKb((long long)noVol.leftWords + noVol.bufferWords -
+                       kRendererReserveWords);
+    e.countBandKb = e.withoutKb - e.freeKb;
+    if (e.freeKb < 0) e.freeKb = 0;
+    return e;
 }
 
 TripleBufferModes tripleBufferingModes(const Project& p,
@@ -700,6 +752,11 @@ std::string objectJson(const SceneObject& o) {
              : ", \"prelitSource\": \"" + jsonEscape(o.prelitSource) + "\"") +
         // projected (live) silhouette shadow; default (false) stays implicit
         (o.projShadow ? std::string(", \"projShadow\": true") : "") +
+        // per-object dynamic shadow choice; 0 = follow the project, and that
+        // is what every file written before this key meant, so it stays out
+        (o.shadowMode != 0
+             ? ", \"shadowMode\": " + std::to_string(o.shadowMode)
+             : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
                                 : ", \"material\": \"" + jsonEscape(o.materialPath) + "\"") +
@@ -767,6 +824,14 @@ std::string objectJson(const SceneObject& o) {
                      ? ""
                      : ", \"texture\": \"" + jsonEscape(o.flashlightTexture) +
                            "\"") +
+                // Written only when the torch is off the view axis, so every
+                // project that never touched it resaves byte for byte.
+                (o.flashlightOffsetRight == 0.0f && o.flashlightOffsetDown == 0.0f
+                     ? ""
+                     : ", \"offsetRight\": " +
+                           fmtFloat(o.flashlightOffsetRight) +
+                           ", \"offsetDown\": " +
+                           fmtFloat(o.flashlightOffsetDown)) +
                 " }" + " }";
     }
     if (o.type == PrimitiveType::Emitter) {
@@ -818,6 +883,13 @@ std::string objectJson(const SceneObject& o) {
                 (o.lightSpot ? ", \"spot\": true, \"spotAngle\": " +
                                    fmtFloat(o.lightSpotAngle)
                              : std::string()) +
+                // Per-light shadow-volume override, written only when it is
+                // not "follow the project" - so a project that never touches
+                // the setting resaves byte for byte (the shadowMode idiom).
+                (o.lightShadowVolumes != 0
+                     ? ", \"shadowVolumes\": " +
+                           std::to_string(o.lightShadowVolumes)
+                     : std::string()) +
                 ", \"beam\": " + std::to_string(o.lightBeam) + " }";
     }
     if (o.type == PrimitiveType::Camera) {
@@ -1538,6 +1610,13 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
                  : "")
+         << (p.settings.shadowVolumesDebug
+                 ? "    \"shadowVolumesDebug\": " +
+                       std::to_string(p.settings.shadowVolumesDebug) + ",\n"
+                 : "")
+         << (p.settings.spotShadowVolumes
+                 ? "    \"spotShadowVolumes\": true,\n"
+                 : "")
          << "    \"skyColor\": " << fmtVec3(p.settings.skyColor) << ",\n"
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
@@ -1820,6 +1899,37 @@ static void writeTexQualitySection(std::ostream& json, const Project& p) {
     for (const auto& [asset, q] : p.textureQuality) {
         json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": \"" << q
              << "\"";
+        first = false;
+    }
+    json << " }";
+}
+
+// Per-texture atlas control: keep-out and author-declared groups
+// (docs/texture-atlasing.md). Conditional like every per-asset map - a
+// project that never touched it writes no key.
+static void writeAtlasSection(std::ostream& json, const Project& p) {
+    bool any = false;
+    for (const auto& [tex, c] : p.atlasControl)
+        any |= c.keepOut || !c.group.empty() || c.pageBits != 0;
+    if (!any) return;
+    json << "\"atlasControl\": {";
+    bool first = true;
+    for (const auto& [tex, c] : p.atlasControl) {
+        if (!c.keepOut && c.group.empty() && c.pageBits == 0) continue;
+        json << (first ? " " : ", ") << "\"" << jsonEscape(tex) << "\": {";
+        bool inner = false;
+        if (c.keepOut) {
+            json << " \"keepOut\": true";
+            inner = true;
+        }
+        if (!c.group.empty()) {
+            json << (inner ? ", " : " ") << "\"group\": \""
+                 << jsonEscape(c.group) << "\"";
+            inner = true;
+        }
+        if (c.pageBits != 0)
+            json << (inner ? ", " : " ") << "\"pageBits\": " << c.pageBits;
+        json << " }";
         first = false;
     }
     json << " }";
@@ -3042,6 +3152,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::TexQuality: writeTexQualitySection(ss, p); break;
         case Section::ModelLods: writeModelLodsSection(ss, p); break;
         case Section::ModelAo: writeModelAoSection(ss, p); break;
+        case Section::Atlas: writeAtlasSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -4587,6 +4698,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("prelitSource"))
             o.prelitSource = v->stringOr("");
         if (const auto* v = jo.find("projShadow")) o.projShadow = v->boolOr(false);
+        if (const auto* v = jo.find("shadowMode")) {
+            const int m = (int)v->numberOr(0);
+            if (m >= 0 && m <= 3) o.shadowMode = m;
+        }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("material")) o.materialPath = v->stringOr("");
         if (const auto* v = jo.find("decalProject")) o.decalProject = v->boolOr(false);
@@ -4661,6 +4776,19 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                     o.flashlightToggleButton = v->stringOr("");
                 if (const auto* v = fl->find("texture"))
                     o.flashlightTexture = v->stringOr("");
+                if (const auto* v = fl->find("offsetRight"))
+                    o.flashlightOffsetRight = (float)v->numberOr(0.0);
+                if (const auto* v = fl->find("offsetDown"))
+                    o.flashlightOffsetDown = (float)v->numberOr(0.0);
+                // A metre either way is a hand; more is a lamp on a pole, and
+                // the cone (which is still computed from the EYE) stops
+                // agreeing with the pool.
+                auto clampOff = [](float& f) {
+                    if (f < -1.0f) f = -1.0f;
+                    if (f > 1.0f) f = 1.0f;
+                };
+                clampOff(o.flashlightOffsetRight);
+                clampOff(o.flashlightOffsetDown);
                 if (o.flashlightRange < 1.0f) o.flashlightRange = 1.0f;
                 if (o.flashlightAngle < 2.0f) o.flashlightAngle = 2.0f;
                 if (o.flashlightAngle > 80.0f) o.flashlightAngle = 80.0f;
@@ -4756,6 +4884,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.lightSpotAngle = (float)v->numberOr(25.0);
             if (o.lightSpotAngle < 5.0f) o.lightSpotAngle = 5.0f;
             if (o.lightSpotAngle > 60.0f) o.lightSpotAngle = 60.0f;
+            if (const auto* v = lt->find("shadowVolumes")) {
+                const int m = (int)v->numberOr(0.0);
+                if (m >= 0 && m <= 2) o.lightShadowVolumes = m;
+            }
             if (const auto* v = lt->find("beam"))
                 o.lightBeam = (int)v->numberOr(0.0);
             if (o.lightBeam < 0 || o.lightBeam > 2) o.lightBeam = 0;
@@ -5103,6 +5235,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("spotShadowVolumes"))
+            st.spotShadowVolumes = v->boolOr(false);
+        if (const auto* v = s->find("shadowVolumesDebug"))
+            st.shadowVolumesDebug = (int)v->numberOr(0);
         readVec3(s->find("skyColor"), st.skyColor);
         readVec3(s->find("skyTopColor"), st.skyTopColor);
         if (const auto* v = s->find("skyDome"))
@@ -5541,6 +5677,25 @@ static void readTexQualitySection(const json::Value& root, Project& out) {
             const std::string q = v.stringOr("");
             if (q == "none" || q == "8bit" || q == "4bit")
                 out.textureQuality[asset] = q;
+        }
+    }
+}
+
+static void readAtlasSection(const json::Value& root, Project& out) {
+    out.atlasControl.clear();
+    if (const auto* ac = root.find("atlasControl");
+        ac && ac->type == json::Value::Type::Object) {
+        for (const auto& [tex, v] : ac->obj) {
+            if (v.type != json::Value::Type::Object) continue;
+            Project::AtlasControl c;
+            if (const auto* k = v.find("keepOut")) c.keepOut = k->boolOr(false);
+            if (const auto* g = v.find("group")) c.group = g->stringOr("");
+            if (const auto* b = v.find("pageBits")) {
+                const int bits = (int)b->numberOr(0);
+                if (bits == 4 || bits == 8 || bits == 32) c.pageBits = bits;
+            }
+            if (c.keepOut || !c.group.empty() || c.pageBits != 0)
+                out.atlasControl[tex] = c;
         }
     }
 }
@@ -6325,6 +6480,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::TexQuality: readTexQualitySection(root, p); break;
         case Section::ModelLods: readModelLodsSection(root, p); break;
         case Section::ModelAo: readModelAoSection(root, p); break;
+        case Section::Atlas: readAtlasSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -6485,6 +6641,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAudioSection(root, out);
 
     readTexQualitySection(root, out);
+    readAtlasSection(root, out);
     readModelLodsSection(root, out);
     readModelAoSection(root, out);
     readModelUnitsSection(root, out);
@@ -6788,6 +6945,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, (o.physics ? 1 : 0) | (o.usable ? 2 : 0) | (o.saveState ? 4 : 0) |
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
+    fnvMix(h, (uint64_t)o.shadowMode);
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
@@ -6842,6 +7000,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.flashlightEnabled ? 1 : 0);
     fnvMix3(h, o.flashlightColor);
     fnvMixF(h, o.flashlightRange), fnvMixF(h, o.flashlightAngle);
+    fnvMixF(h, o.flashlightOffsetRight), fnvMixF(h, o.flashlightOffsetDown);
     fnvMixS(h, o.flashlightToggleButton);
     fnvMixS(h, o.flashlightTexture);
     fnvMix(h, (uint64_t)o.emitterKind);
@@ -6928,6 +7087,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         }
         fnvMixF(h, o.lightDynamic ? 1.0f : 0.0f);
         fnvMixF(h, o.lightSpot ? 1.0f : 0.0f);
+        // The per-light shadow-volume override is a BUILD-time statement like
+        // the spot style beside it: whether the light carves volumes decides
+        // what the boot path allocates (the count band) and which spot the
+        // frame counts into it, and the streaming record is full at 16 floats
+        // with no slot to carry it. So an edit of it flips the chip amber and
+        // asks for a rebuild rather than pretending to be live.
+        fnvMixF(h, (float)o.lightShadowVolumes);
         fnvMixF(h, (float)o.lightBeam);
     }
     // An Area's box is what mirror/portal/camera-feed target lists were
@@ -7701,7 +7867,10 @@ std::string refreshGenerated(const Project& p) {
     // Blob shadows reuse the soft glow as their alpha mask - bake it even
     // when the flare is off (kind 0 only; the flare block above already
     // wrote it otherwise).
-    if (!templates::projectUsesFlare(p) && p.settings.blobShadows) {
+    bool blobWanted = p.settings.blobShadows;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects) blobWanted |= o.shadowMode == 2;
+    if (!templates::projectUsesFlare(p) && blobWanted) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlarePNG(0, png))
             return "Blob shadow sprite bake failed";
@@ -7772,7 +7941,8 @@ std::string refreshGenerated(const Project& p) {
     // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
     // with no flashlight pays no GS VRAM for it. Written through writeFile so
     // an unchanged bake keeps its mtime and the build stays incremental.
-    if (templates::projectUsesFlashlight(p)) {
+    if (templates::projectUsesFlashlight(p) ||
+        templates::projectUsesSpotVolumes(p)) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlashGoboPNG(png))
             return "Flashlight gobo bake failed";

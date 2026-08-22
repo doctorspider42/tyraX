@@ -227,8 +227,11 @@ class RendererCore : public RendererCore2dBounds {
    * registered it returns the flashlight state, disabled or not, which
    * uploads zero colors and keeps the VU1 additive term a no-op.
    */
+  /** skipSlot: a dynLights index this pick must ignore (-1 = none) - see
+   * PipelineInfoBag::dynLightSkipSlot. */
   const RendererCoreSpotLight* pickDynLight(const Vec4& worldCenter,
-                                            const float& worldRadius) const;
+                                            const float& worldRadius,
+                                            int skipSlot = -1) const;
 
   /** Clear screen and update view frustum for frustum culling. NO 3D support */
   void beginFrame();

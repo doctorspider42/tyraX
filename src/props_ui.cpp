@@ -820,20 +820,56 @@ void App::drawPropertiesWindow() {
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
 
-        // Real-shape projected shadow - the RUNTIME one, distinct from the
-        // baked ambient-occlusion "Cast shadow" below: a silhouette
-        // rendered from the sun into a small VRAM target and projected onto
-        // the terrain. The caster pays a second render, hence opt-in.
-        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Real silhouette shadow on the terrain: the object renders a\n"
-                "second time each frame (64x64, from the sun) and the shape\n"
-                "is projected under it. The 4 casters nearest the camera are\n"
-                "active at a time - mark hero objects, not everything.\n"
-                "Follows animation and movement; game-only (no preview).\n"
-                "'Cast shadow' below is the baked, static one.");
+        // THE RUNTIME shadow, distinct from the baked ambient-occlusion
+        // "Cast shadow" below - and a choice per object rather than a
+        // project-wide one (docs/shadows.md): a blob is one soft quad that
+        // costs almost nothing and has no shape, a projected silhouette is a
+        // second 64x64 render of this object every frame. "Default" is what
+        // every project did before the choice existed, so an untouched object
+        // behaves exactly as it always has.
+        {
+            const char* shadowNames[] = {"Default (follow the project)",
+                                         "None", "Blob (soft quad)",
+                                         "Projected silhouette"};
+            int mode = o.shadowMode;
+            if (mode < 0 || mode > 3) mode = 0;
+            // A real label rather than "##dynshadow" plus a SameLine caption:
+            // it is the idiom the rest of these panels use, and a hidden label
+            // is a widget no UI script can name (docs/ui-scripting.md).
+            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+                o.shadowMode = mode;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What this object casts while the game runs.\n"
+                    "DEFAULT - the project decides: a blob under the moving\n"
+                    "things (avatar, animated models, physics) if Preferences\n"
+                    "has blob shadows on, plus the silhouette below if it is\n"
+                    "ticked.\n"
+                    "NONE - nothing, whatever the project says.\n"
+                    "BLOB - one soft dark quad that follows the ground under\n"
+                    "it. Cheap enough for a crowd, and it works on a static\n"
+                    "prop too; it has no shape of its own.\n"
+                    "PROJECTED - the real silhouette: the object renders a\n"
+                    "second time each frame (64x64, from the sun) and the\n"
+                    "shape is projected under it. The 4 casters nearest the\n"
+                    "camera are active at a time, so mark hero objects.\n"
+                    "Game-only (no preview). 'Cast shadow' below is the\n"
+                    "BAKED, static one - a different thing entirely.");
+            // The old flag still means "projected" while the mode follows the
+            // project, so it stays reachable - and stays the thing every
+            // existing .tyra carries.
+            if (o.shadowMode == 0) {
+                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The project-default form of the choice above. Pick\n"
+                        "\"Projected silhouette\" in the combo to say it on the\n"
+                        "object instead.");
+            }
+        }
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
@@ -1654,6 +1690,35 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
                                  5.0f, 60.0f, "%.0f deg");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                // Whether this cone carves shadow volumes, said on the light
+                // rather than for the whole project - the "Dynamic shadow"
+                // idiom further up this panel. A real label, not a "##id":
+                // a hidden label is a widget no UI script can name
+                // (docs/ui-scripting.md). The name does not collide with
+                // "Dynamic shadow" above, and there is no other "Shadow
+                // volumes" widget in this window - a label IS the ImGui id.
+                const char* volNames[] = {"Default (follow the project)",
+                                          "Off", "On"};
+                int vol = o.lightShadowVolumes;
+                if (vol < 0 || vol > 2) vol = 0;
+                if (ImGui::Combo("Shadow volumes", &vol, volNames, 3)) {
+                    o.lightShadowVolumes = vol;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Whether this spot light's cone is occluded per pixel\n"
+                        "by the solids inside it, the way the player's torch\n"
+                        "can be (docs/shadows.md).\n"
+                        "DEFAULT - the project decides (Preferences >\n"
+                        "Rendering > Spot light shadow volumes).\n"
+                        "OFF - this lamp shines through everything, whatever\n"
+                        "the project says.\n"
+                        "ON - this lamp casts, even in a project that leaves\n"
+                        "the rest of them off.\n"
+                        "Only ONE spot light casts volumes per frame - the\n"
+                        "nearest to the camera. Setting this to On is how you\n"
+                        "say which lamp deserves it. Game-only (no preview).");
             }
         }
         if (o.lightDynamic) {
@@ -2054,6 +2119,27 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Cone half-angle (deg)", &o.flashlightAngle, 0.5f, 2.0f,
                              80.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Where the torch is HELD. At 0,0 the light sits exactly in the
+            // eye, which is what a first-person torch did until now - and a
+            // light on the view axis lights precisely the surfaces it hides,
+            // so its shadows fall behind their casters where nobody can see
+            // them.
+            ImGui::DragFloat("Held right (units)", &o.flashlightOffsetRight,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Held below eye (units)", &o.flashlightOffsetDown,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled("0,0 = the light is your eye (no visible shadows).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Moves the beam origin off the view axis, like a torch\n"
+                    "in a hand: the pool shifts a little and the shadows\n"
+                    "it casts stop hiding behind whatever casts them.\n"
+                    "The AIM still follows where you look. About 0.2\n"
+                    "right and 0.3 down reads as hand-held; past a\n"
+                    "metre it is a lamp on a pole and the cone stops\n"
+                    "agreeing with it.");
         }
         // Optional pad button the player presses to turn the beam on/off. The
         // on/off state only shows while Enabled (it respects Enabled), and the

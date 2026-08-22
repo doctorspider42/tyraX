@@ -86,8 +86,14 @@ bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
             std::string tex = toks.empty() ? "" : toks.back();
             for (char& c : tex)
                 if (c == '\\') c = '/';
-            if (!tex.empty() && tex.find('/') == std::string::npos) {
-                if (const texatlas::Entry* en = plan.find(dirRel + "/" + tex)) {
+            // Resolve the token against the .mtl's directory - a
+            // subdirectory reference ("Textures/wall.png") is an ordinary
+            // member now, and the page it is redirected to still sits in
+            // this .mtl's own folder, so the line stays same-directory.
+            if (!tex.empty()) {
+                const std::string rel =
+                    (fs::path(dirRel) / tex).lexically_normal().generic_string();
+                if (const texatlas::Entry* en = plan.find(rel)) {
                     // eligibility rejected tiling/options, so the line can
                     // be regenerated plain
                     out << "map_Kd "
@@ -666,12 +672,17 @@ std::string bake(const Project& p,
                 baked / fs::path(atlasPlan.pages[pi].substr(4));
             fs::create_directories(dst.parent_path(), ec);
             std::string err;
+            // A page is quantized AS ONE IMAGE, at the depth its group asked
+            // for (docs/texture-atlasing.md): 4 bits is half the VRAM of 8 and
+            // is what makes atlasing pay in a 4-bit project, at the price of
+            // one 16-colour palette for everything on the page.
+            const int bits = atlasPlan.bitsOf((int)pi);
             const bool ok =
-                atlasPlan.fullColor
+                bits == 32
                     ? pngquant::writePngRGBA(dst.string(), page.data(), S, S,
                                              err)
                     : pngquant::quantizeRGBA(dst.string(), page.data(), S, S,
-                                             256, err);
+                                             bits == 4 ? 16 : 256, err);
             if (!ok)
                 log("[editor] texture atlas: " + atlasPlan.pages[pi] + ": " +
                     err);

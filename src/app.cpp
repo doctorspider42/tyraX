@@ -935,6 +935,7 @@ void App::drawUI() {
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawTextureAtlasWindow();
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
@@ -1648,6 +1649,17 @@ void App::drawMenuBar() {
                     "add and change objects, write flow graphs, switch scenes\n"
                     "and open windows. Uses the AI backend from Edit >\n"
                     "Preferences; every change it makes is one Ctrl+Z away.");
+            if (ImGui::MenuItem("Texture Atlas...")) {
+                showTextureAtlas_ = true;
+                atlasPlanDirty_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What the build packed into shared texture pages, what it\n"
+                    "refused and why, and what it costs in GS VRAM - plus the\n"
+                    "per-texture keep-out and grouping controls. A page is ONE\n"
+                    "allocation and ONE palette, so what shares one is worth\n"
+                    "looking at.");
             if (ImGui::MenuItem("Asset Browser...")) {
                 showAssetBrowser_ = true;
                 scanAssetTree();
@@ -4550,6 +4562,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "assets") return &showAssetBrowser_;
     if (key == "chat") return &showAiChat_;
     if (key == "blss") return &showBlss_;
+    if (key == "atlas") return &showTextureAtlas_;
     if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
@@ -4573,7 +4586,7 @@ static const char* const kLayoutWindowKeys[] = {
     // "credits" was missing here while showFlagForKey knew it - exactly the
     // leak the note above describes (the Credits Editor stayed open across
     // every layout switch while every other window reset).
-    "credits",  "vu",       "chat",     "blss",
+    "credits",  "vu",       "chat",     "blss",     "atlas",
     // Project Preferences stopped being a modal in 1.20.0 and became an
     // ordinary window, so it needs the same deterministic open/close every
     // other optional window has.
@@ -13515,6 +13528,7 @@ void App::applyProjectToViewport() {
                                 player->flashlightAngle);
     else
         viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
+    viewport_.setSpotShadowVolumes(project_.settings.spotShadowVolumes);
 }
 
 void App::drawTerrainWindow() {
@@ -13999,8 +14013,18 @@ void App::drawPreferencesWindow() {
         ImGui::End();
         return;
     }
+    // A caller can ask for a TAB, not just for the window: the Texture Atlas
+    // window's "Open Project Preferences" means "take me to the switch I am
+    // talking about", and landing on Display with five tabs to read is the
+    // same dead end as opening the window at all. One-shot - the request is
+    // cleared as it is honoured, so the tab the author picks afterwards sticks.
     auto beginTab = [&](const char* name) {
-        if (!ImGui::BeginTabItem(name)) return false;
+        ImGuiTabItemFlags tabFlags = ImGuiTabItemFlags_None;
+        if (!prefsFocusTab_.empty() && prefsFocusTab_ == name) {
+            tabFlags = ImGuiTabItemFlags_SetSelected;
+            prefsFocusTab_.clear();
+        }
+        if (!ImGui::BeginTabItem(name, nullptr, tabFlags)) return false;
         // BeginTabItem pushes the tab's id, so one child name serves them all.
         ImGui::BeginChild("##body", ImVec2(0, -footerH));
         return true;
@@ -14110,7 +14134,7 @@ void App::drawPreferencesWindow() {
     // on whether the third display buffer below fits at all.
     {
         int depth = prefSettings_.colorDepth == "16bit" ? 1 : 0;
-        const char* depthNames[] = {"32-bit colour", "16-bit colour (2x VRAM)"};
+        const char* depthNames[] = {"32-bit colour", "16-bit colour"};
         if (ImGui::Combo("Colour depth", &depth, depthNames, 2))
             prefSettings_.colorDepth = depth == 1 ? "16bit" : "32bit";
         prefHelp(
@@ -14122,7 +14146,9 @@ void App::drawPreferencesWindow() {
             "what most often decides whether triple buffering fits.\n"
             "The cost is 32 levels per channel instead of 256, so smooth\n"
             "gradients - skies, fog, bloom - band unless Dithering is on.\n"
-            "The z buffer stays 32-bit either way. See docs/gs-vram.md.");
+            "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
+            "GS needs the pair to share page geometry), so depth precision\n"
+            "drops with it: keep the near plane up. See docs/gs-vram.md.");
         ImGui::BeginDisabled(prefSettings_.colorDepth != "16bit");
         ImGui::Indent(scaled(16));
         ImGui::Checkbox("Dithering", &prefSettings_.dither);
@@ -14612,12 +14638,15 @@ void App::drawPreferencesWindow() {
     ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
     prefHelp(
         "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
-        "pages at build: one GS VRAM allocation (+~8 KB overhead) per page\n"
-        "instead of per texture, fewer texture switches. Conservative - tiled\n"
-        "terrain textures, emitters, decals, sphere maps and textures whose\n"
-        "model UVs leave 0..1 keep their own files. Palettized projects share\n"
-        "one 256-color palette per page (the era-authentic trade). The boot\n"
-        "log prints what was packed.");
+        "pages at build: one GS VRAM allocation per page instead of one per\n"
+        "texture, and fewer texture switches. Conservative - tiled terrain\n"
+        "textures, emitters, decals, sphere maps and textures whose model UVs\n"
+        "leave 0..1 keep their own files.\n"
+        "It does NOT always save bytes: a page is quantized as one image, so\n"
+        "in a palettized project its members go up to 8 bits per pixel while\n"
+        "the page is a full allocation whatever it holds. Tools > Texture\n"
+        "Atlas prints both numbers, says why each texture was refused, and is\n"
+        "where a texture is kept out or put in a group of your own.");
 
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
@@ -14640,19 +14669,72 @@ void App::drawPreferencesWindow() {
         ImGui::SetTooltip(
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
-            "grounds them visually for one quad each. Project-wide.");
+            "grounds them visually for one quad each.\n"
+            "This is the DEFAULT now, not the whole story: any object can ask\n"
+            "for a blob, a silhouette or nothing in Properties > Dynamic\n"
+            "shadow - including a static prop, and with this switch off\n"
+            "(docs/shadows.md).");
     ImGui::Checkbox("Flashlight shadow volumes",
                     &prefSettings_.flashShadowVolumes);
+    // The help marker belongs to the checkbox it FOLLOWS - it used to sit
+    // below the VRAM warning, so on a tight project it chained onto the amber
+    // line instead and the checkbox had none.
     prefHelp(
-        "How the player's torch throws shadows (docs/flashlight.md).\n"
-        "OFF - silhouette slots: mesh-accurate shadow shapes rendered from\n"
-        "the torch, but only for objects with 'Cast shadow (projected)', at\n"
-        "most four at once, and light still leaks through everything else.\n"
+        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md).\n"
+        "Point lights are not affected either way; SPOT lights have their own\n"
+        "switch below (docs/shadows.md).\n"
+        "OFF - the torch shares the projected-shadow slots: mesh-accurate\n"
+        "silhouettes, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four casters for every light together, and light leaks through\n"
+        "everything else.\n"
         "ON - shadow volumes, the survival-horror era's own arrangement:\n"
-        "every solid in the beam occludes, exactly per pixel against the\n"
-        "real depth buffer, self-shadowing included. Costs the volume fill\n"
-        "each frame, and the shadow shapes come from the objects' BOXES\n"
-        "rather than their meshes.");
+        "every solid in the beam occludes, exactly per pixel against the real\n"
+        "depth buffer - model casters from their REAL triangles (silhouette-\n"
+        "extruded, counted in a dedicated GS buffer), primitives from their\n"
+        "boxes - and the four slots are left to the scene's lights. Costs the\n"
+        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
+        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
+        "pixel format).");
+    ImGui::Checkbox("Spot light shadow volumes",
+                    &prefSettings_.spotShadowVolumes);
+    prefHelp(
+        "The same technique for the scene's SPOT LIGHTS (docs/shadows.md) -\n"
+        "a placed light with 'Spot (cone)' on. Without it a street lamp lights\n"
+        "the wall it is bolted to and the alley behind it alike; with it the\n"
+        "cone is occluded per pixel like the torch's, for every solid in it.\n"
+        "This is the project-wide DEFAULT - a light can say otherwise on\n"
+        "itself in Properties > Point light > Shadow volumes.\n"
+        "ONE spot light casts volumes per frame - the one nearest the camera.\n"
+        "The count bracket is per light per frame, so a room full of lamps\n"
+        "costs what a single one does; which lamp it is, is what the\n"
+        "per-light override is for.\n"
+        "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
+        "band, so a project with either one on has already paid for it.");
+    // WHAT IT COSTS, in the currency that actually runs out. The count band is
+    // 512 KB at 32-bit colour and a 512x512 project has about that much
+    // texture heap in the first place, so switching this on can take the last
+    // of it - and the symptom is not a missing shadow, it is every texture in
+    // the scene evicting and re-uploading once a frame. Measured on the scene
+    // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
+    // ~1.6 re-uploads per frame with them on.
+    //
+    // Shown for EITHER user of the band, and only once: the two share one
+    // buffer, so the warning is about the pair rather than about the torch.
+    if (prefSettings_.flashShadowVolumes || prefSettings_.spotShadowVolumes) {
+        // The DIFFERENCE is exact (it is one buffer, sized by the same
+        // arithmetic the engine uses); the absolute headroom is not - the
+        // model reads ~256 KB high against what a running game reports,
+        // because the reserve it subtracts is the engine's third-buffer
+        // constant rather than the real post-init allocations. So the warning
+        // states the cost and points at the number that IS authoritative.
+        const project::TextureHeapEstimate heap =
+            project::textureHeapEstimate(project_, prefSettings_);
+        if (heap.freeKb < 512)
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.7f, 0.3f, 1),
+                "  Takes a %d KB count band - little texture VRAM left here",
+                heap.countBandKb);
+    }
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);

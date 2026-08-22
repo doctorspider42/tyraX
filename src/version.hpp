@@ -16,6 +16,981 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.1 (projected shadows stop blinking: a slot is HELD, and a hand-over
+// is a dissolve): reported from examples/night-walk as "shadows disappear at
+// a certain distance, and walking around they flicker badly - one vanishes
+// while another appears", easiest to see on the shed. Not the far cull and
+// not the light: there are FOUR shadow-map slots
+// (RendererCoreShadowMap::slots) and that project marks TWELVE casters, and
+// renderProjShadows answered "which four" from scratch every frame - sort by
+// distance to the camera, fill slot 0, 1, 2, 3. So two casters at nearly
+// equal distance traded a slot frame to frame, and a caster that lost one
+// went from full alpha to nothing between two frames; the 35..50 unit fade
+// only ever smoothed the FAR cull, never an eviction. Measured on the
+// vantage line before the fix: the shed's ground shadow is a hard-edged
+// black quad at x = 0 / 4 / 6 / 7 / 7.5 and is entirely GONE at x = 8.0 -
+// half a step sideways - because tree-4, fence-east, tree-2 and tree-1 had
+// become the nearest four (whole-frame luma 0.10289 -> 0.11360, centre
+// 0.187 -> 0.216: the picture got BRIGHTER, which is the shadow leaving).
+// A slot is held now, on the count band's own terms (docs/shadows.md, "Only
+// one spot casts per frame"): a holder that stops qualifying releases at
+// once, a challenger must be 15 % or 1.5 units nearer for ten consecutive
+// frames, and the exchange is a cross-dissolve IN TIME - the outgoing shadow
+// keeps its slot while it fades out and only then does the challenger move
+// in and fade up (kProjFadeStep, ~0.3 s each way). Two things that fell out
+// of it. The old loop got "skip a caster that cannot cast" for free by
+// walking on to the next candidate, and a held slot does not, so a holder
+// that draws nothing for kProjBarrenFrames lets go. And the LIGHT the
+// silhouette is thrown from is picked by score with the same bare
+// highest-wins rule - a torch walking past a lamp crosses that line twice in
+// a couple of steps, which swings the shadow to the other side of the prop
+// and back - so the slot remembers its light as an IDENTITY (sun / torch /
+// a placed light by position; the torch moves every frame and cannot be
+// recognised by coordinates) and keeps it unless a challenger is a fifth
+// better for ten frames. After: the shadow is present and steady at every
+// vantage of the same line. PATCH: no capability appears, a defect goes
+// away, nothing on disk changes shape.
+//
+// 1.70.0 (a spot light's shadow lands on walls): the receiver pass the
+// 1.67.0 entry left on the backlog, unblocked by the lever it asked for.
+// PipelineInfoBag::dynLightSkipSlot names one scene light a bag's per-vertex
+// slot must ignore; RendererCore::pickDynLight skips that dynLights index and
+// picks the next best (or the torch). The generated game remembers each
+// light's engine slot per frame (DynLightRt::slot, from addDynSpotLight), and
+// the carving lamp's receiver pass - the torch's wall pass with the lamp's
+// origin, aim, cone and reach, its own sW* buffers on the torch's pool,
+// inside the lamp's bracket after its pool - sets the skip on every
+// wall-sized receiver it lit (setDynLightSkip, the torch's 1.4 u rule and
+// its lone-batch rule) and hands the lamp back next frame. Two things found
+// on the way: a 0.4 u thick wall is "thin" to the torch's receiver rules
+// (half-extent < 0.25) and gets nothing, which is the rule working; and the
+// torch's reach term (1 - fwd / range) on a lamp whose pool has no reach
+// term at all left the wall a quarter as bright as the floor at its foot -
+// the pass was drawing and invisible (proved with a debug build at full
+// colour and no DATE), so the wall takes half the torch's slope. A/B on the
+// spotvol fixture, wall 0.8 u thick 9 u down the cone: override on draws
+// the lamp's gobo on the wall with the slot skipped, off keeps the old
+// per-vertex wash; the caster's shadow on the floor unchanged. 50/50.
+//
+// 1.69.1 (shadow volumes on a real console: the GS dither was counting):
+// the 16-bit report - green dashes along silhouette edges, a dark halo in
+// the volume's shape - plus a one-pixel checkerboard carved out of the pool
+// at 32-bit, all on hardware and none in PCSX2. Bisected live over ps2link
+// with a hidden project key, shadowVolumesDebug (project.hpp; never in the
+// UI): 1 = count without the resolve (clean), 2 = resolve without the
+// volumes (clean), 3 = draw the band's texels on screen instead of the mask
+// (RendererCoreAlphaMask::debugShowCount) - which showed residues of 4,0,4,0
+// down columns that must be all zero, and the project's `dither: false`
+// cleared them in one boot. The real GS applies DTHE to the count band's
+// +N / -N writes with a different matrix offset each, so the pair no longer
+// cancels; PCSX2 never dithers there. countBegin writes DTHE = 0 for the
+// bracket and countResolve restores the project's value. Verified on the
+// console at both depths: the pool on the wall smooth again at 32-bit
+// (neighbour-pixel difference 52 -> 10), and at 16-bit a lamp-post vantage
+// with the volume across the whole screen at 0 green pixels where the
+// report's frame had 216, the pole's shadow carved on the wall. The
+// blue-spotted ground texture from the same report did not reproduce in
+// this session and stays open. --capture-frame did every picture.
+//
+// 1.69.0 (--capture-frame: the game's own screenshot from a shell): the
+// test enabler for a console report (docs/devkit.md). A 16-bit night-walk on
+// real hardware showed green dashes in fixed columns, a dark halo in the
+// shape of a shadow volume and, after a while, a ground texture eaten into
+// blue-spotted holes - three faces of something writing VRAM it does not own.
+// PCSX2 at 16-bit on the same vantage is clean, so the only picture that
+// counts is the console's, and the Debugger's Capture frame was a button.
+// It is a command now: write bin/livedbg.cmd with captureFrame and a
+// clock-derived seq, wait for bin/frame.tga by its PROGRESS (the GUI's rule:
+// a growing file is a write in flight, ~3 s a shot over ps2link), decode the
+// TGA to PNG. With it: deployed to the console over ps2link, a frozen yard
+// vantage at 0/60/120 s and two pad-driven walks (1.5 and 5 minutes, 9
+// captures, pixel-counted for green dashes and blue spots) came back CLEAN
+// on 1.68.0 at 16-bit with the torch's volumes on - so the report is not
+// reproduced over host:, where the game runs at 24-44 FPS instead of 50. The
+// difference left to test is speed: a USB/ISO run at full frame rate, A/B
+// with flashShadowVolumes off, is the next step and needs the console's own
+// display.
+//
+// 1.68.0 (a spot light's carved shadow previews in the viewport): the
+// viewport already shadowed every dynamic light per pixel through the
+// analytic box/sphere occluders (the AO shapes), hard-edged and quantized to
+// the silhouette's coarseness - so the whole change is in WHICH casters and
+// WHICH light. The spot that would hold the game's slot (nearest to the
+// camera among the dynamic spots resolving to "on" - the light's override,
+// or the project switch when it says follow) picks its casters the way the
+// game's pickVolCasters does: everything solid in the cone, nearest four to
+// the light, nothing grouping-cell sized, nothing whose Dynamic shadow is
+// None. Every other light keeps its nearest-four Cast-shadow-projected rule.
+// No hysteresis - an editor camera does not drift between lamps.
+//
+// Two preview holes surfaced on the way and are closed here. The occluders
+// were uploaded only with ambient occlusion on (or an emissive light in the
+// scene), so with AO off every lamp previewed shadowless; a dynamic light in
+// the scene uploads them now. And the terrain's "never probe-lit" flag set
+// giHere, which the per-pixel path reads as "the baked answer has the lights
+// already" - true with GI on, and with GI OFF it meant the ground took no
+// point or spot light at all (a lamp over a field previewed as darkness while
+// the console drew its pool). giHere now follows uGiOn there.
+//
+// Tried and reverted: giving the slot spot a per-pixel cone with the same
+// shadow test in PS2 shading. The terrain is shaded flat per cell in that
+// mode (as the console shades it), so the cone came out as metre-wide
+// tiles - worse than the mode's honest "a spot's gobo pool is not drawn".
+// A/B on the spotvol fixture through --ui-script `shot`: the switch on
+// carves the caster's shadow under the lamp holding the slot and leaves the
+// other lamp's caster alone; off draws both pools whole; Solid shading is
+// byte-identical before and after the PS2-mode revert.
+//
+// 1.67.0 (a scene's spot lights carve their own shadows): the setting, the
+// per-light override, the codegen AND the runtime that draws them. The
+// torch has carved real per-pixel occlusion since 1.62.0
+// (docs/flashlight.md, "The shadow") and the scene's own spot lights have
+// not: a street lamp bolted to a wall lit the wall and the alley behind it
+// equally, and the flashlight tooltip said so in as many words - "scene
+// lights are not affected: they cast through the four projected-shadow slots
+// in both modes and never use volumes". The slots are the wrong instrument
+// for a lamp with a cone: four for every light in the scene TOGETHER, each
+// caster needing its own flag, and the leak everywhere a flag is missing.
+// This is the switch that hands a spot the machinery the torch already has.
+//
+// Two settings, because the answer is not the same for every lamp in a
+// project. ProjectSettings::spotShadowVolumes is the project-wide default,
+// false - which is precisely what every existing file did. SceneObject::
+// lightShadowVolumes is the per-light override, and it is deliberately the
+// shadowMode idiom rather than a bool: 0 = follow the project, 1 = off,
+// 2 = on. A tri-state costs nothing on disk (both keys are written only when
+// they are not their default) and it is what makes the interesting cases
+// sayable in one combo - "this lamp, in a project that leaves the rest
+// alone", and "every lamp but this one".
+//
+// The reason a per-light override is not a luxury is the COUNT BAND. Volumes
+// are counted in a dedicated GS buffer (1.62.1 has the format story), there
+// is ONE of it, and a bracket is per light per frame - so a scene can hold
+// more shadow-casting spots than a frame can serve, and only one of them is
+// active at a time (the nearest to the camera). A project with six lamps
+// therefore costs what one lamp costs, and which one it is, is an authoring
+// question. Setting 2 on the lamp that matters is the answer to it; the
+// combo's tooltip and docs/shadows.md both say so, because a feature whose
+// selection rule is invisible reads as a feature that half works.
+//
+// What it costs in VRAM is nothing that was not already spent: the band is
+// the SAME buffer the torch's volumes count into. So the boot allocation is
+// `(FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED) || SPOT_SHADOW_VOLUMES_USED`
+// rather than a second allocateCount, project::textureHeapEstimate charges
+// the band once for the pair (its "without" arm clears BOTH switches, or a
+// project with the torch off and spots on would report a 0 KB band), and the
+// Preferences warning is shown for either user, once, worded for the pair.
+//
+// SPOT_SHADOW_VOLUMES_USED is RESOLVED rather than read off the project
+// switch, and that is the load-bearing half of the codegen: the two disagree
+// in both directions. A light with the override ON in a project with the
+// setting OFF still needs the band; a project with the setting ON but no spot
+// light anywhere must not allocate one. So it is "any scene holds a spot light
+// for which lightShadowVolumes == 2 || (lightShadowVolumes == 0 &&
+// spotShadowVolumes)" - the PROJ_SHADOWS_USED / FLASHLIGHT_USED discipline,
+// which is what keeps a project that uses none of this paying for none of it.
+//
+// The per-light field rides in liveLinkRecipeHash and NOT in the streaming
+// record, which is the honest reading of what it is rather than an omission.
+// A light's brightness, radius, flicker and spot angle stream (livelink v4)
+// because the game reads them out of object data every frame; whether the
+// light carves volumes decides what the BOOT path allocates and which spot
+// the frame counts into the band, so an edit of it is a rebuild. The record
+// is also full - 16 floats, v[15] is the spot angle - so carrying it would
+// have meant a stride bump for a value that must not be live anyway.
+//
+// That half was the contract. THE RUNTIME is the rest of this release, and it
+// is mostly a refactor: the torch's "candidates -> volumes -> mask bracket" was
+// one 200-line block inside the flashlight's branch of
+// updateAndRenderLightPools, written in terms of `torch`, `dx/dy/dz`,
+// FLASHLIGHT_RANGE and FLASHLIGHT_ANGLE. It is now two lambdas at the top of
+// that function - pickVolCasters and buildVolMask - taking a light's origin,
+// aim, cone tangent, reach and the buffers to fill, and the torch calls them
+// with exactly the numbers it used to inline. That is why the flashlight A/B
+// below could come out BYTE-IDENTICAL rather than merely similar, and it is
+// the whole reason to refactor before adding a second caller: a second copy
+// of this block would have been a second answer to every trap the first one
+// paid for (the screen rect is not NDC, front faces before back faces, the
+// mask is cleared once per light and repainted before anything else touches
+// alpha).
+//
+// ONE spot carves per frame, and the choice is made once, before the pool
+// loop: among the lights that are active, visible, spot, asked for volumes and
+// LIT (lightBright * the live g_dynLights level > 0.01 - a lamp a flow node
+// switched off must not hold the slot against one that is on), the nearest to
+// the camera whose sphere is not wholly behind the eye. The hand-over is
+// HYSTERESIS and not a plain minimum: a challenger has to be 15 % or 1.5 units
+// nearer, whichever it reaches first, for ten consecutive frames. Without it
+// two lamps at nearly equal distance trade the slot on the frame the camera
+// drifts between them and the scene's shadows blink; with it, three captures a
+// second apart at a deliberately near-equidistant vantage are identical inside
+// the game raster. A holder that loses its qualification hands over at once -
+// there is nothing left to flicker against.
+//
+// Three things differ from the torch, and all three follow from a lamp not
+// being in the eye. (1) The extrusion origin is the LIGHT ITSELF, where the
+// torch uses a virtual origin pushed a metre or two down the beam - that push
+// exists only because a light held at the eye hides every shadow behind its
+// caster, and a lamp on a wall has real parallax already. (2) The eye can be
+// INSIDE a volume, which z-PASS counting cannot answer (it asks how many
+// volume faces sit in front of the scene's depth, which is the shadow depth
+// only if the ray starts outside every volume). So pickVolCasters takes an
+// optional eye guard and drops the caster whose shadow the camera is standing
+// in - your own shadow fading as you step into it is a far smaller lie than
+// the whole mask inverting, and the torch passes no guard because its volumes
+// always point away from it. (3) There is no 1-bit fallback for a spot: that
+// path's correctness comes from interleaving each receiver's light with the
+// volumes in front of it, and a spot's receiver is one ground patch, so with
+// the count target refused the lamp lights its cone plainly.
+//
+// One gate had to be widened, and it is the "test enablers first" rule in
+// miniature: a SCENE spot's pool is projected through the flashlight's gobo,
+// and the gobo was baked and loaded only when the project had a flashlight.
+// So the first fixture - a lamp, a box, no torch - drew a soft corona blob
+// with nothing to carve, and the feature looked broken while the code was
+// right. projectUsesSpotVolumes is now the ONE answer to "does this project
+// carve spot shadows": scene_data.hpp's SPOT_SHADOW_VOLUMES_USED, the gobo
+// bake in refreshGenerated and the runtime load all read it. Nothing existing
+// moves - a project would have to have turned the new setting on to reach it.
+//
+// The shadowMode disagreement is fixed in the same place. An object whose
+// Dynamic shadow is None was out of the blob and silhouette systems and NOT
+// out of the torch's volumes; pickVolCasters skips it now, for both lights,
+// which is what "None" has always claimed to mean.
+//
+// Verified. Codegen: --refresh-gen on a scratch project emits
+// SPOT_SHADOW_VOLUMES_USED = true and bakes res/hud/flashlight-gobo.png in a
+// project with no flashlight at all, and the generated game compiles clean in
+// Docker. Flashlight regression: the frozen-camera night-walk fixture (Player
+// at [0,0,0] rotation [4,180,0], facing the yard's wall, truck and pallets,
+// clipping vu1, the lamp's flicker turned off so the fixture is deterministic
+// - two captures two seconds apart differ only in PCSX2's own FPS overlay)
+// built with the 1.66.3 editor and with this one is BYTE-IDENTICAL inside the
+// game raster; 50.0/50 both ways. The feature: a scratch fpp fixture with a
+// grazing spot, a 1.5 u box under it and a frozen camera carves a plainly
+// visible trapezoid of shadow into the ground pool, and the same fixture with
+// that light's override set to Off draws the pool with no shadow and nothing
+// else changed. With a second lamp beside the first, only the nearer one's
+// caster has a shadow; walk the camera over to the second and the shadow
+// moves with the slot. 50.0/50 in every arm (PCSX2 software renderer).
+//
+// What is NOT in this: the receiver (wall) second pass, and the reason is
+// worth writing down because it is not effort. The torch draws its light on
+// solid geometry through wBag/wTexBag/wColorBag with the shared 3997-vertex
+// budget, and it can do that honestly only because it turns its OWN cone off
+// on each receiver first (setFlashSpotOff -> PipelineInfoBag::spotLit). There
+// is no per-object way to say "not this SCENE light": dynLightPick is the only
+// lever and it drops every dynamic light from the bag. So a spot's wall pass
+// as written would light the wall twice - once per vertex through the engine's
+// slot, once projected - and the carved shadow would darken only half of that,
+// which reads as a bug rather than as a shadow. It is closer than it sounds,
+// because the engine picks ONE light per bag and a wall inside a lamp's cone
+// is usually lit by that lamp alone; but which light a bag picked is decided
+// on the console, so switching the pick off from the host can darken a wall
+// that some other lamp was lighting. A spot's shadow therefore lands on its
+// GROUND POOL and nowhere else, and docs/shadows.md says so plainly.
+//
+// A pre-existing bug in the same area went with it: SceneObject::shadowMode
+// was missing from SceneObject::operator==, so the undo system could not see
+// a per-object dynamic-shadow edit at all - switching an object from Default
+// to Blob compared equal to what it replaced, nothing was pushed, and the
+// change read as "undo drops my shadow edits". The field has been in the
+// comparison since this commit; nothing else about it moves.
+//
+// The other sibling is a REPEATABLE A/B for anything that changes how a
+// dynamic shadow is drawn, because "look at these two screenshots" is not a
+// verification and the runtime half needs one:
+// .claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1 builds a
+// two-lamp, two-caster fixture headlessly and shadow-ab.ps1 runs ONE command
+// per switch - patch, build, boot, screenshot the emulator that is running
+// this project BY PID, grep the game's own bin/log.txt, and write a report.md
+// whose numbers say where the picture changed. It was proven on
+// flashShadowVolumes, whose volumes already work, so it is trusted before the
+// spot runtime exists; the tyra-testing skill has the one-liner, the numbers
+// and the traps.
+
+// 1.66.3 (the pool still cut off along a straight line when the torch was
+// aimed FAR, flat ground included): 1.66.2's hull was real but not the
+// report. Logged from the game and projected with the view-proj, the cut's
+// screen row was the canvas's NEAR row to the pixel: the near edge sat a
+// fixed `along` behind the canvas's centre, and aimed far (2 degrees of
+// pitch: the axis lands 25 u out, the centre 15 u past that, `along` capped
+// at 35) that put it 5.5 u in front of the player while the cone's lower edge
+// had been on the ground since 3.9 u - bright gobo with no canvas under it.
+// The lower edge is marched every frame now and the near edge goes a unit
+// short of its floor hit (the feet when it never lands). The canvas is also
+// a trapezoid, each row as wide as the cone at its own distance, instead of
+// a strip as wide as the cone at the landing: aimed far the strip's straight
+// sides were the light's sides. Two dead ends, both measured on the same
+// frozen frame: the VU1 and EE clippers draw it identically (the "ee" value
+// is not a clipping mode - it silently falls back to vu1; "precise" is the
+// EE clipper), and the hull alone changed nothing there. A/B at (-6, 14)
+// pitch 2 on night-walk: a hard line at screen row 612 before, a pool fading
+// toward the feet after; (12, 74) aimed 1 up unchanged.
+//
+// 1.66.2 (the pool cut off square across the screen when the torch was aimed
+// UPHILL): reported with three screenshots from night-walk - fine at the
+// feet, a dead-straight horizontal line through the pool the moment the
+// player walks up a slope, the near half dark. The canvas follows the relief
+// per VERTEX, and its cells are metres long: on a convex slope (a hill
+// flattening toward its crest) the chord between two vertices dives under the
+// ground and the z test eats it, along the straight line where the chord
+// plane meets the ground plane. The lift was the only defence, and 1.66.0
+// capped it at half the torch's height over the landing - which is NEGATIVE
+// when the beam lands up a hill, so uphill meant 2 cm of lift over 10-unit
+// chords, and at a grazing view 5 cm of dip is half a unit of depth, past
+// the view-ray bias. Every cell now measures the ground's BULGE above the
+// bilinear sheet through its corners and raises the corners by the largest
+// bulge around them, so every chord clears the relief by construction; a
+// planar slope lifts nothing. The first attempt took the plain highest
+// ground within a cell instead and the canvas floated at the lens's height,
+// glowing in the sky over the crest - the bulge is the right quantity.
+// Frozen-camera A/B on night-walk at (12, 74) aimed 1 degree up a hill and
+// at (12, 64) aimed 5 up: a dark band the width of the screen before, the
+// pool fading out to the crest after. ~300 height reads per frame.
+//
+// 1.66.1 (the pool cut off along a straight line as the torch was raised
+// across open ground): reported with two screenshots right after 1.66.0, and
+// it was 1.66.0's own mistake. The cone's lower edge is its STEEP edge, so
+// where it meets the floor is the footprint's NEAR end - everything beyond,
+// out to the reach, is inside the cone - and the canvas was laid toward the
+// player from it, exactly where the gobo is black. The wall fixture hid it
+// (the wall bounded the far side). Laid outward now; and the canvas's far
+// edge fades over its last quarter, so the along backstop (across * 8) never
+// shows as a hard edge when a flat beam's light outruns it. Open ground at
+// 2 and 4 degrees of pitch: a soft tail to the horizon, no edge.
+//
+// 1.66.0 (the torch's pool no longer snaps off at a wall's foot, and a
+// fixture can author the player's pitch): reported with four screenshots -
+// "I shine at the corner of the wall and the ground; move a pixel up so the
+// centre aims above the wall/ground edge and the blob on the ground is gone,
+// same at the edge of an object".
+//
+// The pool's patch is a CANVAS - the gobo is projected per pixel wherever it
+// lies - and it was landed by marching the beam's AXIS alone, against surface
+// heights that know nothing of walls. So a centre just above the edge marched
+// through the wall and landed on the ground behind it, where the z test hid
+// the canvas; aimed level it never landed at all. Three landings now, in
+// order: the axis meets the floor; the axis meets a wall first (projWallHit
+// already knew) and the canvas goes to the wall's FOOT, a step short of the
+// face; the axis misses the floor and the cone's LOWER EDGE is marched
+// instead, its hit being the footprint's far end, from which the canvas is
+// laid back toward the player over the span to the wall or the edge's own
+// reach. A/B at a 2-degree pitch toward a wall 6 u away: the old build drew
+// nothing on the ground, the new one spills the pool over the wall's foot.
+// The relief lift is also capped at half the torch's height over the landing
+// (a hand-low torch had its canvas floating above the lens, covering no
+// ground pixel).
+//
+// The fixture for that A/B did not exist and was built first, per the new
+// testing rule (tyra-testing skill): the Player object's ROTATION X is its
+// start pitch now (positive = down), and heading + pitch both come from the
+// rotated forward vector like every other object's transform - which also
+// reads a gizmo-wrapped [-180, 89, -180] as heading 91, not 89
+// (docs/player-start.md). Before, the pitch was unauthorable and every
+// "aim just above the edge" shot was a pad-driven guess.
+//
+// And the count rect's vertical flip from 1.65.0 is gone (1.65.1 proved the
+// convention against the sun disc; three engine sites agree). The rect in
+// that fixture was the whole raster either way - the far extrusions spread
+// it - so the sign rests on the measurement, not on a shadow that moved.
+//
+// 1.65.1 (the god rays and the lens flare radiate from the sun again):
+// reported over a dusk shot with the shafts converging on nothing in
+// particular near the middle of the picture while the sun sat up in the
+// corner - "the rays don't come from the sun".
+//
+// The same mistake 1.65.0 found in the flashlight's count rect, one function
+// over and one worse. updateSunFx projected the sun with
+// px = (x/w * 0.5 + 0.5) * W and py = (0.5 - y/w * 0.5) * H, but Tyra's
+// perspective matrix is built for the VU1 pipeline's fixed 2048 scale - the
+// frustum edge is at |x| = w * rasterW / 4096, and the matrix already carries
+// the GS's downward y in its data[5] = -h. So the reported position was
+// 4096/rasterW (8x at 512 px) too close to the centre of the screen AND
+// mirrored across it. Measured on the dawn plaza of examples/day-night in
+// PCSX2: the sun disc the 3D pipeline itself drew at (410, 127) of a 512x512
+// raster was reported at (275, 272). The god rays zoom toward that point, the
+// four flare ghosts walk the sun -> screen-centre axis through it, and the
+// 80 px / 220 px edge bands decide from it when the sun has left the screen -
+// so all three were aimed at a point that had nothing to do with the sun. It
+// is normalised against getRasterWidthF/getRasterHeightF now (the raster the
+// projection was built for) and landed on the display size both consumers
+// want. After the fix the same frame reports (410.3, 126.3): the glow sits on
+// the disc and the ghosts march down the axis, checked against their
+// predicted centres to within 2 px on the isolated ring.
+//
+// The A/B also caught a second space mismatch under it, which only a
+// non-448-row scan mode shows: RendererCore2D authors sprites in the stock
+// 512x448 layout and letterboxes THAT into the raster, so a flare ghost given
+// a display row lands (renderHeight - 448) / 2 rows too low - 32 in Pal576i,
+// 46 in HiDef1080i, 0 in the stock modes, which is why it had never been
+// seen. The god rays keep taking display pixels (RendererCorePostFx divides by
+// getHeight()); only the sprites take the offset back off.
+//
+// 1.65.0 (primitives cast their own shape under the torch, and the count
+// rect stops slicing shadows flat): "add it to the primitives too - and tell
+// me why a primitive has a different set of rights at all, this is the n-th
+// time we step on that mine".
+//
+// The why: a model is a shared LOCAL-space asset (gameModels) with triangles
+// the volume code can read; a primitive has no asset - addBox/addSphere/
+// addCylinder/addCone emit its triangles straight into WORLD space, per
+// object, shaded, through pushVert, and that is the only copy. Every feature
+// that reads geometry back (collision mesh, shadow mesh, highlight proxy,
+// now this) trips on it. Here the same generators run once per (type,
+// detail, rings) on an identity object (primShadowMesh), which IS the unit
+// mesh in local space, and emitMeshShadowVolume places it with the caster's
+// basis and scale exactly like a model. Detail steps down until the mesh fits
+// kShadowMeshMaxTris (a detail-64 sphere is 5760 triangles). Planes and
+// decals stay on boxes: one-sided, no unlit face to cap on.
+//
+// Measuring that exposed an older bug the rectangle had hidden: the count
+// bracket's scissor rect took the casters' BOX corners through x/w as if it
+// were NDC. Tyra's projection is built for the VU1 pipeline's fixed 2048
+// scale - the frustum edge is at |x| = w * rasterW / 4096 - so the rect was
+// shrunk toward the centre by 4096 / rasterW, and the mask only ever covered
+// that rect: a sphere's shadow was a circle with its top and bottom sliced
+// flat (logged rect rows 226-328 of 512 for a caster sitting at rows
+// 245-371). A box shadow that fit inside the shrunken rect never showed it.
+// The rect is now the bbox of the volume vertices themselves, mapped through
+// the 2048 scale (the portal carve already did it right).
+//
+// 1.64.0 (a big model's torch shadow is its OUTLINE now, not its box):
+// reported over a shot of a rifle on a wall wearing a hard-edged rectangle,
+// with the reminder that "this whole feature was only ever for the pretty
+// Silent Hill shadows".
+//
+// The shadow volumes classify a model's real triangles on the EE every frame,
+// and past kShadowMeshMaxTris (1200) that stops being cheap - so a big model
+// extruded its bounding sub-boxes instead, and a 6194-triangle rifle cast a
+// box. The build now bakes a SHADOW PROXY for such a model: every part welded
+// together by position (a shadow has no uv seams), decimated by the mesh-LOD
+// quadric collapse with open borders UNLOCKED (a game prop is mostly open
+// borders; locked, the collapse stalls far above any useful budget - they
+// carry Garland's perpendicular-plane penalty instead, so an outline edge is
+// dear to break but free to slide along itself) until the triangle count fits,
+// stored positions-only in the .tmdl (format 3, trailing section, ~40 KB; v2
+// files read as before). The game tries the real mesh first and reaches for
+// the proxy only over budget; a model the decimator cannot bring under budget
+// warns in the build log and keeps the boxes. The budget is one constant,
+// meshlod::kShadowProxyMaxTris, spliced into the game's kShadowMeshMaxTris.
+// Baked only while the preference is on. Measured: rifle 6194 -> 877,
+// barrel 4180 -> 1167, trilobite 8338 -> 1022; the rifle's shadow shows its
+// sight, grip and the hole in the trigger guard in PCSX2.
+//
+// 1.63.1 (the torch's SILHOUETTE shadow was thrown from the eye too):
+// reported as "the torch shadow is not as nice as the moon's" over a shot of a
+// sphere wearing a hard-edged rectangle, with the helpful question - "could the
+// flashlight shadow not be drawn the same way as the moon's?"
+//
+// It already can: that IS the default mode (Preferences > Rendering >
+// Flashlight shadow volumes, OFF), and the rectangle is the volume mode being
+// honest about a PRIMITIVE, which always extrudes its bounding box. But
+// switching the preference off drew nothing at all, which measured worse than
+// the rectangle - and worse than doing nothing, because the torch WINS the
+// scoring for the slot and the moon's perfectly good shadow stopped being
+// drawn.
+//
+// renderProjShadows still lit from cameraPosition. 1.63.0 moved the torch off
+// the view axis for the pool, the receivers, the volumes and the cone, and
+// missed this path; a light AT the eye lands its silhouette exactly behind its
+// caster on screen, so the slot held a correct round shadow that no vantage
+// could ever show. It takes the same held origin now - the cone test, the
+// line-of-sight query, the consider() call and the fromTorch identity test,
+// which compares the very floats consider() stored.
+//
+// Measured on the reporter's scene, one vantage, three builds: volumes = a
+// hard rectangle; silhouette from the eye = nothing (and no moon shadow
+// either); silhouette from the held torch = the soft round shadow the moon
+// makes, at 0.2 / 0.25. docs/flashlight.md says up front that BOTH modes need
+// the torch off the eye before either is worth judging.
+//
+// 1.63.0 (the torch is HELD now, not implanted in the eye - format v35):
+// asked for as "could we give the flashlight a slight offset, so it does not
+// shoot from the eye but a little lower and to the side?" - and it is also the
+// answer to the shadow report of 1.62.1, which ended in "a light on the view
+// axis casts every shadow exactly behind its caster".
+//
+// The player's flashlight gains an offset: Held right / Held below eye, world
+// units, clamped to a metre either way, default 0,0 - which returns the eye
+// exactly, so every existing project is untouched until someone moves it. The
+// offset is taken in the BEAM's frame, never the world's (right = beam x world
+// up, down = the beam's own up negated), so the light never slides ALONG the
+// beam: sliding would change its reach and could drop it past a caster, where
+// a shadow volume points back at the eye and z-pass counting is wrong.
+//
+// One origin feeds everything the torch does - the gobo projection that shapes
+// the pool, the receiver collection, the wall hit, the march that lands the
+// pool, the shadow volumes AND the per-vertex cone in both game templates.
+// Three uses of the camera stay the camera on purpose: the aim direction (a
+// torch points where you look), the receiver height cap (a wall taller than
+// the PLAYER is not a floor), and the volume's front/back classification,
+// which is a question about the eye and not about the light.
+//
+// 1.62.1 (the torch's shadow mask was never written at 32-bit colour):
+// reported as "still no shadows" on a hand-made scene, with a screenshot
+// showing only the moon's. The mask was being BUILT - four casters picked,
+// 144 volume vertices submitted, mask=1 in the game's own log - and not one
+// bit of it reached the framebuffer.
+//
+// countResolve() turns "this pixel has a non-zero count" into the mask bit
+// through TEXA's AEM expansion, and the GS applies TEXA only to formats whose
+// alpha it has to INVENT: PSMCT16 (one bit) and PSMCT24 (none). The count band
+// is PSMCT32 at 32-bit colour - for page-geometry parity with the scene z it
+// is tested against - and a PSMCT32 texel carries its own alpha, which the
+// count pass deliberately leaves at 0 so the band's A bit can never trip the
+// resolve. So the resolve sampled alpha 0 everywhere, failed its ATEST on
+// every pixel, and wrote nothing: no shadow at 32-bit, ever. 16-bit projects,
+// where AEM does apply, worked - which is exactly why this survived a console
+// pass, since every shot that proved the feature was taken at 16-bit while
+// chasing the FBA bug. The resolve now binds PSMCT24 when the band is 32-bit:
+// the same memory, minus the byte we do not want. Found with one probe -
+// skipping maskClear() for one build, so a live gate must discard everything.
+//
+// Fixing it exposed a second fault that had never been visible: the volume's
+// near caps sat on the caster's LIT faces, so the volume CONTAINED its own
+// occluder. Every surface the real mesh recesses behind the hull that stands
+// in for it counted as shadow - a barrel came back striped along its panel
+// lines - and because a model past 1200 triangles is represented by a BOX, a
+// hard-edged rectangle of that box's footprint sat on the ground around it,
+// which reads as the shadow and is not one. The caps go on the UNLIT faces
+// now: the volume starts at the caster's far side, and the silhouette ring is
+// shared by both halves, so the shape on screen does not move.
+//
+// Measured on the reporter's own scene, one word apart, same pad script and a
+// fresh boot per arm: dark pixels inside the pool 622 (mask dead) -> 1538 (lit
+// caps: shadow plus the box artifact) -> 896 (shipped: the honest rim, no
+// self-shadowing). docs/flashlight.md gained "How much of a volume shadow you
+// will actually SEE", because the answer to the report is finally geometry
+// and not a bug: a torch held at the eye hides its shadows behind whatever
+// casts them. Two ways to widen that rim were tried and measured as dead ends
+// - dropping the virtual torch to chest height moves a few degrees, and
+// widening volPush past a caster's distance disqualifies that caster outright.
+//
+// 1.62.0 (a dynamic shadow is chosen on the OBJECT now - docs/shadows.md):
+// "I put in a model that has a dynamic shadow, but instead of the full cast I
+// pick the blob option." Blob shadows were a project-wide switch that only
+// ever applied to the things that MOVE (the third-person avatar, animated
+// models, physics bodies), and the projected silhouette was a per-object flag;
+// there was no way to say "this one, cheaply".
+//
+// SceneObject::shadowMode says it per object: Default / None / Blob /
+// Projected, in Properties, with the project switch left as the default for
+// everything that does not override. Blob mode works on a STATIC prop too -
+// the moving-things rule only gates the default - and it is one soft quad
+// against a projected caster's second 64x64 render per frame, which is the
+// trade the tooltip states.
+//
+// Three things had to follow the object rather than the project: the sprite
+// bake (the blob's alpha mask is the flare glow, and one object asking for a
+// blob is enough to need it), BLOB_SHADOWS_USED (the new codegen constant that
+// gates the texture load and the setup, where BLOB_SHADOWS alone used to), and
+// PROJ_SHADOWS_USED (which decides whether the engine's shadow-map VRAM is
+// claimed at boot at all). The spawn-recipe hash takes the mode too - two
+// objects that differ only in what they cast are not interchangeable
+// templates.
+//
+// 1.61.4 (one prop in the beam took every other receiver's torch light):
+// reported from a hand-made scene - two models with "Cast shadow (projected)"
+// on, flashlight shadow volumes on, and no torch shadows anywhere; plus "when
+// I shine at the robot the light on the wall disappears".
+//
+// The flashlight's second pass - the one that lands the projected pool on
+// solid geometry - fills ONE 3997-vertex buffer, and the receivers are walked
+// nearest first. The backstop tested the whole buffer, so the nearest receiver
+// could consume all of it: measured in that scene as recv[0] (a barrel model)
+// sliceVerts=3999 and recv[1] (the wall behind it) sliceVerts=0. The wall got
+// no torch light at all - and therefore no shadow either, because the volume
+// mask can only darken light that is drawn. Each receiver now gets an equal
+// share plus whatever the ones in front left unused, so a heavy model lights
+// partially (its far triangles fall back to the per-vertex cone) instead of
+// starving the surface the pool exists for.
+//
+// HOW IT WAS FOUND, because the method is worth more than the fix and is
+// written up in the tyra-engine-dev skill: the mask machinery was cleared
+// step by step with probes that each answered ONE question - forcing the
+// resolve to paint alpha 0x80 over its rect (the pool vanished: DATE gating
+// works), then painting the count band's texels as COLOUR into the frame (the
+// counts were there, hugging each caster), then logging the receiver slices
+// (recvN, per-slice vertex counts) - which named the buffer in one line.
+// Two of my own probes were inconclusive by construction and are recorded
+// with the rest: forcing the resolve's ATEST to pass does not change the
+// alpha it WRITES (that comes from the texel), and a probe that skips a pass
+// also skips whatever state that pass restores.
+//
+// 1.61.3 (the atlas window draws the page it is TALKING about): the preview
+// was the PNG the last build wrote, so it lagged every edit - group two
+// textures and page 0 kept showing its previous thirty members above a list
+// of two, while the page the plan had just invented showed nothing at all
+// ("build the project to see the page"). A preview that contradicts the list
+// beside it is worse than no preview, and the plan is computable now, so the
+// window composites each page from the member PNGs itself: correct before any
+// build, and correct the instant a group or a keep-out changes. Reported from
+// the window, with a screenshot of exactly that mismatch.
+//
+// 1.61.2 (a scene where atlasing actually pays, and the bug building it found
+// - examples/texture-atlas): thirty crates, each with its own 32x32 texture,
+// packed onto ONE 256x256 4-bit page. Measured from the game's own VRAMSTAT,
+// both ways: 0.234863 MB free with atlasing off and 0.298584 with it on - 65.3
+// KB back, against the 65 KB --atlas-report predicted, and 34 resident texture
+// allocations down to 5. The example exists because the feature is easy to
+// switch on and hard to judge: this is the arithmetic in a form you can walk
+// around in, and the README says why small palettized textures are so wasteful
+// alone (the GS rounds a 4-bit texture's width up to 128 texels, so a 32x32
+// prop holds 512 bytes and occupies 3.25 KB).
+//
+// THE BUG IT FOUND. The first cut kept its props in res/props/ and came back
+// as thirty WHITE boxes. texbake only rewrites a .mtl and quantizes a .png
+// under res/models, res/materials and res/textures, while the atlas plan
+// packed from anywhere - so the member's own PNG was dropped from the bake
+// (correctly: it ships inside the page) while its .mtl was copied verbatim,
+// still pointing at the file that no longer existed. Worse than not atlasing,
+// and silent. The plan refuses those folders now, with that sentence as the
+// reason in the report and the window. Nothing in-tree hit it, because every
+// project so far kept materials where the convention says.
+//
+// Two authoring points the fixture makes on purpose: every prop is drawn from
+// ONE 16-colour palette, which is what makes a 4-bit page free of quality cost
+// (art with thirty independent palettes is what makes it lossy), and every
+// texture carries its own number, so a mis-mapped UV reads as the wrong crate
+// rather than as a subtle shift. That is also how the box primitive's V
+// orientation was found: an upside-down "5" is a convincing "2".
+//
+// 1.61.1 (two Preferences widgets were dead on arrival, and the reason
+// generalises): clicking *Project > Preferences > Rendering > Texture
+// atlasing* did nothing - the tick appeared and was gone on the next frame,
+// with nothing in any log. The combo beside it, *Textures* (the 4/8-bit/full
+// quantization), was the same.
+//
+// Preferences edits a COPY of ProjectSettings and writes it back only when
+// `operator==` says something changed. `textureQuant` and `textureAtlas` were
+// never added to that operator when texture atlasing landed, so the comparison
+// answered "identical", the model was never updated, and the next frame
+// re-seeded the widget from it. The settings could only be changed by editing
+// the .tyra by hand - which is exactly what every test of atlasing on this
+// branch had done, so nothing caught it until someone clicked the box.
+//
+// Both fields are in the operator now, and a static_assert on
+// sizeof(ProjectSettings) sits above it: add a field and the size changes, the
+// assert fires, and the next person is made to read the comment instead of
+// shipping another widget that does nothing. It is a reminder, not a proof -
+// the message says so, and says to update the number once the field is listed.
+//
+// Verified with --ui-script on a copy of examples/night-walk: click, then
+// `expect-checked` (which FAILED before the fix and passes after), then ctrl+s
+// and the key in the .tyra - "textureAtlas": true and "textureQuant": "8bit".
+//
+// 1.61.0 (the atlas page has a depth now, and it is the setting that decides
+// whether atlasing is worth anything in a palettized project -
+// docs/texture-atlasing.md): a page was always quantized to 256 colours, so in
+// a 4-bit project its members went UP to 8 bits per pixel and the page cost
+// 65 KB - which is why 1.60.0 measured night-walk's atlas as costing 57 KB.
+// The page's depth follows the project's texture quality now (4-bit project ->
+// 4-bit page, 32.25 KB), and a member may ask for more through
+// AtlasControl::pageBits, the group taking the HIGHEST request - the rule
+// textureQuality already uses.
+//
+// WHAT IT BUYS, measured on night-walk and checked against the running game:
+// the page halves, 65 -> 32.25 KB, the atlas's net cost falls 57 -> 24 KB, and
+// VRAMSTAT reports free 0.115234 (no atlas) / 0.0600586 (8-bit page) /
+// 0.092041 MB (4-bit page) - 56.5 and 23.7 KB against predictions of 57 and 24.
+// The break-even moves with it: about EIGHT 64x64 members instead of about
+// sixteen, and sixteen is a full page, i.e. atlasing a palettized project
+// could not pay for itself before.
+//
+// WHAT IT COSTS, measured per texture as mean absolute error against the
+// source art (not asserted - a 16-colour page shared by a red door and a blue
+// garage door is the worst case, and this fixture is exactly that):
+//   ship it alone at the project's own 4 bits ... 6.2 / 6.4
+//   4-bit page (16 colours shared) ............. 10.6 / 9.9
+//   8-bit page (256 colours shared) ............  1.4 / 1.4
+// So the default is a modest loss against shipping the texture alone, and the
+// 8-bit page is actually a quality UPGRADE over a 4-bit project's own textures
+// - at twice the page. Both are one combo away per texture, the window and
+// --atlas-report print the depth per page, and the hue bucketing from 1.60.0
+// is what keeps a shared palette survivable (it does not split a group below
+// one page's worth of content, which is why this two-member fixture shows the
+// trade at its worst).
+//
+// 1.60.0 (texture atlasing gets a window, a report and two knobs -
+// docs/texture-atlasing.md): the feature was one checkbox and one line in the
+// boot log. Nothing said which textures shared a page, so nothing warned that
+// a page had merged two rooms' props into one allocation both must then keep
+// resident; nothing said when a texture was silently disqualified; and the
+// claim it saves VRAM was never measured.
+//
+// Measured now, on examples/night-walk (a 4-bit project): its members cost
+// 8 KB unpacked and 65 KB as a page - atlasing COSTS 57 KB there, because a
+// page is quantized as ONE image (members go 4 -> 8 bpp) and is a full
+// allocation whatever it holds. It still buys fewer allocations and fewer
+// texture switches; it does not buy bytes in that project, and the window and
+// --atlas-report print both sides in green or amber instead of asserting a
+// saving. The old "+~8 KB overhead per texture" line in the docs and the
+// tooltip described an engine that has not charged that padding since
+// getSize() was fixed.
+//
+// The estimate is the engine's own getSize PORTED rather than approximated
+// (GS memory is paged and swizzled, so an image occupies up to the highest
+// block its texels reach), and it was checked against the running game:
+// VRAMSTAT reads 0.115 MB free with atlasing off and 0.060 MB with it on -
+// 56.5 KB against the predicted 57. The first version of the estimator
+// rounded a texture to whole PAGES; a page is whole by construction, so
+// that error landed entirely on the "unpacked" side and flattered atlasing
+// (16 KB where the console charges 8).
+//
+// Four things landed with it:
+//  - Tools > Texture Atlas (src/atlas_ui.cpp): pages with a preview and their
+//    members, every refused texture WITH THE REASON, the VRAM arithmetic, and
+//    a warning when one page's members are used by more than one scene - the
+//    "different parish" case, where a page is one allocation and both scenes
+//    hold each other's textures resident.
+//  - tyrax-editor --atlas-report <dir>: the same, headless, plus a
+//    machine-readable [atlas] line.
+//  - Per-texture control (Project::atlasControl, format v32): KEEP OUT (never
+//    pack it) and GROUP (pack it with everything of the same name instead of
+//    with its .mtl's folder), both authored in that window.
+//  - Packing rules: a SUBDIRECTORY map_Kd token is a member now (refusing
+//    those silently disqualified every asset pack with a Textures/ folder -
+//    night-walk atlased NOTHING with the feature on, and said so nowhere);
+//    members are bucketed by average hue within a group so one page's shared
+//    CLUT is not split between clashing images; and a page that ends up with a
+//    single member is dropped, because a lone texture on a 256x256 page pays a
+//    whole page and loses its own palette for nothing.
+//
+// 1.59.2 (mesh shadow volumes come back to 16-bit colour, and the reason they
+// left was a misdiagnosis): 1.59.0 refused the counting path at 16-bit because
+// the resolve laid dashed green marks down two fixed screen columns, and blamed
+// the masked write at a PSMCT16 destination. Both halves of that are now
+// MEASURED ON A CONSOLE and it is neither.
+//
+// First, an FBMSK probe with no shadows in it: one flat sprite drawn into a
+// PSMCT16 frame through 0xFFFFFFFF / 0x00FFFFFF / 0x7FFF7FFF / 0, plus a strip
+// per mask whose alpha is cleared, half-set and revealed with a DATE-gated
+// sprite. The console reads EXACTLY like PCSX2 - 0x00FFFFFF is colour-neutral
+// and its alpha half reaches the mask bit per pixel - so the constant is right
+// and the destination format is innocent.
+//
+// Second, a paired sweep one knob apart, eight vantages of night-walk at
+// 16-bit, same pad script, fresh boot per arm: countResolve() binding TEX0 to
+// the SLID band base scores green on 8 of 8 frames (800-4800 px); binding it to
+// the band's OWN base scores 0 of 8; flipping back scores 8 of 8 (A-B-A). That
+// register was fixed in 1.59.1 as an arithmetic correction with no picture to
+// show for it - this is the picture. The fault was double compensation: the
+// count pass writes pixel (x, y) through a FRAME slid by bandY0 page rows, so
+// the texel lives at the band's own base with V = y - bandY0; sliding the read
+// too made every band but the first sample 256 KB below itself (the top of the
+// z buffer and the projected-shadow slots).
+//
+// So allocateCount() no longer refuses at 16-bit: the band follows the frame's
+// PSM (PSMCT32 512 KB / PSMCT16 256 KB, page geometry matching the z buffer as
+// it has since 1.58.0) and a 16-bit project gets mesh-shaped volumes like any
+// other. Verified on the console: eight vantages clean, VRAM 2.18, pools and
+// shadows drawing; PCSX2 shows nothing in either arm at any vantage, which is
+// what made the first diagnosis so easy to get wrong. STILL OPEN, and written
+// down rather than glossed: why texels sampled by a pass that only writes alpha
+// tint the picture at all, and why the marks also appear ABOVE the band
+// boundary where the slide is zero. The tooltip and docs/flashlight.md carry
+// the same account.
+//
+// 1.59.1 (the 16-bit torch pool, for the second time - and the last, because
+// the cause is NAMED now): after 1.59.0 sent every 16-bit project down the
+// convex 1-bit path, the flashlight drew no pool again on examples/night-walk
+// at 16-bit colour while the per-vertex cone still lit the bin and the shed
+// (it is not DATE-gated; the pool and the wall passes are). The FBA re-assert
+// that 1.58.0 added lived in maskClear() ALONE - the counting bracket - so the
+// convex begin() still cleared the mask under FBA = 1 and the GS stored SHADOW
+// over the whole raster. Who sets FBA was "whatever the environment left" in
+// 1.58.0; it is ps2sdk's draw_setup_environment, read off libdraw.a's
+// disassembly: the register at 0x4A + context gets `(psm & ~8) == 2`, i.e. 1
+// for PSMCT16/16S and 0 for PSMCT32, which is the whole reason only 16-bit
+// projects ever met it. The engine zeroes it right after that call now
+// (RendererCoreGS::initDrawingEnvironment, the REPEAT re-assert's twin), and
+// begin() carries the same qword maskClear() does, so the 16-bit frame
+// follows the 32-bit contract the rest of the engine was written against:
+// alpha lands as written. The colour-depth combo also drops its "(2x VRAM)"
+// tag (the buffers HALVE; the tooltip says what actually doubles) and stops
+// claiming the z buffer stays 32-bit - it has followed the colour depth since
+// 1.58.0. VERIFIED on a 16-bit copy of night-walk in PCSX2 (software
+// renderer) AND on the console (the game's own frame.tga over ps2link): the
+// pool is back on the wall and on the ground, VRAM 1.93; the 32-bit copy is
+// unchanged (FBA was already 0 there - the write is a no-op).
+//
+// One more thing found by READING the counting path while here, fixed, and
+// NOT demonstrated with a before/after picture: countResolve() bound its
+// texture to the SLID band base and ALSO subtracted bandY0 from V, so every
+// band but the first sampled the memory below the band instead of the band
+// (at 32-bit: the top of the z buffer plus the post-fx / shadow-map slots). It
+// samples at the band's own base now. A first-person torch hides most of a
+// shadow behind its caster, so "no shadow below screen row 256" was never
+// going to be reported; the fix is by arithmetic (FRAME at slid + pageRow(y)
+// == countAddress + pageRow(y - bandY0)) and the build that carries it boots
+// and draws the 32-bit pool as before. Worth a deliberate look on the console
+// with a low caster in the bottom half of the picture.
+//
+// 1.59.0 (mesh shadow volumes are 32-bit-colour only): with 16-bit colour, the
+// flashlight's shadow-volume COUNT RESOLVE - an alpha-only masked sprite over
+// the volumes' screen rect - is not colour-neutral at a PSMCT16 destination. It
+// laid dashed green marks down two fixed screen columns over whatever the torch
+// lit, standing still in screen space as the camera moved; reported from a
+// console and reproducible in PCSX2 (a 24-vantage sweep scores 14-17 hits, and
+// a narrow sweep scores 0 and "proves" it is hardware-only).
+//
+// Bisected to that one pass: forcing its alpha test to fail - same packet, same
+// registers, same raster restore, everything else drawing - takes the sweep to
+// 0 of 24. Excluded by their own A/Bs and NOT the cause: the silhouette draws,
+// the count bracket's clear, the band's format and page slide, DATE, FBA, the
+// FBMSK constant (0x00FFFFFF protects every colour bit in the RGBA8 positions
+// FBMSK is always specified in; the 16-bit pixel-layout mask 0x7FFF7FFF floods
+// the frame instead - 115 893 pixels against ~2 000), ordered dithering,
+// protecting the colour with the blend equation instead of a mask, the
+// interlaced flicker filter and PMODE.MMOD.
+//
+// So allocateCount() refuses at 16-bit colour: countReady() answers false and
+// the generated game takes the convex sub-box path it already has - real
+// shadows from fitted boxes rather than silhouettes, no green, and the band's
+// 0.25 MB back (VRAM 1.93 against 2.18, measured on the console). 32-bit
+// projects are untouched. What a masked write actually does to a PSMCT16 pixel
+// - the console and PCSX2 disagree about 0x7FFF7FFF - is open, and mesh volumes
+// can come back to 16-bit once it is answered (docs/flashlight.md).
+//
+// 1.58.0 (16-bit colour stops being broken on hardware - docs/gs-vram.md): a
+// project switched to 16-bit colour rendered dark parallelogram BANDS across
+// ground and walls on a console while PCSX2 showed it perfectly. The rule
+// behind it applies to every render target this engine will ever depth-test: a
+// colour buffer and its z buffer must share PAGE GEOMETRY (32/24-bit pages are
+// 64x32 pixels, 16-bit ones 64x64), so a PSMCT16 frame over the PSMZ32 z was a
+// pair the GS cannot address consistently. The z format follows the colour
+// depth now, which also hands back 229 376 words.
+//
+// The vertex path had to follow, and that turned out to be the reason a first
+// attempt made models read INSIDE-OUT: packed XYZF2 carries a 24-BIT Z field,
+// so the scale is 24-bit whatever the buffer holds, and 24-bit Z sent into a
+// 16-bit buffer wraps. That range was FIVE hardcoded copies of 0xFFFFFF
+// (StaPip, DynPip, the depth-of-field solve, the generated portal mask, plus
+// two stale /32 ones in the Minecraft pipeline and the debug draw that predate
+// the XYZF2 switch and still sit in the bottom sixteenth of the range). It is
+// one place now - RendererCoreDepth - and the four live sites read it.
+//
+// The price is precision, stated in units because it decides whether a project
+// may use the mode at all: the world step at distance d is d^2/(maxZ*near), so
+// 16 bits at near 0.1 resolves 1.53 units at d=100 against 0.006 for 24. On a
+// console at near 0.1 the scene is band-free and correctly sorted, and fine
+// geometry at middle distance z-fights - night-walk's procedural trees show a
+// bright wedge across the crown where a tier's own cone faces fight. Raising
+// near buys it back linearly but is capped near 0.3 by the walker's own
+// clearance (clipMargin is -(near + 0.15) against playerRadius 0.35), so a
+// project-declared near/far is the next step and deliberately NOT in this
+// change. Measured VRAM on the fixture: 1.93 MB used at 16-bit against 3.95 at
+// 32-bit.
+//
+// 1.57.0 (a caster's shadow IS its mesh now): the flashlight's shadow
+// volumes stop being cut from boxes - a model caster classifies its REAL
+// triangles against the torch, extrudes the silhouette edges to the light's
+// range (caps from the lit faces, pushed 0.05, plus their far projection;
+// open edges - these models are not watertight - silhouette whenever their
+// one face is lit), and the volume is COUNTED per pixel the way the era
+// actually did it: the GS cannot count in 1-bit destination alpha (blending
+// never writes A), so camera-front faces ADD +32 and back faces SUBTRACT it
+// (new PipelineInfoBag::subtractiveBlendFix, the additive qword's twin) in
+// a dedicated raster-sized PSMCT16 target that shares the scene's z buffer
+// (FRAME and ZBUF are independent addresses on one pixel grid), and ONE
+// resolve per frame samples that target with TEXA.AEM = 1 (all-zero texel
+// = alpha 0, anything else = 0x80) and ORs count>0 into the mask through
+// ATEST != 0 - RendererCoreAlphaMask::allocateCount/countBegin/countResolve.
+// Counting also retires the sub-box overlap sliver: EVERY caster's volume
+// goes through ONE bracket per FRAME - one clear, one resolve, scissored
+// to the volumes' projected screen bbox, entered in a single drain (the
+// alpha clear folded into countBegin's packet), with the far caps skipped
+// outright (they only subtract at pixels beyond the reach, where the
+// falloff already zeroed the light). Each of those was measured against
+// the pre-change baseline in PCSX2's software renderer: per-caster
+// brackets with full-raster passes read 25 FPS on the night yard's
+// four-caster boot vantage against the baseline's 50; the single scissored
+// bracket reads 50. The interleave (light before its own volume) survives
+// only in the 1-bit fallback - under counting a caster's lit surface sits
+// outside its exact volume by construction (near caps are its own faces
+// pushed 0.05 down their rays), so the mask is built whole before any
+// light draws. Two decisions that took derivation
+// rather than code: the volumes extrude from a VIRTUAL torch pushed
+// 0.05 x range (clamped 0.5..2) down the beam, because the real torch sits
+// exactly in the eye and a light in the eye casts shadows exactly hidden
+// behind their casters (the proud BOXES were the only reason anything was
+// ever visible); and self-shadow safety is structural per mode, as above.
+// Face orientation for the
+// front/back split is GEOMETRIC (caps toward/away from the light, side
+// quads via an interior sample), never winding-trusted - a globally flipped
+// mesh degrades to casting from its back faces, whose silhouette is the
+// same. Sub-boxes remain for models past 1200 triangles and, per convex
+// piece with the old 1-bit brackets, for the graceful fallback when the
+// count target's 448 KB of VRAM is refused (allocateBuffer returns -1; the
+// generated init claims it right after the shadow-map slots, and
+// project::tripleBufferingFit subtracts it like the upscaler's low-res
+// target). VRAM cost is the one number worth stating twice: 512x448 CT16 =
+// 448 KB, opt-in with the technique itself. The count value 32 rides above
+// the 16-bit channel's 8-step quantization plus dithering's +-4, so DTHE
+// needs no save/restore; and the resolve restores CLAMP to REPEAT itself,
+// because emitRasterRestore does not know about texture state. Docs:
+// TWO MORE GS RULES CAME OUT OF 16-BIT, and the first was reported from the
+// console as "the flashlight's sprite is not visible where it falls on objects
+// or the ground". It was: `FBA` - the GS's alpha correction - forces the MSB of
+// every written alpha to 1 when set, which is a convenience for 1-bit-alpha
+// targets and death to a mask that lives in that bit. The per-frame clear wrote
+// alpha 0, the GS stored 1, DATE read SHADOW over the whole raster and every
+// DATE-gated torch pass was discarded, so a 16-bit project drew no pool at all.
+// Nothing else in the engine programs FBA, so maskClear re-asserts 0 once per
+// frame (the Path3::clearScreen REPEAT-contract pattern). MEASURED, not
+// guessed: the pool came back with DATM flipped to 1, which said the
+// destination alpha was 1 where the clear should have left 0; and a probe
+// exposing only BLUE proved FBMSK does map per RGBA8 channel on a 16-bit
+// target, which is what ruled the mask itself out. Two of my own experiments
+// on the way were WRONG and are recorded so nobody repeats them: skipping
+// countResolve also skips the raster restore in the same packet (so the rest
+// of the frame drew into the count band and the result meant nothing), and
+// COLCLAMP was never involved.
+//
+// AND THE SECOND GS RULE THIS COST: FBMSK's bit positions are ALWAYS 32-bit
+// RGBA8 - R 0..7, G 8..15, B 16..23, A 24..31 - whatever PSM the framebuffer
+// is in, because the GS maps them onto a 16-bit target's 5551 layout itself.
+// The mask passes reasoned from the 16-bit PIXEL layout instead (two pixels
+// per word, alpha at bit 15 of each half) and used 0x7FFF7FFF there, which
+// exposes bit 15 - the TOP BIT OF GREEN - so every "alpha only" write also
+// halved green wherever the torch lit something: a 16-bit project came back
+// magenta, (208, 56, 144) measured on a warm cream lamp post, while the same
+// project in silhouette mode was pixel-clean. One constant (0x00FFFFFF) is
+// right at both depths, and the engine's own post-fx passes were the evidence
+// (kKeepAlpha = 0xFF000000 and per-channel BYTE masks, used on work buffers
+// that are PSMCT16 in a 16-bit project). Verified in PCSX2 on a 16-bit copy of
+// night-walk: 0 hue-shifted pixels against 4115 before, the torch's light back
+// (5.2% of the frame changes when it is toggled) and no checkerboard; the
+// briefly-shipped 32-bit-only gate is gone with the cause. COLCLAMP was the
+// obvious suspect on the way and measurably was NOT it - that speculative
+// register write was reverted rather than left in.
+//
+// docs/flashlight.md "The shadow" rewritten around the counting
+// arrangement; no format change (the technique flag is v27's).
+//
+// VERIFIED ON A PHYSICAL CONSOLE and CORRECTED there, which is the part of
+// this entry worth reading. The count target was PSMCT16 to fit VRAM, and a
+// GS colour buffer must share PAGE GEOMETRY with the z buffer it is
+// depth-tested against - 32/24-bit pages are 64x32 pixels, 16-bit ones 64x64.
+// Over the scene's 32-bit z the depth comparison therefore read shifted words
+// for half of every page, and the torch's light landed in a CHECKERBOARD of
+// 32-pixel screen-aligned tiles wherever a volume was counted. PCSX2
+// addresses each buffer from its own PSM and showed nothing - a 12-toggle
+// F8 histogram, a 63:63 codegen check and five merges' worth of emulator
+// runs all passed on a build that was broken on every console. The target is
+// PSMCT32 now, and because a full raster at 32 bits is 1 MB it is a BAND
+// (kCountBandRows = 256 rows = 512 KB, exactly what the broken target cost)
+// that FRAME.FBP slides over the rect by whole page ROWS while ZBP stays put,
+// so the 1:1 correspondence with the scene depth is exact; a taller shadow
+// region is counted band by band, and since the mask is an OR the bands
+// compose. The alpha clear moved out of countBegin into maskClear() for the
+// same reason - it must happen once per frame, not once per band.
+// Re-verified on the console at the exact composition that produced the
+// artefact (torch on the truck's side at close range, wall behind): smooth
+// pool, parity-contrast 2.0% against 7.8% before, and 22.0 FPS with the torch
+// on against 24.1 with it off at the same parked vantage - the scene's own
+// ~24 FPS is the ceiling there, not the volumes.
 // 1.56.0 (the console can be switched off from the desk - Build > Power Off
 // PS2, docs/ps2link-setup.md): the capability was there the whole time and
 // nothing exposed it. ps2link answers PKO_POWEROFF_CMD (0xbabe0204) on the same
@@ -88,6 +1063,43 @@
 // engine/bin or audsrv/.work. PATCH: no capability appears, nothing changes
 // shape on disk, a build that could not run starts running.
 //
+// 1.55.2 (the clipper stops clipping what the scissor would crop -
+// docs/vu1-clipping.md): the static pipeline classified a package against the
+// VIEW frustum and read PARTIALLY_IN_FRUSTUM as "needs clipping", which it is
+// not. VU1 cuts against the near/far pair and an X/Y band at 0.9 of w, and the
+// projection divides by projectionScale 4096, so the screen edge is at 0.125 of
+// w and the band is SEVEN times that - a triangle may hang ~1590 px past either
+// edge of a 512x448 picture before anything is cut, and the GS scissor crops
+// the raster during DDA. So a package straddling the screen border crossed no
+// clip plane at all, and it was still split into thirds (3x the DMA chains and
+// VU1 kicks), memcpy-ed stream by stream where the cull route hands VU1 a
+// POINTER, and run through Sutherland-Hodgman with an empty plane mask.
+//
+// The packager already computed that mask; it now answers the routing question
+// in the same pass (StaPipBagPackage::guardBandOnly) and such a package is
+// culled whole and by pointer. Over EIGHT planes, not six: the cull programs'
+// fcand 0x3FFFF tests z against +/-w too, while the guard band's near constant
+// is deliberately looser (PlanesClipAlgorithm::clipMargin), and that gap is a
+// thin shell in front of the near plane where the clipper draws a triangle the
+// cull program would ADC away - a hole at point-blank range. The two exact
+// near/far half-spaces live at indices 6..7, on the EE only, never uploaded.
+//
+// MEASURED on examples/large-terrain (2048x2048 terrain, 1181 props), PCSX2
+// software renderer, a frame-indexed script camera, one line differing between
+// the arms, 2922 PAIRED frames: work 6.887 -> 4.670 ms, d = -2.217 ms, 95% CI
+// [-2.258, -2.175], 1.475x, 2864/2922 frames faster. Clip-routed packages
+// 11 164 -> 2 127 per 50-frame window, clipped triangles 68 456 -> 13 264,
+// qbuffer flushes 1 287 -> 756 - five sixths of the clipper's load was geometry
+// that needed no clipping. The picture is unchanged, and the CONTROL is what
+// says so: two boots of the same build differ on this fixture (it streams
+// terrain chunks), and an A-arm boot and a B-arm boot came back BYTE-IDENTICAL
+// over four parked poses - the arm is not what sorts the images.
+//
+// Also here: StaPipTelemetry gets its first reader after a year with none. The
+// generated game enables it and prints an FTCLIP line beside FRAMETIME, but
+// only under TYRA_FRAME_PROFILE (default 0), so a shipped build carries none of
+// it. PATCH: no capability appears, frames get shorter, nothing on disk changes
+// shape.
 // 1.55.1 (the self-screenshot reaches the console it was built for -
 // docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
 // nothing said so. On hardware the picture never came back, deterministically,
@@ -719,9 +1731,9 @@
 // pole-plus-arm slab of air that blotted out a facade. Each sub-box gets
 // its own mask bracket because set/clear is only sound inside one CONVEX
 // volume - the GS cannot count like a stencil, which is also why true
-// mesh-shaped volumes (SH2's bed slats) need the era's full arrangement
+// mesh-shaped volumes (a bed's slats) need the era's full arrangement
 // (count in a spare color channel with add/sub blending + a resolve pass)
-// and are left as the named next step.
+// and are left as the named next step (landed in 1.57.0, further up this file).
 //
 // 1.39.3 (thin things are transparent to the torch, in all three systems):
 // stand exactly on the street lamp's axis and the light died completely -
@@ -961,7 +1973,7 @@
 // caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
 // shadow-map slot, the ground patch samples it as always, and the wall behind
 // the caster is re-rendered with the silhouette through the light's view-proj,
-// per pixel: the Silent Hill composition, on the machinery that was already
+// per pixel: the survival-horror composition, on the machinery that was already
 // there. Three findings paid for it: the torch needed a laxer elevation bar
 // than fixed lights (it is carried level with everything, and its shadow's
 // whole point is the WALL - the ground patch is simply skipped when the ray is
@@ -977,8 +1989,9 @@
 //
 // 1.35.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
 // renumbered on the merge below - main took 1.32.0 with #230 while this branch
-// was away, so both entries here move up one, the standing arrive-second rule): the answer to "Silent
-// Hill had textured models and it looked fine", which is a fair objection to
+// was away, so both entries here move up one, the standing arrive-second
+// rule): the answer to "the era's games had textured models and it looked
+// fine", which is a fair objection to
 // everything the flashlight work had said up to then. The engine's lightmap
 // route is per texel and refuses textured surfaces, and that refusal is
 // hardware: the GS blend unit computes (A - B) * C + D with C always an ALPHA,
@@ -1722,47 +2735,9 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
-// 1.55.2 (the clipper stops clipping what the scissor would crop -
-// docs/vu1-clipping.md): the static pipeline classified a package against the
-// VIEW frustum and read PARTIALLY_IN_FRUSTUM as "needs clipping", which it is
-// not. VU1 cuts against the near/far pair and an X/Y band at 0.9 of w, and the
-// projection divides by projectionScale 4096, so the screen edge is at 0.125 of
-// w and the band is SEVEN times that - a triangle may hang ~1590 px past either
-// edge of a 512x448 picture before anything is cut, and the GS scissor crops
-// the raster during DDA. So a package straddling the screen border crossed no
-// clip plane at all, and it was still split into thirds (3x the DMA chains and
-// VU1 kicks), memcpy-ed stream by stream where the cull route hands VU1 a
-// POINTER, and run through Sutherland-Hodgman with an empty plane mask.
-//
-// The packager already computed that mask; it now answers the routing question
-// in the same pass (StaPipBagPackage::guardBandOnly) and such a package is
-// culled whole and by pointer. Over EIGHT planes, not six: the cull programs'
-// fcand 0x3FFFF tests z against +/-w too, while the guard band's near constant
-// is deliberately looser (PlanesClipAlgorithm::clipMargin), and that gap is a
-// thin shell in front of the near plane where the clipper draws a triangle the
-// cull program would ADC away - a hole at point-blank range. The two exact
-// near/far half-spaces live at indices 6..7, on the EE only, never uploaded.
-//
-// MEASURED on examples/large-terrain (2048x2048 terrain, 1181 props), PCSX2
-// software renderer, a frame-indexed script camera, one line differing between
-// the arms, 2922 PAIRED frames: work 6.887 -> 4.670 ms, d = -2.217 ms, 95% CI
-// [-2.258, -2.175], 1.475x, 2864/2922 frames faster. Clip-routed packages
-// 11 164 -> 2 127 per 50-frame window, clipped triangles 68 456 -> 13 264,
-// qbuffer flushes 1 287 -> 756 - five sixths of the clipper's load was geometry
-// that needed no clipping. The picture is unchanged, and the CONTROL is what
-// says so: two boots of the same build differ on this fixture (it streams
-// terrain chunks), and an A-arm boot and a B-arm boot came back BYTE-IDENTICAL
-// over four parked poses - the arm is not what sorts the images.
-//
-// Also here: StaPipTelemetry gets its first reader after a year with none. The
-// generated game enables it and prints an FTCLIP line beside FRAMETIME, but
-// only under TYRA_FRAME_PROFILE (default 0), so a shipped build carries none of
-// it. PATCH: no capability appears, frames get shorter, nothing on disk changes
-// shape.
-
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 56
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_MINOR 70
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -2042,7 +3017,43 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 31;
+// v32 (per-texture atlas control, docs/texture-atlasing.md): the
+// "atlasControl" section - per texture, an optional "keepOut" (never pack it
+// into a page) and an optional "group" (pack it with everything carrying the
+// same name instead of with its .mtl's directory). A page is ONE VRAM
+// allocation and ONE shared palette, so what shares one is a judgement about
+// the scene, and it used to be inferred from the folder layout alone. Written
+// only for textures that carry a decision and the whole section is omitted
+// while empty, so a project that never opens the Texture Atlas window resaves
+// byte for byte. Purely additive - no migration step.
+// v33 (the atlas page's depth, docs/texture-atlasing.md): "pageBits" joins the
+// atlasControl entry - a per-texture REQUEST for how deep the page it lands on
+// is quantized (4 / 8 / 32; absent = follow the project's texture quality), and
+// the group takes the highest request any member makes. Written only when a
+// texture asks, so a project that never opens the window resaves byte for byte.
+// Purely additive - no migration step. (v32, this branch's own, shipped hours
+// earlier with keepOut/group; the same section gains a key rather than changing
+// one, so an older reader drops a request it never honoured anyway.)
+// v34 (a dynamic shadow is a per-OBJECT choice, docs/shadows.md):
+// SceneObject::shadowMode - 0 = follow the project (which is what every file
+// written before this key meant: a blob under the moving things while the
+// preference is on, a projected silhouette where projShadow is set), 1 = none,
+// 2 = blob, 3 = projected. Written only when it is not 0 and the key is absent
+// otherwise, so an untouched project resaves byte for byte and an older editor
+// reading a newer file simply falls back to the flag it already knows. Purely
+// additive - no migration step.
+// v36 (spot-light shadow volumes, docs/shadows.md "Spot-light shadow
+// volumes"): ProjectSettings::spotShadowVolumes - the project-wide switch that
+// lets a placed SPOT light carve its own occlusion the way the torch already
+// can - plus "shadowVolumes" on a light object's light block, the per-light
+// override (SceneObject::lightShadowVolumes: 0 = follow the project, 1 = off,
+// 2 = on - the shadowMode idiom). The setting is written only when true and
+// the per-light key only when it is not 0, so a project that touches neither
+// resaves byte for byte; both defaults reproduce exactly what every earlier
+// file did, which is spot lights taking no part in the volume machinery at
+// all. An older editor reading a newer file drops two keys whose absence is
+// the old behaviour. Purely additive - no migration step.
+inline constexpr int kFormatVersion = 36;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -150,6 +150,13 @@ the next capture and deleted at every launch — so the PNG is the one that last
 it sits outside `bin/`, survives a *Clean*, opens in anything, and is
 git-ignored. Delete the ones you do not want; nothing reads them.
 
+From a shell, `tyrax-editor --capture-frame <projectDir> [-o out.png]
+[--timeout s]` does the same thing headlessly: it writes the one-shot command
+into `bin/livedbg.cmd`, waits for the game to finish `bin/frame.tga` (progress
+is what decides the wait, so the ~3 s per shot over ps2link is fine) and
+decodes it to a PNG. It is how an unattended A/B on a console gets its
+pictures - a debug build with *Live Debugger* on, deployed with `--run-ps2`.
+
 This is the only capture path that does not need a desktop. Every host-side one
 — the emulator's F8 key, a GDI grab of the window, `PrintWindow` — needs the
 window present and, in practice, unoccluded and on an unlocked session; none of

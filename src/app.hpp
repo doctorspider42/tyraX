@@ -42,6 +42,7 @@
 #include "placement.hpp"
 #include "prefab.hpp"
 #include "project.hpp"
+#include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
 #include "session.hpp"
@@ -1936,6 +1937,19 @@ private:
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
+    // Tools > Texture Atlas (docs/texture-atlasing.md, src/atlas_ui.cpp): what
+    // the packer merged with what, why a texture was refused, and the VRAM
+    // arithmetic. The plan reads every candidate image off disk, so it is
+    // cached and recomputed only when something that feeds it changes.
+    bool showTextureAtlas_ = false;
+    bool atlasPlanDirty_ = true;
+    texatlas::Plan atlasPlan_;
+    texatlas::VramEstimate atlasVram_;
+    void drawTextureAtlasWindow();
+    // Page previews are composited from the plan rather than read back from
+    // the bake (which lags every edit) - the map lives beside HudTexture,
+    // which is declared further down.
+    void rebuildAtlasPreviews();
     gibake::Baker giBaker_;
     // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
     // object's texture, from the button in Properties. Async because the bounce
@@ -2808,6 +2822,9 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture Atlas page previews, composited from the plan (see
+    // rebuildAtlasPreviews): keyed by page index, rebuilt with the plan.
+    std::map<int, HudTexture> atlasPagePreview_;
     // The generated drawing of a built-in text icon as a GL texture. Lets the
     // Button icons manager preview an icon whose PNG the project has not baked
     // yet, and show what "restore default" gives back. Null for a name that is
@@ -2968,6 +2985,10 @@ private:
     // The game template is not copied - it is fixed at creation and the window
     // only displays it.
     bool showProjectPrefs_ = false;
+    // A tab name for the NEXT frame of Project Preferences to select (see the
+    // beginTab lambda there); empty = leave whichever tab the author left on.
+    // One-shot: honoured once and cleared.
+    std::string prefsFocusTab_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;

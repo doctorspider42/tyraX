@@ -189,7 +189,7 @@ same opt-in switch of its own beside it (*Re-bake stale global illumination*,
   overlap between them, which is true of any ordinary unwrap.
 - **Night scenes bake dark**, faithfully. A pre-lit object in a scene with
   almost no static light is almost black until something dynamic lights it —
-  which is exactly the Silent Hill arrangement, and exactly what you do *not*
+  which is exactly the survival-horror arrangement, and exactly what you do *not*
   want if the object is supposed to read on its own. `floorLevel` in the bake
   parameters is the floor that keeps it from going fully black.
 

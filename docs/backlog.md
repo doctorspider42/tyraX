@@ -239,7 +239,78 @@ PCSX2's software blending of a 16-bit target, or a second draw of the same
 quad. Settle it before making either side match the other - the viewport
 currently reproduces the sprite exactly, which is the defensible half.
 
+### Run the shadow A/B rig against the spot runtime
+
+`.claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1` +
+`shadow-ab.ps1` exist and are proven on `flashShadowVolumes` (see the
+tyra-testing skill, "The shadow A/B rig"), but the switch they were built for -
+`spotShadowVolumes` - has only the data model, format, UI and codegen behind it
+so far. When the runtime lands, run
+
+```powershell
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false -OutDir <scratch>\spotab
+```
+
+and quote the deltas. Two things the fixture is already shaped for and nobody
+has read a number off yet: the `between` vantage sees both lamp groups at once,
+which is where "only the nearest spot is active" should be visible as one group
+having a shadow and the other not; and setting `"shadowVolumes": 1` or `2` on
+ONE lamp's `objects/<id>.json` turns the same run into a test of the per-light
+override, where only the other lamp may move between the arms. A real-PS2 pass
+is separate again - the rig is PCSX2 only.
+
+### A projected shadow's reach does not know how big its caster is
+
+1.70.1 stopped the four silhouette slots from blinking, but it deliberately did
+not touch WHICH four win: it is still the four casters nearest the camera, and
+the 50-unit far cull (dissolving over the last 15) is the same number for a
+crate and for a building. Both are wrong in the same direction — screen area,
+not distance, is what makes a shadow worth a slot — and on
+`examples/night-walk` the question does not arise, because every caster there
+is within a factor of 1.7 of the same bounding radius (2.50 to 4.23), which is
+why the flicker was the whole of the reported defect. Two shapes were
+considered and rejected without measurement, so neither is settled: ranking by
+`d / r` (inverse angular size), which lets a facade 45 units off outrank a prop
+at 10 while the distance fade has already dimmed it to a third; and `d - r`,
+distance to the caster's surface, which is milder and principled but still
+untested. A fixture with deliberately mixed caster sizes is what this needs
+first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
+
 ## Medium
+
+### DONE 1.70.0: a spot light's shadow on a WALL
+
+Shipped: `PipelineInfoBag::dynLightSkipSlot` is the engine lever this entry
+asked for, and the receiver pass is the torch's with the lamp substituted
+([shadows.md](shadows.md)). The original note follows for the reasoning.
+
+Spot-light shadow volumes ship in 1.67.0 ([shadows.md](shadows.md)) and carve
+the lamp's ground pool only. The torch also draws its light on the solid
+geometry in its beam - a second, additive pass over the receiver's own
+triangles with the gobo's projective STQ, `wBag`/`wTexBag`/`wColorBag` and a
+shared 3997-vertex budget - and that is what gives a torch shadow on a wall.
+The machinery is already shared for the volumes themselves (`pickVolCasters`,
+`buildVolMask` in `updateAndRenderLightPools`), so the fill is a third lambda
+away.
+
+**What blocks it is double lighting, not the fill.** The torch turns its own
+cone off on each receiver first (`setFlashSpotOff` -> `PipelineInfoBag::
+spotLit`); there is no equivalent for one SCENE light, and `dynLightPick =
+false` removes every dynamic light from the bag. A wall drawn by both paths
+reads twice as bright and its carved shadow darkens only half of it, which
+looks like a bug.
+
+The likely shape of an answer: the engine picks ONE light per bag
+(`RendererCore::pickDynLight`), so an opt-out that names a light index - "this
+bag skips light N, keeps the rest" - would be the exact analogue of `spotLit`
+and is a small engine change. Then the wall pass is the torch's, with the
+lamp's origin/aim/cone/reach substituted, inside the bracket the lamp already
+opens. Verify with the `spotvol` fixture recipe in the 1.67.0 commit: a wall
+3 u behind the caster, one capture with the override on and one with it off.
+
 
 ### ANSWERED: the guard does run under ps2link, and guards nothing
 

@@ -20,6 +20,7 @@
 #include "debug/debug.hpp"
 #include "info/info.hpp"  // Modified by TyraX: the presented-frame counter
 #include "renderer/core/gs/renderer_core_gs.hpp"
+#include "renderer/core/gs/renderer_core_depth.hpp"
 
 namespace Tyra {
 
@@ -156,7 +157,17 @@ void RendererCoreGS::allocateVramBuffers() {
   zBuffer.enable = DRAW_ENABLE;
   zBuffer.mask = 0;
   zBuffer.method = ZTEST_METHOD_GREATER_EQUAL;
-  zBuffer.zsm = GS_ZBUF_32;
+  // Modified by TyraX: the z FORMAT follows the colour depth, because on real
+  // hardware a colour buffer and the z buffer it is tested against must share
+  // PAGE GEOMETRY - 32/24-bit pages are 64x32 pixels, 16-bit ones 64x64. A
+  // PSMCT16 frame over a PSMZ32 z put banded depth errors across the whole
+  // scene on a console while PCSX2 (which addresses each buffer from its own
+  // PSM) showed nothing at all. The vertex path's Z scale has to follow, or a
+  // 24-bit Z lands in a 16-bit buffer and models read inside-out - which is
+  // what RendererCoreDepth exists to keep in one place.
+  const bool halfDepthColor = frameBuffers[0].psm == GS_PSM_16;
+  zBuffer.zsm = halfDepthColor ? GS_ZBUF_16 : GS_ZBUF_32;
+  RendererCoreDepth::setBits(halfDepthColor ? 16 : 24);
   // Modified by TyraX (BLSS, docs/neural-upscaler.md): the z buffer covers the
   // RASTER, not the display buffer. With the raster scale on, nothing ever
   // renders 3D at display resolution - the whole scene is bracketed into the
@@ -602,8 +613,8 @@ void RendererCoreGS::enableZTests() {
 
 void RendererCoreGS::initDrawingEnvironment() {
   // Modified by TyraX: 40 qwords - draw_setup_environment's register block
-  // plus the CLAMP re-assert, the DIMX/DTHE dither pair, the XYOFFSET and
-  // the finish. An undersized packet2 here overruns its own buffer.
+  // plus the CLAMP/FBA re-assert, the DIMX/DTHE dither pair, the XYOFFSET
+  // and the finish. An undersized packet2 here overruns its own buffer.
   packet2_t* packet2 = packet2_create(40, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   packet2_update(packet2, draw_setup_environment(packet2->base, 0, frameBuffers,
                                                  &zBuffer));
@@ -615,12 +626,27 @@ void RendererCoreGS::initDrawingEnvironment() {
   // along both axes everywhere else. REPEAT is the contract here; Path3::
   // clearScreen re-asserts it every frame because the post-fx blits and 2D
   // texture uploads write the same register for their own purposes.
+  // Modified by TyraX: FBA = 0, whatever the frame format. ps2sdk's
+  // draw_setup_environment() programs FBA ("alpha correction") to 1 for a
+  // 16-bit frame PSM - disassembled from libdraw.a, the register at 0x4A +
+  // context gets `(psm & ~8) == 2`, i.e. PSMCT16/PSMCT16S - and to 0 for a
+  // 32-bit one. With FBA = 1 the GS forces the MSB of EVERY alpha it writes to
+  // 1, a convenience for 1-bit-alpha targets and death to anything that reads
+  // destination alpha back: the flashlight's shadow mask clears alpha to 0,
+  // the GS stores 1, TEST.DATE reads SHADOW over the whole raster and every
+  // DATE-gated torch pass is discarded - a 16-bit project drew no pool. The
+  // rest of this engine was written against 32-bit, where alpha lands as
+  // written, so 16-bit gets the same contract here: FBA is 0 from the first
+  // frame, like the CLAMP above, and RendererCoreAlphaMask re-asserts it at
+  // the top of each mask bracket so nothing can undo it behind its back.
   {
     qword_t* q = packet2->next;
-    PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+    PACK_GIFTAG(q, GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
     q++;
     PACK_GIFTAG(q, GS_SET_CLAMP(WRAP_REPEAT, WRAP_REPEAT, 0, 0, 0, 0),
                 GS_REG_CLAMP_1);
+    q++;
+    PACK_GIFTAG(q, GS_SET_FBA(0), GS_REG_FBA_1);
     q++;
     packet2_update(packet2, q);
   }
