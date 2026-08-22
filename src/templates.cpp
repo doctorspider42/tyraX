@@ -1985,6 +1985,30 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBag> bag;
+    // WHO this slot is showing, and how far its cross-dissolve has got.
+    // The set used to be re-derived from scratch every frame - "the four
+    // casters nearest the camera", sorted, nothing remembered - so two
+    // casters at nearly equal distance traded a slot frame to frame, and a
+    // caster that lost one went from full alpha to nothing between two
+    // frames. A slot is HELD now (renderProjShadows, "which four casters
+    // hold the slots"): `leaving` + `fade` are the hand-over dissolve,
+    // `want`/`wantFrames` the challenger that has to out-stay the
+    // hysteresis, `barren` how long the holder has drawn nothing.
+    int occupant = -1;
+    float fade = 0.0F;
+    bool leaving = false;
+    int barren = 0;
+    int want = -1;
+    int wantFrames = 0;
+    // ...and which LIGHT threw this slot's silhouette last frame, on the
+    // same terms: the source is picked by score, and a torch walking past a
+    // lamp crosses that line twice in a couple of steps - which swings the
+    // silhouette to the other side of the prop and back. 0 = the scene
+    // sun/moon, 1 = the player's torch, 2 = a placed light at lightPos.
+    bool lightHeld = false;
+    int lightKind = 0;
+    float lightPos[3] = {0.0F, 0.0F, 0.0F};
+    int lightWantFrames = 0;
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
@@ -3378,6 +3402,30 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBag> bag;
+    // WHO this slot is showing, and how far its cross-dissolve has got.
+    // The set used to be re-derived from scratch every frame - "the four
+    // casters nearest the camera", sorted, nothing remembered - so two
+    // casters at nearly equal distance traded a slot frame to frame, and a
+    // caster that lost one went from full alpha to nothing between two
+    // frames. A slot is HELD now (renderProjShadows, "which four casters
+    // hold the slots"): `leaving` + `fade` are the hand-over dissolve,
+    // `want`/`wantFrames` the challenger that has to out-stay the
+    // hysteresis, `barren` how long the holder has drawn nothing.
+    int occupant = -1;
+    float fade = 0.0F;
+    bool leaving = false;
+    int barren = 0;
+    int want = -1;
+    int wantFrames = 0;
+    // ...and which LIGHT threw this slot's silhouette last frame, on the
+    // same terms: the source is picked by score, and a torch walking past a
+    // lamp crosses that line twice in a couple of steps - which swings the
+    // silhouette to the other side of the prop and back. 0 = the scene
+    // sun/moon, 1 = the player's torch, 2 = a placed light at lightPos.
+    bool lightHeld = false;
+    int lightKind = 0;
+    float lightPos[3] = {0.0F, 0.0F, 0.0F};
+    int lightWantFrames = 0;
   };
   std::vector<ProjShadow> projShadows;  // one per engine slot in use
   std::vector<int> projCasters;         // authored caster object indices
@@ -14887,6 +14935,19 @@ float TerrainGame::projSurfaceAt(float x, float z) {
   return best;
 }
 
+// How a shadow-map slot changes hands (see "which four casters hold the
+// slots" below). The margin and the ten frames are the spot-light count
+// band's own numbers - two features answering "who gets the one resource"
+// should not disagree about how patient they are - and the fade step is a
+// third of a second at PAL, long enough to read as a dissolve and short
+// enough that a real hand-over is not a wait.
+constexpr int kProjHandoverFrames = 10;
+constexpr float kProjFadeStep = 0.06F;
+// ...and how long a holder that draws NOTHING keeps its slot. Half a second:
+// long enough that a single bad frame (a caster mid-rebuild) is not a
+// hand-over, short enough that a permanently unlit caster is not a leak.
+constexpr int kProjBarrenFrames = 30;
+
 void TerrainGame::renderProjShadows() {
   if (projShadows.empty()) return;
 
@@ -14932,8 +14993,9 @@ void TerrainGame::renderProjShadows() {
   // with what the alpha is about to say.
   const float sunScore = sunLow <= 0.0F ? 0.0F : SCENE_DIFFUSE * sunCol * sunLow;
 
-  // Nearest visible casters win the slots; shadows fade out 35..50 units
-  // from the camera so a slot handoff never pops.
+  // Candidates: every authored caster that is on and within the far cull.
+  // Shadows fade out over the last 15 units of that reach (35..50), so
+  // walking away from one dissolves it instead of switching it off.
   struct Cand {
     int obj;
     float d2;
@@ -14951,9 +15013,123 @@ void TerrainGame::renderProjShadows() {
     if (d2 > 50.0F * 50.0F) continue;
     cands.push_back({i, d2});
   }
-  if (cands.empty()) return;
+  const int nSlots = (int)projShadows.size();
+  // A slot letting go. The occupant, its dissolve, its patience and its light
+  // are ONE piece of state and have to be cleared together: a stale
+  // `lightHeld` would hand the next caster the previous one's light source
+  // and hold it there for ten frames.
+  auto projReleaseSlot = [](ProjShadow& sl) {
+    sl.occupant = -1;
+    sl.fade = 0.0F;
+    sl.leaving = false;
+    sl.barren = 0;
+    sl.want = -1;
+    sl.wantFrames = 0;
+    sl.lightHeld = false;
+    sl.lightWantFrames = 0;
+  };
+  if (cands.empty()) {
+    for (ProjShadow& sl : projShadows) projReleaseSlot(sl);
+    return;
+  }
   std::sort(cands.begin(), cands.end(),
             [](const Cand& a, const Cand& b) { return a.d2 < b.d2; });
+
+  // --- WHICH FOUR CASTERS HOLD THE SLOTS ---------------------------------
+  //
+  // There are four shadow-map slots and a project may mark any number of
+  // casters, so somebody has to lose. This used to be answered from scratch
+  // every frame - take the sorted list, fill slot 0, 1, 2, 3 - which has two
+  // failure modes and a night-yard scene with twelve casters shows both:
+  // casters at nearly equal distance TRADE a slot every frame (the shadows
+  // blink), and a caster that loses one goes from full alpha to nothing
+  // between two frames. Measured on examples/night-walk: half a step
+  // sideways, from x = 7.5 to x = 8.0, and the shed's entire ground shadow
+  // was simply gone.
+  //
+  // So a slot is HELD, on the same terms the spot-light count band is held
+  // (docs/shadows.md, "Only one spot casts per frame"):
+  //   - a holder that stops qualifying releases AT ONCE. It is hidden,
+  //     streamed out, past the far cull or has drawn nothing for a while -
+  //     there is nothing left to flicker against;
+  //   - a challenger must be 15 % or 1.5 units nearer, whichever it reaches
+  //     first, for ten consecutive frames before it may take a slot over;
+  //   - and the hand-over itself is a CROSS-DISSOLVE IN TIME: the outgoing
+  //     shadow keeps its slot while it fades away, and only then does the
+  //     challenger move in and fade up. The whole exchange is about a third
+  //     of a second and costs one float per slot.
+  // The candidate list is a handful of objects, so these linear scans are
+  // far cheaper than the silhouette render they arbitrate.
+  auto candDist = [&](int obj) -> float {
+    for (const Cand& c : cands)
+      if (c.obj == obj) return sqrtf(c.d2);
+    return -1.0F;  // not a candidate at all this frame
+  };
+  auto heldBy = [&](int obj) -> bool {
+    for (int s = 0; s < nSlots; ++s)
+      if (projShadows[s].occupant == obj) return true;
+    return false;
+  };
+  for (int s = 0; s < nSlots; ++s) {
+    ProjShadow& sl = projShadows[s];
+    if (sl.occupant < 0) continue;
+    if (candDist(sl.occupant) < 0.0F || sl.barren >= kProjBarrenFrames)
+      projReleaseSlot(sl);
+  }
+  for (int s = 0; s < nSlots; ++s) {
+    ProjShadow& sl = projShadows[s];
+    if (sl.occupant >= 0) continue;
+    for (const Cand& c : cands)
+      if (!heldBy(c.obj)) {
+        projReleaseSlot(sl);
+        sl.occupant = c.obj;
+        break;
+      }
+  }
+  // The contest is the FARTHEST holder against the nearest candidate holding
+  // nothing - one hand-over at a time, so a camera crossing several casters
+  // at once dissolves them one after another rather than all together.
+  int worst = -1;
+  float worstD = -1.0F;
+  for (int s = 0; s < nSlots; ++s) {
+    if (projShadows[s].occupant < 0) continue;
+    const float d = candDist(projShadows[s].occupant);
+    if (d > worstD) worstD = d, worst = s;
+  }
+  int chal = -1;
+  float chalD = 0.0F;
+  for (const Cand& c : cands)
+    if (!heldBy(c.obj)) {
+      chal = c.obj;
+      chalD = sqrtf(c.d2);
+      break;
+    }
+  for (int s = 0; s < nSlots; ++s) {
+    ProjShadow& sl = projShadows[s];
+    const bool beaten =
+        s == worst && chal >= 0 && worstD > 0.0F &&
+        (chalD < worstD * 0.85F || chalD < worstD - 1.5F);
+    if (beaten) {
+      if (chal == sl.want) {
+        ++sl.wantFrames;
+      } else {
+        sl.want = chal;
+        sl.wantFrames = 1;
+      }
+    } else {
+      // The challenger walked away again: the incumbent fades back UP rather
+      // than finishing a hand-over nobody asked for any more.
+      sl.want = -1;
+      sl.wantFrames = 0;
+    }
+    sl.leaving = sl.wantFrames >= kProjHandoverFrames;
+    sl.fade += sl.leaving ? -kProjFadeStep : kProjFadeStep;
+    if (sl.fade > 1.0F) sl.fade = 1.0F;
+    if (sl.fade < 0.0F) sl.fade = 0.0F;
+    // Faded out: free the slot. The loop above fills it on the NEXT frame,
+    // which is what makes the exchange a dissolve rather than a swap.
+    if (sl.leaving && sl.fade <= 0.0F) projReleaseSlot(sl);
+  }
 
   auto& core = engine->renderer.core;
   const CameraInfo3D mainCam(&cameraPosition, &cameraLookAt);
@@ -14972,6 +15148,10 @@ void TerrainGame::renderProjShadows() {
   bool storch[Tyra::RendererCoreShadowMap::slots];
   float sray[Tyra::RendererCoreShadowMap::slots][7];  // cx,cy,cz, dx,dy,dz, r
   int used = 0;
+  // Which slots produced a silhouette this frame. A slot belongs to a CASTER
+  // now rather than to a position in the sorted list, so it may legitimately
+  // sit idle and the patch loop below can no longer assume 0..used-1.
+  bool sactive[Tyra::RendererCoreShadowMap::slots] = {};
   // The beam, for the cone gate below (a caster behind the player must not
   // take a shadow from a light that does not reach it).
   float fbx = cameraLookAt.x - cameraPosition.x,
@@ -14990,9 +15170,16 @@ void TerrainGame::renderProjShadows() {
                                         FLASHLIGHT_OFF_RIGHT,
                                         FLASHLIGHT_OFF_DOWN);
 
-  for (const Cand& c : cands) {
-    if (used >= (int)projShadows.size()) break;
-    const int i = c.obj;
+  for (int s = 0; s < nSlots; ++s) {
+    ProjShadow& sl = projShadows[s];
+    if (sl.occupant < 0) continue;
+    const int i = sl.occupant;
+    // Counted UP here and cleared where the slot actually draws, so a holder
+    // that cannot cast at all - nothing lights it, it is standing over a
+    // hole, its geometry has not loaded - lets go after kProjBarrenFrames
+    // instead of sitting on a slot somebody else could use. The old loop got
+    // that for free by walking past such a caster to the next candidate.
+    ++sl.barren;
     RuntimeObject& o = runtimeObjects[i];
     // Caster bounding sphere: half-diagonal of the scaled unit cube, and
     // the center lifted for feet-anchored things (anim models, the player).
@@ -15037,13 +15224,31 @@ void TerrainGame::renderProjShadows() {
     // that light, not the caster: the next one may be fine.
     float bestScore = sunScore;
     bool bestSun = true;
+    // WHICH light won, as an identity rather than as a position: the torch
+    // moves every frame, so "is this the same light as last frame" cannot be
+    // asked of its coordinates. 0 = the scene sun/moon, 1 = the torch,
+    // 2 = a placed light (identified by its position, which does not move).
+    int bestKind = 0;
     float lpx = 0.0F, lpy = 0.0F, lpz = 0.0F, reachFade = 1.0F;
+    // The light this slot used LAST frame, and what it is worth now. The pick
+    // below is a bare "highest score wins", and a torch walking past a lamp
+    // crosses that line twice in a couple of steps - which swings the
+    // silhouette to the other side of the prop and back again. So the
+    // incumbent keeps the caster unless a challenger is clearly better for
+    // long enough, exactly the way the slot itself changes hands. -1 means
+    // the held light is not even a candidate any more (switched off,
+    // streamed out, the caster left its cone), and then there is nothing to
+    // be patient about: the winner takes it at once.
+    float heldScore = -1.0F, heldFade = 1.0F;
+    float heldPx = 0.0F, heldPy = 0.0F, heldPz = 0.0F;
+    if (sl.lightHeld && sl.lightKind == 0 && sunScore > 0.0F)
+      heldScore = sunScore;
     // "Is the light inside the caster?" is tested against the caster's BOX,
     // never its bounding sphere: a wall's sphere swallows the whole room
     // around it, so the sphere test threw away every light close enough to
     // matter and the flat caster silently cast nothing at all.
     const AreaBasis casterBox = areaBasis(o.data);
-    auto consider = [&](float px, float py, float pz, float radius,
+    auto consider = [&](int kind, float px, float py, float pz, float radius,
                         float bright, float level, float levelBar) {
       if (radius < 0.01F || bright <= 0.0F || level <= 0.0F) return;
       const float dx = cx - px, dy = cy - py, dz = cz - pz;
@@ -15061,9 +15266,19 @@ void TerrainGame::renderProjShadows() {
       const float fall = 1.0F - d / radius;
       if (fall <= 0.0F) return;  // out of the light's reach
       const float score = bright * level * fall;
+      // Is this the light the slot held? Recorded whether or not it wins, so
+      // the comparison below has something to be patient ABOUT.
+      if (sl.lightHeld && sl.lightKind == kind &&
+          (kind == 1 || (px == sl.lightPos[0] && py == sl.lightPos[1] &&
+                         pz == sl.lightPos[2]))) {
+        heldScore = score;
+        heldFade = fall > 0.25F ? 1.0F : fall * 4.0F;
+        heldPx = px, heldPy = py, heldPz = pz;
+      }
       if (score <= bestScore) return;
       bestScore = score;
       bestSun = false;
+      bestKind = kind;
       lpx = px, lpy = py, lpz = pz;
       // Fade out over the outer quarter of the reach, so walking out of a
       // light's radius dissolves the shadow instead of popping it off.
@@ -15073,13 +15288,13 @@ void TerrainGame::renderProjShadows() {
       if (L.lastLevel <= 0.0F || L.objIndex >= (int)runtimeObjects.size())
         continue;
       const SceneObjectData& ld = runtimeObjects[L.objIndex].data;  // live
-      consider(ld.position[0], ld.position[1], ld.position[2], ld.lightRadius,
-               ld.lightBright, L.lastLevel, -0.08F);
+      consider(2, ld.position[0], ld.position[1], ld.position[2],
+               ld.lightRadius, ld.lightBright, L.lastLevel, -0.08F);
     }
     // Baked point lights cast too: their light is vertex-baked and static,
     // but the CASTER moves, so its shadow cannot be baked with it.
     for (const BakedPointLight& L : g_scenePointLights)
-      consider(L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F, -0.08F);
+      consider(2, L.pos.x, L.pos.y, L.pos.z, L.radius, L.bright, 1.0F, -0.08F);
     // And the TORCH (docs/flashlight.md, "The shadow") - the survival-horror
     // moment this system existed for without knowing it: a caster in the beam
     // hurls its silhouette away from the player, and the shadow swings with
@@ -15116,14 +15331,42 @@ void TerrainGame::renderProjShadows() {
                           td - r * 0.8F, lt, la, ls, lb) &&
               lb.obj != i;
           if (!blocked)
-            consider(torchPos.x, torchPos.y, torchPos.z,
+            consider(1, torchPos.x, torchPos.y, torchPos.z,
                      FLASHLIGHT_RANGE, 2.0F, 1.0F, 0.35F);
         }
       }
     }
-    // Exact-equality test on purpose: consider() stored these very floats.
-    const bool fromTorch = !bestSun && lpx == torchPos.x &&
-                           lpy == torchPos.y && lpz == torchPos.z;
+    // The incumbent holds unless the winner is a different light AND clearly
+    // better - a fifth again - for ten consecutive frames. The margin is what
+    // stops two near-equal lights trading; the frames are what stops one
+    // flicker cycle of a guttering lamp from swinging the shadow.
+    const bool winnerIsHeld =
+        sl.lightHeld && sl.lightKind == bestKind &&
+        (bestKind != 2 || (lpx == sl.lightPos[0] && lpy == sl.lightPos[1] &&
+                           lpz == sl.lightPos[2]));
+    if (!winnerIsHeld && heldScore > 0.0F) {
+      if (bestScore > heldScore * 1.15F) {
+        ++sl.lightWantFrames;
+      } else {
+        sl.lightWantFrames = 0;
+      }
+      if (sl.lightWantFrames < kProjHandoverFrames) {
+        bestScore = heldScore;
+        bestSun = sl.lightKind == 0;
+        bestKind = sl.lightKind;
+        lpx = heldPx, lpy = heldPy, lpz = heldPz;
+        reachFade = heldFade;
+      } else {
+        sl.lightWantFrames = 0;
+      }
+    } else {
+      sl.lightWantFrames = 0;
+    }
+    sl.lightHeld = true;
+    sl.lightKind = bestKind;
+    sl.lightPos[0] = lpx, sl.lightPos[1] = lpy, sl.lightPos[2] = lpz;
+
+    const bool fromTorch = bestKind == 1;
     if (bestSun && sunScore <= 0.0F) continue;  // nothing lights it
 
     // Light camera. For a point light the eye sits AT the light, so the
@@ -15155,11 +15398,11 @@ void TerrainGame::renderProjShadows() {
     // near-180-degree frustum, which no projection survives.
     float fovDeg = 2.0F * atanf(r * 1.3F / eDist) * (180.0F / 3.14159265F);
     if (fovDeg > 100.0F) fovDeg = 100.0F;
-    core.shadowMap.begin(used);
+    core.shadowMap.begin(s);
     core.renderer3D.pushEnvView(Vec4(ex, ey, ez, 1.0F),
                                 Vec4(cx, cy, cz, 1.0F), fovDeg,
                                 (float)Tyra::RendererCoreShadowMap::size);
-    lightVP[used] = core.renderer3D.getViewProj();
+    lightVP[s] = core.renderer3D.getViewProj();
     if (anim) {
       for (auto& ap : g.animParts)
         if (ap.bag) stapip.core.render(ap.bag.get());
@@ -15221,17 +15464,22 @@ void TerrainGame::renderProjShadows() {
     if (half > halfCap) half = halfCap;
     }  // groundOk
 
-    sgx[used] = gx, sgz[used] = gz, shalf[used] = half;
-    storch[used] = fromTorch;
-    sray[used][0] = cx, sray[used][1] = cy, sray[used][2] = cz;
-    sray[used][3] = ddx, sray[used][4] = ddy, sray[used][5] = ddz;
-    sray[used][6] = r;
-    syMax[used] = cy - r + 0.35F;
-    const float dist = sqrtf(c.d2);
-    sfade[used] =
+    sgx[s] = gx, sgz[s] = gz, shalf[s] = half;
+    storch[s] = fromTorch;
+    sray[s][0] = cx, sray[s][1] = cy, sray[s][2] = cz;
+    sray[s][3] = ddx, sray[s][4] = ddy, sray[s][5] = ddz;
+    sray[s][6] = r;
+    syMax[s] = cy - r + 0.35F;
+    const float dist = candDist(i);
+    sfade[s] =
         (dist < 35.0F ? 1.0F : 1.0F - (dist - 35.0F) / 15.0F) * reachFade;
     // ...and the low-sun ramp, for the slots the sun actually threw.
-    if (bestSun) sfade[used] *= sunLow;
+    if (bestSun) sfade[s] *= sunLow;
+    // ...and the slot's own dissolve, which is what makes a hand-over and an
+    // eviction invisible: one multiply, in the one place both the ground
+    // patch's alpha and the wall copy's are derived from.
+    sfade[s] *= sl.fade;
+    sactive[s] = true;
     ++used;
   }
   if (used == 0) return;
@@ -15274,7 +15522,8 @@ void TerrainGame::renderProjShadows() {
                 cameraPosition.y + (p.y - cameraPosition.y) * k,
                 cameraPosition.z + (p.z - cameraPosition.z) * k, 1.0F);
   };
-  for (int s = 0; s < used; ++s) {
+  for (int s = 0; s < nSlots; ++s) {
+    if (!sactive[s]) continue;
     ProjShadow& b = projShadows[s];
     const float gx = sgx[s], gz = sgz[s], half = shalf[s];
     // Wall pass FIRST: the ground code below `continue`s on its own dead ends
@@ -15373,6 +15622,7 @@ void TerrainGame::renderProjShadows() {
     b.wallTexBag->coordinates = b.wallSts.data();
     b.wallBag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.wallBag.get());
+    b.barren = 0;  // this slot is earning its keep
     } while (0);
     if (half < 0.01F) continue;  // a flat torch ray: wall only
     projCollectReceivers(gx, gz, half + 0.5F, syMax[s]);
@@ -15453,6 +15703,7 @@ void TerrainGame::renderProjShadows() {
     b.color.a = 55.0F * sfade[s] * (liveLight ? daynight::g_shadowFade : 1.0F);
     b.bag->bboxVersion = ++g_bboxStamp;
     stapip.core.render(b.bag.get());
+    b.barren = 0;
 
   }
 }

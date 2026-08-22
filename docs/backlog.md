@@ -262,6 +262,23 @@ ONE lamp's `objects/<id>.json` turns the same run into a test of the per-light
 override, where only the other lamp may move between the arms. A real-PS2 pass
 is separate again - the rig is PCSX2 only.
 
+### A projected shadow's reach does not know how big its caster is
+
+1.70.1 stopped the four silhouette slots from blinking, but it deliberately did
+not touch WHICH four win: it is still the four casters nearest the camera, and
+the 50-unit far cull (dissolving over the last 15) is the same number for a
+crate and for a building. Both are wrong in the same direction — screen area,
+not distance, is what makes a shadow worth a slot — and on
+`examples/night-walk` the question does not arise, because every caster there
+is within a factor of 1.7 of the same bounding radius (2.50 to 4.23), which is
+why the flicker was the whole of the reported defect. Two shapes were
+considered and rejected without measurement, so neither is settled: ranking by
+`d / r` (inverse angular size), which lets a facade 45 units off outrank a prop
+at 10 while the distance fade has already dimmed it to a third; and `d - r`,
+distance to the caster's surface, which is milder and principled but still
+untested. A fixture with deliberately mixed caster sizes is what this needs
+first — the shadow A/B rig above, run as a vantage LINE, reads it straight off.
+
 ## Medium
 
 ### DONE 1.70.0: a spot light's shadow on a WALL

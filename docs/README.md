@@ -65,7 +65,7 @@ for people building games with it. Internals live in code comments, the git log
 - [Dynamic shadows](shadows.md) — the two runtime shadows an object can cast (a
   blob or a real projected silhouette, chosen per object), and the shadow
   volumes a scene's spot lights can carve — with the reason only one spot casts
-  per frame.
+  per frame, and how the four silhouette slots change hands without blinking.
 - [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
   the PS2-era fake for car paint, static or re-rendered from the live sky.
 - [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a

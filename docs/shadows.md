@@ -52,9 +52,48 @@ some object asks for a blob or the preference is on (`BLOB_SHADOWS_USED`) — so
 project that uses neither pays for neither. The blob's alpha mask is the flare
 glow sprite, baked into `res/hud/` when either half wants it.
 
-Four projected casters are active per frame. They are chosen by distance to the
-camera, so marking everything does not draw everything — it just makes which
-four you get unpredictable. Blobs have no such limit; they are a quad each.
+Four projected casters are active per frame, chosen by distance to the camera,
+so marking everything does not draw everything. Blobs have no such limit; they
+are a quad each.
+
+A silhouette also fades out with distance on its own: it is dropped past **50
+units** from the camera and dissolves over the last 15 of them, so backing away
+from a caster loses its shadow smoothly rather than switching it off. Nothing
+scales that with the caster's size — a building's shadow goes at the same range
+a crate's does.
+
+### The four slots change hands slowly
+
+Marking twenty casters is not an error, but which four you get is then decided
+by where you stand, and the answer must not change on a footstep. It is held,
+on the same terms as the count band below:
+
+- a caster that **stops qualifying** — hidden, streamed out, past the far cull,
+  or unable to draw a shadow at all for half a second — releases its slot at
+  once, because there is nothing left to flicker against;
+- a **challenger** must be 15 % or 1.5 units nearer, whichever it reaches
+  first, for ten consecutive frames before it may take a slot over;
+- and the hand-over is a **cross-dissolve in time**: the outgoing shadow keeps
+  its slot while it fades away, and only then does the challenger move in and
+  fade up. About a third of a second each way, so an exchange reads as one
+  shadow softening while another firms up rather than as two pops.
+
+The **light** a silhouette is thrown from is held the same way. Each caster
+picks its own — the scene sun or moon, any placed light in reach, and (with
+*Flashlight shadow volumes* off) the player's torch — scored by how much that
+light actually lands on it, so a lamp you are standing under really does throw
+the shadow rather than the sky. A torch walking past a lamp crosses that line
+twice in a couple of steps, which would swing the shadow round to the other
+side of the prop and back. A caster keeps its light unless another is a fifth
+brighter on it for ten frames; a light that drops out entirely (switched off,
+streamed out, the caster leaves its cone) hands over immediately. Note this one
+is only patient, not gradual — a shadow that changes light MOVES, and a
+direction cannot be crossfaded ([day-night-cycle.md](day-night-cycle.md) makes
+the same point about the sun/moon handover).
+
+None of this is a reason to mark everything. Four is still four, and the
+casters you did not want are still the ones the camera happens to be near — it
+just no longer blinks while it decides.
 
 ## Spot-light shadow volumes
 

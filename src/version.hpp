@@ -16,6 +16,41 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.1 (projected shadows stop blinking: a slot is HELD, and a hand-over
+// is a dissolve): reported from examples/night-walk as "shadows disappear at
+// a certain distance, and walking around they flicker badly - one vanishes
+// while another appears", easiest to see on the shed. Not the far cull and
+// not the light: there are FOUR shadow-map slots
+// (RendererCoreShadowMap::slots) and that project marks TWELVE casters, and
+// renderProjShadows answered "which four" from scratch every frame - sort by
+// distance to the camera, fill slot 0, 1, 2, 3. So two casters at nearly
+// equal distance traded a slot frame to frame, and a caster that lost one
+// went from full alpha to nothing between two frames; the 35..50 unit fade
+// only ever smoothed the FAR cull, never an eviction. Measured on the
+// vantage line before the fix: the shed's ground shadow is a hard-edged
+// black quad at x = 0 / 4 / 6 / 7 / 7.5 and is entirely GONE at x = 8.0 -
+// half a step sideways - because tree-4, fence-east, tree-2 and tree-1 had
+// become the nearest four (whole-frame luma 0.10289 -> 0.11360, centre
+// 0.187 -> 0.216: the picture got BRIGHTER, which is the shadow leaving).
+// A slot is held now, on the count band's own terms (docs/shadows.md, "Only
+// one spot casts per frame"): a holder that stops qualifying releases at
+// once, a challenger must be 15 % or 1.5 units nearer for ten consecutive
+// frames, and the exchange is a cross-dissolve IN TIME - the outgoing shadow
+// keeps its slot while it fades out and only then does the challenger move
+// in and fade up (kProjFadeStep, ~0.3 s each way). Two things that fell out
+// of it. The old loop got "skip a caster that cannot cast" for free by
+// walking on to the next candidate, and a held slot does not, so a holder
+// that draws nothing for kProjBarrenFrames lets go. And the LIGHT the
+// silhouette is thrown from is picked by score with the same bare
+// highest-wins rule - a torch walking past a lamp crosses that line twice in
+// a couple of steps, which swings the shadow to the other side of the prop
+// and back - so the slot remembers its light as an IDENTITY (sun / torch /
+// a placed light by position; the torch moves every frame and cannot be
+// recognised by coordinates) and keeps it unless a challenger is a fifth
+// better for ten frames. After: the shadow is present and steady at every
+// vantage of the same line. PATCH: no capability appears, a defect goes
+// away, nothing on disk changes shape.
+//
 // 1.70.0 (a spot light's shadow lands on walls): the receiver pass the
 // 1.67.0 entry left on the backlog, unblocked by the lever it asked for.
 // PipelineInfoBag::dynLightSkipSlot names one scene light a bag's per-vertex
@@ -2702,7 +2737,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 70
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

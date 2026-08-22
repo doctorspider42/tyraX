@@ -2065,6 +2065,27 @@ not a finding. Measured on this fixture (frozen camera, `progressive` display,
 across three vantages produced byte-identical means for the two `false` arms, on
 every region. That zero is what makes a 0.0134 mean something.
 
+**Pass ONE value and a line of vantages and the same rig is a WALK** — which is
+how you answer "from where does this shadow stop being drawn at all", a question
+no A/B of a switch can reach. The vantages are then not three views of one
+subject but one subject seen from a sequence of standpoints, and the column to
+read is `centre mean` against the vantage name. That is how the projected-shadow
+slot flicker (1.70.1) was found: `examples/night-walk` copied to a short path,
+its twelve `projShadow` casters left alone, the Player walked sideways past the
+shed at x = 0, 4, 6, 7, 7.5, 8, 9, 10 with each pose aimed at the shed's base,
+`-Toggle showFps -Values true` (a no-op key set to what it already was, so the
+rig runs exactly one arm). The shed's ground shadow is a hard-edged black quad
+through x = 7.5 and entirely gone at x = 8.0 — frame mean 0.10289 → 0.11360,
+centre 0.187 → 0.216, the picture getting BRIGHTER as the shadow left. Half a
+unit sideways, and the numbers say which half-unit. Two things that made it
+work: aim every vantage at the same world point (compute the pitch and yaw per
+standpoint rather than reusing one rotation, or the subject walks out of the
+measured region and a real change reads as a confident 0.0000), and RENAME the
+scratch copy's project, because a Docker container is named after the project
+and the owner may be building the original in their own checkout at the same
+time (renaming means fixing the namespace in `src/scripts/*.cpp` too, or the
+Runner's pre-flight refuses the build).
+
 **Everything that can reach Docker is bounded** and killed with its children on
 timeout, because a `docker` call on this machine blocks forever instead of
 failing. And nothing is ever killed by name: the emulator the rig captures and
