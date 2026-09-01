@@ -34,19 +34,19 @@ INC         += -I$(PS2DEV)/ps2sdk/ee/include -I$(PS2DEV)/ps2sdk/common/include -
 # below; handing them to the PS2 compiler would fail on the very first include
 # (`vushader.hpp: No such file or directory` - the framework lives in vugen/,
 # outside src/, precisely so this glob cannot reach it).
-SOURCES     := $(shell find $(SRCDIR) -type f -name *.$(SRCEXT) -not -path '$(SRCDIR)/vu/*' -not -path '$(SRCDIR)/vu0/*')
+SOURCES     := $(sort $(shell find $(SRCDIR) -type f -name *.$(SRCEXT) -not -path '$(SRCDIR)/vu/*' -not -path '$(SRCDIR)/vu0/*'))
 OBJECTS     := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(SOURCES:.$(SRCEXT)=.$(OBJEXT)))
 
-IRXEM_SOURCES  := $(shell find $(SRCDIR) -type f -name *.$(IRXEMBEDDEDEXT))
+IRXEM_SOURCES  := $(sort $(shell find $(SRCDIR) -type f -name *.$(IRXEMBEDDEDEXT)))
 IRXEM_OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(IRXEM_SOURCES:.$(IRXEMBEDDEDEXT)=.$(OBJEXT)))
 
-VU_SOURCES_VCL  := $(shell find $(SRCDIR) -type f -name *.$(VCLEXT))
+VU_SOURCES_VCL  := $(sort $(shell find $(SRCDIR) -type f -name *.$(VCLEXT)))
 VU_OBJECTS_VCL  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VU_SOURCES_VCL:.$(VCLEXT)=.$(OBJEXT)))
 
-VU_SOURCES_VSM  := $(shell find $(SRCDIR) -type f -name *.$(VSMEXT))
+VU_SOURCES_VSM  := $(sort $(shell find $(SRCDIR) -type f -name *.$(VSMEXT)))
 VU_OBJECTS_VSM  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VU_SOURCES_VSM:.$(VSMEXT)=.$(OBJEXT)))
 
-VCL_SOURCES  := $(shell find $(SRCDIR) -type f -name *.$(VCLPPEXT))
+VCL_SOURCES  := $(sort $(shell find $(SRCDIR) -type f -name *.$(VCLPPEXT)))
 VCL_OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VCL_SOURCES:.$(VCLPPEXT)=.$(OBJEXT)))
 
 #Default Make
