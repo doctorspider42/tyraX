@@ -3252,6 +3252,10 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** The paragraph dbgSilenceReason() no longer prints inline: which file is
+     * silent and how a running console ends up with nowhere to write. For the
+     * (?) hover next to it; only meaningful when the reason is non-empty. */
+    const char* dbgSilenceDetail() const;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)

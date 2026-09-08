@@ -1454,7 +1454,12 @@ read by both the state block and the Stats tab). "No stats yet." used to be the
 answer to three completely different situations, one of which is the ps2link
 failure below: a frozen-but-valid `livedbg.bin` sitting on disk. So the tick
 stats the FILE's age independently of whether snapshots are arriving, and the
-chip reads STALE SNAPSHOT rather than WAITING FOR THE GAME. Use
+chip reads STALE SNAPSHOT rather than WAITING FOR THE GAME. **Say it in ONE
+line and put the paragraph in a `prefHelp` hover** (`dbgSilenceDetail`, the same
+split every standing message in that panel now uses): the panel used to open on
+five sentences of explanation, which is the worst possible moment to hand
+somebody an essay - but the REMEDY stays in the visible line, only the reasoning
+moves into the tooltip. Use
 `fs::file_time_type::clock::now()` for that age and never the system clock -
 `file_clock`'s epoch is implementation-defined and on this libstdc++ sits in the
 future (the chat_ui.cpp trap, in a second place now).

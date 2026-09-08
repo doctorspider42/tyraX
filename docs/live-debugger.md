@@ -247,11 +247,21 @@ So the editor stats that file every tick, independently of whether new
 snapshots are arriving, and reports one of two things from a single string that
 both the state block and the *Stats* tab read:
 
-- **no file at all** — nothing has reported yet; build and run, or (if the game
-  *is* running) rebuild it, because it predates the preference being switched on;
+- **no file at all** — *"Nothing is reporting yet — Build & Run (F5 for PCSX2,
+  F6 for a console)."*;
 - **a stale file** — the chip goes amber, reads **STALE SNAPSHOT** rather than
-  *WAITING FOR THE GAME*, and the text names **how old the snapshot is** and
-  that the cure is a redeploy rather than a retry.
+  *WAITING FOR THE GAME*, and the line names **how old the snapshot is** and
+  that the cure is running again rather than retrying.
+
+Each of those is **one line, with a `(?)` next to it** carrying the rest: which
+file is silent, and how a console that is still visibly running ends up with
+nowhere to write (over ps2link the file server is a `ps2client` this editor
+spawned — closing the editor, stopping the game or redeploying this project
+takes it down). The panel used to print that paragraph inline, which is the
+worst possible moment to hand somebody five sentences; the same split applies to
+the other standing messages here (*off*, *no symbols*, *rebuild to resync*, *the
+game hung*, *no flow variables*). **The remedy stays in the visible line** — a
+hover is for the explanation, never for the fix.
 
 Because the game rewrites the file every 6 frames (25 over ps2link — roughly
 half a second either way), several seconds of silence is a dead channel and not

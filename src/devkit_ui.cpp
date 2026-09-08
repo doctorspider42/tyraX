@@ -1449,47 +1449,50 @@ static void dbgVuDrawFindings(const vucap::Capture& c) {
     ImGui::Separator();
 }
 
-// Why the panel is empty, in one sentence, with the remedy. An empty panel is
-// the single most expensive failure this channel has: a dead transport and a
-// game that has not booted yet look identical, and the difference is on disk
-// the whole time (see livedbgTick's file-age stat). Called by the Debugger's
-// state block AND the Stats tab, so the two cannot tell different stories.
+// Why the panel is empty, in ONE line, with the remedy. An empty panel is the
+// single most expensive failure this channel has: a dead transport and a game
+// that has not booted yet look identical, and the difference is on disk the
+// whole time (see livedbgTick's file-age stat). Called by the Debugger's state
+// block AND the Stats tab, so the two cannot tell different stories.
+//
+// It used to say all of that inline, and the panel opened on a paragraph nobody
+// reads under stress. The rest lives in dbgSilenceDetail(), one hover away.
 std::string App::dbgSilenceReason() const {
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)
         return {};
     if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
     if (dbgSnapFileAge_ < 0.0)
-        return "bin/livedbg.bin has not appeared. Nothing is reporting yet - "
-               "Build & Run (F5 for PCSX2, F6 for a console). If the game IS "
-               "running, it was built before the Live Debugger was switched "
-               "on: rebuild it.";
+        return "Nothing is reporting yet - Build & Run (F5 for PCSX2, F6 for a "
+               "console).";
     // The game rewrites this every 6 frames locally and every 25 over ps2link
     // - about 0.5 s either way at a healthy frame rate. Several seconds of
     // silence is a dead channel, not a slow one; a collapsed frame rate makes
     // it late, never absent.
-    // Big enough for the whole sentence: snprintf TRUNCATES rather than
-    // failing, and a message about a silent failure that is itself silently
-    // cut off would be a poor joke.
-    char buf[768];
     const double age = dbgSnapFileAge_;
     std::string when;
     if (age < 90.0)
-        when = std::to_string((int)(age + 0.5)) + " seconds";
+        when = std::to_string((int)(age + 0.5)) + "s";
     else
-        when = std::to_string((int)(age / 60.0 + 0.5)) + " minutes";
-    std::snprintf(
-        buf, sizeof(buf),
-        "bin/livedbg.bin is STALE - it stopped changing %s ago, so what is on "
-        "disk is a snapshot of a session that is over. The game may well still "
-        "be running: over ps2link the file server is a ps2client this editor "
-        "spawned, and closing the editor, stopping the game or redeploying THIS "
-        "project takes it down - the console then keeps running with no host: "
-        "to write to. (Deploying a DIFFERENT project no longer does: since "
-        "1.22.0 that refuses and names this session instead of killing it.) The "
-        "cure is a redeploy (Run on PS2, F6), not a retry. Under PCSX2 it means "
-        "the game itself stopped.",
-        when.c_str());
-    return buf;
+        when = std::to_string((int)(age / 60.0 + 0.5)) + " min";
+    return "No new data for " + when + " - that session is over. Run again "
+           "(F5 / F6).";
+}
+
+// The long version of the above, for a (?) next to it. Everything the sentence
+// had to drop: which file, and why a console that is still visibly running can
+// stop reporting without anything having crashed.
+const char* App::dbgSilenceDetail() const {
+    if (dbgSnapFileAge_ < 0.0)
+        return "bin/livedbg.bin has not appeared. If the game IS running, it\n"
+               "was built before the Live Debugger preference was switched on:\n"
+               "rebuild it.";
+    return "bin/livedbg.bin stopped changing, so what is on disk is a snapshot\n"
+           "of a session that is over. The game may still be running: over\n"
+           "ps2link the file server is a ps2client this editor spawned, and\n"
+           "closing the editor, stopping the game or redeploying THIS project\n"
+           "takes it down - the console then keeps running with no host: to\n"
+           "write to. The cure is a redeploy (Run on PS2, F6), not a retry.\n"
+           "Under PCSX2 it means the game itself stopped.";
 }
 
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
@@ -1605,9 +1608,10 @@ void App::drawDebuggerWindow() {
 
     switch (dbgState_) {
         case DbgState::Off:
-            ImGui::TextWrapped(
-                "The Live Debugger is compiled only into debug builds with the "
-                "\"Live Debugger\" preference on.");
+            ImGui::TextWrapped("Needs a debug build with the preference on.");
+            prefHelp(
+                "The Live Debugger runtime is compiled only into debug builds\n"
+                "that have the \"Live Debugger\" preference switched on.");
             if (project_.settings.buildProfile != "debug")
                 ImGui::TextDisabled(
                     "This project builds in the release profile "
@@ -1617,22 +1621,25 @@ void App::drawDebuggerWindow() {
                 commitChange();
             break;
         case DbgState::NoBuild:
-            ImGui::TextWrapped(
-                "No symbol table yet. Build & Run (F5) once - codegen writes "
-                "src/gen/livedbg.sym next to the generated sources, and the "
-                "game starts reporting as soon as it boots.");
+            ImGui::TextWrapped("No symbol table yet - Build & Run (F5) once.");
+            prefHelp(
+                "Codegen writes src/gen/livedbg.sym next to the generated\n"
+                "sources; the game reports as soon as it boots.");
             break;
         case DbgState::Waiting:
             ImGui::TextWrapped("%s", dbgSilenceReason().c_str());
+            prefHelp(dbgSilenceDetail());
             if (dbgSnapFileAge_ < 0.0)
                 ImGui::TextDisabled("Symbols loaded (%d nodes).",
                                     (int)dbgSyms_.nodes.size());
             break;
         case DbgState::Stale:
             ImGui::TextWrapped(
-                "The running game was built from different graphs, so its node "
-                "numbering no longer matches the project. Build & Run (F5) to "
-                "resync - nothing is highlighted until then.");
+                "The running game was built from different graphs - Build & Run "
+                "(F5) to resync.");
+            prefHelp(
+                "Its node numbering no longer matches the project, so nothing\n"
+                "is highlighted until you rebuild.");
             break;
         default: break;
     }
@@ -1790,12 +1797,12 @@ void App::drawDebuggerWindow() {
     } else if (dbgLostGame_) {
         ImGui::Separator();
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.7f, 0.35f, 1.0f));
-        ImGui::TextWrapped(
-            "The game stopped reporting at frame %u - no crash report and no "
-            "assertion, so it hung (or took an exception with the crash handler "
-            "off).",
-            dbgLostAtFrame_);
+        ImGui::TextWrapped("The game stopped reporting at frame %u - it hung.",
+                           dbgLostAtFrame_);
         ImGui::PopStyleColor();
+        prefHelp(
+            "No crash report and no assertion came with it: either a real\n"
+            "hang, or an exception taken with the EE crash handler off.");
         const auto& frames = dbgTimeline_.frames();
         if (!frames.empty()) {
             ImGui::TextDisabled("The last nodes that ran:");
@@ -1897,8 +1904,8 @@ void App::drawDebuggerWindow() {
         if (dbgSyms_.vars.empty()) {
             ImGui::TextDisabled(
                 "This project has no flow variables and no save values.");
-            ImGui::TextWrapped(
-                "Variables nodes (Set/Get Int, Bool, Position) and Save values "
+            prefHelp(
+                "Variables nodes (Set/Get Int, Bool, Position) and Save values\n"
                 "show up here automatically.");
         } else {
         // A search box, because a fact catalog puts EVERY declared fact in
@@ -2206,6 +2213,7 @@ void App::drawDebuggerWindow() {
                                       ImVec4(0.94f, 0.75f, 0.35f, 1.0f));
                 ImGui::TextWrapped("%s", why.c_str());
                 ImGui::PopStyleColor();
+                prefHelp(dbgSilenceDetail());
             } else if (!live) {
                 ImGui::TextDisabled("No stats yet.");
                 prefHelp(
