@@ -132,6 +132,21 @@ void RendererCoreAlphaMask::allocateCount() {
   countW = static_cast<int>(settings->getWidth());
   const int rasterH = static_cast<int>(settings->getRenderHeightF());
   countH = rasterH < kCountBandRows ? rasterH : kCountBandRows;
+  // THE WHOLE RASTER WHEN IT FITS, and at 16-bit colour it usually does: the
+  // full-height target is 512 KB there, and a project that chose 16-bit
+  // colour has the heap for it (night-walk: 1.8 MB free). A full-height
+  // target never slides FRAME.FBP - one bracket, bandY0 = 0 - which takes
+  // the one piece of GS addressing PCSX2 cannot vouch for out of the path:
+  // a slid base lands INSIDE the scene's z buffer at 16-bit (page 174 of a
+  // z at 128..191), and the console's page caches disagreed with the
+  // emulator about what that means. Measured on the console before this:
+  // dashed marks along straight lines (silhouette edges, the count rect's
+  // own borders) with the dither already off. 1 MB stays free for textures
+  // (the heap thrashes below ~0.4 MB, docs/flashlight.md) or the band it is.
+  if (halfDepth) {
+    const float fullMB = (float)(countW * rasterH * 2) / (1024.0F * 1024.0F);
+    if (gs->vram.getFreeSpaceInMB() >= fullMB + 1.0F) countH = rasterH;
+  }
   // The band height must be a whole number of page rows, or the last page row
   // of the band would be addressed past the allocation.
   countH = countH / countPageRows * countPageRows;

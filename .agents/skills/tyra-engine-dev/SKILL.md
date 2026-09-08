@@ -1142,6 +1142,12 @@ Rules the same evening paid for:
   pass draws that lamp projected instead). `dynLightPick = false` still means
   "no scene light at all", `spotLit = false` "no torch" - three different
   levers, do not conflate them.
+- **A slid FRAME.FBP is not a trick PCSX2 can vouch for.** The count band
+  addressed its lower half by pointing FRAME below its own base (into the z
+  buffer at 16-bit) so page rows landed back in the band; the arithmetic is
+  right and the console still drew marks along straight lines. Prefer a
+  full-height target whenever VRAM allows (`allocateCount` does at 16-bit);
+  treat any remaining slide as suspect on hardware until measured there.
 - **The GS dithers render-to-texture COUNTS; PCSX2 never will.** `DTHE` is
   global GS state and the project leaves it on for the 16-bit picture. On a
   console it also applied to the shadow-volume count band (`+N` / `-N` per

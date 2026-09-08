@@ -16,6 +16,25 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.2 (16-bit shadow volumes on a console, second half): the 1.69.1
+// dither fix was real and the marks came back - a fresh capture from the
+// console with that engine in showed dashed green pixels along STRAIGHT
+// lines (a vertical column and a horizontal row: the count rect's own
+// borders) plus a dark rectangle wherever a volume fell, PCSX2 clean as ever.
+// What the emulator cannot vouch for is the count band's page-row slide:
+// FRAME.FBP for the lower band is the band's base minus four page rows,
+// which at 16-bit colour lands inside the scene's z buffer (page 174 of a z
+// at 128..191) - the arithmetic says the rows still land in the band, the
+// console's page caches say otherwise. At 16-bit the whole raster is only
+// 512 KB, so allocateCount takes it whenever the texture heap keeps 1 MB
+// after it, and the bracket runs once with bandY0 = 0 and no slide; 32-bit
+// keeps the band (a full raster is 1 MB there). Verified on the console over
+// ps2link with --capture-frame: the lamp-post vantage and fourteen captures
+// along a walk of the yard at 0 green pixels, plain pools on the truck, the
+// carved shadows present. The band shape is in the boot log
+// ("512x512 CT16, 512 KB" is the full raster). Left open: a 16-bit project
+// too tight for the full raster gets the band back, slide included.
+//
 // 1.70.1 (projected shadows stop blinking: a slot is HELD, and a hand-over
 // is a dissolve): reported from examples/night-walk as "shadows disappear at
 // a certain distance, and walking around they flicker badly - one vanishes
@@ -2737,7 +2756,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 70
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

@@ -110,6 +110,10 @@ class RendererCoreAlphaMask {
    *
    * A full-raster 32-bit target is 1 MB at 512x512 - more VRAM than a project
    * has - so it is allocated as a BAND (kCountBandRows) and FRAME.FBP is slid
+   * ... EXCEPT at 16-bit colour, where the whole raster is 512 KB and is
+   * taken whenever the texture heap keeps 1 MB after it: a full-height target
+   * never slides, and the slide is the one addressing trick a console and
+   * PCSX2 disagreed about (allocateCount) ...
    * by whole page ROWS so the band covers the requested rect. ZBP never
    * moves, so the 1:1 x/y correspondence with the scene z holds exactly; the
    * band's y origin must be a multiple of its own page-row height (32 rows

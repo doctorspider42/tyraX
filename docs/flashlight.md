@@ -562,6 +562,25 @@ clean), 2 (resolve, no volumes: clean) and the project's `dither: false`
 restores the project's value. Two reports that used to read as unexplained
 green marks in fixed columns were this.
 
+**And at 16-bit colour the count target is the WHOLE raster, not a band
+(1.70.2).** The dither fix above was real and not the whole report: with it
+in, a console still drew the dashed green marks - now along straight lines
+that were the count rect's own borders and silhouette edges - and a dark
+rectangle where a volume fell, while PCSX2 stayed clean. The one piece of GS
+addressing the emulator cannot vouch for is the band's page-row slide:
+`FRAME.FBP` for the lower band is the band's base minus four page rows, which
+at 16-bit lands *inside the scene's z buffer* (page 174 of a z at 128..191),
+and the console's page caches evidently do not treat "a frame whose base is
+in the z buffer, writing rows that land in the band" the way the arithmetic
+says. So `allocateCount` takes the full raster at 16-bit whenever the texture
+heap keeps 1 MB after it (512 KB at 512x512 - night-walk had 1.8 MB free), and
+the bracket runs once with no slide at all; the band with its slide stays the
+32-bit shape (1 MB there is more than any project has). Verified on the
+console: fourteen captures over a walk of the yard at 0 green pixels, the
+lamp-post vantage included, with the volumes carving. If a 16-bit project is
+too tight for the full raster the band comes back, slide and all - the log
+line says which shape it got (`512x512 CT16, 512 KB` versus `512x256`).
+
 **And it can take the last of the texture heap, which does not look like a
 VRAM problem at all.** The band is 512 KB at 32-bit colour, and a project in a
 512x512 display mode has about that much heap in the first place - so switching
