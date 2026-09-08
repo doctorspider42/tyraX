@@ -142,6 +142,21 @@ inline void prefHelp(const char* tip) {
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
 }
 
+// prefHelp's idea applied to a WRAPPED sentence: the short version on screen,
+// the long one on hover. It cannot use prefHelp itself, because that marker is
+// placed with SameLine - and after a wrapped block SameLine lands beside the
+// FIRST line, or off the right edge entirely when the last line happens to fill
+// the width. A narrow docked panel does both, and a "(?)" nobody can see is the
+// same thing as no explanation at all. So the marker flows INSIDE the text,
+// where wrapping can never strand it, and the whole sentence is the hover
+// target rather than one 12-pixel glyph.
+inline void textWrappedHelp(const char* text, const char* tip) {
+    std::string s(text);
+    s += "  (?)";
+    ImGui::TextWrapped("%s", s.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+}
+
 // Walk speed is STORED as movement per 1/50 s - the generated game's step
 // unit - which is a miserable thing to type: every sane value is a fraction
 // down in the first few percent of the field. Both places that edit it (the
