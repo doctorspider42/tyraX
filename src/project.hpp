@@ -1396,9 +1396,18 @@ struct ProjectSettings {
     // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
     bool flashShadowVolumes = false;
     // HIDDEN diagnostic for the count bracket on real hardware ("shadowVolumesDebug"
-    // in the .tyra, no UI, never written unless set): 0 = normal, 1 = skip the
-    // resolve (count, never write the mask), 2 = skip the volume draws (clear
-    // and resolve an empty band). Bisects "who wrote that pixel" on a console.
+    // in the .tyra, no UI, never written unless set). Bisects "who wrote that
+    // pixel" on a console, one boot per mode, with --capture-frame [--alpha]:
+    //   0 normal
+    //   1 count, never resolve (no mask written; dither restored)
+    //   2 clear + resolve, no volumes drawn
+    //   3 resolve draws the band's texels on screen instead of the mask
+    //   5 like 3 but WITH the alpha test (does TEXA.AEM zero a zero texel?)
+    //   6 the real masked write with the alpha test OFF (does FBMSK hold?)
+    //   7 clear only (countBegin, then abort)
+    //   8 no bracket at all (maskClear + repaint only)
+    //   9 countBegin with no clear sprite, then abort
+    // docs/flashlight.md keeps the findings each of these produced.
     int shadowVolumesDebug = 0;
     // The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
     // "Spot-light shadow volumes"): a placed light with `lightSpot` on carves

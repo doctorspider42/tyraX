@@ -1142,6 +1142,13 @@ Rules the same evening paid for:
   pass draws that lamp projected instead). `dynLightPick = false` still means
   "no scene light at all", `spotLit = false` "no torch" - three different
   levers, do not conflate them.
+- **DIMX entries are SIGNED 3-bit; keep them non-negative.** A dither
+  offset below zero makes the 16-bit blender store `v - 1` when a pass adds
+  zero to a pixel (`(v << 3 + dimx) >> 3`), so every additive quad - corona,
+  pool canvas, wall pass, particle - darkens its whole footprint by half a
+  step on a console. PCSX2 does not dither and shows nothing. Bayer >> 2
+  (0..3) since 1.70.4. When a console shows a rectangle the size of a sprite,
+  suspect the sprite before the pass that happens to share its frame.
 - **The interlaced flicker filter reads the frame's ALPHA unless told not
   to.** ps2sdk's `graph_set_framebuffer_filtered` leaves `PMODE.MMOD = 0`:
   the two read circuits blend by the displayed buffer's per-pixel alpha - a

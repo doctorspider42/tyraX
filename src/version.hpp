@@ -16,6 +16,24 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.4 (the dark rectangle was the dither, not the volumes): the last
+// item of the console report - a rectangle of sky a step darker round the
+// lamp at 16-bit colour - survived every diagnostic mode of the count
+// bracket, mode 8 (no bracket at all) included, measured on a frozen frame
+// through --capture-frame: identical to the block. Switching the lamp's Beam
+// off removed it, so the rectangle was the corona billboard's quad, and the
+// mechanism is the GS blender at 16-bit: read v << 3, add the source (zero
+// over the corona's black margin), store (sum + dimx) >> 3 - with the dither
+// matrix's 0..7 entries being -4..+3 in the signed 3-bit field, so every
+// negative entry stored v - 1. Every additive pass darkened its whole quad by
+// half a step: the corona, the pool canvas (the "dark rectangle where the
+// shadow falls"), the wall pass. The matrix is Bayer 4x4 >> 2 now, 0..3 -
+// exact for an unchanged pixel, half the dither amplitude. The diagnostic
+// modes that bisected it (shadowVolumesDebug 5..9, countAbort,
+// debugShowCount 1..4) stay in; project.hpp lists them. The three earlier
+// faces (dither in the count 1.69.1, the band slide 1.70.2, PMODE 1.70.3)
+// were each real; this is the one the report's rectangle actually was.
+//
 // 1.70.3 (the television never reads the frame's alpha): the console
 // report's last face. With the dashes gone (1.70.2) the picture still had
 // an outline round every shadow - moire in a volume's shape round the lamp
@@ -2772,7 +2790,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 70
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

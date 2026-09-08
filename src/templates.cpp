@@ -6999,7 +6999,10 @@ void TerrainGame::buildScene() {
       engine->renderer.core.alphaMask.allocateCount();
     // Hidden console diagnostic: draw the count band's texels on screen
     // instead of the mask (project.hpp shadowVolumesDebug == 3).
-    engine->renderer.core.alphaMask.debugShowCount = SHADOW_VOLUMES_DEBUG == 3;
+    engine->renderer.core.alphaMask.debugShowCount =
+        SHADOW_VOLUMES_DEBUG == 3 ? 1 : SHADOW_VOLUMES_DEBUG == 5 ? 2
+                                  : SHADOW_VOLUMES_DEBUG == 6 ? 3
+                                  : SHADOW_VOLUMES_DEBUG == 9 ? 4 : 0;
 
     // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
     // here: a font atlas reaches the repository (and VRAM) on the first frame
@@ -12968,12 +12971,17 @@ void TerrainGame::updateAndRenderLightPools() {
     // is an OR, so the bands compose and a tall shadow costs fill, not
     // coverage.
     rc.alphaMask.maskClear();
+    if (SHADOW_VOLUMES_DEBUG == 8) return true;  // diagnostic: no bracket
     const int bandRows = rc.alphaMask.countBandRows();
     for (int by = ry0 / bandRows * bandRows; by < ry1; by += bandRows) {
       // Front faces FIRST: along any ray the entries outnumber the exits at
       // every prefix, so the running sum never dips below zero and the GS's
       // clamp-at-0 never eats a legitimate count.
       rc.alphaMask.countBegin(rx0, ry0, rx1, ry1, by);
+      if (SHADOW_VOLUMES_DEBUG == 7 || SHADOW_VOLUMES_DEBUG == 9) {
+        rc.alphaMask.countAbort();  // diagnostic: the clear alone
+        continue;
+      }
       if (!front.empty() && SHADOW_VOLUMES_DEBUG != 2) {
         setBag->vertices = front.data();
         setBag->count = (u32)front.size();
@@ -12988,6 +12996,8 @@ void TerrainGame::updateAndRenderLightPools() {
       }
       if (SHADOW_VOLUMES_DEBUG != 1)
         rc.alphaMask.countResolve(rx0, ry0, rx1, ry1, by);
+      else
+        rc.alphaMask.countAbort();
     }
     return true;
   };

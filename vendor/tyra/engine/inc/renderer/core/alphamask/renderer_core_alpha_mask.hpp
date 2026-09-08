@@ -161,7 +161,10 @@ class RendererCoreAlphaMask {
    * scaled by 8 - instead of writing the mask bit, so a console capture shows
    * what the GS actually reads back from the band (PCSX2 and the GS disagree
    * here; docs/flashlight.md). Never set by a shipping build. */
-  bool debugShowCount = false;
+  int debugShowCount = 0;  // 0 off, 1 show, 2 show + alpha test, 3 masked, no test, 4 countBegin draws no clear
+  /** Diagnostic: close a count bracket without resolving - raster and dither
+   * restored, no mask written. */
+  void countAbort();
 
   /**
    * Repaint the raster's ALPHA byte to the scene's neutral 0x80, colors and

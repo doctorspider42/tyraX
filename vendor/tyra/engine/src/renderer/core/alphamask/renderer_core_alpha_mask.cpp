@@ -64,7 +64,7 @@ void RendererCoreAlphaMask::init(RendererSettings* t_settings,
   if (!beginPacket)
     beginPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   if (!endPacket)
-    endPacket = packet2_create(16, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+    endPacket = packet2_create(32, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   if (!repaintPacket)
     repaintPacket = packet2_create(24, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   if (!keepPacket)
@@ -339,6 +339,14 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
   PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 0, 0, 0, 0, 0, 0, 0),
               GS_REG_PRIM);
   q++;
+  if (debugShowCount == 4) {
+    // Diagnostic: no clear sprite - draw the corner twice as a degenerate
+    // point instead, so the register rows stay counted.
+    PACK_GIFTAG(q, GS_SET_XYZ(t.offsetX16, t.offsetY16, 0), GS_REG_XYZ2);
+    q++;
+    PACK_GIFTAG(q, GS_SET_XYZ(t.offsetX16, t.offsetY16, 0), GS_REG_XYZ2);
+    q++;
+  } else {
   PACK_GIFTAG(q,
               GS_SET_XYZ(t.offsetX16 + (x0 << 4), t.offsetY16 + (y0 << 4), 0),
               GS_REG_XYZ2);
@@ -347,6 +355,7 @@ void RendererCoreAlphaMask::countBegin(int x0, int y0, int x1, int y1,
               GS_SET_XYZ(t.offsetX16 + (x1 << 4), t.offsetY16 + (y1 << 4), 0),
               GS_REG_XYZ2);
   q++;
+  }
   packet2_update(countBeginPacket, q);
   packet2_update(countBeginPacket, draw_finish(countBeginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
@@ -364,7 +373,13 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   const int psm = settings->getFrameBufferPsm();
   // Diagnostic (debugShowCount): write every channel, test nothing - the
   // band's own texels land on screen where the mask would have gone.
-  const unsigned fbmsk = debugShowCount ? 0u : kAlphaOnlyFbmsk;
+  // debugShowCount: 1 = texels visible, no alpha test; 2 = texels visible
+  // WITH the alpha test (does AEM zero the alpha of a zero texel on this
+  // GS?); 3 = the real masked write with the alpha test OFF (does FBMSK
+  // hold the colour back on a textured sprite?).
+  const bool showRgb = debugShowCount == 1 || debugShowCount == 2;
+  const bool testAlpha = debugShowCount == 0 || debugShowCount == 2;
+  const unsigned fbmsk = showRgb ? 0u : kAlphaOnlyFbmsk;
   const int w = static_cast<int>(settings->getWidth());
   const int h = static_cast<int>(settings->getRenderHeightF());
   bandY0 = bandY0 / countH * countH;
@@ -419,7 +434,7 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
               GS_SET_TEX0(countAddress >> 6,
                           t.frameWidth >> 6, resolvePsm, lg2up(countW),
                           lg2up(countH), 1 /* tcc */,
-                          debugShowCount ? 0 /* modulate */ : 1 /* decal */,
+                          showRgb ? 0 /* modulate */ : 1 /* decal */,
                           0, 0, 0, 0, 0),
               GS_REG_TEX0_1);
   q++;
@@ -446,7 +461,7 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // ATEST != 0 with AFAIL = write NOTHING is what makes this an OR: a
   // zero-count texel expands to fragment alpha 0, fails, and leaves the
   // mask bit an earlier caster set. Z writes masked, test all-pass.
-  if (debugShowCount)
+  if (!testAlpha)
     PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, ZTEST_METHOD_ALLPASS),
                 GS_REG_TEST_1);
   else
@@ -462,8 +477,8 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   // Diagnostic: MODULATE by 0xFF/0x80 doubles the count texel's brightness
   // (a count of 32 reads as 64 grey - visible); the real pass is DECAL.
   PACK_GIFTAG(q,
-              debugShowCount ? GS_SET_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x3F800000)
-                             : GS_SET_RGBAQ(0, 0, 0, 0, 0x3F800000),
+              showRgb ? GS_SET_RGBAQ(0xFF, 0xFF, 0xFF, 0x80, 0x3F800000)
+                      : GS_SET_RGBAQ(0, 0, 0, 0, 0x3F800000),
               GS_REG_RGBAQ);
   q++;
   PACK_GIFTAG(q,
@@ -503,6 +518,22 @@ void RendererCoreAlphaMask::countResolve(int x0, int y0, int x1, int y1,
   packet2_update(countResolvePacket, draw_finish(countResolvePacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   dma_channel_send_packet2(countResolvePacket, DMA_CHANNEL_GIF, true);
+  draw_wait_finish();
+}
+
+void RendererCoreAlphaMask::countAbort() {
+  if (path1->isVU1Configured()) sync->align3D();
+  packet2_reset(endPacket, false);
+  qword_t* q = endPacket->next;
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_DTHE(settings->getDither() ? 1 : 0), GS_REG_DTHE);
+  q++;
+  packet2_update(endPacket, q);
+  packet2_update(endPacket, gs->emitRasterRestore(endPacket->next, false));
+  packet2_update(endPacket, draw_finish(endPacket->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
 

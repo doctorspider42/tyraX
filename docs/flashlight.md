@@ -598,6 +598,27 @@ console report that started with the green dashes: the dither (1.69.1) and the
 band's slide (1.70.2) were real, and this is what the "outline round every
 shadow" was.
 
+**The dark rectangle was never the volumes (1.70.4).** With the dashes gone
+and the flicker filter off the alpha, a 16-bit console still showed a
+rectangle of sky a step darker round the lamp, and it survived every
+diagnostic mode of the bracket - including mode 8, which runs no bracket at
+all. Measured on a frozen frame: identical to the block, with and without the
+count. Switching the lamp's *Beam* off removed it: the rectangle was the
+corona billboard's quad, and the mechanism is the GS's 16-bit blender. It reads
+the 5-bit pixel as `v << 3`, adds the source (zero over the corona's black
+margin, a pool canvas's unlit corners, a wall pass's edge) and stores
+`(sum + dimx) >> 3` - and the engine's dither matrix, written as 0..7 in a
+signed 3-bit field, was really −4..+3, so every negative entry stored `v − 1`.
+Half a step darker over the whole quad of **every additive pass**, which is
+exactly "a dark rectangle under the light patch" and "an outline round every
+glow". PCSX2 does not dither. The matrix is non-negative now (Bayer 4x4 >> 2,
+0..3): re-storing an unchanged pixel is exact, banding is still broken at half
+the amplitude, and the frozen frame's sky reads as one gradient through the
+corona's quad. The diagnostic modes that found it are listed on
+`shadowVolumesDebug` in project.hpp; the one lesson worth the whole chase is
+that a rectangle the size of a sprite is that sprite, whatever else is in the
+frame.
+
 **And it can take the last of the texture heap, which does not look like a
 VRAM problem at all.** The band is 512 KB at 32-bit colour, and a project in a
 512x512 display mode has about that much heap in the first place - so switching

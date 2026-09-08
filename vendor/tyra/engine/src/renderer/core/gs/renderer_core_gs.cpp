@@ -63,8 +63,19 @@ extern "C" s32 tyraxVblankHandler(s32 cause) {
 // before - "Fix MIPTBP addresses bitmask"). Until then, do NOT "simplify"
 // this back to the macro.
 static u64 tyraxDitherMatrix() {
-  static const int kDimx[16] = {4, 2, 5, 3, 0, 6, 1, 7,
-                                5, 3, 4, 2, 1, 7, 0, 6};
+  // Modified by TyraX (1.70.4): NON-NEGATIVE offsets only. DIMX entries are
+  // signed 3-bit, so the old 0..7 table was really -4..+3, and a negative
+  // offset is what made every ADDITIVE pass at 16-bit colour darken the
+  // pixels it touched: the blender reads the 5-bit pixel as v << 3, adds the
+  // source (zero over a corona's black margin, a pool canvas's unlit
+  // corners, a wall pass's edge), and stores (sum + dimx) >> 3 - which is
+  // v - 1 wherever dimx < 0. Half a step darker over the whole quad, and on
+  // a console that is a visible dark rectangle around every glow and under
+  // every light patch (PCSX2 does not dither, so it never showed). With
+  // 0..3 the re-store of an unchanged pixel is exact and the dither still
+  // breaks banding, at half the amplitude. Bayer 4x4 >> 2.
+  static const int kDimx[16] = {0, 2, 0, 2, 3, 1, 3, 1,
+                                0, 2, 0, 2, 3, 1, 3, 1};
   u64 reg = 0;
   for (int i = 0; i < 16; i++)
     reg |= static_cast<u64>(kDimx[i] & 0x07) << (i * 4);
