@@ -581,6 +581,23 @@ lamp-post vantage included, with the volumes carving. If a 16-bit project is
 too tight for the full raster the band comes back, slide and all - the log
 line says which shape it got (`512x512 CT16, 512 KB` versus `512x256`).
 
+**The television never reads the frame's alpha (1.70.3).** On the stock
+interlaced modes ps2sdk's flicker filter blends the two read circuits by the
+*per-pixel alpha of the displayed buffer* (`PMODE.MMOD = 0`), and that channel
+is a working channel: the shadow mask lives in it, `repaintAlpha` puts it back
+to 0x80, but the HUD text draws 0 into it, so do the shadow patches, and the
+light pools 0x80 - a capture of the channel (`--capture-frame --alpha`) is a
+different picture every frame. On a console every one of those shapes reached
+the screen as its own artifact - moire in a shadow volume's outline, a dark
+rectangle under a projected shadow, a halo round the HUD - while the RGB
+capture stayed clean, and PCSX2 does not model the blend at all. The engine
+now programs `PMODE.MMOD = 1, ALP = 0x80` after ps2sdk's `_filtered` setup: a
+constant 50/50 weight, which is all the flicker filter ever wanted. The
+repaint stays as belt and braces. This is the third and last face of the
+console report that started with the green dashes: the dither (1.69.1) and the
+band's slide (1.70.2) were real, and this is what the "outline round every
+shadow" was.
+
 **And it can take the last of the texture heap, which does not look like a
 VRAM problem at all.** The band is 512 KB at 32-bit colour, and a project in a
 512x512 display mode has about that much heap in the first place - so switching

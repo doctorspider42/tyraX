@@ -156,6 +156,10 @@ into `bin/livedbg.cmd`, waits for the game to finish `bin/frame.tga` (progress
 is what decides the wait, so the ~3 s per shot over ps2link is fine) and
 decodes it to a PNG. It is how an unattended A/B on a console gets its
 pictures - a debug build with *Live Debugger* on, deployed with `--run-ps2`.
+`--alpha <png>` writes the frame's own alpha channel as a grey image as well
+(the game stores it in `frame.tga` as is since 1.70.3; the picture readers
+force it opaque) - the only way to see an alpha-shaped artifact that the
+television shows and the RGB does not.
 
 This is the only capture path that does not need a desktop. Every host-side one
 — the emulator's F8 key, a GDI grab of the window, `PrintWindow` — needs the

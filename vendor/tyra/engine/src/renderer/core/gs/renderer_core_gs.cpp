@@ -536,6 +536,20 @@ void RendererCoreGS::presentFrameBuffer(u8 index) {
   if (settings->getDisplayMode() == DisplayMode::Interlaced ||
       settings->getDisplayMode() == DisplayMode::Pal576i) {
     graph_set_framebuffer_filtered(fb.address, fb.width, fb.psm, 0, 0);
+    // Modified by TyraX: the flicker filter blends the two read circuits by
+    // a CONSTANT, never by the frame's own alpha. ps2sdk's _filtered variant
+    // leaves PMODE.MMOD = 0, which weights the blend by the per-pixel alpha
+    // of the displayed buffer - and that channel is a WORKING channel here:
+    // the shadow mask lives in it, the HUD text and every shadow patch draw
+    // alpha 0 into it, the light pools 0x80. On a console the picture then
+    // shows every one of those as a shape - moire in a shadow volume's
+    // outline, a dark rectangle under a projected shadow, a halo around the
+    // HUD - while the RGB capture is clean (the alpha capture is not:
+    // --capture-frame --alpha). MMOD = 1 takes the weight from ALP instead,
+    // 0x80 = the even 50/50 the filter is for. repaintAlpha stays as belt
+    // and braces; nothing on screen depends on it any more.
+    *GS_REG_PMODE = GS_SET_PMODE(1, 1, 1 /* MMOD: ALP */, 1 /* AMOD */,
+                                 0 /* SLBG */, 0x80 /* ALP */);
   } else {
     graph_set_framebuffer(0, fb.address, fb.width, fb.psm, 0, 0);
     graph_set_framebuffer(1, fb.address, fb.width, fb.psm, 0, 0);

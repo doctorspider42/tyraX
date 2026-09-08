@@ -1715,9 +1715,11 @@ static int captureFrameFromCli(int argc, char** argv) {
     }
     const fs::path dir(argv[2]);
     std::string out = (dir / "screenshots" / "frame-cli.png").string();
+    std::string alphaOut;  // --alpha: the frame's alpha channel as a grey PNG
     double timeoutS = 40.0;
     for (int i = 3; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "-o") == 0) out = argv[++i];
+        else if (std::strcmp(argv[i], "--alpha") == 0) alphaOut = argv[++i];
         else if (std::strcmp(argv[i], "--timeout") == 0) timeoutS = std::atof(argv[++i]);
     }
     const fs::path tga = dir / "bin" / "frame.tga";
@@ -1777,14 +1779,24 @@ static int captureFrameFromCli(int argc, char** argv) {
     const int w = (int)bytes[12] | ((int)bytes[13] << 8);
     const int h = (int)bytes[14] | ((int)bytes[15] << 8);
     std::vector<unsigned char> rgba((size_t)w * (size_t)h * 4);
+    std::vector<unsigned char> alpha((size_t)w * (size_t)h);
     for (int y = 0; y < h; ++y) {
         const unsigned char* sp = &bytes[18 + (size_t)(h - 1 - y) * (size_t)w * 4];
         unsigned char* d = &rgba[(size_t)y * (size_t)w * 4];
-        for (int x = 0; x < w; ++x, sp += 4, d += 4) {
+        unsigned char* al = &alpha[(size_t)y * (size_t)w];
+        for (int x = 0; x < w; ++x, sp += 4, d += 4, ++al) {
             d[0] = sp[2], d[1] = sp[1], d[2] = sp[0], d[3] = 255;
+            *al = sp[3];  // the frame's own alpha (the game writes it as is)
         }
     }
     fs::create_directories(fs::path(out).parent_path(), ec);
+    if (!alphaOut.empty()) {
+        fs::create_directories(fs::path(alphaOut).parent_path(), ec);
+        if (!stbi_write_png(alphaOut.c_str(), w, h, 1, alpha.data(), w))
+            std::fprintf(stderr, "capture-frame: cannot write %s\n", alphaOut.c_str());
+        else
+            std::printf("capture-frame: alpha -> %s\n", alphaOut.c_str());
+    }
     if (!stbi_write_png(out.c_str(), w, h, 4, rgba.data(), w * 4)) {
         std::fprintf(stderr, "capture-frame: cannot write %s\n", out.c_str());
         return 1;
@@ -3629,8 +3641,8 @@ int main(int argc, char** argv) {
             "carries no devkit code\n"
             "  --debug-state [--verbose]               what is being debugged "
             "on this machine right now\n"
-            "  --capture-frame <projectDir> [-o out.png]  the game's own "
-            "screenshot (works over ps2link)\n"
+            "  --capture-frame <projectDir> [-o out.png] [--alpha a.png]  the "
+            "game's own screenshot (works over ps2link)\n"
             "  --dump-vucap <projectDir>               decode the last VU1 "
             "capture\n"
             "  --pad <projectDir> \"<script>\"           drive the running "

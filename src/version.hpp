@@ -16,6 +16,22 @@
 //   migrations.cpp for the same bump; purely additive bumps need no step and
 //   open silently. See docs/format-versioning.md.
 
+// 1.70.3 (the television never reads the frame's alpha): the console
+// report's last face. With the dashes gone (1.70.2) the picture still had
+// an outline round every shadow - moire in a volume's shape round the lamp
+// post, a dark rectangle under a projected shadow - and the RGB capture was
+// clean. --capture-frame --alpha (new: the game writes the frame's own alpha
+// into frame.tga now, the readers force it opaque for a picture) showed why:
+// the alpha channel is a working channel - the mask, repaint, HUD text at 0,
+// shadow patches at 0, pools at 0x80 - and differs from frame to frame
+// (8,811 zero pixels in one capture, 197,181 in the next). ps2sdk's flicker
+// filter (graph_set_framebuffer_filtered) blends the two read circuits by
+// THAT alpha (PMODE.MMOD = 0), so every alpha-shaped write reached the TV as
+// a shape; PCSX2 does not model the blend. presentFrameBuffer programs
+// PMODE.MMOD = 1 with ALP = 0x80 after the ps2sdk call - a constant 50/50,
+// which is all the filter is for. repaintAlpha stays. Verified by the
+// reporter on the console's own television, since no capture can see it.
+//
 // 1.70.2 (16-bit shadow volumes on a console, second half): the 1.69.1
 // dither fix was real and the marks came back - a fresh capture from the
 // console with that engine in showed dashed green pixels along STRAIGHT
@@ -2756,7 +2772,7 @@
 // answerable.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 70
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

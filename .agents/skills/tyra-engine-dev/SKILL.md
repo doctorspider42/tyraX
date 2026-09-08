@@ -1142,6 +1142,14 @@ Rules the same evening paid for:
   pass draws that lamp projected instead). `dynLightPick = false` still means
   "no scene light at all", `spotLit = false` "no torch" - three different
   levers, do not conflate them.
+- **The interlaced flicker filter reads the frame's ALPHA unless told not
+  to.** ps2sdk's `graph_set_framebuffer_filtered` leaves `PMODE.MMOD = 0`:
+  the two read circuits blend by the displayed buffer's per-pixel alpha - a
+  working channel in this engine (shadow mask, HUD, shadow patches). On a
+  console that is moire and rectangles in the shapes of whatever wrote alpha
+  last; PCSX2 does not model it and no RGB capture shows it - only
+  `--capture-frame --alpha` and the television do. `presentFrameBuffer`
+  forces `MMOD = 1, ALP = 0x80` (1.70.3); keep it that way.
 - **A slid FRAME.FBP is not a trick PCSX2 can vouch for.** The count band
   addressed its lower half by pointing FRAME below its own base (into the z
   buffer at 16-bit) so page rows landed back in the band; the arithmetic is
