@@ -29,6 +29,7 @@
 #include "texbake.hpp"  // --bake-model-ao --texbake: the multiply, no Docker
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "livereplay.hpp"
 #include "uiscript.hpp"
 #include "vucap.hpp"
 #include "vuasm.hpp"
@@ -1392,6 +1393,81 @@ static int symbolizeFromCli(int argc, char** argv) {
 }
 
 // Headless helper:
+// Plays a parsed pad script into <projectDir>/bin/livepad.bin (docs/remote-pad.md).
+//
+// Shared by --pad and by --record, which needs to hold the controller for the
+// run it is recording: two copies of the refresh cadence would be two chances
+// to get the staleness watchdog wrong. Returns 0, or 1 when a STEP write was
+// lost (see the push lambda for why a lost refresh is not one).
+static int drivePadScript(const std::string& path,
+                          const std::vector<livepad::Step>& steps) {
+    // Seed the sequence from the clock: a second driver run must never reuse a
+    // number the still-running game already saw, or its first state reads as
+    // "nothing changed" and the staleness watchdog starts counting.
+    uint32_t seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
+    bool failed = false;
+    int lostRefreshes = 0;
+    // A write carries either a NEW state (a step: losing it means the game never
+    // sees that button) or the same state again (a refresh, one of ~25 per second
+    // - losing one costs nothing, because the next is 40 ms away and the game's
+    // staleness watchdog is 120 frames). Only the first kind is worth aborting a
+    // run for; treating the second as fatal is what let a lost race on Windows
+    // (see livepad::write) kill about one 9 s hold in five.
+    auto push = [&](const livepad::State& s, bool attached, bool isStep) {
+        const std::string e = livepad::write(path, s, ++seq, attached);
+        if (e.empty()) return true;
+        if (!isStep) {
+            if (++lostRefreshes <= 3)
+                std::fprintf(stderr, "warning: lost one pad refresh: %s\n",
+                             e.c_str());
+            return true;
+        }
+        std::fprintf(stderr, "error: %s\n", e.c_str());
+        failed = true;
+        return false;
+    };
+
+    const auto t0 = std::chrono::steady_clock::now();
+    for (const livepad::Step& st : steps) {
+        std::printf("[pad] %s\n", st.source.c_str());
+        std::fflush(stdout);
+        if (!push(st.state, true, true)) break;
+        if (st.seconds <= 0.0) continue;
+        // Keep refreshing while we hold: the seq is what tells the game we are
+        // still here (see livepad::kStaleFrames), and a state written once
+        // would expire mid-hold on a long wait.
+        const auto until = std::chrono::steady_clock::now() +
+                           std::chrono::milliseconds((int)(st.seconds * 1000.0));
+        // No break on failure here: a refresh push cannot fail the run (above),
+        // and a step that did already broke out of the outer loop.
+        while (std::chrono::steady_clock::now() < until) {
+            platform::sleepMs(40);
+            push(st.state, true, false);
+        }
+    }
+    // Detach: neutral AND flagged gone, so the game drops the overlay on its
+    // next poll instead of holding the last state for the watchdog's two
+    // seconds. Not worth failing the run over either - the watchdog is the
+    // backstop that exists for exactly this.
+    push(livepad::State(), false, false);
+    const double secs =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+            .count();
+    if (!failed) {
+        std::printf("[pad] done - %zu step(s) in %.1fs, pad released", steps.size(),
+                    secs);
+        // Report them rather than hiding them: a run that had to skip refreshes
+        // is still a run whose timing was disturbed.
+        if (lostRefreshes > 0)
+            std::printf(" (%d refresh write(s) lost to the reader)",
+                        lostRefreshes);
+        std::printf("\n");
+    }
+    return failed ? 1 : 0;
+}
+
 //   tyrax-editor.exe --pad <projectDir> "<script>" [more...]
 //   tyrax-editor.exe --pad <projectDir> --file <script.pad>
 //   tyrax-editor.exe --pad <projectDir> --stdin
@@ -1482,73 +1558,355 @@ static int padFromCli(int argc, char** argv) {
                      "project - the game was built without the channel and "
                      "will ignore this.\n");
 
-    const std::string path =
-        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string();
-    // Seed the sequence from the clock: a second driver run must never reuse a
-    // number the still-running game already saw, or its first state reads as
-    // "nothing changed" and the staleness watchdog starts counting.
-    uint32_t seq = (uint32_t)std::chrono::duration_cast<std::chrono::seconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
-    bool failed = false;
-    int lostRefreshes = 0;
-    // A write carries either a NEW state (a step: losing it means the game never
-    // sees that button) or the same state again (a refresh, one of ~25 per second
-    // - losing one costs nothing, because the next is 40 ms away and the game's
-    // staleness watchdog is 120 frames). Only the first kind is worth aborting a
-    // run for; treating the second as fatal is what let a lost race on Windows
-    // (see livepad::write) kill about one 9 s hold in five.
-    auto push = [&](const livepad::State& s, bool attached, bool isStep) {
-        const std::string e = livepad::write(path, s, ++seq, attached);
-        if (e.empty()) return true;
-        if (!isStep) {
-            if (++lostRefreshes <= 3)
-                std::fprintf(stderr, "warning: lost one pad refresh: %s\n",
-                             e.c_str());
-            return true;
+    return drivePadScript(
+        (std::filesystem::path(p.dir) / "bin" / "livepad.bin").string(), steps);
+}
+
+// --- The input recorder's headless half (docs/input-replay.md) --------------
+//
+// --record builds, runs, holds the controller, stops the recording and
+// canonicalizes it; --replay builds, runs, performs a recording and reports
+// whether it came out the same. Together they are a REGRESSION TEST for a
+// whole play session, which is the thing this repo has never had: --pad can
+// drive a game but nothing could say afterwards whether it did the same thing
+// as last time.
+
+namespace {
+
+/** Whole file as a string, or "" - the log tails below re-read from scratch
+ * because bin/log.txt is a few kilobytes and this runs a few times a second. */
+std::string readTextFile(const std::filesystem::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return "";
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+/** The last line containing `needle`, or "". Every line the recorder prints is
+ * prefixed "Replay:", which is the one anchor this and any grep need. */
+std::string lastLineWith(const std::string& text, const char* needle) {
+    std::string found;
+    size_t at = 0;
+    while ((at = text.find(needle, at)) != std::string::npos) {
+        const size_t begin = text.rfind('\n', at);
+        const size_t end = text.find('\n', at);
+        found = text.substr(begin == std::string::npos ? 0 : begin + 1,
+                            (end == std::string::npos ? text.size() : end) -
+                                (begin == std::string::npos ? 0 : begin + 1));
+        at += 1;
+    }
+    // The console log arrives with a \r on Windows-written lines.
+    while (!found.empty() && (found.back() == '\r' || found.back() == ' '))
+        found.pop_back();
+    return found;
+}
+
+/** Builds and launches, streaming the Runner's log. Returns false when the
+ * build failed (the log has already been printed). */
+bool buildAndLaunchForReplay(Runner& runner, Project& p) {
+    bakeProcedural(p);
+    bakeStaleGi(p);
+    bakeStalePrelit(p);
+    runner.buildAndRun(p, true);
+    size_t printed = 0;
+    auto flushLog = [&] {
+        std::string log = runner.log();
+        if (log.size() > printed) {
+            std::fwrite(log.data() + printed, 1, log.size() - printed, stdout);
+            std::fflush(stdout);
+            printed = log.size();
         }
-        std::fprintf(stderr, "error: %s\n", e.c_str());
-        failed = true;
-        return false;
     };
+    while (runner.busy()) {
+        flushLog();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    flushLog();
+    return runner.state() == Runner::State::Success;
+}
+
+/** Says up front what the commonest silent failure would be: a build that
+ * carries no recorder at all. */
+bool warnRecorderOff(const Project& p) {
+    if (p.settings.buildProfile != "debug") {
+        std::fprintf(stderr,
+                     "error: this project's build profile is \"%s\" - a release "
+                     "build carries no input recorder.\n",
+                     p.settings.buildProfile.c_str());
+        return false;
+    }
+    if (!p.settings.inputRecorder) {
+        std::fprintf(stderr,
+                     "error: the \"Input recorder\" preference is off for this "
+                     "project (Project > Preferences > Build).\n");
+        return false;
+    }
+    return true;
+}
+
+/** Waits for bin/replay.st to say the recorder booted. The game takes a few
+ * seconds to reach its first frame, and arming a pad script before then means
+ * the script's opening steps go into the Tyra logo. */
+bool waitForRecorder(const std::filesystem::path& binDir, int mode,
+                     int timeoutSec) {
+    for (int i = 0; i < timeoutSec * 10; ++i) {
+        livereplay::Status s;
+        if (livereplay::readStatus((binDir / "replay.st").string(), s) &&
+            s.mode == mode)
+            return true;
+        platform::sleepMs(100);
+    }
+    return false;
+}
+
+}  // namespace
+
+// Records a run:
+//   tyrax-editor --record <projectDir> <out.tyrarep>
+//                [--pad "<script>" | --pad-file <f>] [--seconds N]
+//                [--clear-saves]
+//
+// Builds, launches, optionally drives the controller with the same script
+// language --pad takes, then stops the recording and writes the canonical file.
+// Exit 0 when a finalized recording is on disk.
+static int recordFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    auto usage = [] {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --record <projectDir> <out.tyrarep>\n"
+                     "                    [--pad \"<script>\" | --pad-file "
+                     "<file>]\n"
+                     "                    [--seconds N] [--clear-saves]\n"
+                     "\n"
+                     "Builds, runs and records the session into out.tyrarep\n"
+                     "(docs/input-replay.md). --pad takes the same script the\n"
+                     "--pad command does; --seconds caps the run when there is\n"
+                     "no script, or extends it past the script's own length.\n");
+        return 2;
+    };
+    if (argc < 4) return usage();
+
+    std::string padText, padFile;
+    double seconds = 0.0;
+    bool clearSaves = false;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--pad" && i + 1 < argc) padText = argv[++i];
+        else if (a == "--pad-file" && i + 1 < argc) padFile = argv[++i];
+        else if (a == "--seconds" && i + 1 < argc) seconds = std::atof(argv[++i]);
+        else if (a == "--clear-saves") clearSaves = true;
+        else return usage();
+    }
+    if (!padFile.empty()) {
+        std::ifstream f(padFile);
+        if (!f) {
+            std::fprintf(stderr, "error: cannot read %s\n", padFile.c_str());
+            return 1;
+        }
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        padText = ss.str();
+    }
+
+    Project p;
+    std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    if (!warnRecorderOff(p)) return 1;
+    // Driving the pad needs the OTHER channel, so say so before spending a
+    // build on a run that could not be steered.
+    if (!padText.empty() && !p.settings.remotePad) {
+        std::fprintf(stderr,
+                     "error: --pad needs the \"Remote Pad\" preference on "
+                     "(Project > Preferences > Build).\n");
+        return 1;
+    }
+
+    std::vector<livepad::Step> steps;
+    if (!padText.empty()) {
+        std::string perr;
+        if (!livepad::parseScript(padText, steps, perr)) {
+            std::fprintf(stderr, "error: %s\n", perr.c_str());
+            return 2;
+        }
+    }
+
+    Runner runner;
+    runner.replay_ = Runner::ReplayLaunch{Runner::ReplayLaunch::Record, "",
+                                          clearSaves};
+    if (!buildAndLaunchForReplay(runner, p)) return 1;
+
+    const fs::path binDir = fs::path(p.dir) / "bin";
+    if (!waitForRecorder(binDir, livereplay::Status::Record, 90)) {
+        std::fprintf(stderr,
+                     "error: the game never started recording - see %s\n",
+                     (binDir / "log.txt").string().c_str());
+        runner.stopEmulator(p);
+        return 1;
+    }
+    std::printf("[record] the game is recording\n");
+    std::fflush(stdout);
 
     const auto t0 = std::chrono::steady_clock::now();
-    for (const livepad::Step& st : steps) {
-        std::printf("[pad] %s\n", st.source.c_str());
-        std::fflush(stdout);
-        if (!push(st.state, true, true)) break;
-        if (st.seconds <= 0.0) continue;
-        // Keep refreshing while we hold: the seq is what tells the game we are
-        // still here (see livepad::kStaleFrames), and a state written once
-        // would expire mid-hold on a long wait.
-        const auto until = std::chrono::steady_clock::now() +
-                           std::chrono::milliseconds((int)(st.seconds * 1000.0));
-        // No break on failure here: a refresh push cannot fail the run (above),
-        // and a step that did already broke out of the outer loop.
-        while (std::chrono::steady_clock::now() < until) {
-            platform::sleepMs(40);
-            push(st.state, true, false);
-        }
+    if (!steps.empty())
+        drivePadScript((binDir / "livepad.bin").string(), steps);
+    // --seconds is a floor, not a replacement: a script shorter than it keeps
+    // recording (idle frames are part of a run), and a longer one is not cut.
+    while (seconds > 0.0) {
+        const double spent =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
+                .count();
+        if (spent >= seconds) break;
+        platform::sleepMs(100);
     }
-    // Detach: neutral AND flagged gone, so the game drops the overlay on its
-    // next poll instead of holding the last state for the watchdog's two
-    // seconds. Not worth failing the run over either - the watchdog is the
-    // backstop that exists for exactly this.
-    push(livepad::State(), false, false);
-    const double secs =
-        std::chrono::duration<double>(std::chrono::steady_clock::now() - t0)
-            .count();
-    if (!failed) {
-        std::printf("[pad] done - %zu step(s) in %.1fs, pad released", steps.size(),
-                    secs);
-        // Report them rather than hiding them: a run that had to skip refreshes
-        // is still a run whose timing was disturbed.
-        if (lostRefreshes > 0)
-            std::printf(" (%d refresh write(s) lost to the reader)",
-                        lostRefreshes);
-        std::printf("\n");
+
+    // Ask for a clean end, then wait for the game to say it wrote the terminal
+    // chunk. Not waiting is survivable - the parser tolerates a torn tail - but
+    // an unfinished chunk is up to a second of input nobody recorded.
+    {
+        std::ofstream f(binDir / "replay.stop");
+        if (f) f << "stop\n";
     }
-    return failed ? 1 : 0;
+    bool stopped = false;
+    for (int i = 0; i < 100 && !stopped; ++i) {  // up to 10 s
+        platform::sleepMs(100);
+        livereplay::Status s;
+        if (livereplay::readStatus((binDir / "replay.st").string(), s) && s.done)
+            stopped = true;
+    }
+    const std::string stopLine =
+        lastLineWith(readTextFile(binDir / "log.txt"), "Replay: stopped");
+    if (!stopLine.empty()) std::printf("%s\n", stopLine.c_str());
+    else if (!stopped)
+        std::fprintf(stderr,
+                     "warning: the game never confirmed it stopped - saving "
+                     "what it had written.\n");
+
+    std::error_code ec;
+    std::filesystem::remove(binDir / "replay.stop", ec);
+    runner.stopEmulator(p);
+
+    err = livereplay::finalize((binDir / "replay.out").string(), argv[3]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    livereplay::Recording rec;
+    std::string rerr;
+    livereplay::read(argv[3], rec, rerr);
+    std::printf("[record] wrote %s - %zu frames, %zu seed(s)\n", argv[3],
+                rec.frames.size(), rec.seeds.size());
+    return 0;
+}
+
+// Replays a recording and reports whether it came out the same:
+//   tyrax-editor --replay <projectDir> <file.tyrarep>
+//                [--timeout <s>] [--keep-running] [--clear-saves]
+//
+// Exit codes are the point of this command: 0 = reproduced exactly, 3 = the
+// run diverged, 1 = it could not be run at all (build failure, timeout).
+static int replayFromCli(int argc, char** argv) {
+    namespace fs = std::filesystem;
+    auto usage = [] {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --replay <projectDir> "
+                     "<file.tyrarep>\n"
+                     "                    [--timeout <s>] [--keep-running] "
+                     "[--clear-saves]\n"
+                     "\n"
+                     "Builds, runs and performs the recording "
+                     "(docs/input-replay.md).\n"
+                     "Exit 0 = reproduced exactly, 3 = diverged, 1 = could not "
+                     "run.\n");
+        return 2;
+    };
+    if (argc < 4) return usage();
+
+    int timeoutSec = 0;
+    bool keepRunning = false, clearSaves = false;
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--timeout" && i + 1 < argc) timeoutSec = std::atoi(argv[++i]);
+        else if (a == "--keep-running") keepRunning = true;
+        else if (a == "--clear-saves") clearSaves = true;
+        else return usage();
+    }
+
+    Project p;
+    std::string err = project::load(p, argv[2]);
+    if (!err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    if (!warnRecorderOff(p)) return 1;
+
+    livereplay::Recording rec;
+    if (!livereplay::read(argv[3], rec, err)) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const float projHz = p.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+    if ((float)rec.header.frameRate != projHz) {
+        std::fprintf(stderr,
+                     "error: the recording is %u Hz and this project runs at "
+                     "%.0f Hz - the game would refuse it.\n",
+                     rec.header.frameRate, projHz);
+        return 1;
+    }
+    if (rec.header.layout != project::inputLayoutHash(p))
+        std::fprintf(stderr,
+                     "warning: the project changed since this was recorded - "
+                     "expect divergences.\n");
+    if (timeoutSec <= 0) {
+        // The run's own length plus a generous allowance for the build's tail,
+        // the boot and the scene load.
+        timeoutSec = (int)((float)rec.frames.size() / projHz) + 60;
+    }
+
+    Runner runner;
+    runner.replay_ = Runner::ReplayLaunch{
+        Runner::ReplayLaunch::Play, fs::absolute(argv[3]).string(), clearSaves};
+    if (!buildAndLaunchForReplay(runner, p)) return 1;
+
+    const fs::path binDir = fs::path(p.dir) / "bin";
+    std::printf("[replay] performing %zu frames (timeout %ds)\n",
+                rec.frames.size(), timeoutSec);
+    std::fflush(stdout);
+
+    std::string finished;
+    for (int i = 0; i < timeoutSec * 5 && finished.empty(); ++i) {
+        platform::sleepMs(200);
+        finished =
+            lastLineWith(readTextFile(binDir / "log.txt"), "Replay: finished");
+    }
+    if (!keepRunning) runner.stopEmulator(p);
+
+    if (finished.empty()) {
+        // Name the two things that produce this, because the log itself will
+        // not: the recording was refused at boot, or the game never got there.
+        const std::string log = readTextFile(binDir / "log.txt");
+        const std::string refused = lastLineWith(log, "Replay: ");
+        std::fprintf(stderr, "error: timed out after %ds waiting for the "
+                             "replay to finish.\n", timeoutSec);
+        if (!refused.empty())
+            std::fprintf(stderr, "  the game's last replay line was: %s\n",
+                         refused.c_str());
+        return 1;
+    }
+    std::printf("%s\n", finished.c_str());
+    // The line is the game's own report; "0 divergences" is the pass.
+    const bool clean = finished.find(" 0 divergences") != std::string::npos;
+    if (!clean) {
+        const std::string diverged = lastLineWith(
+            readTextFile(binDir / "log.txt"), "Replay: diverged at frame");
+        if (!diverged.empty()) std::printf("%s\n", diverged.c_str());
+    }
+    return clean ? 0 : 3;
 }
 
 // Scripted GUI run:
@@ -3398,6 +3756,10 @@ int main(int argc, char** argv) {
         return auditReleaseFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--pad") == 0)
         return padFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--record") == 0)
+        return recordFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--replay") == 0)
+        return replayFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--ui-script") == 0)
         return uiScriptFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--new") == 0) return createFromCli(argc, argv);
@@ -3464,6 +3826,10 @@ int main(int argc, char** argv) {
             "capture\n"
             "  --pad <projectDir> \"<script>\"           drive the running "
             "game's controller (docs/remote-pad.md)\n"
+            "  --record <projectDir> <out.tyrarep>     record a run's input "
+            "(docs/input-replay.md)\n"
+            "  --replay <projectDir> <file.tyrarep>    perform it again; exit "
+            "0 same, 3 diverged\n"
             "  --ui-script [projectDir] \"<script>\"     drive the EDITOR's own "
             "UI (docs/ui-scripting.md)\n"
             "  --vu-check [engineDir]                  run every microprogram "

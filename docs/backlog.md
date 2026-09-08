@@ -15,6 +15,44 @@ git log -p --follow -- PROGRESS.md
 
 ## Small
 
+### An input replay cannot reproduce a memory-card save
+
+The input recorder (`docs/input-replay.md`) reproduces a run by performing the
+same input against the same build. Everything the game's own behaviour depends
+on is recorded - both pads, the keyboard and mouse, `dt`, the procedural seeds -
+with one hole: the **PCSX2 memory card persists between runs**, so a game that
+reads a save starts from wherever the last session left it, and the replay
+quietly describes a different world from frame one.
+
+`--clear-saves` covers the host-side fallback (`bin/save<N>.sav`,
+`bin/profile.sav`) and is enough for most projects, because those are what a
+`host:` boot writes. The card is not cheap to reach: the editor would have to
+know which card image the emulator is configured to use, and either swap it or
+write a blank one, per launch. Two options worth measuring before choosing:
+
+- point PCSX2 at a per-project card in the launch arguments and delete it on a
+  `--clear-saves` run - simple, but it changes what the emulator does for every
+  run of that project, not just a recorded one;
+- record the save FILE into the recording as an opening block. That makes a
+  recording self-contained and would also fix "the recording works on my
+  machine", at the price of the format no longer being input-only.
+
+### The recorder's fingerprint stops at the player
+
+The per-frame divergence check records the player's position and the yaw/pitch
+of the view - twenty bytes, and enough to catch every divergence seen so far,
+because almost everything that can go different eventually moves the player. It
+will not catch a run that goes wrong somewhere the player never reaches: an NPC
+taking a different path, a flow variable landing on a different value, a spawned
+object appearing in the wrong place.
+
+The cheap extension is a rolling hash over a handful of `RuntimeObject`
+transforms rather than a second fingerprint kind - the time machine's capture
+walk (`liveTimeSource`) already knows how to enumerate exactly that state, so
+the two could share the walk. It was left out because it would have to be
+bounded (a 1000-object scene cannot hash every object every frame) and picking
+that bound is a measurement, not a guess.
+
 ### The guard band, on the other two routes
 
 `docs/vu1-clipping.md` moved screen-edge packages off the clipper and onto the

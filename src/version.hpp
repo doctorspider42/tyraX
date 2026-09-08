@@ -1761,7 +1761,7 @@
 // shape.
 
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 56
+#define TYRAX_VERSION_MINOR 57
 #define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
@@ -2042,7 +2042,14 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // same trick"): "spot" + "spotAngle" on a light object's light block -
 // written only when the style is on, so an untouched project resaves byte
 // for byte; off (the default) is the point light every earlier file had.
-inline constexpr int kFormatVersion = 31;
+// v32 (Input recorder, docs/input-replay.md): ProjectSettings::inputRecorder,
+// the fifth devkit channel's own switch. Always written (it sits in the same
+// always-emitted block as liveLink/liveDebug/timeMachine/remotePad), defaults
+// to FALSE both in the struct and on read - the recorder writes a growing file,
+// so a project that predates the key must not silently start doing that.
+// Purely additive: no migration step, and an older editor refuses the file
+// rather than dropping the field on its next save.
+inline constexpr int kFormatVersion = 32;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

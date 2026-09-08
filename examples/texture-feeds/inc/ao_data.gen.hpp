@@ -45,6 +45,7 @@ static const unsigned char SCENE_AO_MAP_OCCS[] = {0};
 static const unsigned char SCENE_AO_MAP_LITS[] = {0};
 static const unsigned char SCENE_AO_ATLAS_GIS[] = {0};
 static const unsigned char SCENE_AO_MAP_GIS[] = {0};
+static const unsigned char SCENE_AO_MAP_GILUMS[] = {0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
@@ -60,3 +61,4 @@ static const unsigned char SCENE_AO_MAP_GIS[] = {0};
 #define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]
 #define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]
 #define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]
+#define SCENE_AO_MAP_GILUM SCENE_AO_MAP_GILUMS[g_activeScene]

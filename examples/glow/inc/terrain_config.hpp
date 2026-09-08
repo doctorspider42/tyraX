@@ -20,6 +20,22 @@ constexpr int TERRAIN_MAX_CELLS = 32;
 constexpr int TERRAIN_CHUNK_CELLS = 16;
 constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
 
+// Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
+// range a tile is built from every 2nd heightmap sample, and beyond 2.2x it
+// from every 4th - a quarter and a sixteenth of the triangles. Edges are
+// stitched to the neighbouring tile's stride, so the drop in detail costs no
+// crack. 0 = every tile at full detail. Gameplay reads TERRAIN_HEIGHTS and is
+// never affected.
+constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
+
+// The flashlight's shadow technique (Preferences > Rendering,
+// docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
+// shapes, four-caster ceiling, light leaks through unflagged solids);
+// 1 = shadow volumes stencil-counted in the framebuffer's destination alpha
+// (occlusion exact per pixel against the real z buffer, box-shaped
+// silhouettes, every solid in the beam occludes).
+constexpr int FLASH_SHADOW_VOLUMES = 0;
+
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.55F;
 // The full-stick tier and the sprint tier, already resolved (0 = inherit is

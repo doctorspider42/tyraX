@@ -1219,6 +1219,15 @@ struct ProjectSettings {
     // file and the generated runtime is an empty translation unit.
     bool remotePad = true;
 
+    // Debug profile only: compile the input recorder into the game
+    // (docs/input-replay.md). Every frame's pad, keyboard and mouse state - and
+    // the frame's own dt - is written to bin/replay.out, and feeding one of
+    // those recordings back makes the game perform the same run again, with the
+    // Live Debugger and the time machine available throughout. Off by default,
+    // unlike the other four: a recording is a file that GROWS while the game
+    // runs, so it is opt-in rather than something a build quietly starts doing.
+    bool inputRecorder = false;
+
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
     // error, reserved instruction) into a crash.txt report instead of a silent
@@ -1677,6 +1686,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
            a.remotePad == b.remotePad &&
+           a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
@@ -3884,5 +3894,15 @@ bool liveLinkCanSpawnLive(const SceneObject& o);
 uint64_t liveLinkContextHash(const Project& p);
 // The whole as-built record written to bin/livelink.sig.
 std::string liveLinkSigFile(const Project& p);
+
+// --- Input recorder (docs/input-replay.md) ----------------------------------
+// Identity of the world a recording was made against: scene shapes, the input
+// map, and the settings that decide which input SOURCES exist. A replay whose
+// hash disagrees still runs - the fingerprint check is what reports the actual
+// divergence - but the mismatch is worth a line in the log, because "somebody
+// edited the scene" is by far the commonest reason a replay stops matching.
+// Baked into the recording's header by the game and re-derived here for the
+// warning, so there is exactly one definition of what "the same world" means.
+uint64_t inputLayoutHash(const Project& p);
 
 }  // namespace project

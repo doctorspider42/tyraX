@@ -1506,6 +1506,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.timeMachine ? "true" : "false") << ",\n"
          << "    \"remotePad\": " << (p.settings.remotePad ? "true" : "false")
          << ",\n"
+         << "    \"inputRecorder\": "
+         << (p.settings.inputRecorder ? "true" : "false") << ",\n"
          << "    \"keyboardMouse\": "
          << (p.settings.keyboardMouse ? "true" : "false") << ",\n"
          << "    \"keyboardMousePs2Link\": "
@@ -5026,6 +5028,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("timeMachine"))
             st.timeMachine = v->boolOr(true);
         if (const auto* v = s->find("remotePad")) st.remotePad = v->boolOr(true);
+        // Off for a project that predates the key: the recorder writes a
+        // growing file, so it is opt-in rather than something a rebuild
+        // silently switches on for everybody.
+        if (const auto* v = s->find("inputRecorder"))
+            st.inputRecorder = v->boolOr(false);
         if (const auto* v = s->find("eeCrashHandler"))
             st.eeCrashHandler = v->boolOr(false);
         if (const auto* v = s->find("keyboardMouse"))
@@ -7046,6 +7053,46 @@ std::string liveLinkSigFile(const Project& p) {
     return out.str();
 }
 
+uint64_t inputLayoutHash(const Project& p) {
+    // Deliberately COARSE: it answers "is this the same world the recording was
+    // taken in", not "is anything different at all". Object transforms and
+    // colours are excluded on purpose - moving a prop is exactly the kind of
+    // edit somebody makes between recording a bug and replaying it, and the
+    // per-frame fingerprint reports the consequence far better than a hash
+    // that would refuse every recording after the first save.
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    auto mixStr = [&](const std::string& s) {
+        for (char c : s) mix((uint64_t)(unsigned char)c);
+        mix(0x1F);
+    };
+    mix(1);  // layout version - bump when the mix below changes
+    mix(p.scenes.size());
+    for (const SceneData& sc : p.scenes) mix(sc.objects.size());
+    mix((uint64_t)p.startScene);
+    mixStr(p.settings.multiplayer);
+    mix(p.settings.p2JoinOnStart ? 1u : 0u);
+    mix(p.settings.keyboardMouse ? 1u : 0u);
+    mixStr(p.settings.videoSystem);
+    // The input map decides what a button MEANS, so a rebind changes the run a
+    // recording describes even though the recorded bits are unchanged.
+    mix((uint64_t)p.input.activePreset);
+    for (const InputAction& a : p.input.actions) {
+        mixStr(a.name);
+        mix((uint64_t)a.role);
+    }
+    for (const InputPreset& pr : p.input.presets) {
+        mixStr(pr.name);
+        for (const InputBinding& b : pr.bindings) {
+            mixStr(b.action);
+            mixStr(b.pad);
+            mix((uint64_t)b.key);
+            mix((uint64_t)b.mouse);
+        }
+    }
+    return h;
+}
+
 // Generated VU files (docs/vu-authoring.md). They are named after the program
 // they carry, so refreshGenerated cannot list them by path the way it lists
 // everything else - and a leftover one is worse than a stale header, because
@@ -7246,6 +7293,8 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "src\\gen\\livedbg.sym" ||
             f.relativePath == "src\\gen\\live_pad.gen.cpp" ||
             f.relativePath == "inc\\live_pad.gen.hpp" ||
+            f.relativePath == "src\\gen\\input_replay.gen.cpp" ||
+            f.relativePath == "inc\\input_replay.gen.hpp" ||
             f.relativePath == "src\\gen\\live_tex.gen.cpp" ||
             f.relativePath == "src\\gen\\object_scripts.gen.cpp" ||
             f.relativePath == "src\\gen\\screen_fx.gen.cpp" ||
@@ -7428,6 +7477,24 @@ std::string refreshGenerated(const Project& p) {
                     "\n# Pictures the running game took of itself, kept by the "
                     "Debugger's Screen tab\n# (docs/devkit.md). Yours to look "
                     "at and to throw away.\nscreenshots/\n";
+                grew = true;
+            }
+            // And the input recorder's working files (docs/input-replay.md).
+            // bin/.gitignore already covers the whole directory, so this is
+            // the readable list and the fallback for a project that took bin/
+            // under its own control - the same reason every other channel is
+            // spelled out there. Note recordings/ is deliberately NOT ignored:
+            // a saved recording is meant to be committed next to the bug it
+            // reproduces.
+            if (text.find("bin/replay.") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# The input recorder's working files "
+                    "(docs/input-replay.md). These are the\n# CHANNEL, not the "
+                    "recordings: a recording you want to keep is saved into\n"
+                    "# recordings/*.tyrarep, which IS tracked on purpose.\n"
+                    "bin/replay.in\nbin/replay.arm\nbin/replay.out\n"
+                    "bin/replay.stop\nbin/replay.st\n";
                 grew = true;
             }
             if (grew) {

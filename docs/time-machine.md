@@ -132,8 +132,22 @@ and a buffer sized for the largest scene plus the spawn pool (~3.4 KB for a
 off — the generated runtime is an empty translation unit and neither file is ever
 touched.
 
+## Rewinding during a replay
+
+A [recording](input-replay.md) is a list of *inputs*, not of states: it
+reproduces a run by performing it again. So a rewind moves the world out from
+under it, and every frame after that describes a different situation — the
+Replay tab will report the difference as a divergence, from the frame you
+rewound at onwards.
+
+That is frequently exactly what you want: rewind a few seconds, patch a graph
+with Live Logic, and watch the new logic play out against the same inputs.
+Just do not read the divergence count as a bug afterwards — you caused it.
+
 ## Related
 
+- [input-replay.md](input-replay.md) — the other way back to a moment: perform
+  the same run again from the boot, rather than restoring a state.
 - [live-logic.md](live-logic.md) — edit a graph with no rebuild. The other half
   of the loop.
 - [live-debugger.md](live-debugger.md) — what the graphs are doing, breakpoints,

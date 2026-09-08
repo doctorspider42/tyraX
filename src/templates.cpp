@@ -28,6 +28,7 @@
 #include "starfield.hpp"
 #include "livelogic.hpp"  // Live Logic IR - the interpreter is generated from it
 #include "livepad.hpp"  // Remote Pad wire format - shared with the editor
+#include "livereplay.hpp"  // input recorder wire format - shared with the editor
 #include "livetime.hpp"  // time-machine wire format - shared with the editor
 #include "menubake.hpp"
 #include "menulayout.hpp"
@@ -3441,6 +3442,7 @@ static const char* TPL_GAME_CPP_PROLOG =
 #include "scripts/vu_scripts.gen.hpp"   // ... and the ones written in C++
 #include "scripts/live_debug.gen.hpp"  // Live Debugger pump (no-op when off)
 #include "live_pad.gen.hpp"  // Remote Pad overlay (no-op when off)
+#include "input_replay.gen.hpp"  // input recorder / replay (no-op when off)
 // The frame-timing rig (docs/profiling.md, "Timing a frame that BLSS is in").
 // TYRA_FRAME_PROFILE is 0 in the shipped engine header, so this include costs
 // a preprocessor pass and nothing else.
@@ -5789,6 +5791,12 @@ void TerrainGame::loop() {
   // update() rebuilds the state, so an overlay applied before it would be
   // thrown away. Compiles to nothing when the feature is off.
   livepad::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
+  // Input recorder (docs/input-replay.md). MUST be the LAST stage of this
+  // frame's input: while replaying it OVERWRITES the pads and the keyboard
+  // rather than merging, so anything running after it would undo the
+  // recording - a hand resting on a real controller included. Compiles to
+  // nothing when the feature is off.
+  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -16498,6 +16506,12 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
     c.seed = (unsigned int)clock() * 2654435761u + (unsigned)volume * 40503u +
              animLodTick * 2246822519u + 0x9e3779b9u;
     if (c.seed == 0) c.seed = 1u;
+    // The one non-deterministic number in the whole game, so it is the one
+    // thing an input recording has to carry beside the input itself: while
+    // recording this stores it, while replaying it hands back what was stored
+    // and the world generates identically (docs/input-replay.md). A no-op
+    // otherwise.
+    c.seed = inputreplay::seed((unsigned)volume, c.seed);
   } else {
     c.seed = V.seed;
   }
@@ -20902,6 +20916,12 @@ void TerrainGame::loop() {
   // update() rebuilds the state, so an overlay applied before it would be
   // thrown away. Compiles to nothing when the feature is off.
   livepad::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
+  // Input recorder (docs/input-replay.md). MUST be the LAST stage of this
+  // frame's input: while replaying it OVERWRITES the pads and the keyboard
+  // rather than merging, so anything running after it would undo the
+  // recording - a hand resting on a real controller included. Compiles to
+  // nothing when the feature is off.
+  inputreplay::tick(engine, MULTIPLAYER_MODE != 0 ? &pad2 : nullptr);
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
@@ -23068,6 +23088,16 @@ bin/livelogic.bin
 bin/livetex.bin
 bin/livetime.bin
 bin/livetime.rst
+bin/livepad.bin
+# The input recorder's working files (docs/input-replay.md). These are the
+# CHANNEL, not the recordings: a recording you want to keep is saved into
+# recordings/*.tyrarep, which IS tracked on purpose - the whole point of the
+# feature is that a bug report can carry the run that reproduces it.
+bin/replay.in
+bin/replay.arm
+bin/replay.out
+bin/replay.stop
+bin/replay.st
 bin/vucap.bin
 bin/crash.txt
 bin/log.txt
@@ -23200,6 +23230,11 @@ res/fonts/**      lockable -merge
 res/audio/**      lockable -merge
 res/sfx/**        lockable -merge
 res/hud/**        lockable -merge
+
+# Input recordings (docs/input-replay.md) are binary and are meant to be
+# committed next to the bug they reproduce. Nothing edits one in place, so they
+# need no lock - just say they are binary so git stops trying to diff them.
+recordings/*.tyrarep binary
 )";
 
 static const char* TPL_COLLABORATION = R"(# Working on this project with others
@@ -36508,6 +36543,864 @@ static std::string livePadSource(const Project& p) {
     return s;
 }
 
+// Input recorder / replay: inc/input_replay.gen.hpp +
+// src/gen/input_replay.gen.cpp (docs/input-replay.md).
+//
+// The fifth devkit channel, and the only one that reproduces a PLAY SESSION.
+// Live Link changes the world, Live Logic changes the program, the Live
+// Debugger reports what ran and the time machine puts the world back - none of
+// them can answer "do what I did last time". This one records every frame's
+// input (both pads, the USB keyboard and mouse, and the frame's own dt) and
+// plays it back over the top of whatever a physical controller is doing, so a
+// bug somebody hit once can be reproduced on demand.
+//
+// Only the input is recorded. The world is NOT: it is reproduced by running
+// the same game against the same input, which is the whole reason a ten-minute
+// session costs about a megabyte. Two things break that reproduction and are
+// therefore recorded too - the frame time (a loading hitch changes how far a
+// walker moves) and the procedural seeds (the one place the game asks the
+// console's clock for a number).
+//
+// Mode is picked at boot from files in bin/, so a run needs no launch flags:
+//   replay.in   present -> REPLAY it
+//   replay.arm  present -> RECORD into replay.out
+//   neither     -> do nothing at all (one failed pair of fopen on frame 1)
+//   replay.stop appears -> flush, write the terminal chunk, stop
+//   replay.st   written by the game - what the editor's Replay tab reads
+//
+// Same switch shape as the other four: debug profile + its own preference, and
+// the header is ALWAYS emitted so the loop's calls fold away when the feature
+// is off (the zero-cost rule, docs/devkit.md).
+//
+// The file format is documented field by field in the editor's
+// src/livereplay.hpp; the two ends must agree, so change them together.
+// ---------------------------------------------------------------------------
+static const char* TPL_INPUT_REPLAY_HPP_ON = R"REP(// Generated by TyraX. Do not edit - regenerated on every build.
+// Input recorder hook (docs/input-replay.md). Implemented in
+// src/gen/input_replay.gen.cpp; the game loop calls tick() as the LAST stage
+// of a frame's input, after every overlay.
+#pragma once
+
+#include <tyra>
+
+namespace {{NS}} {
+namespace inputreplay {
+
+/** Records or replays this frame's input. Call once per frame, after
+ * Pad::update(), after the keyboard/mouse fold and after livepad::tick - it
+ * OVERWRITES the pad rather than merging, so anything that runs later would
+ * undo it. `pad2` is the optional second connector (null when the project is
+ * single-player). */
+void tick(Tyra::Engine* engine, Tyra::Pad* pad2);
+
+/** The one non-deterministic number the game asks for: a runtime procedural
+ * volume's seed. While recording it stores `chosen` and hands it straight
+ * back; while replaying it returns what was stored, so the world generates
+ * identically. Off, it is `chosen`. */
+unsigned int seed(unsigned int volume, unsigned int chosen);
+
+}  // namespace inputreplay
+}  // namespace {{NS}}
+)REP";
+
+static const char* TPL_INPUT_REPLAY_HPP_OFF = R"REP(// Generated by TyraX. Do not edit - regenerated on every build.
+// Input recorder, compiled out: this build is either a release build or has
+// the "Input recorder" preference off. Both entry points are inline and do
+// nothing, so the calls in the generated loop disappear entirely and the game
+// never looks for any replay file. See docs/input-replay.md.
+#pragma once
+
+#include <tyra>
+
+namespace {{NS}} {
+namespace inputreplay {
+
+inline void tick(Tyra::Engine*, Tyra::Pad*) {}
+inline unsigned int seed(unsigned int, unsigned int chosen) { return chosen; }
+
+}  // namespace inputreplay
+}  // namespace {{NS}}
+)REP";
+
+static const char* TPL_INPUT_REPLAY_CPP = R"REP(// Generated by TyraX. Do not edit - regenerated on every build.
+// Input recorder / replay runtime (docs/input-replay.md). Debug builds with
+// Project > Preferences > Build > "Input recorder" on; otherwise this file is
+// an empty translation unit.
+//
+// Files next to the ELF, on the host: filesystem the game already loads its
+// assets from (PCSX2's Host Filesystem / the ps2link file server):
+//
+//   replay.in    written by the editor, read here - a recording to perform.
+//   replay.arm   written by the editor - "record this run into replay.out".
+//   replay.out   written here - the raw recording, appended chunk by chunk.
+//   replay.stop  written by the editor - finish the recording cleanly.
+//   replay.st    written here - what the Debugger's Replay tab reads.
+//
+// The recording is buffered in RAM and appended a chunk at a time, because a
+// per-frame write is a host round-trip per frame and would itself change the
+// frame times the recording is supposed to capture. Each chunk carries a CRC,
+// so an emulator killed mid-run leaves a file whose good prefix still parses -
+// which is the normal way a debugging session ends.
+//
+// The read path STREAMS: one chunk in memory at a time, never the file. Half
+// an hour of input is ~3.6 MB and the EE's 32 MB is already spoken for by a
+// large scene.
+#include <tyra>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
+
+#include "scripts/script.hpp"
+#include "input_replay.gen.hpp"
+
+// The frame clock the game runs on, defined in the game .cpp. A replay
+// reproduces dt, so a loading hitch that shifted a jump reproduces too.
+extern float g_frameDt;
+extern float g_frameScale;
+extern float g_frameRate;
+
+namespace {{NS}} {
+namespace inputreplay {
+namespace {
+
+// Release-audit marker - see the note in live_logic.gen.cpp.
+const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-inputreplay";
+
+typedef unsigned long long rpu64;
+
+const unsigned int RP_MAGIC = 0x50525854U;  // "TXRP"
+const unsigned int RP_VERSION = 1U;
+const int RP_HEADER = 64;
+const int RP_STATUS = 32;
+const unsigned int RP_STATUS_FOOTER_XOR = 0x5A5A5A5AU;
+const int RP_MAX_KEYS = {{MAX_KEYS}};
+const int RP_MAX_CHUNK = {{MAX_CHUNK}};
+const int RP_CHUNK_FRAMES = {{CHUNK}};
+const int RP_CHUNK_FRAMES_PS2LINK = {{CHUNK_PS2LINK}};
+const rpu64 RP_LAYOUT = {{LAYOUT}}ull;
+
+const unsigned char RP_REC_FRAME = 0x01;
+const unsigned char RP_REC_SEED = 0x02;
+const unsigned char RP_F_PRINT = 0x01;
+const unsigned char RP_F_PAD2 = 0x02;
+const unsigned char RP_F_KBD = 0x04;
+
+enum Mode { ModeOff = 0, ModeRecord = 1, ModeReplay = 2, ModeDone = 3 };
+
+int mode = ModeOff;
+int booted = 0;
+// Did the recording carry keyboard/mouse frames at all (header bit 0)? A
+// replay must call KbdMouse::setState EVERY frame when it did, including the
+// frames with nothing pressed: update() only clears state the DRIVERS own, so
+// on a machine with no USB keyboard the last held key would stay held for ever
+// once the recording stopped mentioning it. And it must call it on NO frame
+// when the recording had none, or a project that never uses the keyboard would
+// have isEnabled() forced true by a replay.
+int kbdInRecording = 0;
+unsigned int frameNo = 0;   // frames processed so far
+// The index of the frame CURRENTLY executing, i.e. frameNo before this tick
+// bumped it. The fingerprint script runs later in the same frame and has to
+// stamp this, not frameNo - stamping frameNo attaches every fingerprint to the
+// frame AFTER the one it describes, which matches nothing and silently drops
+// the whole divergence check (measured: 1 of 705 frames carried one).
+unsigned int curFrame = 0;
+unsigned int divergences = 0;
+unsigned int firstDivergent = 0;
+int reportedDivergence = 0;
+unsigned int totalFrames = 0;   // replay: what the header promised
+int chunkFrames = RP_CHUNK_FRAMES;
+int keysTruncatedWarned = 0;
+int layoutWarned = 0;
+
+FILE* out = 0;   // record: replay.out, kept open and appended to
+FILE* in = 0;    // replay: replay.in, streamed a chunk at a time
+
+// One buffer, because the two modes are mutually exclusive: while recording it
+// accumulates the pending chunk, while replaying it holds the chunk being
+// decoded.
+unsigned char chunkBuf[RP_MAX_CHUNK];
+int chunkLen = 0;         // bytes used
+int chunkRecords = 0;     // records in it
+int chunkFirstFrame = 0;  // frame index the chunk starts at
+int chunkFramesIn = 0;    // frames in it
+int cursor = 0;           // replay: read position inside chunkBuf
+
+// --- the fingerprint the ReplayFingerprint script leaves each frame ---------
+int fpValid = 0;
+unsigned int fpFrame = 0xFFFFFFFFu;
+float fpX = 0.0F, fpY = 0.0F, fpZ = 0.0F, fpYaw = 0.0F, fpPitch = 0.0F;
+
+// --- the frame being assembled (record) / just applied (replay) -------------
+struct FrameRec {
+  float dt;
+  unsigned short pressed[2], clicked[2];
+  unsigned char axes[2][4];
+  int hasPad2, hasKbd, hasPrint;
+  short mdx, mdy;
+  signed char wheel;
+  unsigned char mbut, mclick;
+  unsigned char nHeld, nClick;
+  unsigned char held[RP_MAX_KEYS], clickedKeys[RP_MAX_KEYS];
+  float x, y, z, yaw, pitch;
+};
+FrameRec pending;      // record: frame captured last tick, not yet emitted
+int havePending = 0;
+unsigned int pendingFrame = 0;
+FrameRec applied;      // replay: the frame applied last tick
+int haveApplied = 0;
+unsigned int appliedFrame = 0;
+
+// Seeds decoded ahead of the frame they belong to (a scene load asks for them
+// part-way through a frame). A handful is all a scene can ask for.
+const int RP_SEED_QUEUE = 16;
+unsigned short seedVol[RP_SEED_QUEUE];
+unsigned int seedVal[RP_SEED_QUEUE];
+int seedCount = 0;
+
+inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
+inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
+inline void putf(unsigned char* p, float v) { memcpy(p, &v, 4); }
+inline unsigned short get16(const unsigned char* p) {
+  unsigned short v; memcpy(&v, p, 2); return v;
+}
+inline unsigned int get32(const unsigned char* p) {
+  unsigned int v; memcpy(&v, p, 4); return v;
+}
+inline float getf(const unsigned char* p) { float v; memcpy(&v, p, 4); return v; }
+
+/** CRC-32, zlib polynomial, table-free - the twin of livereplay::crc32 in the
+ * editor. A table would be 1 KB of .data in a devkit runtime for a few
+ * microseconds per chunk. */
+unsigned int crc32(const unsigned char* d, int n) {
+  unsigned int c = 0xFFFFFFFFU;
+  for (int i = 0; i < n; ++i) {
+    c ^= d[i];
+    for (int k = 0; k < 8; ++k)
+      c = (c >> 1) ^ (0xEDB88320U & (unsigned int)(-(int)(c & 1)));
+  }
+  return c ^ 0xFFFFFFFFU;
+}
+
+// ------------------------------------------------------------------ status --
+
+void writeStatus(int done) {
+  unsigned char b[RP_STATUS];
+  memset(b, 0, sizeof(b));
+  put32(b + 0, RP_MAGIC);
+  put32(b + 4, (unsigned int)(mode == ModeDone ? ModeOff : mode));
+  put32(b + 8, frameNo);
+  put32(b + 12, divergences);
+  put32(b + 16, firstDivergent);
+  put32(b + 20, (unsigned int)(done ? 1 : 0));
+  put32(b + 24, totalFrames);
+  put32(b + 28, frameNo ^ RP_STATUS_FOOTER_XOR);
+  FILE* f = fopen(Tyra::FileUtils::fromCwd("replay.st").c_str(), "wb");
+  if (!f) return;
+  fwrite(b, 1, sizeof(b), f);
+  fclose(f);
+}
+
+// ------------------------------------------------------------------ record --
+
+void flushChunk() {
+  if (!out || chunkRecords == 0) return;
+  unsigned char head[8];
+  put32(head + 0, (unsigned int)chunkFirstFrame);
+  put16(head + 4, (unsigned short)chunkRecords);
+  put16(head + 6, (unsigned short)chunkLen);
+  unsigned char foot[4];
+  put32(foot, crc32(chunkBuf, chunkLen) ^ (unsigned int)chunkFirstFrame);
+  fwrite(head, 1, 8, out);
+  fwrite(chunkBuf, 1, (size_t)chunkLen, out);
+  fwrite(foot, 1, 4, out);
+  fflush(out);
+  chunkLen = 0;
+  chunkRecords = 0;
+  chunkFramesIn = 0;
+  // The NEXT record to be written is the frame still sitting in `pending`,
+  // not frameNo - tick() has already bumped that past it. Stamping frameNo
+  // made every chunk after the first claim a first-frame one too high, which
+  // the parser then used to renumber the run (and with it every seed's frame).
+  chunkFirstFrame = havePending ? (int)pendingFrame : (int)frameNo;
+}
+
+/** The terminal chunk: zero records, zero payload. It is what tells a reader
+ * that a short file finished on purpose rather than being killed. */
+void writeTerminator() {
+  if (!out) return;
+  unsigned char b[12];
+  put32(b + 0, frameNo);
+  put16(b + 4, 0);
+  put16(b + 6, 0);
+  put32(b + 8, crc32(chunkBuf, 0) ^ frameNo);
+  fwrite(b, 1, 12, out);
+  fflush(out);
+}
+
+void emitPending() {
+  if (!havePending) return;
+  // Attach the fingerprint the script left for that frame. It does not run
+  // while a menu owns the frame, so its absence is ordinary and the flag says
+  // which frames carry one.
+  if (fpValid && fpFrame == pendingFrame) {
+    pending.hasPrint = 1;
+    pending.x = fpX; pending.y = fpY; pending.z = fpZ;
+    pending.yaw = fpYaw; pending.pitch = fpPitch;
+  }
+  unsigned char flags = 0;
+  if (pending.hasPrint) flags |= RP_F_PRINT;
+  if (pending.hasPad2) flags |= RP_F_PAD2;
+  if (pending.hasKbd) flags |= RP_F_KBD;
+  // Worst case for one record; refuse rather than overrun if a chunk somehow
+  // filled without flushing.
+  if (chunkLen + 64 + 2 * RP_MAX_KEYS > RP_MAX_CHUNK) flushChunk();
+  unsigned char* p = chunkBuf + chunkLen;
+  *p++ = RP_REC_FRAME;
+  *p++ = flags;
+  putf(p, pending.dt); p += 4;
+  put16(p, pending.pressed[0]); p += 2;
+  put16(p, pending.clicked[0]); p += 2;
+  for (int a = 0; a < 4; ++a) *p++ = pending.axes[0][a];
+  if (flags & RP_F_PAD2) {
+    put16(p, pending.pressed[1]); p += 2;
+    put16(p, pending.clicked[1]); p += 2;
+    for (int a = 0; a < 4; ++a) *p++ = pending.axes[1][a];
+  }
+  if (flags & RP_F_KBD) {
+    put16(p, (unsigned short)pending.mdx); p += 2;
+    put16(p, (unsigned short)pending.mdy); p += 2;
+    *p++ = (unsigned char)pending.wheel;
+    *p++ = pending.mbut;
+    *p++ = pending.mclick;
+    *p++ = pending.nHeld;
+    *p++ = pending.nClick;
+    for (int i = 0; i < pending.nHeld; ++i) *p++ = pending.held[i];
+    for (int i = 0; i < pending.nClick; ++i) *p++ = pending.clickedKeys[i];
+  }
+  if (flags & RP_F_PRINT) {
+    putf(p, pending.x); p += 4;
+    putf(p, pending.y); p += 4;
+    putf(p, pending.z); p += 4;
+    putf(p, pending.yaw); p += 4;
+    putf(p, pending.pitch); p += 4;
+  }
+  chunkLen = (int)(p - chunkBuf);
+  ++chunkRecords;
+  ++chunkFramesIn;
+  havePending = 0;
+}
+
+void appendSeedRecord(unsigned short volume, unsigned int value) {
+  if (chunkLen + 8 > RP_MAX_CHUNK) flushChunk();
+  unsigned char* p = chunkBuf + chunkLen;
+  *p++ = RP_REC_SEED;
+  put16(p, volume); p += 2;
+  put32(p, value); p += 4;
+  chunkLen = (int)(p - chunkBuf);
+  ++chunkRecords;
+}
+
+unsigned short padMask(const Tyra::PadButtons& b) {
+  // kPadButtonNames order (src/input.hpp) - the same bit order livepad uses.
+  unsigned short m = 0;
+  if (b.Cross) m |= 1U << 0;
+  if (b.Square) m |= 1U << 1;
+  if (b.Triangle) m |= 1U << 2;
+  if (b.Circle) m |= 1U << 3;
+  if (b.DpadUp) m |= 1U << 4;
+  if (b.DpadDown) m |= 1U << 5;
+  if (b.DpadLeft) m |= 1U << 6;
+  if (b.DpadRight) m |= 1U << 7;
+  if (b.L1) m |= 1U << 8;
+  if (b.L2) m |= 1U << 9;
+  if (b.L3) m |= 1U << 10;
+  if (b.R1) m |= 1U << 11;
+  if (b.R2) m |= 1U << 12;
+  if (b.R3) m |= 1U << 13;
+  if (b.Start) m |= 1U << 14;
+  if (b.Select) m |= 1U << 15;
+  return m;
+}
+
+void maskToButtons(unsigned short m, Tyra::PadButtons& b) {
+  memset(&b, 0, sizeof(b));
+  if (m & (1U << 0)) b.Cross = 1;
+  if (m & (1U << 1)) b.Square = 1;
+  if (m & (1U << 2)) b.Triangle = 1;
+  if (m & (1U << 3)) b.Circle = 1;
+  if (m & (1U << 4)) b.DpadUp = 1;
+  if (m & (1U << 5)) b.DpadDown = 1;
+  if (m & (1U << 6)) b.DpadLeft = 1;
+  if (m & (1U << 7)) b.DpadRight = 1;
+  if (m & (1U << 8)) b.L1 = 1;
+  if (m & (1U << 9)) b.L2 = 1;
+  if (m & (1U << 10)) b.L3 = 1;
+  if (m & (1U << 11)) b.R1 = 1;
+  if (m & (1U << 12)) b.R2 = 1;
+  if (m & (1U << 13)) b.R3 = 1;
+  if (m & (1U << 14)) b.Start = 1;
+  if (m & (1U << 15)) b.Select = 1;
+}
+
+void capturePad(FrameRec& f, int i, Tyra::Pad& pad) {
+  f.pressed[i] = padMask(pad.getPressed());
+  f.clicked[i] = padMask(pad.getClicked());
+  f.axes[i][0] = pad.getLeftJoyPad().h;
+  f.axes[i][1] = pad.getLeftJoyPad().v;
+  f.axes[i][2] = pad.getRightJoyPad().h;
+  f.axes[i][3] = pad.getRightJoyPad().v;
+}
+
+void captureKbd(FrameRec& f, Tyra::KbdMouse& km) {
+  const Tyra::MouseState& m = km.getMouse();
+  f.mdx = (short)m.dx;
+  f.mdy = (short)m.dy;
+  f.wheel = (signed char)m.wheel;
+  f.mbut = m.buttons;
+  f.mclick = m.clicked;
+  f.nHeld = 0;
+  f.nClick = 0;
+  int over = 0;
+  // 256 HID usages, but only the ones actually down travel - a frame with
+  // nothing held costs the two counters and no codes at all.
+  for (int code = 0; code < 256; ++code) {
+    const unsigned char c = (unsigned char)code;
+    if (km.isKeyDown(c)) {
+      if (f.nHeld < RP_MAX_KEYS) f.held[f.nHeld++] = c; else over = 1;
+    }
+    if (km.isKeyClicked(c)) {
+      if (f.nClick < RP_MAX_KEYS) f.clickedKeys[f.nClick++] = c; else over = 1;
+    }
+  }
+  if (over && !keysTruncatedWarned) {
+    keysTruncatedWarned = 1;
+    TYRA_LOG("Replay: more than ", RP_MAX_KEYS,
+             " keys in one frame - the extras are not recorded");
+  }
+  f.hasKbd = (f.nHeld || f.nClick || f.mdx || f.mdy || f.wheel || f.mbut ||
+              f.mclick) ? 1 : 0;
+}
+
+// ------------------------------------------------------------------- replay --
+
+/** Pulls the next chunk into chunkBuf. Returns 0 at a clean or a broken end -
+ * either way the replay is over, and the caller says which. */
+int readChunk() {
+  unsigned char head[8];
+  if (!in) return 0;
+  if (fread(head, 1, 8, in) != 8) return 0;  // truncated tail: the file ended
+  const unsigned int firstFrame = get32(head + 0);
+  const int records = (int)get16(head + 4);
+  const int payload = (int)get16(head + 6);
+  if (records == 0 && payload == 0) return 0;  // terminal chunk: clean end
+  if (payload > RP_MAX_CHUNK) return 0;
+  if ((int)fread(chunkBuf, 1, (size_t)payload, in) != payload) return 0;
+  unsigned char foot[4];
+  if (fread(foot, 1, 4, in) != 4) return 0;
+  if (get32(foot) != (crc32(chunkBuf, payload) ^ firstFrame)) {
+    TYRA_LOG("Replay: the recording is damaged from frame ", (int)firstFrame);
+    return 0;
+  }
+  chunkLen = payload;
+  chunkRecords = records;
+  cursor = 0;
+  return 1;
+}
+
+/** Decodes records until the next FRAME lands in `applied`. Seeds met on the
+ * way are queued for the seed() calls this frame will make. 0 = end of
+ * stream. */
+int nextFrame(FrameRec& f) {
+  for (;;) {
+    if (cursor >= chunkLen) {
+      if (!readChunk()) return 0;
+      continue;
+    }
+    const unsigned char kind = chunkBuf[cursor];
+    if (kind == RP_REC_SEED) {
+      if (chunkLen - cursor < 7) return 0;
+      if (seedCount < RP_SEED_QUEUE) {
+        seedVol[seedCount] = get16(chunkBuf + cursor + 1);
+        seedVal[seedCount] = get32(chunkBuf + cursor + 3);
+        ++seedCount;
+      }
+      cursor += 7;
+      continue;
+    }
+    if (kind != RP_REC_FRAME) return 0;
+    if (chunkLen - cursor < 14) return 0;
+    const unsigned char flags = chunkBuf[cursor + 1];
+    memset(&f, 0, sizeof(f));
+    f.dt = getf(chunkBuf + cursor + 2);
+    f.pressed[0] = get16(chunkBuf + cursor + 6);
+    f.clicked[0] = get16(chunkBuf + cursor + 8);
+    for (int a = 0; a < 4; ++a) f.axes[0][a] = chunkBuf[cursor + 10 + a];
+    int q = cursor + 14;
+    if (flags & RP_F_PAD2) {
+      if (chunkLen - q < 8) return 0;
+      f.hasPad2 = 1;
+      f.pressed[1] = get16(chunkBuf + q);
+      f.clicked[1] = get16(chunkBuf + q + 2);
+      for (int a = 0; a < 4; ++a) f.axes[1][a] = chunkBuf[q + 4 + a];
+      q += 8;
+    }
+    if (flags & RP_F_KBD) {
+      if (chunkLen - q < 9) return 0;
+      f.hasKbd = 1;
+      f.mdx = (short)get16(chunkBuf + q);
+      f.mdy = (short)get16(chunkBuf + q + 2);
+      f.wheel = (signed char)chunkBuf[q + 4];
+      f.mbut = chunkBuf[q + 5];
+      f.mclick = chunkBuf[q + 6];
+      f.nHeld = chunkBuf[q + 7];
+      f.nClick = chunkBuf[q + 8];
+      q += 9;
+      if (f.nHeld > RP_MAX_KEYS || f.nClick > RP_MAX_KEYS) return 0;
+      if (chunkLen - q < (int)f.nHeld + (int)f.nClick) return 0;
+      for (int i = 0; i < f.nHeld; ++i) f.held[i] = chunkBuf[q + i];
+      q += f.nHeld;
+      for (int i = 0; i < f.nClick; ++i) f.clickedKeys[i] = chunkBuf[q + i];
+      q += f.nClick;
+    }
+    if (flags & RP_F_PRINT) {
+      if (chunkLen - q < 20) return 0;
+      f.hasPrint = 1;
+      f.x = getf(chunkBuf + q);
+      f.y = getf(chunkBuf + q + 4);
+      f.z = getf(chunkBuf + q + 8);
+      f.yaw = getf(chunkBuf + q + 12);
+      f.pitch = getf(chunkBuf + q + 16);
+      q += 20;
+    }
+    cursor = q;
+    return 1;
+  }
+}
+
+void applyPad(Tyra::Pad& pad, const FrameRec& f, int i) {
+  Tyra::PadButtons pressed, clicked;
+  maskToButtons(f.pressed[i], pressed);
+  maskToButtons(f.clicked[i], clicked);
+  // setState OVERWRITES: a hand resting on a real controller must not change
+  // the run being reproduced. That is the difference from livepad's overlay.
+  pad.setState(pressed, clicked, f.axes[i][0], f.axes[i][1], f.axes[i][2],
+               f.axes[i][3]);
+}
+
+void applyKbd(Tyra::KbdMouse& km, const FrameRec& f) {
+  unsigned char held[32], clicked[32];
+  memset(held, 0, sizeof(held));
+  memset(clicked, 0, sizeof(clicked));
+  for (int i = 0; i < f.nHeld; ++i)
+    held[f.held[i] >> 3] |= (unsigned char)(1 << (f.held[i] & 7));
+  for (int i = 0; i < f.nClick; ++i)
+    clicked[f.clickedKeys[i] >> 3] |=
+        (unsigned char)(1 << (f.clickedKeys[i] & 7));
+  Tyra::MouseState m;
+  m.dx = f.mdx;
+  m.dy = f.mdy;
+  m.wheel = f.wheel;
+  m.buttons = f.mbut;
+  m.clicked = f.mclick;
+  // enabled = true even on a machine with no USB keyboard: every reader gates
+  // on isEnabled(), so without this a recorded keystroke would be silently
+  // dropped on the machine replaying it.
+  km.setState(held, clicked, m, true);
+}
+
+void compareFingerprint() {
+  if (!haveApplied || !applied.hasPrint) return;
+  if (!fpValid || fpFrame != appliedFrame) return;
+  const float dp = 1e-3F, da = 1e-4F;
+  if (fabsf(fpX - applied.x) <= dp && fabsf(fpY - applied.y) <= dp &&
+      fabsf(fpZ - applied.z) <= dp && fabsf(fpYaw - applied.yaw) <= da &&
+      fabsf(fpPitch - applied.pitch) <= da)
+    return;
+  ++divergences;
+  if (!reportedDivergence) {
+    reportedDivergence = 1;
+    firstDivergent = appliedFrame;
+    TYRA_LOG("Replay: diverged at frame ", (int)appliedFrame, ": pos (",
+             fpX, " ", fpY, " ", fpZ, ") yaw ", fpYaw, " pitch ", fpPitch,
+             ", expected (", applied.x, " ", applied.y, " ", applied.z,
+             ") yaw ", applied.yaw, " pitch ", applied.pitch);
+  }
+}
+
+// -------------------------------------------------------------------- boot --
+
+int fileExists(const char* name) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd(name).c_str(), "rb");
+  if (!f) return 0;
+  fclose(f);
+  return 1;
+}
+
+void boot() {
+  booted = 1;
+  chunkFrames = Tyra::IrxLoader::keepIopResident ? RP_CHUNK_FRAMES_PS2LINK
+                                                 : RP_CHUNK_FRAMES;
+  in = fopen(Tyra::FileUtils::fromCwd("replay.in").c_str(), "rb");
+  if (in) {
+    unsigned char h[RP_HEADER];
+    if (fread(h, 1, RP_HEADER, in) != (size_t)RP_HEADER ||
+        get32(h + 0) != RP_MAGIC || get32(h + 4) != RP_VERSION) {
+      TYRA_LOG("Replay: replay.in is not a recording this build can read");
+      fclose(in);
+      in = 0;
+      return;
+    }
+    const unsigned int rate = get32(h + 12);
+    if (rate != (unsigned int)(g_frameRate + 0.5F)) {
+      // A 50 Hz recording performed at 60 Hz is a different run: every dt,
+      // every menu repeat and every animation step moves. Refuse rather than
+      // report thousands of divergences.
+      TYRA_LOG("Replay: recording is ", (int)rate, " Hz, this build runs at ",
+               (int)(g_frameRate + 0.5F), " Hz - not playing it");
+      fclose(in);
+      in = 0;
+      return;
+    }
+    totalFrames = get32(h + 8);
+    kbdInRecording = (get32(h + 16) & 1U) != 0 ? 1 : 0;
+    const rpu64 layout = (rpu64)get32(h + 24) | ((rpu64)get32(h + 28) << 32);
+    if (layout != RP_LAYOUT) {
+      // A WARNING, not a refusal: editing the scene between recording a bug
+      // and replaying it is the normal case, and the fingerprint reports what
+      // actually went different far better than a hash could.
+      layoutWarned = 1;
+      TYRA_LOG("Replay: this recording was made against a different build - "
+               "expect divergences");
+    }
+    mode = ModeReplay;
+    chunkLen = 0;
+    cursor = 0;
+    TYRA_LOG("Replay: playing ", (int)totalFrames, " frames from replay.in");
+    writeStatus(0);
+    return;
+  }
+  if (!fileExists("replay.arm")) return;  // nobody asked - stop touching disk
+  out = fopen(Tyra::FileUtils::fromCwd("replay.out").c_str(), "wb");
+  if (!out) {
+    TYRA_LOG("Replay: cannot write replay.out - not recording");
+    return;
+  }
+  unsigned char h[RP_HEADER];
+  memset(h, 0, sizeof(h));
+  put32(h + 0, RP_MAGIC);
+  put32(h + 4, RP_VERSION);
+  put32(h + 8, 0);  // frameCount - the editor's Save fills it in
+  put32(h + 12, (unsigned int)(g_frameRate + 0.5F));
+  put32(h + 16, {{HEADER_FLAGS}}U);
+  put32(h + 20, (unsigned int)chunkFrames);
+  put32(h + 24, (unsigned int)(RP_LAYOUT & 0xFFFFFFFFull));
+  put32(h + 28, (unsigned int)(RP_LAYOUT >> 32));
+  put32(h + 32, {{FORMAT_VERSION}}U);
+  put32(h + 36, (unsigned int){{START_SCENE}});
+  {
+    const char* nm = "{{PROJECT_NAME}}";
+    for (int i = 0; i < 23 && nm[i]; ++i) h[40 + i] = (unsigned char)nm[i];
+  }
+  fwrite(h, 1, sizeof(h), out);
+  fflush(out);
+  mode = ModeRecord;
+  chunkLen = 0;
+  chunkRecords = 0;
+  chunkFirstFrame = 0;
+  // Phase 7 (docs/devkit.md): the first chunk is short so this channel's
+  // host: writes do not land on the same frame as the other five. The
+  // period is 64 rather than their 6..25, so only the phase needs choosing.
+  chunkFramesIn = chunkFrames - 7;
+  TYRA_LOG("Replay: recording armed (chunk ", chunkFrames, " frames)");
+  writeStatus(0);
+}
+
+void stopRecording() {
+  emitPending();
+  flushChunk();
+  writeTerminator();
+  fclose(out);
+  out = 0;
+  mode = ModeDone;
+  writeStatus(1);
+  TYRA_LOG("Replay: stopped, ", (int)frameNo, " frames");
+}
+
+/** The fingerprint source. An ordinary global Script, the TimeMachine
+ * arrangement: everything it needs is on ScriptContext, so it costs nothing in
+ * either duplicated game template. It does not run while a menu owns the frame
+ * - which is exactly why a frame record says whether it carries one. */
+class ReplayFingerprint : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (mode != ModeRecord && mode != ModeReplay) return;
+    fpX = ctx.playerPosition.x;
+    fpY = ctx.playerPosition.y;
+    fpZ = ctx.playerPosition.z;
+    // Yaw/pitch out of the look vector rather than off a walker: the same two
+    // numbers exist in every camera mode, and this TU can see neither walker.
+    const Tyra::Vec4& l = ctx.playerLook;
+    fpYaw = atan2f(l.x, l.z);
+    const float ly = l.y > 1.0F ? 1.0F : (l.y < -1.0F ? -1.0F : l.y);
+    fpPitch = asinf(ly);
+    fpFrame = curFrame;
+    fpValid = 1;
+  }
+};
+ReplayFingerprint g_fingerprint;
+const bool g_fingerprintRegistered = []() {
+  getScripts().push_back(&g_fingerprint);
+  return true;
+}();
+
+}  // namespace
+
+void tick(Tyra::Engine* engine, Tyra::Pad* pad2) {
+  if (!engine) return;
+  if (!booted) boot();
+  if (mode == ModeOff || mode == ModeDone) return;
+
+  if (mode == ModeRecord) {
+    // The frame captured last tick is emitted now, because the fingerprint
+    // script for it ran in between - a frame's fingerprint is the world right
+    // AFTER that frame's input was applied.
+    emitPending();
+    FrameRec& f = pending;
+    memset(&f, 0, sizeof(f));
+    f.dt = g_frameDt;
+    capturePad(f, 0, engine->pad);
+    if (pad2) { capturePad(f, 1, *pad2); f.hasPad2 = 1; }
+    captureKbd(f, engine->kbdMouse);
+    havePending = 1;
+    curFrame = frameNo;
+    pendingFrame = curFrame;
+    ++frameNo;
+    if (chunkFramesIn >= chunkFrames) {
+      flushChunk();
+      writeStatus(0);
+      if (fileExists("replay.stop")) stopRecording();
+    }
+    return;
+  }
+
+  // Replay. Compare what the world did with the frame we applied last tick
+  // before overwriting the fingerprint with this frame's.
+  compareFingerprint();
+  if (!nextFrame(applied)) {
+    haveApplied = 0;
+    mode = ModeDone;
+    if (in) { fclose(in); in = 0; }
+    // One anchor line for the CLI and for anybody grepping bin/log.txt: every
+    // line this runtime prints starts with "Replay:".
+    if (divergences)
+      TYRA_LOG("Replay: finished ", (int)frameNo, " frames, ",
+               (int)divergences, " divergences (first at frame ",
+               (int)firstDivergent, ")");
+    else
+      TYRA_LOG("Replay: finished ", (int)frameNo, " frames, 0 divergences");
+    writeStatus(1);
+    // The pad goes back to the player on purpose: the point of a replay is to
+    // arrive at the bug, and then poke at it by hand.
+    return;
+  }
+  haveApplied = 1;
+  curFrame = frameNo;
+  appliedFrame = curFrame;
+  applyPad(engine->pad, applied, 0);
+  if (pad2 && applied.hasPad2) applyPad(*pad2, applied, 1);
+  // Every frame, not just the ones with something pressed - see kbdInRecording.
+  // `applied` is memset per frame, so a quiet frame clears the keyboard.
+  if (kbdInRecording) applyKbd(engine->kbdMouse, applied);
+  // dt is recorded, so a loading hitch that shifted a jump reproduces too.
+  g_frameDt = applied.dt;
+  g_frameScale = applied.dt * 50.0F;
+  ++frameNo;
+  if ((frameNo % (unsigned int)chunkFrames) == 0) writeStatus(0);
+}
+
+unsigned int seed(unsigned int volume, unsigned int chosen) {
+  if (mode == ModeRecord) {
+    appendSeedRecord((unsigned short)volume, chosen);
+    return chosen;
+  }
+  if (mode != ModeReplay) return chosen;
+  for (int i = 0; i < seedCount; ++i) {
+    if (seedVol[i] != (unsigned short)volume) continue;
+    const unsigned int v = seedVal[i];
+    for (int k = i + 1; k < seedCount; ++k) {
+      seedVol[k - 1] = seedVol[k];
+      seedVal[k - 1] = seedVal[k];
+    }
+    --seedCount;
+    return v;
+  }
+  // A seed the recording does not have means the game asked for one it did not
+  // ask for last time - the world is already different, so say so and count it.
+  ++divergences;
+  if (!reportedDivergence) {
+    reportedDivergence = 1;
+    firstDivergent = frameNo;
+  }
+  TYRA_LOG("Replay: seed for volume ", (int)volume, " missing at frame ",
+           (int)frameNo);
+  return chosen;
+}
+
+}  // namespace inputreplay
+}  // namespace {{NS}}
+)REP";
+
+// The input recorder is a debug-profile feature behind its own preference. Like
+// the Remote Pad it needs nothing in the project to be useful - an empty scene
+// with a walker is exactly the thing you want to record a route through.
+static bool inputReplayOn(const Project& p) {
+    return p.settings.buildProfile == "debug" && p.settings.inputRecorder;
+}
+
+static std::string inputReplayHeader(const Project& p) {
+    return replaceAll(inputReplayOn(p) ? TPL_INPUT_REPLAY_HPP_ON
+                                       : TPL_INPUT_REPLAY_HPP_OFF,
+                      "{{NS}}", sanitizeNamespace(p.name));
+}
+
+static std::string inputReplaySource(const Project& p) {
+    if (!inputReplayOn(p)) {
+        const std::string why = p.settings.buildProfile != "debug"
+                                    ? "this is a release build"
+                                    : "the \"Input recorder\" preference is off";
+        return "// Generated by TyraX. Do not edit - regenerated on every "
+               "build.\n// Input recorder: nothing to compile here - " +
+               why +
+               ".\n// See docs/input-replay.md (Project > Preferences > "
+               "Build).\n";
+    }
+    unsigned int flags = 0;
+    if (p.settings.keyboardMouse) flags |= (unsigned int)livereplay::kFlagKeyboard;
+    if (p.settings.multiplayer != "off")
+        flags |= (unsigned int)livereplay::kFlagMultiplayer;
+
+    std::string name = p.name;
+    if (name.size() > 23) name.resize(23);
+
+    std::string s = TPL_INPUT_REPLAY_CPP;
+    s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
+    s = replaceAll(s, "{{MAX_KEYS}}", std::to_string(livereplay::kMaxKeys));
+    s = replaceAll(s, "{{MAX_CHUNK}}",
+                   std::to_string(livereplay::kMaxChunkPayload));
+    s = replaceAll(s, "{{CHUNK}}",
+                   std::to_string(livereplay::kChunkFramesPcsx2));
+    s = replaceAll(s, "{{CHUNK_PS2LINK}}",
+                   std::to_string(livereplay::kChunkFramesPs2Link));
+    s = replaceAll(s, "{{LAYOUT}}",
+                   std::to_string(project::inputLayoutHash(p)));
+    s = replaceAll(s, "{{HEADER_FLAGS}}", std::to_string(flags));
+    s = replaceAll(s, "{{FORMAT_VERSION}}",
+                   std::to_string(version::kFormatVersion));
+    s = replaceAll(s, "{{START_SCENE}}", std::to_string(p.startScene));
+    s = replaceAll(s, "{{PROJECT_NAME}}", escapeCString(name));
+    return s;
+}
+
 // src/gen/live_tex.gen.cpp - texture hot reload (docs/live-link.md), the
 // Live Link sibling: the editor re-bakes a repainted texture into bin/ and
 // announces it in bin/livetex.bin; this poller re-decodes the PNG and
@@ -41618,6 +42511,8 @@ std::vector<File> generate(const Project& p) {
         {"src\\gen\\live_time.gen.cpp", liveTimeSource(p)},
         {"inc\\live_pad.gen.hpp", livePadHeader(p)},
         {"src\\gen\\live_pad.gen.cpp", livePadSource(p)},
+        {"inc\\input_replay.gen.hpp", inputReplayHeader(p)},
+        {"src\\gen\\input_replay.gen.cpp", inputReplaySource(p)},
         {"src\\gen\\live_link.gen.cpp", liveLinkScript(p)},
         {"src\\gen\\live_tex.gen.cpp", liveTexScript(p)},
         {"inc\\scripts\\screen_fx.gen.hpp", screenFxHeader(p)},

@@ -1689,6 +1689,61 @@ test rather than a screenshot:
 - **crop the status bar out** if you want a cleaner number: it is the only thing
   moving in an idle frame, so its rows are pure noise for every comparison.
 
+### Recording a run and proving it reproduces (docs/input-replay.md)
+
+The pixel-diff recipe above answers "did the game react". This answers the
+harder one - "did it do **the same thing** as last time" - and it needs no
+screenshots at all, because the game checks itself and the exit code is the
+verdict. Requires the debug profile and `"inputRecorder": true` in the `.tyra`.
+
+```bash
+# Record. --pad takes the same script the --pad command does; --seconds is a
+# FLOOR, so idle frames after the script still get recorded.
+tyrax-editor --record $P recordings/smoke.tyrarep \
+    --pad "wait 6; stick l 0 -127; wait 3; press cross; wait 1; neutral" --seconds 14
+
+# Perform it again. 0 = reproduced exactly, 3 = diverged, 1 = could not run.
+tyrax-editor --replay $P recordings/smoke.tyrarep ; echo "exit=$?"
+```
+
+`--replay`'s exit code is the whole point: a recording is a regression test for
+a **play session**, which is the thing `--pad` alone could never be (it can
+drive a game, but nothing afterwards could say whether the game did the same
+thing). The game logs its own verdict, and every line it prints is prefixed
+`Replay:` - one anchor for a grep over `bin/log.txt`:
+
+```text
+Replay: finished 705 frames, 0 divergences
+Replay: finished 705 frames, 304 divergences (first at frame 400)
+Replay: diverged at frame 400: pos (0 1.8 10.301) yaw 0 pitch 0, expected (0 1.8 10.5) yaw 0 pitch 0
+```
+
+Three checks make this a real test rather than a smoke test, and all three were
+run on the branch that added it:
+
+- **Read the recording back before trusting the replay.** A file of 705
+  all-neutral frames replays perfectly and proves nothing. Link `src/livereplay.cpp`
+  into a 30-line harness (the aobake/treegen shape - no GL, no ImGui, no
+  `project.hpp`) and assert the stick really left centre, a button was really
+  held, and the fingerprints really move. On the FPP fixture: 208 frames with the
+  stick off-centre, 7 with a button, 669 of 705 carrying a fingerprint (the first
+  ~36 are boot, where scripts have not started), player z 0 -> 20.8, and `dt`
+  ranging 0.020..0.080 - the loading hitches, recorded.
+- **Tamper with it.** Change ONE frame's axis byte and re-encode (so the CRC
+  stays valid - the test is "different input, different run", not "damaged file
+  refused"). It must come back `exit=3` and name that exact frame. Measured:
+  changing frame 400's left-stick vertical gave `first at frame 400`.
+- **Fight it with the Remote Pad.** Run `--pad "hold left; wait 8"` from a
+  SECOND process against a replaying game. It must still report 0 divergences -
+  that is what proves `Pad::setState`'s overwrite beats `injectVirtual`'s
+  overlay, and it is the one property a single-process test cannot see.
+
+A fourth is worth running on any project with a runtime procedural volume set to
+*a new world every run*: the seed is the one non-deterministic number the game
+asks for, so grep `bin/log.txt` for `Procedural <name>: N instances, seed S`
+after both runs and check S is identical. On `examples/cube`: 27 instances, seed
+329243691, both times.
+
 ### The motion gate: does the picture survive being MOVED?
 
 **Every check above this line freezes the camera.** That is what makes them
