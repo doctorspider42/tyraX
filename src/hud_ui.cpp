@@ -2004,7 +2004,7 @@ void App::drawTreeGeneratorWindow() {
     }
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float footer = scaled(96.0f);
+    const float footer = ImGui::GetFrameHeightWithSpacing() * (treeGenImpostor_ ? 5.0f : 3.0f) + scaled(12.0f);
     const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
     const int ph = (int)(avail.y - footer) < 1 ? 1 : (int)(avail.y - footer);
 
@@ -2079,6 +2079,17 @@ void App::drawTreeGeneratorWindow() {
 
     ImGui::SetNextItemWidth(scaled(180.0f));
     ImGui::InputText("Name", treeName_, sizeof(treeName_));
+    ImGui::Checkbox("Bake distant impostor", &treeGenImpostor_);
+    if (treeGenImpostor_) {
+        int choice = treeImpostorViews_ == 4 ? 0 : treeImpostorViews_ == 16 ? 2 : 1;
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Tree capture views", &choice, "4 views\0" "8 views\0" "16 views\0"))
+            treeImpostorViews_ = 4 << choice;
+        ImGui::Checkbox("Impostor GPU", &impostorGpu_);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Selected views on a camera-facing card (2 triangles) beyond six tree heights.\n"
+                          "GPU capture falls back to CPU if unavailable. Adjust distance in LOD properties.");
     ImGui::SameLine();
     ImGui::BeginDisabled(treeMesh_.bark.empty());
     if (ImGui::Button("Add to scene")) addTreeToScene();
@@ -2116,9 +2127,25 @@ void App::addTreeToScene() {
         statusMessage_ = "Tree export failed: " + err;
         return;
     }
-    addModelObject(objRel);        // creates the Model object + commitChange()
+    std::string impostorRel, impostorBackend;
+    if (treeGenImpostor_ &&
+        !treegen::writeImpostor(project_.dir, name, treeMesh_, treeBarkTex_,
+                                treeLeafTex_, &impostorRel, &err, 128, treeImpostorViews_, impostorGpu_, &impostorBackend)) {
+        statusMessage_ = "Impostor export failed: " + err;
+        return;
+    }
+    addModelObject(objRel, nullptr, false);
+    if (!impostorRel.empty()) {
+        SceneObject& o = project_.objects().back();
+        o.impostorPath = impostorRel;
+        o.impostorBillboard = true;
+        o.impostorViews = treeImpostorViews_;
+        o.impostorDistance = treeParams_.height * 6.0f;
+    }
+    commitChange();
     statusMessage_ = "Added tree '" + name + "' (" +
-                     std::to_string(treeMesh_.triangles()) + " tris)";
+                     std::to_string(treeMesh_.triangles()) + " tris)" +
+                     (impostorRel.empty() ? "" : " - impostor " + impostorBackend);
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference

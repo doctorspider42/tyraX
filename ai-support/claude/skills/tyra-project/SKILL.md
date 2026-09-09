@@ -173,3 +173,20 @@ to see exactly what the game will compile.
   and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
   row lets the player override one at runtime (the override persists in a save
   value). In graphs use the **On Action** trigger so logic follows the binding.
+
+### Static foliage impostors
+
+A static model object may store `impostor` (project-relative far OBJ) and
+`impostorDistance` (world units, 0 disables). The Tree Generator authors eight-view billboards automatically and sets
+`impostorBillboard: true` (format v40). This mode requires eight ordered view
+parts, upright rotation and equal positive X/Z scale. Leave the flag false for
+ordinary replacement meshes. The original `model` still owns collision. Far assets keep
+their own materials and must travel with the project. Do not replace `model` to
+change the distant appearance. Runtime geometry switches with 10% hysteresis.
+
+Properties > Bake impostor captures any supported static OBJ with its material
+override, Kd colours and cutout textures. Missing inputs and reflective/emissive
+materials fail visibly. Rebuild the game after baking; exported files are assets.
+
+Impostor format v41 adds `impostorViews` (4/8/16, defaults to 8). It must match
+the baked model part count; rebake and rebuild after changing it.

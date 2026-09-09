@@ -13,6 +13,15 @@ git show <retirement-commit>^:PROGRESS.md
 git log -p --follow -- PROGRESS.md
 ```
 
+## Visual showcase directions
+
+See [Rendering directions](rendering-directions.md) for the assessed roadmap:
+offline foliage impostors, local vegetation interaction, better probe lighting
+and source assets first; crowds and texture paging only with measured budgets.
+The eight-view cylindrical impostor implementation is documented in
+[Distant foliage impostors](impostors.md). Follow-up candidates are transition blending, elevated
+captures, screen-size thresholds, per-view rendering and grouped distant draws.
+
 ## Small
 
 ### An input replay cannot reproduce a memory-card save
@@ -734,3 +743,7 @@ While there: the GI bake's ground grid follows object footprint AABBs, so a
 ROTATED thin wall still shows a faint version of the straddling teeth at its
 AABB's corners - splitting the ground cells along the rotated footprint is the
 fix if anyone reports it.
+
+- Impostor follow-up: measure cold versus warm batch GPU capture time and consider
+  background batch baking. Configurable 4/8/16 views and optional GPU capture
+  with CPU fallback are implemented; see [impostors](impostors.md).

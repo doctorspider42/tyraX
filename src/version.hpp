@@ -2884,9 +2884,11 @@
 // have, which is what MINOR means, and a number that is strictly greater than
 // either parent is the only one that keeps "which editor wrote this file"
 // answerable.
+// 1.75.0: universal CPU/GPU impostor capture with 4/8/16 views, grove example
+// and world-bounds selection. Includes the earlier in-branch v39/v40 stages.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 72
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_MINOR 75
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -3221,7 +3223,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // built-in 50, so an untouched project resaves byte for byte and an older
 // editor reading a newer file falls back to exactly the number it always had.
 // Purely additive - no migration step.
-inline constexpr int kFormatVersion = 38;
+// v39/v40: optional impostor path, distance and cylindrical billboard flag.
+// v41: impostorViews (4/8/16), defaults to 8 for existing captures.
+inline constexpr int kFormatVersion = 41;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

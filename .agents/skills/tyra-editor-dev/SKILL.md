@@ -2044,3 +2044,43 @@ no glob.
 
 For how to test what you built — headless CLI, codegen checks without Docker,
 full PCSX2 e2e, screenshots — read **tyra-testing**.
+
+## Distant foliage impostors (1.73.0)
+
+`treeimpostor.cpp` bakes eight orthographic captures with binary alpha and RGB
+padding into a 4x2 atlas and eight ordered OBJ material parts; only one part
+(two triangles) draws. `treegen::writeImpostor` serves the UI and grove generator.
+Objects store `impostorPath`, `impostorDistance`, `impostorBillboard` (JSON
+`impostor`, `impostorDistance`, `impostorBillboard`, format v40). Update equality,
+serialization and recipe hash together. Default false preserves legacy far OBJs.
+Codegen retains the original collision identity; the billboard path selects a
+camera-local yaw sector and updates six positions/STs in place. All eight parts
+must survive the model bake in order. Unsupported tilted/nonuniform-XZ transforms
+fall back to near geometry. Viewport capture selection and stable upward lighting
+must match the runtime. The OBJ loader recomputes face normals: writing `vn` alone
+cannot change their shading. No engine/VU changes. See docs/impostors.md.
+
+Universal OBJ capture (1.74.0): `impostorbake.hpp` describes textured parts;
+`treeimpostor.cpp` owns the shared rasterizer/tree adapter and `modelimpostor.cpp`
+loads OBJ/MTL parts, overrides, Kd and source images. `props_ui.cpp` exposes Bake
+impostor and returns one scene commit after success, invalidating viewport assets.
+No serialization addition. Missing inputs and reflective/emissive parts fail
+before writing. The grove's host helper bakes both its trees and a waystone via
+this adapter. Keep that helper's compiler command in sync with its dependencies.
+
+Selection bounds (1.74.1): viewport `selectionBounds` grows a world AABB from
+`pickBounds` plus the actual far representation (`pickVisual`). The same bounds
+serve static-model picking and all local/peer outlines. Surface hits use cached
+CPU OBJ triangles and alpha masks before AABB/margin fallback; placement keeps
+its original authored bounds. Clear pick caches with asset invalidation and
+alpha masks on texture painting. Selection outlines disable depth only for their
+pass. Keep capture yaw/eligibility in sync with the viewport model draw.
+
+Impostor GPU/counts (1.75.0, format 41): `impostorViews` defaults to 8 and accepts
+4/8/16. The requested UI count is pending until successful bake; the committed
+count drives picking, viewport and generated runtime. `impostorgpu.cpp` supplies
+an optional capture callback registered in main, leaving CPU-only tools free of
+GL dependencies. `bakegl.hpp` shares hidden-context creation and RAII restoration
+with GI, but the two own separate contexts (GI may bake on a worker). GPU capture
+uses a private function table, never overwrites gl_loader's viewport pointers,
+and allocates texture storage before filling it (AMD driver workaround).
